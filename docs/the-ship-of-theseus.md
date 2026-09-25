@@ -1,8 +1,8 @@
-# The Ship of Theseus — v0.13
+# The Ship of Theseus — v0.14
 
 _One document, two parts. Part I is the specification. Part II is the build plan._
 
-_Consistency pass by Tabitha, 2026-09-24, folding three deep dives (sessions, shells, memory) and all of Eddie's answers into one coherent document. Earlier provisional text that the deep dives superseded has been removed rather than annotated. **[D]** marks a provisional decision Tabitha made to keep the document whole; overturn freely. v0.5 incorporated an external review (GPT Astra, 2026-09-24; Appendix A). v0.6 closed the last open question. v0.7 added the hooks surface (§3.17). v0.8 adopted the event-driven execution model from Eddie's all-webhook proposal as reviewed in `notes/event-design-review.md` (§3.3, §3.16, §6, §7, §8). v0.9 incorporated the second external review (Appendix D) and renamed the document at Eddie's request. v0.10 records Eddie's decisions on the three questions it left open (storage kernel, shell default, control-plane separation) and adds the turn-lock durability model. v0.11 answers the concurrency question (what runs "simultaneously": one turn per **session**, where a session is a task or a conversation, §3.2a) and folded the build plan into this document as Part II. v0.12 settles *when* a session is recompiled (§4.4a): append by default, recompile only on need, with Jev owning the judgment; estimates are removed from Part II; the repository is `github.com/zeroaltitude/theseus`. v0.13 states how sessions persist across runtime restarts as lineages in a multi-parent graph (§4.4b)._
+_Consistency pass by Tabitha, 2026-09-24, folding three deep dives (sessions, shells, memory) and all of Eddie's answers into one coherent document. Earlier provisional text that the deep dives superseded has been removed rather than annotated. **[D]** marks a provisional decision Tabitha made to keep the document whole; overturn freely. v0.5 incorporated an external review (GPT Astra, 2026-09-24; Appendix A). v0.6 closed the last open question. v0.7 added the hooks surface (§3.17). v0.8 adopted the event-driven execution model from Eddie's all-webhook proposal as reviewed in `notes/event-design-review.md` (§3.3, §3.16, §6, §7, §8). v0.9 incorporated the second external review (Appendix D) and renamed the document at Eddie's request. v0.10 records Eddie's decisions on the three questions it left open (storage kernel, shell default, control-plane separation) and adds the turn-lock durability model. v0.11 answers the concurrency question (what runs "simultaneously": one turn per **session**, where a session is a task or a conversation, §3.2a) and folded the build plan into this document as Part II. v0.12 settles *when* a session is recompiled (§4.4a): append by default, recompile only on need, with Jev owning the judgment; estimates are removed from Part II; the repository is `github.com/zeroaltitude/theseus`. v0.13 states how sessions persist across runtime restarts as lineages in a multi-parent graph (§4.4b). v0.14 defines **loop**, **turn**, and the **Advancer** (§3.3a), the wire protocol and client isolation (§3.18), the secrets posture (§3.19), and replaces the first milestone with **M0 First light**, a vertical slice Eddie specified._
 
 Ariadne held the thread. Theseus walks the labyrinth on it.
 
@@ -32,6 +32,9 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Unit of concurrency | **One turn per session.** A session is a task or a conversation; each has exactly one execution and one turn lock. Thousands of sessions exist durably; those with runnable work run concurrently, bounded by an admission scheduler; the rest are parked at zero cost. Channels order deliveries, not work. (Eddie, 2026-09-25.) |
 | Graph shape | The context graph is a **DAG with multiple parents**, not a tree. A node belongs to a channel, to a session, to any number of compilations, and to derived nodes at once, each by its own typed edge. Order within any lineage comes from the node's WAL position, never from a single `next` chain. |
 | Session persistence | A session persists as a small record pointing at its current `Compilation` and its tail range; it is durable by reference and resolves to a lineage of compilations linked by `derived_from`. Nothing is copied per session; rendered prefixes are a rebuildable cache. |
+| Secrets | **All secrets live in 1Password**, in the deployment's vault, read at startup through a service account. The only secret the process may receive any other way is the service-account token itself. Config references secrets as `op://vault/item/field`; no secret value is ever written to disk, config, log, or ledger. |
+| Wire protocol | The core is a server speaking **JSON-RPC 2.0 over newline-delimited JSON**, on stdio when spawned and on a Unix domain socket as a daemon. Every client, including the in-binary CLI and later Discord and the web UI, talks to the core only through this protocol. |
+| Loop, turn | A **loop** is one pass through the toolchain manager to the provider and back. A **turn** is the sequence of loops run under one acquisition of a session's turn lock, ended by the Advancer. |
 | Recompilation | A session's compiled context is **appended to by default** and **recompiled only on need**. Deterministic triggers (audience, policy, schema, window) force it; otherwise Jev judges whether a real-world change warrants it. Long single threads therefore evolve exactly like a plain transcript, and cache their prefix. (Eddie, 2026-09-25.) |
 | Repository | `~/projects/theseus`, `github.com/zeroaltitude/theseus`. |
 | Turn lock | Per execution, exactly one turn advances at a time (the "GIL"). The lock is held only during local work and released at every offload boundary; the freed time is spent on durability, indexing, and maintenance. |
@@ -194,6 +197,22 @@ JUDGE_CONTINUE: HEALTHY   → CALL_MODEL
 - **Execution outcomes** are distinct and deterministic where they can be: `complete` (accepted objective satisfied: Jev `complete` ≥ τ and the execution's task scope has no open accepted tasks), `waiting` (no runnable work now; a wake condition exists, e.g. a due time, an external job id, a task blocked on another execution), `blocked` (progress needs a human), `cancelled` (authority or intent withdrawn via a deterministic control path, never via Jev), `failed` (recovery exhausted), `budget_exhausted` (reservation consumed; correct operation). LOOP FOREVER means: continue while authorized, runnable work exists within reserved resources.
 - **Jev unavailable or malformed:** the loop treats the judgment as `abstain`; the execution finishes its current tool call, then parks as `waiting` on Jev recovery with a bounded retry, and tells the channel. It never continues autonomously without a judge and never invents an answer.
 - **Wake** covers scheduled and self-scheduled continuation: the agent may ask to be woken ("check the build in twenty minutes"), which is a `Task` with a due time in the harness loop's wake queue, not a separate cron system. Running work is also a wake source: every shell job and external operation registers a completion event, so "the build finished" reaches the model loop as a turn, not as something a human has to notice and relay.
+
+### 3.3a Loop, turn, and the Advancer
+
+Three words the rest of the document leans on, fixed here.
+
+**Loop.** One pass of the lifecycle: an input goes through the **toolchain manager** (which compiles or appends the context, §4.4a, and decides which tools are offered), a request is sent to the provider, and the model's response comes back, with text, tool calls, or both. A loop is the unit the ledger prices and the unit Jev sees. In a normal working turn there are many loops as the harness and the model chatter back and forth, executing tools and feeding results.
+
+**Turn.** The sequence of loops run under **one acquisition of a session's turn lock** (§3.2a), from the stimulus that woke the execution to the moment the execution releases the lock. A turn ends when, and only when, the Advancer says so. This definition is chosen over "stimulus to reply to a human" because it lines up with everything else the harness already counts: the lock hold, the WAL transaction boundary (§4.6), the budget reservation, the "one turn per session" concurrency unit, and the append-or-recompile decision (one per turn). Under the event-driven model a long shell job splits what a human would call one exchange into two turns, one that dispatches and releases, and one that wakes on the completion; that is a feature, because each is a durable, resumable, separately priced record. When the human-perceived unit is needed (for the UI, or for the learning label "did this exchange succeed"), it is called an **exchange**: the run of turns in one session from a human stimulus to the next delivery addressed to a human. Anthropic's own "user turn / assistant turn" are called **provider messages** here, never turns, to keep the collision out of the code.
+
+**Advancer.** The modular component that, after every loop, decides `continue` (execute the proposed tool calls, feed results into the next loop) or `end_turn(reason)`. It is a trait with pluggable policies:
+
+- `stop_after_one_loop`: the first version's policy, and the permanent baseline. One loop, then the turn ends and the model's response is the turn's output.
+- `until_no_tool_calls(max_loops)`: the conventional agent loop with a hard cap.
+- `judged`: the spec's `JUDGE_STOP` (§3.5, §3.7), Jev deciding progress, stall, or done, with the deterministic controls (`/stop`, `/cancel`, budget, mechanical acceptance checks) always outranking it.
+
+The Advancer never widens authority and never bypasses the gate: it decides whether to loop again, not what a loop may do. Its decision and reason are ledgered per loop, which is what makes the stopping policy learnable.
 
 ### 3.4 Roles
 
@@ -414,6 +433,31 @@ Hooks are the extension and observation surface for everything the harness does.
 | Config | `BindingChanged`, `PolicyChanged`, `PackPromoted` | observe |
 
 `defer` on `PreToolCall` parks the execution as `waiting` with the pending call preserved; the confirm gate and MCP elicitation are both built on it, so a Discord component answer resumes the execution exactly where it stopped.
+
+### 3.18 Wire protocol and client isolation
+
+The core is a **server**. Nothing else in the system, not the CLI, not Discord, not the web UI, not the simulator, reaches into it except through one protocol. That is the isolation boundary Eddie asked for, and it is what keeps the kernel testable without a front end.
+
+**Protocol.** JSON-RPC 2.0, newline-delimited JSON, one message per line, UTF-8. Requests, responses, and server-initiated notifications; requests are correlated by id, notifications carry the session id. Chosen over gRPC because it is what MCP, LSP, and ACP already speak, so every tool in the ecosystem can debug it with a terminal, and over a bespoke binary framing because message volume is token-bounded and the serialization cost is noise next to a provider call. All message types live in one dependency-free crate, `theseus-protocol` (serde types only), with a generated JSON Schema for non-Rust clients; if a binary encoding is ever needed, MessagePack over the same types is a framing change, not a protocol change.
+
+**Transports, same protocol on each.**
+
+1. **stdio**, when a client spawns the core as a child. This is the developer and test mode, and the way an editor or another agent harness drives Theseus (it is the shape of the Agent Client Protocol, and Theseus should be able to present as an ACP agent with a thin adapter).
+2. **Unix domain socket**, the daemon mode and the real deployment: `theseus serve` listens on a socket in the state directory; many clients attach and detach while the core runs forever. Localhost only, by the settled reachability rule; file permissions are the authentication.
+3. **In-process**, for adapters compiled into the binary (Discord, the web UI, tenders): the identical message types over a `tokio` channel. An in-binary adapter is still a client; it has no privileged path into the kernel.
+
+**Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `hooks.list`, `hooks.register`, `health`. It grows with the milestones (executions, tasks, ledger, confirmations), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row.
+
+**One binary, several roles.** `theseus serve` (the daemon), `theseus chat` (a thin interactive client over stdio or the socket), `theseus --tender <role>` (§6), later `theseus restore`. The CLI links only `theseus-protocol`, never the core, so it cannot cheat.
+
+### 3.19 Configuration and secrets
+
+Opinionated, and simple. **Every secret lives in 1Password**, in the deployment's vault, and Theseus reads it at startup through a **service account**. The only secret the process may receive by any other path is the service-account token itself, from the environment or from a mode-0600 file whose path is configured.
+
+- **Config** is a TOML document stored as a 1Password item (`theseus/config`) so the whole deployment is reconstructible from the vault. It may also be a local file for development; the schema is identical. Secret-valued fields are `op://vault/item/field` references, never values.
+- **Resolution** happens once at startup and on an explicit `config.reload`; resolved values are held in memory in zeroizing containers, never written to disk, config, logs, the ledger, or a provider request except where they belong (an `Authorization` header). The redaction receipt system (§5.6) treats a leaked secret as must-not-exist content.
+- **Mechanism.** The first version shells out to the `op` CLI (`op read op://…`) under the service-account token, because 1Password publishes no first-party Rust SDK; the community FFI wrappers around its C core exist and are the candidate for removing the `op` dependency later, once they are shown to build statically.
+- **Starting set** (vault `Eddie-Tabitha`): the Anthropic key, the TypeSafe Jev key, a GitHub PAT, and the `strata-jam-aws-key` as the AWS starter. Discord and any others are added as their milestones arrive. The same posture applies to them all: GitHub and AWS credentials are read from 1Password too, never from `~/.aws` or `~/.config/gh`, and the process refuses to start if a referenced secret cannot be resolved (fail closed and say so).
 
 ## 4. The context graph
 
@@ -684,7 +728,7 @@ _Tabitha, 2026-09-25. Part II says in what order the spec gets built, what each 
 
 ## P0. How to read the plan
 
-There are no duration estimates. Milestones are ordered by what each must prove before the next can begin, and two things will dominate the pace: how much of the kernel the simulator forces us to rewrite (it always forces some), and how much time the Discord and Anthropic integration steals from the kernel if started too early. The plan defends against the second by refusing to start them until M1 is green.
+There are no duration estimates. Milestones are ordered by what each must prove before the next can begin, and two things will dominate the pace: how much of the kernel the simulator forces us to rewrite (it always forces some), and how much time the Discord and Anthropic integration steals from the kernel if started too early. The plan defends against the second by refusing to start them until M2 is green.
 
 Every milestone has three parts: **build** (what exists at the end), **prove** (the test that gates the next milestone, always executable, never a judgment call), and **not yet** (what a reasonable person would want to add here and must not). Milestones are Beads epics under `openclaw-ph78`; each "prove" line becomes a closing criterion.
 
@@ -692,20 +736,39 @@ Every milestone has three parts: **build** (what exists at the end), **prove** (
 
 | # | Name | One-line exit test |
 |---|---|---|
-| M0 | Keel | `kill -9` at any point during a simulated workload; restart recovers every committed record byte-for-byte |
-| M1 | Kernel | All kernel scenarios in spec §8 pass under randomized fault injection, including crash inside each of the five startup steps |
-| M2 | First hands | Eddie completes a real coding task in a known repo from Discord; the harness is killed mid-job; the job finishes and its result lands in the channel |
-| M3 | Boundaries | Every row of the durability table (§6) is demonstrated, the measured off-node recovery point is under 60 s, and L1's contract tests pass |
-| M4 | Judgment | Jev-driven stopping and classification beat the deterministic baseline on a held-out trajectory set at equal total budget |
-| M5 | Memory as experiment | An ablation report over the §5.5a metrics says which of FSRS, spreading activation, reranking, and synthesis stay |
-| M6 | Surface | Theseus carries Eddie's daily Discord work end to end; OpenClaw is no longer in the loop for that channel |
+| M0 | First light | The binary starts with config and secrets from 1Password, all hook events registered with no handlers, and one `turn.submit` over the protocol returns the model's reply from exactly one loop |
+| M1 | Keel | `kill -9` at any point during a simulated workload; restart recovers every committed record byte-for-byte |
+| M2 | Kernel | All kernel scenarios in spec §8 pass under randomized fault injection, including crash inside each of the five startup steps |
+| M3 | First hands | Eddie completes a real coding task in a known repo from Discord; the harness is killed mid-job; the job finishes and its result lands in the channel |
+| M4 | Boundaries | Every row of the durability table (§6) is demonstrated, the measured off-node recovery point is under 60 s, and L1's contract tests pass |
+| M5 | Judgment | Jev-driven stopping and classification beat the deterministic baseline on a held-out trajectory set at equal total budget |
+| M6 | Memory as experiment | An ablation report over the §5.5a metrics says which of FSRS, spreading activation, reranking, and synthesis stay |
+| M7 | Surface | Theseus carries Eddie's daily Discord work end to end; OpenClaw is no longer in the loop for that channel |
 
-A usable agent exists at M2. The back half is where the plan is least certain, and that is fine: by then the measurements exist to re-plan.
+A usable agent exists at M3; the shape of the whole exists at M0. The back half is where the plan is least certain, and that is fine: by then the measurements exist to re-plan.
 
-## P2. M0 — Keel
+## P2. M0 — First light
+
+The very first version, specified by Eddie: a vertical slice through every layer, each at its thinnest, so the shape of the whole is real before any part is deep.
 
 **Build.**
-- Repository, Apache-2.0, `cargo deny` with a permissive-only allowlist, CI on Linux x86_64 and aarch64 producing a static musl binary; a `--tender <role>` entry point that does nothing yet.
+- Toolchain pinned: `rust-toolchain.toml` at stable (1.98.1 on 2026-09-25), target `x86_64-unknown-linux-musl`, static release profile, `cargo deny` with the permissive allowlist, `cargo nextest`, CI building the static binary on every push.
+- Workspace crates: `theseus-protocol` (types only), `theseus-core` (kernel library), `theseus` (the binary: `serve`, `chat`, `--tender`).
+- **Config and secrets (§3.19):** TOML config, `op://` references, resolution through the `op` CLI under the service-account token, zeroizing in-memory secrets, fail-closed startup. Starting set: Anthropic, Jev, GitHub, AWS (`strata-jam-aws-key`).
+- **Hooks (§3.17):** every hook event defined as a typed enum with its kind (Gate, Transform, Claim, Observe), a registry that accepts handlers over the protocol (`hooks.register`) and in code, the run-hooks path wired at each event site, and zero handlers installed. The turn runs through every hook site and nothing fires.
+- **Turn runner (§3.3a):** session with a turn lock; a toolchain manager that compiles the context (the user prompt, nothing else), offers the tool list (empty), sends one provider request to the Anthropic Messages API with streaming, and returns the response.
+- **Advancer:** the trait, with `stop_after_one_loop` as the only policy, ledgering its decision.
+- **Protocol server (§3.18):** JSON-RPC over NDJSON on stdio and a Unix socket; `session.open`, `turn.submit`, streamed `model.delta`, `turn.ended`, `hooks.list`, `hooks.register`, `health`. `theseus chat` as the thin client.
+- A first `Store`: the session record and a per-turn ledger row in an embedded store, so even the hello slice persists what it did. No WAL discipline yet; that is M1.
+
+**Prove.** From a clean shell with only the service-account token in the environment: `theseus serve` starts, resolves every referenced secret from the vault, and refuses to start if one is missing. `theseus chat` sends a prompt; the core runs one loop against the Anthropic API and returns the reply; the ledger shows one turn, one loop, `stop_after_one_loop`, and every hook site visited with zero handlers. The same conversation works over stdio and over the socket. The binary is static.
+
+**Not yet.** No tools. No Discord. No Jev. No store durability guarantees. No context beyond the prompt.
+
+## P3. M1 — Keel
+
+**Build.**
+- CI extended to aarch64; the `--tender <role>` entry point that does nothing yet. (Toolchain, `cargo deny`, and the x86_64 static build arrived in M0.)
 - The event record types: `Node`, `Edge`, `Execution`, `Session`, `Compilation`, `Action`, `Completion`, `JudgmentRecord`, `LedgerRow`, with schema version stamps and forward-only migration hooks.
 - The `Store` trait: append, read-by-id, range-scan-by-position, checkpoint, and a transactional `settle(completion, continuation)` primitive.
 - Two `Store` implementations behind a feature flag: `redb` and `fjall`. A benchmark harness with our shape of workload: append-heavy small records with group commit, recent-window scans, id lookups, edge-segment reads, concurrent readers during writes.
@@ -716,7 +779,7 @@ A usable agent exists at M2. The back half is where the plan is least certain, a
 
 **Not yet.** No Discord, no Anthropic, no tokio actors per channel, no arena optimization. The arena at this stage is a `HashMap`.
 
-## P3. M1 — Kernel
+## P4. M2 — Kernel
 
 **Build.**
 - Executions as durable objects with the state machine from §3.15 and an authority context (principal, grant, delegation limits, channel ceiling) that derived work inherits.
@@ -732,9 +795,9 @@ A usable agent exists at M2. The back half is where the plan is least certain, a
 
 **Prove.** All kernel scenarios in §8 pass under randomized fault injection: lost completion, duplicate completion, completion during restart, cancel of a detached job, unknown then success, late completion after cancel, crash after settlement before continuation delivery, crash inside each of the five startup steps, two executions on the same task, wrapper deadline with harness down, a promoted task running concurrently with its conversation with messages routed to each, admission ceiling hit while `/cancel` is honored. Reproducible from a seed.
 
-**Not yet.** No model. The "tool" in M1 is a fake that sleeps and sometimes fails; the "channel" is a simulated mailbox.
+**Not yet.** No model. The "tool" in M2 is a fake that sleeps and sometimes fails; the "channel" is a simulated mailbox.
 
-## P4. M2 — First hands
+## P5. M3 — First hands
 
 The narrow agent. One channel binding, one shell class, no intelligence beyond the model.
 
@@ -745,13 +808,13 @@ The narrow agent. One channel binding, one shell class, no intelligence beyond t
 - L0 shell tools through the job wrapper: `bash`, `read`, `write`, `edit`, `glob`, `grep`, on the operator's real checkouts. Fast in-process tools stay synchronous; anything crossing the process boundary is an action with a completion.
 - The model loop with deterministic control only: `/stop`, `/cancel`, budget exhaustion, confirm.
 - The in-binary web UI in its first form: list executions, actions, and ledger rows; tail a channel. Read-only.
-- `theseus restore` from a local WAL directory (S3 comes in M3), because the restore path exists from the first release.
+- `theseus restore` from a local WAL directory (S3 comes in M4), because the restore path exists from the first release.
 
 **Prove.** Eddie completes a real coding task in a known repository from Discord. During a long shell job the harness is killed and restarted; the job finishes, its completion is settled from the spool, the execution continues, and the result lands in the channel. The web UI shows the whole history. A request Eddie is not permitted to make is blocked at the gate with a clear message.
 
 **Not yet.** No Jev, so promotion to an autonomous task is by explicit human command (`/task`) only. No roles. No memory beyond transcript. No MCP. No voice. No compaction (long conversations simply get a fresh transcript root by hand). This is the discipline Appendix A demanded and the first place we will be tempted to break it.
 
-## P5. M3 — Boundaries
+## P6. M4 — Boundaries
 
 Make the durability and safety claims true, and measure them.
 
@@ -767,7 +830,7 @@ Make the durability and safety claims true, and measure them.
 
 **Not yet.** No AWS shell classes. No hooks. No Jev.
 
-## P6. M4 — Judgment
+## P7. M5 — Judgment
 
 Jev enters, in shadow first, and hooks arrive because Jev packs are the first real hook handlers.
 
@@ -783,10 +846,10 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 
 **Not yet.** No memory science. No MCP.
 
-## P7. M5 — Memory as experiment
+## P8. M6 — Memory as experiment
 
 **Build.**
-- The context graph beyond transcript: typed edges, roots, compaction roots (append-only, with `derived_from`), rotating ring, assembled continuation. `CONTINUE` goes live for recompile-strategy choice if M4 said it could.
+- The context graph beyond transcript: typed edges, roots, compaction roots (append-only, with `derived_from`), rotating ring, assembled continuation. `CONTINUE` goes live for recompile-strategy choice if M5 said it could.
 - The index tender: Nomic v1.5 embeddings (768 stored, 256 indexed), usearch, tantivy, reciprocal-rank fusion. Baseline retrieval: transcript tail + task graph + summaries + BM25/embedding + freshness and provenance rules.
 - `MemoryScience` trait with a **baseline** implementation (no retention model, no activation) and a native FSRS-6 + prediction-error + spreading-activation implementation behind it.
 - The memory pass and recall as specified, consolidation as a tender job producing shadow syntheses with citation checks.
@@ -797,7 +860,7 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 
 **Not yet.** Voice, MCP, AWS shells, multi-channel gliding.
 
-## P8. M6 — Surface
+## P9. M7 — Surface
 
 **Build.**
 - Multi-guild, multi-channel bindings; per-channel ceilings; gliding with intersected ceilings; coalescing with per-author authority; proactive and scheduled work under derived authority and owner grants; `Wake` nodes.
@@ -810,24 +873,24 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 
 **Prove.** Theseus carries Eddie's daily Discord work end to end for two weeks with OpenClaw out of the loop for that channel, with the ledger showing budgets, judgments, and hook runs, and no disclosure or authority violation in the record.
 
-## P9. What is cut from the first useful agent, on purpose
+## P10. What is cut from the first useful agent, on purpose
 
-Jev, roles, memory science, compaction, MCP, voice, AWS shells, hooks, multi-channel. M2 is a Discord front end on a durable execution kernel with a bash tool. If that is not already useful for coding in a known repo, the intelligence features will not rescue it; if it is, every later feature has a baseline to beat.
+Jev, roles, memory science, compaction, MCP, voice, AWS shells, hooks, multi-channel. M3 is a Discord front end on a durable execution kernel with a bash tool. If that is not already useful for coding in a known repo, the intelligence features will not rescue it; if it is, every later feature has a baseline to beat.
 
-## P10. Risks the plan is built around
+## P11. Risks the plan is built around
 
 | Risk | Where it bites | Mitigation in the plan |
 |---|---|---|
-| Kernel rewrite after simulator findings | M1 | Simulator exists before the kernel does (M0); the fake tool and mailbox keep the rewrite cheap |
-| Integration work starves the kernel | M2 | Discord and Anthropic are not started until M1 is green |
-| Durability work steals turn latency | M3 | Measured explicitly; the turn lock releases only at offload boundaries, and the tender is a separate process |
-| Jev does not beat the baseline | M4 | Shadow first; a pack that loses stays in shadow and the spec says so |
-| Memory science does not transfer | M5 | Baseline first, ablations gate every feature |
-| L0 default proves unsafe in practice | M3 onward | L1 ships with contract tests in M3 so switching the default is a config change, not a project |
-| Embedded store becomes the bottleneck | M5–M6 | The `Store` trait and the M0 benchmark harness make the swap a bounded project |
+| Kernel rewrite after simulator findings | M2 | Simulator exists before the kernel does (M1); the fake tool and mailbox keep the rewrite cheap |
+| Integration work starves the kernel | M3 | Discord and Anthropic are not started until M2 is green |
+| Durability work steals turn latency | M4 | Measured explicitly; the turn lock releases only at offload boundaries, and the tender is a separate process |
+| Jev does not beat the baseline | M5 | Shadow first; a pack that loses stays in shadow and the spec says so |
+| Memory science does not transfer | M6 | Baseline first, ablations gate every feature |
+| L0 default proves unsafe in practice | M4 onward | L1 ships with contract tests in M4 so switching the default is a config change, not a project |
+| Embedded store becomes the bottleneck | M6–M7 | The `Store` trait and the M1 benchmark harness make the swap a bounded project |
 
-## P11. Immediate next steps
+## P12. Immediate next steps
 
-1. Open Beads epics `M0`–`M6` under `openclaw-ph78`, each carrying its "prove" line as the closing criterion.
-2. M0 first steps: repository, licence, `cargo deny`, static musl CI, record types, `Store` trait, and the `redb` vs `fjall` benchmark scaffold.
+1. Beads epics `theseus-9w9` (M0) through `theseus-ext` (M7) exist in the theseus repo, chained by dependency, each carrying its "prove" line.
+2. M0 first steps: workspace crates, `rust-toolchain.toml`, `cargo deny`, the 1Password config loader, the hook registry, the turn runner, the protocol server, `theseus chat`.
 3. Repository: `~/projects/theseus`, `github.com/zeroaltitude/theseus` (decided). This document lives there as `docs/the-ship-of-theseus.md` alongside the design notes.
