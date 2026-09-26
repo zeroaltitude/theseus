@@ -175,7 +175,7 @@ impl Core {
                 name,
                 provider: p.provider,
                 model: p.model,
-                max_tokens: p.max_tokens,
+                max_tokens: p.max_output_tokens,
                 has_system: p.system.is_some(),
             })
             .collect();

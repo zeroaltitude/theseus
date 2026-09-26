@@ -26,7 +26,11 @@
 live = "sonnet"
 provider = "anthropic"                  # a key of [providers], or the implicit "anthropic"
 model = "claude-sonnet-5"
-max_tokens = 1024
+# Output cap per call (the Messages API's max_tokens). NOT an input limit: input is
+# whatever the compiler assembles, bounded by the model's context window (Sonnet 5,
+# Opus 5/5.5: 1M in, 128k out; Haiku 4.5: 200k in, 8k out; GLM-5.x: 1M in, 128k out).
+# You pay only for tokens actually generated, so a high cap costs nothing on short replies.
+max_output_tokens = 16384               # alias: max_tokens
 # system = "You are Theseus."           # system prompt for the implicit default profile
 api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
 api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding its key
@@ -46,13 +50,13 @@ total_secs = 600                        # the whole call
 [profiles.sonnet]
 provider = "anthropic"
 model = "claude-sonnet-5"
-max_tokens = 1024
+max_output_tokens = 16384               # up to 128000 for Sonnet 5
 # system = ""
 
 [profiles.glm]
 provider = "zai"
 model = "glm-5.3-flash"
-max_tokens = 4096
+max_output_tokens = 16384               # up to 128000 for GLM-5.3
 
 # ---------------------------------------------------------------- providers
 # Any endpoint that speaks the Anthropic Messages API. The implicit "anthropic"

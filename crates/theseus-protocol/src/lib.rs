@@ -239,7 +239,9 @@ pub struct ProfileInfo {
     pub name: String,
     pub provider: String,
     pub model: String,
-    pub max_tokens: u32,
+    /// Output cap per call (the API's `max_tokens`), not an input limit.
+    #[serde(alias = "max_tokens")]
+    pub max_output_tokens: u32,
     pub has_system: bool,
     pub live: bool,
 }

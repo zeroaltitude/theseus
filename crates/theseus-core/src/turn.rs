@@ -140,7 +140,7 @@ impl TurnRunner {
             profile: name.to_string(),
             provider,
             model: model.unwrap_or(&prof.model).to_string(),
-            max_tokens: prof.max_tokens,
+            max_tokens: prof.max_output_tokens,
             system: prof.system.clone(),
         })
     }

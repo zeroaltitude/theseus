@@ -127,8 +127,11 @@ pub struct ProfileConfig {
     #[serde(default = "default_provider_name")]
     pub provider: String,
     pub model: String,
-    #[serde(default = "default_max_tokens")]
-    pub max_tokens: u32,
+    /// Cap on tokens the model may *generate* per call (the Messages API's
+    /// `max_tokens`). Not an input limit; input is whatever the compiler
+    /// assembles. You pay only for tokens actually produced.
+    #[serde(default = "default_max_tokens", alias = "max_tokens")]
+    pub max_output_tokens: u32,
     #[serde(default)]
     pub system: Option<String>,
 }
@@ -146,8 +149,9 @@ pub struct ModelConfig {
     pub provider: String,
     #[serde(default = "default_model")]
     pub model: String,
-    #[serde(default = "default_max_tokens")]
-    pub max_tokens: u32,
+    /// Output cap per call for the implicit default profile; see `ProfileConfig`.
+    #[serde(default = "default_max_tokens", alias = "max_tokens")]
+    pub max_output_tokens: u32,
     #[serde(default)]
     pub system: Option<String>,
     #[serde(default = "default_api_base")]
@@ -178,7 +182,7 @@ fn default_profile_name() -> String {
     "default".into()
 }
 fn default_max_tokens() -> u32 {
-    1024
+    16_384
 }
 fn default_api_base() -> String {
     "https://api.anthropic.com".into()
@@ -199,7 +203,7 @@ impl Default for ModelConfig {
             live: default_profile_name(),
             provider: default_provider_name(),
             model: default_model(),
-            max_tokens: default_max_tokens(),
+            max_output_tokens: default_max_tokens(),
             system: None,
             api_base: default_api_base(),
             api_key_secret: default_key_name(),
@@ -301,7 +305,7 @@ impl Config {
             .or_insert_with(|| ProfileConfig {
                 provider: self.model.provider.clone(),
                 model: self.model.model.clone(),
-                max_tokens: self.model.max_tokens,
+                max_output_tokens: self.model.max_output_tokens,
                 system: self.model.system.clone(),
             });
         all

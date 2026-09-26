@@ -846,6 +846,7 @@ The narrow agent. One channel binding, one shell class, no intelligence beyond t
 **Build.**
 - Discord via `twilight`: one application, one guild, DM and one text channel, message send and edit, one component (the confirm button). Bindings as a file.
 - Direct Anthropic Messages API with streaming, tool use, prompt-cache layout from §4.5, complete-block-only dispatch, and usage accounting into the ledger. Interrupted-call reservations held as unknown.
+- A **model catalog**: per model id, context window, maximum output tokens, and prices per million tokens for input, output, cache read, and cache write. The budgeter reads it to decide what fits and when to recompile; the ledger reads it to turn tokens into dollars. It is config the moment code reads it, and not before (§3.19 rule). Until then `max_output_tokens` on a profile is the only token limit in config, and it is an output cap, never an input one.
 - The context compiler in its simplest form: one compilation per session then transcript append; recompile only on the deterministic triggers of §4.4a (no Jev yet); a manifest that records the compilation, the tail range, the as-of position, and the request digest.
 - L0 shell tools through the job wrapper: `bash`, `read`, `write`, `edit`, `glob`, `grep`, on the operator's real checkouts. Fast in-process tools stay synchronous; anything crossing the process boundary is an action with a completion.
 - The model loop with deterministic control only: `/stop`, `/cancel`, budget exhaustion, confirm.

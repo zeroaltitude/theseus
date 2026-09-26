@@ -525,12 +525,12 @@ async fn run(cli: Cli) -> Result<()> {
                     let l: ProfileListResult = serde_json::from_value(v)?;
                     for p in l.profiles {
                         println!(
-                            "{} {:<12} {:<10} {:<28} max_tokens={}{}",
+                            "{} {:<12} {:<10} {:<28} max_output_tokens={}{}",
                             if p.live { "*" } else { " " },
                             p.name,
                             p.provider,
                             p.model,
-                            p.max_tokens,
+                            p.max_output_tokens,
                             if p.has_system { "  +system" } else { "" }
                         );
                     }

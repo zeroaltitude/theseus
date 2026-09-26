@@ -29,7 +29,7 @@ export interface SessionInfo {
 }
 
 export interface ProfileInfo {
-  name: string; provider: string; model: string; max_tokens: number; has_system: boolean; live: boolean
+  name: string; provider: string; model: string; max_output_tokens: number; has_system: boolean; live: boolean
 }
 export interface ProfileList { live: string; live_source: string; profiles: ProfileInfo[] }
 
