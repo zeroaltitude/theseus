@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.20
+# The Ship of Theseus — v0.21
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -77,6 +77,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | LEARNING | Every judgment is recorded with inputs, action, and later outcome. Question packs, memory-science parameters, and shell mappings are versioned data tuned by that record. Precisely: feedback-driven policy and parameter optimization with holdouts and canaries (§3.10), not reinforcement learning in the technical sense. |
 | SPEED, DURABILITY, COST | In that order, for storage and for every runtime trade. |
 | QUIET BY CONSTRUCTION | The harness has no busy loop. It parks on its event sources and the heartbeat. Work in flight is a durable record, not a waiting thread. |
+| NATIVE FIRST | The default way Theseus does anything is a small, typed, in-process Rust toollet. Shelling out is the escape hatch, ledgered as such; the ratio of shell calls to native calls is a health metric, and the most frequent shell patterns are the queue for the next toollet. Typed arguments are what let policy read intent, provenance ride on outputs, and the learning loop see what the agent actually does. (Eddie, 2026-09-26.) |
 | EXQUISITE VISIBILITY | Every turn, loop, provider call, hook site, judgment, and completion is timed and attributed as it happens, in the record, before anyone asks. Statistics and visualization are built with the feature, not after it. Nothing that matters is sampled away, and any OpenTelemetry backend can be pointed at the running system for service-level stats without code changes. We move carefully because we can see. (Eddie, 2026-09-25.) |
 | APPEND-ONLY | The **event record** only grows. Compaction, supersession, suppression, and forgetting are new records; nothing in the record is rewritten. Projections (retention, heat, task state, trust annotations, indexes) are mutable and rebuildable from the record. Payload erasure under §5.6 is the single, receipted exception. |
 
@@ -486,7 +487,7 @@ OpenTelemetry is on by default and is a **projection of the record**, never a se
 | first_byte, first_token | events on the provider span |
 | hook sites, compile, advancer, store, lock | events on their parent span by default; spans when `telemetry.hook_spans = true` |
 | provider.error, turn.failed | span status error with the class, transient, and usage_unknown as attributes |
-| turns, tokens, provider errors, durations | metrics: `theseus.turns` (profile, provider, model, outcome), `theseus.tokens` (direction), `theseus.provider.errors` (class, transient), histograms `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`, `theseus.provider.first_token_ms` |
+| turns, tokens, provider errors, durations | metrics: `theseus.turns` (profile, provider, model, outcome), `theseus.tokens` (direction), `theseus.provider.errors` (class, transient), histograms `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`, `theseus.provider.first_token_ms`; `theseus.tool.calls` (family, tool, backend, outcome) and `theseus.tool.duration_ms`, from which the shell-fallback ratio (§3.23) is read |
 
 Transport is OTLP over HTTP/protobuf through the same `reqwest` + rustls stack as the provider client; no gRPC, no C. Headers (a Honeycomb key, a Datadog key) come from the vault like every other secret. Resource attributes carry `service.name`, `service.version`, and `service.instance.id`. **Nothing leaves the process until `[telemetry].otlp_endpoint` is set**; the pipeline is always compiled in and running so enabling it is a config change, not a build. Point it at a local Collector, Grafana Tempo, Honeycomb, Datadog, or the AWS Distro for OpenTelemetry, which is how "CloudWatch for historical search" (§1) is satisfied with no CloudWatch-specific code. The web UI and CLI keep reading the trace directly; OTel is for the fleet view.
 
@@ -506,6 +507,32 @@ A restart of `theseusd` is designed to be cheap, because nothing that matters li
 **Graceful upgrade** is a first-class operation (`theseusd upgrade`, or a signal): stop admitting new turns; let in-flight provider calls finish within a bounded window or fail them cleanly; flush telemetry; checkpoint the store; exec the new binary and hand it the listening sockets so no client sees a refused connection. Target: no lost work, no lost client connections, sub-second gap in turn admission. **Upgrade under load** is a standing simulator scenario beside crash-at-every-boundary: a hundred sessions mid-turn, upgrade, every one settles correctly. Deploying a new keel is an operator action made cheap enough to do without ceremony; the agent never triggers it (§3.21).
 
 This is a deliberate contrast with the gateway Theseus replaces, where in-flight tool calls, subagent handles, and session state live in process memory and a restart loses them. The M0 binary is not yet restart-safe in this sense; M1 Keel and M2 Kernel are where the construction happens, and the simulator is what proves it.
+
+### 3.23 Toollets: native first
+
+A **toollet** is a small, typed, in-process Rust tool behind the tool contract (§3.12): a few arguments with a JSON schema, structured output that becomes a node with provenance, microsecond to millisecond latency, no shell parsing, no PATH or environment dependence, a unit test. Theseus ships many of them and prefers them to shelling out everywhere.
+
+Why this is a principle and not a taste. A `bash` string is opaque: the gate cannot tell `rm -rf` from `ls`, quoting is a permanent tax, the output is text that must be parsed back, and the ledger records only that "a shell ran." A native `fs.edit { path, find, replace }` has arguments policy can reason about, output that is already a node, and a trace span with real attributes. Every principle in §2 is stronger on a typed surface.
+
+**Families**, each a crate:
+
+| Family | Replaces | Built on |
+|---|---|---|
+| `fs.*` read, write, edit, glob, grep, stat, tree | cat, sed, find, rg | the `ignore` and `grep` crates ripgrep is built from |
+| `git.*` status, diff, log, blame, commit, branch, worktree | the git CLI | gitoxide |
+| `text.*` diff, patch, json, yaml, toml, regex, hash, count | jq, diff, sha256sum, wc | serde, similar |
+| `http.*` fetch, post | curl | reqwest |
+| `gh.*` issues, pull requests, checks, reviews | the gh CLI | the GitHub REST API |
+| `aws.*` per service | the aws CLI | the official Rust SDK |
+| `task.*`, `memory.*`, `extend.*` | — | the kernel |
+| `proc.run` typed argv, no shell | bash | tokio process; **the escape hatch** |
+
+**Rules.**
+- Native does not mean unbounded. A toollet that does I/O or exceeds the synchronous bound (§3.16) is an action with a completion record like anything else; durability is unchanged.
+- Native does not mean unscoped. A toollet runs with kernel trust, so it lands through the pull-request path (§3.21) and declares the authority it needs; the gate checks typed arguments, not strings.
+- Tool count is the toolchain manager's problem, not the model's: toollets are offered by family and by the turn's needs (roles, Jev), and searched, so a hundred of them do not bloat every prompt.
+- Every tool call is a trace span and a metric with family, tool, backend, and outcome. The **shell-fallback ratio** (`proc.run` over all calls) is watched; the most frequent `proc.run` argv patterns are the promotion queue for the next toollet (§3.21 `extend.promote`).
+- A new capability arrives as a toollet unless there is a written reason it cannot; Part III records where this slipped.
 
 ## 4. The context graph
 
@@ -762,7 +789,7 @@ Eddie forwarded an essay arguing that a harness should treat everything as an MC
 
 **Rejected, with reasons.** Channels as MCP servers: Discord is the source of authority context, which must stay trusted kernel data (§3.9); MCP's request-response session model also does not fit a long-lived event source. The kernel as a stateless MCP router: MCP has no durable completion model, and a stateless router loses in-flight work on restart, which is the failure the execution kernel exists to prevent (§3.16). Memory as a tool: recall is compiler-selected every turn, never something the model must remember to ask for (§5). Thinking as a tool: native extended thinking exists; a tool adds latency and tokens. Sub-agents as nested MCP servers: the design has no multi-agent (§1); task sessions cover the need (§3.2a).
 
-**Where it led.** Self-extension of tools at runtime under operator ack, with the kernel binary off limits to the agent (§3.21), and restart as a routine, tested operation (§3.22). v0.20 removes WASM as a commitment: the one runtime extension path is an MCP server in an L1 sandbox (§3.12, §3.21). On whether the model would "get" it: the tool half, yes, deeply; the risks are tool-count bloat (dynamic tool search in the toolchain manager) and judgment about when to extend (a Jev pack plus the gate), not comprehension.
+**Where it led.** Self-extension of tools at runtime under operator ack, with the kernel binary off limits to the agent (§3.21), and restart as a routine, tested operation (§3.22). v0.20 removes WASM as a commitment: the one runtime extension path is an MCP server in an L1 sandbox (§3.12, §3.21). v0.21 adds **NATIVE FIRST** (§2, §3.23): many small typed Rust toollets; the shell is the escape hatch and every shell call is a data point. On whether the model would "get" it: the tool half, yes, deeply; the risks are tool-count bloat (dynamic tool search in the toolchain manager) and judgment about when to extend (a Jev pack plus the gate), not comprehension.
 
 ## Appendix B — What is at stake in the default shell class
 
@@ -832,7 +859,7 @@ Not in the original plan. Eddie's principle, adopted as work before Keel because
 **Build.**
 - The turn trace (§3.3a): nested spans on every turn, on the result, in the ledger, in failure payloads; waterfall in the web UI; `ask --trace`. *(Done, theseus-8af.)*
 - OpenTelemetry as a default projection (§3.20): spans from the trace with exact timestamps, GenAI conventions on provider calls, metrics, OTLP/HTTP with vault-sourced headers, no-op until an endpoint is configured. *(theseus-vng.)*
-- A standing rule for every later milestone: a new kind of work (tool call, judgment, completion, compaction, memory pass) lands with its span kind, its attributes, and its metric on the same commit. Part III records where this slipped.
+- A standing rule for every later milestone: a new kind of work (tool call, judgment, completion, compaction, memory pass) lands with its span kind, its attributes, and its metric on the same commit; and a new capability lands as a native toollet unless there is a written reason it cannot (§3.23). Part III records where either slipped.
 
 **Prove.** With a collector listening, one turn produces one trace whose spans match the ledger's `turn.trace` row exactly in count, names, nesting, and durations; the metrics for that turn arrive; with no endpoint configured, nothing is sent and the turn is no slower. Tested against an in-memory exporter; verified live against a receiver.
 
@@ -879,7 +906,7 @@ The narrow agent. One channel binding, one shell class, no intelligence beyond t
 - Direct Anthropic Messages API with streaming, tool use, prompt-cache layout from §4.5, complete-block-only dispatch, and usage accounting into the ledger. Interrupted-call reservations held as unknown.
 - A **model catalog** (`[catalog."<model id>"]`): per model, the serving provider, context window, maximum output tokens, prices per million tokens for input, output, cache read, and cache write, and capabilities (tools, vision, reasoning). A built-in catalog ships in the binary for the Anthropic family (`claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5-1`, `claude-haiku-4-5`) and the GLM 5.x models; config entries override or add. Three consumers: a profile that omits `max_output_tokens` defaults to the model's real ceiling; the budgeter uses the context window to decide what fits and when a recompile is forced; the ledger and telemetry turn tokens into dollars. An unknown model id still runs, with cost marked unknown and a startup warning. Prices and limits cannot self-update (the provider's models endpoint lists ids, not limits or prices), so the catalog is a versioned table and every priced ledger row names the catalog version that priced it. Decided with Eddie 2026-09-26; it is config the moment code reads it, and not before (§3.19 rule). Until then `max_output_tokens` on a profile is the only token limit in config, and it is an output cap, never an input one.
 - The context compiler in its simplest form: one compilation per session then transcript append; recompile only on the deterministic triggers of §4.4a (no Jev yet); a manifest that records the compilation, the tail range, the as-of position, and the request digest.
-- L0 shell tools through the job wrapper: `bash`, `read`, `write`, `edit`, `glob`, `grep`, on the operator's real checkouts. Fast in-process tools stay synchronous; anything crossing the process boundary is an action with a completion.
+- **Toollets, native first (§3.23):** the `fs.*` family (read, write, edit, glob, grep, stat, tree), `text.*`, `git.*` on the operator's real checkouts, and `proc.run` as the typed, shell-free escape hatch through the L0 job wrapper. No `bash` tool: a shell is `proc.run { argv: ["bash", "-c", …] }`, visible as such in the ledger. Fast in-process toollets stay synchronous; anything doing I/O past the bound or crossing the process boundary is an action with a completion. `theseus.tool.calls` and the shell-fallback ratio from the first turn.
 - The model loop with deterministic control only: `/stop`, `/cancel`, budget exhaustion, confirm.
 - The in-binary web UI in its first form: list executions, actions, and ledger rows; tail a channel. Read-only.
 - `theseus restore` from a local WAL directory (S3 comes in M4), because the restore path exists from the first release.
