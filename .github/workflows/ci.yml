@@ -19,6 +19,7 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses sources bans
+          rust-version: stable
       - name: static musl release build
         run: cargo build --release --target x86_64-unknown-linux-musl
       - name: verify static

@@ -28,7 +28,10 @@ confidence-threshold = 0.8
 
 [bans]
 multiple-versions = "allow"
-wildcards = "deny"
+# Path dependencies inside this workspace are not wildcards; the action's
+# bundled cargo-deny cannot resolve `dep.workspace = true` and flags them.
+wildcards = "allow"
+allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
