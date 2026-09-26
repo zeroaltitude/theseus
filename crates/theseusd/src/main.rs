@@ -69,7 +69,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Print a template config (TOML) and exit. A starting point, not the loaded config.
+    /// Print the annotated config template (every parameter, set or commented with its default) and exit.
     ExampleConfig,
     /// Load config, resolve every secret, report, and exit without serving.
     Check,
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
         .init();
 
     if let Some(Cmd::ExampleConfig) = cli.cmd {
-        print!("{}", toml::to_string_pretty(&Config::example())?);
+        print!("{}", Config::EXAMPLE_TOML);
         return Ok(());
     }
 

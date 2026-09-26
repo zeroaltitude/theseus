@@ -1,0 +1,110 @@
+# The Ship of Theseus — configuration template
+#
+# Every parameter Theseus reads appears here exactly once: either set to its
+# default, or commented out with its default shown. Nothing here is decorative:
+# a key that the code does not read cannot appear (the loader rejects unknown
+# keys), and a test un-comments every line and parses the result, so this file
+# cannot drift from the code.
+#
+# Where it lives: by default the 1Password Secure Note `theseus-config`
+# (op://Eddie-Tabitha/theseus-config/notesPlain) so a deployment is
+# reconstructible from the vault. A local file works for development:
+#   theseusd --config ~/.theseus/theseus.toml   (or THESEUS_CONFIG=…)
+# Precedence for the few things that also have flags (socket, state dir):
+#   command-line flag > environment variable > this file > built-in default.
+#
+# Secrets never appear as values. Every secret is an op:// reference into
+# 1Password, resolved at startup through the service account; the process
+# refuses to start if any reference fails. A reference may end in `#label`
+# to select one `label: value` line of a multi-line note.
+
+# ---------------------------------------------------------------- model
+# The implicit "default" profile is built from this section. `live` names the
+# profile that is live at startup; a runtime switch (`theseus profile use`)
+# persists in the store and wins over this value on restart.
+[model]
+live = "sonnet"
+provider = "anthropic"                  # a key of [providers], or the implicit "anthropic"
+model = "claude-sonnet-5"
+max_tokens = 1024
+# system = "You are Theseus."           # system prompt for the implicit default profile
+api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
+api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding its key
+
+# Provider call timeouts. Each failure is classified (timeout with its phase,
+# network, rate_limited, overloaded, server, auth, invalid_request, stream,
+# truncated); nothing retries on its own.
+[model.timeouts]
+connect_secs = 10                       # TCP + TLS
+first_byte_secs = 60                    # request sent → response headers
+stream_idle_secs = 60                   # longest silence between stream events
+total_secs = 600                        # the whole call
+
+# ---------------------------------------------------------------- profiles
+# A profile is provider + model + output limit + system prompt. Exactly one is
+# live. `theseus ask -P <name>` runs one turn under another profile.
+[profiles.sonnet]
+provider = "anthropic"
+model = "claude-sonnet-5"
+max_tokens = 1024
+# system = ""
+
+[profiles.glm]
+provider = "zai"
+model = "glm-5.3-flash"
+max_tokens = 4096
+
+# ---------------------------------------------------------------- providers
+# Any endpoint that speaks the Anthropic Messages API. The implicit "anthropic"
+# provider comes from [model] unless a [providers.anthropic] entry overrides it.
+[providers.zai]
+api_base = "https://api.z.ai/api/anthropic"
+api_key_secret = "zai_api_key"
+kind = "anthropic_messages"             # the only wire protocol today
+# [providers.zai.timeouts]              # per-provider override of [model.timeouts]
+# connect_secs = 10
+# first_byte_secs = 60
+# stream_idle_secs = 60
+# total_secs = 600
+
+# ---------------------------------------------------------------- secrets
+# name → op:// reference. All must resolve or the process does not start.
+[secrets]
+anthropic_api_key = "op://Eddie-Tabitha/anthropic openclaw key/notesPlain"
+zai_api_key = "op://Eddie-Tabitha/z.ai key/notesPlain#api key value"
+jev_api_key = "op://Eddie-Tabitha/TypeSafe Jev key/notesPlain"
+github_token = "op://Eddie-Tabitha/zeroaltitude github PAT/notesPlain"
+aws_access_key_id = "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_ACCESS_KEY_ID"
+aws_secret_access_key = "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_SECRET_ACCESS_KEY"
+
+# ---------------------------------------------------------------- server
+[server]
+state_dir = "~/.theseus"                # store (redb) and spool; flag: --state-dir / THESEUS_STATE_DIR
+socket = "~/.theseus/theseus.sock"      # protocol socket, mode 0600; flag: --socket / THESEUS_SOCKET
+
+# ---------------------------------------------------------------- web
+# The localhost web UI. Loopback only; a non-loopback bind is refused.
+[web]
+enabled = true
+bind = "127.0.0.1"
+port = 7433
+
+# ---------------------------------------------------------------- github
+# The GitHub token is checked at startup: login, expiry, days left. Never fatal.
+[github]
+token_secret = "github_token"           # name of the [secrets] entry
+warn_days = 30                          # warn when the token expires within this many days
+
+# ---------------------------------------------------------------- telemetry
+# OpenTelemetry is always compiled in and running; nothing leaves the process
+# until otlp_endpoint is set. Each turn's trace becomes one OTel trace with the
+# recorded timestamps; metrics: theseus.turns, theseus.tokens,
+# theseus.provider.errors, theseus.turn.duration_ms,
+# theseus.provider.call.duration_ms, theseus.provider.first_token_ms.
+[telemetry]
+# otlp_endpoint = "http://127.0.0.1:4318"   # OTLP/HTTP base URL; /v1/traces and /v1/metrics are appended
+# headers_secret = "otlp_headers"           # a [secrets] entry of "Header: value" lines (e.g. x-honeycomb-team)
+service_name = "theseus"
+hook_spans = false                      # true: hook sites/marks/compile/store/lock/advancer become spans, not events
+metrics_interval_secs = 15
+export_timeout_secs = 10

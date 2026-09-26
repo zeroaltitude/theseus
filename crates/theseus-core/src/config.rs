@@ -328,77 +328,113 @@ impl Config {
         expand(&self.server.socket)
     }
 
+    /// The annotated configuration template, with every parameter documented.
+    /// Tested to parse, validate, and to parse with every comment un-commented.
+    pub const EXAMPLE_TOML: &'static str = include_str!("../config/theseus.example.toml");
+
+    /// The template, parsed. `example-config` prints `EXAMPLE_TOML` itself so
+    /// the comments survive.
     pub fn example() -> Self {
-        let mut secrets = BTreeMap::new();
-        secrets.insert(
-            "anthropic_api_key".into(),
-            "op://Eddie-Tabitha/anthropic openclaw key/notesPlain".into(),
-        );
-        secrets.insert(
-            "jev_api_key".into(),
-            "op://Eddie-Tabitha/TypeSafe Jev key/notesPlain".into(),
-        );
-        secrets.insert(
-            "github_token".into(),
-            "op://Eddie-Tabitha/zeroaltitude github PAT/notesPlain".into(),
-        );
-        secrets.insert(
-            "aws_access_key_id".into(),
-            "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_ACCESS_KEY_ID".into(),
-        );
-        secrets.insert(
-            "aws_secret_access_key".into(),
-            "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_SECRET_ACCESS_KEY".into(),
-        );
-        secrets.insert(
-            "zai_api_key".into(),
-            "op://Eddie-Tabitha/z.ai key/notesPlain#api key value".into(),
-        );
-        let mut providers = BTreeMap::new();
-        providers.insert(
-            "zai".into(),
-            ProviderConfig {
-                api_base: "https://api.z.ai/api/anthropic".into(),
-                api_key_secret: "zai_api_key".into(),
-                kind: default_provider_kind(),
-                timeouts: None,
-            },
-        );
-        let mut profiles = BTreeMap::new();
-        profiles.insert(
-            "sonnet".into(),
-            ProfileConfig {
-                provider: "anthropic".into(),
-                model: "claude-sonnet-5".into(),
-                max_tokens: 1024,
-                system: None,
-            },
-        );
-        profiles.insert(
-            "glm".into(),
-            ProfileConfig {
-                provider: "zai".into(),
-                model: "glm-5.3-flash".into(),
-                max_tokens: 4096,
-                system: None,
-            },
-        );
-        Self {
-            model: ModelConfig {
-                live: "sonnet".into(),
-                ..ModelConfig::default()
-            },
-            profiles,
-            providers,
-            secrets,
-            server: ServerConfig::default(),
-            github: GitHubConfig::default(),
-            web: WebConfig::default(),
-            telemetry: crate::telemetry::TelemetryConfig::default(),
-        }
+        toml::from_str(Self::EXAMPLE_TOML).expect("the bundled example config parses")
     }
 }
 
 pub fn expand(p: &str) -> PathBuf {
     PathBuf::from(shellexpand::tilde(p).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn example_template_parses_and_validates() {
+        let cfg = Config::example();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.model.live, "sonnet");
+        assert!(cfg.profiles.contains_key("glm"));
+        assert!(cfg.providers.contains_key("zai"));
+        assert_eq!(cfg.telemetry.otlp_endpoint, None);
+    }
+
+    /// Every commented-out parameter must be a real parameter with a valid
+    /// value: un-comment them all and the result must still parse under
+    /// deny_unknown_fields. This is what stops the template from lying.
+    #[test]
+    fn example_template_uncommented_still_parses() {
+        let mut out = String::new();
+        for line in Config::EXAMPLE_TOML.lines() {
+            let t = line.trim_start();
+            if let Some(rest) = t.strip_prefix("# ") {
+                let looks_like_toml = rest.starts_with('[')
+                    || rest
+                        .split_once('=')
+                        .map(|(k, _)| {
+                            let k = k.trim();
+                            !k.is_empty()
+                                && k.chars()
+                                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+                        })
+                        .unwrap_or(false);
+                if looks_like_toml {
+                    out.push_str(rest);
+                    out.push('\n');
+                    continue;
+                }
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        let cfg: Config = toml::from_str(&out).unwrap_or_else(|e| {
+            panic!("un-commented template must parse (a documented key is stale or its value invalid): {e}\n{out}")
+        });
+        assert_eq!(
+            cfg.telemetry.otlp_endpoint.as_deref(),
+            Some("http://127.0.0.1:4318")
+        );
+        assert!(cfg.providers["zai"].timeouts.is_some());
+        assert!(cfg.model.system.is_some());
+    }
+
+    /// Every key the code can read appears in the template (set or commented),
+    /// so a new field cannot be added without documenting it.
+    #[test]
+    fn example_template_mentions_every_key() {
+        let built = toml::Value::try_from(Config::example()).unwrap();
+        let mut missing = Vec::new();
+        walk(&built, "", &mut |path, leaf| {
+            if !leaf {
+                return;
+            }
+            let key = path.rsplit('.').next().unwrap();
+            if !Config::EXAMPLE_TOML.contains(&format!("{key} =")) {
+                missing.push(path.to_string());
+            }
+        });
+        // Optional fields that serialize as absent still need a commented line.
+        for must in ["system", "otlp_endpoint", "headers_secret"] {
+            assert!(
+                Config::EXAMPLE_TOML.contains(&format!("# {must} ="))
+                    || Config::EXAMPLE_TOML.contains(&format!("{must} =")),
+                "template must document `{must}`"
+            );
+        }
+        assert!(missing.is_empty(), "undocumented config keys: {missing:?}");
+    }
+
+    fn walk(v: &toml::Value, path: &str, f: &mut dyn FnMut(&str, bool)) {
+        match v {
+            toml::Value::Table(t) => {
+                for (k, v) in t {
+                    let p = if path.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{path}.{k}")
+                    };
+                    walk(v, &p, f);
+                }
+            }
+            _ => f(path, true),
+        }
+    }
 }
