@@ -28,7 +28,7 @@ Running it:
   theseusd config                       show the config actually loaded, and from where
   theseusd                              serve (foreground); add & to background it
   THESEUS_LOG=debug theseusd            more detail (tracing filter syntax)
-  theseusd --socket /tmp/dbg.sock       a scratch instance beside a running one
+  theseusd --socket /tmp/dbg.sock --state-dir /tmp/dbg   a scratch instance beside a running one
 
 Config source (--config / THESEUS_CONFIG): an op:// reference (default: the 1Password item
 theseus-config) or a local TOML file. `theseusd example-config` prints a template; it is
@@ -57,6 +57,11 @@ struct Cli {
     /// Unix socket path; overrides [server].socket in config.
     #[arg(long, env = "THESEUS_SOCKET")]
     socket: Option<PathBuf>,
+
+    /// State directory (store, spool); overrides [server].state_dir. Use with --socket
+    /// to run a scratch instance beside a live daemon (the store is single-process).
+    #[arg(long, env = "THESEUS_STATE_DIR")]
+    state_dir: Option<PathBuf>,
 
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -113,7 +118,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let state_dir = cfg.state_dir();
+    let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     std::fs::create_dir_all(&state_dir)
         .with_context(|| format!("creating state dir {}", state_dir.display()))?;
     // The embedded store is single-process. A spawned stdio server must not fight a
