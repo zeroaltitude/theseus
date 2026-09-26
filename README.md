@@ -76,6 +76,19 @@ total 600 s; `[model.timeouts]` in config) end the call with a classified error 
 fails, the class and whether usage is unknown are ledgered and returned in `error.data`, and nothing
 retries on its own.
 
+## The keel (M1)
+
+Storage is a WAL of checksummed atomic frames (the truth) plus a rebuildable index in `redb`
+(`[server].store_engine`, `fjall` also available). Every append is durable when it returns; a
+frame with several records commits all or none; recovery truncates a torn tail and refuses
+corruption elsewhere; deleting the index loses nothing.
+
+```bash
+theseus-sim crash-test --iterations 40 --restarts 3 --engine redb   # kill -9, tear the tail, verify
+theseus-sim bench --engine redb --records 20000                      # append/read throughput
+theseus-sim bench --engine fjall --records 50000 --no-fsync           # index cost without the disk
+```
+
 ## Build
 
 ```bash

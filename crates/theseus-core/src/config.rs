@@ -170,6 +170,14 @@ pub struct ServerConfig {
     pub state_dir: String,
     #[serde(default = "default_socket")]
     pub socket: String,
+    /// Index engine behind the WAL: "redb" (default; the M1 benchmark's pick) or "fjall".
+    /// A store directory keeps the engine it was created with.
+    #[serde(default = "default_store_engine")]
+    pub store_engine: theseus_store::Engine,
+}
+
+fn default_store_engine() -> theseus_store::Engine {
+    theseus_store::Engine::Redb
 }
 
 fn default_model() -> String {
@@ -217,6 +225,7 @@ impl Default for ServerConfig {
         Self {
             state_dir: default_state_dir(),
             socket: default_socket(),
+            store_engine: default_store_engine(),
         }
     }
 }

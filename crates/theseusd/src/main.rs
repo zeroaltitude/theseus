@@ -121,20 +121,22 @@ async fn main() -> Result<()> {
     let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     std::fs::create_dir_all(&state_dir)
         .with_context(|| format!("creating state dir {}", state_dir.display()))?;
-    // The embedded store is single-process. A spawned stdio server must not fight a
-    // running daemon for the same file, so stdio mode uses its own store.
-    let store_name = if cli.stdio {
-        "theseus-stdio.redb"
-    } else {
-        "theseus.redb"
-    };
-    let store = Store::open(&state_dir.join(store_name))?;
+    // The store is single-process. A spawned stdio server must not fight a
+    // running daemon for the same directory, so stdio mode uses its own.
+    let store_name = if cli.stdio { "store-stdio" } else { "store" };
+    let store = Store::open(&state_dir.join(store_name), cfg.server.store_engine)?;
     let socket_path = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
     let core = Core::new(cfg, secrets, store)?;
-    tracing::info!(
-        ledger_rows = core.store.ledger_len().unwrap_or(0),
-        "store open"
-    );
+    if let Ok(st) = core.store.stats() {
+        tracing::info!(
+            engine = st.engine.as_str(),
+            last_position = st.last_position,
+            wal_bytes = st.wal_bytes,
+            segments = st.wal_segments,
+            ledger_rows = core.store.ledger_len().unwrap_or(0),
+            "store open"
+        );
+    }
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");

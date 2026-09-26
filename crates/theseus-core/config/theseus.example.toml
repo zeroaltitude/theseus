@@ -85,6 +85,7 @@ aws_secret_access_key = "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_SE
 [server]
 state_dir = "~/.theseus"                # store (redb) and spool; flag: --state-dir / THESEUS_STATE_DIR
 socket = "~/.theseus/theseus.sock"      # protocol socket, mode 0600; flag: --socket / THESEUS_SOCKET
+store_engine = "redb"                   # index engine behind the WAL: redb | fjall; fixed once a store exists
 
 # ---------------------------------------------------------------- web
 # The localhost web UI. Loopback only; a non-loopback bind is refused.

@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 theseus-protocol.workspace = true
+theseus-store.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
@@ -19,7 +20,6 @@ futures-util.workspace = true
 reqwest.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
-redb.workspace = true
 uuid.workspace = true
 shellexpand.workspace = true
 opentelemetry.workspace = true

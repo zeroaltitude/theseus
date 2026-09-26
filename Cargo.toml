@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/theseus-protocol",
+    "crates/theseus-store",
+    "crates/theseus-sim",
     "crates/theseus-core",
     "crates/theseusd",
     "crates/theseus",
@@ -17,6 +19,7 @@ rust-version = "1.98"
 [workspace.dependencies]
 theseus-protocol = { path = "crates/theseus-protocol" }
 theseus-core = { path = "crates/theseus-core" }
+theseus-store = { path = "crates/theseus-store" }
 
 anyhow = "1"
 thiserror = "2"

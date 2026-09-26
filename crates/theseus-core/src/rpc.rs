@@ -577,6 +577,7 @@ impl Core {
                     Value::Null,
                 ));
                 self.telemetry.flush();
+                let _ = self.store.checkpoint();
                 self.shutdown.notify_waiters();
                 Ok(serde_json::json!({"ok": true}))
             }
@@ -620,7 +621,7 @@ mod tests {
 
     fn test_core(reply: &str) -> Arc<Core> {
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("t.redb")).unwrap();
+        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
         let mut cfg = Config::example();
         cfg.server.state_dir = dir.to_string_lossy().into_owned();
         Core::with_provider(
@@ -946,7 +947,7 @@ mod tests {
     #[tokio::test]
     async fn provider_failure_is_classified_and_ledgered() {
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("t.redb")).unwrap();
+        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
         let core = Core::with_provider(
             Config::example(),
             Arc::new(FakeProvider {
@@ -1058,7 +1059,7 @@ mod tests {
     #[tokio::test]
     async fn per_turn_provider_and_model_selection() {
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("t.redb")).unwrap();
+        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
         let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
         providers.insert(
             "anthropic".into(),
@@ -1153,7 +1154,7 @@ mod tests {
     #[tokio::test]
     async fn live_profile_switch_persists_and_routes() {
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("t.redb")).unwrap();
+        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
         let mk = |store: Store| {
             let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
             providers.insert(

@@ -1,126 +1,111 @@
-//! A first `Store`: session records and ledger rows in an embedded store
-//! (redb). M0 persists what it did; WAL discipline, checkpoints, and the
-//! benchmark against fjall arrive with M1 Keel.
+//! The kernel's view of storage: sessions, ledger rows, and small runtime
+//! state, written through `theseus_store::WalStore` (spec §6, M1 Keel).
+//!
+//! Every write is a WAL frame, durable when the call returns. Sessions and
+//! meta are "latest by key"; the ledger is an append-only kind. The index is
+//! rebuilt from the WAL on open if it lost anything, so this module never
+//! has to think about recovery.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{de::DeserializeOwned, Serialize};
-
-const SESSIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("sessions");
-const LEDGER: TableDefinition<u64, &[u8]> = TableDefinition::new("ledger");
-/// Small runtime state that must survive restarts (e.g. the live profile).
-const META: TableDefinition<&str, &[u8]> = TableDefinition::new("meta");
+use theseus_store::{kinds, Engine, NewRecord, Store as _, StoreStats, WalConfig, WalStore};
 
 #[derive(Clone)]
 pub struct Store {
-    db: Arc<Database>,
+    inner: Arc<WalStore>,
 }
 
 impl Store {
-    pub fn open(path: &Path) -> Result<Self> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    /// Open the store directory with the configured engine (default redb; the
+    /// M1 benchmark's choice). A directory created with another engine refuses.
+    pub fn open(dir: &Path, engine: Engine) -> Result<Self> {
+        let inner = WalStore::open(dir, engine, WalConfig::default())
+            .with_context(|| format!("opening store {}", dir.display()))?;
+        let st = inner.stats()?;
+        if st.truncated_bytes > 0 || st.replayed_into_index > 0 {
+            tracing::warn!(
+                truncated_bytes = st.truncated_bytes,
+                replayed = st.replayed_into_index,
+                "store recovered on open"
+            );
         }
-        let db =
-            Database::create(path).with_context(|| format!("opening store {}", path.display()))?;
-        // Make sure both tables exist so reads never fail on a fresh store.
-        let txn = db.begin_write()?;
-        {
-            txn.open_table(SESSIONS)?;
-            txn.open_table(LEDGER)?;
-            txn.open_table(META)?;
-        }
-        txn.commit()?;
-        Ok(Self { db: Arc::new(db) })
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
+    }
+
+    pub fn stats(&self) -> Result<StoreStats> {
+        self.inner.stats()
+    }
+
+    pub fn checkpoint(&self) -> Result<u64> {
+        self.inner.checkpoint()
     }
 
     pub fn put_meta<T: Serialize>(&self, key: &str, value: &T) -> Result<()> {
-        let bytes = serde_json::to_vec(value)?;
-        let txn = self.db.begin_write()?;
-        {
-            let mut t = txn.open_table(META)?;
-            t.insert(key, bytes.as_slice())?;
-        }
-        txn.commit()?;
+        self.inner
+            .append(&[NewRecord::json(kinds::META, Some(key), value)?])?;
         Ok(())
     }
 
     pub fn get_meta<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
-        let txn = self.db.begin_read()?;
-        let t = txn.open_table(META)?;
-        match t.get(key)? {
-            Some(v) => Ok(Some(serde_json::from_slice(v.value())?)),
+        match self.inner.latest_by_key(kinds::META, key)? {
+            Some(r) => Ok(Some(r.decode()?)),
             None => Ok(None),
         }
     }
 
     pub fn put_session<T: Serialize>(&self, id: &str, value: &T) -> Result<()> {
-        let bytes = serde_json::to_vec(value)?;
-        let txn = self.db.begin_write()?;
-        {
-            let mut t = txn.open_table(SESSIONS)?;
-            t.insert(id, bytes.as_slice())?;
-        }
-        txn.commit()?;
+        self.inner
+            .append(&[NewRecord::json(kinds::SESSION, Some(id), value)?])?;
         Ok(())
     }
 
     pub fn get_session<T: DeserializeOwned>(&self, id: &str) -> Result<Option<T>> {
-        let txn = self.db.begin_read()?;
-        let t = txn.open_table(SESSIONS)?;
-        match t.get(id)? {
-            Some(v) => Ok(Some(serde_json::from_slice(v.value())?)),
+        match self.inner.latest_by_key(kinds::SESSION, id)? {
+            Some(r) => Ok(Some(r.decode()?)),
             None => Ok(None),
         }
     }
 
     pub fn list_sessions<T: DeserializeOwned>(&self) -> Result<Vec<T>> {
-        let txn = self.db.begin_read()?;
-        let t = txn.open_table(SESSIONS)?;
-        let mut out = Vec::new();
-        for row in t.iter()? {
-            let (_, v) = row?;
-            out.push(serde_json::from_slice(v.value())?);
-        }
-        Ok(out)
+        self.inner
+            .latest_of_kind(kinds::SESSION)?
+            .iter()
+            .map(|r| r.decode())
+            .collect()
     }
 
     pub fn session_count(&self) -> Result<u64> {
-        let txn = self.db.begin_read()?;
-        Ok(txn.open_table(SESSIONS)?.len()?)
+        Ok(self.inner.latest_of_kind(kinds::SESSION)?.len() as u64)
     }
 
-    /// Append a ledger row; returns its position.
+    /// Append a ledger row; returns its position in the WAL.
     pub fn append_ledger<T: Serialize>(&self, row: &T) -> Result<u64> {
-        let bytes = serde_json::to_vec(row)?;
-        let txn = self.db.begin_write()?;
-        let pos = {
-            let mut t = txn.open_table(LEDGER)?;
-            let next = t.last()?.map(|(k, _)| k.value() + 1).unwrap_or(1);
-            t.insert(next, bytes.as_slice())?;
-            next
-        };
-        txn.commit()?;
-        Ok(pos)
+        let p = self
+            .inner
+            .append(&[NewRecord::json(kinds::LEDGER, None, row)?])?;
+        Ok(p[0])
     }
 
     pub fn ledger_len(&self) -> Result<u64> {
-        let txn = self.db.begin_read()?;
-        Ok(txn.open_table(LEDGER)?.len()?)
+        self.inner.count_of_kind(kinds::LEDGER)
     }
 
+    /// Newest `n` ledger rows, oldest first, as (position, row).
     pub fn ledger_tail<T: DeserializeOwned>(&self, n: usize) -> Result<Vec<(u64, T)>> {
-        let txn = self.db.begin_read()?;
-        let t = txn.open_table(LEDGER)?;
-        let mut out = Vec::new();
-        for row in t.iter()?.rev().take(n) {
-            let (k, v) = row?;
-            out.push((k.value(), serde_json::from_slice(v.value())?));
-        }
-        out.reverse();
-        Ok(out)
+        self.inner
+            .tail_of_kind(kinds::LEDGER, n)?
+            .iter()
+            .map(|r| Ok((r.position, r.decode()?)))
+            .collect()
+    }
+
+    /// The WAL's last position: everything the kernel has ever written.
+    pub fn last_position(&self) -> u64 {
+        self.inner.last_position()
     }
 }
