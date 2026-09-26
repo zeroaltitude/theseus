@@ -46,6 +46,8 @@ enum Cmd {
     ExampleConfig,
     /// Load config, resolve every secret, report, and exit without serving.
     Check,
+    /// Print the loaded config (TOML, secret references only, never values) and its source.
+    Config,
 }
 
 #[tokio::main]
@@ -68,6 +70,11 @@ async fn main() -> Result<()> {
 
     let op = OpReader::from_env(cli.op_token_file.as_deref())?;
     let cfg = Config::load(&cli.config, &op).await?;
+    if let Some(Cmd::Config) = cli.cmd {
+        println!("# source: {}", cli.config);
+        print!("{}", toml::to_string_pretty(&cfg)?);
+        return Ok(());
+    }
     tracing::info!(source = %cli.config, model = %cfg.model.model, "config loaded");
     let secrets = Secrets::resolve_all(&cfg.secrets, &op).await?;
     tracing::info!(count = secrets.names().len(), names = ?secrets.names(), "all secrets resolved");
