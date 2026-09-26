@@ -63,3 +63,55 @@ pub async fn run(core: Arc<Core>) {
     }
     let _ = std::fs::remove_file(&path);
 }
+
+/// The continuation driver: takes a turn for every execution that is
+/// runnable without human input — a job's result arrived, a confirm was
+/// answered, a crash interrupted a turn. Parked on the admission notify and a
+/// short timer; one continuation per execution at a time.
+pub async fn drive(core: Arc<Core>) {
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+    let inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let mut tick = tokio::time::interval(Duration::from_millis(500));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tracing::info!("continuation driver parked");
+    loop {
+        tokio::select! {
+            _ = tick.tick() => {}
+            _ = core.admission.notified() => {}
+            _ = core.shutdown.notified() => break,
+        }
+        let Ok(execs) = core.kernel.open_executions() else {
+            continue;
+        };
+        for e in execs {
+            if e.state != theseus_kernel::ExecState::Queued
+                || !(e.resume_pending || !e.queued_results.is_empty())
+            {
+                continue;
+            }
+            if core.kernel.is_held(&e.id) || !inflight.lock().unwrap().insert(e.id.clone()) {
+                continue;
+            }
+            let (c, inf, id) = (core.clone(), inflight.clone(), e.id.clone());
+            tokio::spawn(async move {
+                match c.continue_execution(&id).await {
+                    Ok(Some(r)) => tracing::info!(
+                        execution_id = %id,
+                        session_id = %r.session_id,
+                        loops = r.loops,
+                        stop_reason = %r.stop_reason,
+                        tool_calls = r.tool_calls,
+                        "continuation turn"
+                    ),
+                    Ok(None) => {}
+                    Err(err) => {
+                        tracing::debug!(execution_id = %id, error = %err, "continuation not taken")
+                    }
+                }
+                inf.lock().unwrap().remove(&id);
+                c.admission.notify_waiters();
+            });
+        }
+    }
+}

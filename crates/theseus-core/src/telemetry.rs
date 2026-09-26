@@ -571,6 +571,7 @@ mod tests {
             first_token_ms: Some(1),
             request_id: Some("req_1".into()),
             trace: Some(trace),
+            ..Default::default()
         }
     }
 

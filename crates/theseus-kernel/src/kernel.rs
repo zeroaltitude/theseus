@@ -269,6 +269,11 @@ impl Kernel {
     pub fn now_ms(&self) -> u64 {
         self.clock.now_ms()
     }
+    /// Is a turn held on this execution in this process?
+    pub fn is_held(&self, execution_id: &str) -> bool {
+        self.held.lock().unwrap().contains(execution_id)
+    }
+
     pub fn is_accepting(&self) -> bool {
         *self.phase.lock().unwrap() >= 5
     }
@@ -414,6 +419,7 @@ impl Kernel {
             reports_to,
             turns: 0,
             interrupted: 0,
+            resume_pending: false,
             cancel: None,
             ended_reason: None,
             created_at_ms: now,
@@ -459,6 +465,7 @@ impl Kernel {
             reports_to: roots.first().cloned(),
             turns: 0,
             interrupted: 0,
+            resume_pending: false,
             cancel: None,
             ended_reason: None,
             created_at_ms: now,
@@ -540,6 +547,7 @@ impl Kernel {
             reports_to: Some(parent.id.clone()),
             turns: 0,
             interrupted: 0,
+            resume_pending: false,
             cancel: None,
             ended_reason: None,
             created_at_ms: now,
@@ -607,6 +615,77 @@ impl Kernel {
         Ok(e)
     }
 
+    /// Something other than human input made the execution runnable (a confirm
+    /// answer, an operator nudge): `Waiting`/`Blocked` → `Queued`, flagged so
+    /// the harness's driver takes a turn for it without waiting for input.
+    pub fn wake(&self, execution_id: &str, why: &str) -> Result<Execution> {
+        self.require_accepting()?;
+        let mut e = self
+            .execution(execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
+        if e.state.is_terminal() {
+            return Err(KernelError::NotRunnable {
+                id: e.id.clone(),
+                state: e.state.as_str(),
+            }
+            .into());
+        }
+        if matches!(
+            e.state,
+            ExecState::Waiting | ExecState::Blocked | ExecState::Queued
+        ) {
+            e.state = ExecState::Queued;
+            e.wake = None;
+            e.resume_pending = true;
+            e.updated_at_ms = self.now_ms();
+            self.commit(vec![
+                self.exec_record(&e)?,
+                self.ledger(
+                    "execution.queued",
+                    Some(&e.session_id),
+                    json!({"execution_id": e.id, "why": why}),
+                )?,
+            ])?;
+        }
+        Ok(e)
+    }
+
+    /// A human declined a planned action (a confirm answered "no", or new
+    /// input superseded the question). The action settles `Cancelled` with the
+    /// reason as its resolution and its reservation released; it never ran.
+    pub fn deny_action(&self, correlation_id: &str, by: &str, reason: &str) -> Result<Action> {
+        let mut a = self
+            .action(correlation_id)?
+            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        if !matches!(a.state, ActionState::Planned | ActionState::Authorized) {
+            return Err(KernelError::ActionState {
+                correlation_id: a.correlation_id.clone(),
+                state: a.state.as_str(),
+                expected: "planned or authorized",
+            }
+            .into());
+        }
+        let now = self.now_ms();
+        a.state = ActionState::Cancelled;
+        a.settled_at_ms = Some(now);
+        a.resolution = Some(format!("denied by {by}: {reason}"));
+        let mut frame = vec![self.action_record(&a)?];
+        if let Some(mut e) = self.execution(&a.execution_id)? {
+            if let Some(r) = &a.reservation_id {
+                settle_reservation_in(&mut e.budget, r, Some(0));
+            }
+            e.updated_at_ms = now;
+            frame.push(self.exec_record(&e)?);
+        }
+        frame.push(self.ledger(
+            "action.denied",
+            Some(&a.session_id),
+            json!({"correlation_id": a.correlation_id, "tool": a.tool, "by": by, "reason": reason}),
+        )?);
+        self.commit(frame)?;
+        Ok(a)
+    }
+
     /// Take a turn: the execution must be `Queued`, the ceiling must have
     /// room, and no turn may be held on it in this process. Writes `Running`.
     pub fn admit(&self, execution_id: &str) -> Result<TurnGuard> {
@@ -638,13 +717,14 @@ impl Kernel {
         e.state = ExecState::Running;
         e.turns += 1;
         e.wake = None;
+        let resumed = std::mem::take(&mut e.resume_pending);
         e.updated_at_ms = now;
         let res = self.commit(vec![
             self.exec_record(&e)?,
             self.ledger(
                 "execution.running",
                 Some(&e.session_id),
-                json!({"execution_id": e.id, "turn": e.turns, "queued_results": e.queued_results.len()}),
+                json!({"execution_id": e.id, "turn": e.turns, "queued_results": e.queued_results.len(), "resumed": resumed}),
             )?,
         ]);
         if let Err(err) = res {
@@ -893,6 +973,27 @@ impl Kernel {
         deadline_ms: Option<u64>,
         reserve_units: u64,
     ) -> Result<Action> {
+        self.plan_action_with(
+            guard,
+            proposal,
+            retry_class,
+            deadline_ms,
+            reserve_units,
+            |_| Ok(vec![]),
+        )
+    }
+
+    /// `plan_action`, with records the caller builds from the minted action
+    /// (its correlation id) written in the same frame: a `ToolCall` node, say.
+    pub fn plan_action_with(
+        &self,
+        guard: &TurnGuard,
+        proposal: &Proposal,
+        retry_class: RetryClass,
+        deadline_ms: Option<u64>,
+        reserve_units: u64,
+        extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
+    ) -> Result<Action> {
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -967,6 +1068,7 @@ impl Kernel {
             Some(&a.session_id),
             json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id, "tool": a.tool, "args_digest": a.args_digest, "retry_class": a.retry_class, "deadline_at_ms": a.deadline_at_ms, "reserved": reserve_units}),
         )?);
+        frame.extend(extra(&a)?);
         self.commit(frame)?;
         Ok(a)
     }
@@ -1139,6 +1241,18 @@ impl Kernel {
     /// Accept a completion from any transport (§3.16). Idempotent; atomic
     /// with the owning execution's continuation.
     pub fn accept_completion(&self, c: &Completion) -> Result<Accepted> {
+        self.accept_completion_with(c, vec![])
+    }
+
+    /// `accept_completion`, with `extra` records (the node that carries the
+    /// result) in the same frame as the settlement. `extra` is written only
+    /// when this call settles or resolves the action; a duplicate, a late
+    /// arrival after cancel, and a quarantined stray write nothing extra.
+    pub fn accept_completion_with(
+        &self,
+        c: &Completion,
+        extra: Vec<NewRecord>,
+    ) -> Result<Accepted> {
         let now = self.now_ms();
         let Some(mut a) = self.action(&c.correlation_id)? else {
             let key = format!("{QUARANTINE_PREFIX}{}", c.correlation_id);
@@ -1274,6 +1388,7 @@ impl Kernel {
             Some(&a.session_id),
             json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "usage_units": c.usage_units}),
         )?);
+        frame.extend(extra);
         self.commit(frame)?;
         if was_unknown {
             Ok(Accepted::ResolvedUnknown {
@@ -1303,6 +1418,7 @@ impl Kernel {
             producer: format!("reconciler:{reason}"),
             signature: None,
             usage_units: None,
+            detail: None,
         };
         let a = self
             .action(correlation_id)?
@@ -1537,6 +1653,7 @@ impl Kernel {
             if e.state == ExecState::Running {
                 e.state = ExecState::Queued;
                 e.interrupted += 1;
+                e.resume_pending = true;
                 e.updated_at_ms = now;
                 self.commit(vec![
                     self.exec_record(&e)?,

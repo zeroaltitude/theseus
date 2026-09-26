@@ -22,26 +22,127 @@ pub const API_VERSION: &str = "2023-06-01";
 
 // ------------------------------------------------------------------ request
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolDef {
-    pub name: String,
-    pub description: String,
-    pub input_schema: Value,
-}
-
-/// One provider call's inputs, as the toolchain manager compiled them.
-pub struct ProviderRequest<'a> {
-    pub model: &'a str,
+/// One provider call, as the compiler rendered it. Content blocks are JSON
+/// values, not a Rust enum: the transcript replays assistant blocks exactly as
+/// the provider returned them (thinking blocks and their signatures must come
+/// back byte-for-byte, §4.4 and the preserved-thinking rules), and block kinds
+/// Theseus does not model yet pass through untouched.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRequest {
+    pub model: String,
     pub max_tokens: u32,
-    pub system: Option<&'a str>,
-    pub messages: &'a [Message],
-    pub tools: Vec<ToolDef>,
+    /// Top-level system blocks (`{"type":"text","text":…}`, with `cache_control` on the last).
+    #[serde(default)]
+    pub system: Vec<Value>,
+    /// `{"role": "user"|"assistant", "content": [blocks]}`.
+    #[serde(default)]
+    pub messages: Vec<Value>,
+    /// Wire tool definitions, sorted by name.
+    #[serde(default)]
+    pub tools: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<Value>,
+    /// Top-level automatic prompt caching.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<Value>,
+    /// `anthropic-beta` values.
+    #[serde(default)]
+    pub betas: Vec<String>,
+    /// Other top-level fields (e.g. `fallbacks`).
+    #[serde(default)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl ProviderRequest {
+    /// A one-message request (tests, probes).
+    pub fn simple(model: &str, max_tokens: u32, user_text: &str) -> Self {
+        Self {
+            model: model.into(),
+            max_tokens,
+            messages: vec![serde_json::json!({
+                "role": "user",
+                "content": [{"type": "text", "text": user_text}],
+            })],
+            ..Default::default()
+        }
+    }
+
+    /// The JSON body sent to `/v1/messages`, without the `stream` flag.
+    pub fn body(&self) -> Value {
+        let mut m = serde_json::Map::new();
+        m.insert("model".into(), Value::String(self.model.clone()));
+        m.insert("max_tokens".into(), Value::from(self.max_tokens));
+        if !self.system.is_empty() {
+            m.insert("system".into(), Value::Array(self.system.clone()));
+        }
+        m.insert("messages".into(), Value::Array(self.messages.clone()));
+        if !self.tools.is_empty() {
+            m.insert("tools".into(), Value::Array(self.tools.clone()));
+        }
+        if let Some(t) = &self.thinking {
+            m.insert("thinking".into(), t.clone());
+        }
+        if let Some(o) = &self.output_config {
+            m.insert("output_config".into(), o.clone());
+        }
+        if let Some(c) = &self.cache_control {
+            m.insert("cache_control".into(), c.clone());
+        }
+        for (k, v) in &self.extra {
+            m.insert(k.clone(), v.clone());
+        }
+        Value::Object(m)
+    }
+
+    /// sha256 of the canonical body: what a reconstruction must reproduce (§4.4).
+    pub fn digest(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(canonical_json(&self.body()).as_bytes());
+        hex::encode(h.finalize())
+    }
+
+    /// Rough size of the prompt in tokens (chars / 4) for budgeting.
+    pub fn estimate_tokens(&self) -> u64 {
+        let chars = serde_json::to_string(&self.system)
+            .map(|s| s.len())
+            .unwrap_or(0)
+            + serde_json::to_string(&self.tools)
+                .map(|s| s.len())
+                .unwrap_or(0)
+            + serde_json::to_string(&self.messages)
+                .map(|s| s.len())
+                .unwrap_or(0);
+        (chars / 4) as u64
+    }
+}
+
+/// JSON with object keys sorted, recursively: the form every digest is taken over.
+pub fn canonical_json(v: &Value) -> String {
+    match v {
+        Value::Object(m) => {
+            let mut keys: Vec<&String> = m.keys().collect();
+            keys.sort();
+            let parts: Vec<String> = keys
+                .into_iter()
+                .map(|k| {
+                    format!(
+                        "{}:{}",
+                        serde_json::to_string(k).unwrap_or_default(),
+                        canonical_json(&m[k])
+                    )
+                })
+                .collect();
+            format!("{{{}}}", parts.join(","))
+        }
+        Value::Array(a) => format!(
+            "[{}]",
+            a.iter().map(canonical_json).collect::<Vec<_>>().join(",")
+        ),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,30 +170,6 @@ impl Default for Timeouts {
 
 // ----------------------------------------------------------------- response
 
-/// A content block as the API defines it. Unknown kinds are kept, not dropped.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ContentBlock {
-    Text {
-        text: String,
-    },
-    ToolUse {
-        id: String,
-        name: String,
-        input: Value,
-    },
-    Thinking {
-        thinking: String,
-        #[serde(default)]
-        signature: String,
-    },
-    RedactedThinking {
-        data: String,
-    },
-    #[serde(other)]
-    Unknown,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentDelta {
@@ -108,16 +185,11 @@ pub enum ContentDelta {
     SignatureDelta {
         signature: String,
     },
+    CitationsDelta {
+        citation: Value,
+    },
     #[serde(other)]
     Unknown,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct MessageDelta {
-    #[serde(default)]
-    pub stop_reason: Option<String>,
-    #[serde(default)]
-    pub stop_sequence: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -137,7 +209,7 @@ pub enum StreamEvent {
     },
     ContentBlockStart {
         index: usize,
-        content_block: ContentBlock,
+        content_block: Value,
     },
     ContentBlockDelta {
         index: usize,
@@ -147,7 +219,8 @@ pub enum StreamEvent {
         index: usize,
     },
     MessageDelta {
-        delta: MessageDelta,
+        #[serde(default)]
+        delta: Value,
         #[serde(default)]
         usage: Option<Value>,
     },
@@ -204,21 +277,82 @@ pub struct CallTiming {
 pub struct ModelResponse {
     /// Concatenated text blocks, in order.
     pub text: String,
-    pub content: Vec<ContentBlock>,
+    /// Every content block exactly as assembled from the stream.
+    pub content: Vec<Value>,
     pub stop_reason: Option<String>,
+    /// Populated when `stop_reason` is `refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_details: Option<Value>,
     pub usage: Usage,
+    /// The model that served the response (differs from the request on a fallback).
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
     pub request_id: Option<String>,
     pub rate_limit: RateLimitInfo,
     pub timing: CallTiming,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_transformations: Option<Value>,
+    /// tool_use ids whose streamed input did not parse as JSON, with the raw text.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub invalid_tool_inputs: BTreeMap<String, String>,
+}
+
+/// A `tool_use` block, extracted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolUse {
+    pub id: String,
+    pub name: String,
+    pub input: Value,
+}
+
+/// The `tool_use` blocks in a content list, in order.
+pub fn tool_uses_in(blocks: &[Value]) -> Vec<ToolUse> {
+    blocks
+        .iter()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+        .map(|b| ToolUse {
+            id: b
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            name: b
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            input: b
+                .get("input")
+                .cloned()
+                .unwrap_or(Value::Object(Default::default())),
+        })
+        .collect()
+}
+
+/// Concatenated `text` blocks.
+pub fn text_of(blocks: &[Value]) -> String {
+    blocks
+        .iter()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|b| b.get("text").and_then(Value::as_str))
+        .collect()
+}
+
+/// Concatenated `thinking` text (summaries or progress updates; empty when omitted).
+pub fn thinking_of(blocks: &[Value]) -> String {
+    blocks
+        .iter()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("thinking"))
+        .filter_map(|b| b.get("thinking").and_then(Value::as_str))
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 impl ModelResponse {
-    pub fn tool_calls(&self) -> Vec<&ContentBlock> {
-        self.content
-            .iter()
-            .filter(|b| matches!(b, ContentBlock::ToolUse { .. }))
-            .collect()
+    pub fn tool_uses(&self) -> Vec<ToolUse> {
+        tool_uses_in(&self.content)
     }
 }
 
@@ -346,7 +480,15 @@ fn api_error_message(body: &str) -> String {
 
 // ------------------------------------------------------------------ trait
 
-pub type DeltaSink<'a> = &'a mut (dyn FnMut(&str) + Send);
+/// What streams to the caller while a response is generated.
+#[derive(Debug, Clone, Copy)]
+pub enum Delta<'a> {
+    Text(&'a str),
+    Thinking(&'a str),
+    ToolUseStart { id: &'a str, name: &'a str },
+}
+
+pub type DeltaSink<'a> = &'a mut (dyn FnMut(Delta<'_>) + Send);
 pub type ProviderFuture<'a> = futures_util::future::BoxFuture<'a, Result<ModelResponse>>;
 
 /// A model provider. The turn runner depends on this, never on Anthropic
@@ -356,7 +498,7 @@ pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
     fn stream_message<'a>(
         &'a self,
-        req: ProviderRequest<'a>,
+        req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a>;
 }
@@ -369,18 +511,6 @@ pub struct Anthropic {
     api_base: String,
     key: Secret,
     timeouts: Timeouts,
-}
-
-#[derive(Serialize)]
-struct MessagesRequest<'a> {
-    model: &'a str,
-    max_tokens: u32,
-    stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system: Option<&'a str>,
-    messages: &'a [Message],
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<ToolDef>,
 }
 
 impl Anthropic {
@@ -399,29 +529,27 @@ impl Anthropic {
 
     async fn stream_message_impl(
         &self,
-        req: ProviderRequest<'_>,
+        req: &ProviderRequest,
         on_delta: DeltaSink<'_>,
     ) -> Result<ModelResponse> {
         let started = Instant::now();
         let deadline = started + Duration::from_secs(self.timeouts.total_secs);
         let elapsed = |s: Instant| s.elapsed().as_millis() as u64;
 
-        let body = MessagesRequest {
-            model: req.model,
-            max_tokens: req.max_tokens,
-            stream: true,
-            system: req.system,
-            messages: req.messages,
-            tools: req.tools,
-        };
-        let send = self
+        let mut body = req.body();
+        if let Value::Object(m) = &mut body {
+            m.insert("stream".into(), Value::Bool(true));
+        }
+        let mut post = self
             .http
             .post(format!("{}/v1/messages", self.api_base))
             .header("x-api-key", self.key.expose())
             .header("anthropic-version", API_VERSION)
-            .header("content-type", "application/json")
-            .json(&body)
-            .send();
+            .header("content-type", "application/json");
+        if !req.betas.is_empty() {
+            post = post.header("anthropic-beta", req.betas.join(","));
+        }
+        let send = post.json(&body).send();
 
         // First byte: response headers within the budget.
         let first_byte_budget =
@@ -466,7 +594,7 @@ impl Anthropic {
         }
 
         let mut out = ModelResponse {
-            model: req.model.to_string(),
+            model: req.model.clone(),
             request_id,
             rate_limit: RateLimitInfo::from_headers(&headers),
             timing: CallTiming {
@@ -534,15 +662,10 @@ impl Anthropic {
                 }
             }
         }
-        out.content = acc.finish();
-        out.text = out
-            .content
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text { text } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect();
+        let (content, invalid) = acc.finish();
+        out.content = content;
+        out.invalid_tool_inputs = invalid;
+        out.text = text_of(&out.content);
         out.timing.total_ms = elapsed(started);
         if !saw_stop {
             return Err(ProviderError::Truncated {
@@ -560,7 +683,7 @@ impl Provider for Anthropic {
     }
     fn stream_message<'a>(
         &'a self,
-        req: ProviderRequest<'a>,
+        req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         Box::pin(self.stream_message_impl(req, on_delta))
@@ -582,12 +705,27 @@ enum Flow {
     Stop,
 }
 
-/// Assembles content blocks from start/delta/stop events. Tool input arrives
-/// as partial JSON; it is parsed once, at block stop, never dispatched early.
+/// Assembles content blocks from start/delta/stop events, as JSON values in
+/// the shape the API would return them non-streamed. Tool input arrives as
+/// partial JSON and is parsed once, strictly, at block stop; input that does
+/// not parse is recorded (the harness answers it with an `INVALID_JSON` error
+/// result) and never dispatched.
 #[derive(Default)]
 struct Accumulator {
-    blocks: BTreeMap<usize, ContentBlock>,
+    blocks: BTreeMap<usize, Value>,
     partial_json: BTreeMap<usize, String>,
+    invalid: BTreeMap<String, String>,
+}
+
+fn push_str(block: &mut Value, key: &str, s: &str) {
+    if let Value::Object(m) = block {
+        match m.get_mut(key) {
+            Some(Value::String(t)) => t.push_str(s),
+            _ => {
+                m.insert(key.into(), Value::String(s.into()));
+            }
+        }
+    }
 }
 
 impl Accumulator {
@@ -595,7 +733,7 @@ impl Accumulator {
         &mut self,
         ev: StreamEvent,
         out: &mut ModelResponse,
-        on_delta: &mut (dyn FnMut(&str) + Send),
+        on_delta: &mut (dyn FnMut(Delta<'_>) + Send),
     ) -> Result<Flow> {
         match ev {
             StreamEvent::MessageStart { message } => {
@@ -605,61 +743,97 @@ impl Accumulator {
                 if let Some(m) = message.get("model").and_then(Value::as_str) {
                     out.model = m.to_string();
                 }
+                if let Some(id) = message.get("id").and_then(Value::as_str) {
+                    out.message_id = Some(id.to_string());
+                }
+                if let Some(t) = message.get("input_transformations") {
+                    out.input_transformations = Some(t.clone());
+                }
             }
             StreamEvent::ContentBlockStart {
                 index,
                 content_block,
             } => {
+                if content_block.get("type").and_then(Value::as_str) == Some("tool_use") {
+                    let id = content_block
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let name = content_block
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    on_delta(Delta::ToolUseStart { id, name });
+                }
                 self.blocks.insert(index, content_block);
             }
-            StreamEvent::ContentBlockDelta { index, delta } => match delta {
-                ContentDelta::TextDelta { text } => {
-                    if let Some(ContentBlock::Text { text: t }) = self.blocks.get_mut(&index) {
-                        t.push_str(&text);
-                    } else {
-                        self.blocks
-                            .insert(index, ContentBlock::Text { text: text.clone() });
+            StreamEvent::ContentBlockDelta { index, delta } => {
+                let block = self
+                    .blocks
+                    .entry(index)
+                    .or_insert_with(|| serde_json::json!({"type": "text", "text": ""}));
+                match delta {
+                    ContentDelta::TextDelta { text } => {
+                        push_str(block, "text", &text);
+                        on_delta(Delta::Text(&text));
                     }
-                    on_delta(&text);
-                }
-                ContentDelta::InputJsonDelta { partial_json } => {
-                    self.partial_json
-                        .entry(index)
-                        .or_default()
-                        .push_str(&partial_json);
-                }
-                ContentDelta::ThinkingDelta { thinking } => {
-                    if let Some(ContentBlock::Thinking { thinking: t, .. }) =
-                        self.blocks.get_mut(&index)
-                    {
-                        t.push_str(&thinking);
+                    ContentDelta::InputJsonDelta { partial_json } => {
+                        self.partial_json
+                            .entry(index)
+                            .or_default()
+                            .push_str(&partial_json);
                     }
-                }
-                ContentDelta::SignatureDelta { signature } => {
-                    if let Some(ContentBlock::Thinking { signature: s, .. }) =
-                        self.blocks.get_mut(&index)
-                    {
-                        s.push_str(&signature);
+                    ContentDelta::ThinkingDelta { thinking } => {
+                        push_str(block, "thinking", &thinking);
+                        on_delta(Delta::Thinking(&thinking));
                     }
+                    ContentDelta::SignatureDelta { signature } => {
+                        push_str(block, "signature", &signature);
+                    }
+                    ContentDelta::CitationsDelta { citation } => {
+                        if let Value::Object(m) = block {
+                            match m.get_mut("citations") {
+                                Some(Value::Array(a)) => a.push(citation),
+                                _ => {
+                                    m.insert("citations".into(), Value::Array(vec![citation]));
+                                }
+                            }
+                        }
+                    }
+                    ContentDelta::Unknown => {}
                 }
-                ContentDelta::Unknown => {}
-            },
+            }
             StreamEvent::ContentBlockStop { index } => {
                 if let Some(json) = self.partial_json.remove(&index) {
-                    if let Some(ContentBlock::ToolUse { input, .. }) = self.blocks.get_mut(&index) {
-                        if !json.trim().is_empty() {
-                            *input =
-                                serde_json::from_str(&json).map_err(|e| ProviderError::Stream {
-                                    kind: "invalid_tool_input".into(),
-                                    message: format!("tool input was not valid JSON: {e}"),
-                                })?;
+                    if let Some(block @ Value::Object(_)) = self.blocks.get_mut(&index) {
+                        if block.get("type").and_then(Value::as_str) == Some("tool_use") {
+                            let parsed = if json.trim().is_empty() {
+                                Ok(Value::Object(Default::default()))
+                            } else {
+                                serde_json::from_str::<Value>(&json)
+                            };
+                            match parsed {
+                                Ok(v @ Value::Object(_)) => block["input"] = v,
+                                _ => {
+                                    let id = block
+                                        .get("id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    block["input"] = Value::Object(Default::default());
+                                    self.invalid.insert(id, json);
+                                }
+                            }
                         }
                     }
                 }
             }
             StreamEvent::MessageDelta { delta, usage } => {
-                if let Some(s) = delta.stop_reason {
-                    out.stop_reason = Some(s);
+                if let Some(s) = delta.get("stop_reason").and_then(Value::as_str) {
+                    out.stop_reason = Some(s.to_string());
+                }
+                if let Some(d) = delta.get("stop_details").filter(|d| !d.is_null()) {
+                    out.stop_details = Some(d.clone());
                 }
                 if let Some(u) = usage {
                     apply_usage(&mut out.usage, &u);
@@ -678,8 +852,8 @@ impl Accumulator {
         Ok(Flow::Continue)
     }
 
-    fn finish(self) -> Vec<ContentBlock> {
-        self.blocks.into_values().collect()
+    fn finish(self) -> (Vec<Value>, BTreeMap<String, String>) {
+        (self.blocks.into_values().collect(), self.invalid)
     }
 }
 
@@ -701,13 +875,53 @@ fn apply_usage(u: &mut Usage, v: &Value) {
 
 // -------------------------------------------------------------------- fake
 
-/// A scripted provider for tests: emits `reply` in chunks, reports usage, or
-/// fails with a chosen error.
+/// One scripted provider response.
+#[derive(Debug, Clone)]
+pub enum Scripted {
+    /// Return these blocks (text blocks stream as deltas) with this stop reason.
+    Blocks {
+        blocks: Vec<Value>,
+        stop_reason: String,
+    },
+    Fail(ProviderError),
+}
+
+impl Scripted {
+    pub fn text(t: &str) -> Self {
+        Scripted::Blocks {
+            blocks: vec![serde_json::json!({"type": "text", "text": t})],
+            stop_reason: "end_turn".into(),
+        }
+    }
+    /// One or more tool calls: `(id, wire name, input)`, optionally after some text.
+    pub fn tools(text: &str, calls: &[(&str, &str, Value)]) -> Self {
+        let mut blocks = Vec::new();
+        if !text.is_empty() {
+            blocks.push(serde_json::json!({"type": "text", "text": text}));
+        }
+        for (id, name, input) in calls {
+            blocks.push(
+                serde_json::json!({"type": "tool_use", "id": id, "name": name, "input": input}),
+            );
+        }
+        Scripted::Blocks {
+            blocks,
+            stop_reason: "tool_use".into(),
+        }
+    }
+}
+
+/// A provider for tests: scripted responses consumed in order, then `reply`
+/// forever; or `fail_with` on every call. Every request is recorded.
 pub struct FakeProvider {
     pub reply: String,
     pub chunk: usize,
     pub stop_reason: String,
     pub fail_with: Option<ProviderError>,
+    pub script: std::sync::Mutex<std::collections::VecDeque<Scripted>>,
+    pub requests: std::sync::Mutex<Vec<ProviderRequest>>,
+    /// Artificial latency before the response, for concurrency tests.
+    pub delay_ms: u64,
 }
 
 impl Default for FakeProvider {
@@ -717,7 +931,22 @@ impl Default for FakeProvider {
             chunk: 4,
             stop_reason: "end_turn".into(),
             fail_with: None,
+            script: Default::default(),
+            requests: Default::default(),
+            delay_ms: 0,
         }
+    }
+}
+
+impl FakeProvider {
+    pub fn scripted(script: Vec<Scripted>) -> Self {
+        Self {
+            script: std::sync::Mutex::new(script.into()),
+            ..Default::default()
+        }
+    }
+    pub fn requests(&self) -> Vec<ProviderRequest> {
+        self.requests.lock().unwrap().clone()
     }
 }
 
@@ -727,43 +956,67 @@ impl Provider for FakeProvider {
     }
     fn stream_message<'a>(
         &'a self,
-        req: ProviderRequest<'a>,
+        req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
+            self.requests.lock().unwrap().push(req.clone());
+            if self.delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+            }
             if let Some(e) = &self.fail_with {
                 return Err(e.clone().into());
             }
-            let chars: Vec<char> = self.reply.chars().collect();
-            for piece in chars.chunks(self.chunk.max(1)) {
-                let s: String = piece.iter().collect();
-                on_delta(&s);
-                tokio::task::yield_now().await;
+            let next = self.script.lock().unwrap().pop_front();
+            let (blocks, stop_reason) = match next {
+                Some(Scripted::Fail(e)) => return Err(e.into()),
+                Some(Scripted::Blocks {
+                    blocks,
+                    stop_reason,
+                }) => (blocks, stop_reason),
+                None => (
+                    vec![serde_json::json!({"type": "text", "text": self.reply})],
+                    self.stop_reason.clone(),
+                ),
+            };
+            for b in &blocks {
+                match b.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        let t = b.get("text").and_then(Value::as_str).unwrap_or_default();
+                        let chars: Vec<char> = t.chars().collect();
+                        for piece in chars.chunks(self.chunk.max(1)) {
+                            let s: String = piece.iter().collect();
+                            on_delta(Delta::Text(&s));
+                            tokio::task::yield_now().await;
+                        }
+                    }
+                    Some("tool_use") => {
+                        let id = b.get("id").and_then(Value::as_str).unwrap_or_default();
+                        let name = b.get("name").and_then(Value::as_str).unwrap_or_default();
+                        on_delta(Delta::ToolUseStart { id, name });
+                    }
+                    _ => {}
+                }
             }
-            let input_tokens = req
-                .messages
-                .iter()
-                .map(|m| m.content.split_whitespace().count() as u64)
-                .sum();
+            let text = text_of(&blocks);
             Ok(ModelResponse {
-                text: self.reply.clone(),
-                content: vec![ContentBlock::Text {
-                    text: self.reply.clone(),
-                }],
-                stop_reason: Some(self.stop_reason.clone()),
                 usage: Usage {
-                    input_tokens,
-                    output_tokens: self.reply.split_whitespace().count() as u64,
+                    input_tokens: req.estimate_tokens(),
+                    output_tokens: (text.split_whitespace().count() as u64).max(1),
                     ..Default::default()
                 },
-                model: req.model.to_string(),
+                text,
+                content: blocks,
+                stop_reason: Some(stop_reason),
+                model: req.model.clone(),
+                message_id: Some(crate::new_id("msg_fake")),
                 request_id: Some("req_fake".into()),
-                rate_limit: RateLimitInfo::default(),
                 timing: CallTiming {
                     first_byte_ms: Some(1),
                     first_token_ms: Some(2),
                     total_ms: 3,
                 },
+                ..Default::default()
             })
         })
     }
@@ -777,7 +1030,11 @@ mod tests {
         let mut out = ModelResponse::default();
         let mut acc = Accumulator::default();
         let mut deltas = Vec::new();
-        let mut sink = |t: &str| deltas.push(t.to_string());
+        let mut sink = |d: Delta<'_>| {
+            if let Delta::Text(t) = d {
+                deltas.push(t.to_string())
+            }
+        };
         let mut err = None;
         for l in lines {
             if let Some(ev) = parse_sse_line(l) {
@@ -791,7 +1048,9 @@ mod tests {
                 }
             }
         }
-        out.content = acc.finish();
+        let (content, invalid) = acc.finish();
+        out.content = content;
+        out.invalid_tool_inputs = invalid;
         (out, deltas, err)
     }
 
@@ -812,9 +1071,7 @@ mod tests {
         assert_eq!(deltas, vec!["Hel", "lo"]);
         assert_eq!(
             out.content,
-            vec![ContentBlock::Text {
-                text: "Hello".into()
-            }]
+            vec![serde_json::json!({"type": "text", "text": "Hello"})]
         );
         assert_eq!(out.model, "claude-x");
         assert_eq!(out.stop_reason.as_deref(), Some("end_turn"));
@@ -834,15 +1091,53 @@ mod tests {
             r#"data: {"type":"message_stop"}"#,
         ]);
         assert!(err.is_none());
-        assert_eq!(out.tool_calls().len(), 1);
-        match &out.content[0] {
-            ContentBlock::ToolUse { name, input, .. } => {
-                assert_eq!(name, "bash");
-                assert_eq!(input["cmd"], "ls -la");
-            }
-            other => panic!("{other:?}"),
-        }
+        let tu = out.tool_uses();
+        assert_eq!(tu.len(), 1);
+        assert_eq!(tu[0].name, "bash");
+        assert_eq!(tu[0].input["cmd"], "ls -la");
         assert_eq!(out.stop_reason.as_deref(), Some("tool_use"));
+    }
+
+    #[test]
+    fn thinking_blocks_keep_their_signature_verbatim_and_bad_tool_json_is_recorded() {
+        let (out, _, err) = run(&[
+            r#"data: {"type":"message_start","message":{"id":"msg_1","model":"claude-y","usage":{"input_tokens":3}}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Plan."}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"c2ln"}}"#,
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_9","name":"fs_read","input":{}}}"#,
+            r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"/x"}}"#,
+            r#"data: {"type":"content_block_stop","index":1}"#,
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":7}}"#,
+            r#"data: {"type":"message_stop"}"#,
+        ]);
+        assert!(err.is_none());
+        assert_eq!(out.message_id.as_deref(), Some("msg_1"));
+        assert_eq!(
+            out.content[0],
+            serde_json::json!({"type": "thinking", "thinking": "Plan.", "signature": "c2ln"})
+        );
+        assert_eq!(out.content[1]["input"], serde_json::json!({}));
+        assert_eq!(
+            out.invalid_tool_inputs.get("toolu_9").map(String::as_str),
+            Some("{\"path\": \"/x")
+        );
+        assert_eq!(thinking_of(&out.content), "Plan.");
+    }
+
+    #[test]
+    fn request_body_digest_is_stable_and_betas_stay_out_of_the_body() {
+        let mut r = ProviderRequest::simple("m", 10, "hi");
+        r.betas = vec!["b1".into()];
+        r.cache_control = Some(serde_json::json!({"type": "ephemeral"}));
+        let b = r.body();
+        assert!(b.get("betas").is_none());
+        assert_eq!(b["cache_control"]["type"], "ephemeral");
+        assert_eq!(r.digest(), r.clone().digest());
+        let mut r2 = r.clone();
+        r2.max_tokens = 11;
+        assert_ne!(r.digest(), r2.digest());
     }
 
     #[test]
@@ -865,7 +1160,7 @@ mod tests {
         ]);
         assert!(err.is_none());
         assert_eq!(out.content.len(), 2);
-        assert_eq!(out.content[0], ContentBlock::Unknown);
+        assert_eq!(out.content[0]["type"], "server_tool_use");
     }
 
     #[test]

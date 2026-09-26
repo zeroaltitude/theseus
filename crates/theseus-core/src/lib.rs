@@ -7,17 +7,24 @@
 //! spool, admission, budgets, the harness loop (`theseus-kernel` + `harness`).
 
 pub mod advancer;
+pub mod bus;
+pub mod catalog;
+pub mod compiler;
 pub mod config;
 pub mod github;
 pub mod harness;
 pub mod hooks;
 pub mod ledger;
+pub mod node;
+pub mod policy;
 pub mod provider;
 pub mod rpc;
+pub mod scrub;
 pub mod secrets;
 pub mod session;
 pub mod store;
 pub mod telemetry;
+pub mod toolrun;
 pub mod trace;
 pub mod turn;
 
@@ -30,3 +37,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn new_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::now_v7().simple())
 }
+
+#[cfg(test)]
+mod tests_m3;

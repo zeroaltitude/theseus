@@ -161,8 +161,10 @@ async fn main() -> Result<()> {
         );
     }
 
-    // The harness loop: heartbeat reconciler and the wrapper notify socket.
+    // The harness loop: heartbeat reconciler and the wrapper notify socket;
+    // the driver takes continuation turns (job results, confirms, restarts).
     tokio::spawn(theseus_core::harness::run(core.clone()));
+    tokio::spawn(theseus_core::harness::drive(core.clone()));
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");

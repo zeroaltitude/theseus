@@ -19,14 +19,19 @@ use theseus_protocol::{
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::advancer::StopAfterOneLoop;
+use crate::bus::{EventSink, SessionBus};
+use crate::catalog::Catalog;
+use crate::compiler::Recompile;
 use crate::hooks::{HookEvent, Hooks};
 use crate::ledger::LedgerRow;
+use crate::node::{Body, Node};
 use crate::provider::{Anthropic, Provider};
+use crate::scrub::Scrubber;
 use crate::secrets::Secrets;
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::{ToolchainManager, TurnError, TurnRunner};
+use crate::toolrun::{InlineLauncher, JobLauncher, ToolRuntime, WrapperLauncher};
+use crate::turn::{TurnError, TurnRequest, TurnRunner, OPERATOR};
 use crate::Config;
 use theseus_kernel::job::WrapperEvidence;
 use theseus_kernel::{Authority, Execution, Kernel, Spool};
@@ -43,6 +48,9 @@ pub struct Core {
     pub admission: Arc<tokio::sync::Notify>,
     /// The last startup report, as JSON, for health.
     pub startup_report: Value,
+    pub catalog: Arc<Catalog>,
+    pub bus: Arc<SessionBus>,
+    pub tools: Arc<ToolRuntime>,
     pub runner: TurnRunner,
     pub secret_names: Vec<String>,
     pub telemetry: Arc<crate::telemetry::Telemetry>,
@@ -85,7 +93,20 @@ impl Core {
             Some(e) => tracing::info!(endpoint = %e, "telemetry: OTLP/HTTP export on"),
             None => tracing::info!("telemetry: no otlp_endpoint configured; nothing is exported"),
         }
-        Self::with_providers_and_telemetry(cfg, providers, store, secrets.names(), telemetry)
+        let scrubber = Arc::new(Scrubber::from_secrets(&secrets));
+        let launcher: Arc<dyn JobLauncher> = Arc::new(WrapperLauncher {
+            self_exe: std::env::current_exe()
+                .context("locating the theseusd binary for the job wrapper")?,
+        });
+        Self::build(
+            cfg,
+            providers,
+            store,
+            secrets.names(),
+            telemetry,
+            scrubber,
+            launcher,
+        )
     }
 
     /// Build a core around one provider registered under the config's default
@@ -122,6 +143,26 @@ impl Core {
         store: Store,
         secret_names: Vec<String>,
         telemetry: crate::telemetry::Telemetry,
+    ) -> Result<Arc<Self>> {
+        Self::build(
+            cfg,
+            providers,
+            store,
+            secret_names,
+            telemetry,
+            Arc::new(Scrubber::default()),
+            Arc::new(InlineLauncher),
+        )
+    }
+
+    pub fn build(
+        cfg: Config,
+        providers: BTreeMap<String, Arc<dyn Provider>>,
+        store: Store,
+        secret_names: Vec<String>,
+        telemetry: crate::telemetry::Telemetry,
+        scrubber: Arc<Scrubber>,
+        launcher: Arc<dyn JobLauncher>,
     ) -> Result<Arc<Self>> {
         let cfg = Arc::new(cfg);
         let hooks = Hooks::new();
@@ -166,6 +207,28 @@ impl Core {
             "kernel accepting events"
         );
         let admission = Arc::new(tokio::sync::Notify::new());
+        let catalog = Arc::new(Catalog::with_overrides(&cfg.catalog));
+        for (name, p) in cfg.all_profiles() {
+            if catalog.get(&p.model).is_none() {
+                tracing::warn!(profile = %name, model = %p.model, "model is not in the catalog: it runs, but cost is unknown and limits are defaults");
+            }
+        }
+        let bus = Arc::new(SessionBus::default());
+        let tools = Arc::new(crate::toolrun::build_runtime(
+            &cfg,
+            Some(spool.clone()),
+            scrubber,
+            launcher,
+        )?);
+        tracing::info!(
+            tools = tools.registry.len(),
+            roots = ?tools.ctx.roots,
+            read = tools.policy.read.as_str(),
+            write = tools.policy.write.as_str(),
+            run = tools.policy.run.as_str(),
+            catalog = %catalog.version,
+            "tools and catalog"
+        );
         let runner = TurnRunner {
             cfg: cfg.clone(),
             providers,
@@ -173,8 +236,9 @@ impl Core {
             store: store.clone(),
             kernel: kernel.clone(),
             admission: admission.clone(),
-            advancer: Arc::new(StopAfterOneLoop),
-            toolchain: ToolchainManager,
+            catalog: catalog.clone(),
+            tools: tools.clone(),
+            bus: bus.clone(),
         };
         // A persisted runtime switch wins over config, if it still names a profile.
         let profiles = cfg.all_profiles();
@@ -195,6 +259,9 @@ impl Core {
             spool,
             admission,
             startup_report: serde_json::to_value(&startup).unwrap_or(Value::Null),
+            catalog,
+            bus,
+            tools,
             runner,
             secret_names,
             telemetry: Arc::new(telemetry),
@@ -409,10 +476,10 @@ impl Core {
             .map(|(name, p)| ProfileInfo {
                 live: name == live,
                 name,
+                max_output_tokens: p.effective_max_tokens(&self.catalog),
+                has_system: p.system.is_some(),
                 provider: p.provider,
                 model: p.model,
-                max_output_tokens: p.max_output_tokens,
-                has_system: p.system.is_some(),
             })
             .collect();
         ProfileListResult {
@@ -465,7 +532,7 @@ impl Core {
             protocol: theseus_protocol::VERSION.into(),
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: self.store.session_count().unwrap_or(0),
-            turns: self.turns.load(Ordering::Relaxed),
+            turns: self.turns_total(),
             model: prof.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
             profile,
             provider: prof.map(|p| p.provider).unwrap_or_default(),
@@ -479,6 +546,260 @@ impl Core {
                 otlp_endpoint: self.telemetry.endpoint.clone(),
             },
             kernel: self.kernel_status(),
+            cost_usd_total: self.cost_total(),
+            catalog_version: self.catalog.version.clone(),
+        }
+    }
+
+    /// Turns across every session, from the store (survives restarts).
+    fn turns_total(&self) -> u64 {
+        self.store
+            .list_sessions::<SessionRecord>()
+            .map(|v| v.iter().map(|s| s.turns).sum())
+            .unwrap_or_else(|_| self.turns.load(Ordering::Relaxed))
+    }
+
+    fn cost_total(&self) -> f64 {
+        self.store
+            .list_sessions::<SessionRecord>()
+            .map(|v| v.iter().map(|s| s.cost_usd).sum())
+            .unwrap_or(0.0)
+    }
+
+    pub fn node_info(position: u64, n: &Node) -> theseus_protocol::NodeInfo {
+        let (text, thinking, detail, bytes) = match &n.body {
+            Body::UserMessage { text } => {
+                (text.clone(), String::new(), Value::Null, text.len() as u64)
+            }
+            Body::AssistantMessage {
+                blocks,
+                model,
+                provider,
+                stop_reason,
+                usage,
+                cost_usd,
+                request_id,
+                correlation_id,
+                compilation_id,
+                ..
+            } => {
+                let calls: Vec<Value> = crate::provider::tool_uses_in(blocks)
+                    .into_iter()
+                    .map(|u| json!({"id": u.id, "name": u.name, "input": u.input}))
+                    .collect();
+                (
+                    crate::provider::text_of(blocks),
+                    crate::provider::thinking_of(blocks),
+                    json!({"model": model, "provider": provider, "stop_reason": stop_reason, "usage": usage, "cost_usd": cost_usd, "request_id": request_id, "correlation_id": correlation_id, "compilation_id": compilation_id, "tool_calls": calls, "blocks": blocks.len()}),
+                    serde_json::to_string(blocks)
+                        .map(|s| s.len() as u64)
+                        .unwrap_or(0),
+                )
+            }
+            Body::ToolCall {
+                tool_use_id,
+                tool,
+                input,
+                correlation_id,
+                gate,
+                ..
+            } => (
+                String::new(),
+                String::new(),
+                json!({"tool_use_id": tool_use_id, "tool": tool, "input": input, "correlation_id": correlation_id, "decision": gate.get("decision"), "result": gate.get("result"), "plan": gate.get("plan")}),
+                0,
+            ),
+            Body::ToolResult {
+                tool_use_id,
+                tool,
+                status,
+                is_error,
+                content,
+                correlation_id,
+                bytes_total,
+                truncated,
+                full_ref,
+                duration_ms,
+                late,
+                meta,
+            } => (
+                content.clone(),
+                String::new(),
+                json!({"tool_use_id": tool_use_id, "tool": tool, "status": status.as_str(), "is_error": is_error, "correlation_id": correlation_id, "truncated": truncated, "full_ref": full_ref, "duration_ms": duration_ms, "late": late, "meta": meta}),
+                *bytes_total,
+            ),
+        };
+        theseus_protocol::NodeInfo {
+            node_id: n.id.clone(),
+            kind: n.kind_str().into(),
+            session_id: n.session_id.clone(),
+            position,
+            at_unix_ms: n.created_at_ms,
+            turn_id: n.turn_id.clone(),
+            loop_index: n.loop_index,
+            author: n.author.clone(),
+            text,
+            thinking,
+            detail,
+            bytes,
+        }
+    }
+
+    /// Tool calls in a session still waiting for the operator.
+    pub fn pending_confirms(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<theseus_protocol::ConfirmRequest>> {
+        let mut out = Vec::new();
+        let nodes = self.store.session_nodes(session_id)?;
+        let ttl = self.kernel.config().confirm_ttl_ms;
+        for (_, n) in &nodes {
+            if let Body::ToolCall {
+                tool,
+                input,
+                correlation_id: Some(c),
+                gate,
+                ..
+            } = &n.body
+            {
+                if let Some(a) = self.kernel.action(c)? {
+                    if a.state == theseus_kernel::ActionState::Planned && a.confirm.is_none() {
+                        out.push(theseus_protocol::ConfirmRequest {
+                            correlation_id: c.clone(),
+                            session_id: session_id.into(),
+                            execution_id: a.execution_id.clone(),
+                            tool: tool.clone(),
+                            input: input.clone(),
+                            resource: a.resource.clone(),
+                            reason: gate["decision"]["reason"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_string(),
+                            by: OPERATOR.into(),
+                            requested_at_ms: a.planned_at_ms,
+                            expires_at_ms: a.planned_at_ms + ttl,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn session_info(&self, r: &SessionRecord) -> theseus_protocol::SessionInfo {
+        let mut i = r.info();
+        i.execution_state = r
+            .execution_id
+            .as_deref()
+            .and_then(|id| self.kernel.execution(id).ok().flatten())
+            .map(|e| e.state.as_str().to_string());
+        i
+    }
+
+    /// Answer a confirm: bind it (approve) or deny the action, then wake the
+    /// execution so the driver resumes the turn exactly where it parked.
+    pub fn confirm_action(
+        &self,
+        correlation_id: &str,
+        approve: bool,
+        note: Option<&str>,
+        by: &str,
+    ) -> Result<theseus_protocol::ActionConfirmResult> {
+        let a = self
+            .kernel
+            .action(correlation_id)?
+            .ok_or_else(|| anyhow::anyhow!("no action {correlation_id}"))?;
+        if a.state != theseus_kernel::ActionState::Planned {
+            anyhow::bail!(
+                "action {correlation_id} is {}, not waiting for confirmation",
+                a.state.as_str()
+            );
+        }
+        if approve {
+            let call = self
+                .store
+                .session_nodes(&a.session_id)?
+                .into_iter()
+                .find_map(|(_, n)| match n.body {
+                    Body::ToolCall {
+                        correlation_id: Some(c),
+                        gate,
+                        ..
+                    } if c == correlation_id => Some(gate),
+                    _ => None,
+                })
+                .ok_or_else(|| anyhow::anyhow!("no tool call node for {correlation_id}"))?;
+            let proposal: theseus_kernel::Proposal =
+                serde_json::from_value(call["proposal"].clone())
+                    .map_err(|e| anyhow::anyhow!("stored proposal unreadable: {e}"))?;
+            self.kernel
+                .bind_confirm(correlation_id, OPERATOR, &proposal)?;
+        } else {
+            self.kernel.deny_action(
+                correlation_id,
+                OPERATOR,
+                note.unwrap_or("the operator declined"),
+            )?;
+        }
+        self.store.append_ledger(&LedgerRow::new(
+            "action.confirm_answered",
+            Some(&a.session_id),
+            None,
+            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by}),
+        ))?;
+        let _ = self.kernel.wake(
+            &a.execution_id,
+            if approve { "confirmed" } else { "declined" },
+        );
+        self.bus.publish(
+            &a.session_id,
+            &Message::Notification(theseus_protocol::Notification::new(
+                notify::CONFIRM_RESOLVED,
+                json!({"session_id": a.session_id, "correlation_id": correlation_id, "approved": approve, "by": by}),
+            )),
+            None,
+        );
+        self.admission.notify_waiters();
+        Ok(theseus_protocol::ActionConfirmResult {
+            correlation_id: correlation_id.into(),
+            approved: approve,
+            session_id: a.session_id,
+            execution_id: a.execution_id,
+        })
+    }
+
+    /// The harness driver: take a continuation turn for an execution that is
+    /// runnable without human input. Returns quickly if it is not ready.
+    pub async fn continue_execution(
+        self: &Arc<Self>,
+        execution_id: &str,
+    ) -> Result<Option<theseus_protocol::TurnSubmitResult>> {
+        let Some(e) = self.kernel.execution(execution_id)? else {
+            return Ok(None);
+        };
+        let Some(session) = self.store.get_session::<SessionRecord>(&e.session_id)? else {
+            return Ok(None);
+        };
+        let (live, _) = self.live_profile();
+        let target = self.runner.target_for_session(&session, &live)?;
+        let sink = EventSink::new(self.bus.clone(), &session.session_id, None);
+        let r = self
+            .runner
+            .run(TurnRequest {
+                session,
+                input: None,
+                target,
+                sink,
+                author: "harness".into(),
+                recompile: None,
+            })
+            .await;
+        match r {
+            Ok(res) => {
+                self.telemetry.record_turn(&res);
+                Ok(Some(res))
+            }
+            Err(e) => Err(e),
         }
     }
 
@@ -501,12 +822,13 @@ impl Core {
                 SessionKind::Task => theseus_kernel::SessionKind::Task,
             },
             Authority {
-                principal: by.to_string(),
+                principal: OPERATOR.to_string(),
                 ..Default::default()
             },
             None,
             None,
         )?;
+        let _ = by;
         rec.execution_id = Some(exec.id);
         self.store.put_session(&rec.session_id, &rec)?;
         let (_, visit) = self.hooks.dispatch(
@@ -594,6 +916,7 @@ impl Core {
         }
         drop(tx);
         drop(resp_tx);
+        self.bus.drop_conn(&client);
         let n = self.hooks.unregister_client(&client);
         if n > 0 {
             tracing::info!(client = %client, dropped = n, "unregistered handlers of departed client");
@@ -632,27 +955,14 @@ impl Core {
                 Ok(serde_json::to_value(info).unwrap())
             }
             method::SESSION_LIST => {
-                let recs: Vec<SessionRecord> = self.store.list_sessions().map_err(bad)?;
-                let states: std::collections::HashMap<String, &'static str> = self
-                    .kernel
-                    .executions()
-                    .map_err(bad)?
-                    .into_iter()
-                    .map(|e| (e.id, e.state.as_str()))
-                    .collect();
+                let mut recs: Vec<SessionRecord> = self.store.list_sessions().map_err(bad)?;
+                recs.sort_by(|a, b| {
+                    b.last_active_ms
+                        .max(b.created_at_unix_ms)
+                        .cmp(&a.last_active_ms.max(a.created_at_unix_ms))
+                });
                 Ok(serde_json::to_value(SessionListResult {
-                    sessions: recs
-                        .iter()
-                        .map(|r| {
-                            let mut i = r.info();
-                            i.execution_state = r
-                                .execution_id
-                                .as_deref()
-                                .and_then(|id| states.get(id))
-                                .map(|s| s.to_string());
-                            i
-                        })
-                        .collect(),
+                    sessions: recs.iter().map(|r| self.session_info(r)).collect(),
                 })
                 .unwrap())
             }
@@ -691,7 +1001,23 @@ impl Core {
                     target.provider.clone(),
                     target.model.clone(),
                 );
-                let result = match self.runner.run(session, p.input, target, tx, client).await {
+                let sink = EventSink::new(
+                    self.bus.clone(),
+                    &session.session_id,
+                    Some((client.to_string(), tx.clone())),
+                );
+                let result = match self
+                    .runner
+                    .run(TurnRequest {
+                        session,
+                        input: Some(p.input),
+                        target,
+                        sink,
+                        author: client.to_string(),
+                        recompile: None,
+                    })
+                    .await
+                {
                     Ok(r) => {
                         self.telemetry.record_turn(&r);
                         r
@@ -804,6 +1130,205 @@ impl Core {
                     &changed,
                 )));
                 Ok(serde_json::to_value(changed).unwrap())
+            }
+            method::SESSION_HISTORY => {
+                let p: theseus_protocol::SessionHistoryParams = parse(req.params)?;
+                let rec = self
+                    .store
+                    .get_session::<SessionRecord>(&p.session_id)
+                    .map_err(bad)?
+                    .ok_or_else(|| {
+                        RpcFailure::new(
+                            error_code::NOT_FOUND,
+                            format!("no session {}", p.session_id),
+                        )
+                    })?;
+                let nodes = self.store.session_nodes(&p.session_id).map_err(bad)?;
+                let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
+                Ok(
+                    serde_json::to_value(theseus_protocol::SessionHistoryResult {
+                        session: self.session_info(&rec),
+                        nodes: nodes[skip..]
+                            .iter()
+                            .map(|(pos, n)| Self::node_info(*pos, n))
+                            .collect(),
+                        pending_confirms: self.pending_confirms(&p.session_id).map_err(bad)?,
+                    })
+                    .unwrap(),
+                )
+            }
+            method::SESSION_WATCH => {
+                let p: theseus_protocol::SessionRef = parse(req.params)?;
+                self.bus.watch(&p.session_id, client, tx.clone());
+                Ok(json!({"watching": p.session_id, "watchers": self.bus.watchers(&p.session_id)}))
+            }
+            method::SESSION_UNWATCH => {
+                let p: theseus_protocol::SessionRef = parse(req.params)?;
+                self.bus.unwatch(&p.session_id, client);
+                Ok(json!({"watching": Value::Null}))
+            }
+            method::SESSION_RECOMPILE => {
+                let p: theseus_protocol::SessionRecompileParams = parse(req.params)?;
+                let strategy = match p.strategy.as_str() {
+                    "fresh" => Recompile::Fresh,
+                    "transcript" => Recompile::Transcript,
+                    other => {
+                        return Err(RpcFailure::new(
+                            error_code::INVALID_PARAMS,
+                            format!("strategy {other:?} is not fresh or transcript"),
+                        ))
+                    }
+                };
+                let mut rec = self
+                    .store
+                    .get_session::<SessionRecord>(&p.session_id)
+                    .map_err(bad)?
+                    .ok_or_else(|| {
+                        RpcFailure::new(
+                            error_code::NOT_FOUND,
+                            format!("no session {}", p.session_id),
+                        )
+                    })?;
+                rec.pending_recompile = Some(strategy);
+                self.store.put_session(&rec.session_id, &rec).map_err(bad)?;
+                self.store
+                    .append_ledger(&LedgerRow::new(
+                        "context.recompile_requested",
+                        Some(&rec.session_id),
+                        None,
+                        json!({"strategy": p.strategy, "by": client}),
+                    ))
+                    .map_err(bad)?;
+                Ok(json!({"session_id": rec.session_id, "pending": p.strategy}))
+            }
+            method::CATALOG_LIST => {
+                let profiles = self.cfg.all_profiles();
+                let models = self
+                    .catalog
+                    .entries
+                    .iter()
+                    .map(|(m, e)| theseus_protocol::CatalogModel {
+                        model: m.clone(),
+                        entry: serde_json::to_value(e).unwrap_or(Value::Null),
+                        profiles: profiles
+                            .iter()
+                            .filter(|(_, p)| &p.model == m)
+                            .map(|(n, _)| n.clone())
+                            .collect(),
+                    })
+                    .collect();
+                Ok(serde_json::to_value(theseus_protocol::CatalogListResult {
+                    version: self.catalog.version.clone(),
+                    models,
+                })
+                .unwrap())
+            }
+            method::COMPILATION_LIST => {
+                let p: theseus_protocol::CompilationListParams = parse(req.params)?;
+                let n = p.n.unwrap_or(50).min(500);
+                let list = match &p.session_id {
+                    Some(sid) => self.store.session_compilations(sid).map_err(bad)?,
+                    None => self.store.recent_compilations(n).map_err(bad)?,
+                };
+                let current: std::collections::HashSet<String> = self
+                    .store
+                    .list_sessions::<SessionRecord>()
+                    .map_err(bad)?
+                    .into_iter()
+                    .filter_map(|s| s.compilation_id)
+                    .collect();
+                let mut out: Vec<theseus_protocol::CompilationInfo> = list
+                    .iter()
+                    .map(|c| theseus_protocol::CompilationInfo {
+                        compilation_id: c.id.clone(),
+                        session_id: c.session_id.clone(),
+                        created_at_ms: c.created_at_ms,
+                        trigger: c.trigger.clone(),
+                        strategy: c.strategy.clone(),
+                        as_of: c.as_of,
+                        includes: c.includes.len() as u32,
+                        derived_from: c.derived_from.clone(),
+                        manifest: serde_json::to_value(&c.manifest).unwrap_or(Value::Null),
+                        current: current.contains(&c.id),
+                    })
+                    .collect();
+                out.reverse();
+                out.truncate(n);
+                Ok(
+                    serde_json::to_value(theseus_protocol::CompilationListResult {
+                        compilations: out,
+                    })
+                    .unwrap(),
+                )
+            }
+            method::NODE_LIST => {
+                let p: theseus_protocol::NodeListParams = parse(req.params)?;
+                let n = p.n.unwrap_or(100).min(2000);
+                let mut nodes = match &p.session_id {
+                    Some(sid) => self.store.session_nodes(sid).map_err(bad)?,
+                    None => self
+                        .store
+                        .recent_nodes(if p.kind.is_some() { n * 10 } else { n })
+                        .map_err(bad)?,
+                };
+                if let Some(k) = &p.kind {
+                    nodes.retain(|(_, node)| node.kind_str() == k);
+                }
+                let skip = nodes.len().saturating_sub(n);
+                Ok(serde_json::to_value(theseus_protocol::NodeListResult {
+                    nodes: nodes[skip..]
+                        .iter()
+                        .rev()
+                        .map(|(pos, node)| Self::node_info(*pos, node))
+                        .collect(),
+                    total: self.store.node_count().map_err(bad)?,
+                })
+                .unwrap())
+            }
+            method::ACTION_CONFIRM => {
+                let p: theseus_protocol::ActionConfirmParams = parse(req.params)?;
+                let r = self
+                    .confirm_action(&p.correlation_id, p.approve, p.note.as_deref(), client)
+                    .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
+                Ok(serde_json::to_value(r).unwrap())
+            }
+            method::TOOL_LIST => {
+                let calls = self.tools.calls.lock().unwrap().clone();
+                let total: u64 = calls.values().sum();
+                let proc_calls = calls.get("proc.run").copied().unwrap_or(0);
+                let tools = self
+                    .tools
+                    .registry
+                    .all()
+                    .map(|t| theseus_protocol::ToolInfo {
+                        name: t.name().into(),
+                        wire_name: theseus_tools::wire_name(t.name()),
+                        family: t.family().into(),
+                        description: t.description().into(),
+                        class: t.class().as_str().into(),
+                        backend: t.backend().as_str().into(),
+                        policy: self.tools.policy.class_mode(t.as_ref()).as_str().into(),
+                        input_schema: t.input_schema(),
+                        calls: calls.get(t.name()).copied().unwrap_or(0),
+                    })
+                    .collect();
+                Ok(serde_json::to_value(theseus_protocol::ToolListResult {
+                    tools,
+                    roots: self
+                        .tools
+                        .ctx
+                        .roots
+                        .iter()
+                        .map(|r| r.display().to_string())
+                        .collect(),
+                    shell_fallback_ratio: if total == 0 {
+                        0.0
+                    } else {
+                        proc_calls as f64 / total as f64
+                    },
+                    calls_total: total,
+                })
+                .unwrap())
             }
             method::EXECUTION_LIST => {
                 let execs = self.kernel.executions().map_err(bad)?;
@@ -1045,7 +1570,15 @@ mod tests {
             .map(|n| n.method.as_str())
             .collect();
         assert_eq!(ns.first(), Some(&notify::TURN_STARTED));
-        assert_eq!(ns.get(1), Some(&notify::LOOP_STARTED));
+        // The input becomes a node, the context compiles, the loop starts.
+        let pos = |m: &str| {
+            ns.iter()
+                .position(|x| *x == m)
+                .unwrap_or_else(|| panic!("no {m} in {ns:?}"))
+        };
+        assert!(pos(notify::NODE_WRITTEN) < pos(notify::CONTEXT_COMPILED));
+        assert!(pos(notify::CONTEXT_COMPILED) < pos(notify::LOOP_STARTED));
+        assert!(pos(notify::LOOP_STARTED) < pos(notify::MODEL_DELTA));
         assert!(ns.iter().filter(|m| **m == notify::MODEL_DELTA).count() >= 2);
         assert_eq!(ns[ns.len() - 2], notify::LOOP_ENDED);
         assert_eq!(ns[ns.len() - 1], notify::TURN_ENDED);
@@ -1059,8 +1592,12 @@ mod tests {
         let r = responses(&msgs)[0];
         let result: TurnSubmitResult = serde_json::from_value(r.result.clone().unwrap()).unwrap();
         assert_eq!(result.loops, 1);
-        assert_eq!(result.stop_reason, "stop_after_one_loop");
+        assert_eq!(result.stop_reason, "no_tool_calls");
         assert_eq!(result.output, "hello there friend");
+        // The exchange is content now: a user node and an assistant node.
+        let nodes = core.store.session_nodes(&result.session_id).unwrap();
+        let kinds: Vec<&str> = nodes.iter().map(|(_, n)| n.kind_str()).collect();
+        assert_eq!(kinds, vec!["user_message", "assistant_message"]);
         assert_eq!(result.provider_stop_reason.as_deref(), Some("end_turn"));
 
         // Every hook site on the turn path was visited with zero handlers, and ledgered.
@@ -1346,15 +1883,27 @@ mod tests {
             })
             .collect();
         let msgs = roundtrip(core.clone(), reqs).await;
-        let r: TurnSubmitResult =
-            serde_json::from_value(responses(&msgs)[0].result.clone().unwrap()).unwrap();
-        assert_eq!(r.usage.input_tokens, 2);
-        assert_eq!(r.usage.output_tokens, 3);
+        let mut rs: Vec<TurnSubmitResult> = responses(&msgs)
+            .iter()
+            .map(|r| serde_json::from_value(r.result.clone().unwrap()).unwrap())
+            .collect();
+        rs.sort_by_key(|r| r.usage.input_tokens);
+        assert_eq!(rs[0].usage.output_tokens, 3);
+        // The second turn carries the first exchange: the session has memory.
+        assert!(
+            rs[1].usage.input_tokens > rs[0].usage.input_tokens,
+            "{rs:?}"
+        );
         let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
-        assert_eq!(rec.usage.input_tokens, 4);
+        assert_eq!(
+            rec.usage.input_tokens,
+            rs[0].usage.input_tokens + rs[1].usage.input_tokens
+        );
         assert_eq!(rec.usage.output_tokens, 6);
+        assert_eq!(rec.turns, 2);
         let h = core.health();
         assert_eq!(h.usage_total.output_tokens, 6);
+        assert_eq!(h.turns, 2);
         let tail = roundtrip(
             core.clone(),
             vec![Request::new(

@@ -11,6 +11,7 @@ rust-version.workspace = true
 theseus-protocol.workspace = true
 theseus-store.workspace = true
 theseus-kernel.workspace = true
+theseus-tools.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
@@ -22,10 +23,13 @@ reqwest.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
 uuid.workspace = true
+sha2 = "0.10"
+hex = "0.4"
 shellexpand.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 opentelemetry-otlp.workspace = true
 
 [dev-dependencies]
+tempfile = "3"
 opentelemetry_sdk = { workspace = true, features = ["testing"] }

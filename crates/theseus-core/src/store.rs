@@ -119,4 +119,75 @@ impl Store {
     pub fn last_position(&self) -> u64 {
         self.inner.last_position()
     }
+
+    /// Append records as one atomic frame.
+    pub fn append(&self, records: Vec<NewRecord>) -> Result<Vec<u64>> {
+        self.inner.append(&records)
+    }
+
+    /// Every node of a session with its WAL position, in order (§4.1: order is positional).
+    pub fn session_nodes(&self, session_id: &str) -> Result<Vec<(u64, crate::node::Node)>> {
+        let mut out = Vec::new();
+        for r in self.inner.scan_scope(session_id, 0, usize::MAX)? {
+            if r.kind == kinds::NODE {
+                out.push((r.position, r.decode()?));
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn get_node(&self, id: &str) -> Result<Option<(u64, crate::node::Node)>> {
+        match self.inner.latest_by_key(kinds::NODE, id)? {
+            Some(r) => Ok(Some((r.position, r.decode()?))),
+            None => Ok(None),
+        }
+    }
+
+    /// Newest `n` nodes across every session, oldest first.
+    pub fn recent_nodes(&self, n: usize) -> Result<Vec<(u64, crate::node::Node)>> {
+        self.inner
+            .tail_of_kind(kinds::NODE, n)?
+            .iter()
+            .map(|r| Ok((r.position, r.decode()?)))
+            .collect()
+    }
+
+    pub fn node_count(&self) -> Result<u64> {
+        self.inner.count_of_kind(kinds::NODE)
+    }
+
+    pub fn get_compilation(&self, id: &str) -> Result<Option<crate::compiler::Compilation>> {
+        match self.inner.latest_by_key(kinds::COMPILATION, id)? {
+            Some(r) => Ok(Some(r.decode()?)),
+            None => Ok(None),
+        }
+    }
+
+    /// A session's compilations, oldest first.
+    pub fn session_compilations(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<crate::compiler::Compilation>> {
+        let mut out = Vec::new();
+        for r in self.inner.scan_scope(session_id, 0, usize::MAX)? {
+            if r.kind == kinds::COMPILATION {
+                out.push(r.decode()?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Newest `n` compilations across every session, oldest first.
+    pub fn recent_compilations(&self, n: usize) -> Result<Vec<crate::compiler::Compilation>> {
+        self.inner
+            .tail_of_kind(kinds::COMPILATION, n)?
+            .iter()
+            .map(|r| r.decode())
+            .collect()
+    }
+
+    /// The same store as the kernel's `Store` trait object (one WAL, one index).
+    pub fn inner(&self) -> &Arc<WalStore> {
+        &self.inner
+    }
 }

@@ -543,6 +543,7 @@ impl World {
                 producer: "sim-wrapper".into(),
                 signature: None,
                 usage_units: Some(self.rng.random_range(0..1_000)),
+                detail: None,
             };
             // The wrapper always spools first (durable), then notifies.
             self.spool.write(&c)?;

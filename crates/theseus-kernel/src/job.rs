@@ -26,6 +26,12 @@ pub struct WrapperArgs {
     pub deadline_ms: u64,
     pub notify_socket: Option<PathBuf>,
     pub argv: Vec<String>,
+    /// Working directory for the command.
+    pub cwd: Option<PathBuf>,
+    /// The complete environment of the wrapper and its command. The spawner
+    /// clears everything else, so nothing the harness holds (the 1Password
+    /// service-account token above all) leaks into a job.
+    pub env: Vec<(String, String)>,
 }
 
 /// Start `self_exe` in wrapper mode, detached. Returns the wrapper's pid,
@@ -49,7 +55,12 @@ pub fn spawn_detached(
     if let Some(s) = &args.notify_socket {
         cmd.arg("--notify").arg(s);
     }
+    if let Some(c) = &args.cwd {
+        cmd.arg("--cwd").arg(c);
+    }
     cmd.arg("--").args(&args.argv);
+    cmd.env_clear();
+    cmd.envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -83,19 +94,33 @@ pub fn run_wrapper(args: WrapperArgs) -> Result<()> {
     let out_path = spool.result_path(&args.correlation_id);
     let out_file = std::fs::File::create(&out_path)?;
     let err_file = out_file.try_clone()?;
-    let mut child = Command::new(&args.argv[0])
+    let mut command = Command::new(&args.argv[0]);
+    command
         .args(&args.argv[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::from(out_file))
-        .stderr(Stdio::from(err_file))
-        .spawn();
+        .stderr(Stdio::from(err_file));
+    if let Some(c) = &args.cwd {
+        command.current_dir(c);
+    }
+    let mut child = command.spawn();
+    let mut detail = serde_json::json!({});
     let (outcome, note) = match &mut child {
-        Err(e) => (Outcome::Failed, format!("spawn: {e}")),
+        Err(e) => {
+            detail["spawn_error"] = serde_json::Value::String(e.to_string());
+            (Outcome::Failed, format!("spawn: {e}"))
+        }
         Ok(child) => {
             let deadline = Duration::from_millis(args.deadline_ms);
             loop {
                 match child.try_wait() {
                     Ok(Some(status)) => {
+                        detail["exit_code"] = serde_json::json!(status.code());
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::process::ExitStatusExt;
+                            detail["signal"] = serde_json::json!(status.signal());
+                        }
                         break if status.success() {
                             (Outcome::Succeeded, format!("exit {status}"))
                         } else {
@@ -106,6 +131,7 @@ pub fn run_wrapper(args: WrapperArgs) -> Result<()> {
                         if t0.elapsed() >= deadline {
                             let _ = child.kill();
                             let _ = child.wait();
+                            detail["timed_out"] = serde_json::Value::Bool(true);
                             break (
                                 Outcome::Failed,
                                 format!("deadline {} ms exceeded; killed", args.deadline_ms),
@@ -118,16 +144,20 @@ pub fn run_wrapper(args: WrapperArgs) -> Result<()> {
             }
         }
     };
+    detail["duration_ms"] = serde_json::json!(t0.elapsed().as_millis() as u64);
+    detail["bytes"] = serde_json::json!(std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0));
+    detail["note"] = serde_json::Value::String(note.clone());
     let c = Completion {
         correlation_id: args.correlation_id.clone(),
         outcome,
         result_ref: Some(out_path.to_string_lossy().into_owned()),
-        external_op_id: Some(note.to_string()),
+        external_op_id: None,
         started_at_ms: started,
         finished_at_ms: now_ms(),
         producer: format!("wrapper:{}", std::process::id()),
         signature: None,
         usage_units: None,
+        detail: Some(detail),
     };
     spool.write(&c)?; // durable before any delivery attempt
     spool.remove_pid(&args.correlation_id);
@@ -228,6 +258,7 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
     let mut correlation_id = None;
     let mut deadline_ms = 600_000u64;
     let mut notify_socket = None;
+    let mut cwd = None;
     let mut argv = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -240,6 +271,7 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
                     .unwrap_or(deadline_ms)
             }
             "--notify" => notify_socket = it.next().map(PathBuf::from),
+            "--cwd" => cwd = it.next().map(PathBuf::from),
             "--" => {
                 argv = it.collect();
                 break;
@@ -256,5 +288,7 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
         deadline_ms,
         notify_socket,
         argv,
+        cwd,
+        env: Vec::new(),
     })
 }

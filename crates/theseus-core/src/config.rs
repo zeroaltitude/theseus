@@ -37,6 +37,187 @@ pub struct Config {
     pub telemetry: crate::telemetry::TelemetryConfig,
     #[serde(default)]
     pub kernel: KernelSection,
+    /// Model catalog rows that replace or add to the built-in table.
+    #[serde(default)]
+    pub catalog: BTreeMap<String, crate::catalog::CatalogEntry>,
+    #[serde(default)]
+    pub tools: ToolsConfig,
+    #[serde(default)]
+    pub policy: PolicyConfig,
+}
+
+/// `[tools]`: where toollets may work and how much they may return (§3.23).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolsConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Workspace roots: every path a tool touches must be under one.
+    #[serde(default = "default_tool_roots")]
+    pub roots: Vec<String>,
+    /// Where relative paths resolve and programs run by default (default: the first root).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// Denied even under a root.
+    #[serde(default = "default_deny_paths")]
+    pub deny_paths: Vec<String>,
+    /// Characters of a tool result the model sees (head and tail kept).
+    #[serde(default = "default_result_max_chars")]
+    pub result_max_chars: usize,
+    #[serde(default = "default_max_read_bytes")]
+    pub max_read_bytes: usize,
+    /// Entries a listing, glob, or grep returns.
+    #[serde(default = "default_max_entries")]
+    pub max_entries: usize,
+    /// How long a turn waits for `proc.run` before the job continues in the background.
+    #[serde(default = "default_proc_sync_secs")]
+    pub proc_sync_secs: u64,
+    #[serde(default = "default_proc_timeout_secs")]
+    pub proc_timeout_secs: u64,
+    #[serde(default = "default_proc_timeout_max_secs")]
+    pub proc_timeout_max_secs: u64,
+    /// Environment variables `proc.run` passes through from the daemon (nothing else).
+    #[serde(default = "default_proc_env")]
+    pub proc_env: Vec<String>,
+}
+
+fn default_tool_roots() -> Vec<String> {
+    vec!["~/projects".into()]
+}
+fn default_deny_paths() -> Vec<String> {
+    [
+        "~/.ssh",
+        "~/.gnupg",
+        "~/.aws",
+        "~/.config/op",
+        "~/.openclaw-1password-service-token",
+        "~/.theseus",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+fn default_result_max_chars() -> usize {
+    30_000
+}
+fn default_max_read_bytes() -> usize {
+    262_144
+}
+fn default_max_entries() -> usize {
+    500
+}
+fn default_proc_sync_secs() -> u64 {
+    60
+}
+fn default_proc_timeout_secs() -> u64 {
+    600
+}
+fn default_proc_timeout_max_secs() -> u64 {
+    3600
+}
+fn default_proc_env() -> Vec<String> {
+    [
+        "PATH",
+        "HOME",
+        "USER",
+        "LANG",
+        "LC_ALL",
+        "TERM",
+        "TZ",
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+impl Default for ToolsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            roots: default_tool_roots(),
+            cwd: None,
+            deny_paths: default_deny_paths(),
+            result_max_chars: default_result_max_chars(),
+            max_read_bytes: default_max_read_bytes(),
+            max_entries: default_max_entries(),
+            proc_sync_secs: default_proc_sync_secs(),
+            proc_timeout_secs: default_proc_timeout_secs(),
+            proc_timeout_max_secs: default_proc_timeout_max_secs(),
+            proc_env: default_proc_env(),
+        }
+    }
+}
+
+/// `[policy]`: the gate's three bands per tool class (§3.9).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyConfig {
+    #[serde(default = "mode_allow")]
+    pub read: crate::policy::Mode,
+    #[serde(default = "mode_confirm")]
+    pub write: crate::policy::Mode,
+    #[serde(default = "mode_confirm")]
+    pub run: crate::policy::Mode,
+    /// `proc.run` argv prefixes that run without confirmation.
+    #[serde(default = "default_allow_argv")]
+    pub allow_argv: Vec<Vec<String>>,
+    /// `proc.run` argv prefixes that never run.
+    #[serde(default = "default_deny_argv")]
+    pub deny_argv: Vec<Vec<String>>,
+    /// Per-tool overrides by canonical name, e.g. `"fs.edit" = "allow"`.
+    #[serde(default)]
+    pub overrides: BTreeMap<String, crate::policy::Mode>,
+}
+
+fn mode_allow() -> crate::policy::Mode {
+    crate::policy::Mode::Allow
+}
+fn mode_confirm() -> crate::policy::Mode {
+    crate::policy::Mode::Confirm
+}
+fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
+    v.iter()
+        .map(|a| a.iter().map(|s| s.to_string()).collect())
+        .collect()
+}
+fn default_allow_argv() -> Vec<Vec<String>> {
+    argvs(&[
+        &["git", "status"],
+        &["git", "diff"],
+        &["git", "log"],
+        &["git", "show"],
+        &["ls"],
+        &["pwd"],
+    ])
+}
+fn default_deny_argv() -> Vec<Vec<String>> {
+    argvs(&[
+        &["sudo"],
+        &["su"],
+        &["doas"],
+        &["rm", "-rf", "/"],
+        &["mkfs"],
+        &["dd"],
+        &["shutdown"],
+        &["reboot"],
+        &["op"],
+        &["theseusd"],
+    ])
+}
+
+impl Default for PolicyConfig {
+    fn default() -> Self {
+        Self {
+            read: mode_allow(),
+            write: mode_confirm(),
+            run: mode_confirm(),
+            allow_argv: default_allow_argv(),
+            deny_argv: default_deny_argv(),
+            overrides: BTreeMap::new(),
+        }
+    }
 }
 
 /// `[kernel]`: the durable kernel's knobs (spec §3.2a, §3.15, §3.16; M2).
@@ -201,11 +382,43 @@ pub struct ProfileConfig {
     pub model: String,
     /// Cap on tokens the model may *generate* per call (the Messages API's
     /// `max_tokens`). Not an input limit; input is whatever the compiler
-    /// assembles. You pay only for tokens actually produced.
-    #[serde(default = "default_max_tokens", alias = "max_tokens")]
-    pub max_output_tokens: u32,
+    /// assembles. Omitted: the model's ceiling from the catalog.
+    #[serde(default, alias = "max_tokens", skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
     #[serde(default)]
     pub system: Option<String>,
+    /// `low`, `medium`, `high`, `xhigh`, or `max`, for models that accept effort.
+    /// Omitted: the model's default (Opus 5.5: medium; others: high).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// What thinking blocks carry: `summarized`, `omitted`, or `updates`.
+    #[serde(default = "default_thinking_display")]
+    pub thinking_display: String,
+    /// Tool loops per turn before the Advancer ends it.
+    #[serde(default = "default_max_loops")]
+    pub max_loops: u32,
+    /// Server-side refusal fallbacks where the model supports them.
+    #[serde(default = "default_true")]
+    pub refusal_fallbacks: bool,
+}
+
+pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+pub const THINKING_DISPLAYS: &[&str] = &["summarized", "omitted", "updates"];
+
+fn default_thinking_display() -> String {
+    "summarized".into()
+}
+fn default_max_loops() -> u32 {
+    40
+}
+
+impl ProfileConfig {
+    /// The output cap in force: configured, else the catalog ceiling, else 16384.
+    pub fn effective_max_tokens(&self, catalog: &crate::catalog::Catalog) -> u32 {
+        self.max_output_tokens
+            .or_else(|| catalog.get(&self.model).map(|e| e.max_output_tokens))
+            .unwrap_or(16_384)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,10 +435,18 @@ pub struct ModelConfig {
     #[serde(default = "default_model")]
     pub model: String,
     /// Output cap per call for the implicit default profile; see `ProfileConfig`.
-    #[serde(default = "default_max_tokens", alias = "max_tokens")]
-    pub max_output_tokens: u32,
+    #[serde(default, alias = "max_tokens", skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
     #[serde(default)]
     pub system: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default = "default_thinking_display")]
+    pub thinking_display: String,
+    #[serde(default = "default_max_loops")]
+    pub max_loops: u32,
+    #[serde(default = "default_true")]
+    pub refusal_fallbacks: bool,
     #[serde(default = "default_api_base")]
     pub api_base: String,
     /// Name of the entry in `[secrets]` holding the Anthropic key.
@@ -261,6 +482,7 @@ fn default_provider_name() -> String {
 fn default_profile_name() -> String {
     "default".into()
 }
+#[allow(dead_code)]
 fn default_max_tokens() -> u32 {
     16_384
 }
@@ -283,8 +505,12 @@ impl Default for ModelConfig {
             live: default_profile_name(),
             provider: default_provider_name(),
             model: default_model(),
-            max_output_tokens: default_max_tokens(),
+            max_output_tokens: None,
             system: None,
+            effort: None,
+            thinking_display: default_thinking_display(),
+            max_loops: default_max_loops(),
+            refusal_fallbacks: true,
             api_base: default_api_base(),
             api_key_secret: default_key_name(),
             timeouts: Default::default(),
@@ -369,6 +595,37 @@ impl Config {
                 );
             }
         }
+        for (name, prof) in self.all_profiles() {
+            if let Some(e) = &prof.effort {
+                if !EFFORTS.contains(&e.as_str()) {
+                    anyhow::bail!(
+                        "profiles.{name}.effort = {e:?} is not one of {}",
+                        EFFORTS.join(", ")
+                    );
+                }
+            }
+            if !THINKING_DISPLAYS.contains(&prof.thinking_display.as_str()) {
+                anyhow::bail!(
+                    "profiles.{name}.thinking_display = {:?} is not one of {}",
+                    prof.thinking_display,
+                    THINKING_DISPLAYS.join(", ")
+                );
+            }
+            if prof.max_loops == 0 {
+                anyhow::bail!("profiles.{name}.max_loops must be at least 1");
+            }
+        }
+        for (k, argv) in self
+            .policy
+            .allow_argv
+            .iter()
+            .chain(&self.policy.deny_argv)
+            .enumerate()
+        {
+            if argv.is_empty() {
+                anyhow::bail!("policy argv entry {k} is empty");
+            }
+        }
         if !self.all_profiles().contains_key(&self.model.live) {
             anyhow::bail!(
                 "model.live = {:?} is not the implicit \"default\" profile nor a key of [profiles]",
@@ -388,6 +645,10 @@ impl Config {
                 model: self.model.model.clone(),
                 max_output_tokens: self.model.max_output_tokens,
                 system: self.model.system.clone(),
+                effort: self.model.effort.clone(),
+                thinking_display: self.model.thinking_display.clone(),
+                max_loops: self.model.max_loops,
+                refusal_fallbacks: self.model.refusal_fallbacks,
             });
         all
     }

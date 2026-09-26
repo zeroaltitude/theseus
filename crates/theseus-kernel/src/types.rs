@@ -194,6 +194,11 @@ pub struct Execution {
     pub turns: u64,
     /// Recovery counter: how many times a crash interrupted a running turn.
     pub interrupted: u32,
+    /// Set when the execution became runnable without human input (requeued
+    /// after a crash, a confirm answered): the harness driver takes the turn.
+    /// Cleared on admission.
+    #[serde(default)]
+    pub resume_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cancel: Option<CancelState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -353,6 +358,9 @@ pub struct Completion {
     /// Real usage if the producer knows it (converts the reservation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_units: Option<u64>,
+    /// Producer-specific facts: exit code, signal, bytes, truncation, duration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<serde_json::Value>,
 }
 
 /// A ledger row. Same JSON shape as `theseus-core`'s so `theseus ledger`

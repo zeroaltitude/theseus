@@ -29,6 +29,15 @@ pub mod method {
     pub const EXECUTION_LIST: &str = "execution.list";
     pub const EXECUTION_CANCEL: &str = "execution.cancel";
     pub const ACTION_LIST: &str = "action.list";
+    pub const ACTION_CONFIRM: &str = "action.confirm";
+    pub const SESSION_HISTORY: &str = "session.history";
+    pub const SESSION_WATCH: &str = "session.watch";
+    pub const SESSION_UNWATCH: &str = "session.unwatch";
+    pub const SESSION_RECOMPILE: &str = "session.recompile";
+    pub const CATALOG_LIST: &str = "catalog.list";
+    pub const COMPILATION_LIST: &str = "compilation.list";
+    pub const NODE_LIST: &str = "node.list";
+    pub const TOOL_LIST: &str = "tool.list";
     pub const SHUTDOWN: &str = "shutdown";
 }
 
@@ -42,6 +51,18 @@ pub mod notify {
     pub const TURN_ENDED: &str = "turn.ended";
     pub const HOOK_EVENT: &str = "hook.event";
     pub const PROFILE_CHANGED: &str = "profile.changed";
+    /// Thinking summaries / progress updates as they stream.
+    pub const MODEL_THINKING: &str = "model.thinking";
+    /// The context for a loop was compiled (append or recompile, sizes, digest).
+    pub const CONTEXT_COMPILED: &str = "context.compiled";
+    /// A tool call started (after the gate) and ended (with its result).
+    pub const TOOL_STARTED: &str = "tool.started";
+    pub const TOOL_ENDED: &str = "tool.ended";
+    /// A tool call needs the operator's confirmation; the turn has parked.
+    pub const CONFIRM_REQUESTED: &str = "confirm.requested";
+    pub const CONFIRM_RESOLVED: &str = "confirm.resolved";
+    /// A node was written to a watched session (history stays live).
+    pub const NODE_WRITTEN: &str = "node.written";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -183,6 +204,11 @@ pub struct HealthResult {
     /// The durable kernel (M2): executions, actions, admission.
     #[serde(default)]
     pub kernel: KernelStatus,
+    /// Dollars across every session, from the model catalog.
+    #[serde(default)]
+    pub cost_usd_total: f64,
+    #[serde(default)]
+    pub catalog_version: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -338,6 +364,22 @@ pub struct SessionInfo {
     pub execution_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_state: Option<String>,
+    #[serde(default)]
+    pub last_active_ms: u64,
+    #[serde(default)]
+    pub cost_usd: f64,
+    #[serde(default)]
+    pub tool_calls: u64,
+    /// Profile/provider/model of the last turn (continuations reuse it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compilation_id: Option<String>,
+    /// First words of the first prompt, for pickers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -418,7 +460,7 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -428,7 +470,7 @@ pub struct Usage {
     pub cache_creation_input_tokens: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct TurnSubmitResult {
     pub session_id: String,
     pub turn_id: String,
@@ -455,6 +497,22 @@ pub struct TurnSubmitResult {
     /// Every timed thing in the turn, nested: turn > loops > hooks/provider/advancer.
     #[serde(default)]
     pub trace: Option<Span>,
+    #[serde(default)]
+    pub execution_id: Option<String>,
+    /// Dollars for this turn's provider calls, from the model catalog (None: model not in catalog).
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+    #[serde(default)]
+    pub tool_calls: u32,
+    /// Set when the turn parked waiting for the operator to confirm this action.
+    #[serde(default)]
+    pub awaiting_confirm: Option<String>,
+    /// The provider's `stop_details` (a refusal's category).
+    #[serde(default)]
+    pub stop_details: Option<Value>,
+    /// The turn ran without new input (a continuation: late results, a confirm answer, a restart).
+    #[serde(default)]
+    pub continuation: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -484,6 +542,192 @@ pub struct LedgerTailResult {
     pub total: u64,
 }
 
+// ---------------------------------------------------------------- M3: content
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SessionRef {
+    pub session_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SessionHistoryParams {
+    pub session_id: String,
+    /// Newest `n` nodes (default all).
+    #[serde(default)]
+    pub n: Option<usize>,
+}
+
+/// One node as clients render it (a message, a tool call, a tool result).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeInfo {
+    pub node_id: String,
+    /// `user_message`, `assistant_message`, `tool_call`, `tool_result`.
+    pub kind: String,
+    pub session_id: String,
+    pub position: u64,
+    pub at_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_index: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Text for display (user text; assistant text blocks; tool result content).
+    #[serde(default)]
+    pub text: String,
+    /// Thinking summaries (assistant), when the provider returned them.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub thinking: String,
+    /// Kind-specific fields: model/usage/cost (assistant), tool/input/gate
+    /// (tool call), tool/status/is_error/bytes (tool result).
+    #[serde(default)]
+    pub detail: Value,
+    #[serde(default)]
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionHistoryResult {
+    pub session: SessionInfo,
+    pub nodes: Vec<NodeInfo>,
+    /// Actions waiting for the operator's confirmation in this session.
+    #[serde(default)]
+    pub pending_confirms: Vec<ConfirmRequest>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SessionRecompileParams {
+    pub session_id: String,
+    /// `fresh` (start over) or `transcript` (keep everything, thinking stripped).
+    pub strategy: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NodeListParams {
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub n: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeListResult {
+    pub nodes: Vec<NodeInfo>,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CompilationListParams {
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub n: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompilationInfo {
+    pub compilation_id: String,
+    pub session_id: String,
+    pub created_at_ms: u64,
+    pub trigger: String,
+    pub strategy: String,
+    pub as_of: u64,
+    pub includes: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_from: Option<String>,
+    /// The manifest as stored (model, provider, digests, catalog version, strip_thinking).
+    pub manifest: Value,
+    /// This is the session's current compilation.
+    #[serde(default)]
+    pub current: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompilationListResult {
+    pub compilations: Vec<CompilationInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogModel {
+    pub model: String,
+    /// The catalog row as configured (provider, window, prices, capabilities, source).
+    pub entry: Value,
+    /// Profiles that use this model.
+    #[serde(default)]
+    pub profiles: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogListResult {
+    pub version: String,
+    pub models: Vec<CatalogModel>,
+}
+
+/// A tool call waiting for the operator (spec §3.9: confirmation is bound to
+/// the exact tool, arguments, resource, and an expiry).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfirmRequest {
+    pub correlation_id: String,
+    pub session_id: String,
+    pub execution_id: String,
+    pub tool: String,
+    pub input: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<String>,
+    /// Why policy asks (e.g. "write under /home/x/projects", "run cargo test").
+    pub reason: String,
+    pub by: String,
+    pub requested_at_ms: u64,
+    pub expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ActionConfirmParams {
+    pub correlation_id: String,
+    pub approve: bool,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionConfirmResult {
+    pub correlation_id: String,
+    pub approved: bool,
+    pub session_id: String,
+    pub execution_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolInfo {
+    /// Canonical name (`fs.read`).
+    pub name: String,
+    /// Name on the wire (`fs_read`).
+    pub wire_name: String,
+    pub family: String,
+    pub description: String,
+    /// `read`, `write`, or `run`.
+    pub class: String,
+    /// `inproc` or `job`.
+    pub backend: String,
+    /// What policy does with it today: `allow`, `confirm`, or `deny`.
+    pub policy: String,
+    pub input_schema: Value,
+    #[serde(default)]
+    pub calls: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolListResult {
+    pub tools: Vec<ToolInfo>,
+    /// Workspace roots tools may touch.
+    pub roots: Vec<String>,
+    /// `proc.run` calls over all tool calls (spec §3.23 shell-fallback ratio).
+    pub shell_fallback_ratio: f64,
+    pub calls_total: u64,
+}
+
 /// `error.data` on a provider failure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderErrorData {
@@ -502,6 +746,10 @@ pub struct ProviderErrorData {
 pub struct TurnStarted {
     pub session_id: String,
     pub turn_id: String,
+    #[serde(default)]
+    pub execution_id: Option<String>,
+    #[serde(default)]
+    pub continuation: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

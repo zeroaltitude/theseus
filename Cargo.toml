@@ -4,6 +4,7 @@ members = [
     "crates/theseus-protocol",
     "crates/theseus-store",
     "crates/theseus-kernel",
+    "crates/theseus-tools",
     "crates/theseus-sim",
     "crates/theseus-core",
     "crates/theseusd",
@@ -22,6 +23,7 @@ theseus-protocol = { path = "crates/theseus-protocol" }
 theseus-core = { path = "crates/theseus-core" }
 theseus-store = { path = "crates/theseus-store" }
 theseus-kernel = { path = "crates/theseus-kernel" }
+theseus-tools = { path = "crates/theseus-tools" }
 
 anyhow = "1"
 thiserror = "2"

@@ -160,6 +160,7 @@ mod tests {
             producer: "test".into(),
             signature: None,
             usage_units: None,
+            detail: None,
         };
         sp.write(&c).unwrap();
         fs::write(d.path().join("junk.json"), b"{not json").unwrap();

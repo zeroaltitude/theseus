@@ -104,6 +104,7 @@ fn completion(id: &str, outcome: Outcome, usage: Option<u64>) -> Completion {
         producer: "test".into(),
         signature: None,
         usage_units: usage,
+        detail: None,
     }
 }
 

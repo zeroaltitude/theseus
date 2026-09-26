@@ -27,11 +27,15 @@ live = "sonnet"
 provider = "anthropic"                  # a key of [providers], or the implicit "anthropic"
 model = "claude-sonnet-5"
 # Output cap per call (the Messages API's max_tokens). NOT an input limit: input is
-# whatever the compiler assembles, bounded by the model's context window (Sonnet 5,
-# Opus 5/5.5: 1M in, 128k out; Haiku 4.5: 200k in, 8k out; GLM-5.x: 1M in, 128k out).
-# You pay only for tokens actually generated, so a high cap costs nothing on short replies.
-max_output_tokens = 16384               # alias: max_tokens
-# system = "You are Theseus."           # system prompt for the implicit default profile
+# whatever the compiler assembles, bounded by the model's context window. Omitted,
+# it defaults to the model's ceiling from the catalog (Sonnet 5, Opus 5/5.5, Fable
+# 5.1: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
+# max_output_tokens = 128000            # alias: max_tokens
+# system = "You are Theseus."           # appended to the built-in persona and tools note
+# effort = "high"                       # low | medium | high | xhigh | max (models that take effort)
+thinking_display = "summarized"         # summarized | omitted | updates (Fable 5.x, Opus 5.5)
+max_loops = 40                          # tool loops per turn before the Advancer ends it
+refusal_fallbacks = true                # server-side refusal fallbacks where the model supports them
 api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
 api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding its key
 
@@ -50,13 +54,20 @@ total_secs = 600                        # the whole call
 [profiles.sonnet]
 provider = "anthropic"
 model = "claude-sonnet-5"
-max_output_tokens = 16384               # up to 128000 for Sonnet 5
+# max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5)
 # system = ""
+# effort = "xhigh"                      # the recommended level for coding and agentic work
+thinking_display = "summarized"
+max_loops = 40
+refusal_fallbacks = true
 
 [profiles.glm]
 provider = "zai"
 model = "glm-5.3-flash"
 max_output_tokens = 16384               # up to 128000 for GLM-5.3
+thinking_display = "summarized"
+max_loops = 40
+refusal_fallbacks = true
 
 # ---------------------------------------------------------------- providers
 # Any endpoint that speaks the Anthropic Messages API. The implicit "anthropic"
@@ -97,6 +108,53 @@ control_reserve = 10000                 # units kept back so a runaway can still
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none
 confirm_ttl_secs = 900                  # how long a bound confirmation stays valid
+
+# ---------------------------------------------------------------- tools
+# Toollets (fs.*, text.diff, git.diff/log, proc.run). Every path a tool touches
+# must resolve (after `..` and symlinks) under a root; deny_paths win even there.
+[tools]
+enabled = true
+roots = ["~/projects"]
+# cwd = "~/projects/theseus"           # where relative paths resolve and programs run (default: first root)
+deny_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "~/.config/op", "~/.openclaw-1password-service-token", "~/.theseus"]
+result_max_chars = 30000                # characters of a result the model sees (head and tail kept)
+max_read_bytes = 262144                 # cap on one fs.read
+max_entries = 500                       # cap on fs.list / fs.glob / fs.grep entries
+proc_sync_secs = 60                     # a turn waits this long for proc.run, then it continues in the background
+proc_timeout_secs = 600                 # default proc.run timeout
+proc_timeout_max_secs = 3600            # ceiling a call may ask for
+proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME"]  # the ONLY variables a job sees
+
+# ---------------------------------------------------------------- policy
+# The gate's three bands (spec §3.9): allow | confirm | deny, by tool class.
+# Confirmations appear in the web UI (Approve / Deny) and `theseus confirm`.
+[policy]
+read = "allow"                          # fs.read, fs.glob, fs.grep, fs.list, text.diff, git.diff, git.log
+write = "confirm"                       # fs.write, fs.edit, fs.patch
+run = "confirm"                         # proc.run
+allow_argv = [["git", "status"], ["git", "diff"], ["git", "log"], ["git", "show"], ["ls"], ["pwd"]]
+deny_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"], ["op"], ["theseusd"]]
+# [policy.overrides]                    # per-tool modes by canonical name
+# "fs.edit" = "allow"
+
+# ---------------------------------------------------------------- catalog
+# Built in (version 2026-09-26.1): claude-fable-5-1, claude-fable-5, claude-opus-5-5,
+# claude-opus-5, claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5, glm-5.3, glm-5.2,
+# glm-5.3-flash, glm-5.3-flashx. A row here replaces or adds one; `theseus catalog` lists them.
+# [catalog."claude-sonnet-5"]
+# provider = "anthropic"
+# context_window = 1000000
+# max_output_tokens = 128000
+# input_per_mtok = 2.0                  # US dollars per million tokens
+# output_per_mtok = 10.0
+# cache_read_per_mtok = 0.2
+# cache_write_per_mtok = 2.5            # 5-minute TTL writes
+# thinking = "adaptive"                 # none | adaptive | always | budget
+# effort = true
+# refusal_fallbacks = false
+# cache_min_tokens = 1024
+# vision = true
+# source = "config"
 
 # ---------------------------------------------------------------- web
 # The localhost web UI. Loopback only; a non-loopback bind is refused.
