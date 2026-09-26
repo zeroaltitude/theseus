@@ -17,6 +17,10 @@ pub const DEFAULT_CONFIG_REF: &str = "op://Eddie-Tabitha/theseus-config/notesPla
 pub struct Config {
     #[serde(default)]
     pub model: ModelConfig,
+    /// Additional Anthropic-Messages-compatible endpoints by name (e.g. `zai`).
+    /// The implicit `anthropic` provider comes from `[model]` unless overridden here.
+    #[serde(default)]
+    pub providers: BTreeMap<String, ProviderConfig>,
     /// name → op:// reference. Every entry must resolve or the process refuses to start.
     #[serde(default)]
     pub secrets: BTreeMap<String, String>,
@@ -87,9 +91,32 @@ impl Default for GitHubConfig {
     }
 }
 
+/// A model endpoint speaking the Anthropic Messages API. The first-party API
+/// is one; Z.ai's GLM series exposes the same protocol at another URL, so a
+/// second provider is a table entry, not code.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderConfig {
+    pub api_base: String,
+    /// Name of the entry in `[secrets]` holding this provider's key.
+    pub api_key_secret: String,
+    /// Wire protocol. Only `anthropic_messages` exists today.
+    #[serde(default = "default_provider_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub timeouts: Option<crate::provider::Timeouts>,
+}
+
+fn default_provider_kind() -> String {
+    "anthropic_messages".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelConfig {
+    /// Default provider name: a key of `[providers]`, or "anthropic" for the implicit one.
+    #[serde(default = "default_provider_name")]
+    pub provider: String,
     #[serde(default = "default_model")]
     pub model: String,
     #[serde(default = "default_max_tokens")]
@@ -117,6 +144,9 @@ pub struct ServerConfig {
 fn default_model() -> String {
     "claude-sonnet-5".into()
 }
+fn default_provider_name() -> String {
+    "anthropic".into()
+}
 fn default_max_tokens() -> u32 {
     1024
 }
@@ -136,6 +166,7 @@ fn default_socket() -> String {
 impl Default for ModelConfig {
     fn default() -> Self {
         Self {
+            provider: default_provider_name(),
             model: default_model(),
             max_tokens: default_max_tokens(),
             system: None,
@@ -186,7 +217,41 @@ impl Config {
                 self.model.api_key_secret
             );
         }
+        for (name, p) in &self.providers {
+            if !self.secrets.contains_key(&p.api_key_secret) {
+                anyhow::bail!(
+                    "providers.{name}.api_key_secret = {:?} has no matching entry under [secrets]",
+                    p.api_key_secret
+                );
+            }
+            if p.kind != "anthropic_messages" {
+                anyhow::bail!(
+                    "providers.{name}.kind = {:?} is not supported (only anthropic_messages)",
+                    p.kind
+                );
+            }
+        }
+        if !self.all_providers().contains_key(&self.model.provider) {
+            anyhow::bail!(
+                "model.provider = {:?} is not the implicit \"anthropic\" provider nor a key of [providers]",
+                self.model.provider
+            );
+        }
         Ok(())
+    }
+
+    /// Every provider by name, with the implicit `anthropic` one synthesized
+    /// from `[model]` unless `[providers.anthropic]` overrides it.
+    pub fn all_providers(&self) -> BTreeMap<String, ProviderConfig> {
+        let mut all = self.providers.clone();
+        all.entry("anthropic".into())
+            .or_insert_with(|| ProviderConfig {
+                api_base: self.model.api_base.clone(),
+                api_key_secret: self.model.api_key_secret.clone(),
+                kind: default_provider_kind(),
+                timeouts: None,
+            });
+        all
     }
 
     pub fn state_dir(&self) -> PathBuf {
@@ -214,8 +279,23 @@ impl Config {
             "aws_starter".into(),
             "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain".into(),
         );
+        secrets.insert(
+            "zai_api_key".into(),
+            "op://Eddie-Tabitha/z.ai key/notesPlain#api key value".into(),
+        );
+        let mut providers = BTreeMap::new();
+        providers.insert(
+            "zai".into(),
+            ProviderConfig {
+                api_base: "https://api.z.ai/api/anthropic".into(),
+                api_key_secret: "zai_api_key".into(),
+                kind: default_provider_kind(),
+                timeouts: None,
+            },
+        );
         Self {
             model: ModelConfig::default(),
+            providers,
             secrets,
             server: ServerConfig::default(),
             github: GitHubConfig::default(),

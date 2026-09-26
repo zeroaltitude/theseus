@@ -46,9 +46,17 @@ impl ToolchainManager {
     }
 }
 
+/// What a turn runs against: a provider by name and a model id.
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub provider: String,
+    pub model: String,
+}
+
 pub struct TurnRunner {
     pub cfg: Arc<Config>,
-    pub provider: Arc<dyn Provider>,
+    /// Providers by name; `cfg.model.provider` is the default.
+    pub providers: std::collections::BTreeMap<String, Arc<dyn Provider>>,
     pub hooks: Hooks,
     pub store: Store,
     pub locks: TurnLocks,
@@ -80,12 +88,45 @@ impl TurnRunner {
         outcome
     }
 
+    pub fn default_target(&self) -> Target {
+        Target {
+            provider: self.cfg.model.provider.clone(),
+            model: self.cfg.model.model.clone(),
+        }
+    }
+
+    pub fn resolve_target(&self, provider: Option<&str>, model: Option<&str>) -> Result<Target> {
+        let t = self.default_target();
+        let provider = provider.unwrap_or(&t.provider).to_string();
+        if !self.providers.contains_key(&provider) {
+            anyhow::bail!(
+                "unknown provider {provider:?}; configured: {}",
+                self.providers
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        Ok(Target {
+            provider,
+            model: model.unwrap_or(&t.model).to_string(),
+        })
+    }
+
     pub async fn run(
         &self,
         mut session: SessionRecord,
         input: String,
+        target: Target,
         events: mpsc::UnboundedSender<Wire>,
     ) -> Result<TurnSubmitResult> {
+        let provider = self
+            .providers
+            .get(&target.provider)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
+        let model_id = target.model.clone();
         let lock = self.locks.for_session(&session.session_id);
         let _held = lock.lock().await; // one turn per session
                                        // The caller's copy may be stale: it was read before the lock. Re-read
@@ -111,7 +152,7 @@ impl TurnRunner {
             "turn.started",
             &sid,
             Some(&turn_id),
-            json!({"input_chars": input.chars().count()}),
+            json!({"input_chars": input.chars().count(), "provider": target.provider, "model": model_id}),
         );
 
         if let Outcome::Blocked { reason } =
@@ -157,7 +198,7 @@ impl TurnRunner {
                 LoopStarted {
                     turn_id: turn_id.clone(),
                     loop_index,
-                    model: self.cfg.model.model.clone(),
+                    model: model_id.clone(),
                     tools_offered: compiled.tools.len() as u32,
                 },
             )));
@@ -172,7 +213,7 @@ impl TurnRunner {
                 HookEvent::PreModelCall,
                 &sid,
                 &turn_id,
-                json!({"loop": loop_index, "model": self.cfg.model.model}),
+                json!({"loop": loop_index, "provider": target.provider, "model": model_id}),
             ) {
                 anyhow::bail!("model call blocked: {reason}");
             }
@@ -191,11 +232,10 @@ impl TurnRunner {
                 )));
             };
             let call_started = Instant::now();
-            let resp = match self
-                .provider
+            let resp = match provider
                 .stream_message(
                     ProviderRequest {
-                        model: &self.cfg.model.model,
+                        model: &model_id,
                         max_tokens: self.cfg.model.max_tokens,
                         system: compiled.system.as_deref(),
                         messages: &compiled.messages,
@@ -221,8 +261,8 @@ impl TurnRunner {
                         Some(&turn_id),
                         json!({
                             "loop": loop_index,
-                            "provider": self.provider.name(),
-                            "model": self.cfg.model.model,
+                            "provider": target.provider,
+                            "model": model_id,
                             "class": class,
                             "transient": transient,
                             "usage_unknown": unknown,
@@ -266,7 +306,7 @@ impl TurnRunner {
                 Some(&turn_id),
                 json!({
                     "loop": loop_index,
-                    "provider": self.provider.name(),
+                    "provider": target.provider,
                     "model": resp.model,
                     "request_id": resp.request_id,
                     "usage": resp.usage,
@@ -374,6 +414,7 @@ impl TurnRunner {
             stop_reason,
             provider_stop_reason: provider_stop,
             model: model_used,
+            provider: target.provider.clone(),
             usage,
             elapsed_ms: started.elapsed().as_millis() as u64,
             first_token_ms,
@@ -389,7 +430,7 @@ impl TurnRunner {
             "turn.ended",
             &sid,
             Some(&turn_id),
-            json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "session_usage": session.usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "model": result.model}),
+            json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "session_usage": session.usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model}),
         );
         let _ = events.send(Wire::Notification(Notification::new(
             notify::TURN_ENDED,

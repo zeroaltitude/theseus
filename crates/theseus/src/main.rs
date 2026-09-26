@@ -59,6 +59,12 @@ enum Cmd {
         /// Continue an existing session instead of opening a new one.
         #[arg(long, short)]
         session: Option<String>,
+        /// Provider for this turn (a configured provider name, e.g. anthropic, zai).
+        #[arg(long, short)]
+        provider: Option<String>,
+        /// Model id for this turn (e.g. claude-sonnet-5, glm-5.3-flash).
+        #[arg(long, short)]
+        model: Option<String>,
     },
     /// Server health.
     Health,
@@ -255,7 +261,12 @@ async fn run(cli: Cli) -> Result<()> {
     let stream = !cli.no_stream && !json;
 
     match cli.cmd {
-        Cmd::Ask { prompt, session } => {
+        Cmd::Ask {
+            prompt,
+            session,
+            provider,
+            model,
+        } => {
             let prompt = match prompt.as_deref() {
                 None | Some("-") => read_stdin_prompt()?,
                 Some(p) => p.to_string(),
@@ -267,6 +278,8 @@ async fn run(cli: Cli) -> Result<()> {
                     serde_json::to_value(TurnSubmitParams {
                         session_id: session,
                         input: prompt,
+                        provider,
+                        model,
                     })?,
                     |m, p| {
                         if stream && m == notify::MODEL_DELTA {
@@ -309,8 +322,8 @@ async fn run(cli: Cli) -> Result<()> {
             } else {
                 let h: HealthResult = serde_json::from_value(v)?;
                 println!(
-                    "{} {} · protocol {} · up {}s · model {} · sessions {} · turns {} · provider errors {} · ledger rows {}",
-                    h.name, h.version, h.protocol, h.uptime_secs, h.model, h.sessions, h.turns, h.provider_errors, h.ledger_rows
+                    "{} {} · protocol {} · up {}s · default {}/{} · providers [{}] · sessions {} · turns {} · provider errors {} · ledger rows {}",
+                    h.name, h.version, h.protocol, h.uptime_secs, h.provider, h.model, h.providers.join(", "), h.sessions, h.turns, h.provider_errors, h.ledger_rows
                 );
                 println!(
                     "tokens total: in {} out {} cache-read {} cache-write {} · secrets [{}]",

@@ -38,18 +38,26 @@ impl fmt::Debug for Secret {
     }
 }
 
-/// `op://vault/item/field` or `op://vault/item/section/field`.
+/// `op://vault/item/field` or `op://vault/item/section/field`, optionally
+/// followed by `#label` to select one `label: value` line out of a multi-line
+/// note (many hand-written Secure Notes look like `api key value: …`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretRef {
     pub vault: String,
     pub item: String,
     pub path: String,
+    pub line_label: Option<String>,
     raw: String,
+    op_ref: String,
 }
 
 impl SecretRef {
     pub fn parse(s: &str) -> Result<Self> {
-        let rest = s
+        let (op_ref, line_label) = match s.split_once('#') {
+            Some((r, l)) if !l.trim().is_empty() => (r, Some(l.trim().to_string())),
+            _ => (s, None),
+        };
+        let rest = op_ref
             .strip_prefix("op://")
             .with_context(|| format!("not an op:// reference: {s:?}"))?;
         let mut parts = rest.splitn(3, '/');
@@ -63,11 +71,46 @@ impl SecretRef {
             vault,
             item,
             path,
+            line_label,
             raw: s.to_string(),
+            op_ref: op_ref.to_string(),
         })
     }
+    /// The full reference as written, including any `#label`.
     pub fn as_str(&self) -> &str {
         &self.raw
+    }
+    /// What `op read` receives (no fragment).
+    pub fn op_ref(&self) -> &str {
+        &self.op_ref
+    }
+
+    /// Apply the `#label` selection, if any, to a fetched value.
+    pub fn select(&self, value: String) -> Result<String> {
+        let Some(label) = &self.line_label else {
+            return Ok(value);
+        };
+        let want = label.to_ascii_lowercase();
+        for line in value.lines() {
+            if let Some((k, v)) = line.split_once(':') {
+                if k.trim().to_ascii_lowercase() == want {
+                    let v = v.trim();
+                    if v.is_empty() {
+                        bail!("{}: line {label:?} is empty", self.raw);
+                    }
+                    return Ok(v.to_string());
+                }
+            }
+        }
+        let labels: Vec<String> = value
+            .lines()
+            .filter_map(|l| l.split_once(':').map(|(k, _)| k.trim().to_string()))
+            .collect();
+        bail!(
+            "{}: no line labelled {label:?} (labels present: {})",
+            self.raw,
+            labels.join(", ")
+        )
     }
 }
 
@@ -122,7 +165,7 @@ impl OpReader {
         let out = tokio::process::Command::new(&self.op_bin)
             .arg("read")
             .arg("--no-newline")
-            .arg(r.as_str())
+            .arg(r.op_ref())
             .env_clear()
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", std::env::var("HOME").unwrap_or_default())
@@ -142,7 +185,7 @@ impl OpReader {
         if value.is_empty() {
             bail!("op read {} returned an empty value", r.as_str());
         }
-        Ok(Secret::new(value))
+        Ok(Secret::new(r.select(value)?))
     }
 }
 
@@ -218,6 +261,19 @@ mod tests {
         assert_eq!(r.vault, "Eddie-Tabitha");
         assert_eq!(r.item, "anthropic openclaw key");
         assert_eq!(r.path, "notesPlain");
+    }
+
+    #[test]
+    fn line_label_selects_one_line_of_a_note() {
+        let r = SecretRef::parse("op://V/z.ai key/notesPlain#api key value").unwrap();
+        assert_eq!(r.op_ref(), "op://V/z.ai key/notesPlain");
+        let note = "name: zai\napi key id: abc\nApi Key Value:  id.secret \n".to_string();
+        assert_eq!(r.select(note).unwrap(), "id.secret");
+        let missing = SecretRef::parse("op://V/i/notesPlain#nope").unwrap();
+        let e = missing.select("a: 1\nb: 2".into()).unwrap_err().to_string();
+        assert!(e.contains("labels present: a, b"));
+        let plain = SecretRef::parse("op://V/i/notesPlain").unwrap();
+        assert_eq!(plain.select("raw".into()).unwrap(), "raw");
     }
 
     #[test]

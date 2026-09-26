@@ -3,6 +3,7 @@
 //! task per connection; notifications for a connection flow through its own
 //! channel so a streaming turn never blocks another client.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -42,27 +43,42 @@ pub struct Core {
 
 impl Core {
     pub fn new(cfg: Config, secrets: Secrets, store: Store) -> Result<Arc<Self>> {
-        let key = secrets
-            .get(&cfg.model.api_key_secret)
-            .with_context(|| {
-                format!(
-                    "secret {} missing after resolution",
-                    cfg.model.api_key_secret
-                )
-            })?
-            .clone();
-        let provider: Arc<dyn Provider> = Arc::new(Anthropic::new(
-            &cfg.model.api_base,
-            key,
-            cfg.model.timeouts.clone(),
-        )?);
-        Self::with_provider(cfg, provider, store, secrets.names())
+        let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
+        for (name, pc) in cfg.all_providers() {
+            let key = secrets
+                .get(&pc.api_key_secret)
+                .with_context(|| {
+                    format!(
+                        "secret {} for provider {name} missing after resolution",
+                        pc.api_key_secret
+                    )
+                })?
+                .clone();
+            let timeouts = pc
+                .timeouts
+                .clone()
+                .unwrap_or_else(|| cfg.model.timeouts.clone());
+            providers.insert(name, Arc::new(Anthropic::new(&pc.api_base, key, timeouts)?));
+        }
+        Self::with_providers(cfg, providers, store, secrets.names())
     }
 
-    /// Build a core around any provider (tests use `FakeProvider`).
+    /// Build a core around one provider registered under the config's default
+    /// provider name (tests use `FakeProvider`).
     pub fn with_provider(
         cfg: Config,
         provider: Arc<dyn Provider>,
+        store: Store,
+        secret_names: Vec<String>,
+    ) -> Result<Arc<Self>> {
+        let mut providers = BTreeMap::new();
+        providers.insert(cfg.model.provider.clone(), provider);
+        Self::with_providers(cfg, providers, store, secret_names)
+    }
+
+    pub fn with_providers(
+        cfg: Config,
+        providers: BTreeMap<String, Arc<dyn Provider>>,
         store: Store,
         secret_names: Vec<String>,
     ) -> Result<Arc<Self>> {
@@ -70,7 +86,7 @@ impl Core {
         let hooks = Hooks::new();
         let runner = TurnRunner {
             cfg: cfg.clone(),
-            provider,
+            providers,
             hooks: hooks.clone(),
             store: store.clone(),
             locks: TurnLocks::default(),
@@ -109,6 +125,8 @@ impl Core {
             sessions: self.store.session_count().unwrap_or(0),
             turns: self.turns.load(Ordering::Relaxed),
             model: self.cfg.model.model.clone(),
+            provider: self.cfg.model.provider.clone(),
+            providers: self.runner.providers.keys().cloned().collect(),
             secrets_resolved: self.secret_names.clone(),
             usage_total: self.usage_total(),
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
@@ -276,7 +294,11 @@ impl Core {
                         .open_session(SessionOpenParams::default())
                         .map_err(bad)?,
                 };
-                let result = match self.runner.run(session, p.input, tx).await {
+                let target = self
+                    .runner
+                    .resolve_target(p.provider.as_deref(), p.model.as_deref())
+                    .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
+                let result = match self.runner.run(session, p.input, target, tx).await {
                     Ok(r) => r,
                     Err(e) => {
                         self.turns.fetch_add(1, Ordering::Relaxed);
@@ -542,6 +564,8 @@ mod tests {
                 TurnSubmitParams {
                     session_id: None,
                     input: "hi".into(),
+                    provider: None,
+                    model: None,
                 },
             )],
         )
@@ -613,6 +637,8 @@ mod tests {
                     TurnSubmitParams {
                         session_id: None,
                         input: "   ".into(),
+                        provider: None,
+                        model: None,
                     },
                 ),
                 Request::new(
@@ -621,6 +647,8 @@ mod tests {
                     TurnSubmitParams {
                         session_id: Some("ses_nope".into()),
                         input: "hi".into(),
+                        provider: None,
+                        model: None,
                     },
                 ),
             ],
@@ -665,6 +693,8 @@ mod tests {
                     TurnSubmitParams {
                         session_id: None,
                         input: "hi".into(),
+                        provider: None,
+                        model: None,
                     },
                 ),
                 Request::new(Id::Num(3), method::HOOKS_LIST, Value::Null),
@@ -715,6 +745,8 @@ mod tests {
                     TurnSubmitParams {
                         session_id: Some(sid.clone()),
                         input: format!("turn {i}"),
+                        provider: None,
+                        model: None,
                     },
                 )
             })
@@ -757,6 +789,8 @@ mod tests {
                 TurnSubmitParams {
                     session_id: None,
                     input: "hi".into(),
+                    provider: None,
+                    model: None,
                 },
             )],
         )
@@ -802,6 +836,8 @@ mod tests {
                     TurnSubmitParams {
                         session_id: Some(sid.clone()),
                         input: "a b".into(),
+                        provider: None,
+                        model: None,
                     },
                 )
             })
@@ -833,6 +869,98 @@ mod tests {
             serde_json::from_value(responses(&tail)[0].result.clone().unwrap()).unwrap();
         assert_eq!(t.rows.len(), 2);
         assert!(t.rows.iter().all(|r| r.kind == "provider.call"));
+    }
+
+    #[tokio::test]
+    async fn per_turn_provider_and_model_selection() {
+        let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+        let store = Store::open(&dir.join("t.redb")).unwrap();
+        let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
+        providers.insert(
+            "anthropic".into(),
+            Arc::new(FakeProvider {
+                reply: "from anthropic".into(),
+                ..Default::default()
+            }),
+        );
+        providers.insert(
+            "zai".into(),
+            Arc::new(FakeProvider {
+                reply: "from zai".into(),
+                ..Default::default()
+            }),
+        );
+        let core = Core::with_providers(Config::example(), providers, store, vec![]).unwrap();
+        let msgs = roundtrip(
+            core.clone(),
+            vec![
+                Request::new(
+                    Id::Num(1),
+                    method::TURN_SUBMIT,
+                    TurnSubmitParams {
+                        session_id: None,
+                        input: "hi".into(),
+                        provider: None,
+                        model: None,
+                    },
+                ),
+                Request::new(
+                    Id::Num(2),
+                    method::TURN_SUBMIT,
+                    TurnSubmitParams {
+                        session_id: None,
+                        input: "hi".into(),
+                        provider: Some("zai".into()),
+                        model: Some("glm-5.3-flash".into()),
+                    },
+                ),
+                Request::new(
+                    Id::Num(3),
+                    method::TURN_SUBMIT,
+                    TurnSubmitParams {
+                        session_id: None,
+                        input: "hi".into(),
+                        provider: Some("nope".into()),
+                        model: None,
+                    },
+                ),
+            ],
+        )
+        .await;
+        let rs = responses(&msgs);
+        let r1: TurnSubmitResult = serde_json::from_value(
+            rs.iter()
+                .find(|r| r.id == Id::Num(1))
+                .unwrap()
+                .result
+                .clone()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r1.provider, "anthropic");
+        assert_eq!(r1.output, "from anthropic");
+        assert_eq!(r1.model, "claude-sonnet-5");
+        let r2: TurnSubmitResult = serde_json::from_value(
+            rs.iter()
+                .find(|r| r.id == Id::Num(2))
+                .unwrap()
+                .result
+                .clone()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r2.provider, "zai");
+        assert_eq!(r2.output, "from zai");
+        assert_eq!(r2.model, "glm-5.3-flash");
+        let e3 = rs
+            .iter()
+            .find(|r| r.id == Id::Num(3))
+            .unwrap()
+            .error
+            .as_ref()
+            .unwrap();
+        assert_eq!(e3.code, error_code::INVALID_PARAMS);
+        assert!(core.health().providers.contains(&"zai".to_string()));
     }
 
     #[tokio::test]

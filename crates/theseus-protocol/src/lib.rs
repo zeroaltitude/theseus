@@ -159,6 +159,11 @@ pub struct HealthResult {
     pub sessions: u64,
     pub turns: u64,
     pub model: String,
+    /// Default provider name and every configured provider.
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub providers: Vec<String>,
     pub secrets_resolved: Vec<String>,
     /// Tokens across every session, summed from session records.
     pub usage_total: Usage,
@@ -204,6 +209,12 @@ pub struct TurnSubmitParams {
     #[serde(default)]
     pub session_id: Option<String>,
     pub input: String,
+    /// Provider name for this turn (a configured provider); default from config.
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Model id for this turn; default from config.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -227,6 +238,8 @@ pub struct TurnSubmitResult {
     /// The provider's own stop reason for the last loop.
     pub provider_stop_reason: Option<String>,
     pub model: String,
+    #[serde(default)]
+    pub provider: String,
     pub usage: Usage,
     pub elapsed_ms: u64,
     /// Time to the first streamed token of the last loop.
