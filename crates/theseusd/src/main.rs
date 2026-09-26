@@ -17,8 +17,30 @@ use tokio::net::UnixListener;
 
 mod web;
 
+const AFTER_HELP: &str = "\
+Running it:
+  With no COMMAND, theseusd serves: it loads config, resolves every secret from 1Password
+  (refusing to start if any is missing), opens the store, then listens on the Unix socket
+  and the web UI (http://127.0.0.1:7433/). It stays in the foreground; Ctrl-C stops it.
+
+  export OP_SERVICE_ACCOUNT_TOKEN=...   the only secret allowed outside 1Password
+  theseusd check                        prove the vault wiring, then exit
+  theseusd config                       show the config actually loaded, and from where
+  theseusd                              serve (foreground); add & to background it
+  THESEUS_LOG=debug theseusd            more detail (tracing filter syntax)
+  theseusd --socket /tmp/dbg.sock       a scratch instance beside a running one
+
+Config source (--config / THESEUS_CONFIG): an op:// reference (default: the 1Password item
+theseus-config) or a local TOML file. `theseusd example-config` prints a template; it is
+not what the server runs with.";
+
 #[derive(Parser, Debug)]
-#[command(name = "theseusd", version, about = "Theseus server")]
+#[command(
+    name = "theseusd",
+    version,
+    about = "Theseus server: config and secrets from 1Password, the turn kernel, the protocol on a Unix socket or stdio, and the localhost web UI.",
+    after_help = AFTER_HELP
+)]
 struct Cli {
     /// Config source: an op:// reference or a file path.
     #[arg(long, env = "THESEUS_CONFIG", default_value = DEFAULT_CONFIG_REF)]
@@ -42,7 +64,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Print an example config (TOML) and exit.
+    /// Print a template config (TOML) and exit. A starting point, not the loaded config.
     ExampleConfig,
     /// Load config, resolve every secret, report, and exit without serving.
     Check,

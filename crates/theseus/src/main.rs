@@ -18,11 +18,32 @@ use theseus_protocol::{
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
+const AFTER_HELP: &str = "\
+Quick start:
+  export OP_SERVICE_ACCOUNT_TOKEN=...        the one secret allowed outside 1Password
+  theseusd &                                 start the server (or run it in the foreground)
+  theseus health                             is it up, which profile is live, token totals
+  theseus ask \"Say hello.\"                  one turn, streamed
+  echo \"Summarize: ...\" | theseus ask --json  pipelines
+  theseus profile use glm                    switch the live profile (persists)
+  theseus ask -P sonnet \"...\"               one turn under another profile
+  theseus ledger -n 20 -k provider.call      what every call cost and how long it took
+  theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn
+  theseus shutdown
+
+Web UI:      http://127.0.0.1:7433/  (while theseusd runs)
+Exit codes:  0 ok · 1 server or provider error · 2 usage · 3 cannot connect
+More:        theseus <command> --help";
+
 #[derive(Parser, Debug)]
 #[command(
     name = "theseus",
     version,
-    about = "Theseus CLI",
+    about = "Theseus CLI: a thin client for the Theseus server (theseusd), built for shells and pipelines.",
+    long_about = "Theseus CLI.\n\nA thin client that speaks the Theseus protocol (JSON-RPC over newline-delimited JSON) \
+to a running theseusd over its Unix socket, or spawns one on stdio with --spawn. Prompts come from an \
+argument or stdin; replies stream to stdout; diagnostics go to stderr; --json gives one JSON object for machines.",
+    after_help = AFTER_HELP,
     args_conflicts_with_subcommands = false
 )]
 struct Cli {
@@ -69,14 +90,14 @@ enum Cmd {
         #[arg(long, short)]
         model: Option<String>,
     },
-    /// Server health.
+    /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
     Health,
-    /// Sessions.
+    /// Sessions: list them with per-session token totals, or open one to continue across turns.
     Sessions {
         #[command(subcommand)]
         cmd: Option<SessionsCmd>,
     },
-    /// Hook events and registered handlers.
+    /// Hook events and registered handlers; `hooks watch <event>` observes one live.
     Hooks {
         #[command(subcommand)]
         cmd: HooksCmd,
@@ -97,28 +118,30 @@ enum Cmd {
         #[arg(short, long)]
         session: Option<String>,
     },
-    /// Send a raw JSON-RPC request: METHOD and optional PARAMS (JSON).
+    /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
         params: Option<String>,
     },
-    /// Ask the server to stop.
+    /// Ask the server to stop cleanly (removes its socket).
     Shutdown,
 }
 
 #[derive(Subcommand, Debug)]
 enum ProfileCmd {
+    /// List profiles; `*` marks the live one and where the choice came from (default).
     List,
     /// Make NAME the live profile (persists across restarts).
-    Use {
-        name: String,
-    },
+    Use { name: String },
 }
 
 #[derive(Subcommand, Debug)]
 enum SessionsCmd {
+    /// List sessions with turns and tokens in/out (default).
     List,
+    /// Open a session and print its id; pass it to `ask -s` to keep turns together.
     Open {
+        /// Human label shown in listings.
         #[arg(long)]
         label: Option<String>,
     },
@@ -126,6 +149,7 @@ enum SessionsCmd {
 
 #[derive(Subcommand, Debug)]
 enum HooksCmd {
+    /// Every hook event with its kind (gate/transform/claim/observe) and handler count (default).
     List,
     /// Register as an observer of EVENT and print each hook.event as it arrives (Ctrl-C to stop).
     Watch {
