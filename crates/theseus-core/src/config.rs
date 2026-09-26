@@ -22,6 +22,35 @@ pub struct Config {
     pub secrets: BTreeMap<String, String>,
     #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
+    pub github: GitHubConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubConfig {
+    /// Name of the entry in `[secrets]` holding the GitHub token; checked at startup.
+    #[serde(default = "default_github_secret")]
+    pub token_secret: String,
+    /// Warn when the token expires within this many days.
+    #[serde(default = "default_warn_days")]
+    pub warn_days: i64,
+}
+
+fn default_github_secret() -> String {
+    "github_token".into()
+}
+fn default_warn_days() -> i64 {
+    30
+}
+
+impl Default for GitHubConfig {
+    fn default() -> Self {
+        Self {
+            token_secret: default_github_secret(),
+            warn_days: default_warn_days(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +181,7 @@ impl Config {
             model: ModelConfig::default(),
             secrets,
             server: ServerConfig::default(),
+            github: GitHubConfig::default(),
         }
     }
 }

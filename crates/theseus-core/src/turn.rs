@@ -10,14 +10,15 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use theseus_protocol::{
-    notify, LoopEnded, LoopStarted, ModelDelta, Notification, TurnStarted, TurnSubmitResult, Usage,
+    notify, LoopEnded, LoopStarted, Message as Wire, ModelDelta, Notification, TurnStarted,
+    TurnSubmitResult, Usage,
 };
 use tokio::sync::mpsc;
 
 use crate::advancer::{Advancer, Decision, LoopOutcome};
 use crate::hooks::{HookEvent, Hooks, Outcome};
 use crate::ledger::LedgerRow;
-use crate::provider::{Anthropic, Message, ToolDef};
+use crate::provider::{Message, Provider, ProviderRequest, ToolDef};
 use crate::session::{SessionRecord, TurnLocks};
 use crate::store::Store;
 use crate::Config;
@@ -47,7 +48,7 @@ impl ToolchainManager {
 
 pub struct TurnRunner {
     pub cfg: Arc<Config>,
-    pub provider: Anthropic,
+    pub provider: Arc<dyn Provider>,
     pub hooks: Hooks,
     pub store: Store,
     pub locks: TurnLocks,
@@ -83,21 +84,29 @@ impl TurnRunner {
         &self,
         mut session: SessionRecord,
         input: String,
-        events: mpsc::UnboundedSender<Notification>,
+        events: mpsc::UnboundedSender<Wire>,
     ) -> Result<TurnSubmitResult> {
         let lock = self.locks.for_session(&session.session_id);
         let _held = lock.lock().await; // one turn per session
+                                       // The caller's copy may be stale: it was read before the lock. Re-read
+                                       // under the lock so concurrent turns on one session never lose updates.
+        if let Some(fresh) = self
+            .store
+            .get_session::<SessionRecord>(&session.session_id)?
+        {
+            session = fresh;
+        }
         let started = Instant::now();
         let sid = session.session_id.clone();
         let turn_id = crate::new_id("turn");
 
-        let _ = events.send(Notification::new(
+        let _ = events.send(Wire::Notification(Notification::new(
             notify::TURN_STARTED,
             TurnStarted {
                 session_id: sid.clone(),
                 turn_id: turn_id.clone(),
             },
-        ));
+        )));
         self.ledger(
             "turn.started",
             &sid,
@@ -141,7 +150,7 @@ impl TurnRunner {
                 &turn_id,
                 json!({"loop": loop_index, "messages": compiled.messages.len(), "tools": compiled.tools.len()}),
             );
-            let _ = events.send(Notification::new(
+            let _ = events.send(Wire::Notification(Notification::new(
                 notify::LOOP_STARTED,
                 LoopStarted {
                     turn_id: turn_id.clone(),
@@ -149,7 +158,7 @@ impl TurnRunner {
                     model: self.cfg.model.model.clone(),
                     tools_offered: compiled.tools.len() as u32,
                 },
-            ));
+            )));
             self.ledger(
                 "loop.started",
                 &sid,
@@ -169,24 +178,27 @@ impl TurnRunner {
             // --- one provider call, streamed
             let ev = events.clone();
             let tid = turn_id.clone();
+            let mut on_delta = move |t: &str| {
+                let _ = ev.send(Wire::Notification(Notification::new(
+                    notify::MODEL_DELTA,
+                    ModelDelta {
+                        turn_id: tid.clone(),
+                        loop_index,
+                        text: t.to_string(),
+                    },
+                )));
+            };
             let resp = self
                 .provider
                 .stream_message(
-                    &self.cfg.model.model,
-                    self.cfg.model.max_tokens,
-                    compiled.system.as_deref(),
-                    &compiled.messages,
-                    compiled.tools,
-                    |t| {
-                        let _ = ev.send(Notification::new(
-                            notify::MODEL_DELTA,
-                            ModelDelta {
-                                turn_id: tid.clone(),
-                                loop_index,
-                                text: t.to_string(),
-                            },
-                        ));
+                    ProviderRequest {
+                        model: &self.cfg.model.model,
+                        max_tokens: self.cfg.model.max_tokens,
+                        system: compiled.system.as_deref(),
+                        messages: &compiled.messages,
+                        tools: compiled.tools,
                     },
+                    &mut on_delta,
                 )
                 .await
                 .context("provider call")?;
@@ -224,7 +236,7 @@ impl TurnRunner {
                 &turn_id,
                 json!({"advancer": self.advancer.name(), "decision": decision}),
             );
-            let _ = events.send(Notification::new(
+            let _ = events.send(Wire::Notification(Notification::new(
                 notify::LOOP_ENDED,
                 LoopEnded {
                     turn_id: turn_id.clone(),
@@ -234,7 +246,7 @@ impl TurnRunner {
                     advancer: self.advancer.name().into(),
                     decision: decision.label(),
                 },
-            ));
+            )));
             self.site(
                 HookEvent::LoopEnded,
                 &sid,
@@ -302,7 +314,10 @@ impl TurnRunner {
             Some(&turn_id),
             json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "elapsed_ms": result.elapsed_ms}),
         );
-        let _ = events.send(Notification::new(notify::TURN_ENDED, &result));
+        let _ = events.send(Wire::Notification(Notification::new(
+            notify::TURN_ENDED,
+            &result,
+        )));
         Ok(result)
     }
 }

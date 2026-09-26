@@ -70,6 +70,8 @@ async fn main() -> Result<()> {
     let secrets = Secrets::resolve_all(&cfg.secrets, &op).await?;
     tracing::info!(count = secrets.names().len(), names = ?secrets.names(), "all secrets resolved");
 
+    github_token_report(&cfg, &secrets).await;
+
     if let Some(Cmd::Check) = cli.cmd {
         println!(
             "ok: config loaded from {}; {} secret(s) resolved: {}",
@@ -164,4 +166,33 @@ async fn serve_socket(core: Arc<Core>, path: PathBuf) -> Result<()> {
     }
     let _ = std::fs::remove_file(&path);
     Ok(())
+}
+
+/// Log when the GitHub token expires; warn loudly when close. Never fatal.
+async fn github_token_report(cfg: &Config, secrets: &Secrets) {
+    let Some(tok) = secrets.get(&cfg.github.token_secret) else {
+        return;
+    };
+    match theseus_core::github::token_status(tok).await {
+        Ok(st) => {
+            let login = st.login.clone().unwrap_or_else(|| "?".into());
+            match st.days_left {
+                Some(d) if d <= cfg.github.warn_days => tracing::warn!(
+                    login = %login,
+                    expires_at = %st.expires_at.clone().unwrap_or_default(),
+                    days_left = d,
+                    "GitHub token expires soon; rotate it in 1Password"
+                ),
+                Some(d) => tracing::info!(
+                    login = %login,
+                    expires_at = %st.expires_at.clone().unwrap_or_default(),
+                    days_left = d,
+                    fine_grained = st.fine_grained,
+                    "GitHub token ok"
+                ),
+                None => tracing::info!(login = %login, "GitHub token ok (no expiry reported)"),
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "could not check GitHub token; continuing"),
+    }
 }

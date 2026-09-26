@@ -8,6 +8,95 @@ use theseus_protocol::Usage;
 
 use crate::secrets::Secret;
 
+/// One provider call's inputs, as the toolchain manager compiled them.
+pub struct ProviderRequest<'a> {
+    pub model: &'a str,
+    pub max_tokens: u32,
+    pub system: Option<&'a str>,
+    pub messages: &'a [Message],
+    pub tools: Vec<ToolDef>,
+}
+
+pub type DeltaSink<'a> = &'a mut (dyn FnMut(&str) + Send);
+pub type ProviderFuture<'a> = futures_util::future::BoxFuture<'a, Result<ModelResponse>>;
+
+/// A model provider. The turn runner depends on this, never on Anthropic
+/// directly, so tests run against a fake and a second provider is a new impl.
+pub trait Provider: Send + Sync {
+    fn name(&self) -> &str;
+    fn stream_message<'a>(
+        &'a self,
+        req: ProviderRequest<'a>,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a>;
+}
+
+impl Provider for Anthropic {
+    fn name(&self) -> &str {
+        "anthropic"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: ProviderRequest<'a>,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        Box::pin(self.stream_message_impl(req, on_delta))
+    }
+}
+
+/// A scripted provider for tests: emits `reply` in chunks, reports usage.
+pub struct FakeProvider {
+    pub reply: String,
+    pub chunk: usize,
+    pub stop_reason: String,
+}
+
+impl Default for FakeProvider {
+    fn default() -> Self {
+        Self {
+            reply: "fake reply".into(),
+            chunk: 4,
+            stop_reason: "end_turn".into(),
+        }
+    }
+}
+
+impl Provider for FakeProvider {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: ProviderRequest<'a>,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        Box::pin(async move {
+            let chars: Vec<char> = self.reply.chars().collect();
+            for piece in chars.chunks(self.chunk.max(1)) {
+                let s: String = piece.iter().collect();
+                on_delta(&s);
+                tokio::task::yield_now().await;
+            }
+            let input_tokens = req
+                .messages
+                .iter()
+                .map(|m| m.content.split_whitespace().count() as u64)
+                .sum();
+            Ok(ModelResponse {
+                text: self.reply.clone(),
+                stop_reason: Some(self.stop_reason.clone()),
+                tool_calls: Vec::new(),
+                usage: Usage {
+                    input_tokens,
+                    output_tokens: self.reply.split_whitespace().count() as u64,
+                    ..Default::default()
+                },
+                model: req.model.to_string(),
+            })
+        })
+    }
+}
+
 pub const API_VERSION: &str = "2023-06-01";
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,22 +169,19 @@ impl Anthropic {
     }
 
     /// One provider call. `on_delta` receives streamed text as it arrives.
-    pub async fn stream_message(
+    async fn stream_message_impl(
         &self,
-        model: &str,
-        max_tokens: u32,
-        system: Option<&str>,
-        messages: &[Message],
-        tools: Vec<ToolDef>,
-        mut on_delta: impl FnMut(&str),
+        req: ProviderRequest<'_>,
+        on_delta: DeltaSink<'_>,
     ) -> Result<ModelResponse> {
+        let model = req.model;
         let body = MessagesRequest {
             model,
-            max_tokens,
+            max_tokens: req.max_tokens,
             stream: true,
-            system,
-            messages,
-            tools,
+            system: req.system,
+            messages: req.messages,
+            tools: req.tools,
         };
         let resp = self
             .http

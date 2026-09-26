@@ -1,8 +1,8 @@
-# ring (via rustls) compiles a little C for the musl target. Without musl-tools
-# installed, the host gcc builds it fine, so point the musl target at it.
+# Static musl target. ring (via rustls) compiles a little C; musl-gcc from
+# musl-tools is the right compiler for it. CI installs musl-tools too.
 [target.x86_64-unknown-linux-musl]
 linker = "rust-lld"
 
 [env]
-CC_x86_64_unknown_linux_musl = { value = "gcc", force = false }
+CC_x86_64_unknown_linux_musl = { value = "musl-gcc", force = false }
 AR_x86_64_unknown_linux_musl = { value = "ar", force = false }

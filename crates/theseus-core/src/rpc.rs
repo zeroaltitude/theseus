@@ -11,8 +11,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use theseus_protocol::{
     error_code, method, HandlerInfo, HealthResult, HookInfo, HooksListResult, HooksRegisterParams,
-    HooksRegisterResult, Id, Message, Notification, Request, Response, SessionKind,
-    SessionListResult, SessionOpenParams, TurnSubmitParams,
+    HooksRegisterResult, Id, Message, Request, Response, SessionKind, SessionListResult,
+    SessionOpenParams, TurnSubmitParams,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 use crate::advancer::StopAfterOneLoop;
 use crate::hooks::{HookEvent, Hooks};
 use crate::ledger::LedgerRow;
-use crate::provider::Anthropic;
+use crate::provider::{Anthropic, Provider};
 use crate::secrets::Secrets;
 use crate::session::{SessionRecord, TurnLocks};
 use crate::store::Store;
@@ -49,7 +49,17 @@ impl Core {
                 )
             })?
             .clone();
-        let provider = Anthropic::new(&cfg.model.api_base, key)?;
+        let provider: Arc<dyn Provider> = Arc::new(Anthropic::new(&cfg.model.api_base, key)?);
+        Self::with_provider(cfg, provider, store, secrets.names())
+    }
+
+    /// Build a core around any provider (tests use `FakeProvider`).
+    pub fn with_provider(
+        cfg: Config,
+        provider: Arc<dyn Provider>,
+        store: Store,
+        secret_names: Vec<String>,
+    ) -> Result<Arc<Self>> {
         let cfg = Arc::new(cfg);
         let hooks = Hooks::new();
         let runner = TurnRunner {
@@ -66,7 +76,7 @@ impl Core {
             hooks,
             store,
             runner,
-            secret_names: secrets.names(),
+            secret_names,
             started: Instant::now(),
             turns: AtomicU64::new(0),
             shutdown: tokio::sync::Notify::new(),
@@ -126,17 +136,14 @@ impl Core {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        let (tx, mut rx) = mpsc::unbounded_channel::<Notification>();
-        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel::<Response>();
+        // One ordered outbound queue: notifications and responses share it, so a
+        // turn's events always precede its response on the wire.
+        let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+        let resp_tx = tx.clone();
 
-        // Single writer task: notifications and responses share the stream.
         let writer_task = tokio::spawn(async move {
-            loop {
-                let line = tokio::select! {
-                    Some(n) = rx.recv() => serde_json::to_string(&n),
-                    Some(r) = resp_rx.recv() => serde_json::to_string(&r),
-                    else => break,
-                };
+            while let Some(m) = rx.recv().await {
+                let line = serde_json::to_string(&m);
                 match line {
                     Ok(mut s) => {
                         s.push('\n');
@@ -160,11 +167,11 @@ impl Core {
             let msg: Message = match serde_json::from_str(&line) {
                 Ok(m) => m,
                 Err(e) => {
-                    let _ = resp_tx.send(Response::err(
+                    let _ = resp_tx.send(Message::Response(Response::err(
                         Id::Num(0),
                         error_code::PARSE,
                         format!("parse error: {e}"),
-                    ));
+                    )));
                     continue;
                 }
             };
@@ -176,7 +183,7 @@ impl Core {
                     let client = client.clone();
                     tokio::spawn(async move {
                         let resp = core.handle(req, tx, &client).await;
-                        let _ = resp_tx.send(resp);
+                        let _ = resp_tx.send(Message::Response(resp));
                     });
                 }
                 Message::Notification(n) => {
@@ -198,7 +205,7 @@ impl Core {
     async fn handle(
         self: Arc<Self>,
         req: Request,
-        tx: mpsc::UnboundedSender<Notification>,
+        tx: mpsc::UnboundedSender<Message>,
         client: &str,
     ) -> Response {
         let id = req.id.clone();
@@ -214,7 +221,7 @@ impl Core {
     async fn dispatch(
         self: Arc<Self>,
         req: Request,
-        tx: mpsc::UnboundedSender<Notification>,
+        tx: mpsc::UnboundedSender<Message>,
         client: &str,
     ) -> Result<Value, (i64, String)> {
         let bad = |e: anyhow::Error| (error_code::INTERNAL, e.to_string());
@@ -334,4 +341,319 @@ impl Core {
 fn parse<T: serde::de::DeserializeOwned>(v: Value) -> Result<T, (i64, String)> {
     serde_json::from_value(v)
         .map_err(|e| (error_code::INVALID_PARAMS, format!("invalid params: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::FakeProvider;
+    use theseus_protocol::{notify, Notification, TurnSubmitResult};
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    fn test_core(reply: &str) -> Arc<Core> {
+        let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+        let store = Store::open(&dir.join("t.redb")).unwrap();
+        let mut cfg = Config::example();
+        cfg.server.state_dir = dir.to_string_lossy().into_owned();
+        Core::with_provider(
+            cfg,
+            Arc::new(FakeProvider {
+                reply: reply.into(),
+                ..Default::default()
+            }),
+            store,
+            vec!["anthropic_api_key".into()],
+        )
+        .unwrap()
+    }
+
+    /// Drive a connection over an in-memory duplex: returns (lines received) after `n_requests` responses.
+    async fn roundtrip(core: Arc<Core>, requests: Vec<Request>) -> Vec<Message> {
+        let (client, server) = duplex(64 * 1024);
+        let (sr, sw) = tokio::io::split(server);
+        let srv = tokio::spawn(core.serve_connection(sr, sw, "test".into()));
+        let (cr, mut cw) = tokio::io::split(client);
+        let want = requests.len();
+        for r in requests {
+            let mut line = serde_json::to_string(&r).unwrap();
+            line.push('\n');
+            cw.write_all(line.as_bytes()).await.unwrap();
+        }
+        let mut lines = BufReader::new(cr).lines();
+        let mut got = Vec::new();
+        let mut responses = 0;
+        while responses < want {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let m: Message = serde_json::from_str(&line).unwrap();
+            if matches!(m, Message::Response(_)) {
+                responses += 1;
+            }
+            got.push(m);
+        }
+        cw.shutdown().await.unwrap();
+        drop(cw);
+        drop(lines);
+        let _ = srv.await;
+        got
+    }
+
+    fn responses(msgs: &[Message]) -> Vec<&Response> {
+        msgs.iter()
+            .filter_map(|m| match m {
+                Message::Response(r) => Some(r),
+                _ => None,
+            })
+            .collect()
+    }
+    fn notifications(msgs: &[Message]) -> Vec<&Notification> {
+        msgs.iter()
+            .filter_map(|m| match m {
+                Message::Notification(n) => Some(n),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn health_and_unknown_method() {
+        let core = test_core("x");
+        let msgs = roundtrip(
+            core,
+            vec![
+                Request::new(Id::Num(1), method::HEALTH, Value::Null),
+                Request::new(Id::Num(2), "nope.nothing", Value::Null),
+            ],
+        )
+        .await;
+        let rs = responses(&msgs);
+        let health = rs.iter().find(|r| r.id == Id::Num(1)).unwrap();
+        assert_eq!(health.result.as_ref().unwrap()["name"], "theseus");
+        let nope = rs.iter().find(|r| r.id == Id::Num(2)).unwrap();
+        assert_eq!(
+            nope.error.as_ref().unwrap().code,
+            error_code::METHOD_NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn one_turn_is_one_loop_with_streamed_deltas() {
+        let core = test_core("hello there friend");
+        let msgs = roundtrip(
+            core.clone(),
+            vec![Request::new(
+                Id::Num(7),
+                method::TURN_SUBMIT,
+                TurnSubmitParams {
+                    session_id: None,
+                    input: "hi".into(),
+                },
+            )],
+        )
+        .await;
+        let ns: Vec<&str> = notifications(&msgs)
+            .iter()
+            .map(|n| n.method.as_str())
+            .collect();
+        assert_eq!(ns.first(), Some(&notify::TURN_STARTED));
+        assert_eq!(ns.get(1), Some(&notify::LOOP_STARTED));
+        assert!(ns.iter().filter(|m| **m == notify::MODEL_DELTA).count() >= 2);
+        assert_eq!(ns[ns.len() - 2], notify::LOOP_ENDED);
+        assert_eq!(ns[ns.len() - 1], notify::TURN_ENDED);
+        let streamed: String = notifications(&msgs)
+            .iter()
+            .filter(|n| n.method == notify::MODEL_DELTA)
+            .map(|n| n.params["text"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(streamed, "hello there friend");
+
+        let r = responses(&msgs)[0];
+        let result: TurnSubmitResult = serde_json::from_value(r.result.clone().unwrap()).unwrap();
+        assert_eq!(result.loops, 1);
+        assert_eq!(result.stop_reason, "stop_after_one_loop");
+        assert_eq!(result.output, "hello there friend");
+        assert_eq!(result.provider_stop_reason.as_deref(), Some("end_turn"));
+
+        // Every hook site on the turn path was visited with zero handlers, and ledgered.
+        let rows: Vec<(u64, LedgerRow)> = core.store.ledger_tail(200).unwrap();
+        let sites: Vec<String> = rows
+            .iter()
+            .filter(|(_, r)| r.kind == "hook.site" && r.turn_id.as_deref() == Some(&result.turn_id))
+            .map(|(_, r)| r.data["event"].as_str().unwrap().to_string())
+            .collect();
+        for expected in [
+            "turn.starting",
+            "input.received",
+            "context.built",
+            "model.pre_call",
+            "model.post_call",
+            "advancer.decided",
+            "loop.ended",
+            "message.sending",
+            "reply.claim",
+            "turn.ended",
+        ] {
+            assert!(
+                sites.contains(&expected.to_string()),
+                "missing site {expected}: {sites:?}"
+            );
+        }
+        assert!(rows
+            .iter()
+            .filter(|(_, r)| r.kind == "hook.site")
+            .all(|(_, r)| r.data["handlers"] == 0));
+        assert_eq!(core.health().turns, 1);
+        assert_eq!(core.health().sessions, 1);
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_input_and_unknown_session() {
+        let core = test_core("x");
+        let msgs = roundtrip(
+            core,
+            vec![
+                Request::new(
+                    Id::Num(1),
+                    method::TURN_SUBMIT,
+                    TurnSubmitParams {
+                        session_id: None,
+                        input: "   ".into(),
+                    },
+                ),
+                Request::new(
+                    Id::Num(2),
+                    method::TURN_SUBMIT,
+                    TurnSubmitParams {
+                        session_id: Some("ses_nope".into()),
+                        input: "hi".into(),
+                    },
+                ),
+            ],
+        )
+        .await;
+        let rs = responses(&msgs);
+        let e1 = rs
+            .iter()
+            .find(|r| r.id == Id::Num(1))
+            .unwrap()
+            .error
+            .as_ref()
+            .unwrap();
+        assert_eq!(e1.code, error_code::INVALID_PARAMS);
+        let e2 = rs
+            .iter()
+            .find(|r| r.id == Id::Num(2))
+            .unwrap()
+            .error
+            .as_ref()
+            .unwrap();
+        assert_eq!(e2.code, error_code::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn remote_hook_observer_sees_turn_events() {
+        let core = test_core("ok");
+        let msgs = roundtrip(
+            core,
+            vec![
+                Request::new(
+                    Id::Num(1),
+                    method::HOOKS_REGISTER,
+                    HooksRegisterParams {
+                        event: "turn.ended".into(),
+                        handler_id: "obs".into(),
+                    },
+                ),
+                Request::new(
+                    Id::Num(2),
+                    method::TURN_SUBMIT,
+                    TurnSubmitParams {
+                        session_id: None,
+                        input: "hi".into(),
+                    },
+                ),
+                Request::new(Id::Num(3), method::HOOKS_LIST, Value::Null),
+            ],
+        )
+        .await;
+        let hook_events: Vec<&Notification> = notifications(&msgs)
+            .into_iter()
+            .filter(|n| n.method == notify::HOOK_EVENT)
+            .collect();
+        assert_eq!(hook_events.len(), 1);
+        assert_eq!(hook_events[0].params["event"], "turn.ended");
+        assert_eq!(hook_events[0].params["handler_id"], "obs");
+        let list = responses(&msgs)
+            .iter()
+            .find(|r| r.id == Id::Num(3))
+            .unwrap()
+            .result
+            .clone()
+            .unwrap();
+        let l: HooksListResult = serde_json::from_value(list).unwrap();
+        assert_eq!(l.events.len(), HookEvent::ALL.len());
+        assert_eq!(l.handlers.len(), 1);
+        assert_eq!(l.handlers[0].client, "test");
+    }
+
+    #[tokio::test]
+    async fn same_session_serializes_turns() {
+        let core = test_core("r");
+        let open = roundtrip(
+            core.clone(),
+            vec![Request::new(
+                Id::Num(1),
+                method::SESSION_OPEN,
+                SessionOpenParams::default(),
+            )],
+        )
+        .await;
+        let sid = responses(&open)[0].result.as_ref().unwrap()["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let reqs = (0..3)
+            .map(|i| {
+                Request::new(
+                    Id::Num(10 + i),
+                    method::TURN_SUBMIT,
+                    TurnSubmitParams {
+                        session_id: Some(sid.clone()),
+                        input: format!("turn {i}"),
+                    },
+                )
+            })
+            .collect();
+        let msgs = roundtrip(core.clone(), reqs).await;
+        assert_eq!(responses(&msgs).len(), 3);
+        let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+        assert_eq!(rec.turns, 3);
+        // turn.started/turn.ended never interleave: each started is followed by its own ended.
+        let seq: Vec<&str> = notifications(&msgs)
+            .iter()
+            .filter(|n| n.method == notify::TURN_STARTED || n.method == notify::TURN_ENDED)
+            .map(|n| n.method.as_str())
+            .collect();
+        assert_eq!(seq, [notify::TURN_STARTED, notify::TURN_ENDED].repeat(3));
+    }
+
+    #[tokio::test]
+    async fn parse_error_gets_a_response() {
+        let core = test_core("x");
+        let (client, server) = duplex(4096);
+        let (sr, sw) = tokio::io::split(server);
+        let srv = tokio::spawn(core.serve_connection(sr, sw, "test".into()));
+        let (cr, mut cw) = tokio::io::split(client);
+        cw.write_all(b"this is not json\n").await.unwrap();
+        let mut lines = BufReader::new(cr).lines();
+        let line = lines.next_line().await.unwrap().unwrap();
+        let m: Message = serde_json::from_str(&line).unwrap();
+        match m {
+            Message::Response(r) => assert_eq!(r.error.unwrap().code, error_code::PARSE),
+            other => panic!("expected response, got {other:?}"),
+        }
+        cw.shutdown().await.unwrap();
+        drop(cw);
+        drop(lines);
+        let _ = srv.await;
+    }
 }

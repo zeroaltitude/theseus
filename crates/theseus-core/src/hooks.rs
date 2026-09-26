@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use theseus_protocol::{notify, HookEventNotification, Notification};
+use theseus_protocol::{notify, HookEventNotification, Message, Notification};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -102,7 +102,7 @@ pub struct HandlerRecord {
 
 #[derive(Clone)]
 enum Sink {
-    Remote(mpsc::UnboundedSender<Notification>),
+    Remote(mpsc::UnboundedSender<Message>),
 }
 
 #[derive(Clone)]
@@ -153,7 +153,7 @@ impl Hooks {
         event: HookEvent,
         handler_id: String,
         client: String,
-        tx: mpsc::UnboundedSender<Notification>,
+        tx: mpsc::UnboundedSender<Message>,
     ) -> HandlerRecord {
         let record = HandlerRecord {
             event,
@@ -235,7 +235,7 @@ impl Hooks {
                             payload: payload.clone(),
                         },
                     );
-                    let _ = tx.send(n);
+                    let _ = tx.send(Message::Notification(n));
                 }
             }
         }
@@ -278,7 +278,9 @@ mod tests {
         h.register_remote(HookEvent::TurnEnded, "obs".into(), "c1".into(), tx);
         assert_eq!(h.count(HookEvent::TurnEnded), 1);
         h.dispatch(HookEvent::TurnEnded, Some("t1"), None, Value::Null);
-        let n = rx.try_recv().unwrap();
+        let Message::Notification(n) = rx.try_recv().unwrap() else {
+            panic!("expected notification")
+        };
         assert_eq!(n.method, notify::HOOK_EVENT);
         assert_eq!(h.unregister_client("c1"), 1);
     }
