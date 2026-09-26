@@ -1,0 +1,24 @@
+[package]
+name = "theseus-core"
+description = "The Theseus kernel: config and secrets, hooks, sessions, turn runner, provider, advancer, store."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+theseus-protocol.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+redb.workspace = true
+uuid.workspace = true
+shellexpand.workspace = true

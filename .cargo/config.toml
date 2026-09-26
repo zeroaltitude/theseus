@@ -1,0 +1,8 @@
+# ring (via rustls) compiles a little C for the musl target. Without musl-tools
+# installed, the host gcc builds it fine, so point the musl target at it.
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
+
+[env]
+CC_x86_64_unknown_linux_musl = { value = "gcc", force = false }
+AR_x86_64_unknown_linux_musl = { value = "ar", force = false }

@@ -24,3 +24,8 @@ target
 .dolt/
 *.db
 .beads-credential-key
+
+# Local state and any local config (config normally lives in 1Password)
+.theseus/
+theseus.toml
+*.sock

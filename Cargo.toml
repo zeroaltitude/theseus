@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/theseus-protocol",
+    "crates/theseus-core",
+    "crates/theseusd",
+    "crates/theseus",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/zeroaltitude/theseus"
+rust-version = "1.98"
+
+[workspace.dependencies]
+theseus-protocol = { path = "crates/theseus-protocol" }
+theseus-core = { path = "crates/theseus-core" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "sync", "time", "signal", "fs"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+zeroize = { version = "1", features = ["derive"] }
+redb = "4"
+clap = { version = "4", features = ["derive", "env"] }
+uuid = { version = "1", features = ["v7"] }
+shellexpand = "3"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = true
+panic = "abort"

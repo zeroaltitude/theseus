@@ -1,0 +1,167 @@
+//! `theseusd`: the Theseus server.
+//!
+//! Startup order: read the service-account token, load config (from 1Password
+//! or a file), resolve every secret or refuse to start, open the store, then
+//! serve the protocol on stdio (`--stdio`) or a Unix socket (default).
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use theseus_core::config::DEFAULT_CONFIG_REF;
+use theseus_core::secrets::{OpReader, Secrets};
+use theseus_core::store::Store;
+use theseus_core::{Config, Core};
+use tokio::net::UnixListener;
+
+#[derive(Parser, Debug)]
+#[command(name = "theseusd", version, about = "Theseus server")]
+struct Cli {
+    /// Config source: an op:// reference or a file path.
+    #[arg(long, env = "THESEUS_CONFIG", default_value = DEFAULT_CONFIG_REF)]
+    config: String,
+
+    /// File holding the 1Password service-account token (used when OP_SERVICE_ACCOUNT_TOKEN is unset).
+    #[arg(long, env = "THESEUS_OP_TOKEN_FILE")]
+    op_token_file: Option<String>,
+
+    /// Speak the protocol on stdin/stdout instead of a socket (spawned by a client).
+    #[arg(long)]
+    stdio: bool,
+
+    /// Unix socket path; overrides [server].socket in config.
+    #[arg(long, env = "THESEUS_SOCKET")]
+    socket: Option<PathBuf>,
+
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Print an example config (TOML) and exit.
+    ExampleConfig,
+    /// Load config, resolve every secret, report, and exit without serving.
+    Check,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    // Logs go to stderr always; stdout may be the protocol stream.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_env("THESEUS_LOG")
+                .unwrap_or_else(|_| "info".into()),
+        )
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .init();
+
+    if let Some(Cmd::ExampleConfig) = cli.cmd {
+        print!("{}", toml::to_string_pretty(&Config::example())?);
+        return Ok(());
+    }
+
+    let op = OpReader::from_env(cli.op_token_file.as_deref())?;
+    let cfg = Config::load(&cli.config, &op).await?;
+    tracing::info!(source = %cli.config, model = %cfg.model.model, "config loaded");
+    let secrets = Secrets::resolve_all(&cfg.secrets, &op).await?;
+    tracing::info!(count = secrets.names().len(), names = ?secrets.names(), "all secrets resolved");
+
+    if let Some(Cmd::Check) = cli.cmd {
+        println!(
+            "ok: config loaded from {}; {} secret(s) resolved: {}",
+            cli.config,
+            secrets.names().len(),
+            secrets.names().join(", ")
+        );
+        return Ok(());
+    }
+
+    let state_dir = cfg.state_dir();
+    std::fs::create_dir_all(&state_dir)
+        .with_context(|| format!("creating state dir {}", state_dir.display()))?;
+    // The embedded store is single-process. A spawned stdio server must not fight a
+    // running daemon for the same file, so stdio mode uses its own store.
+    let store_name = if cli.stdio {
+        "theseus-stdio.redb"
+    } else {
+        "theseus.redb"
+    };
+    let store = Store::open(&state_dir.join(store_name))?;
+    let socket_path = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
+    let core = Core::new(cfg, secrets, store)?;
+    tracing::info!(
+        ledger_rows = core.store.ledger_len().unwrap_or(0),
+        "store open"
+    );
+
+    if cli.stdio {
+        tracing::info!("serving protocol on stdio");
+        let stdin = tokio::io::stdin();
+        let stdout = tokio::io::stdout();
+        core.clone()
+            .serve_connection(stdin, stdout, "stdio".into())
+            .await?;
+        return Ok(());
+    }
+
+    serve_socket(core, socket_path).await
+}
+
+async fn serve_socket(core: Arc<Core>, path: PathBuf) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    if path.exists() {
+        // A stale socket from a previous run; if something is listening, fail rather than steal it.
+        if tokio::net::UnixStream::connect(&path).await.is_ok() {
+            anyhow::bail!(
+                "another theseusd is already listening on {}",
+                path.display()
+            );
+        }
+        std::fs::remove_file(&path)?;
+    }
+    let listener =
+        UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    tracing::info!(socket = %path.display(), "serving protocol; localhost only, file permissions are the auth");
+
+    let mut conn_id: u64 = 0;
+    loop {
+        tokio::select! {
+            accepted = listener.accept() => {
+                let (stream, _) = accepted?;
+                conn_id += 1;
+                let (r, w) = stream.into_split();
+                let core = core.clone();
+                let client = format!("sock#{conn_id}");
+                tracing::info!(client = %client, "client connected");
+                tokio::spawn(async move {
+                    if let Err(e) = core.serve_connection(r, w, client.clone()).await {
+                        tracing::warn!(client = %client, error = %e, "connection ended with error");
+                    } else {
+                        tracing::info!(client = %client, "client disconnected");
+                    }
+                });
+            }
+            _ = core.shutdown.notified() => {
+                tracing::info!("shutdown requested over protocol");
+                break;
+            }
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("SIGINT");
+                break;
+            }
+        }
+    }
+    let _ = std::fs::remove_file(&path);
+    Ok(())
+}
