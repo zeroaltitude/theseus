@@ -94,10 +94,15 @@ impl Core {
             None => tracing::info!("telemetry: no otlp_endpoint configured; nothing is exported"),
         }
         let scrubber = Arc::new(Scrubber::from_secrets(&secrets));
-        let launcher: Arc<dyn JobLauncher> = Arc::new(WrapperLauncher {
-            self_exe: std::env::current_exe()
+        // Wrappers run this very image: after an in-place upgrade (copy, then
+        // rename over the old file) the path on disk is a newer binary, or
+        // `current_exe()` names a deleted file; `/proc/self/exe` is still us.
+        let self_exe = match std::path::Path::new("/proc/self/exe") {
+            p if p.exists() => p.to_path_buf(),
+            _ => std::env::current_exe()
                 .context("locating the theseusd binary for the job wrapper")?,
-        });
+        };
+        let launcher: Arc<dyn JobLauncher> = Arc::new(WrapperLauncher { self_exe });
         Self::build(
             cfg,
             providers,

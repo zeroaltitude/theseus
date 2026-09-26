@@ -67,6 +67,8 @@ pub fn spawn_detached(
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        // Spawned as /proc/self/exe, it still shows as theseusd in ps.
+        cmd.arg0("theseusd");
         // Own session and process group: the harness dying does not take us
         // with it, and `kill(-pgid)` reaches the whole tree on cancel.
         unsafe {

@@ -1022,7 +1022,7 @@ impl ToolRuntime {
                         .authorize(&corr, &proposal, Some(&self.policy.confirmer))
                     {
                         Ok(_) => {
-                            tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": true}));
+                            // `action.confirm` announced the answer; this only acts on it.
                             match self.execute(tc, &corr, tool, &u).await? {
                                 CallOutcome::Background { correlation_id } => {
                                     out.background.push(correlation_id)
@@ -1147,7 +1147,6 @@ impl ToolRuntime {
                     } else {
                         format!("Not run: {reason}.")
                     };
-                    tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false}));
                     let node = self.result_node(
                         tc,
                         &u.id,

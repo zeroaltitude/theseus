@@ -1469,12 +1469,19 @@ impl Printer {
             notify::CONFIRM_RESOLVED => {
                 self.settle();
                 let ok = p.get("approved").and_then(Value::as_bool).unwrap_or(false);
-                eprintln!(
-                    "  {} {} (by {})",
-                    if ok { "✓ approved" } else { "✗ declined" },
-                    s("correlation_id"),
-                    s("by")
-                );
+                if p.get("superseded").and_then(Value::as_bool) == Some(true) {
+                    eprintln!(
+                        "  ✗ superseded {} (a new message arrived before an answer)",
+                        s("correlation_id")
+                    );
+                } else {
+                    eprintln!(
+                        "  {} {} (by {})",
+                        if ok { "✓ approved" } else { "✗ declined" },
+                        s("correlation_id"),
+                        s("by")
+                    );
+                }
             }
             notify::CONTEXT_COMPILED => {
                 let recompiled = s("decision") == "recompile";
