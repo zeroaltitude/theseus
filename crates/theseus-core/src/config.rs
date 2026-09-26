@@ -17,6 +17,9 @@ pub const DEFAULT_CONFIG_REF: &str = "op://Eddie-Tabitha/theseus-config/notesPla
 pub struct Config {
     #[serde(default)]
     pub model: ModelConfig,
+    /// Named model profiles. The implicit `default` profile is built from `[model]`.
+    #[serde(default)]
+    pub profiles: BTreeMap<String, ProfileConfig>,
     /// Additional Anthropic-Messages-compatible endpoints by name (e.g. `zai`).
     /// The implicit `anthropic` provider comes from `[model]` unless overridden here.
     #[serde(default)]
@@ -111,9 +114,31 @@ fn default_provider_kind() -> String {
     "anthropic_messages".into()
 }
 
+/// A named way of running turns: which provider, which model, how long an
+/// answer may be, and what system prompt. Exactly one profile is **live** at
+/// a time; the live one can be switched over the protocol and the switch
+/// persists. Turns may name a profile explicitly; later, sessions and tasks
+/// will carry their own override.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileConfig {
+    #[serde(default = "default_provider_name")]
+    pub provider: String,
+    pub model: String,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default)]
+    pub system: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelConfig {
+    /// Name of the profile that is live at startup (a key of `[profiles]`,
+    /// or "default" for the implicit profile built from this section).
+    /// A persisted runtime switch (`profile.use`) takes precedence.
+    #[serde(default = "default_profile_name")]
+    pub live: String,
     /// Default provider name: a key of `[providers]`, or "anthropic" for the implicit one.
     #[serde(default = "default_provider_name")]
     pub provider: String,
@@ -147,6 +172,9 @@ fn default_model() -> String {
 fn default_provider_name() -> String {
     "anthropic".into()
 }
+fn default_profile_name() -> String {
+    "default".into()
+}
 fn default_max_tokens() -> u32 {
     1024
 }
@@ -166,6 +194,7 @@ fn default_socket() -> String {
 impl Default for ModelConfig {
     fn default() -> Self {
         Self {
+            live: default_profile_name(),
             provider: default_provider_name(),
             model: default_model(),
             max_tokens: default_max_tokens(),
@@ -237,7 +266,36 @@ impl Config {
                 self.model.provider
             );
         }
+        let providers = self.all_providers();
+        for (name, prof) in &self.profiles {
+            if !providers.contains_key(&prof.provider) {
+                anyhow::bail!(
+                    "profiles.{name}.provider = {:?} is not a configured provider",
+                    prof.provider
+                );
+            }
+        }
+        if !self.all_profiles().contains_key(&self.model.live) {
+            anyhow::bail!(
+                "model.live = {:?} is not the implicit \"default\" profile nor a key of [profiles]",
+                self.model.live
+            );
+        }
         Ok(())
+    }
+
+    /// Every profile by name, with the implicit `default` synthesized from
+    /// `[model]` unless `[profiles.default]` overrides it.
+    pub fn all_profiles(&self) -> BTreeMap<String, ProfileConfig> {
+        let mut all = self.profiles.clone();
+        all.entry("default".into())
+            .or_insert_with(|| ProfileConfig {
+                provider: self.model.provider.clone(),
+                model: self.model.model.clone(),
+                max_tokens: self.model.max_tokens,
+                system: self.model.system.clone(),
+            });
+        all
     }
 
     /// Every provider by name, with the implicit `anthropic` one synthesized
@@ -293,8 +351,31 @@ impl Config {
                 timeouts: None,
             },
         );
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "sonnet".into(),
+            ProfileConfig {
+                provider: "anthropic".into(),
+                model: "claude-sonnet-5".into(),
+                max_tokens: 1024,
+                system: None,
+            },
+        );
+        profiles.insert(
+            "glm".into(),
+            ProfileConfig {
+                provider: "zai".into(),
+                model: "glm-5.3-flash".into(),
+                max_tokens: 4096,
+                system: None,
+            },
+        );
         Self {
-            model: ModelConfig::default(),
+            model: ModelConfig {
+                live: "sonnet".into(),
+                ..ModelConfig::default()
+            },
+            profiles,
             providers,
             secrets,
             server: ServerConfig::default(),

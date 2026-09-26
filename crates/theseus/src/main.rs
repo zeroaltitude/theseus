@@ -13,8 +13,8 @@ use clap::{Parser, Subcommand};
 use serde_json::Value;
 use theseus_protocol::{
     method, notify, HealthResult, HooksListResult, HooksRegisterParams, Id, LedgerTailParams,
-    LedgerTailResult, Message, Request, SessionListResult, SessionOpenParams, TurnSubmitParams,
-    TurnSubmitResult,
+    LedgerTailResult, Message, ProfileListResult, ProfileUseParams, Request, SessionListResult,
+    SessionOpenParams, TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
@@ -59,7 +59,10 @@ enum Cmd {
         /// Continue an existing session instead of opening a new one.
         #[arg(long, short)]
         session: Option<String>,
-        /// Provider for this turn (a configured provider name, e.g. anthropic, zai).
+        /// Profile for this turn (default: the live profile).
+        #[arg(long = "profile", short = 'P')]
+        profile: Option<String>,
+        /// Raw provider override for this turn (a configured provider name, e.g. anthropic, zai).
         #[arg(long, short)]
         provider: Option<String>,
         /// Model id for this turn (e.g. claude-sonnet-5, glm-5.3-flash).
@@ -77,6 +80,11 @@ enum Cmd {
     Hooks {
         #[command(subcommand)]
         cmd: HooksCmd,
+    },
+    /// Model profiles: list, or switch the live one (`theseus profile use glm`).
+    Profile {
+        #[command(subcommand)]
+        cmd: Option<ProfileCmd>,
     },
     /// Recent ledger rows (every turn, loop, provider call, hook site, error).
     Ledger {
@@ -96,6 +104,15 @@ enum Cmd {
     },
     /// Ask the server to stop.
     Shutdown,
+}
+
+#[derive(Subcommand, Debug)]
+enum ProfileCmd {
+    List,
+    /// Make NAME the live profile (persists across restarts).
+    Use {
+        name: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -264,6 +281,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Ask {
             prompt,
             session,
+            profile,
             provider,
             model,
         } => {
@@ -278,6 +296,7 @@ async fn run(cli: Cli) -> Result<()> {
                     serde_json::to_value(TurnSubmitParams {
                         session_id: session,
                         input: prompt,
+                        profile,
                         provider,
                         model,
                     })?,
@@ -322,8 +341,8 @@ async fn run(cli: Cli) -> Result<()> {
             } else {
                 let h: HealthResult = serde_json::from_value(v)?;
                 println!(
-                    "{} {} · protocol {} · up {}s · default {}/{} · providers [{}] · sessions {} · turns {} · provider errors {} · ledger rows {}",
-                    h.name, h.version, h.protocol, h.uptime_secs, h.provider, h.model, h.providers.join(", "), h.sessions, h.turns, h.provider_errors, h.ledger_rows
+                    "{} {} · protocol {} · up {}s · live profile {} ({}/{}) · providers [{}] · sessions {} · turns {} · provider errors {} · ledger rows {}",
+                    h.name, h.version, h.protocol, h.uptime_secs, h.profile, h.provider, h.model, h.providers.join(", "), h.sessions, h.turns, h.provider_errors, h.ledger_rows
                 );
                 println!(
                     "tokens total: in {} out {} cache-read {} cache-write {} · secrets [{}]",
@@ -417,6 +436,48 @@ async fn run(cli: Cli) -> Result<()> {
                             println!("{}", serde_json::to_string(&n.params)?);
                         }
                     }
+                }
+            }
+        },
+        Cmd::Profile { cmd } => match cmd.unwrap_or(ProfileCmd::List) {
+            ProfileCmd::List => {
+                let v = conn
+                    .call(method::PROFILE_LIST, Value::Null, |_, _| {})
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    let l: ProfileListResult = serde_json::from_value(v)?;
+                    for p in l.profiles {
+                        println!(
+                            "{} {:<12} {:<10} {:<28} max_tokens={}{}",
+                            if p.live { "*" } else { " " },
+                            p.name,
+                            p.provider,
+                            p.model,
+                            p.max_tokens,
+                            if p.has_system { "  +system" } else { "" }
+                        );
+                    }
+                    eprintln!("[live: {} (from {})]", l.live, l.live_source);
+                }
+            }
+            ProfileCmd::Use { name } => {
+                let v = conn
+                    .call(
+                        method::PROFILE_USE,
+                        serde_json::to_value(ProfileUseParams { name })?,
+                        |_, _| {},
+                    )
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    println!(
+                        "live profile: {} (was {})",
+                        v.get("live").and_then(Value::as_str).unwrap_or("?"),
+                        v.get("previous").and_then(Value::as_str).unwrap_or("?")
+                    );
                 }
             }
         },

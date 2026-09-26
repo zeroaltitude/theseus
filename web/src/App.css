@@ -41,6 +41,8 @@ header {
 .status.open { color: var(--ok); border-color: var(--ok); }
 .status.connecting { color: var(--warn); border-color: var(--warn); }
 .status.closed { color: var(--bad); border-color: var(--bad); }
+.profile { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.profile select { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font: inherit; }
 .totals { margin-left: auto; display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
 .totals b { color: var(--text); font-weight: 600; }
 

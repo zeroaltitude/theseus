@@ -11,6 +11,8 @@ use serde::{de::DeserializeOwned, Serialize};
 
 const SESSIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("sessions");
 const LEDGER: TableDefinition<u64, &[u8]> = TableDefinition::new("ledger");
+/// Small runtime state that must survive restarts (e.g. the live profile).
+const META: TableDefinition<&str, &[u8]> = TableDefinition::new("meta");
 
 #[derive(Clone)]
 pub struct Store {
@@ -29,9 +31,30 @@ impl Store {
         {
             txn.open_table(SESSIONS)?;
             txn.open_table(LEDGER)?;
+            txn.open_table(META)?;
         }
         txn.commit()?;
         Ok(Self { db: Arc::new(db) })
+    }
+
+    pub fn put_meta<T: Serialize>(&self, key: &str, value: &T) -> Result<()> {
+        let bytes = serde_json::to_vec(value)?;
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(META)?;
+            t.insert(key, bytes.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn get_meta<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(META)?;
+        match t.get(key)? {
+            Some(v) => Ok(Some(serde_json::from_slice(v.value())?)),
+            None => Ok(None),
+        }
     }
 
     pub fn put_session<T: Serialize>(&self, id: &str, value: &T) -> Result<()> {

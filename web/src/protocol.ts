@@ -18,7 +18,8 @@ export interface Usage {
 
 export interface Health {
   name: string; version: string; protocol: string; uptime_secs: number
-  sessions: number; turns: number; model: string; secrets_resolved: string[]
+  sessions: number; turns: number; model: string; profile: string; provider: string; providers: string[]
+  secrets_resolved: string[]
   usage_total: Usage; provider_errors: number; ledger_rows: number
 }
 
@@ -27,9 +28,15 @@ export interface SessionInfo {
   created_at_unix_ms: number; turns: number; usage: Usage
 }
 
+export interface ProfileInfo {
+  name: string; provider: string; model: string; max_tokens: number; has_system: boolean; live: boolean
+}
+export interface ProfileList { live: string; live_source: string; profiles: ProfileInfo[] }
+
 export interface TurnResult {
   session_id: string; turn_id: string; loops: number; output: string
   stop_reason: string; provider_stop_reason: string | null; model: string
+  provider: string; profile: string
   usage: Usage; elapsed_ms: number; first_token_ms: number | null; request_id: string | null
 }
 

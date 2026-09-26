@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { ProtocolClient } from './protocol'
-import type { Health, ProviderErrorData, RpcError, SessionInfo, TurnResult, Usage } from './protocol'
+import type { Health, ProfileList, ProviderErrorData, RpcError, SessionInfo, TurnResult, Usage } from './protocol'
 import './App.css'
 
 // One exchange: a prompt, the streamed reply, the events that produced it,
@@ -37,6 +37,7 @@ export default function App() {
   const client = useMemo(() => new ProtocolClient(), [])
   const [status, setStatus] = useState<Status>('connecting')
   const [health, setHealth] = useState<Health | null>(null)
+  const [profiles, setProfiles] = useState<ProfileList | null>(null)
   const [session, setSession] = useState<SessionInfo | null>(null)
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [input, setInput] = useState('')
@@ -46,7 +47,18 @@ export default function App() {
   const textarea = useRef<HTMLTextAreaElement>(null)
 
   const refreshHealth = useCallback(async () => {
-    try { setHealth(await client.call<Health>('health')) } catch { /* shown by status */ }
+    try {
+      setHealth(await client.call<Health>('health'))
+      setProfiles(await client.call<ProfileList>('profile.list'))
+    } catch { /* shown by status */ }
+  }, [client])
+
+  const useProfile = useCallback(async (name: string) => {
+    try {
+      await client.call('profile.use', { name })
+      setProfiles(await client.call<ProfileList>('profile.list'))
+      setHealth(await client.call<Health>('health'))
+    } catch (e) { console.error(e) }
   }, [client])
 
   // Connect, open a session, subscribe to notifications.
@@ -62,6 +74,7 @@ export default function App() {
       }
     })()
     const unsub = client.onNotify((method, params) => {
+      if (method === 'profile.changed') { void refreshHealth(); return }
       const p = params as { turn_id?: string; text?: string; session_id?: string }
       setExchanges((xs) => {
         // Route by turn_id once known, else to the newest pending exchange.
@@ -114,8 +127,18 @@ export default function App() {
       <header>
         <div className="brand">
           <span className="ship">⛵</span> <strong>Theseus</strong>
-          {health && <span className="muted"> v{health.version} · {health.model}</span>}
+          {health && <span className="muted"> v{health.version}</span>}
         </div>
+        {profiles && (
+          <label className="profile" title={`live profile (from ${profiles.live_source}); persists across restarts`}>
+            <span className="muted">live</span>
+            <select value={profiles.live} onChange={(e) => void useProfile(e.target.value)}>
+              {profiles.profiles.map((p) => (
+                <option key={p.name} value={p.name}>{p.name} · {p.provider}/{p.model}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className={`status ${status}`}>{status}</div>
         {health && (
           <div className="totals">
@@ -151,7 +174,7 @@ export default function App() {
               <footer>
                 {x.result ? (
                   <>
-                    <span>{x.result.model}</span>
+                    <span title="profile → provider/model">{x.result.profile} → {x.result.provider}/{x.result.model}</span>
                     <span>{x.result.loops} loop{x.result.loops === 1 ? '' : 's'}</span>
                     <span>{x.result.stop_reason}</span>
                     <UsageLine u={x.result.usage} />

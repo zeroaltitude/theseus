@@ -11,10 +11,10 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use theseus_protocol::{
-    error_code, method, HandlerInfo, HealthResult, HookInfo, HooksListResult, HooksRegisterParams,
-    HooksRegisterResult, Id, LedgerEntry, LedgerTailParams, LedgerTailResult, Message,
-    ProviderErrorData, Request, Response, SessionKind, SessionListResult, SessionOpenParams,
-    TurnSubmitParams, Usage,
+    error_code, method, notify, HandlerInfo, HealthResult, HookInfo, HooksListResult,
+    HooksRegisterParams, HooksRegisterResult, Id, LedgerEntry, LedgerTailParams, LedgerTailResult,
+    Message, ProfileChanged, ProfileInfo, ProfileListResult, ProfileUseParams, ProviderErrorData,
+    Request, Response, SessionKind, SessionListResult, SessionOpenParams, TurnSubmitParams, Usage,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -38,8 +38,12 @@ pub struct Core {
     started: Instant,
     turns: AtomicU64,
     provider_errors: AtomicU64,
+    /// The live profile and where it came from ("config" | "runtime").
+    live: std::sync::RwLock<(String, String)>,
     pub shutdown: tokio::sync::Notify,
 }
+
+const META_LIVE_PROFILE: &str = "live_profile";
 
 impl Core {
     pub fn new(cfg: Config, secrets: Secrets, store: Store) -> Result<Arc<Self>> {
@@ -93,6 +97,17 @@ impl Core {
             advancer: Arc::new(StopAfterOneLoop),
             toolchain: ToolchainManager,
         };
+        // A persisted runtime switch wins over config, if it still names a profile.
+        let profiles = cfg.all_profiles();
+        let live = match store.get_meta::<String>(META_LIVE_PROFILE)? {
+            Some(name) if profiles.contains_key(&name) => (name, "runtime".to_string()),
+            Some(stale) => {
+                tracing::warn!(profile = %stale, "persisted live profile no longer configured; using config");
+                (cfg.model.live.clone(), "config".to_string())
+            }
+            None => (cfg.model.live.clone(), "config".to_string()),
+        };
+        tracing::info!(profile = %live.0, source = %live.1, "live profile");
         let core = Arc::new(Self {
             cfg,
             hooks,
@@ -102,6 +117,7 @@ impl Core {
             started: Instant::now(),
             turns: AtomicU64::new(0),
             provider_errors: AtomicU64::new(0),
+            live: std::sync::RwLock::new(live),
             shutdown: tokio::sync::Notify::new(),
         });
         let (_, visit) = core
@@ -116,7 +132,69 @@ impl Core {
         Ok(core)
     }
 
+    pub fn live_profile(&self) -> (String, String) {
+        self.live.read().unwrap().clone()
+    }
+
+    pub fn profile_list(&self) -> ProfileListResult {
+        let (live, live_source) = self.live_profile();
+        let profiles = self
+            .cfg
+            .all_profiles()
+            .into_iter()
+            .map(|(name, p)| ProfileInfo {
+                live: name == live,
+                name,
+                provider: p.provider,
+                model: p.model,
+                max_tokens: p.max_tokens,
+                has_system: p.system.is_some(),
+            })
+            .collect();
+        ProfileListResult {
+            live,
+            live_source,
+            profiles,
+        }
+    }
+
+    /// Switch the live profile; persisted so it survives restart.
+    pub fn profile_use(&self, name: &str, by: &str) -> Result<ProfileChanged> {
+        if !self.cfg.all_profiles().contains_key(name) {
+            anyhow::bail!(
+                "unknown profile {name:?}; configured: {}",
+                self.cfg
+                    .all_profiles()
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        self.store.put_meta(META_LIVE_PROFILE, &name.to_string())?;
+        let previous = {
+            let mut g = self.live.write().unwrap();
+            let prev = g.0.clone();
+            *g = (name.to_string(), "runtime".into());
+            prev
+        };
+        let changed = ProfileChanged {
+            previous,
+            live: name.to_string(),
+            by: by.to_string(),
+        };
+        self.store.append_ledger(&LedgerRow::new(
+            "profile.changed",
+            None,
+            None,
+            serde_json::to_value(&changed)?,
+        ))?;
+        Ok(changed)
+    }
+
     pub fn health(&self) -> HealthResult {
+        let (profile, _) = self.live_profile();
+        let prof = self.cfg.all_profiles().get(&profile).cloned();
         HealthResult {
             name: crate::NAME.into(),
             version: crate::VERSION.into(),
@@ -124,8 +202,9 @@ impl Core {
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: self.store.session_count().unwrap_or(0),
             turns: self.turns.load(Ordering::Relaxed),
-            model: self.cfg.model.model.clone(),
-            provider: self.cfg.model.provider.clone(),
+            model: prof.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
+            profile,
+            provider: prof.map(|p| p.provider).unwrap_or_default(),
             providers: self.runner.providers.keys().cloned().collect(),
             secrets_resolved: self.secret_names.clone(),
             usage_total: self.usage_total(),
@@ -294,9 +373,15 @@ impl Core {
                         .open_session(SessionOpenParams::default())
                         .map_err(bad)?,
                 };
+                let (live, _) = self.live_profile();
                 let target = self
                     .runner
-                    .resolve_target(p.provider.as_deref(), p.model.as_deref())
+                    .resolve_target(
+                        &live,
+                        p.profile.as_deref(),
+                        p.provider.as_deref(),
+                        p.model.as_deref(),
+                    )
                     .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
                 let result = match self.runner.run(session, p.input, target, tx).await {
                     Ok(r) => r,
@@ -384,6 +469,19 @@ impl Core {
                     .map_err(|e: String| RpcFailure::new(error_code::INVALID_PARAMS, e))?;
                 let removed = self.hooks.unregister(event, &p.handler_id, client);
                 Ok(serde_json::json!({"removed": removed}))
+            }
+            method::PROFILE_LIST => Ok(serde_json::to_value(self.profile_list()).unwrap()),
+            method::PROFILE_USE => {
+                let p: ProfileUseParams = parse(req.params)?;
+                let changed = self
+                    .profile_use(&p.name, client)
+                    .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
+                // Tell this client; other clients learn on their next health/profile.list.
+                let _ = tx.send(Message::Notification(theseus_protocol::Notification::new(
+                    notify::PROFILE_CHANGED,
+                    &changed,
+                )));
+                Ok(serde_json::to_value(changed).unwrap())
             }
             method::LEDGER_TAIL => {
                 let p: LedgerTailParams = parse(req.params)?;
@@ -564,6 +662,7 @@ mod tests {
                 TurnSubmitParams {
                     session_id: None,
                     input: "hi".into(),
+                    profile: None,
                     provider: None,
                     model: None,
                 },
@@ -637,6 +736,7 @@ mod tests {
                     TurnSubmitParams {
                         session_id: None,
                         input: "   ".into(),
+                        profile: None,
                         provider: None,
                         model: None,
                     },
@@ -647,6 +747,7 @@ mod tests {
                     TurnSubmitParams {
                         session_id: Some("ses_nope".into()),
                         input: "hi".into(),
+                        profile: None,
                         provider: None,
                         model: None,
                     },
@@ -693,6 +794,7 @@ mod tests {
                     TurnSubmitParams {
                         session_id: None,
                         input: "hi".into(),
+                        profile: None,
                         provider: None,
                         model: None,
                     },
@@ -745,6 +847,7 @@ mod tests {
                     TurnSubmitParams {
                         session_id: Some(sid.clone()),
                         input: format!("turn {i}"),
+                        profile: None,
                         provider: None,
                         model: None,
                     },
@@ -789,6 +892,7 @@ mod tests {
                 TurnSubmitParams {
                     session_id: None,
                     input: "hi".into(),
+                    profile: None,
                     provider: None,
                     model: None,
                 },
@@ -836,6 +940,7 @@ mod tests {
                     TurnSubmitParams {
                         session_id: Some(sid.clone()),
                         input: "a b".into(),
+                        profile: None,
                         provider: None,
                         model: None,
                     },
@@ -900,6 +1005,7 @@ mod tests {
                     TurnSubmitParams {
                         session_id: None,
                         input: "hi".into(),
+                        profile: None,
                         provider: None,
                         model: None,
                     },
@@ -910,6 +1016,7 @@ mod tests {
                     TurnSubmitParams {
                         session_id: None,
                         input: "hi".into(),
+                        profile: None,
                         provider: Some("zai".into()),
                         model: Some("glm-5.3-flash".into()),
                     },
@@ -920,6 +1027,7 @@ mod tests {
                     TurnSubmitParams {
                         session_id: None,
                         input: "hi".into(),
+                        profile: None,
                         provider: Some("nope".into()),
                         model: None,
                     },
@@ -961,6 +1069,115 @@ mod tests {
             .unwrap();
         assert_eq!(e3.code, error_code::INVALID_PARAMS);
         assert!(core.health().providers.contains(&"zai".to_string()));
+    }
+
+    #[tokio::test]
+    async fn live_profile_switch_persists_and_routes() {
+        let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+        let store = Store::open(&dir.join("t.redb")).unwrap();
+        let mk = |store: Store| {
+            let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
+            providers.insert(
+                "anthropic".into(),
+                Arc::new(FakeProvider {
+                    reply: "from anthropic".into(),
+                    ..Default::default()
+                }),
+            );
+            providers.insert(
+                "zai".into(),
+                Arc::new(FakeProvider {
+                    reply: "from zai".into(),
+                    ..Default::default()
+                }),
+            );
+            Core::with_providers(Config::example(), providers, store, vec![]).unwrap()
+        };
+        let core = mk(store.clone());
+        assert_eq!(
+            core.live_profile(),
+            ("sonnet".to_string(), "config".to_string())
+        );
+        let ask = |id: u64, profile: Option<&str>| {
+            Request::new(
+                Id::Num(id),
+                method::TURN_SUBMIT,
+                TurnSubmitParams {
+                    session_id: None,
+                    input: "hi".into(),
+                    profile: profile.map(str::to_string),
+                    provider: None,
+                    model: None,
+                },
+            )
+        };
+        let msgs = roundtrip(
+            core.clone(),
+            vec![
+                ask(1, None),
+                Request::new(
+                    Id::Num(2),
+                    method::PROFILE_USE,
+                    ProfileUseParams { name: "glm".into() },
+                ),
+                ask(3, None),
+                ask(4, Some("sonnet")),
+                Request::new(
+                    Id::Num(5),
+                    method::PROFILE_USE,
+                    ProfileUseParams {
+                        name: "nope".into(),
+                    },
+                ),
+                Request::new(Id::Num(6), method::PROFILE_LIST, Value::Null),
+            ],
+        )
+        .await;
+        let rs = responses(&msgs);
+        let get = |id: u64| -> TurnSubmitResult {
+            serde_json::from_value(
+                rs.iter()
+                    .find(|r| r.id == Id::Num(id))
+                    .unwrap()
+                    .result
+                    .clone()
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(get(1).profile, "sonnet");
+        assert_eq!(get(1).output, "from anthropic");
+        assert_eq!(get(3).profile, "glm");
+        assert_eq!(get(3).provider, "zai");
+        assert_eq!(get(3).model, "glm-5.3-flash");
+        assert_eq!(get(3).output, "from zai");
+        assert_eq!(get(4).profile, "sonnet", "explicit profile beats live");
+        let bad = rs.iter().find(|r| r.id == Id::Num(5)).unwrap();
+        assert_eq!(bad.error.as_ref().unwrap().code, error_code::INVALID_PARAMS);
+        let list: ProfileListResult = serde_json::from_value(
+            rs.iter()
+                .find(|r| r.id == Id::Num(6))
+                .unwrap()
+                .result
+                .clone()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(list.live, "glm");
+        assert_eq!(list.live_source, "runtime");
+        assert!(msgs
+            .iter()
+            .any(|m| matches!(m, Message::Notification(n) if n.method == notify::PROFILE_CHANGED)));
+
+        // A fresh core over the same store comes up with the switched profile.
+        drop(core);
+        let core2 = mk(store);
+        assert_eq!(
+            core2.live_profile(),
+            ("glm".to_string(), "runtime".to_string())
+        );
+        assert_eq!(core2.health().profile, "glm");
+        assert_eq!(core2.health().model, "glm-5.3-flash");
     }
 
     #[tokio::test]

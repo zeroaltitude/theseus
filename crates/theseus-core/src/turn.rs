@@ -34,9 +34,9 @@ pub struct Compiled {
 pub struct ToolchainManager;
 
 impl ToolchainManager {
-    pub fn compile(&self, cfg: &Config, input: &str) -> Compiled {
+    pub fn compile(&self, _cfg: &Config, target: &Target, input: &str) -> Compiled {
         Compiled {
-            system: cfg.model.system.clone(),
+            system: target.system.clone(),
             messages: vec![Message {
                 role: "user".into(),
                 content: input.to_string(),
@@ -46,11 +46,14 @@ impl ToolchainManager {
     }
 }
 
-/// What a turn runs against: a provider by name and a model id.
+/// What a turn runs against, resolved from a profile plus any raw overrides.
 #[derive(Debug, Clone)]
 pub struct Target {
+    pub profile: String,
     pub provider: String,
     pub model: String,
+    pub max_tokens: u32,
+    pub system: Option<String>,
 }
 
 pub struct TurnRunner {
@@ -88,16 +91,24 @@ impl TurnRunner {
         outcome
     }
 
-    pub fn default_target(&self) -> Target {
-        Target {
-            provider: self.cfg.model.provider.clone(),
-            model: self.cfg.model.model.clone(),
-        }
-    }
-
-    pub fn resolve_target(&self, provider: Option<&str>, model: Option<&str>) -> Result<Target> {
-        let t = self.default_target();
-        let provider = provider.unwrap_or(&t.provider).to_string();
+    /// Resolve what a turn runs against. Precedence: raw `provider`/`model`
+    /// overrides > the named `profile` > the live profile.
+    pub fn resolve_target(
+        &self,
+        live_profile: &str,
+        profile: Option<&str>,
+        provider: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Target> {
+        let profiles = self.cfg.all_profiles();
+        let name = profile.unwrap_or(live_profile);
+        let prof = profiles.get(name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown profile {name:?}; configured: {}",
+                profiles.keys().cloned().collect::<Vec<_>>().join(", ")
+            )
+        })?;
+        let provider = provider.unwrap_or(&prof.provider).to_string();
         if !self.providers.contains_key(&provider) {
             anyhow::bail!(
                 "unknown provider {provider:?}; configured: {}",
@@ -109,8 +120,11 @@ impl TurnRunner {
             );
         }
         Ok(Target {
+            profile: name.to_string(),
             provider,
-            model: model.unwrap_or(&t.model).to_string(),
+            model: model.unwrap_or(&prof.model).to_string(),
+            max_tokens: prof.max_tokens,
+            system: prof.system.clone(),
         })
     }
 
@@ -152,7 +166,7 @@ impl TurnRunner {
             "turn.started",
             &sid,
             Some(&turn_id),
-            json!({"input_chars": input.chars().count(), "provider": target.provider, "model": model_id}),
+            json!({"input_chars": input.chars().count(), "profile": target.profile, "provider": target.provider, "model": model_id}),
         );
 
         if let Outcome::Blocked { reason } =
@@ -186,7 +200,7 @@ impl TurnRunner {
 
         loop {
             // --- toolchain manager: compile context, offer tools
-            let compiled = self.toolchain.compile(&self.cfg, &input);
+            let compiled = self.toolchain.compile(&self.cfg, &target, &input);
             self.site(
                 HookEvent::ContextBuilt,
                 &sid,
@@ -213,7 +227,7 @@ impl TurnRunner {
                 HookEvent::PreModelCall,
                 &sid,
                 &turn_id,
-                json!({"loop": loop_index, "provider": target.provider, "model": model_id}),
+                json!({"loop": loop_index, "profile": target.profile, "provider": target.provider, "model": model_id}),
             ) {
                 anyhow::bail!("model call blocked: {reason}");
             }
@@ -236,7 +250,7 @@ impl TurnRunner {
                 .stream_message(
                     ProviderRequest {
                         model: &model_id,
-                        max_tokens: self.cfg.model.max_tokens,
+                        max_tokens: target.max_tokens,
                         system: compiled.system.as_deref(),
                         messages: &compiled.messages,
                         tools: compiled.tools,
@@ -415,6 +429,7 @@ impl TurnRunner {
             provider_stop_reason: provider_stop,
             model: model_used,
             provider: target.provider.clone(),
+            profile: target.profile.clone(),
             usage,
             elapsed_ms: started.elapsed().as_millis() as u64,
             first_token_ms,

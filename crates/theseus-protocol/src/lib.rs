@@ -24,6 +24,8 @@ pub mod method {
     pub const HOOKS_REGISTER: &str = "hooks.register";
     pub const HOOKS_UNREGISTER: &str = "hooks.unregister";
     pub const LEDGER_TAIL: &str = "ledger.tail";
+    pub const PROFILE_LIST: &str = "profile.list";
+    pub const PROFILE_USE: &str = "profile.use";
     pub const SHUTDOWN: &str = "shutdown";
 }
 
@@ -36,6 +38,7 @@ pub mod notify {
     pub const LOOP_ENDED: &str = "loop.ended";
     pub const TURN_ENDED: &str = "turn.ended";
     pub const HOOK_EVENT: &str = "hook.event";
+    pub const PROFILE_CHANGED: &str = "profile.changed";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -159,6 +162,9 @@ pub struct HealthResult {
     pub sessions: u64,
     pub turns: u64,
     pub model: String,
+    /// The live profile name.
+    #[serde(default)]
+    pub profile: String,
     /// Default provider name and every configured provider.
     #[serde(default)]
     pub provider: String,
@@ -209,12 +215,45 @@ pub struct TurnSubmitParams {
     #[serde(default)]
     pub session_id: Option<String>,
     pub input: String,
-    /// Provider name for this turn (a configured provider); default from config.
+    /// Profile for this turn (a configured profile name); default is the live profile.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// Raw override of the profile's provider for this turn.
     #[serde(default)]
     pub provider: Option<String>,
-    /// Model id for this turn; default from config.
+    /// Raw override of the profile's model for this turn.
     #[serde(default)]
     pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileInfo {
+    pub name: String,
+    pub provider: String,
+    pub model: String,
+    pub max_tokens: u32,
+    pub has_system: bool,
+    pub live: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileListResult {
+    pub live: String,
+    /// Where the live choice came from: "config" or "runtime" (persisted switch).
+    pub live_source: String,
+    pub profiles: Vec<ProfileInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileUseParams {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileChanged {
+    pub previous: String,
+    pub live: String,
+    pub by: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -240,6 +279,9 @@ pub struct TurnSubmitResult {
     pub model: String,
     #[serde(default)]
     pub provider: String,
+    /// Profile the turn ran under ("" when raw overrides bypassed profiles entirely).
+    #[serde(default)]
+    pub profile: String,
     pub usage: Usage,
     pub elapsed_ms: u64,
     /// Time to the first streamed token of the last loop.
