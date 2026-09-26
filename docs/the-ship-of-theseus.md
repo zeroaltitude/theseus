@@ -416,7 +416,7 @@ Hooks are the extension and observation surface for everything the harness does.
 **Invariants**
 - Hooks never widen authority. The policy gate (§3.9) decides what is permitted; a hook may tighten (deny, ask, defer, transform inputs) but an `allow` from a hook cannot override a policy deny or skip a required confirm.
 - Hooks return typed results, never exit codes. A handler that fails to run, times out, or returns a malformed result is a ledgered error; for **gating** hooks that error **fails closed**, for **observer** hooks it fails open.
-- Hooks are registered by plugins (compiled-in or WASM) and by the owner's binding config. Nothing in a workspace or repository can register a hook.
+- Hooks are registered by compiled-in plugins, by sandboxed MCP servers, by protocol clients (observe only), and by the owner's binding config. Nothing in a workspace or repository can register a hook.
 - Every hook invocation is a ledger row: event, handler id and version, input hash, result, latency. Hooks fire no hooks (recursion exclusion), and `JudgmentMade` is observe-only.
 - Deterministic control paths (`/stop`, `/cancel`, revocation, budget exhaustion) are not hookable for veto; hooks may observe them.
 
