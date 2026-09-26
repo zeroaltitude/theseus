@@ -334,8 +334,12 @@ impl Config {
             "op://Eddie-Tabitha/zeroaltitude github PAT/notesPlain".into(),
         );
         secrets.insert(
-            "aws_starter".into(),
-            "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain".into(),
+            "aws_access_key_id".into(),
+            "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_ACCESS_KEY_ID".into(),
+        );
+        secrets.insert(
+            "aws_secret_access_key".into(),
+            "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_SECRET_ACCESS_KEY".into(),
         );
         secrets.insert(
             "zai_api_key".into(),
