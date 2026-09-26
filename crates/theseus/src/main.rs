@@ -89,6 +89,9 @@ enum Cmd {
         /// Model id for this turn (e.g. claude-sonnet-5, glm-5.3-flash).
         #[arg(long, short)]
         model: Option<String>,
+        /// After the reply, print the turn's timing tree (turn > loops > hooks/provider) to stderr.
+        #[arg(long)]
+        trace: bool,
     },
     /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
     Health,
@@ -158,6 +161,31 @@ enum HooksCmd {
         handler_id: String,
     },
 }
+
+/// A JSON-RPC error response, kept structured so callers can read `data`.
+#[derive(Debug)]
+struct CallError {
+    code: i64,
+    message: String,
+    data: Value,
+}
+
+impl std::fmt::Display for CallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let class = self.data.get("class").and_then(Value::as_str);
+        let transient = self.data.get("transient").and_then(Value::as_bool);
+        match (class, transient) {
+            (Some(c), Some(t)) => write!(
+                f,
+                "{} [class={c}, transient={t}, code {}]",
+                self.message, self.code
+            ),
+            _ => write!(f, "{} (code {})", self.message, self.code),
+        }
+    }
+}
+
+impl std::error::Error for CallError {}
 
 struct Conn {
     reader: BufReader<Box<dyn AsyncRead + Unpin + Send>>,
@@ -245,14 +273,12 @@ impl Conn {
                 Message::Notification(n) => on_notify(&n.method, &n.params),
                 Message::Response(r) if r.id == id => {
                     if let Some(e) = r.error {
-                        let class = e.data.get("class").and_then(Value::as_str);
-                        let transient = e.data.get("transient").and_then(Value::as_bool);
-                        return Err(match (class, transient) {
-                            (Some(c), Some(t)) => {
-                                anyhow!("{} [class={c}, transient={t}, code {}]", e.message, e.code)
-                            }
-                            _ => anyhow!("{} (code {})", e.message, e.code),
-                        });
+                        return Err(CallError {
+                            code: e.code,
+                            message: e.message,
+                            data: e.data,
+                        }
+                        .into());
                     }
                     return Ok(r.result.unwrap_or(Value::Null));
                 }
@@ -308,13 +334,14 @@ async fn run(cli: Cli) -> Result<()> {
             profile,
             provider,
             model,
+            trace,
         } => {
             let prompt = match prompt.as_deref() {
                 None | Some("-") => read_stdin_prompt()?,
                 Some(p) => p.to_string(),
             };
             let mut streamed_any = false;
-            let result = conn
+            let call = conn
                 .call(
                     method::TURN_SUBMIT,
                     serde_json::to_value(TurnSubmitParams {
@@ -336,7 +363,26 @@ async fn run(cli: Cli) -> Result<()> {
                         }
                     },
                 )
-                .await?;
+                .await;
+            let result = match call {
+                Ok(v) => v,
+                Err(err) => {
+                    if trace {
+                        if let Some(ce) = err.downcast_ref::<CallError>() {
+                            if let Ok(t) = serde_json::from_value::<theseus_protocol::Span>(
+                                ce.data.get("trace").cloned().unwrap_or(Value::Null),
+                            ) {
+                                eprintln!(
+                                    "--- trace up to the failure ({} total)",
+                                    fmt_us(t.duration_us())
+                                );
+                                print_span(&t, 0, t.duration_us().max(1));
+                            }
+                        }
+                    }
+                    return Err(err);
+                }
+            };
             let r: TurnSubmitResult = serde_json::from_value(result.clone())?;
             if json {
                 println!("{}", serde_json::to_string(&result)?);
@@ -344,18 +390,16 @@ async fn run(cli: Cli) -> Result<()> {
                 if streamed_any && !r.output.ends_with('\n') {
                     println!();
                 }
-                eprintln!(
-                    "[{} · {} loop(s) · {} · in {} out {} · {} ms · session {}]",
-                    r.model,
-                    r.loops,
-                    r.stop_reason,
-                    r.usage.input_tokens,
-                    r.usage.output_tokens,
-                    r.elapsed_ms,
-                    r.session_id
-                );
+                eprintln!("{}", status_line(&r));
             } else {
                 println!("{}", r.output);
+                eprintln!("{}", status_line(&r));
+            }
+            if trace && !json {
+                if let Some(t) = &r.trace {
+                    eprintln!("--- trace ({} total)", fmt_us(t.duration_us()));
+                    print_span(t, 0, t.duration_us().max(1));
+                }
             }
         }
         Cmd::Health => {
@@ -571,5 +615,83 @@ fn fmt_time(unix_ms: u64) -> String {
         (s / 60) % 60,
         s % 60,
         ms
+    )
+}
+
+fn fmt_us(us: u64) -> String {
+    if us >= 1_000_000 {
+        format!("{:.2} s", us as f64 / 1e6)
+    } else if us >= 1000 {
+        format!("{:.1} ms", us as f64 / 1e3)
+    } else {
+        format!("{us} µs")
+    }
+}
+
+/// Indented tree with a 24-column bar: where in the turn each span sat.
+fn print_span(s: &theseus_protocol::Span, depth: usize, total_us: u64) {
+    let width = 24usize;
+    let a = ((s.start_us as f64 / total_us as f64) * width as f64).floor() as usize;
+    let b =
+        ((s.end_us.unwrap_or(s.start_us) as f64 / total_us as f64) * width as f64).ceil() as usize;
+    let (a, b) = (a.min(width), b.clamp(a.min(width), width));
+    let mut bar = String::new();
+    for i in 0..width {
+        bar.push(if i >= a && (i < b || (i == a && a == b)) {
+            '█'
+        } else {
+            '·'
+        });
+    }
+    let dur = if s.end_us == Some(s.start_us) {
+        format!("@{}", fmt_us(s.start_us))
+    } else {
+        fmt_us(s.duration_us())
+    };
+    let attrs = match &s.attrs {
+        serde_json::Value::Null => String::new(),
+        v => {
+            let t = serde_json::to_string(v).unwrap_or_default();
+            let t: String = t.chars().take(90).collect();
+            format!("  {t}")
+        }
+    };
+    eprintln!(
+        "{bar} {:>9}  {}{} [{}]{}",
+        dur,
+        "  ".repeat(depth),
+        s.name,
+        s.kind,
+        attrs
+    );
+    for c in &s.children {
+        print_span(c, depth + 1, total_us);
+    }
+}
+
+fn status_line(r: &TurnSubmitResult) -> String {
+    let cache = if r.usage.cache_read_input_tokens + r.usage.cache_creation_input_tokens > 0 {
+        format!(
+            " cache r{} w{}",
+            r.usage.cache_read_input_tokens, r.usage.cache_creation_input_tokens
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "[{} → {}/{} · {} loop(s) · {} · tokens in {} out {}{} · {} ms{} · session {}]",
+        r.profile,
+        r.provider,
+        r.model,
+        r.loops,
+        r.stop_reason,
+        r.usage.input_tokens,
+        r.usage.output_tokens,
+        cache,
+        r.elapsed_ms,
+        r.first_token_ms
+            .map(|t| format!(" (first token {t} ms)"))
+            .unwrap_or_default(),
+        r.session_id
     )
 }

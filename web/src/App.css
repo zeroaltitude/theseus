@@ -72,3 +72,19 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-col
 button[type="submit"] { background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
 button[type="submit"]:disabled { opacity: .45; cursor: default; }
 .session { font-size: 11px; text-align: right; }
+
+/* trace waterfall */
+.trace { margin-top: 8px; padding: 8px 10px; background: var(--panel-2); border-radius: 8px; font-size: 12px; }
+.trace-summary { margin-bottom: 6px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.trace-summary b { color: var(--text); }
+.trace-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.trace-rows { display: grid; gap: 1px; }
+.trace-row { display: grid; grid-template-columns: minmax(180px, 32%) 1fr 70px; align-items: center; gap: 8px; padding: 2px 4px; border-radius: 4px; cursor: pointer; }
+.trace-row:hover, .trace-row.picked { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.trace-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trace-bar-lane { position: relative; height: 10px; background: color-mix(in srgb, var(--border) 60%, transparent); border-radius: 3px; }
+.trace-bar { position: absolute; top: 0; height: 100%; border-radius: 3px; opacity: .85; }
+.trace-tick { position: absolute; top: -3px; width: 2px; height: 16px; }
+.trace-dur { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.trace-attrs { margin: 8px 0 0; padding: 8px; background: var(--panel); border-radius: 6px; font-size: 11px; max-height: 220px; overflow: auto; }
+.trace-details summary { cursor: pointer; margin-top: 6px; font-size: 12px; }

@@ -33,16 +33,23 @@ export interface ProfileInfo {
 }
 export interface ProfileList { live: string; live_source: string; profiles: ProfileInfo[] }
 
+export interface Span {
+  name: string; kind: string; start_us: number; end_us: number | null
+  attrs?: unknown; children?: Span[]
+}
+
 export interface TurnResult {
   session_id: string; turn_id: string; loops: number; output: string
   stop_reason: string; provider_stop_reason: string | null; model: string
   provider: string; profile: string
   usage: Usage; elapsed_ms: number; first_token_ms: number | null; request_id: string | null
+  trace?: Span | null
 }
 
 export interface ProviderErrorData {
   class: string; transient: boolean; usage_unknown: boolean
   turn_id: string | null; session_id: string; elapsed_ms: number
+  trace?: Span | null
 }
 
 export type NotifyHandler = (method: string, params: unknown) => void

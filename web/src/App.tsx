@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { ProtocolClient } from './protocol'
 import type { Health, ProfileList, ProviderErrorData, RpcError, SessionInfo, TurnResult, Usage } from './protocol'
+import TraceView from './TraceView'
 import './App.css'
 
 // One exchange: a prompt, the streamed reply, the events that produced it,
@@ -17,6 +18,7 @@ interface Exchange {
   events: { at: number; method: string; params: unknown }[]
   startedAt: number
   pending: boolean
+  showTrace: boolean
 }
 
 type Status = 'connecting' | 'open' | 'closed'
@@ -97,7 +99,7 @@ export default function App() {
     setInput('')
     const key = nextKey.current++
     setExchanges((xs) => [...xs, {
-      key, prompt, reply: '', turnId: null, result: null, error: null, events: [], startedAt: Date.now(), pending: true,
+      key, prompt, reply: '', turnId: null, result: null, error: null, events: [], startedAt: Date.now(), pending: true, showTrace: false,
     }])
     try {
       const result = await client.call<TurnResult>('turn.submit', { session_id: session?.session_id, input: prompt })
@@ -178,7 +180,10 @@ export default function App() {
                     <span>{x.result.loops} loop{x.result.loops === 1 ? '' : 's'}</span>
                     <span>{x.result.stop_reason}</span>
                     <UsageLine u={x.result.usage} />
-                    <span>{fmt(x.result.elapsed_ms)} ms{x.result.first_token_ms != null && <> (first token {fmt(x.result.first_token_ms)})</>}</span>
+                    <button type="button" className="link" title="show the turn's full timing tree"
+                      onClick={() => setExchanges((xs) => xs.map((y) => y.key === x.key ? { ...y, showTrace: !y.showTrace } : y))}>
+                      {fmt(x.result.elapsed_ms)} ms{x.result.first_token_ms != null && <> · first token {fmt(x.result.first_token_ms)} ms</>} ▾
+                    </button>
                     {x.result.request_id && <span className="muted" title="provider request id">{x.result.request_id}</span>}
                   </>
                 ) : x.pending ? <span className="muted">running…</span> : null}
@@ -188,6 +193,10 @@ export default function App() {
                   </button>
                 )}
               </footer>
+              {x.showTrace && x.result?.trace && <TraceView root={x.result.trace} />}
+              {x.error?.data?.trace && (
+                <details className="trace-details"><summary className="muted">timing up to the failure</summary><TraceView root={x.error.data.trace} /></details>
+              )}
               {showEvents && x.events.length > 0 && (
                 <ol className="events">
                   {x.events.filter((e) => e.method !== 'model.delta').map((e, i) => (

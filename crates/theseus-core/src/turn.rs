@@ -21,6 +21,7 @@ use crate::ledger::LedgerRow;
 use crate::provider::{ContentBlock, Message, Provider, ProviderError, ProviderRequest, ToolDef};
 use crate::session::{SessionRecord, TurnLocks};
 use crate::store::Store;
+use crate::trace::Trace;
 use crate::Config;
 
 /// What the toolchain manager hands to the provider for one loop.
@@ -77,11 +78,27 @@ impl TurnRunner {
         }
     }
 
-    /// Visit a hook site and ledger the visit.
-    fn site(&self, event: HookEvent, session: &str, turn: &str, payload: Value) -> Outcome {
+    /// Visit a hook site, ledger the visit, and record it as a trace span.
+    fn site(
+        &self,
+        trace: &mut Trace,
+        event: HookEvent,
+        session: &str,
+        turn: &str,
+        payload: Value,
+    ) -> Outcome {
+        let t0 = trace.now_us();
         let (outcome, visit) = self
             .hooks
             .dispatch(event, Some(turn), Some(session), payload);
+        let t1 = trace.now_us();
+        trace.record(
+            event.name(),
+            "hook",
+            t0,
+            t1,
+            json!({"kind": event.kind().as_str(), "handlers": visit.handlers, "outcome": visit.outcome}),
+        );
         self.ledger(
             "hook.site",
             session,
@@ -141,10 +158,12 @@ impl TurnRunner {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
         let model_id = target.model.clone();
+        let arrived = Instant::now();
         let lock = self.locks.for_session(&session.session_id);
         let _held = lock.lock().await; // one turn per session
-                                       // The caller's copy may be stale: it was read before the lock. Re-read
-                                       // under the lock so concurrent turns on one session never lose updates.
+        let lock_wait_us = arrived.elapsed().as_micros() as u64;
+        // The caller's copy may be stale: it was read before the lock. Re-read
+        // under the lock so concurrent turns on one session never lose updates.
         if let Some(fresh) = self
             .store
             .get_session::<SessionRecord>(&session.session_id)?
@@ -154,6 +173,33 @@ impl TurnRunner {
         let started = Instant::now();
         let sid = session.session_id.clone();
         let turn_id = crate::new_id("turn");
+        let mut trace = Trace::start_at(
+            arrived,
+            "turn",
+            "turn",
+            json!({
+                "turn_id": turn_id,
+                "session_id": sid,
+                "profile": target.profile,
+                "provider": target.provider,
+                "model": model_id,
+                "started_unix_ms": theseus_protocol::now_unix_ms(),
+            }),
+        );
+        trace.record(
+            "lock.wait",
+            "lock",
+            0,
+            lock_wait_us,
+            json!({"note": "session turn lock"}),
+        );
+        trace.record(
+            "session.reread",
+            "store",
+            lock_wait_us,
+            trace.now_us(),
+            Value::Null,
+        );
 
         let _ = events.send(Wire::Notification(Notification::new(
             notify::TURN_STARTED,
@@ -169,12 +215,17 @@ impl TurnRunner {
             json!({"input_chars": input.chars().count(), "profile": target.profile, "provider": target.provider, "model": model_id}),
         );
 
-        if let Outcome::Blocked { reason } =
-            self.site(HookEvent::TurnStarting, &sid, &turn_id, json!({}))
-        {
+        if let Outcome::Blocked { reason } = self.site(
+            &mut trace,
+            HookEvent::TurnStarting,
+            &sid,
+            &turn_id,
+            json!({}),
+        ) {
             anyhow::bail!("turn blocked: {reason}");
         }
         let input = match self.site(
+            &mut trace,
             HookEvent::InputReceived,
             &sid,
             &turn_id,
@@ -199,9 +250,24 @@ impl TurnRunner {
         let stop_reason: String;
 
         loop {
+            trace.enter(
+                &format!("loop {loop_index}"),
+                "loop",
+                json!({"loop": loop_index}),
+            );
             // --- toolchain manager: compile context, offer tools
+            let c0 = trace.now_us();
             let compiled = self.toolchain.compile(&self.cfg, &target, &input);
+            let c1 = trace.now_us();
+            trace.record(
+                "compile",
+                "compile",
+                c0,
+                c1,
+                json!({"messages": compiled.messages.len(), "tools": compiled.tools.len(), "system": compiled.system.is_some()}),
+            );
             self.site(
+                &mut trace,
                 HookEvent::ContextBuilt,
                 &sid,
                 &turn_id,
@@ -224,6 +290,7 @@ impl TurnRunner {
             );
 
             if let Outcome::Blocked { reason } = self.site(
+                &mut trace,
                 HookEvent::PreModelCall,
                 &sid,
                 &turn_id,
@@ -246,6 +313,12 @@ impl TurnRunner {
                 )));
             };
             let call_started = Instant::now();
+            trace.enter(
+                "provider.call",
+                "provider",
+                json!({"provider": target.provider, "model": model_id, "max_tokens": target.max_tokens}),
+            );
+            let call_t0 = trace.now_us();
             let resp = match provider
                 .stream_message(
                     ProviderRequest {
@@ -269,6 +342,8 @@ impl TurnRunner {
                     let (class, transient, unknown) = pe
                         .map(|p| (p.class(), p.is_transient(), p.usage_unknown()))
                         .unwrap_or(("unknown", false, true));
+                    trace.exit(json!({"error": class, "message": e.to_string()}));
+                    let failed_trace = trace.finish(json!({"outcome": "failed", "class": class}));
                     self.ledger(
                         "provider.error",
                         &sid,
@@ -302,12 +377,27 @@ impl TurnRunner {
                         turn_id: turn_id.clone(),
                         session_id: sid.clone(),
                         elapsed_ms: started.elapsed().as_millis() as u64,
+                        trace: Some(failed_trace),
                         source: e,
                     }
                     .into());
                 }
             };
 
+            if let Some(fb) = resp.timing.first_byte_ms {
+                trace.mark_at(call_t0 + fb * 1000, "first_byte", "mark", Value::Null);
+            }
+            if let Some(ft) = resp.timing.first_token_ms {
+                trace.mark_at(call_t0 + ft * 1000, "first_token", "mark", Value::Null);
+            }
+            trace.exit(json!({
+                "request_id": resp.request_id,
+                "usage": resp.usage,
+                "stop_reason": resp.stop_reason,
+                "blocks": resp.content.len(),
+                "output_chars": resp.text.chars().count(),
+                "rate_limit_tokens_remaining": resp.rate_limit.tokens_remaining,
+            }));
             add_usage(&mut usage, &resp.usage);
             provider_stop = resp.stop_reason.clone();
             model_used = resp.model.clone();
@@ -332,6 +422,7 @@ impl TurnRunner {
             );
 
             self.site(
+                &mut trace,
                 HookEvent::PostModelCall,
                 &sid,
                 &turn_id,
@@ -342,6 +433,7 @@ impl TurnRunner {
                 // No tools are offered in M0, so this never fires; the site exists.
                 if let ContentBlock::ToolUse { id, name, input } = tc {
                     self.site(
+                        &mut trace,
                         HookEvent::ToolProposed,
                         &sid,
                         &turn_id,
@@ -357,8 +449,18 @@ impl TurnRunner {
                 tool_calls: tool_calls.len() as u32,
                 output_chars: resp.text.chars().count(),
             };
+            let a0 = trace.now_us();
             let decision = self.advancer.decide(&outcome);
+            let a1 = trace.now_us();
+            trace.record(
+                "advancer",
+                "advancer",
+                a0,
+                a1,
+                json!({"advancer": self.advancer.name(), "decision": decision.label()}),
+            );
             self.site(
+                &mut trace,
                 HookEvent::AdvancerDecided,
                 &sid,
                 &turn_id,
@@ -376,6 +478,7 @@ impl TurnRunner {
                 },
             )));
             self.site(
+                &mut trace,
                 HookEvent::LoopEnded,
                 &sid,
                 &turn_id,
@@ -388,6 +491,7 @@ impl TurnRunner {
                 json!({"loop": loop_index, "outcome": outcome, "advancer": self.advancer.name(), "decision": decision, "usage": resp.usage}),
             );
 
+            trace.exit(json!({"decision": decision.label(), "usage": resp.usage}));
             match decision {
                 Decision::Continue => {
                     loop_index += 1;
@@ -401,6 +505,7 @@ impl TurnRunner {
         }
 
         let output = match self.site(
+            &mut trace,
             HookEvent::MessageSending,
             &sid,
             &turn_id,
@@ -413,14 +518,17 @@ impl TurnRunner {
                 .to_string(),
             _ => output,
         };
-        self.site(HookEvent::ReplyClaim, &sid, &turn_id, json!({}));
+        self.site(&mut trace, HookEvent::ReplyClaim, &sid, &turn_id, json!({}));
 
         session.turns += 1;
         session.last_turn_id = Some(turn_id.clone());
         add_usage(&mut session.usage, &usage);
+        let w0 = trace.now_us();
         self.store.put_session(&sid, &session)?;
+        let w1 = trace.now_us();
+        trace.record("session.write", "store", w0, w1, Value::Null);
 
-        let result = TurnSubmitResult {
+        let mut result = TurnSubmitResult {
             session_id: sid.clone(),
             turn_id: turn_id.clone(),
             loops: loop_index + 1,
@@ -434,8 +542,10 @@ impl TurnRunner {
             elapsed_ms: started.elapsed().as_millis() as u64,
             first_token_ms,
             request_id,
+            trace: None,
         };
         self.site(
+            &mut trace,
             HookEvent::TurnEnded,
             &sid,
             &turn_id,
@@ -446,6 +556,18 @@ impl TurnRunner {
             &sid,
             Some(&turn_id),
             json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "session_usage": session.usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model}),
+        );
+        result.trace = Some(trace.finish(json!({
+            "outcome": "complete",
+            "loops": result.loops,
+            "stop_reason": result.stop_reason,
+            "usage": result.usage,
+        })));
+        self.ledger(
+            "turn.trace",
+            &sid,
+            Some(&turn_id),
+            serde_json::to_value(&result.trace).unwrap_or(Value::Null),
         );
         let _ = events.send(Wire::Notification(Notification::new(
             notify::TURN_ENDED,
@@ -465,6 +587,7 @@ pub struct TurnError {
     pub turn_id: String,
     pub session_id: String,
     pub elapsed_ms: u64,
+    pub trace: Option<theseus_protocol::Span>,
     #[source]
     pub source: anyhow::Error,
 }

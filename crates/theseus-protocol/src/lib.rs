@@ -256,6 +256,30 @@ pub struct ProfileChanged {
     pub by: String,
 }
 
+/// One timed span of a turn trace. Times are microseconds from the turn's
+/// start; a mark has `end_us == start_us`. Children are in start order.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Span {
+    pub name: String,
+    /// turn | loop | hook | provider | mark | advancer | store | lock | compile
+    pub kind: String,
+    pub start_us: u64,
+    #[serde(default)]
+    pub end_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub attrs: Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<Span>,
+}
+
+impl Span {
+    pub fn duration_us(&self) -> u64 {
+        self.end_us
+            .unwrap_or(self.start_us)
+            .saturating_sub(self.start_us)
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u64,
@@ -290,6 +314,9 @@ pub struct TurnSubmitResult {
     /// Provider request id of the last loop, for support tickets.
     #[serde(default)]
     pub request_id: Option<String>,
+    /// Every timed thing in the turn, nested: turn > loops > hooks/provider/advancer.
+    #[serde(default)]
+    pub trace: Option<Span>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -328,6 +355,9 @@ pub struct ProviderErrorData {
     pub turn_id: Option<String>,
     pub session_id: String,
     pub elapsed_ms: u64,
+    /// The trace up to the failure.
+    #[serde(default)]
+    pub trace: Option<Span>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

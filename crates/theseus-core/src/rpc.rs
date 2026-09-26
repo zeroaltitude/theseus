@@ -397,6 +397,7 @@ impl Core {
                                     turn_id: Some(te.turn_id.clone()),
                                     session_id: te.session_id.clone(),
                                     elapsed_ms: te.elapsed_ms,
+                                    trace: te.trace.clone(),
                                 })
                                 .unwrap_or(Value::Null);
                                 RpcFailure {
@@ -720,6 +721,30 @@ mod tests {
             .iter()
             .filter(|(_, r)| r.kind == "hook.site")
             .all(|(_, r)| r.data["handlers"] == 0));
+        // The trace: turn > loop 0 > provider.call > first_token, with hooks as children.
+        let tr = result.trace.as_ref().expect("trace");
+        assert_eq!(tr.name, "turn");
+        assert!(tr.end_us.is_some());
+        let names: Vec<&str> = tr.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"lock.wait"));
+        assert!(names.contains(&"turn.starting"));
+        assert!(names.contains(&"loop 0"));
+        assert!(names.contains(&"session.write"));
+        assert!(names.contains(&"turn.ended"));
+        let lp = tr.children.iter().find(|c| c.name == "loop 0").unwrap();
+        let lnames: Vec<&str> = lp.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(lnames.contains(&"compile"));
+        assert!(lnames.contains(&"model.pre_call"));
+        assert!(lnames.contains(&"provider.call"));
+        assert!(lnames.contains(&"advancer"));
+        let pc = lp
+            .children
+            .iter()
+            .find(|c| c.name == "provider.call")
+            .unwrap();
+        assert!(pc.children.iter().any(|m| m.name == "first_token"));
+        assert_eq!(pc.attrs["request_id"], "req_fake");
+        assert!(rows.iter().any(|(_, r)| r.kind == "turn.trace"));
         assert_eq!(core.health().turns, 1);
         assert_eq!(core.health().sessions, 1);
     }
@@ -911,6 +936,9 @@ mod tests {
             .iter()
             .any(|(_, r)| r.kind == "provider.error" && r.data["class"] == "timeout"));
         assert!(rows.iter().any(|(_, r)| r.kind == "turn.failed"));
+        let tr = &e.data["trace"];
+        assert_eq!(tr["name"], "turn");
+        assert_eq!(tr["attrs"]["outcome"], "failed");
         assert_eq!(core.health().provider_errors, 1);
         // The turn still counted and the session record was written.
         assert_eq!(core.health().turns, 1);
