@@ -36,9 +36,19 @@ impl Trace {
     }
 
     /// Start a trace whose clock began at `origin` (e.g. before a lock wait).
+    /// The root records `origin_unix_ms` so exporters can place it in wall time.
     pub fn start_at(origin: Instant, name: &str, kind: &str, attrs: Value) -> Self {
         let mut t = Self::start(name, kind, attrs);
         t.origin = origin;
+        let origin_unix_ms =
+            theseus_protocol::now_unix_ms().saturating_sub(origin.elapsed().as_millis() as u64);
+        if let Some(root) = t.stack.first_mut() {
+            if let Value::Object(m) = &mut root.attrs {
+                m.insert("origin_unix_ms".into(), Value::from(origin_unix_ms));
+            } else if root.attrs.is_null() {
+                root.attrs = serde_json::json!({"origin_unix_ms": origin_unix_ms});
+            }
+        }
         t
     }
 

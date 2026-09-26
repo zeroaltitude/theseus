@@ -15,6 +15,7 @@ pub mod rpc;
 pub mod secrets;
 pub mod session;
 pub mod store;
+pub mod telemetry;
 pub mod trace;
 pub mod turn;
 

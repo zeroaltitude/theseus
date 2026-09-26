@@ -53,6 +53,20 @@ profile without switching. Any endpoint that speaks the Anthropic Messages API i
 are in the example config. Raw `-p provider -m model` overrides still exist for experiments.
 Secret references may end in `#label` to select one `label: value` line of a multi-line note.
 
+OpenTelemetry is built in and off-wire until you point it somewhere:
+
+```toml
+[telemetry]
+otlp_endpoint = "http://127.0.0.1:4318"   # any OTLP/HTTP collector: Collector, Tempo, Honeycomb, Datadog, ADOT
+headers_secret = "honeycomb_key"          # optional; a [secrets] entry holding "x-honeycomb-team: …"
+hook_spans = false                        # true: every hook site is a span; false: an event on its parent
+```
+
+Each turn becomes one trace (turn > loops > provider.call with GenAI attributes, first_byte/first_token
+events) with the exact timestamps the ledger recorded, plus metrics: `theseus.turns`, `theseus.tokens`,
+`theseus.provider.errors`, `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`,
+`theseus.provider.first_token_ms`.
+
 Visibility: `theseus health` (totals), `theseus sessions list` (tokens per session),
 `theseus ledger -n 20 [-k provider.call|provider.error|turn.ended|hook.site]` (every row).
 

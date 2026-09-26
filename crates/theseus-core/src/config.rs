@@ -33,6 +33,8 @@ pub struct Config {
     pub github: GitHubConfig,
     #[serde(default)]
     pub web: WebConfig,
+    #[serde(default)]
+    pub telemetry: crate::telemetry::TelemetryConfig,
 }
 
 /// The localhost web UI. Bound to loopback only; no auth yet (spec §3.14).
@@ -275,6 +277,13 @@ impl Config {
                 );
             }
         }
+        if let Some(h) = &self.telemetry.headers_secret {
+            if !self.secrets.contains_key(h) {
+                anyhow::bail!(
+                    "telemetry.headers_secret = {h:?} has no matching entry under [secrets]"
+                );
+            }
+        }
         if !self.all_profiles().contains_key(&self.model.live) {
             anyhow::bail!(
                 "model.live = {:?} is not the implicit \"default\" profile nor a key of [profiles]",
@@ -385,6 +394,7 @@ impl Config {
             server: ServerConfig::default(),
             github: GitHubConfig::default(),
             web: WebConfig::default(),
+            telemetry: crate::telemetry::TelemetryConfig::default(),
         }
     }
 }

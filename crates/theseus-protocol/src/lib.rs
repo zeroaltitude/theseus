@@ -175,6 +175,14 @@ pub struct HealthResult {
     pub usage_total: Usage,
     pub provider_errors: u64,
     pub ledger_rows: u64,
+    #[serde(default)]
+    pub telemetry: TelemetryStatus,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TelemetryStatus {
+    pub enabled: bool,
+    pub otlp_endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

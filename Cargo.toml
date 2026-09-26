@@ -34,6 +34,9 @@ redb = "4"
 clap = { version = "4", features = ["derive", "env"] }
 uuid = { version = "1", features = ["v7"] }
 shellexpand = "3"
+opentelemetry = "0.33"
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client", "reqwest-rustls"] }
 
 [profile.release]
 lto = "fat"

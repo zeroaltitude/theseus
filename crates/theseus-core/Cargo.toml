@@ -22,3 +22,9 @@ zeroize.workspace = true
 redb.workspace = true
 uuid.workspace = true
 shellexpand.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+
+[dev-dependencies]
+opentelemetry_sdk = { workspace = true, features = ["testing"] }

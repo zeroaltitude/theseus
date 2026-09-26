@@ -35,6 +35,7 @@ pub struct Core {
     pub store: Store,
     pub runner: TurnRunner,
     pub secret_names: Vec<String>,
+    pub telemetry: Arc<crate::telemetry::Telemetry>,
     started: Instant,
     turns: AtomicU64,
     provider_errors: AtomicU64,
@@ -64,7 +65,17 @@ impl Core {
                 .unwrap_or_else(|| cfg.model.timeouts.clone());
             providers.insert(name, Arc::new(Anthropic::new(&pc.api_base, key, timeouts)?));
         }
-        Self::with_providers(cfg, providers, store, secrets.names())
+        let headers = cfg
+            .telemetry
+            .headers_secret
+            .as_deref()
+            .and_then(|n| secrets.get(n));
+        let telemetry = crate::telemetry::Telemetry::from_config(&cfg.telemetry, headers)?;
+        match &telemetry.endpoint {
+            Some(e) => tracing::info!(endpoint = %e, "telemetry: OTLP/HTTP export on"),
+            None => tracing::info!("telemetry: no otlp_endpoint configured; nothing is exported"),
+        }
+        Self::with_providers_and_telemetry(cfg, providers, store, secrets.names(), telemetry)
     }
 
     /// Build a core around one provider registered under the config's default
@@ -85,6 +96,22 @@ impl Core {
         providers: BTreeMap<String, Arc<dyn Provider>>,
         store: Store,
         secret_names: Vec<String>,
+    ) -> Result<Arc<Self>> {
+        Self::with_providers_and_telemetry(
+            cfg,
+            providers,
+            store,
+            secret_names,
+            crate::telemetry::Telemetry::disabled(),
+        )
+    }
+
+    pub fn with_providers_and_telemetry(
+        cfg: Config,
+        providers: BTreeMap<String, Arc<dyn Provider>>,
+        store: Store,
+        secret_names: Vec<String>,
+        telemetry: crate::telemetry::Telemetry,
     ) -> Result<Arc<Self>> {
         let cfg = Arc::new(cfg);
         let hooks = Hooks::new();
@@ -114,6 +141,7 @@ impl Core {
             store,
             runner,
             secret_names,
+            telemetry: Arc::new(telemetry),
             started: Instant::now(),
             turns: AtomicU64::new(0),
             provider_errors: AtomicU64::new(0),
@@ -210,6 +238,10 @@ impl Core {
             usage_total: self.usage_total(),
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
             ledger_rows: self.store.ledger_len().unwrap_or(0),
+            telemetry: theseus_protocol::TelemetryStatus {
+                enabled: self.telemetry.enabled(),
+                otlp_endpoint: self.telemetry.endpoint.clone(),
+            },
         }
     }
 
@@ -383,13 +415,31 @@ impl Core {
                         p.model.as_deref(),
                     )
                     .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
+                let (t_profile, t_provider, t_model) = (
+                    target.profile.clone(),
+                    target.provider.clone(),
+                    target.model.clone(),
+                );
                 let result = match self.runner.run(session, p.input, target, tx).await {
-                    Ok(r) => r,
+                    Ok(r) => {
+                        self.telemetry.record_turn(&r);
+                        r
+                    }
                     Err(e) => {
                         self.turns.fetch_add(1, Ordering::Relaxed);
                         return Err(match e.downcast::<TurnError>() {
                             Ok(te) => {
                                 self.provider_errors.fetch_add(1, Ordering::Relaxed);
+                                self.telemetry
+                                    .record_failure(&crate::telemetry::FailedTurn {
+                                        profile: &t_profile,
+                                        provider: &t_provider,
+                                        model: &t_model,
+                                        class: &te.class,
+                                        transient: te.transient,
+                                        elapsed_ms: te.elapsed_ms,
+                                        trace: te.trace.as_ref(),
+                                    });
                                 let data = serde_json::to_value(ProviderErrorData {
                                     class: te.class.clone(),
                                     transient: te.transient,
@@ -526,6 +576,7 @@ impl Core {
                     None,
                     Value::Null,
                 ));
+                self.telemetry.flush();
                 self.shutdown.notify_waiters();
                 Ok(serde_json::json!({"ok": true}))
             }

@@ -413,6 +413,13 @@ async fn run(cli: Cli) -> Result<()> {
                     h.name, h.version, h.protocol, h.uptime_secs, h.profile, h.provider, h.model, h.providers.join(", "), h.sessions, h.turns, h.provider_errors, h.ledger_rows
                 );
                 println!(
+                    "telemetry: {}",
+                    match &h.telemetry.otlp_endpoint {
+                        Some(e) => format!("OTLP/HTTP → {e}"),
+                        None => "off (no [telemetry].otlp_endpoint)".to_string(),
+                    }
+                );
+                println!(
                     "tokens total: in {} out {} cache-read {} cache-write {} · secrets [{}]",
                     h.usage_total.input_tokens,
                     h.usage_total.output_tokens,
