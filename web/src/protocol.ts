@@ -16,16 +16,46 @@ export interface Usage {
   cache_creation_input_tokens: number
 }
 
+export interface KernelStatus {
+  accepting: boolean; admission_ceiling: number; turns_held: number
+  executions_by_state: Record<string, number>; actions_by_state: Record<string, number>
+  quarantined_completions: number; startup: unknown
+}
+
 export interface Health {
   name: string; version: string; protocol: string; uptime_secs: number
   sessions: number; turns: number; model: string; profile: string; provider: string; providers: string[]
   secrets_resolved: string[]
   usage_total: Usage; provider_errors: number; ledger_rows: number
+  kernel: KernelStatus
 }
 
 export interface SessionInfo {
   session_id: string; kind: 'conversation' | 'task'; label: string | null
   created_at_unix_ms: number; turns: number; usage: Usage
+  execution_id?: string | null; execution_state?: string | null
+}
+
+export interface BudgetInfo { limit: number; spent: number; reserved: number; held_unknown: number; available: number }
+
+export interface ExecutionInfo {
+  execution_id: string; session_id: string; kind: string; state: string
+  turns: number; interrupted: number; outstanding: number; queued_results: number
+  budget: BudgetInfo; wake?: unknown; reports_to?: string | null; ended_reason?: string | null
+  created_at_ms: number; updated_at_ms: number
+}
+
+export interface ActionInfo {
+  correlation_id: string; execution_id: string; session_id: string; tool: string; state: string
+  retry_class: string; planned_at_ms: number; authorized_at_ms?: number | null; dispatched_at_ms?: number | null
+  settled_at_ms?: number | null; deadline_at_ms: number; reserved_units: number; confirmed: boolean
+  cancel?: string | null; external_op_id?: string | null; result_ref?: string | null; resolution?: string | null
+  completions_seen: number
+}
+
+export interface LedgerEntry {
+  position: number; at_unix_ms: number; kind: string
+  session_id: string | null; turn_id: string | null; data: unknown
 }
 
 export interface ProfileInfo {

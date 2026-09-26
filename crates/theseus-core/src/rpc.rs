@@ -258,6 +258,41 @@ impl Core {
         }
     }
 
+    pub fn action_info(a: &theseus_kernel::Action) -> theseus_protocol::ActionInfo {
+        theseus_protocol::ActionInfo {
+            correlation_id: a.correlation_id.clone(),
+            execution_id: a.execution_id.clone(),
+            session_id: a.session_id.clone(),
+            tool: a.tool.clone(),
+            state: a.state.as_str().into(),
+            retry_class: match &a.retry_class {
+                theseus_kernel::RetryClass::SafeToRepeat => "safe_to_repeat".into(),
+                theseus_kernel::RetryClass::IdempotentWithKey { key } => {
+                    format!("idempotent_with_key:{key}")
+                }
+                theseus_kernel::RetryClass::RecoverableByExternalId => {
+                    "recoverable_by_external_id".into()
+                }
+                theseus_kernel::RetryClass::NonRepeatable => "non_repeatable".into(),
+            },
+            planned_at_ms: a.planned_at_ms,
+            authorized_at_ms: a.authorized_at_ms,
+            dispatched_at_ms: a.dispatched_at_ms,
+            settled_at_ms: a.settled_at_ms,
+            deadline_at_ms: a.deadline_at_ms,
+            reserved_units: a.reserved_units,
+            confirmed: a.confirm.is_some(),
+            cancel: a
+                .cancel
+                .and_then(|c| serde_json::to_value(c).ok())
+                .and_then(|v| v.as_str().map(str::to_string)),
+            external_op_id: a.external_op_id.clone(),
+            result_ref: a.result_ref.clone(),
+            resolution: a.resolution.clone(),
+            completions_seen: a.completions_seen,
+        }
+    }
+
     /// Heartbeat: drain the spool, reconcile against the wrapper evidence.
     /// Called by the harness loop on its timer and when a wrapper pokes the
     /// notify socket.
@@ -774,6 +809,22 @@ impl Core {
                 let execs = self.kernel.executions().map_err(bad)?;
                 Ok(serde_json::to_value(theseus_protocol::ExecutionListResult {
                     executions: execs.iter().map(Self::execution_info).collect(),
+                })
+                .unwrap())
+            }
+            method::ACTION_LIST => {
+                let p: theseus_protocol::ActionListParams = parse(req.params)?;
+                let n = p.n.unwrap_or(200).min(2000);
+                let mut actions = self.kernel.actions().map_err(bad)?;
+                let total = actions.len() as u64;
+                if let Some(x) = &p.execution_id {
+                    actions.retain(|a| &a.execution_id == x);
+                }
+                actions.sort_by_key(|a| std::cmp::Reverse(a.planned_at_ms));
+                actions.truncate(n);
+                Ok(serde_json::to_value(theseus_protocol::ActionListResult {
+                    actions: actions.iter().map(Self::action_info).collect(),
+                    total,
                 })
                 .unwrap())
             }

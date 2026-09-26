@@ -16,7 +16,12 @@ Two static binaries and one protocol:
 - **The protocol** — JSON-RPC 2.0, one JSON object per line. Types in `crates/theseus-protocol`.
 - **The web UI** — `http://127.0.0.1:7433/`, served from the binary (Vite + React, source in `web/`).
   The browser is a protocol client over a WebSocket; it shows prompts, streamed replies, tokens
-  in/out per exchange and per session, timing, and the event stream behind each turn.
+  in/out per exchange and per session, timing, and the event stream behind each turn. The
+  **Observatory** panel beside the chat is live windows onto the store: kernel state and the timed
+  startup steps, every execution with its budget and a cancel button, every action with its
+  planned → dispatched → settled timing, the ledger with family filters and per-row JSON, and
+  sessions with their execution state. Every panel is a protocol query re-run on a timer and after
+  each turn, so what you see is what a restarted daemon would also see.
 
 A turn today is exactly one loop: the user's prompt goes to the Anthropic Messages API with no
 other context and no tools, the reply streams back, and the Advancer's only policy

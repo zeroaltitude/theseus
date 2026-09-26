@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react'
 import { ProtocolClient } from './protocol'
 import type { Health, ProfileList, ProviderErrorData, RpcError, SessionInfo, TurnResult, Usage } from './protocol'
 import TraceView from './TraceView'
+import Observatory from './Observatory'
 import Logo from './Logo'
 import './App.css'
 
@@ -45,6 +46,8 @@ export default function App() {
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [input, setInput] = useState('')
   const [showEvents, setShowEvents] = useState(false)
+  const [showObs, setShowObs] = useState(() => localStorage.getItem('theseus.obs') !== 'off')
+  const [tick, setTick] = useState(0)
   const nextKey = useRef(1)
   const bottom = useRef<HTMLDivElement>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
@@ -112,6 +115,7 @@ export default function App() {
         : x))
     } finally {
       refreshHealth()
+      setTick((t) => t + 1)
       if (session) {
         client.call<{ sessions: SessionInfo[] }>('session.list')
           .then((l) => setSession(l.sessions.find((s) => s.session_id === session.session_id) ?? session))
@@ -148,15 +152,22 @@ export default function App() {
             <span>sessions {health.sessions}</span>
             <span>turns {health.turns}</span>
             <span className={health.provider_errors ? 'warn' : ''}>provider errors {health.provider_errors}</span>
+            {health.kernel && <span title="kernel: turns held / admission ceiling">turns held {health.kernel.turns_held}/{health.kernel.admission_ceiling}</span>}
             <UsageLine u={health.usage_total} prefix="total " />
+            <button type="button" className="link" title="the Observatory: executions, actions, ledger, sessions, live from the store"
+              onClick={() => setShowObs((v) => { localStorage.setItem('theseus.obs', v ? 'off' : 'on'); return !v })}>
+              {showObs ? 'hide observatory' : 'observatory'}
+            </button>
           </div>
         )}
       </header>
 
+      <div className={`body ${showObs ? 'with-obs' : ''}`}>
       <main>
         {exchanges.length === 0 && (
           <div className="empty">
             One prompt, one loop, one reply. Every hook site is visited; nothing fires yet.
+            Each turn is a kernel turn and its provider call is an action: watch them land in the Observatory.
             {session && <div className="muted">session {session.session_id}</div>}
           </div>
         )}
@@ -211,6 +222,11 @@ export default function App() {
         ))}
         <div ref={bottom} />
       </main>
+      {showObs && status === 'open' && (
+        <Observatory client={client} health={health} tick={tick} currentSession={session?.session_id ?? null}
+          onCancelled={() => { void refreshHealth(); setTick((t) => t + 1) }} />
+      )}
+      </div>
 
       <form className="composer" onSubmit={(e) => { e.preventDefault(); void submit() }}>
         <textarea

@@ -28,6 +28,7 @@ pub mod method {
     pub const PROFILE_USE: &str = "profile.use";
     pub const EXECUTION_LIST: &str = "execution.list";
     pub const EXECUTION_CANCEL: &str = "execution.cancel";
+    pub const ACTION_LIST: &str = "action.list";
     pub const SHUTDOWN: &str = "shutdown";
 }
 
@@ -247,6 +248,52 @@ pub struct BudgetInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionListResult {
     pub executions: Vec<ExecutionInfo>,
+}
+
+/// One action (a tool or provider call with a correlation id, spec §3.16).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionInfo {
+    pub correlation_id: String,
+    pub execution_id: String,
+    pub session_id: String,
+    pub tool: String,
+    pub state: String,
+    pub retry_class: String,
+    pub planned_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorized_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatched_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settled_at_ms: Option<u64>,
+    pub deadline_at_ms: u64,
+    pub reserved_units: u64,
+    pub confirmed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_op_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<String>,
+    pub completions_seen: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ActionListParams {
+    /// Only this execution's actions.
+    #[serde(default)]
+    pub execution_id: Option<String>,
+    /// Newest `n` (default 200).
+    #[serde(default)]
+    pub n: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionListResult {
+    pub actions: Vec<ActionInfo>,
+    pub total: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
