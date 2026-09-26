@@ -682,7 +682,10 @@ mod tests {
             .map(|m| m.name().to_string())
             .collect();
         assert!(names.contains(&"theseus.cost.usd".to_string()), "{names:?}");
-        assert!(names.contains(&"theseus.tool.calls".to_string()), "{names:?}");
+        assert!(
+            names.contains(&"theseus.tool.calls".to_string()),
+            "{names:?}"
+        );
     }
 
     #[test]
