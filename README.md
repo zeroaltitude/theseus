@@ -14,6 +14,9 @@ Two static binaries and one protocol:
 - **`theseus`** — the CLI. A thin client that links only the protocol crate. Prompt from an
   argument or stdin, streamed reply on stdout, diagnostics on stderr, `--json` for machines.
 - **The protocol** — JSON-RPC 2.0, one JSON object per line. Types in `crates/theseus-protocol`.
+- **The web UI** — `http://127.0.0.1:7433/`, served from the binary (Vite + React, source in `web/`).
+  The browser is a protocol client over a WebSocket; it shows prompts, streamed replies, tokens
+  in/out per exchange and per session, timing, and the event stream behind each turn.
 
 A turn today is exactly one loop: the user's prompt goes to the Anthropic Messages API with no
 other context and no tools, the reply streams back, and the Advancer's only policy
@@ -42,11 +45,21 @@ theseus shutdown
 
 Exit codes: `0` ok, `1` server or provider error, `2` usage, `3` cannot connect.
 
+Visibility: `theseus health` (totals), `theseus sessions list` (tokens per session),
+`theseus ledger -n 20 [-k provider.call|provider.error|turn.ended|hook.site]` (every row).
+
+When the Claude API does not answer: four timeouts (connect 10 s, first byte 60 s, stream idle 60 s,
+total 600 s; `[model.timeouts]` in config) end the call with a classified error (`timeout`, `network`,
+`rate_limited`, `overloaded`, `server`, `auth`, `invalid_request`, `stream`, `truncated`). The turn
+fails, the class and whether usage is unknown are ledgered and returned in `error.data`, and nothing
+retries on its own.
+
 ## Build
 
 ```bash
 cargo build                                           # dev
 cargo nextest run && cargo clippy --all-targets -- -D warnings && cargo deny check
+(cd web && npm ci && npm run build)                   # web UI → crates/theseusd/web/dist (committed)
 cargo build --release --target x86_64-unknown-linux-musl   # static binaries
 scripts/smoke.sh                                      # end to end against the real API
 ```

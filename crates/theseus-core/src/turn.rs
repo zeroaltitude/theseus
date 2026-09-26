@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::{
     notify, LoopEnded, LoopStarted, Message as Wire, ModelDelta, Notification, TurnStarted,
@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 use crate::advancer::{Advancer, Decision, LoopOutcome};
 use crate::hooks::{HookEvent, Hooks, Outcome};
 use crate::ledger::LedgerRow;
-use crate::provider::{Message, Provider, ProviderRequest, ToolDef};
+use crate::provider::{ContentBlock, Message, Provider, ProviderError, ProviderRequest, ToolDef};
 use crate::session::{SessionRecord, TurnLocks};
 use crate::store::Store;
 use crate::Config;
@@ -139,6 +139,8 @@ impl TurnRunner {
         let mut usage = Usage::default();
         let mut provider_stop: Option<String>;
         let mut model_used: String;
+        let mut first_token_ms: Option<u64>;
+        let mut request_id: Option<String>;
         let stop_reason: String;
 
         loop {
@@ -188,7 +190,8 @@ impl TurnRunner {
                     },
                 )));
             };
-            let resp = self
+            let call_started = Instant::now();
+            let resp = match self
                 .provider
                 .stream_message(
                     ProviderRequest {
@@ -201,15 +204,78 @@ impl TurnRunner {
                     &mut on_delta,
                 )
                 .await
-                .context("provider call")?;
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    // Classify, ledger, and fail the turn. No retry here: the
+                    // reservation is held (usage may be unknown) and a human or a
+                    // later policy decides. The provider is not what the loop
+                    // waits on forever; every path out is a bounded timeout.
+                    let pe = e.downcast_ref::<ProviderError>();
+                    let (class, transient, unknown) = pe
+                        .map(|p| (p.class(), p.is_transient(), p.usage_unknown()))
+                        .unwrap_or(("unknown", false, true));
+                    self.ledger(
+                        "provider.error",
+                        &sid,
+                        Some(&turn_id),
+                        json!({
+                            "loop": loop_index,
+                            "provider": self.provider.name(),
+                            "model": self.cfg.model.model,
+                            "class": class,
+                            "transient": transient,
+                            "usage_unknown": unknown,
+                            "elapsed_ms": call_started.elapsed().as_millis() as u64,
+                            "detail": pe.map(|p| serde_json::to_value(p).unwrap_or(Value::Null)),
+                            "message": e.to_string(),
+                        }),
+                    );
+                    self.ledger(
+                        "turn.failed",
+                        &sid,
+                        Some(&turn_id),
+                        json!({"loops": loop_index + 1, "reason": format!("provider:{class}"), "usage_so_far": usage}),
+                    );
+                    session.turns += 1;
+                    session.last_turn_id = Some(turn_id.clone());
+                    add_usage(&mut session.usage, &usage);
+                    let _ = self.store.put_session(&sid, &session);
+                    return Err(TurnError {
+                        class: class.to_string(),
+                        transient,
+                        usage_unknown: unknown,
+                        turn_id: turn_id.clone(),
+                        session_id: sid.clone(),
+                        elapsed_ms: started.elapsed().as_millis() as u64,
+                        source: e,
+                    }
+                    .into());
+                }
+            };
 
-            usage.input_tokens += resp.usage.input_tokens;
-            usage.output_tokens += resp.usage.output_tokens;
-            usage.cache_read_input_tokens += resp.usage.cache_read_input_tokens;
-            usage.cache_creation_input_tokens += resp.usage.cache_creation_input_tokens;
+            add_usage(&mut usage, &resp.usage);
             provider_stop = resp.stop_reason.clone();
             model_used = resp.model.clone();
+            first_token_ms = resp.timing.first_token_ms;
+            request_id = resp.request_id.clone();
             output.push_str(&resp.text);
+            self.ledger(
+                "provider.call",
+                &sid,
+                Some(&turn_id),
+                json!({
+                    "loop": loop_index,
+                    "provider": self.provider.name(),
+                    "model": resp.model,
+                    "request_id": resp.request_id,
+                    "usage": resp.usage,
+                    "timing": resp.timing,
+                    "rate_limit": resp.rate_limit,
+                    "stop_reason": resp.stop_reason,
+                    "blocks": resp.content.len(),
+                }),
+            );
 
             self.site(
                 HookEvent::PostModelCall,
@@ -217,16 +283,24 @@ impl TurnRunner {
                 &turn_id,
                 json!({"loop": loop_index, "stop_reason": resp.stop_reason, "output_tokens": resp.usage.output_tokens}),
             );
-            for tc in &resp.tool_calls {
+            let tool_calls = resp.tool_calls();
+            for tc in &tool_calls {
                 // No tools are offered in M0, so this never fires; the site exists.
-                self.site(HookEvent::ToolProposed, &sid, &turn_id, tc.clone());
+                if let ContentBlock::ToolUse { id, name, input } = tc {
+                    self.site(
+                        HookEvent::ToolProposed,
+                        &sid,
+                        &turn_id,
+                        json!({"id": id, "name": name, "input": input}),
+                    );
+                }
             }
 
             // --- the Advancer decides
             let outcome = LoopOutcome {
                 loop_index,
                 provider_stop_reason: resp.stop_reason.clone(),
-                tool_calls: resp.tool_calls.len() as u32,
+                tool_calls: tool_calls.len() as u32,
                 output_chars: resp.text.chars().count(),
             };
             let decision = self.advancer.decide(&outcome);
@@ -289,6 +363,7 @@ impl TurnRunner {
 
         session.turns += 1;
         session.last_turn_id = Some(turn_id.clone());
+        add_usage(&mut session.usage, &usage);
         self.store.put_session(&sid, &session)?;
 
         let result = TurnSubmitResult {
@@ -301,6 +376,8 @@ impl TurnRunner {
             model: model_used,
             usage,
             elapsed_ms: started.elapsed().as_millis() as u64,
+            first_token_ms,
+            request_id,
         };
         self.site(
             HookEvent::TurnEnded,
@@ -312,7 +389,7 @@ impl TurnRunner {
             "turn.ended",
             &sid,
             Some(&turn_id),
-            json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "elapsed_ms": result.elapsed_ms}),
+            json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "session_usage": session.usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "model": result.model}),
         );
         let _ = events.send(Wire::Notification(Notification::new(
             notify::TURN_ENDED,
@@ -320,4 +397,25 @@ impl TurnRunner {
         )));
         Ok(result)
     }
+}
+
+/// A failed turn, with the classification the protocol reports in `error.data`.
+#[derive(Debug, thiserror::Error)]
+#[error("turn {turn_id} failed ({class}): {source}")]
+pub struct TurnError {
+    pub class: String,
+    pub transient: bool,
+    pub usage_unknown: bool,
+    pub turn_id: String,
+    pub session_id: String,
+    pub elapsed_ms: u64,
+    #[source]
+    pub source: anyhow::Error,
+}
+
+pub fn add_usage(into: &mut Usage, u: &Usage) {
+    into.input_tokens += u.input_tokens;
+    into.output_tokens += u.output_tokens;
+    into.cache_read_input_tokens += u.cache_read_input_tokens;
+    into.cache_creation_input_tokens += u.cache_creation_input_tokens;
 }

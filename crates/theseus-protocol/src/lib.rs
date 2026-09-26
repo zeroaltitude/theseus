@@ -23,6 +23,7 @@ pub mod method {
     pub const HOOKS_LIST: &str = "hooks.list";
     pub const HOOKS_REGISTER: &str = "hooks.register";
     pub const HOOKS_UNREGISTER: &str = "hooks.unregister";
+    pub const LEDGER_TAIL: &str = "ledger.tail";
     pub const SHUTDOWN: &str = "shutdown";
 }
 
@@ -131,6 +132,9 @@ impl Response {
         }
     }
     pub fn err(id: Id, code: i64, message: impl Into<String>) -> Self {
+        Self::err_with(id, code, message, Value::Null)
+    }
+    pub fn err_with(id: Id, code: i64, message: impl Into<String>, data: Value) -> Self {
         Self {
             jsonrpc: JSONRPC.into(),
             id,
@@ -138,7 +142,7 @@ impl Response {
             error: Some(RpcError {
                 code,
                 message: message.into(),
-                data: Value::Null,
+                data,
             }),
         }
     }
@@ -156,6 +160,10 @@ pub struct HealthResult {
     pub turns: u64,
     pub model: String,
     pub secrets_resolved: Vec<String>,
+    /// Tokens across every session, summed from session records.
+    pub usage_total: Usage,
+    pub provider_errors: u64,
+    pub ledger_rows: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +188,9 @@ pub struct SessionInfo {
     pub label: Option<String>,
     pub created_at_unix_ms: u64,
     pub turns: u64,
+    /// Cumulative tokens over every turn in this session.
+    #[serde(default)]
+    pub usage: Usage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,6 +228,50 @@ pub struct TurnSubmitResult {
     pub provider_stop_reason: Option<String>,
     pub model: String,
     pub usage: Usage,
+    pub elapsed_ms: u64,
+    /// Time to the first streamed token of the last loop.
+    #[serde(default)]
+    pub first_token_ms: Option<u64>,
+    /// Provider request id of the last loop, for support tickets.
+    #[serde(default)]
+    pub request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LedgerTailParams {
+    #[serde(default)]
+    pub n: Option<usize>,
+    /// Only rows of this kind (e.g. "turn.ended", "provider.error").
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedgerEntry {
+    pub position: u64,
+    pub at_unix_ms: u64,
+    pub kind: String,
+    pub session_id: Option<String>,
+    pub turn_id: Option<String>,
+    pub data: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedgerTailResult {
+    pub rows: Vec<LedgerEntry>,
+    pub total: u64,
+}
+
+/// `error.data` on a provider failure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderErrorData {
+    pub class: String,
+    pub transient: bool,
+    pub usage_unknown: bool,
+    pub turn_id: Option<String>,
+    pub session_id: String,
     pub elapsed_ms: u64,
 }
 

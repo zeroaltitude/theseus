@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use theseus_protocol::{SessionInfo, SessionKind};
+use theseus_protocol::{SessionInfo, SessionKind, Usage};
 use tokio::sync::Mutex as AsyncMutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +16,8 @@ pub struct SessionRecord {
     pub created_at_unix_ms: u64,
     pub turns: u64,
     pub last_turn_id: Option<String>,
+    #[serde(default)]
+    pub usage: Usage,
 }
 
 impl SessionRecord {
@@ -27,6 +29,7 @@ impl SessionRecord {
             created_at_unix_ms: theseus_protocol::now_unix_ms(),
             turns: 0,
             last_turn_id: None,
+            usage: Usage::default(),
         }
     }
     pub fn info(&self) -> SessionInfo {
@@ -36,6 +39,7 @@ impl SessionRecord {
             label: self.label.clone(),
             created_at_unix_ms: self.created_at_unix_ms,
             turns: self.turns,
+            usage: self.usage.clone(),
         }
     }
 }

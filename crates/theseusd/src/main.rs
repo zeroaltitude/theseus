@@ -15,6 +15,8 @@ use theseus_core::store::Store;
 use theseus_core::{Config, Core};
 use tokio::net::UnixListener;
 
+mod web;
+
 #[derive(Parser, Debug)]
 #[command(name = "theseusd", version, about = "Theseus server")]
 struct Cli {
@@ -108,6 +110,16 @@ async fn main() -> Result<()> {
             .serve_connection(stdin, stdout, "stdio".into())
             .await?;
         return Ok(());
+    }
+
+    if core.cfg.web.enabled {
+        let (bind, port) = (core.cfg.web.bind.clone(), core.cfg.web.port);
+        let web_core = core.clone();
+        tokio::spawn(async move {
+            if let Err(e) = web::serve(web_core, &bind, port).await {
+                tracing::error!(error = %e, "web UI failed; protocol socket unaffected");
+            }
+        });
     }
 
     serve_socket(core, socket_path).await

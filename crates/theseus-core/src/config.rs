@@ -24,6 +24,40 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub github: GitHubConfig,
+    #[serde(default)]
+    pub web: WebConfig,
+}
+
+/// The localhost web UI. Bound to loopback only; no auth yet (spec §3.14).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WebConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_web_bind")]
+    pub bind: String,
+    #[serde(default = "default_web_port")]
+    pub port: u16,
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_web_bind() -> String {
+    "127.0.0.1".into()
+}
+fn default_web_port() -> u16 {
+    7433
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            bind: default_web_bind(),
+            port: default_web_port(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +101,8 @@ pub struct ModelConfig {
     /// Name of the entry in `[secrets]` holding the Anthropic key.
     #[serde(default = "default_key_name")]
     pub api_key_secret: String,
+    #[serde(default)]
+    pub timeouts: crate::provider::Timeouts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +141,7 @@ impl Default for ModelConfig {
             system: None,
             api_base: default_api_base(),
             api_key_secret: default_key_name(),
+            timeouts: Default::default(),
         }
     }
 }
@@ -182,6 +219,7 @@ impl Config {
             secrets,
             server: ServerConfig::default(),
             github: GitHubConfig::default(),
+            web: WebConfig::default(),
         }
     }
 }

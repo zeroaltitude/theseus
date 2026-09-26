@@ -12,8 +12,9 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 use theseus_protocol::{
-    method, notify, HealthResult, HooksListResult, HooksRegisterParams, Id, Message, Request,
-    SessionListResult, SessionOpenParams, TurnSubmitParams, TurnSubmitResult,
+    method, notify, HealthResult, HooksListResult, HooksRegisterParams, Id, LedgerTailParams,
+    LedgerTailResult, Message, Request, SessionListResult, SessionOpenParams, TurnSubmitParams,
+    TurnSubmitResult,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
@@ -70,6 +71,17 @@ enum Cmd {
     Hooks {
         #[command(subcommand)]
         cmd: HooksCmd,
+    },
+    /// Recent ledger rows (every turn, loop, provider call, hook site, error).
+    Ledger {
+        /// How many rows.
+        #[arg(short, long, default_value_t = 20)]
+        n: usize,
+        /// Only rows of this kind, e.g. turn.ended, provider.call, provider.error, hook.site.
+        #[arg(short, long)]
+        kind: Option<String>,
+        #[arg(short, long)]
+        session: Option<String>,
     },
     /// Send a raw JSON-RPC request: METHOD and optional PARAMS (JSON).
     Rpc {
@@ -186,7 +198,14 @@ impl Conn {
                 Message::Notification(n) => on_notify(&n.method, &n.params),
                 Message::Response(r) if r.id == id => {
                     if let Some(e) = r.error {
-                        return Err(anyhow!("{} (code {})", e.message, e.code));
+                        let class = e.data.get("class").and_then(Value::as_str);
+                        let transient = e.data.get("transient").and_then(Value::as_bool);
+                        return Err(match (class, transient) {
+                            (Some(c), Some(t)) => {
+                                anyhow!("{} [class={c}, transient={t}, code {}]", e.message, e.code)
+                            }
+                            _ => anyhow!("{} (code {})", e.message, e.code),
+                        });
                     }
                     return Ok(r.result.unwrap_or(Value::Null));
                 }
@@ -290,14 +309,15 @@ async fn run(cli: Cli) -> Result<()> {
             } else {
                 let h: HealthResult = serde_json::from_value(v)?;
                 println!(
-                    "{} {} · protocol {} · up {}s · model {} · sessions {} · turns {} · secrets [{}]",
-                    h.name,
-                    h.version,
-                    h.protocol,
-                    h.uptime_secs,
-                    h.model,
-                    h.sessions,
-                    h.turns,
+                    "{} {} · protocol {} · up {}s · model {} · sessions {} · turns {} · provider errors {} · ledger rows {}",
+                    h.name, h.version, h.protocol, h.uptime_secs, h.model, h.sessions, h.turns, h.provider_errors, h.ledger_rows
+                );
+                println!(
+                    "tokens total: in {} out {} cache-read {} cache-write {} · secrets [{}]",
+                    h.usage_total.input_tokens,
+                    h.usage_total.output_tokens,
+                    h.usage_total.cache_read_input_tokens,
+                    h.usage_total.cache_creation_input_tokens,
                     h.secrets_resolved.join(", ")
                 );
             }
@@ -313,10 +333,12 @@ async fn run(cli: Cli) -> Result<()> {
                     let l: SessionListResult = serde_json::from_value(v)?;
                     for s in l.sessions {
                         println!(
-                            "{}\t{:?}\tturns={}\t{}",
+                            "{}\t{:?}\tturns={}\tin={}\tout={}\t{}",
                             s.session_id,
                             s.kind,
                             s.turns,
+                            s.usage.input_tokens,
+                            s.usage.output_tokens,
                             s.label.unwrap_or_default()
                         );
                     }
@@ -385,6 +407,37 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
         },
+        Cmd::Ledger { n, kind, session } => {
+            let v = conn
+                .call(
+                    method::LEDGER_TAIL,
+                    serde_json::to_value(LedgerTailParams {
+                        n: Some(n),
+                        kind,
+                        session_id: session,
+                    })?,
+                    |_, _| {},
+                )
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                let t: LedgerTailResult = serde_json::from_value(v)?;
+                for r in t.rows {
+                    let data = serde_json::to_string(&r.data)?;
+                    let data: String = data.chars().take(160).collect();
+                    println!(
+                        "{:>6}  {}  {:<16} {:<36} {}",
+                        r.position,
+                        fmt_time(r.at_unix_ms),
+                        r.kind,
+                        r.turn_id.unwrap_or_default(),
+                        data
+                    );
+                }
+                eprintln!("[{} rows total]", t.total);
+            }
+        }
         Cmd::Rpc { method, params } => {
             let params: Value = match params {
                 Some(p) => serde_json::from_str(&p).context("PARAMS must be JSON")?,
@@ -407,4 +460,18 @@ async fn run(cli: Cli) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// hh:mm:ss.mmm in local time, without pulling in a date crate.
+fn fmt_time(unix_ms: u64) -> String {
+    let secs = unix_ms / 1000;
+    let ms = unix_ms % 1000;
+    let s = secs % 86_400;
+    format!(
+        "{:02}:{:02}:{:02}.{:03}Z",
+        s / 3600,
+        (s / 60) % 60,
+        s % 60,
+        ms
+    )
 }
