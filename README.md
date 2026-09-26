@@ -74,7 +74,7 @@ hook_spans = false                        # true: every hook site is a span; fal
 Each turn becomes one trace (turn > loops > provider.call with GenAI attributes, first_byte/first_token
 events) with the exact timestamps the ledger recorded, plus metrics: `theseus.turns`, `theseus.tokens`,
 `theseus.provider.errors`, `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`,
-`theseus.provider.first_token_ms`.
+`theseus.provider.first_token_ms`, `theseus.cost.usd`, `theseus.tool.calls` (by tool).
 
 Visibility: `theseus health` (totals), `theseus sessions list` (tokens per session),
 `theseus ledger -n 20 [-k provider.call|provider.error|turn.ended|hook.site]` (every row).

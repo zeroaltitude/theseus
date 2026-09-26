@@ -97,6 +97,8 @@ struct Instruments {
     turn_duration_ms: Histogram<f64>,
     provider_call_ms: Histogram<f64>,
     first_token_ms: Histogram<f64>,
+    cost_usd: Counter<f64>,
+    tool_calls: Counter<u64>,
 }
 
 impl Instruments {
@@ -125,6 +127,15 @@ impl Instruments {
             first_token_ms: meter
                 .f64_histogram("theseus.provider.first_token_ms")
                 .with_unit("ms")
+                .build(),
+            cost_usd: meter
+                .f64_counter("theseus.cost.usd")
+                .with_description("Dollars spent on provider calls, priced by the model catalog")
+                .with_unit("USD")
+                .build(),
+            tool_calls: meter
+                .u64_counter("theseus.tool.calls")
+                .with_description("Tool calls proposed by the model, by tool")
                 .build(),
         }
     }
@@ -257,7 +268,11 @@ impl Telemetry {
             inner.instruments.first_token_ms.record(ft as f64, &attrs);
         }
         record_tokens(&inner.instruments.tokens, &result.usage, &attrs);
+        if let Some(c) = result.cost_usd.filter(|c| *c > 0.0) {
+            inner.instruments.cost_usd.add(c, &attrs);
+        }
         if let Some(t) = &result.trace {
+            count_tools(&inner.instruments.tool_calls, t, &attrs);
             export_tree(inner, t);
         }
     }
@@ -354,6 +369,21 @@ fn record_tokens(counter: &Counter<u64>, u: &Usage, base: &[KeyValue]) {
     with("output", u.output_tokens);
     with("cache_read", u.cache_read_input_tokens);
     with("cache_write", u.cache_creation_input_tokens);
+}
+
+/// One `theseus.tool.calls` per `tool <wire name>` span, labelled with the
+/// canonical tool name (`fs_read` → `fs.read`).
+fn count_tools(counter: &Counter<u64>, s: &Span, base: &[KeyValue]) {
+    if s.kind == "tool" {
+        if let Some(wire) = s.name.strip_prefix("tool ") {
+            let mut a = base.to_vec();
+            a.push(KeyValue::new("theseus.tool", wire.replacen('_', ".", 1)));
+            counter.add(1, &a);
+        }
+    }
+    for c in &s.children {
+        count_tools(counter, c, base);
+    }
 }
 
 /// The turn's absolute start, from the trace root's `origin_unix_ms`.
@@ -627,6 +657,32 @@ mod tests {
         ] {
             assert!(metric_names.contains(&want.to_string()), "{metric_names:?}");
         }
+    }
+
+    #[test]
+    fn dollars_and_tool_calls_are_metrics() {
+        let (tel, _, metrics) = test_telemetry(false);
+        let mut trace = sample_trace();
+        trace.children[0].children.push(Span {
+            name: "tool fs_read".into(),
+            kind: "tool".into(),
+            start_us: 10,
+            end_us: Some(20),
+            ..Default::default()
+        });
+        let mut r = result_with(trace);
+        r.cost_usd = Some(0.0123);
+        tel.record_turn(&r);
+        tel.flush();
+        let rm = metrics.get_finished_metrics().unwrap();
+        let names: Vec<String> = rm
+            .iter()
+            .flat_map(|r| r.scope_metrics())
+            .flat_map(|s| s.metrics())
+            .map(|m| m.name().to_string())
+            .collect();
+        assert!(names.contains(&"theseus.cost.usd".to_string()), "{names:?}");
+        assert!(names.contains(&"theseus.tool.calls".to_string()), "{names:?}");
     }
 
     #[test]
