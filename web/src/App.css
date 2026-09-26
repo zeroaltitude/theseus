@@ -36,7 +36,7 @@ header {
   background: var(--panel); border-bottom: 1px solid var(--border);
 }
 .brand { font-size: 15px; }
-.ship { font-size: 18px; }
+.logo { vertical-align: -5px; margin-right: 2px; color: var(--text); }
 .status { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: .04em; }
 .status.open { color: var(--ok); border-color: var(--ok); }
 .status.connecting { color: var(--warn); border-color: var(--warn); }

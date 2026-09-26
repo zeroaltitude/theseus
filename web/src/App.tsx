@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react'
 import { ProtocolClient } from './protocol'
 import type { Health, ProfileList, ProviderErrorData, RpcError, SessionInfo, TurnResult, Usage } from './protocol'
 import TraceView from './TraceView'
+import Logo from './Logo'
 import './App.css'
 
 // One exchange: a prompt, the streamed reply, the events that produced it,
@@ -128,7 +129,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="brand">
-          <span className="ship">⛵</span> <strong>Theseus</strong>
+          <Logo /> <strong>Theseus</strong>
           {health && <span className="muted"> v{health.version}</span>}
         </div>
         {profiles && (
