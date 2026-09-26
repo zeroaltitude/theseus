@@ -75,6 +75,7 @@ export default function App() {
         await client.connect()
         await refreshHealth()
         setSession(await client.call<SessionInfo>('session.open', { label: 'web' }))
+        await refreshHealth() // the header counts this tab's session too
       } catch (e) {
         console.error(e)
       }
@@ -224,6 +225,7 @@ export default function App() {
       </main>
       {showObs && status === 'open' && (
         <Observatory client={client} health={health} tick={tick} currentSession={session?.session_id ?? null}
+          onRefresh={refreshHealth}
           onCancelled={() => { void refreshHealth(); setTick((t) => t + 1) }} />
       )}
       </div>

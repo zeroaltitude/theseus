@@ -39,10 +39,12 @@ export interface ObservatoryProps {
   /// Bumps after every turn so the panels refresh at once.
   tick: number
   currentSession: string | null
+  /// Called on every refresh so the header's health stays in step with the panels.
+  onRefresh?: () => Promise<void> | void
   onCancelled?: () => void
 }
 
-export default function Observatory({ client, health, tick, currentSession, onCancelled }: ObservatoryProps) {
+export default function Observatory({ client, health, tick, currentSession, onRefresh, onCancelled }: ObservatoryProps) {
   const [execs, setExecs] = useState<ExecutionInfo[]>([])
   const [actions, setActions] = useState<ActionInfo[]>([])
   const [actionsTotal, setActionsTotal] = useState(0)
@@ -72,10 +74,11 @@ export default function Observatory({ client, health, tick, currentSession, onCa
       setSessions(s.sessions.slice().sort((x, y) => y.created_at_unix_ms - x.created_at_unix_ms))
       setNow(Date.now())
       setError(null)
+      await onRefresh?.()
     } catch (err) {
       setError((err as { message?: string }).message ?? String(err))
     }
-  }, [client])
+  }, [client, onRefresh])
 
   useEffect(() => { void refresh() }, [refresh, tick])
   useEffect(() => {
