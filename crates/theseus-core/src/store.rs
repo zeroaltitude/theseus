@@ -16,6 +16,7 @@ use theseus_store::{kinds, Engine, NewRecord, Store as _, StoreStats, WalConfig,
 #[derive(Clone)]
 pub struct Store {
     inner: Arc<WalStore>,
+    dir: std::path::PathBuf,
 }
 
 impl Store {
@@ -34,7 +35,17 @@ impl Store {
         }
         Ok(Self {
             inner: Arc::new(inner),
+            dir: dir.to_path_buf(),
         })
+    }
+
+    /// The same store as the kernel's `Store` trait object (one WAL, one index).
+    pub fn shared(&self) -> Arc<dyn theseus_store::Store> {
+        self.inner.clone()
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
     }
 
     pub fn stats(&self) -> Result<StoreStats> {

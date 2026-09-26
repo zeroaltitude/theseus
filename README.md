@@ -4,7 +4,7 @@ My first agent harness, be gentle.
 
 Design document: [`docs/the-ship-of-theseus.md`](docs/the-ship-of-theseus.md) (Part I specification, Part II build plan).
 
-## What exists (M0 First light)
+## What exists (M0 First light, then M1 Keel and M2 Kernel below)
 
 Two static binaries and one protocol:
 
@@ -81,13 +81,57 @@ retries on its own.
 Storage is a WAL of checksummed atomic frames (the truth) plus a rebuildable index in `redb`
 (`[server].store_engine`, `fjall` also available). Every append is durable when it returns; a
 frame with several records commits all or none; recovery truncates a torn tail and refuses
-corruption elsewhere; deleting the index loses nothing.
+corruption elsewhere; deleting the index loses nothing. Concurrent appenders share one
+`fdatasync` (**group commit**): sixteen writers get about seven times the frame throughput of one,
+and a single writer pays exactly one sync per frame as before. Records carry an optional **scope**
+(a session id) and the index keeps a per-scope position table, so a session's own records are one
+range scan (§4.4b).
 
 ```bash
 theseus-sim crash-test --iterations 40 --restarts 3 --engine redb   # kill -9, tear the tail, verify
 theseus-sim bench --engine redb --records 20000                      # append/read throughput
 theseus-sim bench --engine fjall --records 50000 --no-fsync           # index cost without the disk
+theseus-sim bench --engine redb --records 20000 --writers 16          # group commit under concurrency
 ```
+
+## The kernel (M2)
+
+Every session has one durable **execution**; every turn is a kernel turn: the execution is woken
+by input, admitted under a concurrency ceiling (`[kernel].admission_ceiling`), holds the
+per-execution turn lock while it runs, and parks again when the Advancer ends the turn. The
+provider call inside a turn is an **action**: `planned → authorized → dispatched` are three WAL
+frames committed before the call is made, the budget reservation is taken in the first, and the
+response settles it as a `Completion` in the same frame that continues the execution. Every
+transition is a ledger row (`action.planned`, `action.dispatched`, `action.succeeded`,
+`execution.running`, `execution.waiting`, …).
+
+- **Completions** are one envelope from every source, accepted idempotently: a duplicate is a
+  logged no-op, a stray (no matching action) is quarantined and surfaced in `theseus health`, a
+  late one after cancel is recorded but revives nothing.
+- **The spool** (`<state_dir>/spool`) is where the detached **job wrapper** (`theseusd job-wrapper`,
+  its own session via `setsid`, own deadline) writes a result before any delivery attempt, then
+  pokes the harness over `spool/notify.sock`. Startup drains it before accepting events; the
+  heartbeat reconciler drains it every `heartbeat_secs`.
+- **Startup is five idempotent steps** (store, load + requeue interrupted turns, drain spool,
+  reconcile, accept); a crash inside any of them is finished by the next startup.
+- **Budgets are hard limits** with reservations; unknown usage (an interrupted provider call) is
+  held, never released; exhaustion is a terminal state.
+- **`/cancel`** is a deterministic control path: `theseus executions cancel <id>` never queues
+  behind admission, terminates the execution's wrapper processes by process group, and walks each
+  action's cancel lifecycle (`requested → acknowledged → verified | unsupported | uncertain`).
+
+```bash
+theseus executions                     # one line per execution: state, turns, outstanding, budget
+theseus executions cancel exe_…        # deterministic cancel
+theseus health                         # kernel line: accepting, turns held/ceiling, counts by state
+theseus ledger -n 20 -k action.succeeded
+theseus-sim kernel-sim --seed 1 --seeds 40 --steps 400   # the M2 exit test: seeded fault injection
+```
+
+The kernel simulator runs the kernel under a virtual clock with a real store and spool in a temp
+dir and injects crashes between any two frames and inside every startup step, lost and duplicate
+completions, dropped notifies, jobs that never finish, and cancels; it checks the kernel
+invariants after every step and is reproducible from its seed.
 
 ## Build
 

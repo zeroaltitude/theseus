@@ -4,10 +4,14 @@
 //! segment file: frame frame frame ...
 //! frame:  MAGIC u32 | body_len u32 | crc32(body) u32 | body
 //! body:   count u32 | record*
-//! record: position u64 | kind u16 | schema u16 | at_unix_ms u64 | key_len u16 | payload_len u32 | key | payload
+//! record: position u64 | kind u16 | schema u16 | at_unix_ms u64 | key_len u16 | scope_len u16 | payload_len u32 | key | scope | payload
 //! ```
 //!
-//! A frame is written with one `write_all` and one `fdatasync`. On recovery,
+//! A frame is written with one `write_all`; durability is one `fdatasync`
+//! that may cover several frames (**group commit**): concurrent appenders
+//! write their frames back to back under a short lock, then one of them syncs
+//! the file once for everyone whose bytes are already written. A single
+//! writer sees exactly the old behaviour, one sync per frame. On recovery,
 //! every frame is verified; the first frame that fails (short, bad magic, bad
 //! crc) ends the log, and if it is in the last segment it is truncated as a
 //! torn write. A bad frame followed by good bytes in an earlier segment is
@@ -16,7 +20,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 
 use crate::record::{now_unix_ms, NewRecord, Record};
 
@@ -53,6 +57,9 @@ pub struct WalConfig {
     pub max_total_bytes: Option<u64>,
     /// fdatasync every frame. Off only for benchmarks that measure the cost.
     pub fsync: bool,
+    /// Let one fdatasync cover every frame written since the last one
+    /// (concurrent appenders share the sync). Off: every append syncs itself.
+    pub group_commit: bool,
 }
 
 impl Default for WalConfig {
@@ -61,6 +68,7 @@ impl Default for WalConfig {
             segment_bytes: 64 * 1024 * 1024,
             max_total_bytes: None,
             fsync: true,
+            group_commit: true,
         }
     }
 }
@@ -93,10 +101,24 @@ struct Writer {
     next_position: u64,
 }
 
+/// Group-commit state: how many bytes (across all segments) have been written
+/// and how many are known durable; whether a sync is in flight.
+#[derive(Default)]
+struct SyncState {
+    written: u64,
+    synced: u64,
+    syncing: bool,
+}
+
 pub struct Wal {
     w: Mutex<Writer>,
+    sync: Mutex<SyncState>,
+    sync_cv: Condvar,
     dir: PathBuf,
     recovery: Recovery,
+    /// Counters for visibility: frames appended, fdatasync calls made.
+    frames: std::sync::atomic::AtomicU64,
+    syncs: std::sync::atomic::AtomicU64,
 }
 
 fn segment_path(dir: &Path, n: u32) -> PathBuf {
@@ -131,29 +153,37 @@ fn u64_at(b: &[u8], i: usize) -> u64 {
 }
 
 /// Encode one record; returns bytes.
+const RECORD_HEADER: usize = 28;
+
 fn encode_record(position: u64, at: u64, r: &NewRecord) -> Result<Vec<u8>, WalError> {
     let key = r.key.as_deref().unwrap_or("");
+    let scope = r.scope.as_deref().unwrap_or("");
     if key.len() > u16::MAX as usize {
         return Err(WalError::TooLarge(key.len()));
+    }
+    if scope.len() > u16::MAX as usize {
+        return Err(WalError::TooLarge(scope.len()));
     }
     if r.payload.len() > (u32::MAX - 64) as usize {
         return Err(WalError::TooLarge(r.payload.len()));
     }
-    let mut out = Vec::with_capacity(26 + key.len() + r.payload.len());
+    let mut out = Vec::with_capacity(RECORD_HEADER + key.len() + scope.len() + r.payload.len());
     out.extend_from_slice(&position.to_le_bytes());
     out.extend_from_slice(&r.kind.to_le_bytes());
     out.extend_from_slice(&r.schema.to_le_bytes());
     out.extend_from_slice(&at.to_le_bytes());
     out.extend_from_slice(&(key.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(scope.len() as u16).to_le_bytes());
     out.extend_from_slice(&(r.payload.len() as u32).to_le_bytes());
     out.extend_from_slice(key.as_bytes());
+    out.extend_from_slice(scope.as_bytes());
     out.extend_from_slice(&r.payload);
     Ok(out)
 }
 
 /// Decode one record from `b` starting at `i`; returns (record, consumed).
 pub fn decode_record(b: &[u8], i: usize) -> Option<(Record, usize)> {
-    if b.len() < i + 26 {
+    if b.len() < i + RECORD_HEADER {
         return None;
     }
     let position = u64_at(b, i);
@@ -161,9 +191,13 @@ pub fn decode_record(b: &[u8], i: usize) -> Option<(Record, usize)> {
     let schema = u16_at(b, i + 10);
     let at_unix_ms = u64_at(b, i + 12);
     let key_len = u16_at(b, i + 20) as usize;
-    let payload_len = u32_at(b, i + 22) as usize;
-    let start = i + 26;
-    let end = start.checked_add(key_len)?.checked_add(payload_len)?;
+    let scope_len = u16_at(b, i + 22) as usize;
+    let payload_len = u32_at(b, i + 24) as usize;
+    let start = i + RECORD_HEADER;
+    let end = start
+        .checked_add(key_len)?
+        .checked_add(scope_len)?
+        .checked_add(payload_len)?;
     if b.len() < end {
         return None;
     }
@@ -172,13 +206,20 @@ pub fn decode_record(b: &[u8], i: usize) -> Option<(Record, usize)> {
     } else {
         Some(String::from_utf8_lossy(&b[start..start + key_len]).into_owned())
     };
-    let payload = b[start + key_len..end].to_vec();
+    let scope_start = start + key_len;
+    let scope = if scope_len == 0 {
+        None
+    } else {
+        Some(String::from_utf8_lossy(&b[scope_start..scope_start + scope_len]).into_owned())
+    };
+    let payload = b[scope_start + scope_len..end].to_vec();
     Some((
         Record {
             position,
             kind,
             schema,
             key,
+            scope,
             at_unix_ms,
             payload,
         },
@@ -248,8 +289,16 @@ impl Wal {
                 total_len,
                 next_position: expected_pos,
             }),
+            sync: Mutex::new(SyncState {
+                written: total_len,
+                synced: total_len,
+                syncing: false,
+            }),
+            sync_cv: Condvar::new(),
             dir: dir.to_path_buf(),
             recovery,
+            frames: std::sync::atomic::AtomicU64::new(0),
+            syncs: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -303,6 +352,12 @@ impl Wal {
         // Roll segment if needed (never split a frame).
         if w.segment_len > 0 && w.segment_len + frame.len() as u64 > w.cfg.segment_bytes {
             w.file.sync_all()?;
+            {
+                // Everything in the old segment is now durable.
+                let mut st = self.sync.lock().unwrap();
+                st.synced = st.synced.max(w.total_len);
+                st.written = st.written.max(w.total_len);
+            }
             let next = w.segment + 1;
             let path = segment_path(&w.dir, next);
             w.file = OpenOptions::new()
@@ -316,14 +371,31 @@ impl Wal {
 
         let frame_offset = w.segment_len;
         w.file.write_all(&frame)?;
-        if w.cfg.fsync {
-            w.file.sync_data()?;
-        }
         w.segment_len += frame.len() as u64;
         w.total_len += frame.len() as u64;
         w.next_position = first + batch.len() as u64;
-
         let seg = w.segment;
+        let written_upto = w.total_len;
+        let fsync = w.cfg.fsync;
+        let group = w.cfg.group_commit;
+        self.frames
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if fsync && !group {
+            w.file.sync_data()?;
+            self.syncs
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        // Clone the handle so the sync can run without the writer lock; other
+        // appenders keep writing behind us while we (or a leader) sync.
+        let file = if fsync && group {
+            Some(w.file.try_clone()?)
+        } else {
+            None
+        };
+        drop(w);
+        if let Some(file) = file {
+            self.group_sync(&file, written_upto)?;
+        }
         Ok(rel
             .into_iter()
             .map(|(pos, body_off, len)| {
@@ -337,6 +409,55 @@ impl Wal {
                 )
             })
             .collect())
+    }
+
+    /// Group commit. `upto` is the total byte count this appender needs
+    /// durable. If a sync that covers it already finished, return. If one is
+    /// in flight, wait for it and re-check (it may not have covered us). Else
+    /// become the leader: sync once for every byte written so far.
+    fn group_sync(&self, file: &File, upto: u64) -> Result<(), WalError> {
+        let mut st = self.sync.lock().unwrap();
+        st.written = st.written.max(upto);
+        loop {
+            if st.synced >= upto {
+                return Ok(());
+            }
+            if st.syncing {
+                st = self.sync_cv.wait(st).unwrap();
+                continue;
+            }
+            st.syncing = true;
+            let target = st.written;
+            drop(st);
+            let r = file.sync_data();
+            self.syncs
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            st = self.sync.lock().unwrap();
+            st.syncing = false;
+            match r {
+                Ok(()) => {
+                    st.synced = st.synced.max(target);
+                    self.sync_cv.notify_all();
+                    if st.synced >= upto {
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    self.sync_cv.notify_all();
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+
+    /// Frames appended since open.
+    pub fn frames_appended(&self) -> u64 {
+        self.frames.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// fdatasync calls since open (< frames when group commit batched).
+    pub fn syncs(&self) -> u64 {
+        self.syncs.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Read one record at a known location.
@@ -598,6 +719,40 @@ mod tests {
         // The pair is gone together; the first frame survives.
         assert_eq!(wal.last_position(), 1);
         assert_eq!(wal.recovery().records, 1);
+    }
+
+    #[test]
+    fn scope_roundtrips_and_group_commit_syncs_less_than_it_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let wal = std::sync::Arc::new(Wal::open(dir.path(), WalConfig::default()).unwrap());
+        let locs = wal
+            .append(&[rec(kinds::LEDGER, None, b"x").scoped("ses_1")])
+            .unwrap();
+        assert_eq!(
+            wal.read_at(locs[0].1).unwrap().scope.as_deref(),
+            Some("ses_1")
+        );
+        // 8 threads x 50 appends: every append durable when it returns, and
+        // the number of fdatasync calls is at most the number of frames.
+        let mut hs = Vec::new();
+        for t in 0..8u8 {
+            let w = wal.clone();
+            hs.push(std::thread::spawn(move || {
+                for i in 0..50u32 {
+                    w.append(&[rec(kinds::LEDGER, None, &[t, i as u8])])
+                        .unwrap();
+                }
+            }));
+        }
+        for h in hs {
+            h.join().unwrap();
+        }
+        assert_eq!(wal.frames_appended(), 401);
+        assert!(wal.syncs() <= wal.frames_appended());
+        assert!(wal.syncs() >= 1);
+        drop(wal);
+        let wal = Wal::open(dir.path(), WalConfig::default()).unwrap();
+        assert_eq!(wal.recovery().records, 401);
     }
 
     #[test]

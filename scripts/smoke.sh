@@ -24,7 +24,12 @@ echo "== json";    echo "Reply with the single word: piped" | "$BIN/theseus" ask
 echo "== web";     curl -sf -o /dev/null "http://127.0.0.1:${WEB_PORT:-7433}/" && echo "web UI served on http://127.0.0.1:${WEB_PORT:-7433}/" || echo "web UI not reachable from this instance (another daemon may hold the port; not a failure)"
 echo "== telemetry"; "$BIN/theseus" health | grep -E "^telemetry"
 echo "== ledger";  "$BIN/theseus" ledger -n 3 -k provider.call | tail -1 | cut -c1-120
-echo "== stdio";   "$BIN/theseus" --spawn "$BIN/theseusd" ask --no-stream "Reply with the single word: stdio" 2>/dev/null
+echo "== kernel";  "$BIN/theseus" health | grep -E "^kernel"
+echo "== executions"; "$BIN/theseus" executions | head -3
+echo "== actions"; "$BIN/theseus" ledger -n 2 -k action.succeeded | tail -1 | cut -c1-120
+echo "== wrapper"; "$BIN/theseusd" job-wrapper --spool "$STATE/spool" --correlation-id act_smoke_stray --deadline-ms 5000 --notify "$STATE/spool/notify.sock" -- /bin/echo hello-from-wrapper; sleep 0.5
+"$BIN/theseus" health | grep -E "^kernel" | grep -q "quarantined completions 1" && echo "stray wrapper completion quarantined (never inferred)"
+echo "== stdio";   THESEUS_STATE_DIR="$STATE" "$BIN/theseus" --spawn "$BIN/theseusd" ask --no-stream "Reply with the single word: stdio" 2>/dev/null
 echo "== shutdown"; "$BIN/theseus" shutdown
 wait $PID
 echo "SMOKE OK"

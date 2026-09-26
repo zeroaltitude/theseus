@@ -105,6 +105,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: HooksCmd,
     },
+    /// Executions (one per session): state, turns, outstanding actions, budget; `executions cancel <id>`.
+    Executions {
+        #[command(subcommand)]
+        cmd: Option<ExecutionsCmd>,
+    },
     /// Model profiles: list, or switch the live one (`theseus profile use glm`).
     Profile {
         #[command(subcommand)]
@@ -128,6 +133,14 @@ enum Cmd {
     },
     /// Ask the server to stop cleanly (removes its socket).
     Shutdown,
+}
+
+#[derive(Subcommand, Debug)]
+enum ExecutionsCmd {
+    /// List every execution with state, turns, outstanding actions, and budget.
+    List,
+    /// Cancel an execution: deterministic control path, terminates its jobs.
+    Cancel { execution_id: String },
 }
 
 #[derive(Subcommand, Debug)]
@@ -419,6 +432,26 @@ async fn run(cli: Cli) -> Result<()> {
                         None => "off (no [telemetry].otlp_endpoint)".to_string(),
                     }
                 );
+                let k = &h.kernel;
+                let fmt_counts = |m: &std::collections::BTreeMap<String, u64>| {
+                    if m.is_empty() {
+                        "none".to_string()
+                    } else {
+                        m.iter()
+                            .map(|(s, n)| format!("{n} {s}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    }
+                };
+                println!(
+                    "kernel: {} · turns held {}/{} · executions [{}] · actions [{}] · quarantined completions {}",
+                    if k.accepting { "accepting" } else { "starting" },
+                    k.turns_held,
+                    k.admission_ceiling,
+                    fmt_counts(&k.executions_by_state),
+                    fmt_counts(&k.actions_by_state),
+                    k.quarantined_completions
+                );
                 println!(
                     "tokens total: in {} out {} cache-read {} cache-write {} · secrets [{}]",
                     h.usage_total.input_tokens,
@@ -440,12 +473,13 @@ async fn run(cli: Cli) -> Result<()> {
                     let l: SessionListResult = serde_json::from_value(v)?;
                     for s in l.sessions {
                         println!(
-                            "{}\t{:?}\tturns={}\tin={}\tout={}\t{}",
+                            "{}\t{:?}\tturns={}\tin={}\tout={}\texec={}\t{}",
                             s.session_id,
                             s.kind,
                             s.turns,
                             s.usage.input_tokens,
                             s.usage.output_tokens,
+                            s.execution_state.unwrap_or_else(|| "-".into()),
                             s.label.unwrap_or_default()
                         );
                     }
@@ -511,6 +545,65 @@ async fn run(cli: Cli) -> Result<()> {
                             println!("{}", serde_json::to_string(&n.params)?);
                         }
                     }
+                }
+            }
+        },
+        Cmd::Executions { cmd } => match cmd.unwrap_or(ExecutionsCmd::List) {
+            ExecutionsCmd::List => {
+                let v = conn
+                    .call(method::EXECUTION_LIST, Value::Null, |_, _| {})
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    let l: theseus_protocol::ExecutionListResult = serde_json::from_value(v)?;
+                    if l.executions.is_empty() {
+                        println!("no executions");
+                    }
+                    for e in l.executions {
+                        println!(
+                            "{}\t{}\t{}\tturns={}\tinterrupted={}\toutstanding={}\tqueued={}\tbudget spent {}/{} (reserved {}, held {})\tsession={}{}",
+                            e.execution_id,
+                            e.kind,
+                            e.state,
+                            e.turns,
+                            e.interrupted,
+                            e.outstanding,
+                            e.queued_results,
+                            e.budget.spent,
+                            e.budget.limit,
+                            e.budget.reserved,
+                            e.budget.held_unknown,
+                            e.session_id,
+                            e.ended_reason.map(|r| format!("\t{r}")).unwrap_or_default()
+                        );
+                    }
+                }
+            }
+            ExecutionsCmd::Cancel { execution_id } => {
+                let v = conn
+                    .call(
+                        method::EXECUTION_CANCEL,
+                        serde_json::to_value(theseus_protocol::ExecutionCancelParams {
+                            execution_id,
+                        })?,
+                        |_, _| {},
+                    )
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    let r: theseus_protocol::ExecutionCancelResult = serde_json::from_value(v)?;
+                    println!(
+                        "{} {} · {} action(s) asked to stop{}",
+                        r.execution.execution_id,
+                        r.execution.state,
+                        r.cancelled_actions.len(),
+                        r.execution
+                            .ended_reason
+                            .map(|x| format!(" · {x}"))
+                            .unwrap_or_default()
+                    );
                 }
             }
         },

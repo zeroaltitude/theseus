@@ -8,6 +8,10 @@
 //!               same bytes, positions are contiguous, appends continue; repeat.
 //! `bench`       redb vs fjall on our write shape (small records, frames of
 //!               1–4, fsync per frame), plus reads by position, key, tail.
+//! `kernel-sim`  the M2 exit test: the kernel under a virtual clock with
+//!               seeded fault injection (crash between any two frames, crash
+//!               inside startup steps, lost/duplicate/late completions,
+//!               dropped notifies, cancels), invariants checked every step.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -19,6 +23,8 @@ use clap::{Parser, Subcommand};
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use theseus_store::{kinds, Engine, NewRecord, Store, WalConfig, WalStore};
+
+mod kernel_sim;
 
 #[derive(Parser)]
 #[command(
@@ -63,6 +69,42 @@ enum Cmd {
         #[arg(long)]
         worker_bin: Option<PathBuf>,
     },
+    /// The deterministic kernel simulator (M2 exit test). Reproducible from --seed.
+    KernelSim {
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Run this many seeds starting at --seed.
+        #[arg(long, default_value_t = 1)]
+        seeds: u32,
+        #[arg(long, default_value_t = 400)]
+        steps: u32,
+        #[arg(long, default_value_t = 12)]
+        sessions: u32,
+        #[arg(long, default_value_t = 3)]
+        ceiling: u32,
+        /// Probability of a crash between any two kernel frames.
+        #[arg(long, default_value_t = 0.02)]
+        p_crash: f64,
+        /// Probability a finished job's notify is lost (spool only).
+        #[arg(long, default_value_t = 0.2)]
+        p_drop_notify: f64,
+        /// Probability a delivered completion is delivered twice.
+        #[arg(long, default_value_t = 0.15)]
+        p_dup: f64,
+        /// Probability a job never finishes.
+        #[arg(long, default_value_t = 0.08)]
+        p_lost_job: f64,
+        /// Share of steps that are a /cancel (0..0.3).
+        #[arg(long, default_value_t = 0.06)]
+        p_cancel: f64,
+        /// fdatasync every frame (slow; durability is the store crash-test's job).
+        #[arg(long)]
+        fsync: bool,
+        #[arg(long, default_value = "redb")]
+        engine: Engine,
+        #[arg(long)]
+        verbose: bool,
+    },
     /// Append/read throughput for one engine.
     Bench {
         #[arg(long, default_value = "redb")]
@@ -72,6 +114,12 @@ enum Cmd {
         /// Skip fdatasync per frame, to measure the index cost without the disk.
         #[arg(long)]
         no_fsync: bool,
+        /// Concurrent appender threads (group commit shares one fdatasync).
+        #[arg(long, default_value_t = 1)]
+        writers: u32,
+        /// Disable group commit (every append syncs itself).
+        #[arg(long)]
+        no_group_commit: bool,
         #[arg(long)]
         dir: Option<PathBuf>,
     },
@@ -93,12 +141,86 @@ fn main() -> Result<()> {
             tear,
             worker_bin,
         } => crash_test(iterations, seed, engine, restarts, tear, worker_bin),
+        Cmd::KernelSim {
+            seed,
+            seeds,
+            steps,
+            sessions,
+            ceiling,
+            p_crash,
+            p_drop_notify,
+            p_dup,
+            p_lost_job,
+            p_cancel,
+            fsync,
+            engine,
+            verbose,
+        } => {
+            let mut totals = kernel_sim::SimReport::default();
+            for s in seed..seed + seeds as u64 {
+                let rep = kernel_sim::run(kernel_sim::SimParams {
+                    seed: s,
+                    steps,
+                    sessions,
+                    ceiling,
+                    p_crash,
+                    p_drop_notify,
+                    p_dup,
+                    p_lost_job,
+                    p_cancel,
+                    fsync,
+                    engine,
+                    verbose,
+                })
+                .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
+                println!(
+                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} reconciles · {} invariant checks · {} positions · {} ms",
+                    rep.steps, rep.crashes, rep.startup_faults, rep.sessions, rep.turns, rep.actions,
+                    rep.completions_delivered, rep.duplicates, rep.notify_dropped, rep.lost_jobs,
+                    rep.late_after_cancel, rep.cancels, rep.unknowns, rep.resolved_unknowns,
+                    rep.reconciles, rep.invariant_checks, rep.final_positions, rep.wall_ms
+                );
+                totals.crashes += rep.crashes;
+                totals.startup_faults += rep.startup_faults;
+                totals.turns += rep.turns;
+                totals.actions += rep.actions;
+                totals.completions_delivered += rep.completions_delivered;
+                totals.duplicates += rep.duplicates;
+                totals.notify_dropped += rep.notify_dropped;
+                totals.lost_jobs += rep.lost_jobs;
+                totals.late_after_cancel += rep.late_after_cancel;
+                totals.cancels += rep.cancels;
+                totals.unknowns += rep.unknowns;
+                totals.resolved_unknowns += rep.resolved_unknowns;
+                totals.invariant_checks += rep.invariant_checks;
+                totals.wall_ms += rep.wall_ms;
+            }
+            if seeds > 1 {
+                println!(
+                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} invariant checks · {} ms · all invariants held",
+                    seeds, totals.crashes, totals.startup_faults, totals.turns, totals.actions,
+                    totals.completions_delivered, totals.duplicates, totals.notify_dropped,
+                    totals.lost_jobs, totals.late_after_cancel, totals.cancels, totals.unknowns,
+                    totals.resolved_unknowns, totals.invariant_checks, totals.wall_ms
+                );
+            }
+            Ok(())
+        }
         Cmd::Bench {
             engine,
             records,
             no_fsync,
+            writers,
+            no_group_commit,
             dir,
-        } => bench(engine, records, !no_fsync, dir),
+        } => bench(
+            engine,
+            records,
+            !no_fsync,
+            writers.max(1),
+            !no_group_commit,
+            dir,
+        ),
     }
 }
 
@@ -366,30 +488,55 @@ fn crash_test(
 
 // ---------------------------------------------------------------- bench
 
-fn bench(engine: Engine, records: u64, fsync: bool, dir: Option<PathBuf>) -> Result<()> {
+fn bench(
+    engine: Engine,
+    records: u64,
+    fsync: bool,
+    writers: u32,
+    group_commit: bool,
+    dir: Option<PathBuf>,
+) -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let dir = dir.unwrap_or_else(|| tmp.path().join("store"));
-    let store = WalStore::open(
-        &dir,
-        engine,
-        WalConfig {
-            fsync,
-            ..Default::default()
-        },
-    )?
-    .with_checkpoint_every(1000);
+    let store = std::sync::Arc::new(
+        WalStore::open(
+            &dir,
+            engine,
+            WalConfig {
+                fsync,
+                group_commit,
+                ..Default::default()
+            },
+        )?
+        .with_checkpoint_every(1000),
+    );
     let mut rng = StdRng::seed_from_u64(42);
-    let mut appended = 0u64;
-    let mut frames = 0u64;
+    let per_writer = records / writers as u64;
     let t = Instant::now();
-    while appended < records {
-        let b = random_batch(&mut rng);
-        appended += b.len() as u64;
-        frames += 1;
-        store.append(&b)?;
+    let mut hs = Vec::new();
+    for w in 0..writers {
+        let store = store.clone();
+        hs.push(std::thread::spawn(move || -> Result<(u64, u64)> {
+            let mut rng = StdRng::seed_from_u64(42 + w as u64);
+            let (mut appended, mut frames) = (0u64, 0u64);
+            while appended < per_writer {
+                let b = random_batch(&mut rng);
+                appended += b.len() as u64;
+                frames += 1;
+                store.append(&b)?;
+            }
+            Ok((appended, frames))
+        }));
+    }
+    let (mut appended, mut frames) = (0u64, 0u64);
+    for h in hs {
+        let (a, f) = h.join().expect("writer thread")?;
+        appended += a;
+        frames += f;
     }
     let append_s = t.elapsed().as_secs_f64();
     let last = store.last_position();
+    let syncs = store.stats()?.syncs;
 
     let t = Instant::now();
     let n_get = 5000u64.min(last);
@@ -417,18 +564,21 @@ fn bench(engine: Engine, records: u64, fsync: bool, dir: Option<PathBuf>) -> Res
     let latest_s = t.elapsed().as_secs_f64();
 
     let st = store.stats()?;
-    drop(store);
+    drop(std::sync::Arc::try_unwrap(store).ok().expect("sole owner"));
     let t = Instant::now();
     let reopened = WalStore::open(&dir, engine, WalConfig::default())?;
     let reopen_s = t.elapsed().as_secs_f64();
     let replayed = reopened.stats()?.replayed_into_index;
 
     println!(
-        "engine {} · fsync {} · {} records in {} frames",
+        "engine {} · fsync {} · group commit {} · {} writers · {} records in {} frames · {} fdatasyncs",
         engine.as_str(),
         fsync,
+        group_commit,
+        writers,
         appended,
-        frames
+        frames,
+        syncs
     );
     println!(
         "  append : {:>9.0} rec/s  {:>9.0} frames/s  ({:.1} ms/frame)",

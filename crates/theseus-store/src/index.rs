@@ -5,6 +5,7 @@
 //! - `loc`:    position u64 → RecordLocation
 //! - `bykey`:  kind u16 ‖ key bytes → latest position u64
 //! - `bykind`: kind u16 ‖ position u64 → () (per-kind ordered scans)
+//! - `byscope`: scope bytes ‖ 0x00 ‖ position u64 → () (per-session ordered scans, §4.4b)
 //! - `meta`:   "checkpoint" → position u64
 //!
 //! Writes are non-durable by default; `flush_durable` + `set_checkpoint` make
@@ -51,6 +52,7 @@ pub struct IndexEntry {
     pub position: u64,
     pub kind: RecordKind,
     pub key: Option<String>,
+    pub scope: Option<String>,
     pub loc: Location,
 }
 
@@ -65,6 +67,9 @@ pub trait Index: Send + Sync {
     /// Positions of a kind, newest first, at most `limit`.
     fn positions_of_kind_rev(&self, kind: RecordKind, limit: usize) -> Result<Vec<u64>>;
     fn count_of_kind(&self, kind: RecordKind) -> Result<u64>;
+    /// Positions in a scope with position > `after`, oldest first, at most `limit`.
+    fn positions_in_scope(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<u64>>;
+    fn count_in_scope(&self, scope: &str) -> Result<u64>;
     fn checkpoint(&self) -> Result<Option<u64>>;
     /// Make everything durable and record the checkpoint position.
     fn set_checkpoint(&self, position: u64) -> Result<()>;
@@ -80,6 +85,19 @@ fn bykind(kind: RecordKind, pos: u64) -> [u8; 10] {
     let mut v = [0u8; 10];
     v[..2].copy_from_slice(&kind.to_be_bytes());
     v[2..].copy_from_slice(&pos.to_be_bytes());
+    v
+}
+fn byscope(scope: &str, pos: u64) -> Vec<u8> {
+    let mut v = Vec::with_capacity(scope.len() + 9);
+    v.extend_from_slice(scope.as_bytes());
+    v.push(0);
+    v.extend_from_slice(&pos.to_be_bytes());
+    v
+}
+fn scope_prefix(scope: &str) -> Vec<u8> {
+    let mut v = Vec::with_capacity(scope.len() + 1);
+    v.extend_from_slice(scope.as_bytes());
+    v.push(0);
     v
 }
 fn loc_bytes(l: Location) -> [u8; 16] {
@@ -119,6 +137,7 @@ mod redb_index {
     const LOC: TableDefinition<u64, &[u8]> = TableDefinition::new("loc");
     const BYKEY: TableDefinition<&[u8], u64> = TableDefinition::new("bykey");
     const BYKIND: TableDefinition<&[u8], ()> = TableDefinition::new("bykind");
+    const BYSCOPE: TableDefinition<&[u8], ()> = TableDefinition::new("byscope");
     const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
 
     pub struct RedbIndex {
@@ -134,6 +153,7 @@ mod redb_index {
                 txn.open_table(LOC)?;
                 txn.open_table(BYKEY)?;
                 txn.open_table(BYKIND)?;
+                txn.open_table(BYSCOPE)?;
                 txn.open_table(META)?;
             }
             txn.commit()?;
@@ -156,12 +176,16 @@ mod redb_index {
                 let mut loc = txn.open_table(LOC)?;
                 let mut byk = txn.open_table(BYKEY)?;
                 let mut bkd = txn.open_table(BYKIND)?;
+                let mut bsc = txn.open_table(BYSCOPE)?;
                 for e in entries {
                     loc.insert(e.position, loc_bytes(e.loc).as_slice())?;
                     if let Some(k) = &e.key {
                         byk.insert(bykey(e.kind, k).as_slice(), e.position)?;
                     }
                     bkd.insert(bykind(e.kind, e.position).as_slice(), ())?;
+                    if let Some(sc) = &e.scope {
+                        bsc.insert(byscope(sc, e.position).as_slice(), ())?;
+                    }
                 }
             }
             txn.commit()?;
@@ -211,6 +235,28 @@ mod redb_index {
             let hi = bykind(kind, u64::MAX);
             Ok(t.range(lo.as_slice()..=hi.as_slice())?.count() as u64)
         }
+        fn positions_in_scope(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<u64>> {
+            let txn = self.db.begin_read()?;
+            let t = txn.open_table(BYSCOPE)?;
+            let lo = byscope(scope, after.saturating_add(1));
+            let hi = byscope(scope, u64::MAX);
+            let mut out = Vec::new();
+            for row in t.range(lo.as_slice()..=hi.as_slice())?.take(limit) {
+                let (k, _) = row?;
+                let kb = k.value();
+                if let Some(p) = u64_from(&kb[kb.len() - 8..]) {
+                    out.push(p);
+                }
+            }
+            Ok(out)
+        }
+        fn count_in_scope(&self, scope: &str) -> Result<u64> {
+            let txn = self.db.begin_read()?;
+            let t = txn.open_table(BYSCOPE)?;
+            let lo = byscope(scope, 0);
+            let hi = byscope(scope, u64::MAX);
+            Ok(t.range(lo.as_slice()..=hi.as_slice())?.count() as u64)
+        }
         fn checkpoint(&self) -> Result<Option<u64>> {
             let txn = self.db.begin_read()?;
             let t = txn.open_table(META)?;
@@ -240,6 +286,7 @@ mod fjall_index {
         loc: Keyspace,
         bykey: Keyspace,
         bykind: Keyspace,
+        byscope: Keyspace,
         meta: Keyspace,
     }
 
@@ -252,12 +299,14 @@ mod fjall_index {
             let loc = db.keyspace("loc", KeyspaceCreateOptions::default)?;
             let bykey = db.keyspace("bykey", KeyspaceCreateOptions::default)?;
             let bykind = db.keyspace("bykind", KeyspaceCreateOptions::default)?;
+            let byscope = db.keyspace("byscope", KeyspaceCreateOptions::default)?;
             let meta = db.keyspace("meta", KeyspaceCreateOptions::default)?;
             Ok(Self {
                 db,
                 loc,
                 bykey,
                 bykind,
+                byscope,
                 meta,
             })
         }
@@ -275,6 +324,9 @@ mod fjall_index {
                     b.insert(&self.bykey, bykey(e.kind, k), e.position.to_be_bytes());
                 }
                 b.insert(&self.bykind, bykind(e.kind, e.position), []);
+                if let Some(sc) = &e.scope {
+                    b.insert(&self.byscope, byscope(sc, e.position), []);
+                }
             }
             let b = b.durability(if durable {
                 Some(PersistMode::SyncAll)
@@ -316,6 +368,21 @@ mod fjall_index {
         fn count_of_kind(&self, kind: RecordKind) -> Result<u64> {
             Ok(self.bykind.prefix(kind.to_be_bytes()).count() as u64)
         }
+        fn positions_in_scope(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<u64>> {
+            let lo = byscope(scope, after.saturating_add(1));
+            let hi = byscope(scope, u64::MAX);
+            let mut out = Vec::new();
+            for g in self.byscope.range(lo..=hi).take(limit) {
+                let k = g.key()?;
+                if let Some(p) = u64_from(&k[k.len() - 8..]) {
+                    out.push(p);
+                }
+            }
+            Ok(out)
+        }
+        fn count_in_scope(&self, scope: &str) -> Result<u64> {
+            Ok(self.byscope.prefix(scope_prefix(scope)).count() as u64)
+        }
         fn checkpoint(&self) -> Result<Option<u64>> {
             Ok(self.meta.get("checkpoint")?.and_then(|v| u64_from(&v)))
         }
@@ -339,6 +406,11 @@ mod tests {
             position: p,
             kind,
             key: key.map(str::to_string),
+            scope: if p % 2 == 1 {
+                Some("ses_a".into())
+            } else {
+                Some("ses_b".into())
+            },
             loc: Location {
                 segment: 1,
                 offset: p * 100,
@@ -364,6 +436,17 @@ mod tests {
         assert_eq!(idx.positions_of_kind_rev(2, 10).unwrap(), vec![5, 2]);
         assert_eq!(idx.positions_of_kind_rev(1, 2).unwrap(), vec![4, 3]);
         assert_eq!(idx.count_of_kind(1).unwrap(), 3);
+        assert_eq!(
+            idx.positions_in_scope("ses_a", 0, 10).unwrap(),
+            vec![1, 3, 5]
+        );
+        assert_eq!(idx.positions_in_scope("ses_a", 1, 10).unwrap(), vec![3, 5]);
+        assert_eq!(idx.positions_in_scope("ses_b", 0, 1).unwrap(), vec![2]);
+        assert_eq!(
+            idx.positions_in_scope("ses_", 0, 10).unwrap(),
+            Vec::<u64>::new()
+        );
+        assert_eq!(idx.count_in_scope("ses_b").unwrap(), 2);
         assert_eq!(idx.checkpoint().unwrap(), None);
         idx.set_checkpoint(5).unwrap();
         assert_eq!(idx.checkpoint().unwrap(), Some(5));

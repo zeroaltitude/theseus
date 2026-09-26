@@ -35,6 +35,78 @@ pub struct Config {
     pub web: WebConfig,
     #[serde(default)]
     pub telemetry: crate::telemetry::TelemetryConfig,
+    #[serde(default)]
+    pub kernel: KernelSection,
+}
+
+/// `[kernel]`: the durable kernel's knobs (spec §3.2a, §3.15, §3.16; M2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KernelSection {
+    /// How many executions may hold a turn at once.
+    #[serde(default = "default_admission_ceiling")]
+    pub admission_ceiling: u32,
+    /// Budget units (tokens today) a new session's execution gets.
+    #[serde(default = "default_budget")]
+    pub default_budget: u64,
+    /// Units kept back for control and cleanup (cancel, final report).
+    #[serde(default = "default_control_reserve")]
+    pub control_reserve: u64,
+    /// Heartbeat reconciler cadence.
+    #[serde(default = "default_heartbeat_secs")]
+    pub heartbeat_secs: u64,
+    /// Deadline for an action whose tool declares none.
+    #[serde(default = "default_deadline_secs")]
+    pub default_deadline_secs: u64,
+    /// How long a confirmation stays valid.
+    #[serde(default = "default_confirm_ttl_secs")]
+    pub confirm_ttl_secs: u64,
+}
+
+fn default_admission_ceiling() -> u32 {
+    8
+}
+fn default_budget() -> u64 {
+    1_000_000
+}
+fn default_control_reserve() -> u64 {
+    10_000
+}
+fn default_heartbeat_secs() -> u64 {
+    60
+}
+fn default_deadline_secs() -> u64 {
+    600
+}
+fn default_confirm_ttl_secs() -> u64 {
+    900
+}
+
+impl Default for KernelSection {
+    fn default() -> Self {
+        Self {
+            admission_ceiling: default_admission_ceiling(),
+            default_budget: default_budget(),
+            control_reserve: default_control_reserve(),
+            heartbeat_secs: default_heartbeat_secs(),
+            default_deadline_secs: default_deadline_secs(),
+            confirm_ttl_secs: default_confirm_ttl_secs(),
+        }
+    }
+}
+
+impl KernelSection {
+    pub fn to_kernel_config(&self) -> theseus_kernel::KernelConfig {
+        theseus_kernel::KernelConfig {
+            admission_ceiling: self.admission_ceiling.max(1),
+            default_deadline_ms: self.default_deadline_secs * 1000,
+            default_budget: self.default_budget,
+            control_reserve: self.control_reserve,
+            confirm_ttl_ms: self.confirm_ttl_secs * 1000,
+            heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
+            fault_after_startup_step: None,
+        }
+    }
 }
 
 /// The localhost web UI. Bound to loopback only; no auth yet (spec §3.14).

@@ -87,6 +87,17 @@ state_dir = "~/.theseus"                # store (redb) and spool; flag: --state-
 socket = "~/.theseus/theseus.sock"      # protocol socket, mode 0600; flag: --socket / THESEUS_SOCKET
 store_engine = "redb"                   # index engine behind the WAL: redb | fjall; fixed once a store exists
 
+# ---------------------------------------------------------------- kernel
+# The durable kernel (M2): one execution per session, actions with correlation
+# ids, completions through the spool at <state_dir>/spool, budgets as hard limits.
+[kernel]
+admission_ceiling = 8                   # executions that may hold a turn at once (§3.2a)
+default_budget = 1000000                # budget units (tokens) a new session's execution gets
+control_reserve = 10000                 # units kept back so a runaway can still be cancelled and reported
+heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
+default_deadline_secs = 600             # deadline for an action whose tool declares none
+confirm_ttl_secs = 900                  # how long a bound confirmation stays valid
+
 # ---------------------------------------------------------------- web
 # The localhost web UI. Loopback only; a non-loopback bind is refused.
 [web]

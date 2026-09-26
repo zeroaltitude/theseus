@@ -1,12 +1,9 @@
 //! Sessions (spec §3.2a, §4.4b). A session is a compiler scope with exactly one
-//! turn lock. In M0 the compilation is the user's prompt and nothing else.
-
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+//! execution, and that execution has the turn lock (the kernel holds it, M2).
+//! In M0–M2 the compilation is the user's prompt and nothing else.
 
 use serde::{Deserialize, Serialize};
 use theseus_protocol::{SessionInfo, SessionKind, Usage};
-use tokio::sync::Mutex as AsyncMutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionRecord {
@@ -18,6 +15,10 @@ pub struct SessionRecord {
     pub last_turn_id: Option<String>,
     #[serde(default)]
     pub usage: Usage,
+    /// The session's one kernel execution (§3.2a). Sessions written before M2
+    /// have none; the turn runner opens one on their next turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
 }
 
 impl SessionRecord {
@@ -30,6 +31,7 @@ impl SessionRecord {
             turns: 0,
             last_turn_id: None,
             usage: Usage::default(),
+            execution_id: None,
         }
     }
     pub fn info(&self) -> SessionInfo {
@@ -40,21 +42,8 @@ impl SessionRecord {
             created_at_unix_ms: self.created_at_unix_ms,
             turns: self.turns,
             usage: self.usage.clone(),
+            execution_id: self.execution_id.clone(),
+            execution_state: None,
         }
-    }
-}
-
-/// One lock per session: exactly one turn advances at a time (the "GIL").
-#[derive(Clone, Default)]
-pub struct TurnLocks {
-    locks: Arc<Mutex<HashMap<String, Arc<AsyncMutex<()>>>>>,
-}
-
-impl TurnLocks {
-    pub fn for_session(&self, session_id: &str) -> Arc<AsyncMutex<()>> {
-        let mut g = self.locks.lock().unwrap();
-        g.entry(session_id.to_string())
-            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-            .clone()
     }
 }

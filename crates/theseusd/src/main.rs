@@ -75,6 +75,12 @@ enum Cmd {
     Check,
     /// Print the loaded config (TOML, secret references only, never values) and its source.
     Config,
+    /// Internal: the detached job wrapper (spawned by the kernel, never by hand).
+    #[command(hide = true, disable_help_flag = true)]
+    JobWrapper {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[tokio::main]
@@ -93,6 +99,11 @@ async fn main() -> Result<()> {
     if let Some(Cmd::ExampleConfig) = cli.cmd {
         print!("{}", Config::EXAMPLE_TOML);
         return Ok(());
+    }
+    if let Some(Cmd::JobWrapper { args }) = cli.cmd {
+        // No config, no secrets: the wrapper only runs a command and spools.
+        let wa = theseus_kernel::job::parse_wrapper_args(args)?;
+        return theseus_kernel::job::run_wrapper(wa);
     }
 
     let op = OpReader::from_env(cli.op_token_file.as_deref())?;
@@ -134,9 +145,24 @@ async fn main() -> Result<()> {
             wal_bytes = st.wal_bytes,
             segments = st.wal_segments,
             ledger_rows = core.store.ledger_len().unwrap_or(0),
+            frames = st.frames_appended,
+            syncs = st.syncs,
             "store open"
         );
     }
+    {
+        let k = core.kernel_status();
+        tracing::info!(
+            admission_ceiling = k.admission_ceiling,
+            executions = ?k.executions_by_state,
+            actions = ?k.actions_by_state,
+            quarantined = k.quarantined_completions,
+            "kernel"
+        );
+    }
+
+    // The harness loop: heartbeat reconciler and the wrapper notify socket.
+    tokio::spawn(theseus_core::harness::run(core.clone()));
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");

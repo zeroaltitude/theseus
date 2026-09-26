@@ -6,10 +6,10 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_protocol::{
     error_code, method, notify, HandlerInfo, HealthResult, HookInfo, HooksListResult,
     HooksRegisterParams, HooksRegisterResult, Id, LedgerEntry, LedgerTailParams, LedgerTailResult,
@@ -24,15 +24,25 @@ use crate::hooks::{HookEvent, Hooks};
 use crate::ledger::LedgerRow;
 use crate::provider::{Anthropic, Provider};
 use crate::secrets::Secrets;
-use crate::session::{SessionRecord, TurnLocks};
+use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::turn::{ToolchainManager, TurnError, TurnRunner};
 use crate::Config;
+use theseus_kernel::job::WrapperEvidence;
+use theseus_kernel::{Authority, Execution, Kernel, Spool};
 
 pub struct Core {
     pub cfg: Arc<Config>,
     pub hooks: Hooks,
     pub store: Store,
+    /// The durable kernel (M2), sharing the store's WAL and index.
+    pub kernel: Arc<Kernel>,
+    /// Completion spool beside the store (`<state>/spool`).
+    pub spool: Spool,
+    /// Woken when a turn ends or an execution changes (admission waiters).
+    pub admission: Arc<tokio::sync::Notify>,
+    /// The last startup report, as JSON, for health.
+    pub startup_report: Value,
     pub runner: TurnRunner,
     pub secret_names: Vec<String>,
     pub telemetry: Arc<crate::telemetry::Telemetry>,
@@ -115,12 +125,54 @@ impl Core {
     ) -> Result<Arc<Self>> {
         let cfg = Arc::new(cfg);
         let hooks = Hooks::new();
+        // The kernel shares the store. Its spool sits beside the store dir:
+        // `store` → `spool`, `store-stdio` → `spool-stdio`.
+        let spool_dir = {
+            let name = store
+                .dir()
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "store".into());
+            store
+                .dir()
+                .with_file_name(name.replacen("store", "spool", 1))
+        };
+        let spool = Spool::open(&spool_dir).context("opening completion spool")?;
+        let kernel = Arc::new(Kernel::new(
+            store.shared(),
+            Arc::new(theseus_kernel::RealClock),
+            cfg.kernel.to_kernel_config(),
+        ));
+        let startup = kernel
+            .startup(
+                Some(&spool),
+                &WrapperEvidence {
+                    spool: spool.clone(),
+                },
+            )
+            .context("kernel startup")?;
+        for st in &startup.steps {
+            tracing::info!(step = st.step, name = %st.name, us = st.elapsed_us, "kernel startup step");
+        }
+        tracing::info!(
+            requeued_interrupted = startup.requeued_interrupted.len(),
+            spool_drained = startup.spool_drained,
+            spool_malformed = startup.spool_quarantined,
+            woke_due = startup.reconcile.woke_due.len(),
+            marked_unknown = startup.reconcile.marked_unknown.len(),
+            settled_from_evidence = startup.reconcile.settled_from_evidence.len(),
+            total_us = startup.elapsed_us,
+            spool = %spool_dir.display(),
+            "kernel accepting events"
+        );
+        let admission = Arc::new(tokio::sync::Notify::new());
         let runner = TurnRunner {
             cfg: cfg.clone(),
             providers,
             hooks: hooks.clone(),
             store: store.clone(),
-            locks: TurnLocks::default(),
+            kernel: kernel.clone(),
+            admission: admission.clone(),
             advancer: Arc::new(StopAfterOneLoop),
             toolchain: ToolchainManager,
         };
@@ -139,6 +191,10 @@ impl Core {
             cfg,
             hooks,
             store,
+            kernel,
+            spool,
+            admission,
+            startup_report: serde_json::to_value(&startup).unwrap_or(Value::Null),
             runner,
             secret_names,
             telemetry: Arc::new(telemetry),
@@ -155,9 +211,154 @@ impl Core {
             "server.started",
             None,
             None,
-            serde_json::to_value(visit)?,
+            json!({"hooks": visit, "startup": core.startup_report}),
         ))?;
         Ok(core)
+    }
+
+    /// The kernel's view for health and `execution.list`.
+    pub fn kernel_status(&self) -> theseus_protocol::KernelStatus {
+        let st = self.kernel.stats().unwrap_or_default();
+        theseus_protocol::KernelStatus {
+            accepting: st.accepting,
+            admission_ceiling: st.admission_ceiling,
+            turns_held: st.turns_held,
+            executions_by_state: st.executions_by_state,
+            actions_by_state: st.actions_by_state,
+            quarantined_completions: st.quarantined_completions,
+            startup: self.startup_report.clone(),
+        }
+    }
+
+    pub fn execution_info(e: &Execution) -> theseus_protocol::ExecutionInfo {
+        theseus_protocol::ExecutionInfo {
+            execution_id: e.id.clone(),
+            session_id: e.session_id.clone(),
+            kind: match e.kind {
+                theseus_kernel::SessionKind::Conversation => "conversation".into(),
+                theseus_kernel::SessionKind::Task => "task".into(),
+            },
+            state: e.state.as_str().into(),
+            turns: e.turns,
+            interrupted: e.interrupted,
+            outstanding: e.outstanding.len() as u32,
+            queued_results: e.queued_results.len() as u32,
+            budget: theseus_protocol::BudgetInfo {
+                limit: e.budget.limit,
+                spent: e.budget.spent,
+                reserved: e.budget.reserved,
+                held_unknown: e.budget.held_unknown,
+                available: e.budget.available(),
+            },
+            wake: serde_json::to_value(&e.wake).unwrap_or(Value::Null),
+            reports_to: e.reports_to.clone(),
+            ended_reason: e.ended_reason.clone(),
+            created_at_ms: e.created_at_ms,
+            updated_at_ms: e.updated_at_ms,
+        }
+    }
+
+    /// Heartbeat: drain the spool, reconcile against the wrapper evidence.
+    /// Called by the harness loop on its timer and when a wrapper pokes the
+    /// notify socket.
+    pub fn heartbeat(&self, why: &str) {
+        let t0 = Instant::now();
+        let drained = self.drain_spool();
+        let ev = WrapperEvidence {
+            spool: self.spool.clone(),
+        };
+        match self.kernel.reconcile(&ev) {
+            Ok(rep) => {
+                let changed = !rep.woke_due.is_empty()
+                    || !rep.settled_from_evidence.is_empty()
+                    || !rep.marked_unknown.is_empty()
+                    || !rep.resolved_unknown.is_empty()
+                    || drained > 0;
+                if changed {
+                    tracing::info!(
+                        why,
+                        drained,
+                        woke_due = rep.woke_due.len(),
+                        settled_from_evidence = rep.settled_from_evidence.len(),
+                        marked_unknown = rep.marked_unknown.len(),
+                        resolved_unknown = rep.resolved_unknown.len(),
+                        open_actions = rep.open_actions,
+                        open_executions = rep.open_executions,
+                        us = t0.elapsed().as_micros() as u64,
+                        "heartbeat"
+                    );
+                    self.admission.notify_waiters();
+                } else {
+                    tracing::debug!(
+                        why,
+                        open_actions = rep.open_actions,
+                        open_executions = rep.open_executions,
+                        us = t0.elapsed().as_micros() as u64,
+                        "heartbeat: nothing to do"
+                    );
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "reconcile failed"),
+        }
+    }
+
+    /// Accept every spooled completion, removing each file after its frame.
+    pub fn drain_spool(&self) -> u32 {
+        let mut n = 0;
+        match self.spool.drain() {
+            Ok(d) => {
+                if d.malformed > 0 {
+                    tracing::warn!(
+                        malformed = d.malformed,
+                        "spool: unparseable completions moved to malformed/"
+                    );
+                }
+                for (path, c) in d.completions {
+                    match self.kernel.accept_completion(&c) {
+                        Ok(acc) => {
+                            tracing::info!(correlation_id = %c.correlation_id, producer = %c.producer, result = ?acc, "completion accepted from spool");
+                            if let Err(e) = self.spool.remove(&path) {
+                                tracing::warn!(error = %e, "spool remove failed");
+                            }
+                            n += 1;
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, correlation_id = %c.correlation_id, "completion refused")
+                        }
+                    }
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "spool drain failed"),
+        }
+        n
+    }
+
+    /// `/cancel <execution>`: deterministic control path. Terminates wrapper
+    /// processes the spool knows about and walks each action's cancel lifecycle.
+    pub fn cancel_execution(&self, id: &str, by: &str) -> Result<(Execution, Vec<String>)> {
+        let to_kill = self.kernel.cancel_execution(id, by)?;
+        for corr in &to_kill {
+            match self.spool.read_pid(corr) {
+                Some(pid) => {
+                    let _ = self.kernel.cancel_acknowledged(corr);
+                    if theseus_kernel::job::terminate(pid, Duration::from_secs(2)) {
+                        let _ = self.kernel.cancel_verified(corr);
+                    } else {
+                        let _ = self.kernel.cancel_uncertain(corr);
+                    }
+                }
+                None => {
+                    // In-process or already gone: nothing to reach.
+                    let _ = self.kernel.cancel_unsupported(corr);
+                }
+            }
+        }
+        self.admission.notify_waiters();
+        let e = self
+            .kernel
+            .execution(id)?
+            .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+        Ok((e, to_kill))
     }
 
     pub fn live_profile(&self) -> (String, String) {
@@ -242,6 +443,7 @@ impl Core {
                 enabled: self.telemetry.enabled(),
                 otlp_endpoint: self.telemetry.endpoint.clone(),
             },
+            kernel: self.kernel_status(),
         }
     }
 
@@ -255,8 +457,22 @@ impl Core {
         total
     }
 
-    fn open_session(&self, p: SessionOpenParams) -> Result<SessionRecord> {
-        let rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
+    fn open_session(&self, p: SessionOpenParams, by: &str) -> Result<SessionRecord> {
+        let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
+        let exec = self.kernel.open_execution(
+            &rec.session_id,
+            match rec.kind {
+                SessionKind::Conversation => theseus_kernel::SessionKind::Conversation,
+                SessionKind::Task => theseus_kernel::SessionKind::Task,
+            },
+            Authority {
+                principal: by.to_string(),
+                ..Default::default()
+            },
+            None,
+            None,
+        )?;
+        rec.execution_id = Some(exec.id);
         self.store.put_session(&rec.session_id, &rec)?;
         let (_, visit) = self.hooks.dispatch(
             HookEvent::SessionOpened,
@@ -375,13 +591,33 @@ impl Core {
             method::HEALTH => Ok(serde_json::to_value(self.health()).unwrap()),
             method::SESSION_OPEN => {
                 let p: SessionOpenParams = parse(req.params)?;
-                let rec = self.open_session(p).map_err(bad)?;
-                Ok(serde_json::to_value(rec.info()).unwrap())
+                let rec = self.open_session(p, client).map_err(bad)?;
+                let mut info = rec.info();
+                info.execution_state = Some("waiting".into());
+                Ok(serde_json::to_value(info).unwrap())
             }
             method::SESSION_LIST => {
                 let recs: Vec<SessionRecord> = self.store.list_sessions().map_err(bad)?;
+                let states: std::collections::HashMap<String, &'static str> = self
+                    .kernel
+                    .executions()
+                    .map_err(bad)?
+                    .into_iter()
+                    .map(|e| (e.id, e.state.as_str()))
+                    .collect();
                 Ok(serde_json::to_value(SessionListResult {
-                    sessions: recs.iter().map(SessionRecord::info).collect(),
+                    sessions: recs
+                        .iter()
+                        .map(|r| {
+                            let mut i = r.info();
+                            i.execution_state = r
+                                .execution_id
+                                .as_deref()
+                                .and_then(|id| states.get(id))
+                                .map(|s| s.to_string());
+                            i
+                        })
+                        .collect(),
                 })
                 .unwrap())
             }
@@ -402,7 +638,7 @@ impl Core {
                             RpcFailure::new(error_code::NOT_FOUND, format!("no session {id}"))
                         })?,
                     None => self
-                        .open_session(SessionOpenParams::default())
+                        .open_session(SessionOpenParams::default(), client)
                         .map_err(bad)?,
                 };
                 let (live, _) = self.live_profile();
@@ -420,7 +656,7 @@ impl Core {
                     target.provider.clone(),
                     target.model.clone(),
                 );
-                let result = match self.runner.run(session, p.input, target, tx).await {
+                let result = match self.runner.run(session, p.input, target, tx, client).await {
                     Ok(r) => {
                         self.telemetry.record_turn(&r);
                         r
@@ -533,6 +769,37 @@ impl Core {
                     &changed,
                 )));
                 Ok(serde_json::to_value(changed).unwrap())
+            }
+            method::EXECUTION_LIST => {
+                let execs = self.kernel.executions().map_err(bad)?;
+                Ok(serde_json::to_value(theseus_protocol::ExecutionListResult {
+                    executions: execs.iter().map(Self::execution_info).collect(),
+                })
+                .unwrap())
+            }
+            method::EXECUTION_CANCEL => {
+                let p: theseus_protocol::ExecutionCancelParams = parse(req.params)?;
+                if self
+                    .kernel
+                    .execution(&p.execution_id)
+                    .map_err(bad)?
+                    .is_none()
+                {
+                    return Err(RpcFailure::new(
+                        error_code::NOT_FOUND,
+                        format!("no execution {}", p.execution_id),
+                    ));
+                }
+                let (e, cancelled) = self
+                    .cancel_execution(&p.execution_id, client)
+                    .map_err(bad)?;
+                Ok(
+                    serde_json::to_value(theseus_protocol::ExecutionCancelResult {
+                        execution: Self::execution_info(&e),
+                        cancelled_actions: cancelled,
+                    })
+                    .unwrap(),
+                )
             }
             method::LEDGER_TAIL => {
                 let p: LedgerTailParams = parse(req.params)?;
@@ -778,7 +1045,7 @@ mod tests {
         assert_eq!(tr.name, "turn");
         assert!(tr.end_us.is_some());
         let names: Vec<&str> = tr.children.iter().map(|c| c.name.as_str()).collect();
-        assert!(names.contains(&"lock.wait"));
+        assert!(names.contains(&"admission.wait"));
         assert!(names.contains(&"turn.starting"));
         assert!(names.contains(&"loop 0"));
         assert!(names.contains(&"session.write"));

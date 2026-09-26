@@ -46,10 +46,20 @@ pub struct NewRecord {
     /// Entity key for "latest state" lookups (a session id, a meta name).
     /// `None` for pure log rows (ledger).
     pub key: Option<String>,
+    /// Scope for ordered per-owner scans (a session id): the per-session
+    /// position table (§4.4b). `None` for records that belong to no session.
+    pub scope: Option<String>,
     pub payload: Vec<u8>,
 }
 
 impl NewRecord {
+    /// Attach a scope (a session id) so the record appears in that scope's
+    /// ordered position table.
+    pub fn scoped(mut self, scope: &str) -> Self {
+        self.scope = Some(scope.to_string());
+        self
+    }
+
     pub fn json<T: Serialize>(
         kind: RecordKind,
         key: Option<&str>,
@@ -59,6 +69,7 @@ impl NewRecord {
             kind,
             schema: 1,
             key: key.map(str::to_string),
+            scope: None,
             payload: serde_json::to_vec(value)?,
         })
     }
@@ -67,6 +78,7 @@ impl NewRecord {
             kind,
             schema: 1,
             key: key.map(str::to_string),
+            scope: None,
             payload,
         }
     }
@@ -79,6 +91,8 @@ pub struct Record {
     pub kind: RecordKind,
     pub schema: u16,
     pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     pub at_unix_ms: u64,
     pub payload: Vec<u8>,
 }

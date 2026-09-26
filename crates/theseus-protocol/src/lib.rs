@@ -26,6 +26,8 @@ pub mod method {
     pub const LEDGER_TAIL: &str = "ledger.tail";
     pub const PROFILE_LIST: &str = "profile.list";
     pub const PROFILE_USE: &str = "profile.use";
+    pub const EXECUTION_LIST: &str = "execution.list";
+    pub const EXECUTION_CANCEL: &str = "execution.cancel";
     pub const SHUTDOWN: &str = "shutdown";
 }
 
@@ -177,12 +179,86 @@ pub struct HealthResult {
     pub ledger_rows: u64,
     #[serde(default)]
     pub telemetry: TelemetryStatus,
+    /// The durable kernel (M2): executions, actions, admission.
+    #[serde(default)]
+    pub kernel: KernelStatus,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetryStatus {
     pub enabled: bool,
     pub otlp_endpoint: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct KernelStatus {
+    /// Startup finished (five steps) and events are accepted.
+    pub accepting: bool,
+    pub admission_ceiling: u32,
+    /// Executions holding a turn right now.
+    pub turns_held: u32,
+    /// Counts by state: queued, running, waiting, blocked, cancelled, failed, budget_exhausted, complete.
+    #[serde(default)]
+    pub executions_by_state: std::collections::BTreeMap<String, u64>,
+    /// Counts by state: planned, authorized, dispatched, succeeded, failed, outcome_unknown, cancelled.
+    #[serde(default)]
+    pub actions_by_state: std::collections::BTreeMap<String, u64>,
+    /// Completions that matched no action (never inferred into anything).
+    pub quarantined_completions: u64,
+    /// The last startup: step timings in µs and what it recovered.
+    #[serde(default)]
+    pub startup: Value,
+}
+
+/// One execution as the protocol shows it (spec §3.15).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionInfo {
+    pub execution_id: String,
+    pub session_id: String,
+    pub kind: String,
+    pub state: String,
+    pub turns: u64,
+    /// Times a crash interrupted a running turn (requeued at startup).
+    pub interrupted: u32,
+    /// Dispatched actions not yet settled.
+    pub outstanding: u32,
+    /// Settled results the next turn will consume.
+    pub queued_results: u32,
+    pub budget: BudgetInfo,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub wake: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reports_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_reason: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BudgetInfo {
+    pub limit: u64,
+    pub spent: u64,
+    pub reserved: u64,
+    pub held_unknown: u64,
+    pub available: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionListResult {
+    pub executions: Vec<ExecutionInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionCancelParams {
+    pub execution_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionCancelResult {
+    pub execution: ExecutionInfo,
+    /// Dispatched actions whose backends were asked to stop.
+    pub cancelled_actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,6 +286,11 @@ pub struct SessionInfo {
     /// Cumulative tokens over every turn in this session.
     #[serde(default)]
     pub usage: Usage,
+    /// The session's one execution (spec §3.2a) and its current state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_state: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

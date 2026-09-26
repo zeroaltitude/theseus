@@ -22,6 +22,9 @@ pub struct StoreStats {
     pub recovered_records: u64,
     pub truncated_bytes: u64,
     pub replayed_into_index: u64,
+    /// Frames appended and fdatasync calls since open (group commit ratio).
+    pub frames_appended: u64,
+    pub syncs: u64,
 }
 
 /// What the kernel writes through. Every method is durable when it returns.
@@ -43,6 +46,10 @@ pub trait Store: Send + Sync {
     /// Newest `n` records of a kind, oldest first.
     fn tail_of_kind(&self, kind: RecordKind, n: usize) -> Result<Vec<Record>>;
     fn count_of_kind(&self, kind: RecordKind) -> Result<u64>;
+    /// Records in a scope (a session) with position > `after`, oldest first,
+    /// at most `limit`: the per-session tail walk (§4.4b).
+    fn scan_scope(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<Record>>;
+    fn count_in_scope(&self, scope: &str) -> Result<u64>;
     fn last_position(&self) -> u64;
     /// Make the index durable and record how far it is good.
     fn checkpoint(&self) -> Result<u64>;
@@ -59,6 +66,9 @@ pub struct WalStore {
     since_checkpoint: AtomicU64,
 }
 
+/// Bumped when the WAL record layout changes. 2 = scope field (M2).
+const MANIFEST_FORMAT: u32 = 2;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Manifest {
     format: u32,
@@ -72,6 +82,42 @@ impl WalStore {
     pub fn open(dir: &Path, engine: Engine, wal_cfg: WalConfig) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let manifest_path = dir.join("MANIFEST.json");
+        if manifest_path.exists() {
+            let m: Manifest = serde_json::from_slice(&std::fs::read(&manifest_path)?)
+                .context("reading store manifest")?;
+            if m.format == 1 && MANIFEST_FORMAT == 2 {
+                // Format 1 existed for one day (M1, 2026-09-26) before the record
+                // layout gained a scope field; nothing in it outlives that day.
+                // Move it aside rather than refuse, and say so loudly.
+                let aside = dir.with_file_name(format!(
+                    "{}.format1-{}",
+                    dir.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "store".into()),
+                    crate::record::now_unix_ms()
+                ));
+                std::fs::rename(dir, &aside).with_context(|| {
+                    format!(
+                        "moving format-1 store {} aside to {}",
+                        dir.display(),
+                        aside.display()
+                    )
+                })?;
+                tracing::warn!(
+                    from = %dir.display(),
+                    to = %aside.display(),
+                    "store was format 1 (pre-M2 record layout); moved aside and starting a fresh store. Delete the old directory when convenient."
+                );
+                std::fs::create_dir_all(dir)?;
+            } else if m.format != MANIFEST_FORMAT {
+                anyhow::bail!(
+                    "store at {} is format {} but this build reads format {}; refusing to open",
+                    dir.display(),
+                    m.format,
+                    MANIFEST_FORMAT
+                );
+            }
+        }
         let engine = if manifest_path.exists() {
             let m: Manifest = serde_json::from_slice(&std::fs::read(&manifest_path)?)
                 .context("reading store manifest")?;
@@ -85,7 +131,10 @@ impl WalStore {
             }
             m.engine
         } else {
-            let m = Manifest { format: 1, engine };
+            let m = Manifest {
+                format: MANIFEST_FORMAT,
+                engine,
+            };
             let tmp = dir.join("MANIFEST.json.tmp");
             std::fs::write(&tmp, serde_json::to_vec_pretty(&m)?)?;
             std::fs::rename(&tmp, &manifest_path)?;
@@ -106,6 +155,7 @@ impl WalStore {
                     position: r.position,
                     kind: r.kind,
                     key: r.key.clone(),
+                    scope: r.scope.clone(),
                     loc: *loc,
                 })
                 .collect();
@@ -175,6 +225,7 @@ impl Store for WalStore {
                 position: *pos,
                 kind: r.kind,
                 key: r.key.clone(),
+                scope: r.scope.clone(),
                 loc: *loc,
             })
             .collect();
@@ -240,6 +291,21 @@ impl Store for WalStore {
         self.index.count_of_kind(kind)
     }
 
+    fn scan_scope(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<Record>> {
+        let positions = self.index.positions_in_scope(scope, after, limit)?;
+        let mut out = Vec::with_capacity(positions.len());
+        for p in positions {
+            if let Some(r) = self.read(p)? {
+                out.push(r);
+            }
+        }
+        Ok(out)
+    }
+
+    fn count_in_scope(&self, scope: &str) -> Result<u64> {
+        self.index.count_in_scope(scope)
+    }
+
     fn last_position(&self) -> u64 {
         self.wal.last_position()
     }
@@ -262,6 +328,8 @@ impl Store for WalStore {
             recovered_records: r.records,
             truncated_bytes: r.truncated_bytes,
             replayed_into_index: self.replayed.load(Ordering::Relaxed),
+            frames_appended: self.wal.frames_appended(),
+            syncs: self.wal.syncs(),
         })
     }
 }
@@ -323,6 +391,23 @@ mod tests {
         assert_eq!(s.tail_of_kind(kinds::LEDGER, 5).unwrap()[0].position, 2);
         assert_eq!(s.count_of_kind(kinds::SESSION).unwrap(), 2);
         assert_eq!(s.scan(2, Some(4), 10).unwrap().len(), 3);
+        s.append(&[
+            NewRecord::json(kinds::LEDGER, None, &"a")
+                .unwrap()
+                .scoped("ses_x"),
+            NewRecord::json(kinds::LEDGER, None, &"b")
+                .unwrap()
+                .scoped("ses_y"),
+            NewRecord::json(kinds::LEDGER, None, &"c")
+                .unwrap()
+                .scoped("ses_x"),
+        ])
+        .unwrap();
+        let sx = s.scan_scope("ses_x", 0, 10).unwrap();
+        assert_eq!(sx.len(), 2);
+        assert_eq!(sx[1].decode::<String>().unwrap(), "c");
+        assert_eq!(s.scan_scope("ses_x", sx[0].position, 10).unwrap().len(), 1);
+        assert_eq!(s.count_in_scope("ses_y").unwrap(), 1);
 
         // Checkpoint, append more (index non-durable), reopen: replay rebuilds.
         s.checkpoint().unwrap();
@@ -330,9 +415,10 @@ mod tests {
             .unwrap();
         drop(s);
         let s = open(dir.path(), engine);
-        assert_eq!(s.last_position(), 6);
+        assert_eq!(s.last_position(), 9);
+        assert_eq!(s.count_in_scope("ses_x").unwrap(), 2);
         let st = s.stats().unwrap();
-        assert!(st.replayed_into_index <= 6);
+        assert!(st.replayed_into_index <= 9);
         assert_eq!(
             s.latest_by_key(kinds::META, "live")
                 .unwrap()
@@ -358,6 +444,51 @@ mod tests {
     #[test]
     fn fjall_store() {
         exercise(Engine::Fjall);
+    }
+
+    #[test]
+    fn format_one_store_is_moved_aside_and_unknown_format_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_dir = dir.path().join("store");
+        std::fs::create_dir_all(&store_dir).unwrap();
+        std::fs::write(
+            store_dir.join("MANIFEST.json"),
+            serde_json::to_vec(&Manifest {
+                format: 1,
+                engine: Engine::Redb,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(store_dir.join("marker"), b"old").unwrap();
+        let s = open(&store_dir, Engine::Redb);
+        assert_eq!(s.last_position(), 0);
+        assert!(!store_dir.join("marker").exists());
+        let aside: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("store.format1-")
+            })
+            .collect();
+        assert_eq!(aside.len(), 1);
+        assert!(aside[0].path().join("marker").exists());
+        drop(s);
+        // Any other format is refused.
+        let other = dir.path().join("store9");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(
+            other.join("MANIFEST.json"),
+            serde_json::to_vec(&Manifest {
+                format: 9,
+                engine: Engine::Redb,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(WalStore::open(&other, Engine::Redb, WalConfig::default()).is_err());
     }
 
     #[test]

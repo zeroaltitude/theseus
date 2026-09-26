@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/theseus-protocol",
     "crates/theseus-store",
+    "crates/theseus-kernel",
     "crates/theseus-sim",
     "crates/theseus-core",
     "crates/theseusd",
@@ -20,6 +21,7 @@ rust-version = "1.98"
 theseus-protocol = { path = "crates/theseus-protocol" }
 theseus-core = { path = "crates/theseus-core" }
 theseus-store = { path = "crates/theseus-store" }
+theseus-kernel = { path = "crates/theseus-kernel" }
 
 anyhow = "1"
 thiserror = "2"

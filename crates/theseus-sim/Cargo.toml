@@ -1,6 +1,6 @@
 [package]
 name = "theseus-sim"
-description = "The simulator's first form: a crash-and-recover harness for the store (real SIGKILL against a worker process, torn-tail injection, full-disk), plus the redb-vs-fjall benchmark."
+description = "The simulator: a crash-and-recover harness for the store (real SIGKILL against a worker process, torn-tail injection, full-disk), the redb-vs-fjall benchmark, and the deterministic kernel simulator (virtual clock, seeded fault injection, crash inside every startup step)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 theseus-store.workspace = true
+theseus-kernel.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true

@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 theseus-protocol.workspace = true
 theseus-store.workspace = true
+theseus-kernel.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
