@@ -12,9 +12,11 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 use theseus_protocol::{
-    method, notify, HealthResult, HooksListResult, HooksRegisterParams, Id, LedgerTailParams,
-    LedgerTailResult, Message, ProfileListResult, ProfileUseParams, Request, SessionListResult,
-    SessionOpenParams, TurnSubmitParams, TurnSubmitResult,
+    method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmRequest,
+    HealthResult, HooksListResult, HooksRegisterParams, Id, LedgerTailParams, LedgerTailResult,
+    Message, NodeInfo, ProfileListResult, ProfileUseParams, Request, SessionHistoryParams,
+    SessionHistoryResult, SessionInfo, SessionListResult, SessionOpenParams,
+    SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
@@ -28,6 +30,12 @@ Quick start:
   theseus profile use glm                    switch the live profile (persists)
   theseus ask -P sonnet \"...\"               one turn under another profile
   theseus ledger -n 20 -k provider.call      what every call cost and how long it took
+  theseus ask -s <session> \"...\"            continue a session (its whole history is the context)
+  theseus history [session]                  a session's transcript: messages, tool calls, results
+  theseus watch [session]                    follow a session live (turns started anywhere)
+  theseus confirm [id] [--deny]              answer a tool call waiting for you (no id: list them)
+  theseus tools                              the toollets, their policy, and calls so far
+  theseus catalog                            models, context windows, and prices
   theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn
   theseus shutdown
 
@@ -92,7 +100,51 @@ enum Cmd {
         /// After the reply, print the turn's timing tree (turn > loops > hooks/provider) to stderr.
         #[arg(long)]
         trace: bool,
+        /// Show the model's thinking summaries on stderr as they stream.
+        #[arg(long)]
+        thinking: bool,
     },
+    /// A session's transcript: messages, tool calls with their gate decisions, results, and
+    /// anything waiting for your confirmation. SESSION defaults to the most recently active.
+    History {
+        session: Option<String>,
+        /// Only the newest N nodes.
+        #[arg(short, long)]
+        n: Option<usize>,
+        /// Print tool results and long messages in full (default: clipped).
+        #[arg(long)]
+        full: bool,
+    },
+    /// Follow a session live: streamed text, tool calls, confirmations, context decisions,
+    /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent.
+    Watch {
+        session: Option<String>,
+        /// Show thinking summaries too.
+        #[arg(long)]
+        thinking: bool,
+    },
+    /// Answer a tool call waiting for your confirmation, then follow the turn it resumes.
+    /// Without an id, list everything waiting.
+    Confirm {
+        correlation_id: Option<String>,
+        /// Decline instead of approve (the model is told, and carries on without it).
+        #[arg(long)]
+        deny: bool,
+        /// A note for the ledger and, on a decline, for the model.
+        #[arg(long)]
+        note: Option<String>,
+        /// Return as soon as the answer is recorded instead of following the resumed turn.
+        #[arg(long)]
+        no_wait: bool,
+    },
+    /// The toollets: class, backend, what policy does with each, and calls so far.
+    Tools {
+        /// Also print each tool's description and input schema.
+        #[arg(long, short)]
+        verbose: bool,
+    },
+    /// The model catalog: context windows, output limits, prices per million tokens.
+    Catalog,
     /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
     Health,
     /// Sessions: list them with per-session token totals, or open one to continue across turns.
@@ -160,6 +212,13 @@ enum SessionsCmd {
         /// Human label shown in listings.
         #[arg(long)]
         label: Option<String>,
+    },
+    /// Ask for a recompile on the session's next turn: `fresh` keeps only the current exchange,
+    /// `transcript` keeps everything with thinking stripped.
+    Recompile {
+        session: String,
+        #[arg(long, default_value = "fresh", value_parser = ["fresh", "transcript"])]
+        strategy: String,
     },
 }
 
@@ -316,6 +375,13 @@ fn read_stdin_prompt() -> Result<String> {
 
 #[tokio::main]
 async fn main() {
+    // Rust ignores SIGPIPE, so a closed pipe (`theseus history | head`) would
+    // panic in println!. Restore the default: exit quietly like other tools.
+    #[cfg(unix)]
+    // SAFETY: called once at startup before any other thread writes to stdout.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let cli = Cli::parse();
     let code = match run(cli).await {
         Ok(()) => 0,
@@ -348,12 +414,13 @@ async fn run(cli: Cli) -> Result<()> {
             provider,
             model,
             trace,
+            thinking,
         } => {
             let prompt = match prompt.as_deref() {
                 None | Some("-") => read_stdin_prompt()?,
                 Some(p) => p.to_string(),
             };
-            let mut streamed_any = false;
+            let mut printer = Printer::new(stream, thinking && !json, false, json);
             let call = conn
                 .call(
                     method::TURN_SUBMIT,
@@ -364,19 +431,10 @@ async fn run(cli: Cli) -> Result<()> {
                         provider,
                         model,
                     })?,
-                    |m, p| {
-                        if stream && m == notify::MODEL_DELTA {
-                            if let Some(t) = p.get("text").and_then(Value::as_str) {
-                                use std::io::Write;
-                                let mut out = std::io::stdout().lock();
-                                let _ = out.write_all(t.as_bytes());
-                                let _ = out.flush();
-                                streamed_any = true;
-                            }
-                        }
-                    },
+                    |m, p| printer.on(m, p),
                 )
                 .await;
+            printer.settle();
             let result = match call {
                 Ok(v) => v,
                 Err(err) => {
@@ -400,19 +458,256 @@ async fn run(cli: Cli) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&result)?);
             } else if stream {
-                if streamed_any && !r.output.ends_with('\n') {
-                    println!();
-                }
                 eprintln!("{}", status_line(&r));
             } else {
                 println!("{}", r.output);
                 eprintln!("{}", status_line(&r));
+            }
+            if let (Some(corr), false) = (&r.awaiting_confirm, json) {
+                eprintln!(
+                    "[parked: waiting for your answer on {corr} · `theseus confirm {corr}` or `--deny`; the turn resumes on its own]"
+                );
             }
             if trace && !json {
                 if let Some(t) = &r.trace {
                     eprintln!("--- trace ({} total)", fmt_us(t.duration_us()));
                     print_span(t, 0, t.duration_us().max(1));
                 }
+            }
+        }
+        Cmd::History { session, n, full } => {
+            let sid = resolve_session(&mut conn, session).await?;
+            let v = conn
+                .call(
+                    method::SESSION_HISTORY,
+                    serde_json::to_value(SessionHistoryParams { session_id: sid, n })?,
+                    |_, _| {},
+                )
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                let h: SessionHistoryResult = serde_json::from_value(v)?;
+                println!("{}", session_header(&h.session));
+                for node in &h.nodes {
+                    print_node(node, full);
+                }
+                for c in &h.pending_confirms {
+                    print_confirm(c);
+                }
+            }
+        }
+        Cmd::Watch { session, thinking } => {
+            let sid = resolve_session(&mut conn, session).await?;
+            conn.call(
+                method::SESSION_WATCH,
+                serde_json::to_value(SessionRef {
+                    session_id: sid.clone(),
+                })?,
+                |_, _| {},
+            )
+            .await?;
+            eprintln!("watching {sid} (Ctrl-C to stop)");
+            let mut printer = Printer::new(true, thinking, true, json);
+            while let Some(msg) = conn.next().await? {
+                if let Message::Notification(n) = msg {
+                    if json {
+                        println!("{}", serde_json::to_string(&n)?);
+                    } else {
+                        printer.on(&n.method, &n.params);
+                    }
+                }
+            }
+        }
+        Cmd::Confirm {
+            correlation_id,
+            deny,
+            note,
+            no_wait,
+        } => {
+            let Some(corr) = correlation_id else {
+                // Everything waiting, across sessions.
+                let l: SessionListResult = serde_json::from_value(
+                    conn.call(method::SESSION_LIST, Value::Null, |_, _| {})
+                        .await?,
+                )?;
+                let mut waiting = Vec::new();
+                for s in l
+                    .sessions
+                    .iter()
+                    .filter(|s| s.execution_state.as_deref() == Some("waiting"))
+                {
+                    let h: SessionHistoryResult = serde_json::from_value(
+                        conn.call(
+                            method::SESSION_HISTORY,
+                            serde_json::to_value(SessionHistoryParams {
+                                session_id: s.session_id.clone(),
+                                n: Some(1),
+                            })?,
+                            |_, _| {},
+                        )
+                        .await?,
+                    )?;
+                    waiting.extend(h.pending_confirms);
+                }
+                if json {
+                    println!("{}", serde_json::to_string(&waiting)?);
+                } else if waiting.is_empty() {
+                    println!("nothing is waiting for confirmation");
+                } else {
+                    for c in &waiting {
+                        print_confirm(c);
+                    }
+                }
+                return Ok(());
+            };
+            let mut printer = Printer::new(true, false, false, json);
+            let v = conn
+                .call(
+                    method::ACTION_CONFIRM,
+                    serde_json::to_value(ActionConfirmParams {
+                        correlation_id: corr.clone(),
+                        approve: !deny,
+                        note,
+                        watch: !no_wait,
+                    })?,
+                    |m, p| printer.on(m, p),
+                )
+                .await?;
+            let r: ActionConfirmResult = serde_json::from_value(v.clone())?;
+            if no_wait {
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    println!(
+                        "{} {} · session {}",
+                        if r.approved { "approved" } else { "declined" },
+                        r.correlation_id,
+                        r.session_id
+                    );
+                }
+                return Ok(());
+            }
+            eprintln!(
+                "{} {} · following the resumed turn in {}",
+                if r.approved { "approved" } else { "declined" },
+                r.correlation_id,
+                r.session_id
+            );
+            // The server subscribed us before waking the execution: read until
+            // the continuation turn ends (or fails, or parks on another confirm).
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(900);
+            loop {
+                let msg = match tokio::time::timeout_at(deadline, conn.next()).await {
+                    Ok(m) => m?,
+                    Err(_) => {
+                        printer.settle();
+                        eprintln!(
+                            "[still running after 15 min · follow it with `theseus watch {}`]",
+                            r.session_id
+                        );
+                        break;
+                    }
+                };
+                let Some(Message::Notification(n)) = msg else {
+                    if msg.is_none() {
+                        break;
+                    }
+                    continue;
+                };
+                printer.on(&n.method, &n.params);
+                if n.method == notify::TURN_ENDED {
+                    printer.settle();
+                    if let Ok(t) = serde_json::from_value::<TurnSubmitResult>(n.params.clone()) {
+                        if json {
+                            println!("{}", serde_json::to_string(&t)?);
+                        } else {
+                            eprintln!("{}", status_line(&t));
+                            if let Some(c) = &t.awaiting_confirm {
+                                eprintln!("[parked again: `theseus confirm {c}` or `--deny`]");
+                            }
+                        }
+                    }
+                    break;
+                }
+                if n.method == notify::TURN_FAILED {
+                    printer.settle();
+                    anyhow::bail!(
+                        "the resumed turn failed: {}",
+                        n.params.get("error").and_then(Value::as_str).unwrap_or("?")
+                    );
+                }
+            }
+        }
+        Cmd::Tools { verbose } => {
+            let v = conn.call(method::TOOL_LIST, Value::Null, |_, _| {}).await?;
+            if json {
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                let l: ToolListResult = serde_json::from_value(v)?;
+                println!(
+                    "{:<12} {:<12} {:<6} {:<7} {:<8} {:>6}",
+                    "tool", "wire name", "class", "backend", "policy", "calls"
+                );
+                for t in &l.tools {
+                    println!(
+                        "{:<12} {:<12} {:<6} {:<7} {:<8} {:>6}",
+                        t.name, t.wire_name, t.class, t.backend, t.policy, t.calls
+                    );
+                    if verbose {
+                        println!("    {}", t.description);
+                        println!("    input: {}", serde_json::to_string(&t.input_schema)?);
+                    }
+                }
+                eprintln!(
+                    "[roots: {} · {} call(s) · shell-fallback ratio {:.0}% (proc.run / all calls)]",
+                    l.roots.join(", "),
+                    l.calls_total,
+                    l.shell_fallback_ratio * 100.0
+                );
+            }
+        }
+        Cmd::Catalog => {
+            let v = conn
+                .call(method::CATALOG_LIST, Value::Null, |_, _| {})
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                let l: CatalogListResult = serde_json::from_value(v)?;
+                println!(
+                    "{:<24} {:<10} {:>9} {:>8} {:>7} {:>7} {:>7} {:>7}  {:<9} profiles",
+                    "model",
+                    "provider",
+                    "window",
+                    "max out",
+                    "$in",
+                    "$out",
+                    "$c.rd",
+                    "$c.wr",
+                    "thinking"
+                );
+                for m in &l.models {
+                    let e = &m.entry;
+                    let num = |k: &str| e.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+                    println!(
+                        "{:<24} {:<10} {:>9} {:>8} {:>7} {:>7} {:>7} {:>7}  {:<9} {}",
+                        m.model,
+                        e.get("provider").and_then(Value::as_str).unwrap_or("?"),
+                        fmt_tokens(num("context_window") as u64),
+                        fmt_tokens(num("max_output_tokens") as u64),
+                        fmt_price(num("input_per_mtok")),
+                        fmt_price(num("output_per_mtok")),
+                        fmt_price(num("cache_read_per_mtok")),
+                        fmt_price(num("cache_write_per_mtok")),
+                        e.get("thinking").and_then(Value::as_str).unwrap_or("?"),
+                        m.profiles.join(",")
+                    );
+                }
+                eprintln!(
+                    "[catalog {} · prices are USD per million tokens]",
+                    l.version
+                );
             }
         }
         Cmd::Health => {
@@ -473,14 +768,17 @@ async fn run(cli: Cli) -> Result<()> {
                     let l: SessionListResult = serde_json::from_value(v)?;
                     for s in l.sessions {
                         println!(
-                            "{}\t{:?}\tturns={}\tin={}\tout={}\texec={}\t{}",
+                            "{}\t{}\tturns={}\ttools={}\t${:.4}\tin={}\tout={}\t{}\t{}\t{}",
                             s.session_id,
-                            s.kind,
+                            fmt_time(s.last_active_ms.max(s.created_at_unix_ms)),
                             s.turns,
+                            s.tool_calls,
+                            s.cost_usd,
                             s.usage.input_tokens,
                             s.usage.output_tokens,
-                            s.execution_state.unwrap_or_else(|| "-".into()),
-                            s.label.unwrap_or_default()
+                            s.execution_state.clone().unwrap_or_else(|| "-".into()),
+                            s.model.clone().unwrap_or_else(|| "-".into()),
+                            s.label.clone().or(s.title.clone()).unwrap_or_default()
                         );
                     }
                 }
@@ -500,6 +798,23 @@ async fn run(cli: Cli) -> Result<()> {
                         "{}",
                         v.get("session_id").and_then(Value::as_str).unwrap_or("")
                     );
+                }
+            }
+            SessionsCmd::Recompile { session, strategy } => {
+                let v = conn
+                    .call(
+                        method::SESSION_RECOMPILE,
+                        serde_json::to_value(SessionRecompileParams {
+                            session_id: session.clone(),
+                            strategy: strategy.clone(),
+                        })?,
+                        |_, _| {},
+                    )
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    println!("{session}: the next turn recompiles ({strategy})");
                 }
             }
         },
@@ -779,19 +1094,439 @@ fn status_line(r: &TurnSubmitResult) -> String {
         String::new()
     };
     format!(
-        "[{} → {}/{} · {} loop(s) · {} · tokens in {} out {}{} · {} ms{} · session {}]",
+        "[{} → {}/{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}]",
         r.profile,
         r.provider,
         r.model,
         r.loops,
+        if r.tool_calls > 0 {
+            format!(" · {} tool call(s)", r.tool_calls)
+        } else {
+            String::new()
+        },
+        if r.continuation {
+            " · continuation"
+        } else {
+            ""
+        },
         r.stop_reason,
         r.usage.input_tokens,
         r.usage.output_tokens,
         cache,
+        r.cost_usd
+            .map(|c| format!(" · ${c:.4}"))
+            .unwrap_or_default(),
         r.elapsed_ms,
         r.first_token_ms
             .map(|t| format!(" (first token {t} ms)"))
             .unwrap_or_default(),
         r.session_id
     )
+}
+
+/// The session a command means: the one named, or the most recently active.
+async fn resolve_session(conn: &mut Conn, session: Option<String>) -> Result<String> {
+    if let Some(s) = session {
+        return Ok(s);
+    }
+    let l: SessionListResult = serde_json::from_value(
+        conn.call(method::SESSION_LIST, Value::Null, |_, _| {})
+            .await?,
+    )?;
+    l.sessions
+        .first()
+        .map(|s| s.session_id.clone())
+        .ok_or_else(|| anyhow!("there are no sessions yet"))
+}
+
+fn session_header(s: &SessionInfo) -> String {
+    format!(
+        "── {} · {} · {} turn(s) · {} tool call(s) · ${:.4} · {}{}",
+        s.session_id,
+        s.title
+            .as_deref()
+            .or(s.label.as_deref())
+            .map(|t| format!("\"{t}\""))
+            .unwrap_or_else(|| "(untitled)".into()),
+        s.turns,
+        s.tool_calls,
+        s.cost_usd,
+        s.model.as_deref().unwrap_or("-"),
+        s.execution_state
+            .as_deref()
+            .map(|e| format!(" · {e}"))
+            .unwrap_or_default()
+    )
+}
+
+fn clip(s: &str, max: usize) -> String {
+    let one = s.replace('\n', " ⏎ ");
+    if one.chars().count() <= max {
+        one
+    } else {
+        format!("{}…", one.chars().take(max).collect::<String>())
+    }
+}
+
+fn indent(s: &str, pad: &str) -> String {
+    s.lines()
+        .map(|l| format!("{pad}{l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn print_node(n: &NodeInfo, full: bool) {
+    let t = fmt_time(n.at_unix_ms);
+    let d = &n.detail;
+    let s = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("");
+    match n.kind.as_str() {
+        "user_message" => {
+            let who = match n.author.as_deref() {
+                Some(a) => format!("operator ({a})"),
+                None => "operator".to_string(),
+            };
+            if full {
+                println!("[{t}] {who}:\n{}", indent(&n.text, "    "));
+            } else {
+                println!("[{t}] {who}: {}", clip(&n.text, 300));
+            }
+        }
+        "assistant_message" => {
+            let cost = d
+                .get("cost_usd")
+                .and_then(Value::as_f64)
+                .map(|c| format!(" · ${c:.4}"))
+                .unwrap_or_default();
+            let calls = d
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .map(|a| a.len())
+                .unwrap_or(0);
+            let body = if n.text.is_empty() {
+                String::new()
+            } else if full {
+                format!("\n{}", indent(&n.text, "    "))
+            } else {
+                format!(" {}", clip(&n.text, 300))
+            };
+            println!(
+                "[{t}] {}:{body}{}",
+                s("model"),
+                if calls > 0 && n.text.is_empty() {
+                    format!(" ({calls} tool call(s))")
+                } else {
+                    String::new()
+                }
+            );
+            if !n.thinking.is_empty() && full {
+                println!("      (thinking) {}", clip(&n.thinking, 600));
+            }
+            println!(
+                "      ↳ {} · in {} out {}{cost}",
+                s("stop_reason"),
+                d.pointer("/usage/input_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+                d.pointer("/usage/output_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            );
+        }
+        "tool_call" => {
+            let input = d.get("input").map(|v| v.to_string()).unwrap_or_default();
+            // The policy's verdict with its reason; a call that failed
+            // validation never reached policy, so fall back to the gate result.
+            let gate = match d.get("decision") {
+                Some(Value::Object(o)) => format!(
+                    "{}: {}",
+                    o.get("mode").and_then(Value::as_str).unwrap_or("?"),
+                    clip(o.get("reason").and_then(Value::as_str).unwrap_or(""), 90)
+                ),
+                _ => d
+                    .pointer("/result/gate")
+                    .and_then(Value::as_str)
+                    .unwrap_or("-")
+                    .to_string(),
+            };
+            println!(
+                "      ⚙ {} {} [{}]",
+                s("tool"),
+                if full { input } else { clip(&input, 160) },
+                gate
+            );
+        }
+        "tool_result" => {
+            let late = if d.get("late").and_then(Value::as_bool) == Some(true) {
+                " (late)"
+            } else {
+                ""
+            };
+            let ms = format!(
+                "{}{}",
+                d.pointer("/meta/exit_code")
+                    .and_then(Value::as_i64)
+                    .map(|c| format!(" · exit {c}"))
+                    .unwrap_or_default(),
+                d.get("duration_ms")
+                    .and_then(Value::as_u64)
+                    .map(|m| format!(" · {m} ms"))
+                    .unwrap_or_default()
+            );
+            if full {
+                println!(
+                    "      ← {} {}{late}{ms} · {}\n{}",
+                    s("tool"),
+                    s("status"),
+                    fmt_bytes(n.bytes),
+                    indent(&n.text, "        ")
+                );
+            } else {
+                println!(
+                    "      ← {} {}{late}{ms} · {}: {}",
+                    s("tool"),
+                    s("status"),
+                    fmt_bytes(n.bytes),
+                    clip(&n.text, 160)
+                );
+            }
+        }
+        other => println!("[{t}] {other}"),
+    }
+}
+
+fn print_confirm(c: &ConfirmRequest) {
+    println!(
+        "  ? {} waits for you in {}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
+        c.tool,
+        c.session_id,
+        c.reason,
+        clip(&c.input.to_string(), 200),
+        c.correlation_id,
+        c.correlation_id
+    );
+}
+
+fn fmt_bytes(b: u64) -> String {
+    if b >= 1 << 20 {
+        format!("{:.1} MB", b as f64 / (1u64 << 20) as f64)
+    } else if b >= 1024 {
+        format!("{:.1} KB", b as f64 / 1024.0)
+    } else {
+        format!("{b} B")
+    }
+}
+
+fn fmt_tokens(n: u64) -> String {
+    if n >= 1_000_000 && n.is_multiple_of(1_000_000) {
+        format!("{}M", n / 1_000_000)
+    } else if n >= 1000 {
+        format!("{}K", n / 1000)
+    } else {
+        n.to_string()
+    }
+}
+
+fn fmt_price(p: f64) -> String {
+    if p == 0.0 {
+        "-".into()
+    } else {
+        format!("{p:.3}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
+/// Renders live session events for a terminal: the model's text on stdout,
+/// everything else (tools, confirmations, context decisions) on stderr.
+struct Printer {
+    text: bool,
+    thinking: bool,
+    verbose: bool,
+    quiet: bool,
+    stdout_mid_line: bool,
+    thinking_open: bool,
+}
+
+impl Printer {
+    fn new(text: bool, thinking: bool, verbose: bool, quiet: bool) -> Self {
+        Self {
+            text,
+            thinking,
+            verbose,
+            quiet,
+            stdout_mid_line: false,
+            thinking_open: false,
+        }
+    }
+
+    /// Finish a partial stdout line or thinking run before an event line.
+    fn settle(&mut self) {
+        use std::io::Write;
+        if self.thinking_open {
+            eprintln!();
+            self.thinking_open = false;
+        }
+        if self.stdout_mid_line {
+            println!();
+            let _ = std::io::stdout().flush();
+            self.stdout_mid_line = false;
+        }
+    }
+
+    fn on(&mut self, m: &str, p: &Value) {
+        use std::io::Write;
+        if self.quiet {
+            return;
+        }
+        let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let u = |k: &str| p.get(k).and_then(Value::as_u64);
+        match m {
+            notify::MODEL_DELTA if self.text => {
+                if let Some(t) = p.get("text").and_then(Value::as_str) {
+                    if self.thinking_open {
+                        eprintln!();
+                        self.thinking_open = false;
+                    }
+                    let mut out = std::io::stdout().lock();
+                    let _ = out.write_all(t.as_bytes());
+                    let _ = out.flush();
+                    if !t.is_empty() {
+                        self.stdout_mid_line = !t.ends_with('\n');
+                    }
+                }
+            }
+            notify::MODEL_THINKING if self.thinking => {
+                if let Some(t) = p.get("text").and_then(Value::as_str) {
+                    if !self.thinking_open {
+                        self.settle();
+                        eprint!("  (thinking) ");
+                        self.thinking_open = true;
+                    }
+                    eprint!("{}", t.replace('\n', "\n             "));
+                }
+            }
+            notify::TOOL_STARTED => {
+                self.settle();
+                let argv = p
+                    .get("argv")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        format!(
+                            " [{}]{}",
+                            a.iter()
+                                .filter_map(Value::as_str)
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                            u("pid").map(|p| format!(" pid {p}")).unwrap_or_default()
+                        )
+                    })
+                    .unwrap_or_default();
+                eprintln!("  → {}{argv}", s("tool"));
+            }
+            notify::TOOL_ENDED => {
+                self.settle();
+                let mut extra = Vec::new();
+                if let Some(c) = p.get("exit_code").and_then(Value::as_i64) {
+                    extra.push(format!("exit {c}"));
+                }
+                if let Some(ms) = u("duration_ms") {
+                    extra.push(format!("{ms} ms"));
+                }
+                if let Some(b) = u("bytes") {
+                    extra.push(fmt_bytes(b));
+                }
+                if p.get("truncated").and_then(Value::as_bool) == Some(true) {
+                    extra.push("truncated".into());
+                }
+                if p.get("late").and_then(Value::as_bool) == Some(true) {
+                    extra.push("late".into());
+                }
+                eprintln!(
+                    "  ← {} {}{}",
+                    s("tool"),
+                    s("status"),
+                    if extra.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · {}", extra.join(" · "))
+                    }
+                );
+            }
+            notify::CONFIRM_REQUESTED => {
+                self.settle();
+                if let Ok(c) = serde_json::from_value::<ConfirmRequest>(p.clone()) {
+                    eprintln!(
+                        "  ? {} needs your confirmation: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
+                        c.tool,
+                        c.reason,
+                        clip(&c.input.to_string(), 200),
+                        c.correlation_id,
+                        c.correlation_id
+                    );
+                }
+            }
+            notify::CONFIRM_RESOLVED => {
+                self.settle();
+                let ok = p.get("approved").and_then(Value::as_bool).unwrap_or(false);
+                eprintln!(
+                    "  {} {} (by {})",
+                    if ok { "✓ approved" } else { "✗ declined" },
+                    s("correlation_id"),
+                    s("by")
+                );
+            }
+            notify::CONTEXT_COMPILED => {
+                let recompiled = s("decision") == "recompile";
+                if recompiled || self.verbose {
+                    self.settle();
+                    eprintln!(
+                        "  ⟳ context {}{} · {} message(s) · ~{} tokens{}",
+                        s("decision"),
+                        p.get("trigger")
+                            .and_then(Value::as_str)
+                            .map(|t| format!(" ({t}, {})", s("strategy")))
+                            .unwrap_or_default(),
+                        u("messages").unwrap_or(0),
+                        u("est_tokens").unwrap_or(0),
+                        p.get("repairs")
+                            .and_then(Value::as_array)
+                            .filter(|a| !a.is_empty())
+                            .map(|a| format!(" · {} repaired", a.len()))
+                            .unwrap_or_default()
+                    );
+                }
+            }
+            notify::TURN_STARTED if self.verbose => {
+                self.settle();
+                eprintln!(
+                    "── turn {}{}",
+                    s("turn_id"),
+                    if p.get("continuation").and_then(Value::as_bool) == Some(true) {
+                        " (continuation)"
+                    } else {
+                        ""
+                    }
+                );
+            }
+            notify::TURN_ENDED if self.verbose => {
+                self.settle();
+                if let Ok(r) = serde_json::from_value::<TurnSubmitResult>(p.clone()) {
+                    eprintln!("{}", status_line(&r));
+                }
+            }
+            notify::TURN_FAILED => {
+                self.settle();
+                eprintln!(
+                    "  ✗ turn failed{}: {}",
+                    p.get("class")
+                        .and_then(Value::as_str)
+                        .map(|c| format!(" ({c})"))
+                        .unwrap_or_default(),
+                    s("error")
+                );
+            }
+            _ => {}
+        }
+    }
 }

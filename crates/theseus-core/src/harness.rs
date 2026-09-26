@@ -69,9 +69,14 @@ pub async fn run(core: Arc<Core>) {
 /// answered, a crash interrupted a turn. Parked on the admission notify and a
 /// short timer; one continuation per execution at a time.
 pub async fn drive(core: Arc<Core>) {
+    use std::collections::HashMap;
     use std::collections::HashSet;
     use std::sync::Mutex;
     let inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    // A continuation that fails before it is admitted leaves the execution
+    // queued; back off per execution instead of retrying every tick.
+    let backoff: Arc<Mutex<HashMap<String, (std::time::Instant, u32)>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tracing::info!("continuation driver parked");
@@ -90,12 +95,29 @@ pub async fn drive(core: Arc<Core>) {
             {
                 continue;
             }
+            if backoff
+                .lock()
+                .unwrap()
+                .get(&e.id)
+                .is_some_and(|(until, _)| std::time::Instant::now() < *until)
+            {
+                continue;
+            }
             if core.kernel.is_held(&e.id) || !inflight.lock().unwrap().insert(e.id.clone()) {
                 continue;
             }
-            let (c, inf, id) = (core.clone(), inflight.clone(), e.id.clone());
+            let (c, inf, id, bo) = (
+                core.clone(),
+                inflight.clone(),
+                e.id.clone(),
+                backoff.clone(),
+            );
             tokio::spawn(async move {
-                match c.continue_execution(&id).await {
+                let r = c.continue_execution(&id).await;
+                if r.is_ok() {
+                    bo.lock().unwrap().remove(&id);
+                }
+                match r {
                     Ok(Some(r)) => tracing::info!(
                         execution_id = %id,
                         session_id = %r.session_id,
@@ -106,7 +128,11 @@ pub async fn drive(core: Arc<Core>) {
                     ),
                     Ok(None) => {}
                     Err(err) => {
-                        tracing::debug!(execution_id = %id, error = %err, "continuation not taken")
+                        let mut g = bo.lock().unwrap();
+                        let n = g.get(&id).map(|(_, n)| n + 1).unwrap_or(1);
+                        let wait = Duration::from_secs((1u64 << n.min(8)).min(300));
+                        g.insert(id.clone(), (std::time::Instant::now() + wait, n));
+                        tracing::warn!(execution_id = %id, error = %format!("{err:#}"), attempt = n, retry_in_s = wait.as_secs(), "continuation turn failed")
                     }
                 }
                 inf.lock().unwrap().remove(&id);

@@ -63,6 +63,9 @@ pub mod notify {
     pub const CONFIRM_RESOLVED: &str = "confirm.resolved";
     /// A node was written to a watched session (history stays live).
     pub const NODE_WRITTEN: &str = "node.written";
+    /// A turn failed after it was admitted (provider error, store error). The
+    /// requester also gets the error response; watchers only get this.
+    pub const TURN_FAILED: &str = "turn.failed";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -380,6 +383,9 @@ pub struct SessionInfo {
     /// First words of the first prompt, for pickers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Tool calls in this session waiting for the operator's confirmation.
+    #[serde(default)]
+    pub pending_confirms: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -689,6 +695,10 @@ pub struct ActionConfirmParams {
     pub approve: bool,
     #[serde(default)]
     pub note: Option<String>,
+    /// Subscribe this connection to the session's events before the answer
+    /// wakes the execution, so the continuation turn is seen from its start.
+    #[serde(default)]
+    pub watch: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -750,6 +760,21 @@ pub struct TurnStarted {
     pub execution_id: Option<String>,
     #[serde(default)]
     pub continuation: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TurnFailed {
+    pub session_id: String,
+    #[serde(default)]
+    pub turn_id: Option<String>,
+    #[serde(default)]
+    pub execution_id: Option<String>,
+    #[serde(default)]
+    pub continuation: bool,
+    /// Error class when known (rate_limited, overloaded, auth, ...).
+    #[serde(default)]
+    pub class: Option<String>,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

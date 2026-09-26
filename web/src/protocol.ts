@@ -28,12 +28,16 @@ export interface Health {
   secrets_resolved: string[]
   usage_total: Usage; provider_errors: number; ledger_rows: number
   kernel: KernelStatus
+  cost_usd_total?: number; catalog_version?: string
 }
 
 export interface SessionInfo {
   session_id: string; kind: 'conversation' | 'task'; label: string | null
   created_at_unix_ms: number; turns: number; usage: Usage
   execution_id?: string | null; execution_state?: string | null
+  last_active_ms?: number; cost_usd?: number; tool_calls?: number
+  profile?: string | null; model?: string | null; compilation_id?: string | null; title?: string | null
+  pending_confirms?: number
 }
 
 export interface BudgetInfo { limit: number; spent: number; reserved: number; held_unknown: number; available: number }
@@ -74,6 +78,8 @@ export interface TurnResult {
   provider: string; profile: string
   usage: Usage; elapsed_ms: number; first_token_ms: number | null; request_id: string | null
   trace?: Span | null
+  execution_id?: string | null; cost_usd?: number | null; tool_calls?: number
+  awaiting_confirm?: string | null; stop_details?: unknown; continuation?: boolean
 }
 
 export interface ProviderErrorData {
@@ -82,45 +88,112 @@ export interface ProviderErrorData {
   trace?: Span | null
 }
 
-export type NotifyHandler = (method: string, params: unknown) => void
+// ---- M3: content
 
+/// One node of a session's graph as clients render it.
+export interface NodeInfo {
+  node_id: string
+  kind: 'user_message' | 'assistant_message' | 'tool_call' | 'tool_result' | string
+  session_id: string; position: number; at_unix_ms: number
+  turn_id?: string | null; loop_index?: number | null; author?: string | null
+  text: string; thinking?: string
+  /// Kind-specific: model/usage/cost/tool_calls (assistant), tool/input/decision/result/plan
+  /// (tool call), tool/status/is_error/duration_ms/late/meta (tool result).
+  detail: Record<string, unknown> | null
+  bytes: number
+}
+
+export interface ConfirmRequest {
+  correlation_id: string; session_id: string; execution_id: string
+  tool: string; input: unknown; resource?: string | null; reason: string; by: string
+  requested_at_ms: number; expires_at_ms: number
+}
+
+export interface SessionHistory { session: SessionInfo; nodes: NodeInfo[]; pending_confirms: ConfirmRequest[] }
+
+export interface CompilationInfo {
+  compilation_id: string; session_id: string; created_at_ms: number
+  trigger: string; strategy: string; as_of: number; includes: number
+  derived_from?: string | null; manifest: Record<string, unknown>; current: boolean
+}
+
+export interface CatalogModel { model: string; entry: Record<string, unknown>; profiles: string[] }
+export interface CatalogList { version: string; models: CatalogModel[] }
+
+export interface ToolInfo {
+  name: string; wire_name: string; family: string; description: string
+  class: string; backend: string; policy: string; input_schema: unknown; calls: number
+}
+export interface ToolList { tools: ToolInfo[]; roots: string[]; shell_fallback_ratio: number; calls_total: number }
+
+export type NotifyHandler = (method: string, params: unknown) => void
+export type Status = 'connecting' | 'open' | 'closed'
+
+/// A protocol connection that reconnects on its own (backoff up to 10 s).
+/// `onOpen` runs after every successful connect, so subscriptions (session.watch)
+/// and views can be re-established after a daemon restart.
 export class ProtocolClient {
   private ws: WebSocket | null = null
   private nextId = 1
   private pending = new Map<Id, { resolve: (v: unknown) => void; reject: (e: RpcError) => void }>()
   private listeners = new Set<NotifyHandler>()
-  onStatus: (s: 'connecting' | 'open' | 'closed') => void = () => {}
+  private openers = new Set<() => void>()
+  private closedByUs = false
+  private retryMs = 500
+  private timer: ReturnType<typeof setTimeout> | null = null
+  onStatus: (s: Status) => void = () => {}
+  private url: string
 
-  connect(url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`): Promise<void> {
+  constructor(url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`) {
+    this.url = url
+  }
+
+  connect() {
+    this.closedByUs = false
+    this.open()
+  }
+
+  private open() {
     this.onStatus('connecting')
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url)
-      this.ws = ws
-      ws.onopen = () => { this.onStatus('open'); resolve() }
-      ws.onerror = () => reject(new Error(`cannot connect to ${url}`))
-      ws.onclose = () => {
-        this.onStatus('closed')
-        for (const p of this.pending.values()) p.reject({ code: -1, message: 'connection closed' })
-        this.pending.clear()
+    const ws = new WebSocket(this.url)
+    this.ws = ws
+    ws.onopen = () => {
+      this.retryMs = 500
+      this.onStatus('open')
+      for (const o of this.openers) o()
+    }
+    ws.onclose = () => {
+      if (this.ws !== ws) return
+      this.ws = null
+      for (const p of this.pending.values()) p.reject({ code: -1, message: 'connection closed' })
+      this.pending.clear()
+      if (this.closedByUs) { this.onStatus('closed'); return }
+      this.onStatus('connecting')
+      this.timer = setTimeout(() => this.open(), this.retryMs)
+      this.retryMs = Math.min(this.retryMs * 2, 10_000)
+    }
+    ws.onmessage = (ev) => {
+      let msg: Message
+      try { msg = JSON.parse(ev.data as string) } catch { return }
+      if ('id' in msg && ('result' in msg || 'error' in msg)) {
+        const p = this.pending.get(msg.id)
+        if (!p) return
+        this.pending.delete(msg.id)
+        if (msg.error) p.reject(msg.error); else p.resolve(msg.result)
+      } else if ('method' in msg) {
+        for (const l of this.listeners) l(msg.method, (msg as Notification).params)
       }
-      ws.onmessage = (ev) => {
-        let msg: Message
-        try { msg = JSON.parse(ev.data as string) } catch { return }
-        if ('id' in msg && ('result' in msg || 'error' in msg)) {
-          const p = this.pending.get(msg.id)
-          if (!p) return
-          this.pending.delete(msg.id)
-          if (msg.error) p.reject(msg.error); else p.resolve(msg.result)
-        } else if ('method' in msg) {
-          for (const l of this.listeners) l(msg.method, (msg as Notification).params)
-        }
-      }
-    })
+    }
   }
 
   onNotify(h: NotifyHandler): () => void {
     this.listeners.add(h)
     return () => this.listeners.delete(h)
+  }
+
+  onOpen(h: () => void): () => void {
+    this.openers.add(h)
+    return () => this.openers.delete(h)
   }
 
   call<T = unknown>(method: string, params?: unknown): Promise<T> {
@@ -136,5 +209,9 @@ export class ProtocolClient {
     })
   }
 
-  close() { this.ws?.close() }
+  close() {
+    this.closedByUs = true
+    if (this.timer) clearTimeout(this.timer)
+    this.ws?.close()
+  }
 }

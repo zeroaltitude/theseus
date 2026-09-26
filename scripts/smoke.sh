@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for M0 First light. Needs OP_SERVICE_ACCOUNT_TOKEN (or
+# End-to-end smoke test (M0 First light onward). Needs OP_SERVICE_ACCOUNT_TOKEN (or
 # THESEUS_OP_TOKEN_FILE) and a config (THESEUS_CONFIG, default: the 1Password item).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -28,6 +28,9 @@ echo "== ledger";  "$BIN/theseus" ledger -n 3 -k provider.call | tail -1 | cut -
 echo "== kernel";  "$BIN/theseus" health | grep -E "^kernel"
 echo "== executions"; "$BIN/theseus" executions | head -3
 echo "== actions"; "$BIN/theseus" ledger -n 2 -k action.succeeded | tail -1 | cut -c1-120
+echo "== tools";   "$BIN/theseus" tools 2>&1 | tail -1
+echo "== catalog"; "$BIN/theseus" catalog 2>/dev/null | awk 'NR>1 {n++} END {print n " models in the catalog"}'
+echo "== history"; "$BIN/theseus" history > "$STATE/history.txt" && head -3 "$STATE/history.txt"
 echo "== wrapper"; "$BIN/theseusd" job-wrapper --spool "$STATE/spool" --correlation-id act_smoke_stray --deadline-ms 5000 --notify "$STATE/spool/notify.sock" -- /bin/echo hello-from-wrapper; sleep 0.5
 "$BIN/theseus" health | grep -E "^kernel" | grep -q "quarantined completions 1" && echo "stray wrapper completion quarantined (never inferred)"
 echo "== stdio";   THESEUS_STATE_DIR="$STATE" "$BIN/theseus" --spawn "$BIN/theseusd" ask --no-stream "Reply with the single word: stdio" 2>/dev/null

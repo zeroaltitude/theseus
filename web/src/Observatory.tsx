@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, ExecutionInfo, Health, LedgerEntry, SessionInfo } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, ToolList } from './protocol'
 
-// The Observatory: every durable thing the kernel wrote, as live windows onto
+// The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
 // is a protocol query (health, execution.list, action.list, ledger.tail,
-// session.list) re-run on a short timer and after every turn, so what you see
-// is what a restarted daemon would also see.
+// session.list, compilation.list, node.list, tool.list, catalog.list) re-run on
+// a short timer and after every turn, so what you see is what a restarted
+// daemon would also see.
 
 const fmt = (n: number) => n.toLocaleString()
 const fmtUs = (us: number) =>
@@ -31,7 +32,10 @@ function State({ s }: { s: string }) {
   return <span className={`pill ${STATE_CLASS[s] ?? ''}`}>{s.replace('_', ' ')}</span>
 }
 
-const LEDGER_FAMILIES = ['all', 'execution.', 'action.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.'] as const
+const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.'] as const
+const money = (n: number | null | undefined) => n == null ? '—' : n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`
+const price = (n: unknown) => typeof n === 'number' && n > 0 ? String(+n.toFixed(3)) : '—'
+const tokens = (n: unknown) => typeof n !== 'number' ? '—' : n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n)
 
 export interface ObservatoryProps {
   client: ProtocolClient
@@ -42,9 +46,10 @@ export interface ObservatoryProps {
   /// Called on every refresh so the header's health stays in step with the panels.
   onRefresh?: () => Promise<void> | void
   onCancelled?: () => void
+  onPickSession?: (id: string) => void
 }
 
-export default function Observatory({ client, health, tick, currentSession, onRefresh, onCancelled }: ObservatoryProps) {
+export default function Observatory({ client, health, tick, currentSession, onRefresh, onCancelled, onPickSession }: ObservatoryProps) {
   const [execs, setExecs] = useState<ExecutionInfo[]>([])
   const [actions, setActions] = useState<ActionInfo[]>([])
   const [actionsTotal, setActionsTotal] = useState(0)
@@ -58,27 +63,68 @@ export default function Observatory({ client, health, tick, currentSession, onRe
   const [live, setLive] = useState(true)
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState<Record<string, boolean>>({ kernel: true, executions: true, actions: true, ledger: true, sessions: false })
+  const [open, setOpen] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem('theseus.obs.open') ?? '') } catch { /* default */ }
+    return { context: true, tools: true, kernel: true, executions: true, actions: true, ledger: true, nodes: false, catalog: false, sessions: false }
+  })
+  const [compilations, setCompilations] = useState<CompilationInfo[]>([])
+  const [compiles, setCompiles] = useState<LedgerEntry[]>([])
+  const [nodes, setNodes] = useState<NodeInfo[]>([])
+  const [nodesTotal, setNodesTotal] = useState(0)
+  const [nodeKind, setNodeKind] = useState<string>('all')
+  const [openNode, setOpenNode] = useState<string | null>(null)
+  const [tools, setTools] = useState<ToolList | null>(null)
+  const [catalog, setCatalog] = useState<CatalogList | null>(null)
+  const [recompileNote, setRecompileNote] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [e, a, l, s] = await Promise.all([
+      const sid = currentSession
+      const [e, a, l, s, t] = await Promise.all([
         client.call<{ executions: ExecutionInfo[] }>('execution.list'),
         client.call<{ actions: ActionInfo[]; total: number }>('action.list', { n: 200 }),
         client.call<{ rows: LedgerEntry[]; total: number }>('ledger.tail', { n: 400 }),
         client.call<{ sessions: SessionInfo[] }>('session.list'),
+        client.call<ToolList>('tool.list'),
       ])
       setExecs(e.executions.slice().sort((x, y) => y.updated_at_ms - x.updated_at_ms))
       setActions(a.actions); setActionsTotal(a.total)
       setLedger(l.rows.slice().reverse()); setLedgerTotal(l.total)
-      setSessions(s.sessions.slice().sort((x, y) => y.created_at_unix_ms - x.created_at_unix_ms))
+      setSessions(s.sessions)
+      setTools(t)
+      if (open.context) {
+        const [c, cc] = await Promise.all([
+          client.call<{ compilations: CompilationInfo[] }>('compilation.list', sid ? { session_id: sid } : { n: 30 }),
+          client.call<{ rows: LedgerEntry[] }>('ledger.tail', { n: 12, kind: 'context.compiled', ...(sid ? { session_id: sid } : {}) }),
+        ])
+        setCompilations(c.compilations.slice().sort((x, y) => y.created_at_ms - x.created_at_ms))
+        setCompiles(cc.rows.slice().reverse())
+      }
+      if (open.nodes) {
+        const n = await client.call<{ nodes: NodeInfo[]; total: number }>('node.list', { n: 120, ...(sid ? { session_id: sid } : {}), ...(nodeKind !== 'all' ? { kind: nodeKind } : {}) })
+        setNodes(sid ? n.nodes.slice().sort((x, y) => y.position - x.position) : n.nodes); setNodesTotal(n.total)
+      }
+      if (open.catalog && !catalog) setCatalog(await client.call<CatalogList>('catalog.list'))
       setNow(Date.now())
       setError(null)
       await onRefresh?.()
     } catch (err) {
       setError((err as { message?: string }).message ?? String(err))
     }
-  }, [client, onRefresh])
+  }, [client, onRefresh, currentSession, open.context, open.nodes, open.catalog, catalog, nodeKind])
+
+  const recompile = useCallback(async (strategy: 'fresh' | 'transcript') => {
+    if (!currentSession) return
+    const what = strategy === 'fresh'
+      ? 'Recompile FRESH on the next turn: the model keeps only the current exchange and forgets the rest of this session (the nodes stay in the store).'
+      : 'Recompile as TRANSCRIPT on the next turn: the whole history stays, thinking blocks stripped, a new cache prefix is written.'
+    if (!confirm(what)) return
+    try {
+      await client.call('session.recompile', { session_id: currentSession, strategy })
+      setRecompileNote(`next turn recompiles (${strategy})`)
+      await refresh()
+    } catch (err) { setError((err as { message?: string }).message ?? String(err)) }
+  }, [client, currentSession, refresh])
 
   useEffect(() => { void refresh() }, [refresh, tick])
   useEffect(() => {
@@ -115,7 +161,12 @@ export default function Observatory({ client, health, tick, currentSession, onRe
     reconcile?: { woke_due?: string[]; marked_unknown?: string[]; settled_from_evidence?: string[] }
   }
 
-  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }))
+  const toggle = (id: string) => setOpen((o) => {
+    const n = { ...o, [id]: !o[id] }
+    localStorage.setItem('theseus.obs.open', JSON.stringify(n))
+    return n
+  })
+  const sessionTitle = (id: string) => { const x = sessions.find((y) => y.session_id === id); return x?.title ?? x?.label ?? short(id) }
 
   return (
     <aside className="observatory">
@@ -126,6 +177,91 @@ export default function Observatory({ client, health, tick, currentSession, onRe
         <button type="button" className="link" onClick={() => void refresh()}>refresh</button>
         {error && <span className="warn">{error}</span>}
       </div>
+
+      <ObsSection id="context" title="Context" open={!!open.context} onToggle={() => toggle('context')}
+        count={currentSession ? `${compilations.length} compilation${compilations.length === 1 ? '' : 's'} · this session` : `${compilations.length} recent · all sessions`}>
+        <div className="pad small muted">
+          A session's context is a <b>compilation</b> (a frozen prefix of nodes plus a manifest) and the <b>tail</b> of nodes written after it.
+          Every loop decides <i>append</i> or <i>recompile</i>; only a new session, a model/system/tool change, overflow, or you trigger a recompile.
+        </div>
+        {currentSession && (
+          <div className="pad small">
+            <button type="button" className="chip" onClick={() => void recompile('fresh')} title="the next turn starts from the current exchange only">recompile fresh</button>{' '}
+            <button type="button" className="chip" onClick={() => void recompile('transcript')} title="the next turn re-renders the whole history, thinking stripped">recompile transcript</button>
+            {recompileNote && <span className="accent"> {recompileNote}</span>}
+          </div>
+        )}
+        {compiles.length > 0 && (
+          <table className="obs-table">
+            <thead><tr><th>when</th><th>loop</th><th>decision</th><th>prefix + tail</th><th>messages</th><th>~tokens</th><th>repairs</th><th>digest</th></tr></thead>
+            <tbody>
+              {compiles.map((r) => {
+                const d = (r.data ?? {}) as Record<string, unknown>
+                const rep = (d.repairs as unknown[] | undefined) ?? []
+                return (
+                  <tr key={r.position} title={`compilation ${String(d.compilation_id ?? '')}\nturn ${r.turn_id ?? ''}\nnodes scanned ${String(d.nodes_scanned ?? '')}\ntools offered ${String(d.tools ?? '')}`}>
+                    <td className="muted small">{clock(r.at_unix_ms)}</td>
+                    <td className="muted">{String(d.loop ?? '')}</td>
+                    <td className={d.decision === 'recompile' ? 'accent' : ''}>{String(d.decision ?? '')}{d.trigger ? <span className="muted small"> ({String(d.trigger)}, {String(d.strategy ?? '')})</span> : null}</td>
+                    <td>{String(d.prefix_nodes ?? 0)} + {String(d.tail_nodes ?? 0)}</td>
+                    <td>{String(d.messages ?? '')}</td>
+                    <td>{fmt(Number(d.est_tokens ?? 0))}</td>
+                    <td className={rep.length ? 'warn' : 'muted'} title={rep.length ? `tool_use ids with no recorded result got a synthetic error result: ${rep.join(', ')}` : ''}>{rep.length}</td>
+                    <td className="muted small"><code>{String(d.digest ?? '').slice(0, 10)}</code></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+        {compilations.length === 0 ? <div className="muted pad">no compilations yet: the first loop of a session makes one</div> : (
+          <table className="obs-table">
+            <thead><tr><th>compilation</th><th>trigger</th><th>strategy</th><th>as of</th><th>prefix nodes</th><th>model</th><th>thinking</th>{!currentSession && <th>session</th>}</tr></thead>
+            <tbody>
+              {compilations.map((c) => {
+                const m = c.manifest as Record<string, unknown>
+                return (
+                  <tr key={c.compilation_id} className={c.current ? 'mine' : ''}
+                    title={`${c.compilation_id}${c.derived_from ? `\nderived from ${c.derived_from}` : ''}\ncreated ${clock(c.created_at_ms)}\nsystem ${String(m.system_digest ?? '')} · tools ${String(m.tools_digest ?? '')}\ntools: ${((m.tools as string[] | undefined) ?? []).join(', ')}\ncatalog ${String(m.catalog_version ?? '')} · window ${String(m.context_window ?? '')}\ncompiler v${String(m.compiler_version ?? '')} renderer v${String(m.renderer_version ?? '')}`}>
+                    <td><code>{short(c.compilation_id)}</code>{c.current && <span className="accent small"> current</span>}</td>
+                    <td>{c.trigger}</td>
+                    <td className="muted">{c.strategy}</td>
+                    <td className="muted">@{c.as_of}</td>
+                    <td>{c.includes}</td>
+                    <td className="muted small">{String(m.provider ?? '')}/{String(m.model ?? '')}</td>
+                    <td className={m.strip_thinking ? 'warn small' : 'muted small'}>{m.strip_thinking ? 'stripped' : 'kept'}</td>
+                    {!currentSession && <td className="muted small">{sessionTitle(c.session_id)}</td>}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </ObsSection>
+
+      <ObsSection id="tools" title="Tools" open={!!open.tools} onToggle={() => toggle('tools')}
+        count={tools ? `${tools.tools.length} toollets · ${tools.calls_total} call${tools.calls_total === 1 ? '' : 's'} · shell fallback ${(tools.shell_fallback_ratio * 100).toFixed(0)}%` : ''}>
+        {tools && (
+          <>
+            <div className="pad small muted">roots: {tools.roots.map((r) => <code key={r}>{r} </code>)} · <b>proc.run</b> (typed argv) is the only shell path; the shell-fallback ratio is proc.run calls over all calls.</div>
+            <table className="obs-table">
+              <thead><tr><th>tool</th><th>class</th><th>backend</th><th>policy</th><th>calls</th><th>what it does</th></tr></thead>
+              <tbody>
+                {tools.tools.map((t) => (
+                  <tr key={t.name} title={`${t.wire_name}\n${JSON.stringify(t.input_schema, null, 2)}`}>
+                    <td><code>{t.name}</code></td>
+                    <td className="muted">{t.class}</td>
+                    <td className="muted">{t.backend}</td>
+                    <td><span className={`pill ${t.policy === 'allow' ? 'ok' : t.policy === 'confirm' ? 'accent' : 'bad'}`}>{t.policy}</span></td>
+                    <td>{t.calls || <span className="muted">0</span>}</td>
+                    <td className="muted small desc" title={t.description}>{t.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </ObsSection>
 
       <ObsSection id="kernel" title="Kernel" open={!!open.kernel} onToggle={() => toggle('kernel')}>
         {k ? (
@@ -252,19 +388,68 @@ export default function Observatory({ client, health, tick, currentSession, onRe
         </div>
       </ObsSection>
 
+      <ObsSection id="nodes" title="Nodes" open={!!open.nodes} onToggle={() => toggle('nodes')}
+        count={`${nodes.length} shown · ${fmt(nodesTotal)} in the store${currentSession ? ' · this session' : ''}`}>
+        <div className="chips">
+          {['all', 'user_message', 'assistant_message', 'tool_call', 'tool_result'].map((k) => (
+            <button key={k} type="button" className={`chip ${nodeKind === k ? 'on' : ''}`} onClick={() => setNodeKind(k)}>{k}</button>
+          ))}
+        </div>
+        <div className="ledger">
+          {nodes.filter((n) => nodeKind === 'all' || n.kind === nodeKind).map((n) => (
+            <div key={n.node_id} className={`lrow ${openNode === n.node_id ? 'open' : ''}`} onClick={() => setOpenNode((o) => o === n.node_id ? null : n.node_id)}>
+              <span className="muted pos">{n.position}</span>
+              <span className="muted">{clock(n.at_unix_ms)}</span>
+              <code className={`kind node-${n.kind}`}>{n.kind}</code>
+              <span className="muted small ids">{short(n.node_id)}{n.loop_index != null ? ` · loop ${n.loop_index}` : ''}</span>
+              <span className="summary muted">{nodeSummary(n)}</span>
+              {openNode === n.node_id && <pre className="ldata">{JSON.stringify({ ...n, text: n.text.length > 4000 ? `${n.text.slice(0, 4000)}…` : n.text }, null, 2)}</pre>}
+            </div>
+          ))}
+        </div>
+      </ObsSection>
+
+      <ObsSection id="catalog" title="Model catalog" open={!!open.catalog} onToggle={() => toggle('catalog')} count={catalog ? `${catalog.models.length} models · ${catalog.version}` : ''}>
+        {catalog && (
+          <table className="obs-table">
+            <thead><tr><th>model</th><th>provider</th><th>window</th><th>max out</th><th title="USD per million input tokens">$in</th><th title="USD per million output tokens">$out</th><th title="cache read / write per million">$cache r/w</th><th>thinking</th><th>profiles</th></tr></thead>
+            <tbody>
+              {catalog.models.map((m) => {
+                const e = m.entry
+                return (
+                  <tr key={m.model} title={`source: ${String(e.source ?? '')}${e.refusal_fallbacks ? '\nserver-side refusal fallbacks' : ''}\ncache minimum ${String(e.cache_min_tokens ?? '')} tokens${e.vision ? '\nvision' : ''}`}>
+                    <td><code>{m.model}</code></td>
+                    <td className="muted">{String(e.provider ?? '')}</td>
+                    <td>{tokens(e.context_window)}</td>
+                    <td>{tokens(e.max_output_tokens)}</td>
+                    <td>{price(e.input_per_mtok)}</td>
+                    <td>{price(e.output_per_mtok)}</td>
+                    <td className="muted">{price(e.cache_read_per_mtok)} / {price(e.cache_write_per_mtok)}</td>
+                    <td className="muted">{String(e.thinking ?? '')}{e.effort ? ' · effort' : ''}</td>
+                    <td>{m.profiles.join(', ')}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </ObsSection>
+
       <ObsSection id="sessions" title="Sessions" open={!!open.sessions} onToggle={() => toggle('sessions')} count={`${sessions.length}`}>
         {sessions.length === 0 ? <div className="muted pad">none</div> : (
           <table className="obs-table">
-            <thead><tr><th>session</th><th>kind</th><th>turns</th><th>tokens in / out</th><th>execution</th><th>label</th></tr></thead>
+            <thead><tr><th>session</th><th>last active</th><th>turns</th><th>tools</th><th>cost</th><th>tokens in / out</th><th>execution</th><th>waiting</th></tr></thead>
             <tbody>
               {sessions.map((s) => (
-                <tr key={s.session_id} className={s.session_id === currentSession ? 'mine' : ''} title={s.session_id}>
-                  <td><code>{short(s.session_id)}</code>{s.session_id === currentSession && <span className="muted"> (this tab)</span>}</td>
-                  <td className="muted">{s.kind}</td>
+                <tr key={s.session_id} className={s.session_id === currentSession ? 'mine' : ''} title={`${s.session_id}\nclick to open it`} onClick={() => onPickSession?.(s.session_id)}>
+                  <td>{s.title ?? s.label ?? <code>{short(s.session_id)}</code>}{s.session_id === currentSession && <span className="muted"> (open)</span>}</td>
+                  <td className="muted small">{ago(Math.max(s.last_active_ms ?? 0, s.created_at_unix_ms), now)}</td>
                   <td>{s.turns}</td>
+                  <td>{s.tool_calls ?? 0}</td>
+                  <td>{money(s.cost_usd)}</td>
                   <td className="muted">{fmt(s.usage.input_tokens)} / {fmt(s.usage.output_tokens)}</td>
-                  <td>{s.execution_state ? <State s={s.execution_state} /> : <span className="muted">none (pre-M2 session)</span>}</td>
-                  <td className="muted">{s.label ?? ''}</td>
+                  <td>{s.execution_state ? <State s={s.execution_state} /> : <span className="muted">none</span>}</td>
+                  <td className={(s.pending_confirms ?? 0) > 0 ? 'accent' : 'muted'}>{s.pending_confirms ?? 0}</td>
                 </tr>
               ))}
             </tbody>
@@ -286,6 +471,19 @@ function ObsSection({ title, count, open, onToggle, children }: {
       {open && children}
     </section>
   )
+}
+
+/// One line per node: what it says, without opening the JSON.
+function nodeSummary(n: NodeInfo): string {
+  const d = (n.detail ?? {}) as Record<string, unknown>
+  const t = n.text.replace(/\s+/g, ' ')
+  switch (n.kind) {
+    case 'user_message': return t.slice(0, 160)
+    case 'assistant_message': return `${String(d.model ?? '')} · ${String(d.stop_reason ?? '')} · ${money(d.cost_usd as number | null)}${(d.tool_calls as unknown[] | undefined)?.length ? ` · ${(d.tool_calls as unknown[]).length} tool call(s)` : ''} · ${t.slice(0, 100)}`
+    case 'tool_call': return `${String(d.tool ?? '')} ${JSON.stringify(d.input ?? {}).slice(0, 100)} · ${String((d.decision as { mode?: string } | null)?.mode ?? (d.result as { gate?: string } | null)?.gate ?? '')}`
+    case 'tool_result': return `${String(d.tool ?? '')} · ${String(d.status ?? '')}${d.late ? ' · late' : ''} · ${t.slice(0, 100)}`
+    default: return t.slice(0, 120)
+  }
 }
 
 /// One line per ledger row: the fields a human wants without opening the JSON.
@@ -311,6 +509,13 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'provider.error': return `${s('class')}${g('transient') ? ' transient' : ''}${g('usage_unknown') ? ' usage unknown' : ''} · ${s('message')}`
     case r.kind === 'hook.site': return `${s('event')} · ${s('handlers')} handler(s) · ${s('outcome')}`
     case r.kind === 'loop.ended': return `loop ${s('loop')} · ${s('decision').replace(/[{}"]/g, '')}`
+    case r.kind === 'context.compiled': return `${s('decision')}${g('trigger') ? ` (${s('trigger')})` : ''} · ${s('prefix_nodes')}+${s('tail_nodes')} nodes · ${s('messages')} msg · ~${s('est_tokens')} tok`
+    case r.kind === 'context.recompiled': return `${s('trigger')} · ${s('strategy')} · ${s('includes')} node(s)${g('strip_thinking') ? ' · thinking stripped' : ''}`
+    case r.kind === 'tool.denied': return `${s('tool')} · ${s('reason')}`
+    case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`
+    case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
+    case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('note') ? ` · ${s('note')}` : ''}`
+    case r.kind === 'turn.trace': return 'timing tree (open for spans)'
     case r.kind === 'reconcile': return `woke ${(g('woke_due') as unknown[] | undefined)?.length ?? 0} · unknown ${(g('marked_unknown') as unknown[] | undefined)?.length ?? 0} · settled ${(g('settled_from_evidence') as unknown[] | undefined)?.length ?? 0} · ${s('elapsed_us')} µs`
     default: { const t = JSON.stringify(r.data); return t.length > 120 ? `${t.slice(0, 120)}…` : t }
   }

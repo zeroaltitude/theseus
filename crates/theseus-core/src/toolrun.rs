@@ -314,6 +314,7 @@ impl ToolRuntime {
             truncated,
             bytes_total,
             content,
+            meta,
             ..
         } = &node.body
         {
@@ -331,6 +332,7 @@ impl ToolRuntime {
                     "truncated": truncated,
                     "bytes": bytes_total,
                     "node_id": node.id,
+                    "exit_code": meta.get("exit_code"),
                     "preview": content.chars().take(2000).collect::<String>(),
                 }),
             );
@@ -1172,7 +1174,7 @@ impl ToolRuntime {
     pub fn absorb(&self, tc: &TurnCtx<'_>, settled: &[Action]) -> Result<u32> {
         let jobs: Vec<&Action> = settled
             .iter()
-            .filter(|a| a.tool != "provider.messages")
+            .filter(|a| a.tool != crate::turn::PROVIDER_TOOL)
             .collect();
         if jobs.is_empty() {
             return Ok(0);

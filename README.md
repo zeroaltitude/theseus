@@ -2,9 +2,9 @@
 
 My first agent harness, be gentle.
 
-Design document: [`docs/the-ship-of-theseus.md`](docs/the-ship-of-theseus.md) (Part I specification, Part II build plan).
+Design document: [`docs/the-ship-of-theseus.md`](docs/the-ship-of-theseus.md) (Part I specification, Part II build plan, Part III as built).
 
-## What exists (M0 First light, then M1 Keel and M2 Kernel below)
+## What exists (M0 First light, then M1 Keel, M2 Kernel, and M3 First hands below)
 
 Two static binaries and one protocol:
 
@@ -15,18 +15,22 @@ Two static binaries and one protocol:
   argument or stdin, streamed reply on stdout, diagnostics on stderr, `--json` for machines.
 - **The protocol** — JSON-RPC 2.0, one JSON object per line. Types in `crates/theseus-protocol`.
 - **The web UI** — `http://127.0.0.1:7433/`, served from the binary (Vite + React, source in `web/`).
-  The browser is a protocol client over a WebSocket; it shows prompts, streamed replies, tokens
-  in/out per exchange and per session, timing, and the event stream behind each turn. The
-  **Observatory** panel beside the chat is live windows onto the store: kernel state and the timed
-  startup steps, every execution with its budget and a cancel button, every action with its
-  planned → dispatched → settled timing, the ledger with family filters and per-row JSON, and
-  sessions with their execution state. Every panel is a protocol query re-run on a timer and after
-  each turn, so what you see is what a restarted daemon would also see.
+  The browser is a protocol client over a WebSocket. A sessions sidebar resumes any session (the
+  open one survives a reload); the transcript is rebuilt from the store with tool cards, diffs,
+  thinking summaries, dollars, and inline **Approve / Decline** for anything that needs you. The
+  **Observatory** panel beside the chat is live windows onto the store: context compilations and
+  every loop's append-or-recompile decision, the tools with their policy and call counts, kernel
+  state and the timed startup steps, every execution with its budget and a cancel button, every
+  action with its planned → dispatched → settled timing, the ledger with family filters and
+  per-row JSON, the session graph's nodes, the model catalog, and sessions. Every panel is a
+  protocol query re-run on a timer and after each turn, so what you see is what a restarted daemon
+  would also see.
 
-A turn today is exactly one loop: the user's prompt goes to the Anthropic Messages API with no
-other context and no tools, the reply streams back, and the Advancer's only policy
-(`stop_after_one_loop`) ends the turn. Every hook site is visited with zero handlers installed;
-handlers can be registered over the protocol and observe.
+A turn is a tool loop: the session's history (compiled once, then appended to) goes to the
+Anthropic Messages API with the toollets offered, tool calls go through the policy gate, and the
+Advancer ends the turn when the model stops calling tools, a call waits for your confirmation, or
+the loop cap is reached. Every hook site is visited; handlers can be registered over the protocol
+and observe.
 
 ## Run it
 
@@ -137,6 +141,39 @@ The kernel simulator runs the kernel under a virtual clock with a real store and
 dir and injects crashes between any two frames and inside every startup step, lost and duplicate
 completions, dropped notifies, jobs that never finish, and cancels; it checks the kernel
 invariants after every step and is reproducible from its seed.
+
+## First hands (M3)
+
+A session is a graph of **nodes** in the store (your messages, the model's messages with their
+thinking blocks byte for byte, tool calls with the gate's decision, tool results). The model's
+context is a **compilation** of those nodes plus the tail written since: appended to every loop,
+recompiled only on a new session, a model/system/tool change, overflow of the context window, or
+your request (`theseus sessions recompile <id> --strategy fresh|transcript`, or the Observatory).
+Every loop records its decision (`context.compiled`).
+
+Eleven native **toollets**, no shell unless asked for: `fs.read`, `fs.write`, `fs.edit`,
+`fs.patch`, `fs.glob`, `fs.grep`, `fs.list`, `text.diff`, `git.diff`, `git.log` (native, through
+`gix`), and `proc.run` (typed argv; `bash -c` is possible and visible as such). The **policy gate**
+confines them to `[tools].roots`, always denies protected paths (`~/.ssh`, `~/.aws`, the
+1Password token, `~/.theseus`, …) and dangerous argv (`sudo`, `rm -rf /`, …), and by default lets
+reads through while **writes and commands wait for your confirmation**, bound to the exact
+arguments and expiring after 15 minutes. `proc.run` runs in the detached job wrapper: if it takes
+longer than `[tools].proc_sync_secs`, the turn continues without it and the result comes back
+later, even across a daemon restart, as a late result the model reads in a continuation turn.
+
+The **model catalog** gives every model its context window, output ceiling, and prices, so every
+call is priced in dollars (`theseus catalog`; override or add rows with `[catalog."<model>"]`).
+
+```bash
+theseus ask "Run the tests in ~/projects/foo and fix what fails."   # tool activity on stderr
+theseus confirm                        # what is waiting for you, across sessions
+theseus confirm act_…                  # approve, then follow the turn it resumes (--deny to decline)
+theseus history [session]              # the transcript: messages, calls with gate decisions, results
+theseus watch [session]                # follow a session live, whoever drives it
+theseus ask -s ses_… "and now?"        # continue a session: its history is the context
+theseus tools                          # toollets, policy, calls, shell-fallback ratio
+theseus catalog                        # windows, output limits, prices
+```
 
 ## Build
 

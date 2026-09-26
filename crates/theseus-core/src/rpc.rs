@@ -220,8 +220,19 @@ impl Core {
             scrubber,
             launcher,
         )?);
+        // Tool call counts are durable facts (tool_call nodes); seed the live
+        // counters from the store so they survive a restart.
+        {
+            let mut calls = tools.calls.lock().unwrap();
+            for (_, n) in store.recent_nodes(usize::MAX)? {
+                if let Body::ToolCall { tool, .. } = n.body {
+                    *calls.entry(tool).or_default() += 1;
+                }
+            }
+        }
         tracing::info!(
             tools = tools.registry.len(),
+            calls = tools.calls.lock().unwrap().values().sum::<u64>(),
             roots = ?tools.ctx.roots,
             read = tools.policy.read.as_str(),
             write = tools.policy.write.as_str(),
@@ -693,6 +704,23 @@ impl Core {
             .as_deref()
             .and_then(|id| self.kernel.execution(id).ok().flatten())
             .map(|e| e.state.as_str().to_string());
+        // A planned tool action with no bound confirmation is waiting for the operator.
+        if let Some(exec) = r.execution_id.as_deref() {
+            i.pending_confirms = self
+                .kernel
+                .open_actions()
+                .map(|v| {
+                    v.iter()
+                        .filter(|a| {
+                            a.execution_id == exec
+                                && a.state == theseus_kernel::ActionState::Planned
+                                && a.confirm.is_none()
+                                && a.tool != crate::turn::PROVIDER_TOOL
+                        })
+                        .count() as u32
+                })
+                .unwrap_or(0);
+        }
         i
     }
 
@@ -1287,6 +1315,13 @@ impl Core {
             }
             method::ACTION_CONFIRM => {
                 let p: theseus_protocol::ActionConfirmParams = parse(req.params)?;
+                if p.watch {
+                    // Subscribe before the answer wakes the execution: the
+                    // continuation turn is then seen from its first event.
+                    if let Some(a) = self.kernel.action(&p.correlation_id).map_err(bad)? {
+                        self.bus.watch(&a.session_id, client, tx.clone());
+                    }
+                }
                 let r = self
                     .confirm_action(&p.correlation_id, p.approve, p.note.as_deref(), client)
                     .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;

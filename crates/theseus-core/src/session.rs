@@ -87,6 +87,7 @@ impl SessionRecord {
             model: self.last_target.as_ref().map(|t| t.model.clone()),
             compilation_id: self.compilation_id.clone(),
             title: self.title.clone(),
+            pending_confirms: 0,
         }
     }
 }

@@ -45,6 +45,9 @@ use crate::Config;
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
 /// the start of the cached prefix, so it never interpolates anything.
+/// The tool name of the provider-call action (spec §3.2b).
+pub const PROVIDER_TOOL: &str = "provider.messages";
+
 pub const PERSONA: &str = "You are Theseus, a coding and operations agent working for your operator through a harness that records everything you do. Be direct and concise; lead with what you found or did. When you are unsure, say so plainly.";
 
 /// What a turn runs against, resolved from a profile plus any raw overrides.
@@ -366,6 +369,7 @@ impl TurnRunner {
             anyhow::bail!("execution {} is not ready for a continuation turn", exec.id);
         };
         let admission_wait_us = arrived.elapsed().as_micros() as u64;
+        let failure_sink = sink.clone();
         let r = self
             .run_inner(
                 &guard,
@@ -386,6 +390,20 @@ impl TurnRunner {
         let exec_id = guard.execution_id.clone();
         if let Err(e) = self.kernel.end_turn(guard, end) {
             tracing::warn!(error = %e, "end_turn failed");
+        }
+        if let Err(e) = &r {
+            let te = e.downcast_ref::<TurnError>();
+            failure_sink.send(
+                notify::TURN_FAILED,
+                theseus_protocol::TurnFailed {
+                    session_id: failure_sink.session_id.clone(),
+                    turn_id: te.map(|t| t.turn_id.clone()).filter(|t| !t.is_empty()),
+                    execution_id: Some(exec_id.clone()),
+                    continuation,
+                    class: te.map(|t| t.class.clone()),
+                    error: format!("{e:#}"),
+                },
+            );
         }
         if rewake {
             // A background result landed while the turn ran; the model has not
@@ -657,7 +675,7 @@ impl TurnRunner {
 
             // --- the provider call is an action (§3.16)
             let mut proposal = Proposal {
-                tool: "provider.messages".into(),
+                tool: PROVIDER_TOOL.into(),
                 args: json!({"provider": target.provider, "model": target.model, "max_tokens": target.max_tokens, "loop": loop_index, "turn_id": turn_id, "digest": compiled.digest}),
                 resource: Some(target.provider.clone()),
                 policy_context: json!({"profile": target.profile}),
@@ -1160,7 +1178,7 @@ impl TurnRunner {
                         .action(c)
                         .ok()
                         .flatten()
-                        .map(|a| a.tool != "provider.messages")
+                        .map(|a| a.tool != PROVIDER_TOOL)
                         .unwrap_or(false)
             })
             .collect();
