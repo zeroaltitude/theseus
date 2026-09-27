@@ -31,7 +31,7 @@ pub enum Buttons {
 }
 
 /// A structured notice (a Discord embed): a call ran that the policy alone
-/// would have stopped, because `approve_policy` or `off_policy` is `notify`.
+/// would have stopped, because the enforcement level is `notify` or `open`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoticeCard {
     pub title: String,
@@ -76,7 +76,7 @@ struct ToolLine {
     summary: String,
     correlation_id: Option<String>,
     state: ToolState,
-    /// `approval_skipped` or `off_policy` when a notify setting let it run.
+    /// `approval_skipped` or `off_policy` when the enforcement level let it run.
     notice: Option<String>,
 }
 
@@ -265,7 +265,11 @@ impl Renderer {
                 }
                 let line = format!("`{}` {}", req.tool, summarize(&req.tool, &req.input));
                 let key = format!("confirm:{corr}");
-                let mut content = format!("**Approve?** {line}");
+                let mut content = if req.against_policy {
+                    format!("🚨 **Against policy. Approve anyway?** {line}")
+                } else {
+                    format!("**Approve?** {line}")
+                };
                 if !req.reason.is_empty() {
                     content.push_str(&format!("\n{}", clip(&req.reason, 300)));
                 }
@@ -273,6 +277,11 @@ impl Renderer {
                     "\n-# expires <t:{}:R> · you can also answer in the web UI or with `theseus confirm`",
                     req.expires_at_ms / 1000
                 ));
+                let line = if req.against_policy {
+                    format!("{line} (against policy)")
+                } else {
+                    line
+                };
                 self.confirms.insert(corr.clone(), (key.clone(), line));
                 vec![self.upsert(&key, content, Buttons::Confirm(corr))]
             }
@@ -770,10 +779,10 @@ mod tests {
         r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
         r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
             "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "allow"},
-            "decision": {"mode": "allow", "notify": {"kind": "approval_skipped", "setting": "approve_policy = notify", "rule": "run `cargo test`: proc.run is `confirm` for run tools"}}}}));
+            "decision": {"mode": "allow", "notify": {"kind": "approval_skipped", "setting": "enforcement = notify", "rule": "run `cargo test`: proc.run is `confirm` for run tools"}}}}));
         let ops = r.on_notification("policy.notified", &json!({"session_id": "s", "turn_id": "t1", "tool_use_id": "u1",
             "tool": "proc.run", "input": {"argv": ["cargo", "test"]}, "summary": "run `cargo test` in /w",
-            "kind": "approval_skipped", "setting": "approve_policy = notify", "rule": "run `cargo test`: proc.run is `confirm` for run tools"}));
+            "kind": "approval_skipped", "setting": "enforcement = notify", "rule": "run `cargo test`: proc.run is `confirm` for run tools"}));
         let Op::Notice { key, card } = &ops[0] else {
             panic!("{ops:?}")
         };

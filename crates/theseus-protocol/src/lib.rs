@@ -67,7 +67,7 @@ pub mod notify {
     /// requester also gets the error response; watchers only get this.
     pub const TURN_FAILED: &str = "turn.failed";
     /// A call ran that the policy alone would have stopped: a notify setting
-    /// (`approve_policy` or `off_policy`) let it through, and the operator is told.
+    /// (`enforcement` = notify or open) let it through, and the operator is told.
     pub const POLICY_NOTIFIED: &str = "policy.notified";
 }
 
@@ -764,6 +764,9 @@ pub struct ConfirmRequest {
     pub by: String,
     pub requested_at_ms: u64,
     pub expires_at_ms: u64,
+    /// The policy would refuse this call; `enforcement = ask` asks instead.
+    #[serde(default)]
+    pub against_policy: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

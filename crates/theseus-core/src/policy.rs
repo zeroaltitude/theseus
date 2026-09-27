@@ -29,26 +29,37 @@ impl Mode {
     }
 }
 
-/// `[policy].approve_policy`: what a call that needs approval does.
+/// `[policy].enforcement`: the operator's posture toward the gate's two stops,
+/// as one setting so they can never combine incoherently: a call against the
+/// policy never meets less friction than a call that only needs approval.
+///
+/// | enforcement | needs approval         | against policy                  |
+/// |-------------|------------------------|---------------------------------|
+/// | `strict`    | waits for Approve      | refused                         |
+/// | `ask`       | waits for Approve      | waits for Approve, marked       |
+/// | `notify`    | runs, amber notice     | refused                         |
+/// | `open`      | runs, amber notice     | runs, red notice                |
+///
+/// The floor is refused at every level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum ApprovePolicy {
-    /// Wait for the operator's Approve (the confirm card).
+pub enum Enforcement {
     #[default]
-    Approve,
-    /// Run at once; post a notice in the session's channel.
+    Strict,
+    Ask,
     Notify,
+    Open,
 }
 
-/// `[policy].off_policy`: what a call the policy denies does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum OffPolicy {
-    /// Refuse it, with the reason.
-    #[default]
-    Deny,
-    /// Run it anyway; post a notice in the session's channel.
-    Notify,
+impl Enforcement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Enforcement::Strict => "strict",
+            Enforcement::Ask => "ask",
+            Enforcement::Notify => "notify",
+            Enforcement::Open => "open",
+        }
+    }
 }
 
 /// Why a call ran that the policy alone would have stopped.
@@ -56,7 +67,7 @@ pub enum OffPolicy {
 pub struct Notice {
     /// `approval_skipped` or `off_policy`.
     pub kind: String,
-    /// The setting that let it run, e.g. `approve_policy = notify`.
+    /// The setting that let it run, e.g. `enforcement = notify`.
     pub setting: String,
     /// What the policy said (the confirm or deny reason).
     pub rule: String,
@@ -66,12 +77,15 @@ pub struct Notice {
 pub struct Decision {
     pub mode: Mode,
     pub reason: String,
-    /// Set when a notify setting let the call run instead of asking or refusing.
+    /// Set when the enforcement level let the call run instead of asking or refusing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notify: Option<Notice>,
     /// A floor denial: no setting lifts it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub floor: bool,
+    /// A confirm that stands in for a refusal (`enforcement = ask`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub against_policy: bool,
 }
 
 impl Decision {
@@ -81,6 +95,7 @@ impl Decision {
             reason,
             notify: None,
             floor: false,
+            against_policy: false,
         }
     }
 }
@@ -102,8 +117,7 @@ pub struct ToolPolicy {
     pub overrides: BTreeMap<String, Mode>,
     /// Who confirms (the execution's principal).
     pub confirmer: String,
-    pub approve_policy: ApprovePolicy,
-    pub off_policy: OffPolicy,
+    pub enforcement: Enforcement,
     /// Denied whatever the settings say: Theseus's store, spool, and bindings
     /// file, and the 1Password CLI's credentials (canonical paths).
     pub floor_paths: Vec<PathBuf>,
@@ -188,31 +202,43 @@ impl ToolPolicy {
         }
     }
 
-    /// The gate's answer after the operator's settings: a confirm becomes a
-    /// notified allow under `approve_policy = notify`, and a deny (other than
-    /// the floor) becomes a notified allow under `off_policy = notify`.
+    /// The gate's answer at the operator's enforcement level: `notify` and
+    /// `open` run what needs approval (with a notice), `ask` turns a refusal
+    /// into a marked confirm, `open` runs a refusal (with a notice). The floor
+    /// is never lifted.
     pub fn decide(&self, tool: &dyn Tool, plan: &Plan) -> Decision {
+        use Enforcement::*;
         let d = self.decide_by_policy(tool, plan);
-        match d.mode {
-            Mode::Confirm if self.approve_policy == ApprovePolicy::Notify => Decision {
+        let setting = format!("enforcement = {}", self.enforcement.as_str());
+        match (d.mode, self.enforcement) {
+            (Mode::Confirm, Notify | Open) => Decision {
                 mode: Mode::Allow,
                 reason: format!("ran without approval: {}", d.reason),
                 notify: Some(Notice {
                     kind: "approval_skipped".into(),
-                    setting: "approve_policy = notify".into(),
+                    setting,
                     rule: d.reason,
                 }),
                 floor: false,
+                against_policy: false,
             },
-            Mode::Deny if self.off_policy == OffPolicy::Notify && !d.floor => Decision {
+            (Mode::Deny, Ask) if !d.floor => Decision {
+                mode: Mode::Confirm,
+                reason: format!("against policy: {}", d.reason),
+                notify: None,
+                floor: false,
+                against_policy: true,
+            },
+            (Mode::Deny, Open) if !d.floor => Decision {
                 mode: Mode::Allow,
                 reason: format!("ran against policy: {}", d.reason),
                 notify: Some(Notice {
                     kind: "off_policy".into(),
-                    setting: "off_policy = notify".into(),
+                    setting,
                     rule: d.reason,
                 }),
                 floor: false,
+                against_policy: true,
             },
             _ => d,
         }
@@ -225,6 +251,7 @@ impl ToolPolicy {
             reason,
             notify: None,
             floor: true,
+            against_policy: false,
         };
         for r in &plan.resources {
             let p = paths::canonical_best_effort(&r.path);
@@ -443,8 +470,7 @@ mod tests {
             deny_argv: vec![vec!["sudo".into()]],
             overrides: BTreeMap::new(),
             confirmer: "operator".into(),
-            approve_policy: ApprovePolicy::Approve,
-            off_policy: OffPolicy::Deny,
+            enforcement: Enforcement::Strict,
             floor_paths: vec![root.join("state")],
             floor_argv: floor_argv(),
         }
@@ -548,21 +574,43 @@ mod tests {
             "inside the root"
         );
         assert_eq!(run(vec!["git", "status", "-s"]).mode, Mode::Allow);
-        // The operator's settings: approvals become notices, denials become
-        // notices, and the floor stays denied either way.
-        let mut n = p.clone();
-        n.approve_policy = ApprovePolicy::Notify;
-        let out = n.decide(&w, &plan(root.join("a.rs"), Access::Write, None));
-        assert_eq!(out.mode, Mode::Allow);
-        assert_eq!(out.notify.as_ref().unwrap().kind, "approval_skipped");
-        let out = n.decide(&r, &plan("/etc/passwd".into(), Access::Read, None));
+        // The enforcement ladder: every level is coherent, and the floor holds.
+        let at = |e: Enforcement| {
+            let mut q = p.clone();
+            q.enforcement = e;
+            q
+        };
+        let write = plan(root.join("a.rs"), Access::Write, None);
+        let outside = plan("/etc/passwd".into(), Access::Read, None);
+        let sudo = plan(root.clone(), Access::Exec, Some(vec!["sudo", "ls"]));
+        let s = at(Enforcement::Strict);
+        assert_eq!(s.decide(&w, &write).mode, Mode::Confirm);
+        assert_eq!(s.decide(&r, &outside).mode, Mode::Deny);
+        let a = at(Enforcement::Ask);
+        assert_eq!(a.decide(&w, &write).mode, Mode::Confirm);
+        let out = a.decide(&r, &outside);
         assert_eq!(
             out.mode,
-            Mode::Deny,
-            "approve_policy alone never lifts a deny"
+            Mode::Confirm,
+            "ask: a refusal becomes a marked confirm"
         );
-        n.off_policy = OffPolicy::Notify;
-        let out = n.decide(&r, &plan("/etc/passwd".into(), Access::Read, None));
+        assert!(
+            out.against_policy && out.reason.starts_with("against policy"),
+            "{}",
+            out.reason
+        );
+        let n = at(Enforcement::Notify);
+        let out = n.decide(&w, &write);
+        assert_eq!(out.mode, Mode::Allow);
+        assert_eq!(out.notify.as_ref().unwrap().kind, "approval_skipped");
+        assert_eq!(out.notify.unwrap().setting, "enforcement = notify");
+        assert_eq!(
+            n.decide(&r, &outside).mode,
+            Mode::Deny,
+            "notify never lifts a refusal"
+        );
+        let o = at(Enforcement::Open);
+        let out = o.decide(&r, &outside);
         assert_eq!(out.mode, Mode::Allow);
         let nt = out.notify.unwrap();
         assert_eq!(nt.kind, "off_policy");
@@ -571,36 +619,42 @@ mod tests {
             "{}",
             nt.rule
         );
-        let out = n.decide(
-            &x,
-            &plan(root.clone(), Access::Exec, Some(vec!["sudo", "ls"])),
-        );
         assert_eq!(
-            out.mode,
+            o.decide(&x, &sudo).mode,
             Mode::Allow,
-            "off_policy = notify runs the deny list too"
+            "open runs the deny list too"
         );
-        for (what, pl) in [
-            (
-                "state dir",
-                plan(root.join("state/store"), Access::Read, None),
-            ),
-            (
-                "theseusd",
-                plan(root.clone(), Access::Exec, Some(vec!["theseusd", "config"])),
-            ),
-            (
-                "op",
-                plan(
-                    root.clone(),
-                    Access::Exec,
-                    Some(vec!["/usr/bin/op", "read", "x"]),
-                ),
-            ),
+        for e in [
+            Enforcement::Strict,
+            Enforcement::Ask,
+            Enforcement::Notify,
+            Enforcement::Open,
         ] {
-            let out = n.decide(&x, &pl);
-            assert_eq!(out.mode, Mode::Deny, "the floor holds: {what}");
-            assert!(out.floor && out.notify.is_none(), "{what}: {}", out.reason);
+            let q = at(e);
+            for (what, pl) in [
+                ("state", plan(root.join("state/store"), Access::Read, None)),
+                (
+                    "theseusd",
+                    plan(root.clone(), Access::Exec, Some(vec!["theseusd", "config"])),
+                ),
+                (
+                    "op",
+                    plan(
+                        root.clone(),
+                        Access::Exec,
+                        Some(vec!["/usr/bin/op", "read", "x"]),
+                    ),
+                ),
+            ] {
+                let out = q.decide(&x, &pl);
+                assert_eq!(
+                    out.mode,
+                    Mode::Deny,
+                    "the floor holds at {}: {what}",
+                    e.as_str()
+                );
+                assert!(out.floor && out.notify.is_none() && !out.against_policy);
+            }
         }
         let mut p2 = p.clone();
         p2.overrides.insert("fs.test".into(), Mode::Allow);

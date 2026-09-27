@@ -182,8 +182,7 @@ impl ToolRuntime {
                 deny_argv: vec![],
                 overrides: BTreeMap::new(),
                 confirmer: "operator".into(),
-                approve_policy: Default::default(),
-                off_policy: Default::default(),
+                enforcement: Default::default(),
                 floor_paths: vec![],
                 floor_argv: crate::policy::floor_argv(),
             },
@@ -557,6 +556,7 @@ impl ToolRuntime {
                     },
                 )?;
                 let now = theseus_protocol::now_unix_ms();
+                let against_policy = decision.as_ref().is_some_and(|d| d.against_policy);
                 let req = ConfirmRequest {
                     correlation_id: a.correlation_id.clone(),
                     session_id: tc.session_id.into(),
@@ -568,6 +568,7 @@ impl ToolRuntime {
                     by,
                     requested_at_ms: now,
                     expires_at_ms: now + tc.confirm_ttl_ms,
+                    against_policy,
                 };
                 self.ledger(tc, "tool.confirm_requested", serde_json::to_value(&req)?);
                 tc.sink.send(notify::CONFIRM_REQUESTED, &req);
@@ -1295,8 +1296,7 @@ pub fn build_runtime(
             deny_argv: cfg.policy.deny_argv.clone(),
             overrides: cfg.policy.overrides.clone(),
             confirmer: crate::turn::OPERATOR.into(),
-            approve_policy: cfg.policy.approve_policy,
-            off_policy: cfg.policy.off_policy,
+            enforcement: cfg.policy.enforcement,
             floor_paths,
             floor_argv: crate::policy::floor_argv(),
         },

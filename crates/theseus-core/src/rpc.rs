@@ -747,6 +747,9 @@ impl Core {
                             by: OPERATOR.into(),
                             requested_at_ms: a.planned_at_ms,
                             expires_at_ms: a.planned_at_ms + ttl,
+                            against_policy: gate["decision"]["against_policy"]
+                                .as_bool()
+                                .unwrap_or(false),
                         });
                     }
                 }

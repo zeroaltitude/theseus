@@ -132,14 +132,20 @@ proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME"
 # ---------------------------------------------------------------- policy
 # The gate's three bands (spec §3.9): allow | confirm | deny, by tool class.
 # Confirmations appear in Discord and the web UI (Approve / Decline) and in
-# `theseus confirm`. approve_policy and off_policy decide what "confirm" and
-# "deny" do; with notify, the call runs and a notice goes to the session's
-# channel (Discord, web UI, CLI) and the ledger (`tool.notified`). The floor
-# is denied either way: Theseus's store, spool, and bindings file, its own
-# binary, and the 1Password CLI and its credentials.
+# `theseus confirm`. enforcement decides what the two stops do, as one setting
+# so they stay compatible (a call against the policy never meets less friction
+# than one that only needs approval):
+#   enforcement   needs approval           against policy
+#   strict        waits for Approve        refused
+#   ask           waits for Approve        waits for Approve, marked "against policy"
+#   notify        runs, amber notice       refused
+#   open          runs, amber notice       runs, red notice
+# A notice goes to the session's channel (Discord, web UI, CLI) and the ledger
+# (`tool.notified`). The floor is refused at every level: Theseus's store,
+# spool, and bindings file, its own binary, and the 1Password CLI and its
+# credentials.
 [policy]
-approve_policy = "approve"              # approve: wait for Approve | notify: run at once and post a notice
-off_policy = "deny"                     # deny: refuse with the reason | notify: run anyway and post a notice
+enforcement = "strict"                  # strict | ask | notify | open
 read = "allow"                          # fs.read, fs.glob, fs.grep, fs.list, text.diff, git.diff, git.log
 write = "confirm"                       # fs.write, fs.edit, fs.patch
 run = "confirm"                         # proc.run

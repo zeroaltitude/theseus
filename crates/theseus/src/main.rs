@@ -1493,8 +1493,9 @@ impl Printer {
                 self.settle();
                 if let Ok(c) = serde_json::from_value::<ConfirmRequest>(p.clone()) {
                     eprintln!(
-                        "  ? {} needs your confirmation: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
+                        "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
                         c.tool,
+                        if c.against_policy { " (AGAINST POLICY)" } else { "" },
                         c.reason,
                         clip(&c.input.to_string(), 200),
                         c.correlation_id,

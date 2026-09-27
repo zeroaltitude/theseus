@@ -691,7 +691,11 @@ impl Shared {
                     .message
                     .as_ref()
                     .and_then(|m| m.content.lines().next())
-                    .map(|l| l.trim_start_matches("**Approve?** ").to_string())
+                    .map(|l| {
+                        l.trim_start_matches("🚨 **Against policy. Approve anyway?** ")
+                            .trim_start_matches("**Approve?** ")
+                            .to_string()
+                    })
                     .unwrap_or_default();
                 let content = match &r {
                     Ok(_) if approve => format!("✅ **Approved** by {who} · {line}"),

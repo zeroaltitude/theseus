@@ -227,15 +227,11 @@ pub struct PolicyConfig {
     /// Per-tool overrides by canonical name, e.g. `"fs.edit" = "allow"`.
     #[serde(default)]
     pub overrides: BTreeMap<String, crate::policy::Mode>,
-    /// What a call that needs approval does: `approve` waits for the operator's
-    /// Approve; `notify` runs at once and posts a notice in the session's channel.
+    /// The operator's posture toward the gate's two stops (strict | ask |
+    /// notify | open); see `policy::Enforcement`. One setting, so a call
+    /// against the policy never meets less friction than one needing approval.
     #[serde(default)]
-    pub approve_policy: crate::policy::ApprovePolicy,
-    /// What a call the policy denies does: `deny` refuses it; `notify` runs it
-    /// anyway and posts a notice. The floor (Theseus's own state and binary, and
-    /// the 1Password CLI and its credentials) is denied either way.
-    #[serde(default)]
-    pub off_policy: crate::policy::OffPolicy,
+    pub enforcement: crate::policy::Enforcement,
 }
 
 fn mode_allow() -> crate::policy::Mode {
@@ -279,8 +275,7 @@ impl Default for PolicyConfig {
             allow_argv: default_allow_argv(),
             deny_argv: default_deny_argv(),
             overrides: BTreeMap::new(),
-            approve_policy: Default::default(),
-            off_policy: Default::default(),
+            enforcement: Default::default(),
         }
     }
 }

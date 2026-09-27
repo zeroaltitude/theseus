@@ -192,3 +192,6 @@ button.link.danger { color: var(--bad); }
 .kind.tool { color: var(--accent); } .kind.context { color: #5ec8d8; }
 .kind.node-user_message { color: var(--accent); } .kind.node-assistant_message { color: #b07cff; }
 .kind.node-tool_call { color: var(--warn); } .kind.node-tool_result { color: var(--ok); }
+
+/* A confirm that stands in for a refusal (enforcement = ask). */
+.confirm.against { border-color: var(--bad, #d93025); }

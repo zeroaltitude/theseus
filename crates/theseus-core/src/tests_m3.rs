@@ -484,7 +484,7 @@ async fn a_fresh_recompile_starts_over_and_is_recorded() {
 }
 
 #[tokio::test]
-async fn notify_settings_run_what_would_ask_or_be_refused_and_say_so_but_the_floor_holds() {
+async fn enforcement_open_runs_what_would_ask_or_be_refused_and_says_so_but_the_floor_holds() {
     let outside = tempfile::tempdir().unwrap();
     std::fs::write(outside.path().join("note.txt"), "outside the workspace\n").unwrap();
     let outside_file = outside
@@ -508,10 +508,7 @@ async fn notify_settings_run_what_would_ask_or_be_refused_and_say_so_but_the_flo
             ),
             Scripted::text("Done, and you were told."),
         ],
-        |cfg| {
-            cfg.policy.approve_policy = crate::policy::ApprovePolicy::Notify;
-            cfg.policy.off_policy = crate::policy::OffPolicy::Notify;
-        },
+        |cfg| cfg.policy.enforcement = crate::policy::Enforcement::Open,
     );
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let res = {
@@ -527,7 +524,7 @@ async fn notify_settings_run_what_would_ask_or_be_refused_and_say_so_but_the_flo
     };
     assert!(
         res.awaiting_confirm.is_none(),
-        "approve_policy = notify never parks"
+        "enforcement = open never parks"
     );
     assert_eq!(
         std::fs::read_to_string(r.root.join("out.txt")).unwrap(),
@@ -562,7 +559,7 @@ async fn notify_settings_run_what_would_ask_or_be_refused_and_say_so_but_the_flo
         .collect();
     assert_eq!(kinds, vec!["approval_skipped", "off_policy"], "{notices:?}");
     assert_eq!(notices[0]["tool"], "fs.write");
-    assert_eq!(notices[0]["setting"], "approve_policy = notify");
+    assert_eq!(notices[0]["setting"], "enforcement = open");
     assert!(notices[1]["rule"]
         .as_str()
         .unwrap()
@@ -576,4 +573,31 @@ async fn notify_settings_run_what_would_ask_or_be_refused_and_say_so_but_the_flo
         .filter(|(_, row)| row.kind == "tool.notified")
         .count();
     assert_eq!(ledgered, 2);
+}
+
+#[tokio::test]
+async fn enforcement_ask_turns_a_refusal_into_a_marked_confirm() {
+    let r = rig_with(
+        vec![
+            Scripted::tools("", &[("t1", "fs_read", json!({"path": "/etc/hostname"}))]),
+            Scripted::text("Read it."),
+        ],
+        |cfg| cfg.policy.enforcement = crate::policy::Enforcement::Ask,
+    );
+    let res = turn(&r.core, None, "read /etc/hostname").await;
+    assert!(
+        res.awaiting_confirm.is_some(),
+        "ask parks instead of refusing"
+    );
+    let pending = r.core.pending_confirms(&res.session_id).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert!(
+        pending[0].against_policy,
+        "the card says it is against policy"
+    );
+    assert!(
+        pending[0].reason.starts_with("against policy"),
+        "{}",
+        pending[0].reason
+    );
 }

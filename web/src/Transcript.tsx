@@ -107,8 +107,10 @@ function ConfirmCard({ c, onConfirm, now }: { c: ConfirmRequest; onConfirm: Tran
     try { await onConfirm(c.correlation_id, approve, note) } catch (e) { setErr((e as { message?: string }).message ?? String(e)); setBusy(false) }
   }
   return (
-    <div className="confirm">
-      <div className="confirm-head"><b>{c.tool}</b> needs your confirmation</div>
+    <div className={`confirm ${c.against_policy ? 'against' : ''}`}>
+      <div className="confirm-head"><b>{c.tool}</b> {c.against_policy
+        ? <><span className="pill bad">against policy</span> the policy would refuse this; approve anyway?</>
+        : 'needs your confirmation'}</div>
       <div className="muted small">{c.reason}</div>
       <Preview tool={c.tool} input={c.input} />
       <div className="confirm-actions">
