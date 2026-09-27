@@ -307,7 +307,10 @@ export default function App() {
           {loadError && <div className="error">could not load the session: {loadError}</div>}
           {nodes.length === 0 && !draft && Object.keys(liveHere).length === 0 && (
             <div className="empty">
-              {current ? 'This session has no messages yet.' : <>
+              {current ? ((info?.turns ?? 0) > 0
+                ? <>This session's {info!.turns} turn{info!.turns === 1 ? '' : 's'} ran before Theseus kept what was said (conversation content is stored from M3 on, 2026-09-26 15:58).
+                    Only their numbers survive: timings, tokens, and any error are in the Observatory's ledger with <i>this session</i> checked.</>
+                : 'This session has no messages yet.') : <>
                 A new session opens with your first message. Theseus can read, search, and diff files under the workspace
                 roots on its own; writing files and running commands wait for your confirmation, right here.
                 Pick an earlier session on the left to resume it — its whole history is the model's context.
