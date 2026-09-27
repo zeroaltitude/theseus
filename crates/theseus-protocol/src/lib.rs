@@ -273,6 +273,9 @@ pub struct PlaceStatus {
     /// Discord user ids that may drive turns here.
     #[serde(default)]
     pub users: Vec<String>,
+    /// Only messages that @mention the bot or reply to it start turns.
+    #[serde(default)]
+    pub mention_only: bool,
     #[serde(default)]
     pub last_activity_ms: u64,
 }

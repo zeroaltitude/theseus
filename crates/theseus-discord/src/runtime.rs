@@ -194,6 +194,7 @@ async fn serve(
         routes: Mutex::new(Routes::default()),
     });
 
+    shared.refresh_bot_roles(guild).await;
     // Places: every [[channel]] and every [[dm]], each with its session.
     for c in &bindings.channel {
         let channel = Id::new(snowflake("channel id", &c.id)?);
@@ -210,6 +211,7 @@ async fn serve(
                 c.label(),
                 Some(channel),
                 users,
+                c.mention_only,
             )
             .await?;
     }
@@ -230,6 +232,7 @@ async fn serve(
                 d.label(),
                 channel,
                 vec![user],
+                false,
             )
             .await?;
     }
@@ -271,7 +274,10 @@ async fn serve(
                 tracing::info!(bot = %me.name, "discord gateway ready");
             }
             Event::Resumed => board.state("ready", None),
-            Event::GuildCreate(g) if g.id() == guild => board.update(|s| s.detail = None),
+            Event::GuildCreate(g) if g.id() == guild => {
+                board.update(|s| s.detail = None);
+                shared.refresh_bot_roles(guild).await;
+            }
             Event::GatewayClose(frame) => {
                 let why = frame
                     .map(|f| format!("close {} {}", f.code, f.reason))
@@ -340,6 +346,10 @@ struct Routes {
     by_dm_user: HashMap<u64, mpsc::UnboundedSender<PlaceMsg>>,
     /// channel id → who may drive it
     users: HashMap<u64, Vec<u64>>,
+    /// channel ids where only an @mention or a reply to the bot starts a turn
+    mention_only: std::collections::HashSet<u64>,
+    /// the bot's roles in the guild (an @Theseus can arrive as its managed role)
+    bot_roles: Vec<u64>,
     /// turn id → session id (deltas name only the turn)
     turns: HashMap<String, String>,
 }
@@ -387,6 +397,7 @@ impl Shared {
         label: String,
         channel: Option<Id<ChannelMarker>>,
         users: Vec<u64>,
+        mention_only: bool,
     ) -> anyhow::Result<()> {
         let (session_id, fresh) = self.session_for(&key, &label).await?;
         let (tx, rx) = mpsc::unbounded_channel();
@@ -396,6 +407,9 @@ impl Shared {
             if let Some(c) = channel {
                 r.by_channel.insert(c.get(), tx.clone());
                 r.users.insert(c.get(), users.clone());
+                if mention_only {
+                    r.mention_only.insert(c.get());
+                }
             }
             if kind == "dm" {
                 r.by_dm_user.insert(users[0], tx.clone());
@@ -409,6 +423,7 @@ impl Shared {
             label,
             channel,
             users,
+            mention_only,
             session_id,
             renderer: Renderer::default(),
             msgs: HashMap::new(),
@@ -421,8 +436,13 @@ impl Shared {
         };
         place.report();
         if fresh {
+            let how = if mention_only {
+                "@mention me or reply to one of my messages to talk"
+            } else {
+                "talk to me in this place"
+            };
             let _ = notice_tx.send(PlaceMsg::Notice(format!(
-                "🔗 Theseus is bound here (session `{}`). Talk to me in this place; `/status`, `/new` and `/stop` work too, and everything shows in the web UI.",
+                "🔗 Theseus is bound here (session `{}`). {how}; `/status`, `/new` and `/stop` work too, and everything shows in the web UI.",
                 place.session_id
             )));
         }
@@ -492,13 +512,28 @@ impl Shared {
         list.sessions.into_iter().find(|s| s.session_id == sid)
     }
 
+    /// The bot's roles in the guild, so an @Theseus that resolves to its
+    /// managed role still counts as a mention.
+    async fn refresh_bot_roles(&self, guild: Id<twilight_model::id::marker::GuildMarker>) {
+        let roles = match self.http.guild_member(guild, Id::new(self.bot_id)).await {
+            Ok(r) => match r.model().await {
+                Ok(m) => m.roles.iter().map(|r| r.get()).collect(),
+                Err(_) => vec![],
+            },
+            Err(_) => vec![], // not in the guild yet
+        };
+        self.routes.lock().unwrap().bot_roles = roles;
+    }
+
     async fn on_message(self: Arc<Self>, m: &twilight_model::channel::Message) {
         if m.author.bot || m.author.id.get() == self.bot_id {
             return;
         }
-        let (tx, allowed) = {
+        let (tx, allowed, mention_only, bot_roles) = {
             let r = self.routes.lock().unwrap();
-            match m.guild_id {
+            let mention_only = r.mention_only.contains(&m.channel_id.get());
+            let roles = r.bot_roles.clone();
+            let (tx, allowed) = match m.guild_id {
                 Some(_) => (
                     r.by_channel.get(&m.channel_id.get()).cloned(),
                     r.users
@@ -509,11 +544,27 @@ impl Shared {
                     let tx = r.by_dm_user.get(&m.author.id.get()).cloned();
                     (tx.clone(), tx.is_some())
                 }
-            }
+            };
+            (tx, allowed, mention_only, roles)
         };
         let Some(tx) = tx else {
             return; // not a place of ours
         };
+        if mention_only {
+            let mentions: Vec<u64> = m.mentions.iter().map(|u| u.id.get()).collect();
+            let roles: Vec<u64> = m.mention_roles.iter().map(|r| r.get()).collect();
+            let replied = m.referenced_message.as_ref().map(|r| r.author.id.get());
+            if !addressed(
+                &m.content,
+                &mentions,
+                &roles,
+                replied,
+                self.bot_id,
+                &bot_roles,
+            ) {
+                return; // talk in a shared channel that is not for Theseus
+            }
+        }
         if !allowed {
             self.board.update(|s| s.ignored += 1);
             self.core.binding_ledger(
@@ -526,7 +577,11 @@ impl Shared {
         if m.guild_id.is_none() {
             let _ = tx.send(PlaceMsg::DmChannel(m.channel_id));
         }
-        let mut text = m.content.clone();
+        let mut text = if mention_only {
+            strip_mentions(&m.content, self.bot_id, &bot_roles)
+        } else {
+            m.content.clone()
+        };
         for a in &m.attachments {
             text.push_str(&format!(
                 "\n[attachment: {} ({} bytes), not read]",
@@ -699,6 +754,34 @@ impl Shared {
     }
 }
 
+/// A message is for Theseus when it @mentions the bot (as a user or through
+/// one of its roles) or replies to one of the bot's messages.
+fn addressed(
+    content: &str,
+    mentions: &[u64],
+    mention_roles: &[u64],
+    replied_to: Option<u64>,
+    bot_id: u64,
+    bot_roles: &[u64],
+) -> bool {
+    mentions.contains(&bot_id)
+        || content.contains(&format!("<@{bot_id}>"))
+        || content.contains(&format!("<@!{bot_id}>"))
+        || mention_roles.iter().any(|r| bot_roles.contains(r))
+        || replied_to == Some(bot_id)
+}
+
+/// The message without the tokens that addressed the bot.
+fn strip_mentions(content: &str, bot_id: u64, bot_roles: &[u64]) -> String {
+    let mut s = content
+        .replace(&format!("<@{bot_id}>"), "")
+        .replace(&format!("<@!{bot_id}>"), "");
+    for r in bot_roles {
+        s = s.replace(&format!("<@&{r}>"), "");
+    }
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn terminal(state: Option<&str>) -> bool {
     matches!(
         state,
@@ -776,6 +859,7 @@ struct Place {
     label: String,
     channel: Option<Id<ChannelMarker>>,
     users: Vec<u64>,
+    mention_only: bool,
     session_id: String,
     renderer: Renderer,
     /// render key → Discord message id
@@ -1142,6 +1226,7 @@ impl Place {
             channel_id: self.channel.map(|c| c.to_string()),
             session_id: Some(self.session_id.clone()),
             users: self.users.iter().map(u64::to_string).collect(),
+            mention_only: self.mention_only,
             last_activity_ms: self.last_activity_ms,
         });
     }
@@ -1171,6 +1256,37 @@ mod tests {
         assert_eq!(parse_confirm_id("other"), None);
         assert!(terminal(Some("cancelled")));
         assert!(!terminal(Some("waiting")));
+    }
+
+    #[test]
+    fn mention_only_channels_answer_mentions_and_replies_only() {
+        let (bot, role) = (1553557742759706625u64, 42u64);
+        assert!(addressed("hi", &[bot], &[], None, bot, &[role]));
+        assert!(addressed(
+            "<@1553557742759706625> hi",
+            &[],
+            &[],
+            None,
+            bot,
+            &[role]
+        ));
+        assert!(addressed(
+            "<@!1553557742759706625> hi",
+            &[],
+            &[],
+            None,
+            bot,
+            &[role]
+        ));
+        assert!(addressed("<@&42> hi", &[], &[role], None, bot, &[role]));
+        assert!(addressed("thanks", &[], &[], Some(bot), bot, &[role]));
+        assert!(!addressed("@Tabitha hi", &[7], &[], None, bot, &[role]));
+        assert!(!addressed("hi all", &[], &[9], Some(7), bot, &[role]));
+        assert_eq!(
+            strip_mentions("<@1553557742759706625>  run the tests", bot, &[role]),
+            "run the tests"
+        );
+        assert_eq!(strip_mentions("hey <@&42> look", bot, &[role]), "hey look");
     }
 
     #[test]

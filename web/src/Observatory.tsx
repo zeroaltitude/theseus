@@ -321,7 +321,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                   <tbody>
                     {b.places.map((p) => (
                       <tr key={p.label} className={p.session_id && p.session_id === currentSession ? 'mine' : ''}>
-                        <td><b>{p.label}</b></td>
+                        <td><b>{p.label}</b>{p.mention_only && <span className="muted small" title="only messages that @mention Theseus or reply to it start a turn"> · @mention only</span>}</td>
                         <td className="muted">{p.kind}</td>
                         <td className="muted small">{p.channel_id ? <code>{p.channel_id}</code> : 'opens on first DM'}</td>
                         <td>{p.session_id ? <button type="button" className="link" onClick={() => onPickSession?.(p.session_id!)} title="open this session's transcript">{sessionTitle(p.session_id)}</button> : '—'}</td>

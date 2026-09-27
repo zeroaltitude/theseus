@@ -34,7 +34,7 @@ export interface Health {
 
 export interface PlaceStatus {
   kind: 'channel' | 'dm'; label: string; channel_id?: string; session_id?: string
-  users: string[]; last_activity_ms: number
+  users: string[]; mention_only?: boolean; last_activity_ms: number
 }
 
 export interface BindingStatus {

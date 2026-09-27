@@ -30,6 +30,15 @@ pub struct ChannelBinding {
     #[serde(default)]
     pub name: Option<String>,
     pub users: Vec<String>,
+    /// Answer only messages that @mention Theseus or reply to one of its
+    /// messages. On by default: a channel shared with people or other bots
+    /// should not get a turn per message.
+    #[serde(default = "yes")]
+    pub mention_only: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -102,6 +111,7 @@ mod tests {
         assert_eq!(b.channel.len(), 1);
         assert_eq!(b.dm.len(), 1);
         assert_eq!(b.channel[0].label(), "#theseus");
+        assert!(b.channel[0].mention_only, "mention_only defaults on");
         assert_eq!(b.dm[0].label(), "DM @eddie");
         assert_eq!(b.revision.len(), 12);
     }
