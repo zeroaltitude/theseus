@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.34
+# The Ship of Theseus — v0.35
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -741,7 +741,7 @@ _Written 2026-09-26 in answer to Eddie's questions before M2. The durable layer 
 
 | Projection | Store | Answers | Lag behind commit |
 |---|---|---|---|
-| Structural index | redb (§6 storage kernel) | position → location; latest by key; per-kind, per-session, and adjacency range scans (`type ‖ from ‖ to`, plus a reverse column for `includes` and `mentions`) | none (same call, non-durable until checkpoint) |
+| Structural index | redb (§6 storage kernel) | position → location; latest by key; per-kind, per-session, and adjacency range scans (`type ‖ from ‖ to`, plus a reverse column `type ‖ to ‖ from` for `includes`, `mentions`, and the edges §5.6's lineage walk follows: `derived_from`, `summarizes`, `part_of`, `same_entity`; Appendix F) | none (same call, non-durable until checkpoint) |
 | Resident arena | process memory | the working set: metadata columns, payloads, adjacency segments | none |
 | Retrieval index | Index tender: usearch (256-d indexed, 768-d stored and reranked) + tantivy BM25, memory-mapped from SSD | "things about E" by paraphrase and by literal mention; reciprocal-rank fusion, then Jev relevance | seconds |
 | Entity edges | Memory tender writing `mentions` and related edges back through the WAL | "things about E" as one adjacency scan once E is an entity node | seconds to minutes |
@@ -881,6 +881,57 @@ Eddie forwarded an essay arguing that a harness should treat everything as an MC
 **Rejected, with reasons.** Channels as MCP servers: Discord is the source of authority context, which must stay trusted kernel data (§3.9); MCP's request-response session model also does not fit a long-lived event source. The kernel as a stateless MCP router: MCP has no durable completion model, and a stateless router loses in-flight work on restart, which is the failure the execution kernel exists to prevent (§3.16). Memory as a tool: recall is compiler-selected every turn, never something the model must remember to ask for (§5). Thinking as a tool: native extended thinking exists; a tool adds latency and tokens. Sub-agents as nested MCP servers: the design has no multi-agent (§1); task sessions cover the need (§3.2a).
 
 **Where it led.** Self-extension of tools at runtime under operator ack, with the kernel binary off limits to the agent (§3.21), and restart as a routine, tested operation (§3.22). v0.20 removes WASM as a commitment: the one runtime extension path is an MCP server in an L1 sandbox (§3.12, §3.21). v0.21 adds **NATIVE FIRST** (§2, §3.23): many small typed Rust toollets; the shell is the escape hatch and every shell call is a data point. v0.22 selects the tool surface itself (§3.24) after a review of Claude Code, Codex, and OpenClaw (`notes/tool-surface-review.md`). v0.23 closes **M1 Keel**: the WAL store exists, the crash test passes, and the engine is decided (Part III A1). v0.24 answers Eddie's questions on graph state (§4.4b, §6.1): nodes, edges, and compilations are WAL records; the graph is four rebuildable projections over them; compile never scans the WAL; the resident arena's layout is written down as an M3 hypothesis. v0.25 closes **M2 Kernel** (Part III A2): executions, actions, completions, the spool and job wrapper, budgets, admission, the five-step startup, group commit, and the deterministic kernel simulator. v0.26 adds the **Observatory** to the web UI (A2 addendum): every M2 object observable live. v0.27 records **M3 First hands, parts 1 and 2** (Part III A3): the session graph as nodes, the context compiler, the model catalog, eleven native toollets through the gate with durable confirmations, background jobs that survive a restart, and the web UI's sessions, transcript, and Observatory panels for all of it; Discord (part 3) waits on its bot token. On whether the model would "get" it: the tool half, yes, deeply; the risks are tool-count bloat (dynamic tool search in the toolchain manager) and judgment about when to extend (a Jev pack plus the gate), not comprehension.
+
+## Appendix F — Response to the openrig and herdr research (2026-09-27)
+
+_Tabitha, 2026-09-27 (theseus-s3m). Eddie paused development to ask what Theseus should take from two open-source projects: **openrig** (github.com/mvschwarz/openrig), which runs many agent harnesses as a team, the opposite of §1's "one agent, many roles", but has thought hard about context domains and segregation; and **herdr** (github.com/herdrdev/herdr), a terminal multiplexer for agents. He also asked how Theseus should think about "context epidemiology", the spread of good and bad ideas between contexts. The three reports and the synthesis are in `~/reports/theseus-research/`, and the citations they rely on were checked against the source. **[D]** marks a decision Tabitha made in Eddie's absence; overturn freely._
+
+**What it found.** Openrig's own failure record (recipients never woken, phantom occupant generations, one seat's restore state injected into another, per-seat role text colliding in a shared instruction file) is the cost of opaque harness windows, which this design does not have. On context mechanics, it supports the thesis. The one thing a team buys that one harness must build on purpose is independent judgment. Openrig's lasting contribution is its doctrine about where knowledge lives: at the narrowest scope that needs it; intent composes and bodies do not; knowledge learned in a position graduates only by re-authoring; handed-over material is testimony; a volatile fact is the command that derives it. Openrig can hold these only as files and culture; here they can be compiler rules. Context epidemiology is best treated as truth maintenance over the context graph, with information-flow labels and recompilation as the containment primitive. The graph already records exposure exactly (each compilation's `includes`), but not use, and nothing can be looked up in reverse. herdr's machinery solves problems Theseus doesn't have, but its attention model transfers, and studying it showed that the protocol pushes no execution-state changes.
+
+**Adopted [D].** Each item has a follow-up issue waiting for Eddie to schedule it; none changes a milestone's exit test.
+- *Now* (theseus-n4m, theseus-in3):
+  - reverse compilation membership written at `persist_compilation`, as intervals for a session's own runs;
+  - a reverse `derived_from` column;
+  - `node.reach`, with the Observatory showing a node's reach; §6.1 now names the reverse columns that §5.6's lineage walk follows;
+  - `execution.changed`, a watch over all sessions, and a daemon-owned `session.wait` in the protocol;
+  - one `attention()` mapping in `theseus-protocol` that every surface uses: *needs you* for a pending confirm, a failure, or an exhausted budget; then *done* until seen, *working*, and *idle*. Notifications fire on transitions only, debounced, and never for the session in focus.
+- *M4* (theseus-3vu):
+  - content refused by label class wherever it leaves (commit, push, PR body, public post, MCP response), deterministically and before any content scanner;
+  - widening an audience writes a new authored node with `graduated_from` and a warrant, and relabelling in place is not an operation;
+  - origin `external {source}` before any fetching tool lands;
+  - hashes on file reads and writes;
+  - an append-only `Advisory` (annotate, quarantine, redact) with an operator correction control, appended now and folded in at the next recompile, with the §5.6 walk generalized into the advisory walk.
+- *M5* (theseus-vug):
+  - independence as a compiler property: a check task compiles without the maker session's messages, tool calls, and thinking; its `Judgment` records that basis; evidence sharing an ancestor or a method counts once;
+  - promoted tasks admit their pieces by reference;
+  - obligation invariants: a task in progress with no live execution, `Question`, or wake is *parked*;
+  - delivery recorded as `posted | transport_failed | never_posted`, never `seen`;
+  - a reply that references a `Question` resolves without inference;
+  - `relies_on` attribution in shadow.
+- *M6* (theseus-3nk):
+  - a compilation is never silently thinner: the manifest lists what the budget dropped, and a core overage is a named outcome;
+  - material from prior contexts renders as testimony, with its as-of and origin, in a fixed precedence;
+  - volatile values render as of their position;
+  - lessons carry a stage, a scope, a warrant, and a re-verification rule; they are admitted by scope and by reference, as ablation arms, and kept out of the shared cache header (§4.5, theseus-ev1).
+- *Tools and license:*
+  - listing toollets default to narrow results and say what they left out (§3.24, theseus-8ye);
+  - herdr is Apache-2.0, so its ideas are re-implemented, never copied, which keeps Theseus's MIT option.
+
+**Held for Eddie** (theseus-vmh):
+- a context-domain scope between session and guild (openrig's pod), with guidance at every level and `domain:<id>` memory namespaces (recommended, alongside M6);
+- integrity labels that inherit only along transmission edges, a stricter band for a tool call proposed in a context holding a quarantined node, and consequence tags (`publish`, `merge`, `history_rewrite`, `external_post`). All three interact with `enforcement = notify`, under which a call that needs approval runs with a notice; the recommendation puts `history_rewrite` and `publish` in the "against the policy" column by default;
+- the standing rule that a new route lands with its edge and reverse index, and a new edge, label, or hook with its reader, on the same commit;
+- a herdr adapter, only if herdr is in daily use;
+- a `theseus tui`;
+- refusing promotion without an authored arrangement summary.
+
+**Not adopted:**
+- multi-harness orchestration (§1 stands);
+- the terminal as the wire, instruction files as the context channel, identity by environment variable, permission config translated by an agent, role authority written as prose, byte proxies for tokens, and receipts that print their own answer;
+- minimizing reach as a goal, pre-loaded warnings, and integrity labels inherited by exposure;
+- herdr's screen scraping, PTYs, terminal core, tiling, and federation.
+
+**Also recorded.** A3 gains a divergence row: ten of the 24 declared hook events have no dispatch site, seven of them on code paths that exist (theseus-0dp).
 
 ## Appendix B — What is at stake in the default shell class
 
@@ -1294,5 +1345,6 @@ M3 was built in three parts: **content** (the session graph, the context compile
 | Manifest records the tail range | As-of position; the tail is everything after it | A range would duplicate the as-of and the session's position table | Keep |
 | Four-part cache layout (§4.5) | `cache_control` on the system block plus automatic top-level caching | Automatic caching follows the growing prefix; continuations read 4.5–8 k cached tokens | Moved to provider-safe caching (§4.5, theseus-ev1) |
 | Recovery from transient provider failures in continuations | A continuation that fails after admission parks the execution waiting for input, with `turn.failed` | No automatic retry by design (§3.13); the late result is in the graph and the next input sees it | Consider a retry wake with backoff |
+| The run-hooks path wired at each event site (P2); the core's hook sites and the kernel gate meet when tools arrive (A2) | The same fourteen events as at M0 are dispatched. `tool.pre_call`, `tool.post_call`, `confirm.requested`, `action.planned`, `action.dispatched`, `completion.received`, and `ledger.row` sit on paths that exist and are never dispatched, and the confirm is decided in the policy gate, not through `PreToolCall`'s `defer` (§3.17). `memory.*` and `judgment.made` wait for their subsystems | Not recorded when M2 and M3 landed; found by the theseus-s3m review, 2026-09-27 (Appendix F) | Wire the seven as zero-handler observe sites, or amend §3.17 (theseus-0dp) |
 
 **Known gaps carried forward.** The simulator's random operations do not yet include the kernel calls M3 added (decline, wake, the resume flag, records riding in the plan and settle frames); the core scenarios cover them, the fault injection does not. An allowed call interrupted between its plan and its authorization is treated as awaiting confirmation (the safe direction). In-process results over `[tools].result_max_chars` are truncated without a full-output reference (`fs.read` pages instead). `session.history` returns whole sessions, and `theseus confirm` without an id asks each waiting session in turn. The web transcript renders plain text, not markdown. The `updates` thinking display is wired but not yet exercised live. A profile's `max_output_tokens` still wins over the catalog, so a config carrying the old `max_tokens = 1024` truncates tool inputs; regenerate it from `theseusd example-config`. Since 8c8a53a the template caps no profile, so every model runs at its catalog ceiling. Budgets count every token at full weight, cache reads included, and each provider call reserves its output cap plus the input estimate: about 130 k at Sonnet 5's ceiling, so the default million-token budget ends a session near 862 k minus its context (theseus-0sg). A session's limit is fixed when its execution opens; changing `default_budget` affects new sessions only. Discord: attachments are listed in the input by name and size, not read; a DM place whose channel could not be opened at startup stays silent until that user writes; rendering remembers the last eight turns per place, so a confirm answered after a restart is settled by the button handler from the message itself; slash commands are registered globally; there are no threads. Delivery is not yet durable: a turn that ends while Discord is unreachable, or after the 20 s startup wait gave up, is in the store and the web UI but is not re-posted when Discord returns (delivery becomes an action with its own completion in M5).
