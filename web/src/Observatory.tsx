@@ -569,6 +569,7 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'context.compiled': return `${s('decision')}${g('trigger') ? ` (${s('trigger')})` : ''} · ${s('prefix_nodes')}+${s('tail_nodes')} nodes · ${s('messages')} msg · ~${s('est_tokens')} tok`
     case r.kind === 'context.recompiled': return `${s('trigger')} · ${s('strategy')} · ${s('includes')} node(s)${g('strip_thinking') ? ' · thinking stripped' : ''}`
     case r.kind === 'tool.denied': return `${s('tool')} · ${s('reason')}`
+    case r.kind === 'tool.notified': return `${g('kind') === 'off_policy' ? 'ran against policy' : 'ran without approval'} · ${s('tool')} · ${s('summary')} · ${s('setting')}`
     case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`
     case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
     case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('note') ? ` · ${s('note')}` : ''}`

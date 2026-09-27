@@ -34,7 +34,7 @@ use twilight_model::id::Id;
 use twilight_util::builder::command::CommandBuilder;
 
 use crate::bindings::{snowflake, Bindings};
-use crate::render::{Buttons, Op, Renderer};
+use crate::render::{Buttons, NoticeCard, Op, Renderer};
 use crate::rpc_client::{CallError, RpcClient};
 
 /// The connection label every Discord call carries; authors refine it per message.
@@ -1166,7 +1166,68 @@ impl Place {
                     content,
                     buttons,
                 } => self.upsert(&key, &content, buttons).await,
+                Op::Notice { key, card } => self.notice(&key, &card).await,
             }
+        }
+    }
+
+    /// Post (or update) a structured notice: a Discord embed, no mentions.
+    async fn notice(&mut self, key: &str, card: &NoticeCard) {
+        let Some(channel) = self.channel else {
+            return;
+        };
+        let mut b = twilight_util::builder::embed::EmbedBuilder::new()
+            .title(card.title.clone())
+            .color(card.color)
+            .description(card.description.clone());
+        for (name, value) in &card.fields {
+            if !value.trim().is_empty() {
+                b = b.field(twilight_util::builder::embed::EmbedFieldBuilder::new(
+                    name.clone(),
+                    value.clone(),
+                ));
+            }
+        }
+        let embeds = [b.build()];
+        let none = AllowedMentions::default();
+        let http = &self.shared.http;
+        let res: Result<Option<Id<MessageMarker>>, String> = match self.msgs.get(key).copied() {
+            Some(mid) => http
+                .update_message(channel, mid)
+                .embeds(Some(&embeds))
+                .allowed_mentions(Some(&none))
+                .await
+                .map(|_| None)
+                .map_err(|e| e.to_string()),
+            None => match http
+                .create_message(channel)
+                .embeds(&embeds)
+                .allowed_mentions(Some(&none))
+                .await
+            {
+                Ok(r) => r
+                    .model()
+                    .await
+                    .map(|m| Some(m.id))
+                    .map_err(|e| e.to_string()),
+                Err(e) => Err(e.to_string()),
+            },
+        };
+        match res {
+            Ok(Some(id)) => {
+                self.msgs.insert(key.to_string(), id);
+                self.shared.board.update(|s| s.messages_out += 1);
+                self.shared.core.binding_ledger(
+                    "discord.message.out",
+                    Some(&self.session_id),
+                    json!({"place": self.label, "message_id": id.to_string(), "part": key, "notice": card.title}),
+                );
+            }
+            Ok(None) => self.shared.board.update(|s| s.edits += 1),
+            Err(e) => self
+                .shared
+                .board
+                .error("post notice", Some(&self.session_id), e),
         }
     }
 

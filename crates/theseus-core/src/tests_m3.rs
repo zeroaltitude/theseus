@@ -28,7 +28,8 @@ struct Rig {
 fn config(root: &Path, state: &Path) -> Config {
     let mut cfg = Config::example();
     cfg.server.state_dir = state.to_string_lossy().into_owned();
-    cfg.tools.roots = vec![root.to_string_lossy().into_owned()];
+    cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
     cfg.tools.deny_paths = vec![root.join("secret").to_string_lossy().into_owned()];
     cfg.tools.proc_sync_secs = 10;
     cfg
@@ -480,4 +481,99 @@ async fn a_fresh_recompile_starts_over_and_is_recorded() {
     let rec: SessionRecord = r.core.store.get_session(&res.session_id).unwrap().unwrap();
     assert!(rec.pending_recompile.is_none(), "applied once");
     let _: Value = serde_json::to_value(&rec).unwrap();
+}
+
+#[tokio::test]
+async fn notify_settings_run_what_would_ask_or_be_refused_and_say_so_but_the_floor_holds() {
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("note.txt"), "outside the workspace\n").unwrap();
+    let outside_file = outside
+        .path()
+        .join("note.txt")
+        .to_string_lossy()
+        .into_owned();
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[
+                    (
+                        "t1",
+                        "fs_write",
+                        json!({"path": "out.txt", "content": "no card\n"}),
+                    ),
+                    ("t2", "fs_read", json!({"path": outside_file})),
+                    ("t3", "proc_run", json!({"argv": ["theseusd", "config"]})),
+                ],
+            ),
+            Scripted::text("Done, and you were told."),
+        ],
+        |cfg| {
+            cfg.policy.approve_policy = crate::policy::ApprovePolicy::Notify;
+            cfg.policy.off_policy = crate::policy::OffPolicy::Notify;
+        },
+    );
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let res = {
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        r.core.store.put_session(&rec.session_id, &rec).unwrap();
+        r.core.bus.watch(&rec.session_id, "watcher", tx);
+        turn(
+            &r.core,
+            Some(&rec.session_id),
+            "write, read outside, and run theseusd",
+        )
+        .await
+    };
+    assert!(
+        res.awaiting_confirm.is_none(),
+        "approve_policy = notify never parks"
+    );
+    assert_eq!(
+        std::fs::read_to_string(r.root.join("out.txt")).unwrap(),
+        "no card\n",
+        "the write ran without a card"
+    );
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Ok);
+    assert_eq!(
+        rs[1].0,
+        ResultStatus::Ok,
+        "off_policy = notify ran the read outside the roots"
+    );
+    assert!(rs[1].1.contains("outside the workspace"), "{}", rs[1].1);
+    assert_eq!(
+        rs[2].0,
+        ResultStatus::Denied,
+        "the floor holds: theseusd never runs"
+    );
+
+    let mut notices = vec![];
+    while let Ok(m) = rx.try_recv() {
+        if let theseus_protocol::Message::Notification(n) = m {
+            if n.method == theseus_protocol::notify::POLICY_NOTIFIED {
+                notices.push(n.params);
+            }
+        }
+    }
+    let kinds: Vec<&str> = notices
+        .iter()
+        .map(|n| n["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, vec!["approval_skipped", "off_policy"], "{notices:?}");
+    assert_eq!(notices[0]["tool"], "fs.write");
+    assert_eq!(notices[0]["setting"], "approve_policy = notify");
+    assert!(notices[1]["rule"]
+        .as_str()
+        .unwrap()
+        .contains("outside the workspace roots"));
+    let ledgered = r
+        .core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(300)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, row)| row.kind == "tool.notified")
+        .count();
+    assert_eq!(ledgered, 2);
 }

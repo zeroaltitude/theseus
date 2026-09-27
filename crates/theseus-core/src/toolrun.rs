@@ -182,6 +182,10 @@ impl ToolRuntime {
                 deny_argv: vec![],
                 overrides: BTreeMap::new(),
                 confirmer: "operator".into(),
+                approve_policy: Default::default(),
+                off_policy: Default::default(),
+                floor_paths: vec![],
+                floor_argv: crate::policy::floor_argv(),
             },
             ctx: ToolCtx::for_tests(&tmp),
             spool: None,
@@ -572,6 +576,15 @@ impl ToolRuntime {
                 })
             }
             GateResult::Allow => {
+                if let Some(n) = decision.as_ref().and_then(|d| d.notify.clone()) {
+                    // A notify setting let this through: say so where the operator looks.
+                    let summary = plan.as_ref().map(|p| p.summary.clone()).unwrap_or_default();
+                    let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
+                        "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
+                        "summary": summary, "kind": n.kind, "setting": n.setting, "rule": n.rule});
+                    self.ledger(tc, "tool.notified", payload.clone());
+                    tc.sink.send(notify::POLICY_NOTIFIED, payload);
+                }
                 let retry = map_retry(tool.retry());
                 let a = tc.kernel.plan_action_with(
                     tc.guard,
@@ -1222,13 +1235,41 @@ pub fn build_runtime(
 ) -> Result<ToolRuntime> {
     let t = &cfg.tools;
     let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
-    let roots: Vec<PathBuf> = t.roots.iter().map(|r| canon(r)).collect();
+    // The workspace is what the config names: projects_dir first, then any
+    // more roots. Nothing is assumed about where an operator keeps projects.
+    let roots: Vec<PathBuf> = t
+        .projects_dir
+        .iter()
+        .chain(t.roots.iter())
+        .map(|r| canon(r))
+        .collect();
+    if roots.is_empty() && t.enabled {
+        tracing::warn!(
+            "no [tools].projects_dir (or roots): every path a tool names is outside the workspace"
+        );
+    }
     let cwd = t
         .cwd
         .as_deref()
         .map(canon)
         .or_else(|| roots.first().cloned())
         .unwrap_or_else(std::env::temp_dir);
+    // The floor: Theseus's own state (its store, spool, and bindings file, in
+    // the state dir actually in use) and the 1Password CLI's credentials.
+    let state = spool
+        .as_ref()
+        .and_then(|s| s.dir().parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| cfg.state_dir());
+    let canon_path = |p: PathBuf| theseus_tools::paths::canonical_best_effort(&p);
+    let mut floor_paths = vec![
+        canon_path(state.join("store")),
+        canon_path(state.join("spool")),
+        canon_path(cfg.discord.bindings_path(&state)),
+        canon("~/.config/op"),
+    ];
+    if let Ok(f) = std::env::var("THESEUS_OP_TOKEN_FILE") {
+        floor_paths.push(canon(&f));
+    }
     let deny: Vec<PathBuf> = t.deny_paths.iter().map(|p| canon(p)).collect();
     let registry = if t.enabled {
         theseus_tools::default_registry()
@@ -1254,6 +1295,10 @@ pub fn build_runtime(
             deny_argv: cfg.policy.deny_argv.clone(),
             overrides: cfg.policy.overrides.clone(),
             confirmer: crate::turn::OPERATOR.into(),
+            approve_policy: cfg.policy.approve_policy,
+            off_policy: cfg.policy.off_policy,
+            floor_paths,
+            floor_argv: crate::policy::floor_argv(),
         },
         ctx: ToolCtx {
             roots,

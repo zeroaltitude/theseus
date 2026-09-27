@@ -29,10 +29,60 @@ impl Mode {
     }
 }
 
+/// `[policy].approve_policy`: what a call that needs approval does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovePolicy {
+    /// Wait for the operator's Approve (the confirm card).
+    #[default]
+    Approve,
+    /// Run at once; post a notice in the session's channel.
+    Notify,
+}
+
+/// `[policy].off_policy`: what a call the policy denies does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OffPolicy {
+    /// Refuse it, with the reason.
+    #[default]
+    Deny,
+    /// Run it anyway; post a notice in the session's channel.
+    Notify,
+}
+
+/// Why a call ran that the policy alone would have stopped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Notice {
+    /// `approval_skipped` or `off_policy`.
+    pub kind: String,
+    /// The setting that let it run, e.g. `approve_policy = notify`.
+    pub setting: String,
+    /// What the policy said (the confirm or deny reason).
+    pub rule: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Decision {
     pub mode: Mode,
     pub reason: String,
+    /// Set when a notify setting let the call run instead of asking or refusing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notify: Option<Notice>,
+    /// A floor denial: no setting lifts it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub floor: bool,
+}
+
+impl Decision {
+    fn new(mode: Mode, reason: String) -> Self {
+        Self {
+            mode,
+            reason,
+            notify: None,
+            floor: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +102,19 @@ pub struct ToolPolicy {
     pub overrides: BTreeMap<String, Mode>,
     /// Who confirms (the execution's principal).
     pub confirmer: String,
+    pub approve_policy: ApprovePolicy,
+    pub off_policy: OffPolicy,
+    /// Denied whatever the settings say: Theseus's store, spool, and bindings
+    /// file, and the 1Password CLI's credentials (canonical paths).
+    pub floor_paths: Vec<PathBuf>,
+    /// Programs denied whatever the settings say (`theseusd`, `op`).
+    pub floor_argv: Vec<Vec<String>>,
+}
+
+/// Programs no setting can make Theseus run: its own binary (spec §3.21, the
+/// kernel is off limits to the agent) and the 1Password CLI (every secret).
+pub fn floor_argv() -> Vec<Vec<String>> {
+    vec![vec!["theseusd".into()], vec!["op".into()]]
 }
 
 /// Flags that never run unconfirmed, whatever the allow list says: they make
@@ -125,34 +188,91 @@ impl ToolPolicy {
         }
     }
 
+    /// The gate's answer after the operator's settings: a confirm becomes a
+    /// notified allow under `approve_policy = notify`, and a deny (other than
+    /// the floor) becomes a notified allow under `off_policy = notify`.
     pub fn decide(&self, tool: &dyn Tool, plan: &Plan) -> Decision {
+        let d = self.decide_by_policy(tool, plan);
+        match d.mode {
+            Mode::Confirm if self.approve_policy == ApprovePolicy::Notify => Decision {
+                mode: Mode::Allow,
+                reason: format!("ran without approval: {}", d.reason),
+                notify: Some(Notice {
+                    kind: "approval_skipped".into(),
+                    setting: "approve_policy = notify".into(),
+                    rule: d.reason,
+                }),
+                floor: false,
+            },
+            Mode::Deny if self.off_policy == OffPolicy::Notify && !d.floor => Decision {
+                mode: Mode::Allow,
+                reason: format!("ran against policy: {}", d.reason),
+                notify: Some(Notice {
+                    kind: "off_policy".into(),
+                    setting: "off_policy = notify".into(),
+                    rule: d.reason,
+                }),
+                floor: false,
+            },
+            _ => d,
+        }
+    }
+
+    /// The policy alone: floor, protected paths, roots, class, argv lists.
+    fn decide_by_policy(&self, tool: &dyn Tool, plan: &Plan) -> Decision {
+        let floor = |reason: String| Decision {
+            mode: Mode::Deny,
+            reason,
+            notify: None,
+            floor: true,
+        };
+        for r in &plan.resources {
+            let p = paths::canonical_best_effort(&r.path);
+            if let Some(f) = self.floor_paths.iter().find(|f| paths::within(&p, f)) {
+                return floor(format!(
+                    "{} is Theseus's own or holds its secrets ({}); no setting allows it",
+                    p.display(),
+                    f.display()
+                ));
+            }
+        }
+        if let Some(argv) = &plan.argv {
+            let nargv = normalized_argv(argv);
+            if let Some(f) = self.floor_argv.iter().find(|f| prefix_match(&nargv, f)) {
+                return floor(format!(
+                    "`{}` is never run (`{}` is on the floor: Theseus's own binary or the 1Password CLI)",
+                    argv.join(" "),
+                    f.join(" ")
+                ));
+            }
+        }
         for r in &plan.resources {
             let p = paths::canonical_best_effort(&r.path);
             if let Some(d) = self.deny_paths.iter().find(|d| paths::within(&p, d)) {
-                return Decision {
-                    mode: Mode::Deny,
-                    reason: format!(
+                return Decision::new(
+                    Mode::Deny,
+                    format!(
                         "{} is protected ({} is on the deny list)",
                         p.display(),
                         d.display()
                     ),
-                };
+                );
             }
             if !self.roots.iter().any(|root| paths::within(&p, root)) {
                 let roots: Vec<String> =
                     self.roots.iter().map(|r| r.display().to_string()).collect();
-                return Decision {
-                    mode: Mode::Deny,
-                    reason: format!(
+                return Decision::new(
+                    Mode::Deny,
+                    format!(
                         "{} is outside the workspace roots ({})",
                         p.display(),
                         if roots.is_empty() {
-                            "none configured".into()
+                            "none configured: set [tools].projects_dir".into()
                         } else {
                             roots.join(", ")
                         }
                     ),
-                };
+                );
             }
         }
         let mut mode = self.class_mode(tool);
@@ -165,14 +285,14 @@ impl ToolPolicy {
         if let Some(argv) = &plan.argv {
             let nargv = normalized_argv(argv);
             if let Some(p) = self.deny_argv.iter().find(|p| prefix_match(&nargv, p)) {
-                return Decision {
-                    mode: Mode::Deny,
-                    reason: format!(
+                return Decision::new(
+                    Mode::Deny,
+                    format!(
                         "`{}` matches the deny list entry `{}`",
                         argv.join(" "),
                         p.join(" ")
                     ),
-                };
+                );
             }
             // The resources above are only the working directory; a command's
             // arguments can name any path, so they are judged too.
@@ -186,13 +306,13 @@ impl ToolPolicy {
             let args = path_args(argv, &cwd);
             for (a, p) in &args {
                 if let Some(d) = self.deny_paths.iter().find(|d| paths::within(p, d)) {
-                    return Decision {
-                        mode: Mode::Deny,
-                        reason: format!(
+                    return Decision::new(
+                        Mode::Deny,
+                        format!(
                             "argument `{a}` is protected ({} is on the deny list)",
                             d.display()
                         ),
-                    };
+                    );
                 }
             }
             if mode != Mode::Deny {
@@ -230,7 +350,7 @@ impl ToolPolicy {
         if mode == Mode::Confirm {
             reason = format!("{}: {}", plan.summary, reason);
         }
-        Decision { mode, reason }
+        Decision::new(mode, reason)
     }
 
     /// Does any resource of this plan write?
@@ -323,6 +443,10 @@ mod tests {
             deny_argv: vec![vec!["sudo".into()]],
             overrides: BTreeMap::new(),
             confirmer: "operator".into(),
+            approve_policy: ApprovePolicy::Approve,
+            off_policy: OffPolicy::Deny,
+            floor_paths: vec![root.join("state")],
+            floor_argv: floor_argv(),
         }
     }
 
@@ -424,6 +548,60 @@ mod tests {
             "inside the root"
         );
         assert_eq!(run(vec!["git", "status", "-s"]).mode, Mode::Allow);
+        // The operator's settings: approvals become notices, denials become
+        // notices, and the floor stays denied either way.
+        let mut n = p.clone();
+        n.approve_policy = ApprovePolicy::Notify;
+        let out = n.decide(&w, &plan(root.join("a.rs"), Access::Write, None));
+        assert_eq!(out.mode, Mode::Allow);
+        assert_eq!(out.notify.as_ref().unwrap().kind, "approval_skipped");
+        let out = n.decide(&r, &plan("/etc/passwd".into(), Access::Read, None));
+        assert_eq!(
+            out.mode,
+            Mode::Deny,
+            "approve_policy alone never lifts a deny"
+        );
+        n.off_policy = OffPolicy::Notify;
+        let out = n.decide(&r, &plan("/etc/passwd".into(), Access::Read, None));
+        assert_eq!(out.mode, Mode::Allow);
+        let nt = out.notify.unwrap();
+        assert_eq!(nt.kind, "off_policy");
+        assert!(
+            nt.rule.contains("outside the workspace roots"),
+            "{}",
+            nt.rule
+        );
+        let out = n.decide(
+            &x,
+            &plan(root.clone(), Access::Exec, Some(vec!["sudo", "ls"])),
+        );
+        assert_eq!(
+            out.mode,
+            Mode::Allow,
+            "off_policy = notify runs the deny list too"
+        );
+        for (what, pl) in [
+            (
+                "state dir",
+                plan(root.join("state/store"), Access::Read, None),
+            ),
+            (
+                "theseusd",
+                plan(root.clone(), Access::Exec, Some(vec!["theseusd", "config"])),
+            ),
+            (
+                "op",
+                plan(
+                    root.clone(),
+                    Access::Exec,
+                    Some(vec!["/usr/bin/op", "read", "x"]),
+                ),
+            ),
+        ] {
+            let out = n.decide(&x, &pl);
+            assert_eq!(out.mode, Mode::Deny, "the floor holds: {what}");
+            assert!(out.floor && out.notify.is_none(), "{what}: {}", out.reason);
+        }
         let mut p2 = p.clone();
         p2.overrides.insert("fs.test".into(), Mode::Allow);
         assert_eq!(

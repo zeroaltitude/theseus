@@ -159,8 +159,9 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
   const [open, setOpen] = useState(false)
   const d = (call?.detail ?? {}) as Record<string, unknown>
   const tool = str(d.tool) || (results[0] ? str((results[0].detail ?? {}).tool) : wireToName(use.name))
-  const decision = d.decision as { mode?: string; reason?: string } | null | undefined
+  const decision = d.decision as { mode?: string; reason?: string; notify?: { kind: string; setting: string; rule: string } } | null | undefined
   const gate = decision?.mode ?? (d.result as { gate?: string } | undefined)?.gate
+  const notice = decision?.notify
   const input = call ? d.input : use.input
   return (
     <div className={`tool ${confirm ? 'awaiting' : ''}`}>
@@ -169,6 +170,8 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
         <code className="tool-name">{tool}</code>
         <span className="tool-sum">{callSummary(tool, input)}</span>
         {gate && <span className={`pill ${GATE_CLASS[gate] ?? ''}`} title={decision?.reason ?? ''}>{gate}</span>}
+        {notice && <span className={`pill ${notice.kind === 'off_policy' ? 'bad' : 'warn'}`}
+          title={`${notice.setting}\nthe policy said: ${notice.rule}`}>{notice.kind === 'off_policy' ? 'ran against policy' : 'ran without approval'}</span>}
         {running && results.length === 0 && <span className="accent small">running {Math.max(0, Math.round((now - running.startedAt) / 1000))} s…</span>}
       </div>
       {open && (

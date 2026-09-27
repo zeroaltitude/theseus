@@ -112,11 +112,14 @@ confirm_ttl_secs = 900                  # how long a bound confirmation stays va
 
 # ---------------------------------------------------------------- tools
 # Toollets (fs.*, text.diff, git.diff/log, proc.run). Every path a tool touches
-# must resolve (after `..` and symlinks) under a root; deny_paths win even there.
+# must resolve (after `..` and symlinks) under the workspace: projects_dir plus
+# any more roots. There is no built-in workspace: without projects_dir (or
+# roots) every path is outside it. deny_paths win even inside it.
 [tools]
 enabled = true
-roots = ["~/projects"]
-# cwd = "~/projects/theseus"           # where relative paths resolve and programs run (default: first root)
+projects_dir = "/home/zeroaltitude/projects"   # the operator's projects directory: the workspace, and where relative paths resolve
+# roots = []                            # more workspace roots beside projects_dir
+# cwd = "/home/zeroaltitude/projects/theseus"   # where relative paths resolve and programs run (default: projects_dir)
 deny_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "~/.config/op", "~/.openclaw-1password-service-token", "~/.theseus"]
 result_max_chars = 30000                # characters of a result the model sees (head and tail kept)
 max_read_bytes = 262144                 # cap on one fs.read
@@ -128,8 +131,15 @@ proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME"
 
 # ---------------------------------------------------------------- policy
 # The gate's three bands (spec §3.9): allow | confirm | deny, by tool class.
-# Confirmations appear in the web UI (Approve / Deny) and `theseus confirm`.
+# Confirmations appear in Discord and the web UI (Approve / Decline) and in
+# `theseus confirm`. approve_policy and off_policy decide what "confirm" and
+# "deny" do; with notify, the call runs and a notice goes to the session's
+# channel (Discord, web UI, CLI) and the ledger (`tool.notified`). The floor
+# is denied either way: Theseus's store, spool, and bindings file, its own
+# binary, and the 1Password CLI and its credentials.
 [policy]
+approve_policy = "approve"              # approve: wait for Approve | notify: run at once and post a notice
+off_policy = "deny"                     # deny: refuse with the reason | notify: run anyway and post a notice
 read = "allow"                          # fs.read, fs.glob, fs.grep, fs.list, text.diff, git.diff, git.log
 write = "confirm"                       # fs.write, fs.edit, fs.patch
 run = "confirm"                         # proc.run

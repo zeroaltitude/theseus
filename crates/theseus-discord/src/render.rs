@@ -30,10 +30,26 @@ pub enum Buttons {
     Clear,
 }
 
+/// A structured notice (a Discord embed): a call ran that the policy alone
+/// would have stopped, because `approve_policy` or `off_policy` is `notify`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoticeCard {
+    pub title: String,
+    /// 0xRRGGBB: amber for a skipped approval, red for an off-policy run.
+    pub color: u32,
+    pub description: String,
+    pub fields: Vec<(String, String)>,
+}
+
+pub const AMBER: u32 = 0xE3A008;
+pub const RED: u32 = 0xD93025;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     /// "Theseus is typing…" (Discord shows it for about ten seconds).
     Typing,
+    /// Create or edit the notice message for `key`.
+    Notice { key: String, card: NoticeCard },
     /// Create the message for `key`, or edit it when it already exists.
     Upsert {
         key: String,
@@ -60,6 +76,8 @@ struct ToolLine {
     summary: String,
     correlation_id: Option<String>,
     state: ToolState,
+    /// `approval_skipped` or `off_policy` when a notify setting let it run.
+    notice: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -85,6 +103,8 @@ pub struct Renderer {
     emitted: HashMap<String, String>,
     /// correlation id → (message key, the tool line it describes).
     confirms: HashMap<String, (String, String)>,
+    /// tool_use_id → the notice card posted for it (updated when the call ends).
+    notices: HashMap<String, NoticeCard>,
 }
 
 impl Renderer {
@@ -128,12 +148,17 @@ impl Renderer {
                     Some(r) => ToolState::Denied(r),
                     None => ToolState::Proposed,
                 };
+                let notice = p
+                    .pointer("/gate/decision/notify/kind")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 let line = ToolLine {
                     tool_use_id: str_of(p, "tool_use_id"),
                     tool: tool.to_string(),
                     summary: summarize(tool, &input),
                     correlation_id: None,
                     state,
+                    notice,
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
@@ -158,7 +183,23 @@ impl Renderer {
             "tool.ended" => {
                 let status = str_of(p, "status");
                 let ms = p.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
-                self.update_tool(turn_id, &str_of(p, "tool_use_id"), |l| {
+                let use_id = str_of(p, "tool_use_id");
+                let mut ops = vec![];
+                if let Some(card) = self.notices.get_mut(&use_id) {
+                    let outcome = match status.as_str() {
+                        "ok" => format!("✅ ok · {ms} ms"),
+                        "background" => "⏳ running in the background".to_string(),
+                        other => format!("❌ {other} · {ms} ms"),
+                    };
+                    if let Some(f) = card.fields.iter_mut().find(|(n, _)| n == "Outcome") {
+                        f.1 = outcome;
+                    }
+                    ops.push(Op::Notice {
+                        key: format!("notice:{use_id}"),
+                        card: card.clone(),
+                    });
+                }
+                self.update_tool(turn_id, &use_id, |l| {
                     l.state = match status.as_str() {
                         "background" => ToolState::Background,
                         "denied" => match &l.state {
@@ -171,7 +212,37 @@ impl Renderer {
                         },
                     };
                 });
-                vec![]
+                ops
+            }
+            "policy.notified" => {
+                let kind = str_of(p, "kind");
+                let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
+                let input = p.get("input").cloned().unwrap_or(Value::Null);
+                let use_id = str_of(p, "tool_use_id");
+                let (title, color, would) = if kind == "off_policy" {
+                    ("🚨 Ran against policy", RED, "been refused")
+                } else {
+                    ("⚠️ Ran without approval", AMBER, "asked for your approval")
+                };
+                let card = NoticeCard {
+                    title: title.into(),
+                    color,
+                    description: format!("`{tool}` {}", summarize(tool, &input)),
+                    fields: vec![
+                        ("What".into(), clip(&str_of(p, "summary"), 1000)),
+                        (
+                            format!("The policy would have {would}"),
+                            clip(&str_of(p, "rule"), 1000),
+                        ),
+                        ("Setting".into(), format!("`{}`", str_of(p, "setting"))),
+                        ("Outcome".into(), "⏳ running".into()),
+                    ],
+                };
+                self.notices.insert(use_id.clone(), card.clone());
+                vec![Op::Notice {
+                    key: format!("notice:{use_id}"),
+                    card,
+                }]
             }
             "confirm.requested" => {
                 let Ok(req) = serde_json::from_value::<ConfirmRequest>(p.clone()) else {
@@ -386,7 +457,12 @@ fn tool_lines(tools: &[ToolLine]) -> String {
     let lines: Vec<String> = tools
         .iter()
         .map(|l| {
-            let head = format!("`{}` {}", l.tool, l.summary);
+            let mark = match l.notice.as_deref() {
+                Some("off_policy") => " · 🚨 against policy",
+                Some(_) => " · ⚠️ without approval",
+                None => "",
+            };
+            let head = format!("`{}` {}{mark}", l.tool, l.summary);
             match &l.state {
                 ToolState::Proposed => format!("▫️ {head}"),
                 ToolState::Running => format!("⏳ {head}"),
@@ -578,7 +654,7 @@ mod tests {
         ops.iter()
             .filter_map(|o| match o {
                 Op::Upsert { key, content, .. } => Some((key.clone(), content.clone())),
-                Op::Typing => None,
+                Op::Typing | Op::Notice { .. } => None,
             })
             .collect()
     }
@@ -686,6 +762,36 @@ mod tests {
             tools[0].1.contains("approved by discord:eddie"),
             "{tools:?}"
         );
+    }
+
+    #[test]
+    fn a_notified_call_posts_a_card_and_the_card_gets_its_outcome() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
+            "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "allow"},
+            "decision": {"mode": "allow", "notify": {"kind": "approval_skipped", "setting": "approve_policy = notify", "rule": "run `cargo test`: proc.run is `confirm` for run tools"}}}}));
+        let ops = r.on_notification("policy.notified", &json!({"session_id": "s", "turn_id": "t1", "tool_use_id": "u1",
+            "tool": "proc.run", "input": {"argv": ["cargo", "test"]}, "summary": "run `cargo test` in /w",
+            "kind": "approval_skipped", "setting": "approve_policy = notify", "rule": "run `cargo test`: proc.run is `confirm` for run tools"}));
+        let Op::Notice { key, card } = &ops[0] else {
+            panic!("{ops:?}")
+        };
+        assert_eq!(key, "notice:u1");
+        assert_eq!(card.color, AMBER);
+        assert_eq!(card.description, "`proc.run` cargo test");
+        assert_eq!(card.fields[3], ("Outcome".into(), "⏳ running".into()));
+        let ops = r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "ok", "duration_ms": 900}),
+        );
+        let Op::Notice { card, .. } = &ops[0] else {
+            panic!("{ops:?}")
+        };
+        assert_eq!(card.fields[3].1, "✅ ok · 900 ms");
+        let lines =
+            upserts(&r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
+        assert!(lines[0].1.contains("⚠️ without approval"), "{lines:?}");
     }
 
     #[test]

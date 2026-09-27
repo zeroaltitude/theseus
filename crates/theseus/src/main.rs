@@ -1502,6 +1502,23 @@ impl Printer {
                     );
                 }
             }
+            notify::POLICY_NOTIFIED => {
+                self.settle();
+                let off = p.get("kind").and_then(Value::as_str) == Some("off_policy");
+                eprintln!(
+                    "  {} {} {}: {}\n      the policy said: {}\n      ({})",
+                    if off { "!!" } else { "!" },
+                    if off {
+                        "ran against policy"
+                    } else {
+                        "ran without approval"
+                    },
+                    p.get("tool").and_then(Value::as_str).unwrap_or("?"),
+                    p.get("summary").and_then(Value::as_str).unwrap_or(""),
+                    p.get("rule").and_then(Value::as_str).unwrap_or(""),
+                    p.get("setting").and_then(Value::as_str).unwrap_or("")
+                );
+            }
             notify::CONFIRM_RESOLVED => {
                 self.settle();
                 let ok = p.get("approved").and_then(Value::as_bool).unwrap_or(false);

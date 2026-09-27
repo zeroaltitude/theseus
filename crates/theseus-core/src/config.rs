@@ -107,10 +107,15 @@ impl DiscordConfig {
 pub struct ToolsConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// Workspace roots: every path a tool touches must be under one.
-    #[serde(default = "default_tool_roots")]
+    /// The operator's projects directory: the workspace tools work in, and
+    /// where relative paths resolve. No built-in default; without it (and
+    /// without `roots`) every path is outside the workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects_dir: Option<String>,
+    /// More workspace roots beside `projects_dir`; every path a tool touches must be under one.
+    #[serde(default)]
     pub roots: Vec<String>,
-    /// Where relative paths resolve and programs run by default (default: the first root).
+    /// Where relative paths resolve and programs run by default (default: `projects_dir`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     /// Denied even under a root.
@@ -136,9 +141,6 @@ pub struct ToolsConfig {
     pub proc_env: Vec<String>,
 }
 
-fn default_tool_roots() -> Vec<String> {
-    vec!["~/projects".into()]
-}
 fn default_deny_paths() -> Vec<String> {
     [
         "~/.ssh",
@@ -191,7 +193,8 @@ impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            roots: default_tool_roots(),
+            projects_dir: None,
+            roots: vec![],
             cwd: None,
             deny_paths: default_deny_paths(),
             result_max_chars: default_result_max_chars(),
@@ -224,6 +227,15 @@ pub struct PolicyConfig {
     /// Per-tool overrides by canonical name, e.g. `"fs.edit" = "allow"`.
     #[serde(default)]
     pub overrides: BTreeMap<String, crate::policy::Mode>,
+    /// What a call that needs approval does: `approve` waits for the operator's
+    /// Approve; `notify` runs at once and posts a notice in the session's channel.
+    #[serde(default)]
+    pub approve_policy: crate::policy::ApprovePolicy,
+    /// What a call the policy denies does: `deny` refuses it; `notify` runs it
+    /// anyway and posts a notice. The floor (Theseus's own state and binary, and
+    /// the 1Password CLI and its credentials) is denied either way.
+    #[serde(default)]
+    pub off_policy: crate::policy::OffPolicy,
 }
 
 fn mode_allow() -> crate::policy::Mode {
@@ -267,6 +279,8 @@ impl Default for PolicyConfig {
             allow_argv: default_allow_argv(),
             deny_argv: default_deny_argv(),
             overrides: BTreeMap::new(),
+            approve_policy: Default::default(),
+            off_policy: Default::default(),
         }
     }
 }
