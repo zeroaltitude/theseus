@@ -189,6 +189,10 @@ async fn main() -> Result<()> {
     // The harness loop: heartbeat reconciler and the wrapper notify socket;
     // the driver takes continuation turns (job results, confirms, restarts).
     tokio::spawn(theseus_core::harness::run(core.clone()));
+    if !cli.stdio {
+        // Discord binds below; continuations wait until it watches its sessions.
+        core.expect_binding();
+    }
     tokio::spawn(theseus_core::harness::drive(core.clone()));
 
     if cli.stdio {

@@ -62,6 +62,10 @@ pub struct Core {
     pub shutdown: tokio::sync::Notify,
     /// Channel bindings report here (by kind) and health shows them.
     bindings: std::sync::RwLock<BTreeMap<String, theseus_protocol::BindingStatus>>,
+    /// Bindings still starting. The continuation driver waits (bounded) until
+    /// this is zero, so a turn the kernel resumes at startup is watched by its
+    /// channel from its first event.
+    bindings_pending: AtomicU64,
 }
 
 const META_LIVE_PROFILE: &str = "live_profile";
@@ -289,6 +293,7 @@ impl Core {
             live: std::sync::RwLock::new(live),
             shutdown: tokio::sync::Notify::new(),
             bindings: std::sync::RwLock::new(BTreeMap::new()),
+            bindings_pending: AtomicU64::new(0),
         });
         let (_, visit) = core
             .hooks
@@ -569,6 +574,31 @@ impl Core {
             catalog_version: self.catalog.version.clone(),
             bindings: self.bindings.read().unwrap().values().cloned().collect(),
         }
+    }
+
+    /// A binding is about to start: continuations wait for it (see `wait_for_bindings`).
+    pub fn expect_binding(&self) {
+        self.bindings_pending.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A binding is watching its sessions (or gave up): continuations may run.
+    pub fn binding_started(&self) {
+        let _ = self
+            .bindings_pending
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+    }
+
+    /// Wait until every expected binding has started, at most `max`. True when
+    /// they all did; false on timeout (the caller goes ahead anyway).
+    pub async fn wait_for_bindings(&self, max: Duration) -> bool {
+        let deadline = Instant::now() + max;
+        while self.bindings_pending.load(Ordering::SeqCst) > 0 {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        true
     }
 
     /// A channel binding reports its state; health shows the latest report.
@@ -1592,6 +1622,27 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[tokio::test]
+    async fn continuations_wait_for_expected_bindings_but_not_forever() {
+        let core = test_core("x");
+        assert!(
+            core.wait_for_bindings(Duration::from_millis(10)).await,
+            "none expected"
+        );
+        core.expect_binding();
+        assert!(
+            !core.wait_for_bindings(Duration::from_millis(120)).await,
+            "times out while a binding is still starting"
+        );
+        let c = core.clone();
+        let waiter = tokio::spawn(async move { c.wait_for_bindings(Duration::from_secs(5)).await });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        core.binding_started();
+        assert!(waiter.await.unwrap(), "released when the binding starts");
+        core.binding_started(); // a second report never underflows
+        assert!(core.wait_for_bindings(Duration::from_millis(10)).await);
     }
 
     #[tokio::test]

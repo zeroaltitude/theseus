@@ -254,10 +254,35 @@ impl Renderer {
                 let Ok(r) = serde_json::from_value::<TurnSubmitResult>(p.clone()) else {
                     return vec![];
                 };
-                if let Some(t) = self.turn_mut(&r.turn_id) {
-                    t.footer = Some(footer(&r));
-                    t.ended = true;
-                    t.dirty = true;
+                match self.turn_mut(&r.turn_id) {
+                    Some(t) => {
+                        t.footer = Some(footer(&r));
+                        t.ended = true;
+                        t.dirty = true;
+                    }
+                    None => {
+                        // It started before this place was watching (a daemon
+                        // restart racing the binding): show its final text.
+                        let mut loops = BTreeMap::new();
+                        loops.insert(
+                            0,
+                            LoopView {
+                                text: r.output.clone(),
+                                tools: vec![],
+                            },
+                        );
+                        self.turns.push_back(TurnView {
+                            turn_id: r.turn_id.clone(),
+                            loops,
+                            footer: Some(footer(&r)),
+                            failure: None,
+                            ended: true,
+                            dirty: true,
+                        });
+                        while self.turns.len() > RECENT_TURNS {
+                            self.turns.pop_front();
+                        }
+                    }
                 }
                 self.tick()
             }
@@ -661,6 +686,26 @@ mod tests {
             tools[0].1.contains("approved by discord:eddie"),
             "{tools:?}"
         );
+    }
+
+    #[test]
+    fn a_turn_seen_only_at_its_end_still_shows_its_text() {
+        let mut r = Renderer::default();
+        let mut end = ended("t9", None);
+        end["output"] = json!("Done. The command printed `done`.");
+        end["continuation"] = json!(true);
+        let ops = upserts(&r.on_notification("turn.ended", &end));
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].0, "t9:L0:p0");
+        assert!(
+            ops[0]
+                .1
+                .starts_with("Done. The command printed `done`.\n-# sonnet"),
+            "{}",
+            ops[0].1
+        );
+        assert!(ops[0].1.contains("continued"));
+        assert!(!r.busy());
     }
 
     #[test]

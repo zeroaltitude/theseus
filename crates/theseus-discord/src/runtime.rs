@@ -105,9 +105,34 @@ impl Board {
     }
 }
 
+/// Tells the core, once, that this binding is watching its sessions (or will
+/// never be): the continuation driver waits for it at startup.
+struct Ready {
+    core: Arc<Core>,
+    fired: std::sync::atomic::AtomicBool,
+}
+
+impl Ready {
+    fn fire(&self) {
+        if !self.fired.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            self.core.binding_started();
+        }
+    }
+}
+
+impl Drop for Ready {
+    fn drop(&mut self) {
+        self.fire();
+    }
+}
+
 /// Run the binding until the process ends. Never fails the daemon: whatever
 /// goes wrong is a state in health and a `discord.error` ledger row.
 pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf, token: Option<String>) {
+    let ready = Arc::new(Ready {
+        core: core.clone(),
+        fired: std::sync::atomic::AtomicBool::new(false),
+    });
     let board = Board::new(core.clone());
     if !cfg.enabled {
         board.state("disabled", Some("[discord].enabled = false".into()));
@@ -145,7 +170,7 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf, token: Opti
         s.guild_id = Some(bindings.guild_id.clone());
         s.revision = Some(bindings.revision.clone());
     });
-    if let Err(e) = serve(core, cfg, token, bindings, board.clone()).await {
+    if let Err(e) = serve(core, cfg, token, bindings, board.clone(), ready.clone()).await {
         board.state("failed", Some(format!("{e:#}")));
     }
 }
@@ -156,6 +181,7 @@ async fn serve(
     token: String,
     bindings: Bindings,
     board: Board,
+    ready: Arc<Ready>,
 ) -> anyhow::Result<()> {
     // Both rustls providers are compiled into this workspace; pick one for the process.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -237,6 +263,8 @@ async fn serve(
             .await?;
     }
     tokio::spawn(route(shared.clone(), notes));
+    // Every place watches its session now: turns the kernel resumes can run.
+    ready.fire();
 
     let intents = Intents::GUILDS
         | Intents::GUILD_MESSAGES
