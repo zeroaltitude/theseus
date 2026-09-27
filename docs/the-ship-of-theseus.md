@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.35
+# The Ship of Theseus — v0.36
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -68,6 +68,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 
 | Principle | Constraint it imposes |
 |---|---|
+| FAST | Speed is a goal, not a tiebreaker. Every lifecycle edge has a budget in §9: cold start, clean shutdown, crash recovery, binary upgrade, migration, restore. The simulator measures each one on every commit, and missing a budget fails the gate the way a failing test does. Serving comes first. Nothing on the path to answering the socket waits on the network, a model, an index rebuild, or work that grows with history. Secrets, credential checks, warm-up, and integrity verification finish after the socket answers, and a request that needs one of them waits for that one alone. A migration never runs before serving: a release reads every format its supported predecessors wrote, and a tender rewrites old data afterwards. Shutdown never waits on work in flight, because in-flight work is already a durable record. A backup is a snapshot, never a copy on the start path. Between two otherwise equal designs, take the faster; when the faster one costs complexity, measure before refusing it. (Eddie, 2026-09-27, after an OpenClaw restart spent about six of its seven minutes before serving copying, integrity-checking, and migrating 9 GB of databases, one after another.) |
 | EFFICIENT | An idle conversation costs kilobytes. Ten thousand on one node is the target; hundreds already beats everything but a hyperscaler's managed agents at a fraction of the cost. |
 | TASKS | A persisted task graph, read whole every turn, edited through structured actions the harness executes. No MCP, no free-text tool for tasks. |
 | MEMORY | One graph. Jev labels kind, durability, and trust. Every node eligible every turn; the indexer and budgeter make that cheap. |
@@ -832,8 +833,16 @@ What it buys: invariants as property tests (a destructive tool never runs withou
 
 ## 9. Efficiency targets (to measure, not assert)
 
+Under FAST (§2), the lifecycle rows are budgets. From M3.5 (P5b), the simulator's lifecycle bench measures them on every commit, and a result past a budget fails the gate. Measured values are in Part III (A3, lifecycle timings).
+
 | Metric | Target |
 |---|---|
+| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history |
+| Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for |
+| Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms |
+| Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer |
+| Store or schema migration | adds nothing before serving: old formats are read in place, and a tender rewrites them in the background using at most 5 % of one core |
+| Restore from a local WAL | at the disk's sequential read speed; to measure |
 | Binary size, static | under 60 MB with Wasmtime, AWS SDK, voice, search, and web UI; embedding weights are a separate artifact |
 | RSS at 10,000 parked channels, 50 active executions | under 1 GB including arena metadata for the active set |
 | Per-turn harness overhead (context compile + gate + WAL commit, warm arena; excludes model, Jev, tokenization, rehydration) | under 5 ms |
@@ -969,6 +978,7 @@ Every milestone has three parts: **build** (what exists at the end), **prove** (
 | M1 | Keel | `kill -9` at any point during a simulated workload; restart recovers every committed record byte-for-byte |
 | M2 | Kernel | All kernel scenarios in spec §8 pass under randomized fault injection, including crash inside each of the five startup steps |
 | M3 | First hands | Eddie completes a real coding task in a known repo from Discord; the harness is killed mid-job; the job finishes and its result lands in the channel |
+| M3.5 | Fast | The lifecycle bench meets every §9 lifecycle budget on Eddie's store and on a synthetic 10,000-session store, the gate fails a commit that misses one, and a store in the previous format serves at once under the new binary |
 | M4 | Boundaries | Every row of the durability table (§6) is demonstrated, the measured off-node recovery point is under 60 s, and L1's contract tests pass |
 | M5 | Judgment | Jev-driven stopping and classification beat the deterministic baseline on a held-out trajectory set at equal total budget |
 | M6 | Memory as experiment | An ablation report over the §5.5a metrics says which of FSRS, spreading activation, reranking, and synthesis stay |
@@ -1057,6 +1067,32 @@ The narrow agent. One channel binding, one shell class, no intelligence beyond t
 **Prove.** Eddie completes a real coding task in a known repository from Discord. During a long shell job the harness is killed and restarted; the job finishes, its completion is settled from the spool, the execution continues, and the result lands in the channel. The web UI shows the whole history. A request Eddie is not permitted to make is blocked at the gate with a clear message.
 
 **Not yet.** No Jev, so promotion to an autonomous task is by explicit human command (`/task`) only. No roles. No memory beyond transcript. No MCP. No voice. No compaction (long conversations simply get a fresh transcript root by hand). This is the discipline Appendix A demanded and the first place we will be tempted to break it.
+
+## P5b. M3.5 — Fast (added 2026-09-27)
+
+Not in the original plan. This is Eddie's principle (§2 FAST), adopted after an OpenClaw restart took most of ten minutes. It comes before Boundaries **[D]** because every later milestone adds startup work, and the gate should refuse regressions before they pile up. Beads: theseus-qa0.
+
+**Build.**
+- **A lifecycle bench,** `theseus-sim bench lifecycle`, over five phases:
+  - cold start to the first `health` answer;
+  - clean shutdown with executions waiting and a job running;
+  - SIGKILL, then restart;
+  - a binary swap under load;
+  - restore.
+
+  Each phase runs N times, with p50 and p95 reported per phase and per startup step. `scripts/gate.sh` compares the result with §9 and fails on a miss, allowing a noise margin that is itself measured.
+- **Serve first.**
+  - Secrets resolve in the background. Today six concurrent `op read` processes take 1.0 s between them (A3, lifecycle timings); one `op inject` for every reference is the first candidate, and measurement picks the winner.
+  - The provider, the Discord binding, and the GitHub client each wait for their own secret, and health reports `secrets: resolving | ready | failed <name>`.
+  - The GitHub token check (0.2 s) runs after serving.
+  - A failure is loud (health, the ledger, the Observatory) but never delays the socket.
+- **Startup phases in the Observatory,** from the kernel's existing step timings plus the new background phases, so a slow start names its cause the first time it happens (EXQUISITE VISIBILITY).
+- **Versioned readers for WAL record layouts and manifest formats.** The next format change migrates in a tender, and the M2 practice of moving an old-format store aside (A2) is retired.
+- **A standing rule for every later milestone:** new startup work lands with its bench row, and a new on-disk format lands with the reader for the format it replaces, on the same commit.
+
+**Prove.** The lifecycle bench meets every §9 lifecycle budget at p95, both on Eddie's store and on a synthetic store of 10,000 parked sessions. With 1Password unreachable, the socket still answers inside its budget and health names the missing secrets. A store written in the previous record layout serves immediately under the new binary, and a tender rewrites it while turns run, with no request failing. The gate refuses a branch that adds a 100 ms sleep to cold start.
+
+**Not yet.** Turn-path latency beyond §9's 5 ms. The arena's memory layout (M6–M7). Anything that needs more than one node.
 
 ## P6. M4 — Boundaries
 
@@ -1329,6 +1365,14 @@ M3 was built in three parts: **content** (the session graph, the context compile
 
 *Web UI, driven by Playwright* in headless Chrome: two sessions resumed; an edit's card opened to its diff; a new session whose write needed confirmation, approved in the page, and read back by the continuation; a reload that returned the same session; the daemon restarted under the open page ("reconnecting", then the same transcript reloaded), and a turn submitted from the CLI in that session streamed into the page. Screenshots: `specs/rust-harness/shots/m3-*.png`. Smoke green with new `tools`, `catalog`, and `history` steps.
 
+*Lifecycle timings* (2026-09-27, measured for FAST, §2 and P5b). These use the installed release binaries at 524f535 on a scratch daemon: three runs on a copy of Eddie's store (603 WAL positions, 314 KB) and three on an empty store.
+- Cold start to the first `health` answer took 1 281–1 340 ms, and 2 087 ms on the very first run.
+- The daemon's log accounts for the time. Resolving six secrets through six concurrent `op read` processes took 1 023 ms, and the GitHub token check took another 195 ms. Both run before the store opens.
+- The five kernel startup steps took 6.5–8.0 ms each, and the socket answered about 50 ms after the second network call returned.
+- Clean shutdown, from the request to process exit, took 24–39 ms.
+
+Local work is about 5 % of startup; the other 95 % is two network calls on the start path, which P5b moves off it.
+
 **Divergence from Parts I and II.**
 
 | Planned | Actual | Why | Disposition |
@@ -1346,5 +1390,6 @@ M3 was built in three parts: **content** (the session graph, the context compile
 | Four-part cache layout (§4.5) | `cache_control` on the system block plus automatic top-level caching | Automatic caching follows the growing prefix; continuations read 4.5–8 k cached tokens | Moved to provider-safe caching (§4.5, theseus-ev1) |
 | Recovery from transient provider failures in continuations | A continuation that fails after admission parks the execution waiting for input, with `turn.failed` | No automatic retry by design (§3.13); the late result is in the graph and the next input sees it | Consider a retry wake with backoff |
 | The run-hooks path wired at each event site (P2); the core's hook sites and the kernel gate meet when tools arrive (A2) | The same fourteen events as at M0 are dispatched. `tool.pre_call`, `tool.post_call`, `confirm.requested`, `action.planned`, `action.dispatched`, `completion.received`, and `ledger.row` sit on paths that exist and are never dispatched, and the confirm is decided in the policy gate, not through `PreToolCall`'s `defer` (§3.17). `memory.*` and `judgment.made` wait for their subsystems | Not recorded when M2 and M3 landed; found by the theseus-s3m review, 2026-09-27 (Appendix F) | Wire the seven as zero-handler observe sites, or amend §3.17 (theseus-0dp) |
+| Process start to accepting events in under 2 s, warm-up excluded (§9) | Met, at 1.3 s, but 1.2 s of it is network on the start path: secrets through `op` and the GitHub token check run before the store opens | The startup order dates from M0, and no bench timed startup end to end | Serve first; secrets and checks resolve in the background (P5b, M3.5) |
 
 **Known gaps carried forward.** The simulator's random operations do not yet include the kernel calls M3 added (decline, wake, the resume flag, records riding in the plan and settle frames); the core scenarios cover them, the fault injection does not. An allowed call interrupted between its plan and its authorization is treated as awaiting confirmation (the safe direction). In-process results over `[tools].result_max_chars` are truncated without a full-output reference (`fs.read` pages instead). `session.history` returns whole sessions, and `theseus confirm` without an id asks each waiting session in turn. The web transcript renders plain text, not markdown. The `updates` thinking display is wired but not yet exercised live. A profile's `max_output_tokens` still wins over the catalog, so a config carrying the old `max_tokens = 1024` truncates tool inputs; regenerate it from `theseusd example-config`. Since 8c8a53a the template caps no profile, so every model runs at its catalog ceiling. Budgets count every token at full weight, cache reads included, and each provider call reserves its output cap plus the input estimate: about 130 k at Sonnet 5's ceiling, so the default million-token budget ends a session near 862 k minus its context (theseus-0sg). A session's limit is fixed when its execution opens; changing `default_budget` affects new sessions only. Discord: attachments are listed in the input by name and size, not read; a DM place whose channel could not be opened at startup stays silent until that user writes; rendering remembers the last eight turns per place, so a confirm answered after a restart is settled by the button handler from the message itself; slash commands are registered globally; there are no threads. Delivery is not yet durable: a turn that ends while Discord is unreachable, or after the 20 s startup wait gave up, is in the store and the web UI but is not re-posted when Discord returns (delivery becomes an action with its own completion in M5).
