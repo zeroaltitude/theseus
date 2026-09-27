@@ -91,6 +91,7 @@ jev_api_key = "op://Eddie-Tabitha/TypeSafe Jev key/notesPlain"
 github_token = "op://Eddie-Tabitha/zeroaltitude github PAT/notesPlain"
 aws_access_key_id = "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_ACCESS_KEY_ID"
 aws_secret_access_key = "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_SECRET_ACCESS_KEY"
+discord_bot_token = "op://Eddie-Tabitha/Theseus discord bot/notesPlain#bot_token"
 
 # ---------------------------------------------------------------- server
 [server]
@@ -155,6 +156,20 @@ deny_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], [
 # cache_min_tokens = 1024
 # vision = true
 # source = "config"
+
+# ---------------------------------------------------------------- discord
+# The Discord binding (M3): one guild, direct messages and one text channel. It is
+# a protocol client of the kernel like the web UI and the CLI, so every turn it
+# starts, and every continuation after a restart, runs the same path. It connects
+# only when the token secret resolves and the bindings file exists (print one with
+# `theseusd example-bindings`); otherwise health says "unconfigured". Only the
+# socket daemon binds; `--stdio` servers and instances with another state dir
+# (and so another bindings file) never do, so one bot token has one connection.
+[discord]
+enabled = true
+token_secret = "discord_bot_token"      # name of the [secrets] entry holding the bot token
+bindings_file = "bindings.toml"         # the guild, channel, and who may drive it; relative = in the state dir
+edit_interval_ms = 1200                 # how often a streaming reply is edited (Discord rate-limits edits)
 
 # ---------------------------------------------------------------- web
 # The localhost web UI. Loopback only; a non-loopback bind is refused.

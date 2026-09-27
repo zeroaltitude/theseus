@@ -44,6 +44,61 @@ pub struct Config {
     pub tools: ToolsConfig,
     #[serde(default)]
     pub policy: PolicyConfig,
+    #[serde(default)]
+    pub discord: DiscordConfig,
+}
+
+/// `[discord]`: the Discord binding (M3). It connects only when the token
+/// secret resolves and the bindings file exists; otherwise health reports it
+/// unconfigured and nothing else changes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscordConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Name of the `[secrets]` entry holding the bot token.
+    #[serde(default = "default_discord_token_secret")]
+    pub token_secret: String,
+    /// Which Discord places Theseus lives in and who may drive it there (spec P5).
+    /// Relative paths resolve in the state dir, beside the store that remembers
+    /// each place's session, so a scratch instance never binds by accident.
+    #[serde(default = "default_bindings_file")]
+    pub bindings_file: String,
+    /// How often a streaming reply is edited; Discord rate-limits edits per channel.
+    #[serde(default = "default_edit_interval_ms")]
+    pub edit_interval_ms: u64,
+}
+
+fn default_discord_token_secret() -> String {
+    "discord_bot_token".into()
+}
+fn default_bindings_file() -> String {
+    "bindings.toml".into()
+}
+fn default_edit_interval_ms() -> u64 {
+    1200
+}
+
+impl Default for DiscordConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            token_secret: default_discord_token_secret(),
+            bindings_file: default_bindings_file(),
+            edit_interval_ms: default_edit_interval_ms(),
+        }
+    }
+}
+
+impl DiscordConfig {
+    pub fn bindings_path(&self, state_dir: &std::path::Path) -> PathBuf {
+        let p = PathBuf::from(shellexpand::tilde(&self.bindings_file).into_owned());
+        if p.is_absolute() {
+            p
+        } else {
+            state_dir.join(p)
+        }
+    }
 }
 
 /// `[tools]`: where toollets may work and how much they may return (§3.23).

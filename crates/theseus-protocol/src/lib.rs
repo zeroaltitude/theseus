@@ -212,6 +212,69 @@ pub struct HealthResult {
     pub cost_usd_total: f64,
     #[serde(default)]
     pub catalog_version: String,
+    /// Channel bindings (M3: Discord) and what each is doing.
+    #[serde(default)]
+    pub bindings: Vec<BindingStatus>,
+}
+
+/// One channel binding as health reports it (spec P5: bindings as a file).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BindingStatus {
+    /// "discord".
+    pub kind: String,
+    /// unconfigured | disabled | connecting | ready | resuming | disconnected | failed
+    pub state: String,
+    /// Why it is in that state, when that is not obvious (a missing file, a close code).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guild_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bindings_file: Option<String>,
+    /// First 12 hex of the bindings file's SHA-256: the binding revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    #[serde(default)]
+    pub places: Vec<PlaceStatus>,
+    #[serde(default)]
+    pub connected_at_ms: u64,
+    /// Gateway heartbeat round trip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    #[serde(default)]
+    pub messages_in: u64,
+    #[serde(default)]
+    pub messages_out: u64,
+    #[serde(default)]
+    pub edits: u64,
+    #[serde(default)]
+    pub interactions: u64,
+    #[serde(default)]
+    pub ignored: u64,
+    #[serde(default)]
+    pub errors: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+/// A place Theseus lives in: a text channel or a DM, and the session behind it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlaceStatus {
+    /// "channel" | "dm".
+    pub kind: String,
+    pub label: String,
+    /// The Discord channel id (for a DM, known after the DM channel opens).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Discord user ids that may drive turns here.
+    #[serde(default)]
+    pub users: Vec<String>,
+    #[serde(default)]
+    pub last_activity_ms: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -328,6 +391,9 @@ pub struct ActionListResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionCancelParams {
     pub execution_id: String,
+    /// Who asked, as a label in the ledger (e.g. `discord:eddie`). Default: the connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -408,6 +474,11 @@ pub struct TurnSubmitParams {
     /// Raw override of the profile's model for this turn.
     #[serde(default)]
     pub model: Option<String>,
+    /// Who wrote the input, as a label on the message node (e.g. `discord:eddie`).
+    /// Default: the connection's own label. A label, not an authority: every
+    /// local protocol client acts as the operator.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -699,6 +770,9 @@ pub struct ActionConfirmParams {
     /// wakes the execution, so the continuation turn is seen from its start.
     #[serde(default)]
     pub watch: bool,
+    /// Who answered, as a label (e.g. `discord:eddie`). Default: the connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -60,6 +60,8 @@ pub struct Core {
     /// The live profile and where it came from ("config" | "runtime").
     live: std::sync::RwLock<(String, String)>,
     pub shutdown: tokio::sync::Notify,
+    /// Channel bindings report here (by kind) and health shows them.
+    bindings: std::sync::RwLock<BTreeMap<String, theseus_protocol::BindingStatus>>,
 }
 
 const META_LIVE_PROFILE: &str = "live_profile";
@@ -286,6 +288,7 @@ impl Core {
             provider_errors: AtomicU64::new(0),
             live: std::sync::RwLock::new(live),
             shutdown: tokio::sync::Notify::new(),
+            bindings: std::sync::RwLock::new(BTreeMap::new()),
         });
         let (_, visit) = core
             .hooks
@@ -564,6 +567,26 @@ impl Core {
             kernel: self.kernel_status(),
             cost_usd_total: self.cost_total(),
             catalog_version: self.catalog.version.clone(),
+            bindings: self.bindings.read().unwrap().values().cloned().collect(),
+        }
+    }
+
+    /// A channel binding reports its state; health shows the latest report.
+    pub fn set_binding_status(&self, status: theseus_protocol::BindingStatus) {
+        self.bindings
+            .write()
+            .unwrap()
+            .insert(status.kind.clone(), status);
+    }
+
+    /// A ledger row written on behalf of a binding (`discord.*`), so its traffic
+    /// sits in the same readable history as everything else.
+    pub fn binding_ledger(&self, kind: &str, session_id: Option<&str>, data: Value) {
+        if let Err(e) = self
+            .store
+            .append_ledger(&LedgerRow::new(kind, session_id, None, data))
+        {
+            tracing::warn!(error = %e, kind, "binding ledger append failed");
         }
     }
 
@@ -1046,7 +1069,7 @@ impl Core {
                         input: Some(p.input),
                         target,
                         sink,
-                        author: client.to_string(),
+                        author: p.author.clone().unwrap_or_else(|| client.to_string()),
                         recompile: None,
                     })
                     .await
@@ -1328,7 +1351,12 @@ impl Core {
                     }
                 }
                 let r = self
-                    .confirm_action(&p.correlation_id, p.approve, p.note.as_deref(), client)
+                    .confirm_action(
+                        &p.correlation_id,
+                        p.approve,
+                        p.note.as_deref(),
+                        p.author.as_deref().unwrap_or(client),
+                    )
                     .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
                 Ok(serde_json::to_value(r).unwrap())
             }
@@ -1407,7 +1435,7 @@ impl Core {
                     ));
                 }
                 let (e, cancelled) = self
-                    .cancel_execution(&p.execution_id, client)
+                    .cancel_execution(&p.execution_id, p.author.as_deref().unwrap_or(client))
                     .map_err(bad)?;
                 Ok(
                     serde_json::to_value(theseus_protocol::ExecutionCancelResult {
@@ -1601,6 +1629,7 @@ mod tests {
                     profile: None,
                     provider: None,
                     model: None,
+                    author: None,
                 },
             )],
         )
@@ -1711,6 +1740,7 @@ mod tests {
                         profile: None,
                         provider: None,
                         model: None,
+                        author: None,
                     },
                 ),
                 Request::new(
@@ -1722,6 +1752,7 @@ mod tests {
                         profile: None,
                         provider: None,
                         model: None,
+                        author: None,
                     },
                 ),
             ],
@@ -1769,6 +1800,7 @@ mod tests {
                         profile: None,
                         provider: None,
                         model: None,
+                        author: None,
                     },
                 ),
                 Request::new(Id::Num(3), method::HOOKS_LIST, Value::Null),
@@ -1822,6 +1854,7 @@ mod tests {
                         profile: None,
                         provider: None,
                         model: None,
+                        author: None,
                     },
                 )
             })
@@ -1867,6 +1900,7 @@ mod tests {
                     profile: None,
                     provider: None,
                     model: None,
+                    author: None,
                 },
             )],
         )
@@ -1918,6 +1952,7 @@ mod tests {
                         profile: None,
                         provider: None,
                         model: None,
+                        author: None,
                     },
                 )
             })
@@ -1995,6 +2030,7 @@ mod tests {
                         profile: None,
                         provider: None,
                         model: None,
+                        author: None,
                     },
                 ),
                 Request::new(
@@ -2006,6 +2042,7 @@ mod tests {
                         profile: None,
                         provider: Some("zai".into()),
                         model: Some("glm-5.3-flash".into()),
+                        author: None,
                     },
                 ),
                 Request::new(
@@ -2017,6 +2054,7 @@ mod tests {
                         profile: None,
                         provider: Some("nope".into()),
                         model: None,
+                        author: None,
                     },
                 ),
             ],
@@ -2095,6 +2133,7 @@ mod tests {
                     profile: profile.map(str::to_string),
                     provider: None,
                     model: None,
+                    author: None,
                 },
             )
         };

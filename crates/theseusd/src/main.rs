@@ -26,6 +26,8 @@ Running it:
   export OP_SERVICE_ACCOUNT_TOKEN=...   the only secret allowed outside 1Password
   theseusd check                        prove the vault wiring, then exit
   theseusd config                       show the config actually loaded, and from where
+  theseusd restore --from <wal dir>     rebuild the store from a WAL copy (daemon stopped)
+  theseusd example-bindings             the Discord bindings file format
   theseusd                              serve (foreground); add & to background it
   THESEUS_LOG=debug theseusd            more detail (tracing filter syntax)
   theseusd --socket /tmp/dbg.sock --state-dir /tmp/dbg   a scratch instance beside a running one
@@ -75,6 +77,18 @@ enum Cmd {
     Check,
     /// Print the loaded config (TOML, secret references only, never values) and its source.
     Config,
+    /// Print an annotated bindings file (the Discord guild, channel, and who may drive it) and exit.
+    ExampleBindings,
+    /// Rebuild the store from a local WAL directory (or another store's directory) and exit.
+    /// The source is only read; a store already in place is moved aside with --force, never deleted.
+    Restore {
+        /// A WAL directory (holding *.seg files) or a store directory (holding wal/).
+        #[arg(long)]
+        from: PathBuf,
+        /// Move the existing store aside instead of refusing.
+        #[arg(long)]
+        force: bool,
+    },
     /// Internal: the detached job wrapper (spawned by the kernel, never by hand).
     #[command(hide = true, disable_help_flag = true)]
     JobWrapper {
@@ -100,6 +114,10 @@ async fn main() -> Result<()> {
         print!("{}", Config::EXAMPLE_TOML);
         return Ok(());
     }
+    if let Some(Cmd::ExampleBindings) = cli.cmd {
+        print!("{}", theseus_discord::EXAMPLE_BINDINGS);
+        return Ok(());
+    }
     if let Some(Cmd::JobWrapper { args }) = cli.cmd {
         // No config, no secrets: the wrapper only runs a command and spools.
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
@@ -112,6 +130,9 @@ async fn main() -> Result<()> {
         println!("# source: {}", cli.config);
         print!("{}", toml::to_string_pretty(&cfg)?);
         return Ok(());
+    }
+    if let Some(Cmd::Restore { from, force }) = &cli.cmd {
+        return restore(&cli, &cfg, from, *force).await;
     }
     tracing::info!(source = %cli.config, model = %cfg.model.model, "config loaded");
     let secrets = Secrets::resolve_all(&cfg.secrets, &op).await?;
@@ -137,6 +158,10 @@ async fn main() -> Result<()> {
     let store_name = if cli.stdio { "store-stdio" } else { "store" };
     let store = Store::open(&state_dir.join(store_name), cfg.server.store_engine)?;
     let socket_path = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
+    let discord_token = secrets
+        .get(&cfg.discord.token_secret)
+        .map(|s| s.expose().to_string());
+    let bindings_path = cfg.discord.bindings_path(&state_dir);
     let core = Core::new(cfg, secrets, store)?;
     if let Ok(st) = core.store.stats() {
         tracing::info!(
@@ -185,6 +210,14 @@ async fn main() -> Result<()> {
             }
         });
     }
+
+    // Only the socket daemon binds Discord: one bot token, one gateway connection.
+    tokio::spawn(theseus_discord::run(
+        core.clone(),
+        core.cfg.discord.clone(),
+        bindings_path,
+        discord_token,
+    ));
 
     serve_socket(core, socket_path).await
 }
@@ -241,6 +274,44 @@ async fn serve_socket(core: Arc<Core>, path: PathBuf) -> Result<()> {
         }
     }
     let _ = std::fs::remove_file(&path);
+    Ok(())
+}
+
+/// `theseusd restore`: refuse while a daemon serves this store, then rebuild it.
+async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -> Result<()> {
+    let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
+    let socket = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
+    if tokio::net::UnixStream::connect(&socket).await.is_ok() {
+        anyhow::bail!(
+            "a theseusd is serving on {}; stop it first (`theseus shutdown`): the store is single-process",
+            socket.display()
+        );
+    }
+    std::fs::create_dir_all(&state_dir)?;
+    let r = theseus_core::restore::restore(from, &state_dir, cfg.server.store_engine, force)?;
+    println!(
+        "restored {} segment(s): {} frames, {} records, last position {}",
+        r.segments, r.frames, r.records, r.last_position
+    );
+    if r.truncated_bytes > 0 {
+        println!(
+            "cut a torn final frame of {} bytes (a write the source never finished)",
+            r.truncated_bytes
+        );
+    }
+    println!(
+        "{} session(s), {} node(s), {} ledger row(s); engine {}",
+        r.sessions, r.nodes, r.ledger_rows, r.engine
+    );
+    println!(
+        "from {}
+into {}",
+        r.from, r.into
+    );
+    if let Some(a) = &r.moved_aside {
+        println!("the store that was there is kept at {a}");
+    }
+    println!("start theseusd to serve it; the ledger's last row is store.restored");
     Ok(())
 }
 

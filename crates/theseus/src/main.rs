@@ -430,6 +430,7 @@ async fn run(cli: Cli) -> Result<()> {
                         profile,
                         provider,
                         model,
+                        author: None,
                     })?,
                     |m, p| printer.on(m, p),
                 )
@@ -570,6 +571,7 @@ async fn run(cli: Cli) -> Result<()> {
                         approve: !deny,
                         note,
                         watch: !no_wait,
+                        author: None,
                     })?,
                     |m, p| printer.on(m, p),
                 )
@@ -755,6 +757,39 @@ async fn run(cli: Cli) -> Result<()> {
                     h.usage_total.cache_creation_input_tokens,
                     h.secrets_resolved.join(", ")
                 );
+                for b in &h.bindings {
+                    let places: Vec<String> = b
+                        .places
+                        .iter()
+                        .map(|p| {
+                            format!(
+                                "{} → {}",
+                                p.label,
+                                p.session_id.as_deref().unwrap_or("no session")
+                            )
+                        })
+                        .collect();
+                    println!(
+                        "{}: {}{} · {} in · {} sent · {} edits · {} presses · {} ignored · {} errors{}",
+                        b.kind,
+                        b.state,
+                        b.detail
+                            .as_deref()
+                            .map(|d| format!(" ({d})"))
+                            .unwrap_or_default(),
+                        b.messages_in,
+                        b.messages_out,
+                        b.edits,
+                        b.interactions,
+                        b.ignored,
+                        b.errors,
+                        if places.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" · {}", places.join(", "))
+                        }
+                    );
+                }
             }
         }
         Cmd::Sessions { cmd } => match cmd.unwrap_or(SessionsCmd::List) {
@@ -901,6 +936,7 @@ async fn run(cli: Cli) -> Result<()> {
                         method::EXECUTION_CANCEL,
                         serde_json::to_value(theseus_protocol::ExecutionCancelParams {
                             execution_id,
+                            author: None,
                         })?,
                         |_, _| {},
                     )

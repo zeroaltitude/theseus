@@ -32,7 +32,11 @@ function State({ s }: { s: string }) {
   return <span className={`pill ${STATE_CLASS[s] ?? ''}`}>{s.replace('_', ' ')}</span>
 }
 
-const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.'] as const
+const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.', 'discord.', 'store.'] as const
+const BINDING_CLASS: Record<string, string> = {
+  ready: 'ok', connecting: 'accent', starting: 'accent', resuming: 'warn',
+  unconfigured: 'muted', disabled: 'muted', disconnected: 'bad', failed: 'bad',
+}
 const money = (n: number | null | undefined) => n == null ? '—' : n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`
 const price = (n: unknown) => typeof n === 'number' && n > 0 ? String(+n.toFixed(3)) : '—'
 const tokens = (n: unknown) => typeof n !== 'number' ? '—' : n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n)
@@ -294,6 +298,59 @@ export default function Observatory({ client, health, tick, currentSession, onRe
         ) : <div className="muted">no health yet</div>}
       </ObsSection>
 
+      <ObsSection id="discord" title="Discord" open={open.discord ?? true} onToggle={() => toggle('discord')}
+        count={(health?.bindings ?? []).map((b) => `${b.state} · ${b.places.length} place${b.places.length === 1 ? '' : 's'} · ${b.messages_in} in · ${b.messages_out} out`).join(' ') || 'no binding'}>
+        {(health?.bindings ?? []).length === 0 && <div className="muted pad">no binding reported: a daemon older than M3c, or a <code>--stdio</code> server (only the socket daemon binds)</div>}
+        {(health?.bindings ?? []).map((b) => {
+          const traffic = ledger.filter((r) => r.kind.startsWith('discord.')).slice(0, 12)
+          return (
+            <div key={b.kind}>
+              <div className="kv">
+                <div><span className="muted">state</span> <span className={`pill ${BINDING_CLASS[b.state] ?? ''}`}>{b.state}</span>
+                  {b.detail && <span className={b.state === 'ready' ? 'muted small' : 'warn small'}> {b.detail}</span>}</div>
+                {b.bot_user && <div><span className="muted">bot</span> <b>{b.bot_user}</b>{b.guild_id && <span className="muted"> · guild <code>{b.guild_id}</code></span>}</div>}
+                {b.bindings_file && <div><span className="muted">bindings</span> <code>{b.bindings_file}</code>{b.revision && <span className="muted"> · revision <code>{b.revision}</code></span>}</div>}
+                {b.connected_at_ms > 0 && <div><span className="muted">connected</span> {ago(b.connected_at_ms, now)}{b.latency_ms != null && <span className="muted"> · heartbeat {b.latency_ms} ms</span>}</div>}
+                <div><span className="muted">traffic</span> <b>{b.messages_in}</b> in · <b>{b.messages_out}</b> sent · <b>{b.edits}</b> edits · <b>{b.interactions}</b> button/command presses
+                  · <b className={b.ignored ? 'warn' : ''}>{b.ignored}</b> ignored · <b className={b.errors ? 'bad' : ''}>{b.errors}</b> errors</div>
+                {b.last_error && <div><span className="muted">last error</span> <span className="warn small">{b.last_error}</span></div>}
+              </div>
+              {b.places.length > 0 && (
+                <table className="obs-table">
+                  <thead><tr><th>place</th><th>kind</th><th>channel</th><th>session</th><th>who may drive it</th><th>last message</th></tr></thead>
+                  <tbody>
+                    {b.places.map((p) => (
+                      <tr key={p.label} className={p.session_id && p.session_id === currentSession ? 'mine' : ''}>
+                        <td><b>{p.label}</b></td>
+                        <td className="muted">{p.kind}</td>
+                        <td className="muted small">{p.channel_id ? <code>{p.channel_id}</code> : 'opens on first DM'}</td>
+                        <td>{p.session_id ? <button type="button" className="link" onClick={() => onPickSession?.(p.session_id!)} title="open this session's transcript">{sessionTitle(p.session_id)}</button> : '—'}</td>
+                        <td className="muted small">{p.users.map((u) => <code key={u}>{u} </code>)}</td>
+                        <td className="muted small">{p.last_activity_ms ? ago(p.last_activity_ms, now) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {traffic.length > 0 && (
+                <table className="obs-table">
+                  <thead><tr><th>when</th><th>kind</th><th>what</th></tr></thead>
+                  <tbody>
+                    {traffic.map((r) => (
+                      <tr key={r.position} title={JSON.stringify(r.data, null, 2)}>
+                        <td className="muted small">{clock(r.at_unix_ms)}</td>
+                        <td className={r.kind === 'discord.error' ? 'bad' : r.kind === 'discord.ignored' ? 'warn' : ''}>{r.kind.replace('discord.', '')}</td>
+                        <td className="small">{summarize(r)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )
+        })}
+      </ObsSection>
+
       <ObsSection id="executions" title="Executions" open={!!open.executions} onToggle={() => toggle('executions')} count={`${execs.length}`}>
         {execs.length === 0 ? <div className="muted pad">none yet: the first prompt opens a session and its execution</div> : (
           <table className="obs-table">
@@ -516,6 +573,16 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
     case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('note') ? ` · ${s('note')}` : ''}`
     case r.kind === 'turn.trace': return 'timing tree (open for spans)'
+    case r.kind === 'discord.message.in': return `${s('place')} · from ${s('author')} · ${s('chars')} chars`
+    case r.kind === 'discord.message.out': return `${s('place')} · ${s('chars')} chars${g('buttons') ? ' · with Approve/Decline' : ''} · ${s('part')}`
+    case r.kind === 'discord.confirm': return `${g('approve') ? 'approve' : 'decline'} by ${s('by')}${g('ok') ? '' : ` · failed: ${s('error')}`}`
+    case r.kind === 'discord.command': return `/${s('command')} by ${s('by')}`
+    case r.kind === 'discord.ignored': return `${s('author')} (${s('author_id')}) · ${s('reason')}`
+    case r.kind === 'discord.bound': return `${s('label')} → this session`
+    case r.kind === 'discord.ready': return `${s('bot')} · ${s('guilds')} guild(s) · bindings ${s('revision')}`
+    case r.kind === 'discord.disconnected': return s('why')
+    case r.kind === 'discord.error': return `${s('op')}: ${s('error')}`
+    case r.kind === 'store.restored': return `from ${s('from')} · ${s('records')} records · ${s('sessions')} sessions${Number(g('truncated_bytes') ?? 0) > 0 ? ` · cut ${s('truncated_bytes')} torn bytes` : ''}`
     case r.kind === 'reconcile': return `woke ${(g('woke_due') as unknown[] | undefined)?.length ?? 0} · unknown ${(g('marked_unknown') as unknown[] | undefined)?.length ?? 0} · settled ${(g('settled_from_evidence') as unknown[] | undefined)?.length ?? 0} · ${s('elapsed_us')} µs`
     default: { const t = JSON.stringify(r.data); return t.length > 120 ? `${t.slice(0, 120)}…` : t }
   }

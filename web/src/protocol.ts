@@ -29,6 +29,20 @@ export interface Health {
   usage_total: Usage; provider_errors: number; ledger_rows: number
   kernel: KernelStatus
   cost_usd_total?: number; catalog_version?: string
+  bindings?: BindingStatus[]
+}
+
+export interface PlaceStatus {
+  kind: 'channel' | 'dm'; label: string; channel_id?: string; session_id?: string
+  users: string[]; last_activity_ms: number
+}
+
+export interface BindingStatus {
+  kind: string; state: string; detail?: string; bot_user?: string; guild_id?: string
+  bindings_file?: string; revision?: string; places: PlaceStatus[]
+  connected_at_ms: number; latency_ms?: number
+  messages_in: number; messages_out: number; edits: number; interactions: number
+  ignored: number; errors: number; last_error?: string
 }
 
 export interface SessionInfo {

@@ -18,6 +18,7 @@ pub mod ledger;
 pub mod node;
 pub mod policy;
 pub mod provider;
+pub mod restore;
 pub mod rpc;
 pub mod scrub;
 pub mod secrets;

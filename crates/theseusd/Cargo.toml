@@ -15,6 +15,7 @@ path = "src/main.rs"
 theseus-core.workspace = true
 theseus-protocol.workspace = true
 theseus-kernel.workspace = true
+theseus-discord.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true
