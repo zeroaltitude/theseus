@@ -32,6 +32,9 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.roots = vec![];
     cfg.tools.deny_paths = vec![root.join("secret").to_string_lossy().into_owned()];
     cfg.tools.proc_sync_secs = 10;
+    // The template is a deployment (enforcement = notify); these scenarios
+    // test the gate's own bands, so they run at the built-in level.
+    cfg.policy.enforcement = crate::policy::Enforcement::Strict;
     cfg
 }
 
