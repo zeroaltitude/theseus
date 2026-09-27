@@ -133,7 +133,7 @@ proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME"
 read = "allow"                          # fs.read, fs.glob, fs.grep, fs.list, text.diff, git.diff, git.log
 write = "confirm"                       # fs.write, fs.edit, fs.patch
 run = "confirm"                         # proc.run
-allow_argv = [["git", "status"], ["git", "diff"], ["git", "log"], ["git", "show"], ["ls"], ["pwd"]]
+allow_argv = [["ls"], ["pwd"]]          # run unconfirmed only if every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
 deny_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"], ["op"], ["theseusd"]]
 # [policy.overrides]                    # per-tool modes by canonical name
 # "fs.edit" = "allow"

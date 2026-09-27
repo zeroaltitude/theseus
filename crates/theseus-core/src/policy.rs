@@ -54,6 +54,50 @@ pub struct ToolPolicy {
     pub confirmer: String,
 }
 
+/// Flags that never run unconfirmed, whatever the allow list says: they make
+/// an innocent-looking command write a file (`--output`), read any file
+/// (`--no-index`), or run a program configured elsewhere (`--ext-diff`,
+/// `--textconv`, `--exec`, `--upload-pack`, `-c`).
+const NEVER_UNCONFIRMED: &[&str] = &[
+    "--output",
+    "--no-index",
+    "--ext-diff",
+    "--textconv",
+    "--exec",
+    "--upload-pack",
+    "--receive-pack",
+    "--config-env",
+    "-c",
+];
+
+/// The command's arguments that name paths, resolved against `cwd`: absolute,
+/// `~`, `.`-relative, or containing a separator; `--opt=value` is judged by
+/// its value. Plain words (`status`, `-la`) are not paths.
+fn path_args(argv: &[String], cwd: &std::path::Path) -> Vec<(String, PathBuf)> {
+    argv.iter()
+        .skip(1)
+        .filter_map(|a| {
+            let v = match a.split_once('=') {
+                Some((k, v)) if k.starts_with('-') => v,
+                _ if a.starts_with('-') => return None,
+                _ => a.as_str(),
+            };
+            let looks =
+                v.starts_with('/') || v.starts_with('~') || v.starts_with('.') || v.contains('/');
+            if v.is_empty() || !looks {
+                return None;
+            }
+            let expanded = PathBuf::from(shellexpand::tilde(v).into_owned());
+            let full = if expanded.is_absolute() {
+                expanded
+            } else {
+                cwd.join(expanded)
+            };
+            Some((a.clone(), paths::canonical_best_effort(&full)))
+        })
+        .collect()
+}
+
 fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
     !prefix.is_empty() && argv.len() >= prefix.len() && argv.iter().zip(prefix).all(|(a, p)| a == p)
 }
@@ -130,14 +174,56 @@ impl ToolPolicy {
                     ),
                 };
             }
+            // The resources above are only the working directory; a command's
+            // arguments can name any path, so they are judged too.
+            let cwd = plan
+                .resources
+                .iter()
+                .find(|r| r.access == Access::Exec)
+                .map(|r| paths::canonical_best_effort(&r.path))
+                .or_else(|| self.roots.first().cloned())
+                .unwrap_or_default();
+            let args = path_args(argv, &cwd);
+            for (a, p) in &args {
+                if let Some(d) = self.deny_paths.iter().find(|d| paths::within(p, d)) {
+                    return Decision {
+                        mode: Mode::Deny,
+                        reason: format!(
+                            "argument `{a}` is protected ({} is on the deny list)",
+                            d.display()
+                        ),
+                    };
+                }
+            }
             if mode != Mode::Deny {
                 if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
-                    mode = Mode::Allow;
-                    reason = format!(
+                    let entry = format!(
                         "`{}` matches the allow list entry `{}`",
                         argv.join(" "),
                         p.join(" ")
                     );
+                    let flag = argv.iter().skip(1).find(|a| {
+                        NEVER_UNCONFIRMED
+                            .iter()
+                            .any(|f| a.as_str() == *f || a.starts_with(&format!("{f}=")))
+                    });
+                    let outside = args
+                        .iter()
+                        .find(|(_, p)| !self.roots.iter().any(|root| paths::within(p, root)));
+                    match (flag, outside) {
+                        (Some(f), _) => {
+                            reason = format!("{entry}, but `{f}` never runs unconfirmed")
+                        }
+                        (None, Some((a, _))) => {
+                            reason = format!(
+                                "{entry}, but its argument `{a}` is outside the workspace roots"
+                            )
+                        }
+                        (None, None) => {
+                            mode = Mode::Allow;
+                            reason = entry;
+                        }
+                    }
                 }
             }
         }
@@ -305,6 +391,39 @@ mod tests {
             ),
         );
         assert_eq!(out.mode, Mode::Deny, "{}", out.reason);
+        // Arguments are judged too: a protected one is denied for any command;
+        // an allow-listed command runs unconfirmed only with every path inside
+        // the roots and no write- or exec-capable flag.
+        let run = |argv: Vec<&str>| p.decide(&x, &plan(root.clone(), Access::Exec, Some(argv)));
+        let secret = format!("{}/secret/key", root.display());
+        let out = run(vec!["cat", &secret]);
+        assert_eq!(out.mode, Mode::Deny, "{}", out.reason);
+        assert!(out.reason.contains("is protected"), "{}", out.reason);
+        let out = run(vec!["git", "status", "--output=/tmp/x"]);
+        assert_eq!(out.mode, Mode::Confirm, "{}", out.reason);
+        assert!(
+            out.reason.contains("never runs unconfirmed"),
+            "{}",
+            out.reason
+        );
+        let out = run(vec!["git", "status", "/etc"]);
+        assert_eq!(out.mode, Mode::Confirm, "{}", out.reason);
+        assert!(
+            out.reason.contains("outside the workspace roots"),
+            "{}",
+            out.reason
+        );
+        assert_eq!(
+            run(vec!["git", "status", ".."]).mode,
+            Mode::Confirm,
+            "the parent of the root"
+        );
+        assert_eq!(
+            run(vec!["git", "status", "src/lib.rs"]).mode,
+            Mode::Allow,
+            "inside the root"
+        );
+        assert_eq!(run(vec!["git", "status", "-s"]).mode, Mode::Allow);
         let mut p2 = p.clone();
         p2.overrides.insert("fs.test".into(), Mode::Allow);
         assert_eq!(

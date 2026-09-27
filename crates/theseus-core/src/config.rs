@@ -238,14 +238,10 @@ fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
         .collect()
 }
 fn default_allow_argv() -> Vec<Vec<String>> {
-    argvs(&[
-        &["git", "status"],
-        &["git", "diff"],
-        &["git", "log"],
-        &["git", "show"],
-        &["ls"],
-        &["pwd"],
-    ])
+    // No git: its config and attributes can run programs (fsmonitor, textconv,
+    // external diff), and the native git.diff / git.log toollets read history
+    // without the git binary.
+    argvs(&[&["ls"], &["pwd"]])
 }
 fn default_deny_argv() -> Vec<Vec<String>> {
     argvs(&[
