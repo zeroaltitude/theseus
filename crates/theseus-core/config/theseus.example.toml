@@ -64,7 +64,7 @@ refusal_fallbacks = true
 [profiles.glm]
 provider = "zai"
 model = "glm-5.3-flash"
-max_output_tokens = 16384               # up to 128000 for GLM-5.3
+# max_output_tokens = 64000             # omitted: the catalog ceiling (131072 for GLM-5.3 Flash)
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
