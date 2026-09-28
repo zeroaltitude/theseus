@@ -249,14 +249,14 @@ export default function Observatory({ client, health, tick, currentSession, onRe
           <>
             <div className="pad small muted">roots: {tools.roots.map((r) => <code key={r}>{r} </code>)} · <b>proc.run</b> (typed argv) is the only shell path; the shell-fallback ratio is proc.run calls over all calls.</div>
             <table className="obs-table">
-              <thead><tr><th>tool</th><th>class</th><th>backend</th><th>policy</th><th>calls</th><th>what it does</th></tr></thead>
+              <thead><tr><th>tool</th><th>class</th><th>backend</th><th>posture</th><th>calls</th><th>what it does</th></tr></thead>
               <tbody>
                 {tools.tools.map((t) => (
                   <tr key={t.name} title={`${t.wire_name}\n${JSON.stringify(t.input_schema, null, 2)}`}>
                     <td><code>{t.name}</code></td>
                     <td className="muted">{t.class}</td>
                     <td className="muted">{t.backend}</td>
-                    <td><span className={`pill ${t.policy === 'allow' ? 'ok' : t.policy === 'confirm' ? 'accent' : 'bad'}`}>{t.policy}</span></td>
+                    <td><span className={`pill ${t.policy === 'open' ? 'ok' : t.policy === 'notify' ? 'warn' : t.policy === 'approve' ? 'accent' : 'bad'}`}>{t.policy}</span></td>
                     <td>{t.calls || <span className="muted">0</span>}</td>
                     <td className="muted small desc" title={t.description}>{t.description}</td>
                   </tr>
@@ -537,7 +537,7 @@ function nodeSummary(n: NodeInfo): string {
   switch (n.kind) {
     case 'user_message': return t.slice(0, 160)
     case 'assistant_message': return `${String(d.model ?? '')} · ${String(d.stop_reason ?? '')} · ${money(d.cost_usd as number | null)}${(d.tool_calls as unknown[] | undefined)?.length ? ` · ${(d.tool_calls as unknown[]).length} tool call(s)` : ''} · ${t.slice(0, 100)}`
-    case 'tool_call': return `${String(d.tool ?? '')} ${JSON.stringify(d.input ?? {}).slice(0, 100)} · ${String((d.decision as { mode?: string } | null)?.mode ?? (d.result as { gate?: string } | null)?.gate ?? '')}`
+    case 'tool_call': return `${String(d.tool ?? '')} ${JSON.stringify(d.input ?? {}).slice(0, 100)} · ${String((d.decision as { posture?: string; mode?: string } | null)?.posture ?? (d.decision as { mode?: string } | null)?.mode ?? (d.result as { gate?: string } | null)?.gate ?? '')}`
     case 'tool_result': return `${String(d.tool ?? '')} · ${String(d.status ?? '')}${d.late ? ' · late' : ''} · ${t.slice(0, 100)}`
     default: return t.slice(0, 120)
   }
@@ -569,7 +569,7 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'context.compiled': return `${s('decision')}${g('trigger') ? ` (${s('trigger')})` : ''} · ${s('prefix_nodes')}+${s('tail_nodes')} nodes · ${s('messages')} msg · ~${s('est_tokens')} tok`
     case r.kind === 'context.recompiled': return `${s('trigger')} · ${s('strategy')} · ${s('includes')} node(s)${g('strip_thinking') ? ' · thinking stripped' : ''}`
     case r.kind === 'tool.denied': return `${s('tool')} · ${s('reason')}`
-    case r.kind === 'tool.notified': return `${g('kind') === 'off_policy' ? 'ran against policy' : 'ran without approval'} · ${s('tool')} · ${s('summary')} · ${s('setting')}`
+    case r.kind === 'tool.notified': return `notified · ${s('tool')} · ${s('summary')} · ${s('setting')}`
     case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`
     case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
     case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('note') ? ` · ${s('note')}` : ''}`

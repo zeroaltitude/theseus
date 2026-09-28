@@ -131,29 +131,51 @@ proc_timeout_max_secs = 3600            # ceiling a call may ask for
 proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME"]  # the ONLY variables a job sees
 
 # ---------------------------------------------------------------- policy
-# The gate's three bands (spec §3.9): allow | confirm | deny, by tool class.
-# Confirmations appear in Discord and the web UI (Approve / Decline) and in
-# `theseus confirm`. enforcement decides what the two stops do, as one setting
-# so they stay compatible (a call against the policy never meets less friction
-# than one that only needs approval):
-#   enforcement   needs approval           against policy
-#   strict        waits for Approve        refused
-#   ask           waits for Approve        waits for Approve, marked "against policy"
-#   notify        runs, amber notice       refused
-#   open          runs, amber notice       runs, red notice
-# A notice goes to the session's channel (Discord, web UI, CLI) and the ledger
-# (`tool.notified`). The floor is refused at every level: Theseus's store,
-# spool, and bindings file, its own binary, and the 1Password CLI and its
-# credentials.
+# The gate (spec §3.9) decides per tool, from the finite list of tools (and,
+# when MCP lands, of MCP servers); it never guesses what a command does. Every
+# tool and every MCP inherits one posture, `enforcement`; the exceptions are
+# named under [policy.tools] and [policy.mcp]:
+#   open      run
+#   notify    run, and post a notice (Discord, web UI, CLI, and a `tool.notified` ledger row)
+#   approve   wait for your Approve (Discord, web UI, or `theseus confirm`)
+#   deny      refuse
+# Before any posture, in this order:
+#   1. the floor always waits for your approval, at every posture, even open
+#      and deny (never refused, never silent): Theseus's own binary, store,
+#      spool, and bindings file; the 1Password CLI, its credentials, and the
+#      token file;
+#   2. your deny lists refuse: deny_argv, [tools].deny_paths, and any path
+#      outside the workspace roots (a floor entry on them still asks);
+#   3. your allow list runs: allow_argv.
 [policy]
-enforcement = "notify"                  # strict | ask | notify | open (built-in default: strict)
-read = "allow"                          # fs.read, fs.glob, fs.grep, fs.list, text.diff, git.diff, git.log
-write = "confirm"                       # fs.write, fs.edit, fs.patch
-run = "confirm"                         # proc.run
-allow_argv = [["ls"], ["pwd"]]          # run unconfirmed only if every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
+enforcement = "notify"                  # open | notify | approve | deny: what every tool and MCP inherits (built-in default: open)
+allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
 deny_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"], ["op"], ["theseusd"]]
-# [policy.overrides]                    # per-tool modes by canonical name
-# "fs.edit" = "allow"
+
+# Per-tool postures, one line for every tool (keep it that way as tools are
+# added). A set line overrides enforcement; a commented one inherits it.
+[policy.tools]
+# read-only tools: safe to leave open, so reads never prompt or notify
+"fs.read"   = "open"
+"fs.glob"   = "open"
+"fs.grep"   = "open"
+"fs.list"   = "open"
+"git.diff"  = "open"
+"git.log"   = "open"
+"text.diff" = "open"
+# writers: inherit enforcement; raise or lower per taste
+# "fs.edit"  = "notify"
+# "fs.write" = "notify"
+# "fs.patch" = "notify"
+# the universal shell: the one worth pinning stricter than enforcement
+# "proc.run" = "approve"
+
+# Per-MCP postures, for when MCP servers land (M7): "server" covers every tool
+# from that server, "server/tool" one tool. An MCP tool's posture comes from
+# its [policy.tools] line, then "server/tool", then "server", then enforcement.
+# [policy.mcp]
+# "some-server" = "approve"             # every tool from this MCP server
+# "some-server/dangerous-tool" = "deny"
 
 # ---------------------------------------------------------------- catalog
 # Built in (version 2026-09-26.1): claude-fable-5-1, claude-fable-5, claude-opus-5-5,

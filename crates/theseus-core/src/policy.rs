@@ -1,16 +1,36 @@
-//! Tool policy (spec §3.9): the three-band gate — allow, confirm, deny — over
-//! what a call will touch, not over strings. Evaluated after the toollet has
-//! validated its input and named its resources (`Plan`), before anything runs.
-//! Most restrictive wins. Deny reasons are written for the model and the
-//! operator to read ("path /etc/passwd is outside the workspace roots").
+//! Tool policy (spec §3.9). The finite, named list of tools (and, when MCP
+//! lands, of MCP servers) is the surface the operator controls, so the gate
+//! decides per tool and never infers what a command does. Every tool and every
+//! MCP inherits one posture, with per-tool and per-MCP overrides:
+//!
+//! | posture   | what happens                       |
+//! |-----------|------------------------------------|
+//! | `open`    | run                                |
+//! | `notify`  | run, and post a structured notice  |
+//! | `approve` | wait for the operator's approval   |
+//! | `deny`    | refuse                             |
+//!
+//! Evaluated after the toollet has validated its input and named its
+//! resources (`Plan`), before anything runs. The first match wins:
+//!
+//! 1. the floor (Theseus's own binary and state, the 1Password CLI and its
+//!    token) waits for approval at every posture: never refused, never silent;
+//! 2. the operator's explicit deny (a deny list, a path outside the roots) refuses;
+//! 3. the operator's explicit allow (`allow_argv`) runs;
+//! 4. otherwise the tool's posture: `[policy.tools]`, then for an MCP tool
+//!    `[policy.mcp]` "server/tool" and "server", then `[policy].enforcement`.
+//!
+//! Reasons are written for the model and the operator to read
+//! ("proc.run — approve (enforcement = approve)").
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use theseus_kernel::{Authority, Policy, PolicyDecision, Proposal};
-use theseus_tools::{paths, Access, Plan, Tool, ToolClass, ToolCtx};
+use theseus_tools::{paths, Access, Plan, Tool, ToolCtx};
 
+/// The kernel's band for a call: run it, wait for a confirm, or refuse it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
@@ -29,73 +49,84 @@ impl Mode {
     }
 }
 
-/// `[policy].enforcement`: the operator's posture toward the gate's two stops,
-/// as one setting so they can never combine incoherently: a call against the
-/// policy never meets less friction than a call that only needs approval.
-///
-/// | enforcement | needs approval         | against policy                  |
-/// |-------------|------------------------|---------------------------------|
-/// | `strict`    | waits for Approve      | refused                         |
-/// | `ask`       | waits for Approve      | waits for Approve, marked       |
-/// | `notify`    | runs, amber notice     | refused                         |
-/// | `open`      | runs, amber notice     | runs, red notice                |
-///
-/// The floor is refused at every level.
+/// What the gate does with a call: `[policy].enforcement` (the posture every
+/// tool and MCP inherits) and each `[policy.tools]` / `[policy.mcp]` override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum Enforcement {
+pub enum Posture {
+    /// Run.
     #[default]
-    Strict,
-    Ask,
-    Notify,
     Open,
+    /// Run, and post a structured notice.
+    Notify,
+    /// Wait for the operator's approval.
+    Approve,
+    /// Refuse.
+    Deny,
 }
 
-impl Enforcement {
+impl Posture {
+    pub const ALL: [Posture; 4] = [
+        Posture::Open,
+        Posture::Notify,
+        Posture::Approve,
+        Posture::Deny,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
-            Enforcement::Strict => "strict",
-            Enforcement::Ask => "ask",
-            Enforcement::Notify => "notify",
-            Enforcement::Open => "open",
+            Posture::Open => "open",
+            Posture::Notify => "notify",
+            Posture::Approve => "approve",
+            Posture::Deny => "deny",
+        }
+    }
+
+    /// The kernel's band: open and notify run, approve waits, deny refuses.
+    pub fn mode(self) -> Mode {
+        match self {
+            Posture::Open | Posture::Notify => Mode::Allow,
+            Posture::Approve => Mode::Confirm,
+            Posture::Deny => Mode::Deny,
         }
     }
 }
 
-/// Why a call ran that the policy alone would have stopped.
+/// The structured notice a `notify` posture posts: to the session's channel
+/// (Discord, web UI, CLI) and to the ledger (`tool.notified`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Notice {
-    /// `approval_skipped` or `off_policy`.
+    /// `notify`.
     pub kind: String,
-    /// The setting that let it run, e.g. `enforcement = notify`.
+    /// The setting that chose the posture, e.g. `enforcement = notify`.
     pub setting: String,
-    /// What the policy said (the confirm or deny reason).
+    /// The gate's reason, e.g. `proc.run — notify (enforcement = notify)`.
     pub rule: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Decision {
+    /// The kernel's band (`Posture::mode`).
     pub mode: Mode,
+    pub posture: Posture,
     pub reason: String,
-    /// Set when the enforcement level let the call run instead of asking or refusing.
+    /// The notice a `notify` posture posts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notify: Option<Notice>,
-    /// A floor denial: no setting lifts it.
+    /// The floor asked: the call touches Theseus's own binary or state, or the
+    /// 1Password CLI or token. No setting makes it run unasked.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub floor: bool,
-    /// A confirm that stands in for a refusal (`enforcement = ask`).
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub against_policy: bool,
 }
 
 impl Decision {
-    fn new(mode: Mode, reason: String) -> Self {
+    fn new(posture: Posture, reason: String) -> Self {
         Self {
-            mode,
+            mode: posture.mode(),
+            posture,
             reason,
             notify: None,
             floor: false,
-            against_policy: false,
         }
     }
 }
@@ -104,38 +135,47 @@ impl Decision {
 pub struct ToolPolicy {
     /// Canonical workspace roots.
     pub roots: Vec<PathBuf>,
-    /// Canonical protected paths, denied even under a root.
+    /// Canonical protected paths, refused even under a root.
     pub deny_paths: Vec<PathBuf>,
-    pub read: Mode,
-    pub write: Mode,
-    pub run: Mode,
-    /// `proc.run` argv prefixes that run without confirmation.
+    /// `proc.run` argv prefixes that run (open) when every path argument is
+    /// inside the roots.
     pub allow_argv: Vec<Vec<String>>,
     /// `proc.run` argv prefixes that never run.
     pub deny_argv: Vec<Vec<String>>,
-    /// Per-tool mode overrides by canonical name.
-    pub overrides: BTreeMap<String, Mode>,
+    /// The posture every tool and MCP inherits (`[policy].enforcement`).
+    pub enforcement: Posture,
+    /// Per-tool postures by canonical name (`[policy.tools]`).
+    pub tools: BTreeMap<String, Posture>,
+    /// Per-MCP postures by `server/tool` or `server` (`[policy.mcp]`).
+    pub mcp: BTreeMap<String, Posture>,
     /// Who confirms (the execution's principal).
     pub confirmer: String,
-    pub enforcement: Enforcement,
-    /// Denied whatever the settings say: Theseus's store, spool, and bindings
-    /// file, and the 1Password CLI's credentials (canonical paths).
+    /// Paths that always wait for approval: Theseus's store, spool, and
+    /// bindings file, and the 1Password CLI's credentials and token (canonical).
     pub floor_paths: Vec<PathBuf>,
-    /// Programs denied whatever the settings say (`theseusd`, `op`).
+    /// Programs that always wait for approval (`theseusd`, `op`).
     pub floor_argv: Vec<Vec<String>>,
 }
 
-/// Programs no setting can make Theseus run: its own binary (spec §3.21, the
-/// kernel is off limits to the agent) and the 1Password CLI (every secret).
+/// An MCP tool's canonical name is `mcp:<server>/<tool>`.
+pub const MCP_PREFIX: &str = "mcp:";
+
+/// Programs Theseus never runs unasked, whatever the posture: its own binary
+/// (spec §3.21, the kernel is off limits to the agent) and the 1Password CLI
+/// (every secret).
 pub fn floor_argv() -> Vec<Vec<String>> {
     vec![vec!["theseusd".into()], vec!["op".into()]]
 }
 
-/// Flags that never run unconfirmed, whatever the allow list says: they make
-/// an innocent-looking command write a file (`--output`), read any file
+/// What the floor's paths hold, in the operator's words.
+const FLOOR_STATE: &str = "Theseus's own state or the 1Password token";
+
+/// Flags the allow list never covers, whatever it says: they make an
+/// innocent-looking command write a file (`--output`), read any file
 /// (`--no-index`), or run a program configured elsewhere (`--ext-diff`,
-/// `--textconv`, `--exec`, `--upload-pack`, `-c`).
-const NEVER_UNCONFIRMED: &[&str] = &[
+/// `--textconv`, `--exec`, `--upload-pack`, `-c`). A command carrying one
+/// takes its tool's posture instead.
+const NOT_ALLOW_LISTED: &[&str] = &[
     "--output",
     "--no-index",
     "--ext-diff",
@@ -150,7 +190,7 @@ const NEVER_UNCONFIRMED: &[&str] = &[
 /// The command's arguments that name paths, resolved against `cwd`: absolute,
 /// `~`, `.`-relative, or containing a separator; `--opt=value` is judged by
 /// its value. Plain words (`status`, `-la`) are not paths.
-fn path_args(argv: &[String], cwd: &std::path::Path) -> Vec<(String, PathBuf)> {
+fn path_args(argv: &[String], cwd: &Path) -> Vec<(String, PathBuf)> {
     argv.iter()
         .skip(1)
         .filter_map(|a| {
@@ -183,7 +223,7 @@ fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
 fn normalized_argv(argv: &[String]) -> Vec<String> {
     let mut v = argv.to_vec();
     if let Some(first) = v.first_mut() {
-        if let Some(base) = std::path::Path::new(first.as_str()).file_name() {
+        if let Some(base) = Path::new(first.as_str()).file_name() {
             *first = base.to_string_lossy().into_owned();
         }
     }
@@ -191,193 +231,184 @@ fn normalized_argv(argv: &[String]) -> Vec<String> {
 }
 
 impl ToolPolicy {
-    pub fn class_mode(&self, tool: &dyn Tool) -> Mode {
-        if let Some(m) = self.overrides.get(tool.name()) {
-            return *m;
+    /// A tool's posture and the setting that chose it: `[policy.tools]`, then
+    /// for an MCP tool (`mcp:<server>/<tool>`) `[policy.mcp]` "server/tool"
+    /// and "server", then `[policy].enforcement`.
+    pub fn posture(&self, name: &str) -> (Posture, String) {
+        if let Some(p) = self.tools.get(name) {
+            return (*p, format!("[policy.tools] \"{name}\" = {}", p.as_str()));
         }
-        match tool.class() {
-            ToolClass::Read => self.read,
-            ToolClass::Write => self.write,
-            ToolClass::Run => self.run,
+        if let Some(full) = name.strip_prefix(MCP_PREFIX) {
+            let server = full.split_once('/').map_or(full, |(s, _)| s);
+            for key in [full, server] {
+                if let Some(p) = self.mcp.get(key) {
+                    return (*p, format!("[policy.mcp] \"{key}\" = {}", p.as_str()));
+                }
+            }
         }
+        (
+            self.enforcement,
+            format!("enforcement = {}", self.enforcement.as_str()),
+        )
     }
 
-    /// The gate's answer at the operator's enforcement level: `notify` and
-    /// `open` run what needs approval (with a notice), `ask` turns a refusal
-    /// into a marked confirm, `open` runs a refusal (with a notice). The floor
-    /// is never lifted.
+    /// The gate's answer for one call; the order is in the module doc.
     pub fn decide(&self, tool: &dyn Tool, plan: &Plan) -> Decision {
-        use Enforcement::*;
-        let d = self.decide_by_policy(tool, plan);
-        let setting = format!("enforcement = {}", self.enforcement.as_str());
-        match (d.mode, self.enforcement) {
-            (Mode::Confirm, Notify | Open) => Decision {
-                mode: Mode::Allow,
-                reason: format!("ran without approval: {}", d.reason),
-                notify: Some(Notice {
-                    kind: "approval_skipped".into(),
-                    setting,
-                    rule: d.reason,
-                }),
-                floor: false,
-                against_policy: false,
-            },
-            (Mode::Deny, Ask) if !d.floor => Decision {
-                mode: Mode::Confirm,
-                reason: format!("against policy: {}", d.reason),
-                notify: None,
-                floor: false,
-                against_policy: true,
-            },
-            (Mode::Deny, Open) if !d.floor => Decision {
-                mode: Mode::Allow,
-                reason: format!("ran against policy: {}", d.reason),
-                notify: Some(Notice {
-                    kind: "off_policy".into(),
-                    setting,
-                    rule: d.reason,
-                }),
-                floor: false,
-                against_policy: true,
-            },
-            _ => d,
-        }
-    }
-
-    /// The policy alone: floor, protected paths, roots, class, argv lists.
-    fn decide_by_policy(&self, tool: &dyn Tool, plan: &Plan) -> Decision {
-        let floor = |reason: String| Decision {
-            mode: Mode::Deny,
-            reason,
-            notify: None,
-            floor: true,
-            against_policy: false,
-        };
-        for r in &plan.resources {
-            let p = paths::canonical_best_effort(&r.path);
-            if let Some(f) = self.floor_paths.iter().find(|f| paths::within(&p, f)) {
-                return floor(format!(
-                    "{} is Theseus's own or holds its secrets ({}); no setting allows it",
-                    p.display(),
-                    f.display()
-                ));
-            }
-        }
-        if let Some(argv) = &plan.argv {
-            let nargv = normalized_argv(argv);
-            if let Some(f) = self.floor_argv.iter().find(|f| prefix_match(&nargv, f)) {
-                return floor(format!(
-                    "`{}` is never run (`{}` is on the floor: Theseus's own binary or the 1Password CLI)",
-                    argv.join(" "),
-                    f.join(" ")
-                ));
-            }
-        }
-        for r in &plan.resources {
-            let p = paths::canonical_best_effort(&r.path);
-            if let Some(d) = self.deny_paths.iter().find(|d| paths::within(&p, d)) {
-                return Decision::new(
-                    Mode::Deny,
-                    format!(
-                        "{} is protected ({} is on the deny list)",
-                        p.display(),
-                        d.display()
-                    ),
-                );
-            }
-            if !self.roots.iter().any(|root| paths::within(&p, root)) {
-                let roots: Vec<String> =
-                    self.roots.iter().map(|r| r.display().to_string()).collect();
-                return Decision::new(
-                    Mode::Deny,
-                    format!(
-                        "{} is outside the workspace roots ({})",
-                        p.display(),
-                        if roots.is_empty() {
-                            "none configured: set [tools].projects_dir".into()
-                        } else {
-                            roots.join(", ")
-                        }
-                    ),
-                );
-            }
-        }
-        let mut mode = self.class_mode(tool);
-        let mut reason = format!(
-            "{} is `{}` for {} tools",
-            tool.name(),
-            mode.as_str(),
-            tool.class().as_str()
-        );
-        if let Some(argv) = &plan.argv {
-            let nargv = normalized_argv(argv);
-            if let Some(p) = self.deny_argv.iter().find(|p| prefix_match(&nargv, p)) {
-                return Decision::new(
-                    Mode::Deny,
-                    format!(
-                        "`{}` matches the deny list entry `{}`",
-                        argv.join(" "),
-                        p.join(" ")
-                    ),
-                );
-            }
-            // The resources above are only the working directory; a command's
-            // arguments can name any path, so they are judged too.
+        let name = tool.name();
+        let resources: Vec<PathBuf> = plan
+            .resources
+            .iter()
+            .map(|r| paths::canonical_best_effort(&r.path))
+            .collect();
+        let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
+        let nargv = normalized_argv(argv);
+        // A command's resources are only its working directory; its arguments
+        // can name any path, so they are judged too.
+        let args = if argv.is_empty() {
+            vec![]
+        } else {
             let cwd = plan
                 .resources
                 .iter()
-                .find(|r| r.access == Access::Exec)
-                .map(|r| paths::canonical_best_effort(&r.path))
+                .zip(&resources)
+                .find(|(r, _)| r.access == Access::Exec)
+                .map(|(_, p)| p.clone())
                 .or_else(|| self.roots.first().cloned())
                 .unwrap_or_default();
-            let args = path_args(argv, &cwd);
-            for (a, p) in &args {
-                if let Some(d) = self.deny_paths.iter().find(|d| paths::within(p, d)) {
-                    return Decision::new(
-                        Mode::Deny,
-                        format!(
-                            "argument `{a}` is protected ({} is on the deny list)",
-                            d.display()
-                        ),
-                    );
+            path_args(argv, &cwd)
+        };
+
+        if let Some(what) = self.floor(&resources, &nargv, &args) {
+            return Decision {
+                floor: true,
+                ..Decision::new(
+                    Posture::Approve,
+                    format!("{}: {name} — approve (floor: {what})", plan.summary),
+                )
+            };
+        }
+        if let Some(why) = self.denied(&resources, argv, &nargv, &args) {
+            return Decision::new(Posture::Deny, format!("{name} — deny ({why})"));
+        }
+        // The allow list runs a command outright; a near miss says why not.
+        let mut near_miss = String::new();
+        if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
+            let entry = format!(
+                "`{}` matches the allow list entry `{}`",
+                argv.join(" "),
+                p.join(" ")
+            );
+            let flag = argv.iter().skip(1).find(|a| {
+                NOT_ALLOW_LISTED
+                    .iter()
+                    .any(|f| a.as_str() == *f || a.starts_with(&format!("{f}=")))
+            });
+            let outside = args.iter().find(|(_, p)| !self.within_roots(p));
+            match (flag, outside) {
+                (Some(f), _) => {
+                    near_miss = format!("; {entry}, but the allow list never covers `{f}`")
+                }
+                (None, Some((a, _))) => {
+                    near_miss =
+                        format!("; {entry}, but its argument `{a}` is outside the workspace roots")
+                }
+                (None, None) => {
+                    return Decision::new(Posture::Open, format!("{name} — open ({entry})"))
                 }
             }
-            if mode != Mode::Deny {
-                if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
-                    let entry = format!(
-                        "`{}` matches the allow list entry `{}`",
-                        argv.join(" "),
-                        p.join(" ")
-                    );
-                    let flag = argv.iter().skip(1).find(|a| {
-                        NEVER_UNCONFIRMED
-                            .iter()
-                            .any(|f| a.as_str() == *f || a.starts_with(&format!("{f}=")))
-                    });
-                    let outside = args
-                        .iter()
-                        .find(|(_, p)| !self.roots.iter().any(|root| paths::within(p, root)));
-                    match (flag, outside) {
-                        (Some(f), _) => {
-                            reason = format!("{entry}, but `{f}` never runs unconfirmed")
-                        }
-                        (None, Some((a, _))) => {
-                            reason = format!(
-                                "{entry}, but its argument `{a}` is outside the workspace roots"
-                            )
-                        }
-                        (None, None) => {
-                            mode = Mode::Allow;
-                            reason = entry;
-                        }
+        }
+        let (posture, setting) = self.posture(name);
+        let reason = format!("{name} — {} ({setting}{near_miss})", posture.as_str());
+        match posture {
+            Posture::Approve => Decision::new(posture, format!("{}: {reason}", plan.summary)),
+            Posture::Notify => Decision {
+                notify: Some(Notice {
+                    kind: "notify".into(),
+                    setting,
+                    rule: reason.clone(),
+                }),
+                ..Decision::new(posture, reason)
+            },
+            Posture::Open | Posture::Deny => Decision::new(posture, reason),
+        }
+    }
+
+    fn within_roots(&self, p: &Path) -> bool {
+        self.roots.iter().any(|root| paths::within(p, root))
+    }
+
+    /// What of the call is on the floor: a resource, the program, or a path
+    /// argument.
+    fn floor(
+        &self,
+        resources: &[PathBuf],
+        nargv: &[String],
+        args: &[(String, PathBuf)],
+    ) -> Option<String> {
+        let on = |p: &Path| self.floor_paths.iter().any(|f| paths::within(p, f));
+        if let Some(p) = resources.iter().find(|p| on(p)) {
+            return Some(format!("{} is {FLOOR_STATE}", p.display()));
+        }
+        if let Some(f) = self.floor_argv.iter().find(|f| prefix_match(nargv, f)) {
+            return Some(format!(
+                "`{}` is Theseus's own binary or the 1Password CLI",
+                f.join(" ")
+            ));
+        }
+        args.iter()
+            .find(|(_, p)| on(p))
+            .map(|(a, _)| format!("argument `{a}` is {FLOOR_STATE}"))
+    }
+
+    /// The operator's explicit deny: a protected path, a path outside the
+    /// roots, a deny-listed program, or a protected path argument.
+    fn denied(
+        &self,
+        resources: &[PathBuf],
+        argv: &[String],
+        nargv: &[String],
+        args: &[(String, PathBuf)],
+    ) -> Option<String> {
+        for p in resources {
+            if let Some(d) = self.deny_paths.iter().find(|d| paths::within(p, d)) {
+                return Some(format!(
+                    "{} is protected: {} is on the deny list",
+                    p.display(),
+                    d.display()
+                ));
+            }
+            if !self.within_roots(p) {
+                let roots: Vec<String> =
+                    self.roots.iter().map(|r| r.display().to_string()).collect();
+                return Some(format!(
+                    "{} is outside the workspace roots: {}",
+                    p.display(),
+                    if roots.is_empty() {
+                        "none configured, set [tools].projects_dir".into()
+                    } else {
+                        roots.join(", ")
                     }
-                }
+                ));
             }
         }
-        if mode == Mode::Confirm {
-            reason = format!("{}: {}", plan.summary, reason);
+        if let Some(p) = self.deny_argv.iter().find(|p| prefix_match(nargv, p)) {
+            return Some(format!(
+                "`{}` matches the deny list entry `{}`",
+                argv.join(" "),
+                p.join(" ")
+            ));
         }
-        Decision::new(mode, reason)
+        args.iter().find_map(|(a, p)| {
+            self.deny_paths
+                .iter()
+                .find(|d| paths::within(p, d))
+                .map(|d| {
+                    format!(
+                        "argument `{a}` is protected: {} is on the deny list",
+                        d.display()
+                    )
+                })
+        })
     }
 
     /// Does any resource of this plan write?
@@ -435,12 +466,13 @@ impl Policy for GatePolicy<'_> {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
-    use theseus_tools::{Resource, Retry};
+    use theseus_tools::{Resource, Retry, ToolClass};
 
-    struct T(ToolClass);
+    /// A tool by name only: the gate looks at nothing else about it.
+    struct T(&'static str);
     impl Tool for T {
         fn name(&self) -> &'static str {
-            "fs.test"
+            self.0
         }
         fn description(&self) -> &'static str {
             ""
@@ -449,7 +481,7 @@ mod tests {
             json!({})
         }
         fn class(&self) -> ToolClass {
-            self.0
+            ToolClass::Run
         }
         fn retry(&self) -> Retry {
             Retry::SafeToRepeat
@@ -459,209 +491,350 @@ mod tests {
         }
     }
 
-    fn policy(root: &std::path::Path) -> ToolPolicy {
+    fn workspace() -> (tempfile::TempDir, PathBuf) {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().canonicalize().unwrap();
+        (d, root)
+    }
+
+    fn policy(root: &Path, enforcement: Posture) -> ToolPolicy {
         ToolPolicy {
             roots: vec![root.to_path_buf()],
             deny_paths: vec![root.join("secret")],
-            read: Mode::Allow,
-            write: Mode::Confirm,
-            run: Mode::Confirm,
             allow_argv: vec![vec!["git".into(), "status".into()]],
             deny_argv: vec![vec!["sudo".into()]],
-            overrides: BTreeMap::new(),
+            enforcement,
+            tools: BTreeMap::new(),
+            mcp: BTreeMap::new(),
             confirmer: "operator".into(),
-            enforcement: Enforcement::Strict,
             floor_paths: vec![root.join("state")],
             floor_argv: floor_argv(),
         }
     }
 
-    fn plan(path: std::path::PathBuf, access: Access, argv: Option<Vec<&str>>) -> Plan {
+    fn plan(path: PathBuf, access: Access, argv: Option<Vec<&str>>) -> Plan {
         Plan {
             resources: vec![Resource { path, access }],
             argv: argv.map(|v| v.into_iter().map(String::from).collect()),
-            summary: "s".into(),
+            summary: "the call".into(),
         }
     }
 
     #[test]
-    fn roots_deny_list_argv_lists_and_class_modes() {
-        let d = tempfile::tempdir().unwrap();
-        let root = d.path().canonicalize().unwrap();
-        let p = policy(&root);
-        let r = T(ToolClass::Read);
-        let w = T(ToolClass::Write);
-        let x = T(ToolClass::Run);
-        assert_eq!(
-            p.decide(&r, &plan(root.join("a.rs"), Access::Read, None))
-                .mode,
-            Mode::Allow
-        );
-        assert_eq!(
-            p.decide(&w, &plan(root.join("a.rs"), Access::Write, None))
-                .mode,
-            Mode::Confirm
-        );
-        let out = p.decide(&r, &plan("/etc/passwd".into(), Access::Read, None));
-        assert_eq!(out.mode, Mode::Deny);
-        assert!(
-            out.reason.contains("outside the workspace roots"),
-            "{}",
-            out.reason
-        );
-        let out = p.decide(&r, &plan(root.join("secret/key"), Access::Read, None));
-        assert_eq!(out.mode, Mode::Deny);
-        assert!(out.reason.contains("protected"));
-        assert_eq!(
-            p.decide(
-                &x,
-                &plan(
-                    root.clone(),
-                    Access::Exec,
-                    Some(vec!["git", "status", "-s"])
-                )
-            )
-            .mode,
-            Mode::Allow
-        );
-        assert_eq!(
-            p.decide(
-                &x,
-                &plan(root.clone(), Access::Exec, Some(vec!["cargo", "test"]))
-            )
-            .mode,
-            Mode::Confirm
-        );
-        let out = p.decide(
-            &x,
-            &plan(
-                root.clone(),
-                Access::Exec,
-                Some(vec!["/usr/bin/sudo", "ls"]),
+    fn each_posture_runs_notifies_waits_or_refuses_a_plain_call() {
+        let (_d, root) = workspace();
+        // No class axis: a read, a write, and a command all take the posture.
+        for (tool, pl) in [
+            (
+                "proc.run",
+                plan(root.clone(), Access::Exec, Some(vec!["cargo", "test"])),
             ),
-        );
-        assert_eq!(out.mode, Mode::Deny, "{}", out.reason);
-        // Arguments are judged too: a protected one is denied for any command;
-        // an allow-listed command runs unconfirmed only with every path inside
-        // the roots and no write- or exec-capable flag.
-        let run = |argv: Vec<&str>| p.decide(&x, &plan(root.clone(), Access::Exec, Some(argv)));
-        let secret = format!("{}/secret/key", root.display());
-        let out = run(vec!["cat", &secret]);
-        assert_eq!(out.mode, Mode::Deny, "{}", out.reason);
-        assert!(out.reason.contains("is protected"), "{}", out.reason);
-        let out = run(vec!["git", "status", "--output=/tmp/x"]);
-        assert_eq!(out.mode, Mode::Confirm, "{}", out.reason);
-        assert!(
-            out.reason.contains("never runs unconfirmed"),
-            "{}",
-            out.reason
-        );
-        let out = run(vec!["git", "status", "/etc"]);
-        assert_eq!(out.mode, Mode::Confirm, "{}", out.reason);
-        assert!(
-            out.reason.contains("outside the workspace roots"),
-            "{}",
-            out.reason
-        );
-        assert_eq!(
-            run(vec!["git", "status", ".."]).mode,
-            Mode::Confirm,
-            "the parent of the root"
-        );
-        assert_eq!(
-            run(vec!["git", "status", "src/lib.rs"]).mode,
-            Mode::Allow,
-            "inside the root"
-        );
-        assert_eq!(run(vec!["git", "status", "-s"]).mode, Mode::Allow);
-        // The enforcement ladder: every level is coherent, and the floor holds.
-        let at = |e: Enforcement| {
-            let mut q = p.clone();
-            q.enforcement = e;
-            q
-        };
-        let write = plan(root.join("a.rs"), Access::Write, None);
-        let outside = plan("/etc/passwd".into(), Access::Read, None);
-        let sudo = plan(root.clone(), Access::Exec, Some(vec!["sudo", "ls"]));
-        let s = at(Enforcement::Strict);
-        assert_eq!(s.decide(&w, &write).mode, Mode::Confirm);
-        assert_eq!(s.decide(&r, &outside).mode, Mode::Deny);
-        let a = at(Enforcement::Ask);
-        assert_eq!(a.decide(&w, &write).mode, Mode::Confirm);
-        let out = a.decide(&r, &outside);
-        assert_eq!(
-            out.mode,
-            Mode::Confirm,
-            "ask: a refusal becomes a marked confirm"
-        );
-        assert!(
-            out.against_policy && out.reason.starts_with("against policy"),
-            "{}",
-            out.reason
-        );
-        let n = at(Enforcement::Notify);
-        let out = n.decide(&w, &write);
-        assert_eq!(out.mode, Mode::Allow);
-        assert_eq!(out.notify.as_ref().unwrap().kind, "approval_skipped");
-        assert_eq!(out.notify.unwrap().setting, "enforcement = notify");
-        assert_eq!(
-            n.decide(&r, &outside).mode,
-            Mode::Deny,
-            "notify never lifts a refusal"
-        );
-        let o = at(Enforcement::Open);
-        let out = o.decide(&r, &outside);
-        assert_eq!(out.mode, Mode::Allow);
-        let nt = out.notify.unwrap();
-        assert_eq!(nt.kind, "off_policy");
-        assert!(
-            nt.rule.contains("outside the workspace roots"),
-            "{}",
-            nt.rule
-        );
-        assert_eq!(
-            o.decide(&x, &sudo).mode,
-            Mode::Allow,
-            "open runs the deny list too"
-        );
-        for e in [
-            Enforcement::Strict,
-            Enforcement::Ask,
-            Enforcement::Notify,
-            Enforcement::Open,
+            ("fs.write", plan(root.join("a.rs"), Access::Write, None)),
+            ("fs.read", plan(root.join("a.rs"), Access::Read, None)),
         ] {
-            let q = at(e);
-            for (what, pl) in [
-                ("state", plan(root.join("state/store"), Access::Read, None)),
+            let t = T(tool);
+            let out = policy(&root, Posture::Open).decide(&t, &pl);
+            assert_eq!((out.mode, out.posture), (Mode::Allow, Posture::Open));
+            assert!(out.notify.is_none() && !out.floor);
+            assert_eq!(out.reason, format!("{tool} — open (enforcement = open)"));
+
+            let out = policy(&root, Posture::Notify).decide(&t, &pl);
+            assert_eq!((out.mode, out.posture), (Mode::Allow, Posture::Notify));
+            assert_eq!(
+                out.notify,
+                Some(Notice {
+                    kind: "notify".into(),
+                    setting: "enforcement = notify".into(),
+                    rule: format!("{tool} — notify (enforcement = notify)"),
+                })
+            );
+
+            let out = policy(&root, Posture::Approve).decide(&t, &pl);
+            assert_eq!((out.mode, out.posture), (Mode::Confirm, Posture::Approve));
+            assert!(out.notify.is_none() && !out.floor);
+            assert_eq!(
+                out.reason,
+                format!("the call: {tool} — approve (enforcement = approve)")
+            );
+
+            let out = policy(&root, Posture::Deny).decide(&t, &pl);
+            assert_eq!((out.mode, out.posture), (Mode::Deny, Posture::Deny));
+            assert_eq!(out.reason, format!("{tool} — deny (enforcement = deny)"));
+        }
+    }
+
+    #[test]
+    fn a_per_tool_override_beats_the_global_posture() {
+        let (_d, root) = workspace();
+        let mut p = policy(&root, Posture::Notify);
+        p.tools.insert("proc.run".into(), Posture::Approve);
+        p.tools.insert("fs.read".into(), Posture::Open);
+        let run = plan(root.clone(), Access::Exec, Some(vec!["cargo", "test"]));
+        let out = p.decide(&T("proc.run"), &run);
+        assert_eq!(out.posture, Posture::Approve);
+        assert_eq!(
+            out.reason,
+            "the call: proc.run — approve ([policy.tools] \"proc.run\" = approve)"
+        );
+        let read = plan(root.join("a.rs"), Access::Read, None);
+        let out = p.decide(&T("fs.read"), &read);
+        assert_eq!((out.posture, out.notify), (Posture::Open, None));
+        assert_eq!(
+            p.decide(&T("fs.grep"), &read).posture,
+            Posture::Notify,
+            "a tool without an override inherits"
+        );
+        // An override lowers as well as raises.
+        p.enforcement = Posture::Deny;
+        assert_eq!(p.decide(&T("fs.read"), &read).posture, Posture::Open);
+        let write = plan(root.join("a.rs"), Access::Write, None);
+        assert_eq!(p.decide(&T("fs.write"), &write).posture, Posture::Deny);
+    }
+
+    #[test]
+    fn an_mcp_tool_takes_server_tool_then_server_then_the_global_posture() {
+        let (_d, root) = workspace();
+        let call = plan(root.clone(), Access::Read, None);
+        let at = |p: &ToolPolicy, name: &'static str| {
+            let d = p.decide(&T(name), &call);
+            (d.posture, d.reason)
+        };
+        let mut p = policy(&root, Posture::Notify);
+        assert_eq!(
+            at(&p, "mcp:x/y"),
+            (
+                Posture::Notify,
+                "mcp:x/y — notify (enforcement = notify)".into()
+            )
+        );
+        p.mcp.insert("x".into(), Posture::Deny);
+        assert_eq!(
+            at(&p, "mcp:x/y"),
+            (
+                Posture::Deny,
+                "mcp:x/y — deny ([policy.mcp] \"x\" = deny)".into()
+            )
+        );
+        p.mcp.insert("x/y".into(), Posture::Approve);
+        assert_eq!(
+            at(&p, "mcp:x/y"),
+            (
+                Posture::Approve,
+                "the call: mcp:x/y — approve ([policy.mcp] \"x/y\" = approve)".into()
+            )
+        );
+        assert_eq!(
+            at(&p, "mcp:x/z").0,
+            Posture::Deny,
+            "the server's other tools take the server's"
+        );
+        assert_eq!(
+            at(&p, "mcp:w/y").0,
+            Posture::Notify,
+            "another server inherits"
+        );
+        assert_eq!(
+            at(&p, "x/y").0,
+            Posture::Notify,
+            "only an mcp: name consults [policy.mcp]"
+        );
+        p.tools.insert("mcp:x/y".into(), Posture::Open);
+        assert_eq!(at(&p, "mcp:x/y").0, Posture::Open, "[policy.tools] first");
+    }
+
+    #[test]
+    fn the_floor_asks_at_every_posture_and_is_never_refused_or_silent() {
+        let (_d, root) = workspace();
+        let store = root.join("state/store/000.wal");
+        let store_arg = store.to_string_lossy().into_owned();
+        // The token file lives outside the workspace, like the real one in $HOME.
+        let token = tempfile::NamedTempFile::new().unwrap();
+        let token = token.path().canonicalize().unwrap();
+        for e in Posture::ALL {
+            let mut p = policy(&root, e);
+            p.floor_paths.push(token.clone());
+            for (what, tool, pl) in [
+                (
+                    "the store",
+                    "fs.read",
+                    plan(store.clone(), Access::Read, None),
+                ),
+                (
+                    "the token file",
+                    "fs.read",
+                    plan(token.clone(), Access::Read, None),
+                ),
                 (
                     "theseusd",
+                    "proc.run",
                     plan(root.clone(), Access::Exec, Some(vec!["theseusd", "config"])),
                 ),
                 (
-                    "op",
+                    "op by path",
+                    "proc.run",
                     plan(
                         root.clone(),
                         Access::Exec,
                         Some(vec!["/usr/bin/op", "read", "x"]),
                     ),
                 ),
+                (
+                    "a path argument in the store",
+                    "proc.run",
+                    plan(root.clone(), Access::Exec, Some(vec!["cat", &store_arg])),
+                ),
             ] {
-                let out = q.decide(&x, &pl);
+                let out = p.decide(&T(tool), &pl);
                 assert_eq!(
-                    out.mode,
-                    Mode::Deny,
-                    "the floor holds at {}: {what}",
+                    (out.mode, out.posture),
+                    (Mode::Confirm, Posture::Approve),
+                    "the floor asks at {}: {what}",
                     e.as_str()
                 );
-                assert!(out.floor && out.notify.is_none() && !out.against_policy);
+                assert!(out.floor && out.notify.is_none(), "{what}");
+                assert!(
+                    out.reason
+                        .starts_with(&format!("the call: {tool} — approve (floor: ")),
+                    "{}",
+                    out.reason
+                );
             }
         }
-        let mut p2 = p.clone();
-        p2.overrides.insert("fs.test".into(), Mode::Allow);
-        assert_eq!(
-            p2.decide(&w, &plan(root.join("a.rs"), Access::Write, None))
-                .mode,
-            Mode::Allow
+        // It asks before the operator's own deny lists and overrides, too.
+        let mut p = policy(&root, Posture::Open);
+        p.deny_argv.push(vec!["op".into()]);
+        p.deny_paths.push(root.join("state"));
+        p.tools.insert("proc.run".into(), Posture::Deny);
+        let out = p.decide(
+            &T("proc.run"),
+            &plan(root.clone(), Access::Exec, Some(vec!["op", "read", "x"])),
         );
+        assert!(out.floor, "{}", out.reason);
+        assert_eq!(
+            out.reason,
+            "the call: proc.run — approve (floor: `op` is Theseus's own binary or the 1Password CLI)"
+        );
+        let out = p.decide(
+            &T("proc.run"),
+            &plan(root.clone(), Access::Exec, Some(vec!["cat", &store_arg])),
+        );
+        assert!(out.floor, "{}", out.reason);
+        assert_eq!(
+            out.reason,
+            format!("the call: proc.run — approve (floor: argument `{store_arg}` is Theseus's own state or the 1Password token)")
+        );
+    }
+
+    #[test]
+    fn the_operators_lists_still_refuse_and_allow_at_every_posture() {
+        let (_d, root) = workspace();
+        let secret = format!("{}/secret/key", root.display());
+        for e in Posture::ALL {
+            let p = policy(&root, e);
+            let run = |argv: Vec<&str>| {
+                p.decide(
+                    &T("proc.run"),
+                    &plan(root.clone(), Access::Exec, Some(argv)),
+                )
+            };
+            let read = |path: PathBuf| p.decide(&T("fs.read"), &plan(path, Access::Read, None));
+            let out = read("/etc/passwd".into());
+            assert_eq!(out.mode, Mode::Deny, "{}", out.reason);
+            assert!(
+                out.reason
+                    .starts_with("fs.read — deny (/etc/passwd is outside the workspace roots: "),
+                "{}",
+                out.reason
+            );
+            let out = read(root.join("secret/key"));
+            assert_eq!(out.mode, Mode::Deny, "{}", out.reason);
+            assert!(out.reason.contains("is protected"), "{}", out.reason);
+            let out = run(vec!["/usr/bin/sudo", "ls"]);
+            assert_eq!(out.mode, Mode::Deny, "{}", out.reason);
+            assert!(
+                out.reason.contains("matches the deny list entry `sudo`"),
+                "{}",
+                out.reason
+            );
+            let out = run(vec!["cat", &secret]);
+            assert_eq!(out.mode, Mode::Deny, "{}", out.reason);
+            assert!(
+                out.reason
+                    .contains(&format!("argument `{secret}` is protected")),
+                "{}",
+                out.reason
+            );
+            // The allow list runs a command outright, even under deny.
+            for argv in [
+                vec!["git", "status", "-s"],
+                vec!["git", "status", "src/lib.rs"],
+            ] {
+                let out = run(argv);
+                assert_eq!((out.mode, out.posture), (Mode::Allow, Posture::Open));
+                assert!(out.notify.is_none());
+                assert!(
+                    out.reason
+                        .contains("matches the allow list entry `git status`"),
+                    "{}",
+                    out.reason
+                );
+            }
+            // A near miss takes the posture and says why the list did not apply.
+            for (argv, why) in [
+                (
+                    vec!["git", "status", "--output=/tmp/x"],
+                    "the allow list never covers `--output=/tmp/x`",
+                ),
+                (
+                    vec!["git", "status", "/etc"],
+                    "its argument `/etc` is outside the workspace roots",
+                ),
+                (
+                    vec!["git", "status", ".."],
+                    "its argument `..` is outside the workspace roots",
+                ),
+            ] {
+                let out = run(argv);
+                assert_eq!(out.posture, e, "{}", out.reason);
+                assert!(out.reason.contains(why), "{}", out.reason);
+            }
+        }
+    }
+
+    /// FAST: the gate is a few map lookups and path comparisons per call.
+    #[test]
+    fn deciding_stays_well_under_a_millisecond() {
+        let (_d, root) = workspace();
+        let mut p = policy(&root, Posture::Notify);
+        p.tools.insert("fs.read".into(), Posture::Open);
+        p.mcp.insert("x".into(), Posture::Approve);
+        let calls = [
+            (
+                T("proc.run"),
+                plan(
+                    root.clone(),
+                    Access::Exec,
+                    Some(vec!["cargo", "test", "--manifest-path", "./Cargo.toml"]),
+                ),
+            ),
+            (
+                T("fs.read"),
+                plan(root.join("src/lib.rs"), Access::Read, None),
+            ),
+            (T("mcp:x/y"), plan(root.clone(), Access::Read, None)),
+        ];
+        let n = 2_000u32;
+        let t0 = std::time::Instant::now();
+        for _ in 0..n {
+            for (t, pl) in &calls {
+                std::hint::black_box(p.decide(t, pl));
+            }
+        }
+        let per = t0.elapsed() / (n * calls.len() as u32);
+        eprintln!(
+            "FAST decide: {per:?} per call over {} calls (debug build)",
+            n as usize * calls.len()
+        );
+        assert!(per < std::time::Duration::from_millis(1), "{per:?}");
     }
 }

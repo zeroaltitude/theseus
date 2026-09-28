@@ -208,38 +208,54 @@ impl Default for ToolsConfig {
     }
 }
 
-/// `[policy]`: the gate's three bands per tool class (§3.9).
+/// `[policy]`: the posture every tool and MCP inherits, the per-tool and
+/// per-MCP exceptions, and the operator's explicit argv lists (§3.9; see
+/// `policy` for the order they apply in).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyConfig {
-    #[serde(default = "mode_allow")]
-    pub read: crate::policy::Mode,
-    #[serde(default = "mode_confirm")]
-    pub write: crate::policy::Mode,
-    #[serde(default = "mode_confirm")]
-    pub run: crate::policy::Mode,
-    /// `proc.run` argv prefixes that run without confirmation.
+    /// The posture every tool and MCP inherits: open | notify | approve | deny.
+    #[serde(default)]
+    pub enforcement: crate::policy::Posture,
+    /// `proc.run` argv prefixes that run (open) when every path argument is
+    /// inside the roots.
     #[serde(default = "default_allow_argv")]
     pub allow_argv: Vec<Vec<String>>,
     /// `proc.run` argv prefixes that never run.
     #[serde(default = "default_deny_argv")]
     pub deny_argv: Vec<Vec<String>>,
-    /// Per-tool overrides by canonical name, e.g. `"fs.edit" = "allow"`.
+    /// Per-tool postures by canonical name, e.g. `"proc.run" = "approve"`.
     #[serde(default)]
-    pub overrides: BTreeMap<String, crate::policy::Mode>,
-    /// The operator's posture toward the gate's two stops (strict | ask |
-    /// notify | open); see `policy::Enforcement`. One setting, so a call
-    /// against the policy never meets less friction than one needing approval.
+    pub tools: BTreeMap<String, crate::policy::Posture>,
+    /// Per-MCP postures: `"server"` (every tool from that server) or
+    /// `"server/tool"` (one tool), for tools named `mcp:<server>/<tool>`.
     #[serde(default)]
-    pub enforcement: crate::policy::Enforcement,
+    pub mcp: BTreeMap<String, crate::policy::Posture>,
+    /// The retired class modes (`read`, `write`, `run`; theseus-8az), still
+    /// accepted so an older config loads, and never honored. `validate`
+    /// refuses a retired `deny`, which would otherwise loosen silently.
+    #[serde(default, skip_serializing)]
+    pub read: Option<crate::policy::Mode>,
+    #[serde(default, skip_serializing)]
+    pub write: Option<crate::policy::Mode>,
+    #[serde(default, skip_serializing)]
+    pub run: Option<crate::policy::Mode>,
 }
 
-fn mode_allow() -> crate::policy::Mode {
-    crate::policy::Mode::Allow
+impl PolicyConfig {
+    /// The retired class keys this config still sets.
+    pub fn retired(&self) -> Vec<(&'static str, crate::policy::Mode)> {
+        [
+            ("read", self.read),
+            ("write", self.write),
+            ("run", self.run),
+        ]
+        .into_iter()
+        .filter_map(|(k, v)| v.map(|v| (k, v)))
+        .collect()
+    }
 }
-fn mode_confirm() -> crate::policy::Mode {
-    crate::policy::Mode::Confirm
-}
+
 fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
     v.iter()
         .map(|a| a.iter().map(|s| s.to_string()).collect())
@@ -269,13 +285,14 @@ fn default_deny_argv() -> Vec<Vec<String>> {
 impl Default for PolicyConfig {
     fn default() -> Self {
         Self {
-            read: mode_allow(),
-            write: mode_confirm(),
-            run: mode_confirm(),
+            enforcement: Default::default(),
             allow_argv: default_allow_argv(),
             deny_argv: default_deny_argv(),
-            overrides: BTreeMap::new(),
-            enforcement: Default::default(),
+            tools: BTreeMap::new(),
+            mcp: BTreeMap::new(),
+            read: None,
+            write: None,
+            run: None,
         }
     }
 }
@@ -605,6 +622,12 @@ impl Config {
         };
         let cfg: Config = toml::from_str(&text).context("parsing config TOML")?;
         cfg.validate()?;
+        for (key, _) in cfg.policy.retired() {
+            tracing::warn!(
+                "policy.{key} is retired and ignored (theseus-8az): every tool inherits \
+                 [policy].enforcement unless [policy.tools] names it"
+            );
+        }
         Ok(cfg)
     }
 
@@ -686,6 +709,43 @@ impl Config {
                 anyhow::bail!("policy argv entry {k} is empty");
             }
         }
+        let registry = theseus_tools::default_registry();
+        for (key, mode) in self.policy.retired() {
+            if mode == crate::policy::Mode::Deny {
+                let lines: Vec<String> = registry
+                    .all()
+                    .filter(|t| t.class().as_str() == key)
+                    .map(|t| format!("\"{}\" = \"deny\"", t.name()))
+                    .collect();
+                anyhow::bail!(
+                    "policy.{key} = \"deny\" is retired (theseus-8az) and would no longer refuse anything; \
+                     say it per tool under [policy.tools]: {}",
+                    lines.join(", ")
+                );
+            }
+        }
+        let mcp_key = |k: &str| {
+            let parts: Vec<&str> = k.split('/').collect();
+            parts.len() <= 2 && parts.iter().all(|p| !p.is_empty())
+        };
+        for name in self.policy.tools.keys() {
+            let known = match name.strip_prefix(crate::policy::MCP_PREFIX) {
+                Some(rest) => rest.contains('/') && mcp_key(rest),
+                None => registry.get(name).is_some(),
+            };
+            if !known {
+                let names: Vec<&str> = registry.all().map(|t| t.name()).collect();
+                anyhow::bail!(
+                    "policy.tools.\"{name}\" is not a tool (the tools: {}; an MCP tool is \"mcp:<server>/<tool>\")",
+                    names.join(", ")
+                );
+            }
+        }
+        for key in self.policy.mcp.keys() {
+            if !mcp_key(key) {
+                anyhow::bail!("policy.mcp.\"{key}\" must be \"server\" or \"server/tool\"");
+            }
+        }
         if !self.all_profiles().contains_key(&self.model.live) {
             anyhow::bail!(
                 "model.live = {:?} is not the implicit \"default\" profile nor a key of [profiles]",
@@ -752,6 +812,7 @@ pub fn expand(p: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy::Posture;
 
     #[test]
     fn example_template_parses_and_validates() {
@@ -777,9 +838,15 @@ mod tests {
                         .split_once('=')
                         .map(|(k, _)| {
                             let k = k.trim();
-                            !k.is_empty()
-                                && k.chars()
-                                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+                            // A quoted key: `"proc.run" = …`, `"server/tool" = …`.
+                            let quoted = k.len() > 2
+                                && k.starts_with('"')
+                                && k.ends_with('"')
+                                && !k[1..k.len() - 1].contains('"');
+                            quoted
+                                || (!k.is_empty()
+                                    && k.chars()
+                                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'))
                         })
                         .unwrap_or(false);
                 if looks_like_toml {
@@ -800,6 +867,128 @@ mod tests {
         );
         assert!(cfg.providers["zai"].timeouts.is_some());
         assert!(cfg.model.system.is_some());
+        // The commented tool lines and the [policy.mcp] example are real too.
+        assert_eq!(cfg.policy.tools["proc.run"], Posture::Approve);
+        assert_eq!(cfg.policy.tools.len(), 11);
+        assert_eq!(cfg.policy.mcp["some-server"], Posture::Approve);
+        assert_eq!(cfg.policy.mcp["some-server/dangerous-tool"], Posture::Deny);
+    }
+
+    /// The template's [policy.tools] names every tool in the registry, one
+    /// line each (set or commented), and nothing else, so it cannot drift
+    /// from the tools as they are added.
+    #[test]
+    fn example_template_lists_every_tool_under_policy_tools() {
+        let listed: Vec<String> = Config::EXAMPLE_TOML
+            .lines()
+            .skip_while(|l| l.trim() != "[policy.tools]")
+            .skip(1)
+            .take_while(|l| !l.starts_with('[') && !l.starts_with("# ["))
+            .filter_map(|l| {
+                let l = l.strip_prefix("# ").unwrap_or(l).trim_start();
+                let (name, rest) = l.strip_prefix('"')?.split_once('"')?;
+                rest.trim_start().starts_with('=').then(|| name.to_string())
+            })
+            .collect();
+        let tools: Vec<String> = theseus_tools::default_registry()
+            .all()
+            .map(|t| t.name().to_string())
+            .collect();
+        for t in &tools {
+            assert!(
+                listed.contains(t),
+                "the template's [policy.tools] must list `{t}`: {listed:?}"
+            );
+        }
+        for l in &listed {
+            assert!(tools.contains(l), "[policy.tools] lists `{l}`, not a tool");
+        }
+        assert_eq!(listed.len(), tools.len(), "one line per tool: {listed:?}");
+        // Reads stay quiet out of the box; everything else inherits.
+        let set = Config::example().policy.tools;
+        let reads = [
+            "fs.read",
+            "fs.glob",
+            "fs.grep",
+            "fs.list",
+            "git.diff",
+            "git.log",
+            "text.diff",
+        ];
+        for r in reads {
+            assert_eq!(set.get(r), Some(&Posture::Open), "{r}");
+        }
+        assert_eq!(set.len(), reads.len(), "{set:?}");
+    }
+
+    fn policy_only(policy: &str) -> Result<Config> {
+        let text = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[policy]\n{policy}\n");
+        let cfg: Config = toml::from_str(&text)?;
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
+    #[test]
+    fn a_policy_with_only_enforcement_loads_and_every_tool_inherits_it() {
+        let cfg = policy_only("enforcement = \"notify\"").unwrap();
+        assert_eq!(cfg.policy.enforcement, Posture::Notify);
+        assert!(cfg.policy.tools.is_empty() && cfg.policy.mcp.is_empty());
+        assert!(cfg.policy.retired().is_empty());
+        assert_eq!(policy_only("").unwrap().policy.enforcement, Posture::Open);
+    }
+
+    /// The live vault config's [policy] as of 2026-09-28: the retired class
+    /// keys at the old template's values, no [policy.tools].
+    #[test]
+    fn the_live_policy_shape_still_loads_and_its_retired_keys_are_named() {
+        let cfg = policy_only(
+            "enforcement = \"notify\"\nread = \"allow\"\nwrite = \"confirm\"\nrun = \"confirm\"\n\
+             allow_argv = [[\"ls\"], [\"pwd\"]]\ndeny_argv = [[\"sudo\"], [\"op\"], [\"theseusd\"]]",
+        )
+        .unwrap();
+        assert_eq!(cfg.policy.enforcement, Posture::Notify);
+        let keys: Vec<&str> = cfg.policy.retired().iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, ["read", "write", "run"]);
+        let shown = toml::to_string(&cfg.policy).unwrap();
+        assert!(
+            !shown.contains("read") && !shown.contains("confirm"),
+            "retired keys are not shown as settings: {shown}"
+        );
+    }
+
+    #[test]
+    fn a_retired_deny_an_unknown_tool_and_the_old_words_are_refused() {
+        let e = policy_only("run = \"deny\"").unwrap_err().to_string();
+        assert!(
+            e.contains("policy.run = \"deny\" is retired") && e.contains("\"proc.run\" = \"deny\""),
+            "{e}"
+        );
+        let e = policy_only("write = \"deny\"").unwrap_err().to_string();
+        assert!(
+            e.contains("\"fs.write\" = \"deny\"") && e.contains("\"fs.patch\" = \"deny\""),
+            "{e}"
+        );
+        let e = policy_only("[policy.tools]\n\"proc.rum\" = \"approve\"")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("\"proc.rum\" is not a tool"), "{e}");
+        policy_only("[policy.tools]\n\"mcp:x/y\" = \"deny\"").unwrap();
+        assert!(policy_only("[policy.tools]\n\"mcp:x\" = \"deny\"").is_err());
+        assert!(policy_only("[policy.mcp]\n\"a/b/c\" = \"deny\"").is_err());
+        for old in ["strict", "ask", "allow", "confirm"] {
+            let e = format!(
+                "{:#}",
+                policy_only(&format!("enforcement = \"{old}\"")).unwrap_err()
+            );
+            assert!(
+                e.contains("open") && e.contains("notify") && e.contains("approve"),
+                "{old}: {e}"
+            );
+        }
+        assert!(
+            policy_only("[policy.overrides]\n\"fs.edit\" = \"allow\"").is_err(),
+            "the old overrides table is [policy.tools] now"
+        );
     }
 
     /// Every key the code can read appears in the template (set or commented),
@@ -808,27 +997,30 @@ mod tests {
     fn example_template_mentions_every_key() {
         let built = toml::Value::try_from(Config::example()).unwrap();
         let mut missing = Vec::new();
-        walk(&built, "", &mut |path, leaf| {
-            if !leaf {
-                return;
-            }
-            let key = path.rsplit('.').next().unwrap();
-            if !Config::EXAMPLE_TOML.contains(&format!("{key} =")) {
+        walk(&built, "", "", &mut |path, key| {
+            // A map key such as `"fs.read"` appears quoted.
+            if !Config::EXAMPLE_TOML.contains(&format!("{key} ="))
+                && !Config::EXAMPLE_TOML.contains(&format!("\"{key}\""))
+            {
                 missing.push(path.to_string());
             }
         });
         // Optional fields that serialize as absent still need a commented line.
-        for must in ["system", "otlp_endpoint", "headers_secret"] {
+        for must in [
+            "system =",
+            "otlp_endpoint =",
+            "headers_secret =",
+            "[policy.mcp]",
+        ] {
             assert!(
-                Config::EXAMPLE_TOML.contains(&format!("# {must} ="))
-                    || Config::EXAMPLE_TOML.contains(&format!("{must} =")),
+                Config::EXAMPLE_TOML.contains(must),
                 "template must document `{must}`"
             );
         }
         assert!(missing.is_empty(), "undocumented config keys: {missing:?}");
     }
 
-    fn walk(v: &toml::Value, path: &str, f: &mut dyn FnMut(&str, bool)) {
+    fn walk(v: &toml::Value, path: &str, key: &str, f: &mut dyn FnMut(&str, &str)) {
         match v {
             toml::Value::Table(t) => {
                 for (k, v) in t {
@@ -837,10 +1029,10 @@ mod tests {
                     } else {
                         format!("{path}.{k}")
                     };
-                    walk(v, &p, f);
+                    walk(v, &p, k, f);
                 }
             }
-            _ => f(path, true),
+            _ => f(path, key),
         }
     }
 }

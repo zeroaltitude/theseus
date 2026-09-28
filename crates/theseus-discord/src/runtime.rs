@@ -692,8 +692,8 @@ impl Shared {
                     .as_ref()
                     .and_then(|m| m.content.lines().next())
                     .map(|l| {
-                        l.trim_start_matches("🚨 **Against policy. Approve anyway?** ")
-                            .trim_start_matches("**Approve?** ")
+                        l.trim_start_matches(crate::render::FLOOR_ASK)
+                            .trim_start_matches(crate::render::ASK)
                             .to_string()
                     })
                     .unwrap_or_default();

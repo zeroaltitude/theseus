@@ -66,8 +66,8 @@ pub mod notify {
     /// A turn failed after it was admitted (provider error, store error). The
     /// requester also gets the error response; watchers only get this.
     pub const TURN_FAILED: &str = "turn.failed";
-    /// A call ran that the policy alone would have stopped: a notify setting
-    /// (`enforcement` = notify or open) let it through, and the operator is told.
+    /// A call ran under a `notify` posture (`[policy].enforcement`, or a
+    /// `[policy.tools]` / `[policy.mcp]` line), and the operator is told.
     pub const POLICY_NOTIFIED: &str = "policy.notified";
 }
 
@@ -764,9 +764,10 @@ pub struct ConfirmRequest {
     pub by: String,
     pub requested_at_ms: u64,
     pub expires_at_ms: u64,
-    /// The policy would refuse this call; `enforcement = ask` asks instead.
+    /// The floor asks: the call touches Theseus's own binary or state, or the
+    /// 1Password CLI or token. It asks at every posture.
     #[serde(default)]
-    pub against_policy: bool,
+    pub floor: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -804,7 +805,7 @@ pub struct ToolInfo {
     pub class: String,
     /// `inproc` or `job`.
     pub backend: String,
-    /// What policy does with it today: `allow`, `confirm`, or `deny`.
+    /// Its posture today: `open`, `notify`, `approve`, or `deny`.
     pub policy: String,
     pub input_schema: Value,
     #[serde(default)]

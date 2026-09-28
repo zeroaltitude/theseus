@@ -107,9 +107,9 @@ function ConfirmCard({ c, onConfirm, now }: { c: ConfirmRequest; onConfirm: Tran
     try { await onConfirm(c.correlation_id, approve, note) } catch (e) { setErr((e as { message?: string }).message ?? String(e)); setBusy(false) }
   }
   return (
-    <div className={`confirm ${c.against_policy ? 'against' : ''}`}>
-      <div className="confirm-head"><b>{c.tool}</b> {c.against_policy
-        ? <><span className="pill bad">against policy</span> the policy would refuse this; approve anyway?</>
+    <div className={`confirm ${c.floor ? 'floor' : ''}`}>
+      <div className="confirm-head"><b>{c.tool}</b> {c.floor
+        ? <><span className="pill bad">floor</span> touches Theseus's own state or secrets; it always asks</>
         : 'needs your confirmation'}</div>
       <div className="muted small">{c.reason}</div>
       <Preview tool={c.tool} input={c.input} />
@@ -127,7 +127,7 @@ function ConfirmCard({ c, onConfirm, now }: { c: ConfirmRequest; onConfirm: Tran
 }
 
 const STATUS_CLASS: Record<string, string> = { ok: 'ok', error: 'bad', denied: 'warn', background: 'accent', unknown: 'warn', cancelled: 'muted' }
-const GATE_CLASS: Record<string, string> = { allow: 'ok', confirm: 'accent', deny: 'bad' }
+const GATE_CLASS: Record<string, string> = { allow: 'ok', open: 'ok', notify: 'warn', confirm: 'accent', approve: 'accent', deny: 'bad' }
 
 function ResultLine({ r, open }: { r: NodeInfo; open: boolean }) {
   const d = (r.detail ?? {}) as Record<string, unknown>
@@ -161,8 +161,8 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
   const [open, setOpen] = useState(false)
   const d = (call?.detail ?? {}) as Record<string, unknown>
   const tool = str(d.tool) || (results[0] ? str((results[0].detail ?? {}).tool) : wireToName(use.name))
-  const decision = d.decision as { mode?: string; reason?: string; notify?: { kind: string; setting: string; rule: string } } | null | undefined
-  const gate = decision?.mode ?? (d.result as { gate?: string } | undefined)?.gate
+  const decision = d.decision as { mode?: string; posture?: string; reason?: string; notify?: { kind: string; setting: string; rule: string } } | null | undefined
+  const gate = decision?.posture ?? decision?.mode ?? (d.result as { gate?: string } | undefined)?.gate
   const notice = decision?.notify
   const input = call ? d.input : use.input
   return (
@@ -172,8 +172,7 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
         <code className="tool-name">{tool}</code>
         <span className="tool-sum">{callSummary(tool, input)}</span>
         {gate && <span className={`pill ${GATE_CLASS[gate] ?? ''}`} title={decision?.reason ?? ''}>{gate}</span>}
-        {notice && <span className={`pill ${notice.kind === 'off_policy' ? 'bad' : 'warn'}`}
-          title={`${notice.setting}\nthe policy said: ${notice.rule}`}>{notice.kind === 'off_policy' ? 'ran against policy' : 'ran without approval'}</span>}
+        {notice && gate !== 'notify' && <span className="pill warn" title={`${notice.setting}\n${notice.rule}`}>notified</span>}
         {running && results.length === 0 && <span className="accent small">running {Math.max(0, Math.round((now - running.startedAt) / 1000))} s…</span>}
       </div>
       {open && (

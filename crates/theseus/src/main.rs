@@ -649,7 +649,7 @@ async fn run(cli: Cli) -> Result<()> {
                 let l: ToolListResult = serde_json::from_value(v)?;
                 println!(
                     "{:<12} {:<12} {:<6} {:<7} {:<8} {:>6}",
-                    "tool", "wire name", "class", "backend", "policy", "calls"
+                    "tool", "wire name", "class", "backend", "posture", "calls"
                 );
                 for t in &l.tools {
                     println!(
@@ -1495,7 +1495,7 @@ impl Printer {
                     eprintln!(
                         "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
                         c.tool,
-                        if c.against_policy { " (AGAINST POLICY)" } else { "" },
+                        if c.floor { " (FLOOR)" } else { "" },
                         c.reason,
                         clip(&c.input.to_string(), 200),
                         c.correlation_id,
@@ -1505,18 +1505,10 @@ impl Printer {
             }
             notify::POLICY_NOTIFIED => {
                 self.settle();
-                let off = p.get("kind").and_then(Value::as_str) == Some("off_policy");
                 eprintln!(
-                    "  {} {} {}: {}\n      the policy said: {}\n      ({})",
-                    if off { "!!" } else { "!" },
-                    if off {
-                        "ran against policy"
-                    } else {
-                        "ran without approval"
-                    },
+                    "  ! notified: {}: {}\n      ({})",
                     p.get("tool").and_then(Value::as_str).unwrap_or("?"),
                     p.get("summary").and_then(Value::as_str).unwrap_or(""),
-                    p.get("rule").and_then(Value::as_str).unwrap_or(""),
                     p.get("setting").and_then(Value::as_str).unwrap_or("")
                 );
             }

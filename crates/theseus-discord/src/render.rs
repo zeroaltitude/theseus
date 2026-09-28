@@ -30,19 +30,22 @@ pub enum Buttons {
     Clear,
 }
 
-/// A structured notice (a Discord embed): a call ran that the policy alone
-/// would have stopped, because the enforcement level is `notify` or `open`.
+/// A structured notice (a Discord embed): a call ran under a `notify` posture.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoticeCard {
     pub title: String,
-    /// 0xRRGGBB: amber for a skipped approval, red for an off-policy run.
+    /// 0xRRGGBB.
     pub color: u32,
     pub description: String,
     pub fields: Vec<(String, String)>,
 }
 
 pub const AMBER: u32 = 0xE3A008;
-pub const RED: u32 = 0xD93025;
+
+/// How a confirm message opens; the runtime strips it when the card resolves.
+pub const ASK: &str = "**Approve?** ";
+/// How a floor confirm opens.
+pub const FLOOR_ASK: &str = "🔒 **Floor: Theseus's own state or secrets. Approve?** ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
@@ -76,7 +79,7 @@ struct ToolLine {
     summary: String,
     correlation_id: Option<String>,
     state: ToolState,
-    /// `approval_skipped` or `off_policy` when the enforcement level let it run.
+    /// The notice kind (`notify`) when a notify posture ran it.
     notice: Option<String>,
 }
 
@@ -215,26 +218,16 @@ impl Renderer {
                 ops
             }
             "policy.notified" => {
-                let kind = str_of(p, "kind");
                 let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
                 let input = p.get("input").cloned().unwrap_or(Value::Null);
                 let use_id = str_of(p, "tool_use_id");
-                let (title, color, would) = if kind == "off_policy" {
-                    ("🚨 Ran against policy", RED, "been refused")
-                } else {
-                    ("⚠️ Ran without approval", AMBER, "asked for your approval")
-                };
                 let card = NoticeCard {
-                    title: title.into(),
-                    color,
+                    title: "🔔 Ran with a notice".into(),
+                    color: AMBER,
                     description: format!("`{tool}` {}", summarize(tool, &input)),
                     fields: vec![
                         ("What".into(), clip(&str_of(p, "summary"), 1000)),
-                        (
-                            format!("The policy would have {would}"),
-                            clip(&str_of(p, "rule"), 1000),
-                        ),
-                        ("Setting".into(), format!("`{}`", str_of(p, "setting"))),
+                        ("Posture".into(), format!("`{}`", str_of(p, "setting"))),
                         ("Outcome".into(), "⏳ running".into()),
                     ],
                 };
@@ -265,11 +258,7 @@ impl Renderer {
                 }
                 let line = format!("`{}` {}", req.tool, summarize(&req.tool, &req.input));
                 let key = format!("confirm:{corr}");
-                let mut content = if req.against_policy {
-                    format!("🚨 **Against policy. Approve anyway?** {line}")
-                } else {
-                    format!("**Approve?** {line}")
-                };
+                let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });
                 if !req.reason.is_empty() {
                     content.push_str(&format!("\n{}", clip(&req.reason, 300)));
                 }
@@ -277,8 +266,8 @@ impl Renderer {
                     "\n-# expires <t:{}:R> · you can also answer in the web UI or with `theseus confirm`",
                     req.expires_at_ms / 1000
                 ));
-                let line = if req.against_policy {
-                    format!("{line} (against policy)")
+                let line = if req.floor {
+                    format!("{line} (floor)")
                 } else {
                     line
                 };
@@ -466,10 +455,10 @@ fn tool_lines(tools: &[ToolLine]) -> String {
     let lines: Vec<String> = tools
         .iter()
         .map(|l| {
-            let mark = match l.notice.as_deref() {
-                Some("off_policy") => " · 🚨 against policy",
-                Some(_) => " · ⚠️ without approval",
-                None => "",
+            let mark = if l.notice.is_some() {
+                " · 🔔 notified"
+            } else {
+                ""
             };
             let head = format!("`{}` {}{mark}", l.tool, l.summary);
             match &l.state {
@@ -779,17 +768,25 @@ mod tests {
         r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
         r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
             "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "allow"},
-            "decision": {"mode": "allow", "notify": {"kind": "approval_skipped", "setting": "enforcement = notify", "rule": "run `cargo test`: proc.run is `confirm` for run tools"}}}}));
+            "decision": {"mode": "allow", "posture": "notify", "notify": {"kind": "notify", "setting": "enforcement = notify", "rule": "proc.run — notify (enforcement = notify)"}}}}));
         let ops = r.on_notification("policy.notified", &json!({"session_id": "s", "turn_id": "t1", "tool_use_id": "u1",
             "tool": "proc.run", "input": {"argv": ["cargo", "test"]}, "summary": "run `cargo test` in /w",
-            "kind": "approval_skipped", "setting": "enforcement = notify", "rule": "run `cargo test`: proc.run is `confirm` for run tools"}));
+            "kind": "notify", "setting": "enforcement = notify", "rule": "proc.run — notify (enforcement = notify)"}));
         let Op::Notice { key, card } = &ops[0] else {
             panic!("{ops:?}")
         };
         assert_eq!(key, "notice:u1");
+        assert_eq!(card.title, "🔔 Ran with a notice");
         assert_eq!(card.color, AMBER);
         assert_eq!(card.description, "`proc.run` cargo test");
-        assert_eq!(card.fields[3], ("Outcome".into(), "⏳ running".into()));
+        assert_eq!(
+            card.fields,
+            vec![
+                ("What".into(), "run `cargo test` in /w".into()),
+                ("Posture".into(), "`enforcement = notify`".into()),
+                ("Outcome".into(), "⏳ running".into()),
+            ]
+        );
         let ops = r.on_notification(
             "tool.ended",
             &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "ok", "duration_ms": 900}),
@@ -797,10 +794,24 @@ mod tests {
         let Op::Notice { card, .. } = &ops[0] else {
             panic!("{ops:?}")
         };
-        assert_eq!(card.fields[3].1, "✅ ok · 900 ms");
+        assert_eq!(card.fields[2].1, "✅ ok · 900 ms");
         let lines =
             upserts(&r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
-        assert!(lines[0].1.contains("⚠️ without approval"), "{lines:?}");
+        assert!(lines[0].1.contains("🔔 notified"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_floor_confirm_says_so_and_names_the_reason() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        let reason = "read /home/x/.openclaw-1password-service-token: fs.read — approve (floor: /home/x/.openclaw-1password-service-token is Theseus's own state or the 1Password token)";
+        let ops = upserts(&r.on_notification("confirm.requested", &json!({"correlation_id": "act_9",
+            "session_id": "s", "execution_id": "e", "tool": "fs.read",
+            "input": {"path": "~/.openclaw-1password-service-token"}, "reason": reason, "by": "operator",
+            "requested_at_ms": 0, "expires_at_ms": 60_000, "floor": true})));
+        let (_, content) = ops.iter().find(|(k, _)| k == "confirm:act_9").unwrap();
+        assert!(content.starts_with(FLOOR_ASK), "{content}");
+        assert!(content.contains("fs.read — approve (floor: "), "{content}");
     }
 
     #[test]

@@ -193,5 +193,5 @@ button.link.danger { color: var(--bad); }
 .kind.node-user_message { color: var(--accent); } .kind.node-assistant_message { color: #b07cff; }
 .kind.node-tool_call { color: var(--warn); } .kind.node-tool_result { color: var(--ok); }
 
-/* A confirm that stands in for a refusal (enforcement = ask). */
-.confirm.against { border-color: var(--bad, #d93025); }
+/* A floor confirm: Theseus's own state or secrets, asked at every posture. */
+.confirm.floor { border-color: var(--bad, #d93025); }

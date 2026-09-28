@@ -175,14 +175,12 @@ impl ToolRuntime {
             policy: ToolPolicy {
                 roots: vec![],
                 deny_paths: vec![],
-                read: crate::policy::Mode::Deny,
-                write: crate::policy::Mode::Deny,
-                run: crate::policy::Mode::Deny,
                 allow_argv: vec![],
                 deny_argv: vec![],
-                overrides: BTreeMap::new(),
+                enforcement: crate::policy::Posture::Deny,
+                tools: BTreeMap::new(),
+                mcp: BTreeMap::new(),
                 confirmer: "operator".into(),
-                enforcement: Default::default(),
                 floor_paths: vec![],
                 floor_argv: crate::policy::floor_argv(),
             },
@@ -219,21 +217,32 @@ impl ToolRuntime {
             .map(|r| r.display().to_string())
             .collect();
         let allowed: Vec<String> = self.policy.allow_argv.iter().map(|a| a.join(" ")).collect();
+        // Each tool's posture, grouped in ladder order: "open: fs.glob, …; notify: …".
+        let postures: Vec<String> = crate::policy::Posture::ALL
+            .iter()
+            .filter_map(|p| {
+                let names: Vec<&str> = self
+                    .registry
+                    .all()
+                    .map(|t| t.name())
+                    .filter(|n| self.policy.posture(n).0 == *p)
+                    .collect();
+                (!names.is_empty()).then(|| format!("{}: {}", p.as_str(), names.join(", ")))
+            })
+            .collect();
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
              - Workspace roots, the only places tools may touch: {}.\n\
              - Relative paths resolve against {}.\n\
-             - Reads: {}. Writes: {}. Program runs: {}{}.\n\
+             - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval; deny refuses): {}.{}\n\
              - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run. proc_run runs one program with a typed argv and no shell; pass [\"bash\", \"-c\", \"...\"] explicitly only when a shell is truly needed.\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
              - A denied call is final for that request: tell the operator and do not route around it.\n\
              - proc_run calls that take longer than {} seconds continue in the background; their result arrives in a later message.",
             roots.join(", "),
             self.ctx.cwd.display(),
-            self.policy.read.as_str(),
-            self.policy.write.as_str(),
-            self.policy.run.as_str(),
-            if allowed.is_empty() { String::new() } else { format!(" (allowed without asking: {})", allowed.join("; ")) },
+            postures.join("; "),
+            if allowed.is_empty() { String::new() } else { format!(" proc_run runs these as open: {}.", allowed.join("; ")) },
             self.proc_sync_secs,
         )
     }
@@ -556,7 +565,7 @@ impl ToolRuntime {
                     },
                 )?;
                 let now = theseus_protocol::now_unix_ms();
-                let against_policy = decision.as_ref().is_some_and(|d| d.against_policy);
+                let floor = decision.as_ref().is_some_and(|d| d.floor);
                 let req = ConfirmRequest {
                     correlation_id: a.correlation_id.clone(),
                     session_id: tc.session_id.into(),
@@ -568,7 +577,7 @@ impl ToolRuntime {
                     by,
                     requested_at_ms: now,
                     expires_at_ms: now + tc.confirm_ttl_ms,
-                    against_policy,
+                    floor,
                 };
                 self.ledger(tc, "tool.confirm_requested", serde_json::to_value(&req)?);
                 tc.sink.send(notify::CONFIRM_REQUESTED, &req);
@@ -578,7 +587,7 @@ impl ToolRuntime {
             }
             GateResult::Allow => {
                 if let Some(n) = decision.as_ref().and_then(|d| d.notify.clone()) {
-                    // A notify setting let this through: say so where the operator looks.
+                    // A notify posture runs the call and says so where the operator looks.
                     let summary = plan.as_ref().map(|p| p.summary.clone()).unwrap_or_default();
                     let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
                         "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
@@ -1289,14 +1298,12 @@ pub fn build_runtime(
         policy: ToolPolicy {
             roots: roots.clone(),
             deny_paths: deny,
-            read: cfg.policy.read,
-            write: cfg.policy.write,
-            run: cfg.policy.run,
             allow_argv: cfg.policy.allow_argv.clone(),
             deny_argv: cfg.policy.deny_argv.clone(),
-            overrides: cfg.policy.overrides.clone(),
-            confirmer: crate::turn::OPERATOR.into(),
             enforcement: cfg.policy.enforcement,
+            tools: cfg.policy.tools.clone(),
+            mcp: cfg.policy.mcp.clone(),
+            confirmer: crate::turn::OPERATOR.into(),
             floor_paths,
             floor_argv: crate::policy::floor_argv(),
         },

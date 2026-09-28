@@ -120,7 +120,7 @@ export interface NodeInfo {
 export interface ConfirmRequest {
   correlation_id: string; session_id: string; execution_id: string
   tool: string; input: unknown; resource?: string | null; reason: string; by: string
-  requested_at_ms: number; expires_at_ms: number; against_policy?: boolean
+  requested_at_ms: number; expires_at_ms: number; floor?: boolean
 }
 
 export interface SessionHistory { session: SessionInfo; nodes: NodeInfo[]; pending_confirms: ConfirmRequest[] }

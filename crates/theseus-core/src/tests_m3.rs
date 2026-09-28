@@ -11,7 +11,7 @@ use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::node::{Body, ResultStatus};
-use crate::policy::Mode;
+use crate::policy::Posture;
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
@@ -33,8 +33,9 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.deny_paths = vec![root.join("secret").to_string_lossy().into_owned()];
     cfg.tools.proc_sync_secs = 10;
     // The template is a deployment (enforcement = notify); these scenarios
-    // test the gate's own bands, so they run at the built-in level.
-    cfg.policy.enforcement = crate::policy::Enforcement::Strict;
+    // test the gate's stops, so what the template leaves to enforcement (the
+    // writers and proc.run) waits, and its read-only tools stay open.
+    cfg.policy.enforcement = Posture::Approve;
     cfg
 }
 
@@ -373,7 +374,7 @@ async fn proc_run_returns_in_turn_and_a_slow_one_comes_back_later_as_a_late_resu
             Scripted::text("The slow job finished: slow done."),
         ],
         |cfg| {
-            cfg.policy.run = Mode::Allow;
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
             cfg.tools.proc_sync_secs = 1;
         },
     );
@@ -486,68 +487,13 @@ async fn a_fresh_recompile_starts_over_and_is_recorded() {
     let _: Value = serde_json::to_value(&rec).unwrap();
 }
 
-#[tokio::test]
-async fn enforcement_open_runs_what_would_ask_or_be_refused_and_says_so_but_the_floor_holds() {
-    let outside = tempfile::tempdir().unwrap();
-    std::fs::write(outside.path().join("note.txt"), "outside the workspace\n").unwrap();
-    let outside_file = outside
-        .path()
-        .join("note.txt")
-        .to_string_lossy()
-        .into_owned();
-    let r = rig_with(
-        vec![
-            Scripted::tools(
-                "",
-                &[
-                    (
-                        "t1",
-                        "fs_write",
-                        json!({"path": "out.txt", "content": "no card\n"}),
-                    ),
-                    ("t2", "fs_read", json!({"path": outside_file})),
-                    ("t3", "proc_run", json!({"argv": ["theseusd", "config"]})),
-                ],
-            ),
-            Scripted::text("Done, and you were told."),
-        ],
-        |cfg| cfg.policy.enforcement = crate::policy::Enforcement::Open,
-    );
+/// Run one turn in a watched session; return it and the notices it posted.
+async fn watched_turn(r: &Rig, input: &str) -> (TurnSubmitResult, Vec<Value>) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let res = {
-        let rec = SessionRecord::new(SessionKind::Conversation, None);
-        r.core.store.put_session(&rec.session_id, &rec).unwrap();
-        r.core.bus.watch(&rec.session_id, "watcher", tx);
-        turn(
-            &r.core,
-            Some(&rec.session_id),
-            "write, read outside, and run theseusd",
-        )
-        .await
-    };
-    assert!(
-        res.awaiting_confirm.is_none(),
-        "enforcement = open never parks"
-    );
-    assert_eq!(
-        std::fs::read_to_string(r.root.join("out.txt")).unwrap(),
-        "no card\n",
-        "the write ran without a card"
-    );
-    let rs = results(&r.core, &res.session_id);
-    assert_eq!(rs[0].0, ResultStatus::Ok);
-    assert_eq!(
-        rs[1].0,
-        ResultStatus::Ok,
-        "off_policy = notify ran the read outside the roots"
-    );
-    assert!(rs[1].1.contains("outside the workspace"), "{}", rs[1].1);
-    assert_eq!(
-        rs[2].0,
-        ResultStatus::Denied,
-        "the floor holds: theseusd never runs"
-    );
-
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.core.bus.watch(&rec.session_id, "watcher", tx);
+    let res = turn(&r.core, Some(&rec.session_id), input).await;
     let mut notices = vec![];
     while let Ok(m) = rx.try_recv() {
         if let theseus_protocol::Message::Notification(n) = m {
@@ -556,51 +502,165 @@ async fn enforcement_open_runs_what_would_ask_or_be_refused_and_says_so_but_the_
             }
         }
     }
-    let kinds: Vec<&str> = notices
-        .iter()
-        .map(|n| n["kind"].as_str().unwrap())
-        .collect();
-    assert_eq!(kinds, vec!["approval_skipped", "off_policy"], "{notices:?}");
-    assert_eq!(notices[0]["tool"], "fs.write");
-    assert_eq!(notices[0]["setting"], "enforcement = open");
-    assert!(notices[1]["rule"]
-        .as_str()
-        .unwrap()
-        .contains("outside the workspace roots"));
-    let ledgered = r
-        .core
+    (res, notices)
+}
+
+fn ledgered(r: &Rig, kind: &str) -> Vec<Value> {
+    r.core
         .store
         .ledger_tail::<crate::ledger::LedgerRow>(300)
         .unwrap()
         .into_iter()
-        .filter(|(_, row)| row.kind == "tool.notified")
-        .count();
-    assert_eq!(ledgered, 2);
+        .filter(|(_, row)| row.kind == kind)
+        .map(|(_, row)| row.data)
+        .collect()
 }
 
 #[tokio::test]
-async fn enforcement_ask_turns_a_refusal_into_a_marked_confirm() {
+async fn under_approve_a_command_waits_and_runs_once_approved() {
     let r = rig_with(
         vec![
-            Scripted::tools("", &[("t1", "fs_read", json!({"path": "/etc/hostname"}))]),
-            Scripted::text("Read it."),
+            Scripted::tools(
+                "",
+                &[("t1", "proc_run", json!({"argv": ["echo", "approved run"]}))],
+            ),
+            Scripted::text("It printed."),
         ],
-        |cfg| cfg.policy.enforcement = crate::policy::Enforcement::Ask,
+        |cfg| cfg.policy.enforcement = Posture::Approve,
     );
-    let res = turn(&r.core, None, "read /etc/hostname").await;
-    assert!(
-        res.awaiting_confirm.is_some(),
-        "ask parks instead of refusing"
-    );
+    let res = turn(&r.core, None, "echo something").await;
+    let corr = res.awaiting_confirm.clone().expect("approve waits");
     let pending = r.core.pending_confirms(&res.session_id).unwrap();
     assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].tool, "proc.run");
+    assert!(!pending[0].floor);
     assert!(
-        pending[0].against_policy,
-        "the card says it is against policy"
-    );
-    assert!(
-        pending[0].reason.starts_with("against policy"),
+        pending[0]
+            .reason
+            .ends_with("proc.run — approve (enforcement = approve)"),
         "{}",
         pending[0].reason
     );
+    assert!(
+        results(&r.core, &res.session_id).is_empty(),
+        "nothing runs before the approval"
+    );
+    r.core.confirm_action(&corr, true, None, "test").unwrap();
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cont.output, "It printed.");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Ok, "{rs:?}");
+    assert!(rs[0].1.contains("approved run"), "{}", rs[0].1);
+}
+
+#[tokio::test]
+async fn under_notify_a_command_runs_with_a_notice_and_a_read_stays_quiet() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[
+                    ("t1", "fs_read", json!({"path": "a.txt"})),
+                    ("t2", "proc_run", json!({"argv": ["echo", "noticed"]})),
+                ],
+            ),
+            Scripted::text("Done, and you were told."),
+        ],
+        |cfg| cfg.policy.enforcement = Posture::Notify,
+    );
+    std::fs::write(r.root.join("a.txt"), "read me\n").unwrap();
+    let (res, notices) = watched_turn(&r, "read, then echo").await;
+    assert!(res.awaiting_confirm.is_none(), "notify never parks");
+    assert_eq!(res.output, "Done, and you were told.");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Ok, "{rs:?}");
+    assert_eq!(rs[1].0, ResultStatus::Ok, "{rs:?}");
+    assert!(rs[1].1.contains("noticed"), "{}", rs[1].1);
+    // The template's `"fs.read" = "open"` keeps the read quiet; proc.run
+    // inherits enforcement and posts the notice.
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0]["tool"], "proc.run");
+    assert_eq!(notices[0]["kind"], "notify");
+    assert_eq!(notices[0]["setting"], "enforcement = notify");
+    assert_eq!(
+        notices[0]["rule"],
+        "proc.run — notify (enforcement = notify)"
+    );
+    let rows = ledgered(&r, "tool.notified");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["tool"], "proc.run");
+}
+
+#[tokio::test]
+async fn a_per_tool_override_makes_the_same_command_wait_under_notify() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[("t1", "proc_run", json!({"argv": ["echo", "pinned"]}))],
+            ),
+            Scripted::text("Waiting."),
+        ],
+        |cfg| {
+            cfg.policy.enforcement = Posture::Notify;
+            cfg.policy.tools.insert("proc.run".into(), Posture::Approve);
+        },
+    );
+    let (res, notices) = watched_turn(&r, "echo").await;
+    assert!(res.awaiting_confirm.is_some(), "the override waits");
+    assert!(notices.is_empty(), "{notices:?}");
+    let pending = r.core.pending_confirms(&res.session_id).unwrap();
+    assert!(
+        pending[0]
+            .reason
+            .ends_with("proc.run — approve ([policy.tools] \"proc.run\" = approve)"),
+        "{}",
+        pending[0].reason
+    );
+}
+
+#[tokio::test]
+async fn under_open_a_floor_path_still_waits_and_is_never_refused() {
+    // The rig's store is `<state>/store`, beside the workspace `<state>/work`.
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[("t1", "proc_run", json!({"argv": ["cat", "../store/any"]}))],
+            ),
+            Scripted::text("Understood, I will not read it."),
+        ],
+        |cfg| cfg.policy.enforcement = Posture::Open,
+    );
+    let (res, notices) = watched_turn(&r, "cat the store").await;
+    let corr = res
+        .awaiting_confirm
+        .clone()
+        .expect("the floor waits, even under open");
+    assert!(notices.is_empty(), "{notices:?}");
+    let pending = r.core.pending_confirms(&res.session_id).unwrap();
+    assert!(pending[0].floor, "the card is marked as the floor");
+    assert!(
+        pending[0].reason.contains(
+            "proc.run — approve (floor: argument `../store/any` is Theseus's own state or the 1Password token)"
+        ),
+        "{}",
+        pending[0].reason
+    );
+    assert!(results(&r.core, &res.session_id).is_empty(), "not refused");
+    r.core.confirm_action(&corr, false, None, "test").unwrap();
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cont.output, "Understood, I will not read it.");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Denied, "declined, never run: {rs:?}");
 }

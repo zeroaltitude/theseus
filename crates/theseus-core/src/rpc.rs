@@ -245,9 +245,9 @@ impl Core {
             tools = tools.registry.len(),
             calls = tools.calls.lock().unwrap().values().sum::<u64>(),
             roots = ?tools.ctx.roots,
-            read = tools.policy.read.as_str(),
-            write = tools.policy.write.as_str(),
-            run = tools.policy.run.as_str(),
+            enforcement = tools.policy.enforcement.as_str(),
+            overrides = ?tools.policy.tools,
+            mcp = ?tools.policy.mcp,
             catalog = %catalog.version,
             "tools and catalog"
         );
@@ -747,9 +747,7 @@ impl Core {
                             by: OPERATOR.into(),
                             requested_at_ms: a.planned_at_ms,
                             expires_at_ms: a.planned_at_ms + ttl,
-                            against_policy: gate["decision"]["against_policy"]
-                                .as_bool()
-                                .unwrap_or(false),
+                            floor: gate["decision"]["floor"].as_bool().unwrap_or(false),
                         });
                     }
                 }
@@ -1408,7 +1406,7 @@ impl Core {
                         description: t.description().into(),
                         class: t.class().as_str().into(),
                         backend: t.backend().as_str().into(),
-                        policy: self.tools.policy.class_mode(t.as_ref()).as_str().into(),
+                        policy: self.tools.policy.posture(t.name()).0.as_str().into(),
                         input_schema: t.input_schema(),
                         calls: calls.get(t.name()).copied().unwrap_or(0),
                     })
