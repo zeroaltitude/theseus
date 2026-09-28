@@ -1347,6 +1347,15 @@ fn eval_like(c: &Cmd) -> bool {
     is(c, &["eval", "source", "."])
 }
 
+/// A command whose real effect the rule table cannot read, so a floor mention in
+/// its raw text is all a gate has to go on: unparsed text, a program word built
+/// from an expansion, inline interpreter code (`python3 -c …`), `eval`/`source`,
+/// or a command run on another machine (`ssh host …`). The floor scans these for
+/// a floor path, `theseusd`, or `op <subcommand>` (spec §3.9, step 2a+).
+pub fn unreadable(c: &Cmd) -> bool {
+    c.unparsed || c.dynamic_program() || inline_code(c) || eval_like(c) || remote_command(c)
+}
+
 fn shell_opaque(c: &Cmd) -> bool {
     c.unparsed || c.dynamic_program()
 }

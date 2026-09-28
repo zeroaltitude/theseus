@@ -5,12 +5,13 @@
 //! operator to read ("path /etc/passwd is outside the workspace roots").
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use theseus_kernel::{Authority, Policy, PolicyDecision, Proposal};
 use theseus_protocol::ConsequenceTag;
 use theseus_tools::consequence::{self, Consequence, OwnerRule};
+use theseus_tools::shell::{self, Cmd};
 use theseus_tools::{paths, Access, Plan, Tool, ToolClass, ToolCtx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -275,6 +276,186 @@ fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
     !prefix.is_empty() && argv.len() >= prefix.len() && argv.iter().zip(prefix).all(|(a, p)| a == p)
 }
 
+/// The program name without its directory: `/usr/bin/sudo` is `sudo`.
+fn basename(p: &str) -> &str {
+    p.rsplit('/').next().unwrap_or(p)
+}
+
+/// The daemon's HOME (spec §L0: jobs keep HOME), for resolving `~`, `$HOME`, and
+/// `${HOME}` in a path judgment only.
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+}
+
+/// A word begins at a filesystem root: `/`, `~`, `$HOME`, or `${HOME}`.
+fn is_rooted(text: &str) -> bool {
+    text.starts_with('/')
+        || text == "~"
+        || text.starts_with("~/")
+        || text == "$HOME"
+        || text.starts_with("$HOME/")
+        || text == "${HOME}"
+        || text.starts_with("${HOME}/")
+}
+
+/// A word that names a path (not a plain operand like `status`): rooted, `.`-
+/// relative, or containing a separator.
+fn looks_like_path(v: &str) -> bool {
+    !v.is_empty() && (is_rooted(v) || v.starts_with('.') || v.contains('/'))
+}
+
+/// The value of an argument that could be a path: `--opt=value` gives its value,
+/// a bare `-flag` is not a path, everything else is itself.
+fn arg_path_value(t: &str) -> Option<&str> {
+    match t.split_once('=') {
+        Some((k, v)) if k.starts_with('-') => Some(v),
+        _ if t.starts_with('-') => None,
+        _ => Some(t),
+    }
+}
+
+/// Resolve `text` to a concrete path if it names one and its only unresolved
+/// part is a leading `~`, `$HOME`, or `${HOME}` (the daemon HOME). Returns
+/// `None` for a word with any other expansion the gate cannot resolve.
+fn resolve_path_word(text: &str, cwd: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    let expanded: String = if text == "$HOME" || text == "${HOME}" {
+        home?.to_string_lossy().into_owned()
+    } else if let Some(rest) = text.strip_prefix("$HOME/") {
+        home?.join(rest).to_string_lossy().into_owned()
+    } else if let Some(rest) = text.strip_prefix("${HOME}/") {
+        home?.join(rest).to_string_lossy().into_owned()
+    } else if text == "~" || text.starts_with("~/") {
+        shellexpand::tilde(text).into_owned()
+    } else {
+        text.to_string()
+    };
+    if expanded.contains('$') {
+        return None;
+    }
+    let p = PathBuf::from(&expanded);
+    let full = if p.is_absolute() { p } else { cwd.join(p) };
+    Some(paths::canonical_best_effort(&full))
+}
+
+/// Every path a command could touch as (display, canonical): its path-like
+/// arguments and its redirection targets, resolved against every directory it
+/// might run in (a rooted word needs no directory).
+fn command_paths(cmd: &Cmd, home: Option<&Path>) -> Vec<(String, PathBuf)> {
+    let resolved = |text: &str| -> Vec<PathBuf> {
+        if is_rooted(text) {
+            resolve_path_word(text, Path::new("/"), home)
+                .into_iter()
+                .collect()
+        } else {
+            cmd.cwds
+                .dirs
+                .iter()
+                .filter_map(|d| resolve_path_word(text, d, home))
+                .collect()
+        }
+    };
+    let mut out = vec![];
+    for w in cmd.args() {
+        if let Some(v) = arg_path_value(&w.text) {
+            if looks_like_path(v) {
+                out.extend(resolved(v).into_iter().map(|p| (w.text.clone(), p)));
+            }
+        }
+    }
+    // A redirection target is a path even when it is a bare word (`> log`).
+    for w in &cmd.redirs {
+        out.extend(resolved(&w.text).into_iter().map(|p| (w.text.clone(), p)));
+    }
+    out
+}
+
+/// The directories a command might run in, canonical (`cd X && …` runs in X).
+fn command_dirs(cmd: &Cmd) -> Vec<PathBuf> {
+    cmd.cwds
+        .dirs
+        .iter()
+        .map(|d| paths::canonical_best_effort(d))
+        .collect()
+}
+
+/// A short, readable form of a command for a reason string.
+fn cmd_display(cmd: &Cmd) -> String {
+    if cmd.unparsed {
+        cmd.text.clone()
+    } else {
+        cmd.words
+            .iter()
+            .map(|w| w.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// The `op` CLI subcommands a mention scan looks for after the word `op`.
+const OP_SUBCOMMANDS: &[&str] = &[
+    "read",
+    "inject",
+    "run",
+    "item",
+    "vault",
+    "document",
+    "signin",
+    "signout",
+    "whoami",
+    "account",
+    "user",
+    "group",
+    "connect",
+    "service-account",
+    "events-api",
+    "plugin",
+    "completion",
+    "update",
+];
+
+/// Does `text` mention `word` as a whole word (not inside a longer identifier)?
+fn mentions_word(text: &str, word: &str) -> bool {
+    let boundary = |c: Option<char>| c.is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
+    text.match_indices(word).any(|(i, _)| {
+        boundary(text[..i].chars().next_back()) && boundary(text[i + word.len()..].chars().next())
+    })
+}
+
+/// Does `text` mention `op <subcommand>` (the CLI, by any path)?
+fn mentions_op(text: &str) -> bool {
+    let toks: Vec<&str> = text
+        .split(|c: char| {
+            c.is_whitespace() || matches!(c, '(' | ')' | ';' | '&' | '|' | '"' | '\'' | '`' | '=')
+        })
+        .filter(|t| !t.is_empty())
+        .collect();
+    toks.windows(2)
+        .any(|w| basename(w[0]) == "op" && OP_SUBCOMMANDS.contains(&w[1]))
+}
+
+/// The spellings of a floor path a mention scan searches raw text for: its
+/// canonical absolute form, its `~/` and `$HOME/` forms, and — for a file — its
+/// file name.
+fn floor_path_forms(f: &Path, home: Option<&Path>) -> Vec<String> {
+    let mut forms = vec![f.display().to_string()];
+    if let Some(h) = home {
+        if let Ok(rel) = f.strip_prefix(h) {
+            let rel = rel.display();
+            forms.push(format!("~/{rel}"));
+            forms.push(format!("$HOME/{rel}"));
+            forms.push(format!("${{HOME}}/{rel}"));
+        }
+    }
+    if f.is_file() {
+        if let Some(name) = f.file_name() {
+            forms.push(name.to_string_lossy().into_owned());
+        }
+    }
+    forms
+}
+
 /// The program name without its directory: `/usr/bin/sudo` matches `sudo`.
 fn normalized_argv(argv: &[String]) -> Vec<String> {
     let mut v = argv.to_vec();
@@ -397,11 +578,174 @@ impl ToolPolicy {
     }
 
     /// The policy alone: floor, protected paths, roots, class, argv lists.
+    /// The floor, checked first and refused at every level (spec §3.9): Theseus's
+    /// own state and binary, and the 1Password CLI and its credentials. It judges
+    /// every command a call starts, not just the top-level program: a floor
+    /// program among a command's words or (for a one-word entry) its `via` chain;
+    /// a floor path among a command's path arguments, redirection targets, or the
+    /// directories it runs in; and a floor mention inside code the gate cannot
+    /// parse. `$HOME`/`${HOME}`/`~` resolve to the daemon HOME for path judgments.
+    fn floor_over_commands(&self, cmds: &[Cmd], home: Option<&Path>) -> Option<Decision> {
+        let floor = |reason: String| Decision {
+            floor: true,
+            ..Decision::new(Mode::Deny, reason)
+        };
+        let never = "no setting allows it";
+        for cmd in cmds {
+            let words: Vec<String> = cmd.words.iter().map(|w| w.text.clone()).collect();
+            for f in &self.floor_argv {
+                if prefix_match(&words, f) {
+                    return Some(floor(format!(
+                        "`{}` is never run: `{}` is on the floor (Theseus's own binary or the 1Password CLI); {never}",
+                        cmd_display(cmd),
+                        f.join(" ")
+                    )));
+                }
+                if f.len() == 1 && cmd.via.iter().any(|p| basename(p) == f[0]) {
+                    return Some(floor(format!(
+                        "`{}` (inside `{}`) is never run: `{}` is on the floor; {never}",
+                        f[0],
+                        cmd.via
+                            .iter()
+                            .map(|p| basename(p))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        f[0]
+                    )));
+                }
+            }
+            if !self.floor_paths.is_empty() {
+                for (disp, p) in command_paths(cmd, home) {
+                    if let Some(f) = self.floor_paths.iter().find(|f| paths::within(&p, f)) {
+                        return Some(floor(format!(
+                            "`{}` names `{disp}`, which is on the floor ({}: Theseus's own or its secrets); {never}",
+                            cmd_display(cmd),
+                            f.display()
+                        )));
+                    }
+                }
+                for d in command_dirs(cmd) {
+                    if let Some(f) = self.floor_paths.iter().find(|f| paths::within(&d, f)) {
+                        return Some(floor(format!(
+                            "`{}` runs inside the floor ({}); {never}",
+                            cmd_display(cmd),
+                            f.display()
+                        )));
+                    }
+                }
+            }
+            if consequence::unreadable(cmd) {
+                if let Some(reason) = self.floor_mention(cmd, home) {
+                    return Some(floor(reason));
+                }
+            }
+        }
+        None
+    }
+
+    /// A floor path, `theseusd`, or `op <subcommand>` named in a command's raw
+    /// text, when the gate cannot parse that command (inline code, `eval`, a
+    /// remote command, or unreadable text). The reason says the refusal came from
+    /// a mention in unparsable code, so a model can rephrase an innocent call.
+    fn floor_mention(&self, cmd: &Cmd, home: Option<&Path>) -> Option<String> {
+        let text = &cmd.text;
+        let unparsable =
+            "in code the gate cannot parse; rephrase so the gate can see it does not touch the floor";
+        for f in &self.floor_paths {
+            for form in floor_path_forms(f, home) {
+                if text.contains(&form) {
+                    return Some(format!(
+                        "`{}` mentions `{form}` (on the floor) {unparsable}",
+                        cmd_display(cmd)
+                    ));
+                }
+            }
+        }
+        if mentions_word(text, "theseusd") {
+            return Some(format!(
+                "`{}` mentions `theseusd` {unparsable}",
+                cmd_display(cmd)
+            ));
+        }
+        if mentions_op(text) {
+            return Some(format!(
+                "`{}` mentions the `op` CLI {unparsable}",
+                cmd_display(cmd)
+            ));
+        }
+        None
+    }
+
+    /// The deny list over every command a call starts, the same traversal as the
+    /// floor but following the ladder: `deny_argv` over a command's words and
+    /// `via`, `deny_paths` over its path arguments, redirection targets, and the
+    /// directories it runs in. No mention scan (that is the floor's alone).
+    fn deny_over_commands(&self, cmds: &[Cmd], home: Option<&Path>) -> Option<Decision> {
+        for cmd in cmds {
+            let words: Vec<String> = cmd.words.iter().map(|w| w.text.clone()).collect();
+            for e in &self.deny_argv {
+                if prefix_match(&words, e) {
+                    return Some(Decision::new(
+                        Mode::Deny,
+                        format!(
+                            "`{}` matches the deny list entry `{}`",
+                            cmd_display(cmd),
+                            e.join(" ")
+                        ),
+                    ));
+                }
+                if e.len() == 1 && cmd.via.iter().any(|p| basename(p) == e[0]) {
+                    return Some(Decision::new(
+                        Mode::Deny,
+                        format!(
+                            "`{}` runs `{}` (a wrapper on the deny list)",
+                            cmd_display(cmd),
+                            e[0]
+                        ),
+                    ));
+                }
+            }
+            if !self.deny_paths.is_empty() {
+                for (disp, p) in command_paths(cmd, home) {
+                    if let Some(d) = self.deny_paths.iter().find(|d| paths::within(&p, d)) {
+                        return Some(Decision::new(
+                            Mode::Deny,
+                            format!(
+                                "argument `{disp}` is protected ({} is on the deny list)",
+                                d.display()
+                            ),
+                        ));
+                    }
+                }
+                for dir in command_dirs(cmd) {
+                    if let Some(d) = self.deny_paths.iter().find(|d| paths::within(&dir, d)) {
+                        return Some(Decision::new(
+                            Mode::Deny,
+                            format!(
+                                "`{}` runs inside a protected directory ({} is on the deny list)",
+                                cmd_display(cmd),
+                                d.display()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     fn decide_by_policy(&self, tool: &dyn Tool, plan: &Plan) -> Decision {
         let floor = |reason: String| Decision {
             floor: true,
             ..Decision::new(Mode::Deny, reason)
         };
+        let home = home_dir();
+        let cmds: Vec<Cmd> = plan
+            .argv
+            .as_ref()
+            .map(|argv| shell::commands(argv, &self.exec_cwd(plan)))
+            .unwrap_or_default();
+        // The floor, first and refused at every level.
         for r in &plan.resources {
             let p = paths::canonical_best_effort(&r.path);
             if let Some(f) = self.floor_paths.iter().find(|f| paths::within(&p, f)) {
@@ -412,16 +756,10 @@ impl ToolPolicy {
                 ));
             }
         }
-        if let Some(argv) = &plan.argv {
-            let nargv = normalized_argv(argv);
-            if let Some(f) = self.floor_argv.iter().find(|f| prefix_match(&nargv, f)) {
-                return floor(format!(
-                    "`{}` is never run (`{}` is on the floor: Theseus's own binary or the 1Password CLI)",
-                    argv.join(" "),
-                    f.join(" ")
-                ));
-            }
+        if let Some(d) = self.floor_over_commands(&cmds, home.as_deref()) {
+            return d;
         }
+        // The deny list and the roots (over the plan's own resources).
         for r in &plan.resources {
             let p = paths::canonical_best_effort(&r.path);
             if let Some(d) = self.deny_paths.iter().find(|d| paths::within(&p, d)) {
@@ -460,30 +798,13 @@ impl ToolPolicy {
         );
         if let Some(argv) = &plan.argv {
             let nargv = normalized_argv(argv);
-            if let Some(p) = self.deny_argv.iter().find(|p| prefix_match(&nargv, p)) {
-                return Decision::new(
-                    Mode::Deny,
-                    format!(
-                        "`{}` matches the deny list entry `{}`",
-                        argv.join(" "),
-                        p.join(" ")
-                    ),
-                );
+            // The deny list judges every command the call starts, and its `via`.
+            if let Some(d) = self.deny_over_commands(&cmds, home.as_deref()) {
+                return d;
             }
             // The resources above are only the working directory; a command's
             // arguments can name any path, so they are judged too.
             let args = path_args(argv, &self.exec_cwd(plan));
-            for (a, p) in &args {
-                if let Some(d) = self.deny_paths.iter().find(|d| paths::within(p, d)) {
-                    return Decision::new(
-                        Mode::Deny,
-                        format!(
-                            "argument `{a}` is protected ({} is on the deny list)",
-                            d.display()
-                        ),
-                    );
-                }
-            }
             if mode != Mode::Deny {
                 if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
                     let entry = format!(
@@ -1110,5 +1431,99 @@ mod tests {
         let out = at(Open).decide(&Publishes, &pl);
         assert_eq!(out.mode, Mode::Confirm);
         assert!(out.irreversible && out.rules.is_none());
+    }
+
+    /// Step 2a+: the floor and the deny list judge every command a call starts,
+    /// not just the top-level program, and the floor scans code it cannot parse.
+    #[test]
+    fn the_floor_and_deny_list_judge_every_command_a_call_starts() {
+        use Enforcement::*;
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().canonicalize().unwrap();
+        let x = T(ToolClass::Run);
+        let at = |e: Enforcement| {
+            let mut q = policy(&root);
+            q.enforcement = e;
+            q
+        };
+        let exec = |argv: Vec<&str>| plan(root.clone(), Access::Exec, Some(argv));
+        let store_file = format!("{}/state/store/0001", root.display());
+        let state_dir = format!("{}/state", root.display());
+        // Every one of these reaches the floor through a wrapper, a shell string,
+        // an argument, a redirection, or a directory it runs in.
+        let bash_op = "op read op://v/i/f".to_string();
+        let bash_theseusd = "theseusd config".to_string();
+        let bash_cat = format!("cat {store_file}");
+        let cat_redir = format!("cat < {store_file}");
+        let cd_floor = format!("cd {state_dir} && cat config");
+        let floors: Vec<Vec<&str>> = vec![
+            vec!["env", "op", "read", "op://v/i/f"], // op through a wrapper
+            vec!["bash", "-c", &bash_op],            // op inside a shell string
+            vec!["bash", "-c", &bash_theseusd],      // theseusd inside a shell string
+            vec!["cat", &store_file],                // a floor path as an argument
+            vec!["bash", "-c", &bash_cat],           // a floor path inside a string
+            vec!["bash", "-c", &cat_redir],          // a floor path as a redirection
+            vec!["bash", "-c", &cd_floor],           // a command that runs in the floor
+        ];
+        for argv in &floors {
+            for e in [Strict, Ask, Notify, Open] {
+                let out = at(e).decide(&x, &exec(argv.clone()));
+                assert!(
+                    out.floor && out.mode == Mode::Deny && out.notify.is_none(),
+                    "floor must hold at {} for {argv:?}: {}",
+                    e.as_str(),
+                    out.reason
+                );
+            }
+        }
+        // The deny list, blind inside shell strings before, now follows the
+        // ladder: `sudo` inside `bash -c` is refused under strict and notify.
+        let bash_sudo = exec(vec!["bash", "-c", "sudo ls"]);
+        assert_eq!(at(Strict).decide(&x, &bash_sudo).mode, Mode::Deny);
+        assert_eq!(at(Notify).decide(&x, &bash_sudo).mode, Mode::Deny);
+        let out = at(Open).decide(&x, &bash_sudo);
+        assert_eq!(
+            out.mode,
+            Mode::Allow,
+            "open runs the deny list inside a string"
+        );
+        assert_eq!(out.notify.unwrap().kind, "off_policy");
+        // A mention inside code the gate cannot parse is a floor refusal, and the
+        // reason says so, so a model can rephrase.
+        let py_op = exec(vec![
+            "python3",
+            "-c",
+            "import os; os.system(\"op read op://v/i\")",
+        ]);
+        let out = at(Notify).decide(&x, &py_op);
+        assert!(out.floor && out.mode == Mode::Deny, "{}", out.reason);
+        assert!(out.reason.contains("cannot parse"), "{}", out.reason);
+        let py_td = exec(vec!["python3", "-c", "call theseusd now"]);
+        assert!(at(Open).decide(&x, &py_td).floor);
+        // Benign inline code is not floored (it is opaque, needs approval).
+        let py_ok = exec(vec!["python3", "-c", "print(1)"]);
+        assert!(!at(Notify).decide(&x, &py_ok).floor);
+        // `$HOME`, `${HOME}`, and `~` resolve to the daemon HOME for the floor.
+        if let Some(home) = home_dir() {
+            let mut q = policy(&root);
+            let hf = paths::canonical_best_effort(&home.join(".theseus-2aplus-floortest"));
+            q.floor_paths.push(hf);
+            for spelling in [
+                "cat $HOME/.theseus-2aplus-floortest/x",
+                "cat ${HOME}/.theseus-2aplus-floortest/x",
+                "cat ~/.theseus-2aplus-floortest/x",
+            ] {
+                for e in [Strict, Open] {
+                    q.enforcement = e;
+                    let out = q.decide(&x, &exec(vec!["bash", "-c", spelling]));
+                    assert!(
+                        out.floor,
+                        "HOME floor at {} for {spelling}: {}",
+                        e.as_str(),
+                        out.reason
+                    );
+                }
+            }
+        }
     }
 }
