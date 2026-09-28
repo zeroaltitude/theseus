@@ -2079,4 +2079,49 @@ mod tests {
         assert_eq!(kinds, vec!["opaque", "deploy"], "{found:?}");
         assert_eq!(found[1].rule, "config:deploy");
     }
+
+    /// Spellings a model could reach for that must not hide a force push:
+    /// quoting, wrappers, compound commands, substitutions, global options.
+    #[test]
+    fn no_spelling_hides_a_force_push() {
+        let root = Path::new("/tmp");
+        let hidden: Vec<&str> = [
+            "g\"it\" push -f",
+            "$'git' push -f",
+            "\\git push -f",
+            "command git push -f",
+            "exec git push -f",
+            "nice -n 5 git push -f",
+            "IFS=x; git push -f",
+            "{ git push -f; }",
+            "git push -f &",
+            "x=$(git push -f)",
+            "echo | git push -f",
+            "if git push -f; then :; fi",
+            "while ! git push -f; do sleep 1; done",
+            "timeout -s KILL 10 git push -f",
+            "env -- git push -f",
+            "git -c push.default=current push -f",
+            "git --git-dir=.git push -f",
+            "xargs -I{} git push -f origin {}",
+            "bash -xc 'git push -f'",
+            "bash -c -- 'git push -f'",
+            "bash --norc -c 'git push -f'",
+            "sudo -E git push -f",
+            "nohup bash -c \"git push -f\" &",
+            "(cd sub && git push origin +main)",
+            "git push origin main:main +dev:dev",
+            "echo \"$(git push --force)\"",
+            "cat <<EOF\n$(git push -f)\nEOF",
+            "find . -maxdepth 0 -exec git push -f \\;",
+        ]
+        .into_iter()
+        .filter(|t| {
+            !detect(&["bash".into(), "-c".into(), (*t).into()], root, &[])
+                .iter()
+                .any(|c| c.kind == kind::HISTORY_REWRITE)
+        })
+        .collect();
+        assert!(hidden.is_empty(), "these hid a force push: {hidden:#?}");
+    }
 }
