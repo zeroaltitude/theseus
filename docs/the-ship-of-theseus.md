@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.39
+# The Ship of Theseus — v0.40
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -1711,3 +1711,52 @@ A correction to the first review's record: its probe expected `history_rewrite` 
 - Deliberate obfuscation in inline code (string building, base64) stays `opaque`.
 
 Only M4's boundary closes these.
+
+### Step 2a++. Gate hardening, round 2 (theseus-0tv; 2026-09-28, 01:42–02:29; 1a58cfb, 995f830)
+
+**What exists.**
+- **The floor, round 2:**
+  - A `$name` program word whose assignments in the script are all literal resolves to each candidate value (the union across branches). Any other dynamic program word is scanned by its own spelling for `op` or `theseusd`.
+  - Inline code is refused when it names a floor program as a string literal (`"op"`, `'theseusd'`, `"/usr/bin/op"`), when it contains `op://` anywhere, or when `op` is followed by a subcommand across separators (so `["op","read"]` counts).
+  - Parsed commands never get this scan: `grep -r "op://" crates` stays allowed.
+  - A program word is matched by its file name, so `./target/release/theseusd` reaches the floor.
+  - A glob argument or redirection target is matched against each floor and deny path, component by component (`*` and `?` also match a leading dot). A pattern shorter than the path names an ancestor and is left to the deny list.
+- **Detection, round 2:**
+  - Any dynamic word before `--` may be an option, because quoting stops word splitting, not option parsing.
+  - `rm.recursive` keeps one guard: when `-r` is only possible, not certain, it needs a separate operand. So `for f in *.log; do rm "$f"; done` stays quiet.
+  - `find` treats a dynamic word in its expression as a possible `-delete`.
+  - `$@` and `$*` expand with bash's word semantics.
+  - `RULES_VERSION` is `2026-09-28.1`, and `policy rules` prints it.
+
+**How it is proven.** 141 tests; the gate passed at each commit and again in review.
+- **Unit tests** refuse every floor spelling from the second probe, with `floor: true` at all four levels, and catch every detection case. Precision cases stay quiet: `grep -r "op://"`, `ls ~/*`, the `rm "$f"` loop, and `find -name "$p"`.
+- **A scenario:** under `notify`, `python3 -c 'import subprocess; subprocess.run(["theseusd","--version"])'` is refused, and the model is told why.
+- **FAST:** 497 µs on the 2.9 KB `bash -c` string, and 7.9 µs on a plain argv (release).
+- **Live, on a scratch daemon:** `x=theseusd; $x --version` and the inline-code call are both refused as floor. `x=-rf; rm "$x" somedir` parks as `bulk_delete`, and the files survive a decline.
+- **In review:** installed at 995f830. On a copy of Eddie's store, `policy rules` prints `2026-09-28.1`, and replay is unchanged.
+
+**Found in review** (2026-09-28, 02:49–02:53). A third probe found every floor and detection case from the first two probes handled, and no over-refusals among the allowed cases. These still get through:
+- **The floor.** A variable used as the program after a wrapper or a re-parse: `x=op; command $x`, `exec "$x"`, `env $x`, `timeout 5 $x`, `eval "$x whoami"`, `bash -c "$x whoami"`. The literal-assignment resolution applies only to the first word of the outer command.
+- **Detection:**
+  - `set -- -rf somedir; rm "$@"`: `set --` redefines the positionals;
+  - `rm "${a[@]}"`: a quoted array still expands to several words;
+  - `x="-rf somedir"; rm $x`: an unquoted variable can carry both the option and the operand;
+  - `rm -r$(printf f) somedir`: the literal `-r` prefix of a dynamic word is ignored;
+  - `x=push; git $x -f`: a dynamic git subcommand is only `opaque`.
+
+Most share one cause. So step 2a.3 (theseus-905) resolves every simple `$name` from the script's literal assignments, everywhere. That also makes honest scripts exact: `BRANCH=main; git push origin "$BRANCH"` resolves to a plain push, and stops waiting.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The floor is refused at every level (§3.9) | True now for run-time program words, natural inline code, relative program paths, and globs. Step 2a.3 closes variables that reach the program through wrappers and re-parses | The second and third probes | Keep |
+| Over-approximation reads every word (2a+) | A quoted dynamic word may be an option too, and `$@` splits as bash splits it | Quoting stops word splitting, not option parsing | Keep. Accepted friction: `git checkout "$branch"` and `git restore "$x"` wait, since a `-f` needs no operand. Held for Eddie |
+| P5c goes from 2a++ to 2b | Step 2a.3 is added, as the last argv-layer round | The third probe | Recorded here. After 2a.3, the remaining long tail goes to M4 |
+
+**Known gaps.** The following stay `opaque`, and under `notify` they run with a notice:
+- string building (`x=o; y=p; $x$y`);
+- obfuscated inline code (base64, `chr()`, implicit concatenation);
+- a script that is written and then run.
+
+Honest calls are caught by their natural spellings. Against a model that is working to get around the gate, the argv layer is a speed bump, not a wall. The protection for sessions that read untrusted content is M4's exposure rule (one step stricter, so `notify` becomes `ask`) and its boundary. Until they land, such sessions should run under `ask`.
