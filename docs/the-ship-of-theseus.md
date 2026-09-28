@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.40
+# The Ship of Theseus — v0.41
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -1760,3 +1760,47 @@ Most share one cause. So step 2a.3 (theseus-905) resolves every simple `$name` f
 - a script that is written and then run.
 
 Honest calls are caught by their natural spellings. Against a model that is working to get around the gate, the argv layer is a speed bump, not a wall. The protection for sessions that read untrusted content is M4's exposure rule (one step stricter, so `notify` becomes `ask`) and its boundary. Until they land, such sessions should run under `ask`.
+
+### Step 2a.3. Gate hardening, round 3, the last argv-layer round (theseus-905; 2026-09-28, 02:57–03:46; dc3ed99)
+
+**What exists.**
+- **Every simple variable reference resolves from the script's literal assignments,** not only the program word. Resolution reaches:
+  - words behind wrappers (`command`, `exec`, `env`, `timeout`, …);
+  - the text `eval` runs, a nested `bash -c "…"`, and `$(…)`, backtick, and subshell bodies, which inherit the enclosing scope;
+  - arrays (`a=(…)`, `"${a[@]}"` word by word);
+  - `for` lists, and `set --` positionals (`shift` and function bodies make the positionals unknown);
+  - embedded references (`$x$y`, `--$flag`), as a product of candidates capped at 64.
+
+  The resolved value follows bash's rules. Unquoted, it is split; with a glob character, it gets the glob flag; if the script assigns `IFS`, it stays dynamic.
+- **A dynamic word's literal option prefix is certain,** so `-r$(printf f)` counts as `-r`.
+- **An unresolvable git subcommand** (`git $x -f`) is judged as each subcommand a git rule reads.
+- **Notices and refusals show the resolved command and where each value came from:** ``rm -rf somedir (`$DIR` = `somedir`)``.
+- `RULES_VERSION` is `2026-09-28.2`.
+
+**How it is proven.**
+- **The run did not finish.** OpenClaw's stuck-session watchdog aborted the subagent at 03:46:25 (openclaw-jygw). The gateway had stopped seeing its tool events at an `Edit` that started about 03:31, although the agent kept working: it made commit dc3ed99 at 03:37. So its report, live check, and FAST and friction numbers were never written. This record comes from the commit and from Tabitha's review.
+- **Tests.** 147; the gate passed at dc3ed99 and again in review.
+- **Review probe** (release, finished 08:25:46):
+  - All 23 detection cases from all three rounds are caught. They include `set -- -rf somedir; rm "$@"`, `rm "${a[@]}"`, ``x="-rf somedir"; rm $x``, `rm -r$(printf f) somedir`, `git $x -f`, `y=$x` chains for options, function arguments, and `shift`.
+  - All 8 precision cases stay quiet. Among them is the friction round 2 added, which is now removed: `BRANCH=main; git push origin "$BRANCH"`, `SHA=abc123; git reset $SHA`, `DIR=target; rm -rf "$DIR"`, and `branch=feature; git checkout "$branch"`.
+  - A wait remains only when a variable comes from outside the script: `git checkout "$branch"` and `git push origin "$BRANCH"`, both unassigned.
+  - The floor refuses 20 of 23 spellings. Among the refused are every earlier case, the wrapper and re-parse cases, `$x$y` built from literals, `$'op'`, `"o""p"`, `${x:-op}`, and a function calling `op`.
+- **FAST** (release): 488 µs for a 1.7 KB script with 20 assignments and 30 references with substitutions, and 8.4 µs for a plain argv.
+- **Live, in review** (release build of dc3ed99; scratch daemon; GLM 5.3 flash; `notify`):
+  - `x=theseusd; command $x --version` is refused as floor, with the reason ``theseusd --version (`$x` = `theseusd`) is never run … This is final for this request; tell the operator rather than trying another way around it.``
+  - `BRANCH=main; git push origin "$BRANCH"` runs with an ordinary notice (`tool.notified`, `approval_skipped`, no kinds), and the bare remote moves from e06a233 to a41ba3e.
+  - `DIR=somedir; rm -rf "$DIR"` parks as `bulk_delete`, with the detail ``rm -rf somedir (`$DIR` = `somedir`)``. After a decline, the model says it won't route around the refusal, and the files remain.
+- **Installed** at 08:32 from dc3ed99.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The subagent writes the report and runs the live check | The run was aborted; Tabitha did the review probe, live check, and FAST numbers | openclaw-jygw (the gateway lost the tool stream; a single agent, no fan-out) | Recorded here; the evidence is on openclaw-jygw |
+| Over-approximation on every word a rule reads (2a+, 2a++) | Literal values resolve exactly first; over-approximation is left for what stays unknown | Precision: honest scripts with variables no longer wait | Keep |
+| P5c goes from 2a to 2b | 2a+, 2a++, and 2a.3 came between them | Three review probes | Recorded here. After 2a.3, the argv-layer long tail goes to Jev `security.v1` (M5, or earlier in shadow) and M4's boundary |
+
+**Known gaps** (theseus-1eh, deferred; Eddie, 2026-09-28: "I don't particularly mind the possibility that strange content could be hijacked in as e.g. base64 … it would have to be unwrapped then run"):
+- The floor misses a program reached through a variable copied from another (`x=op; y=$x; $y`), and values set by `printf -v` or `read`.
+- Obfuscated inline code and scripts that are written and then run stay `opaque`. Beyond the gate, the defenses are model judgment, the notices, Jev `security.v1` (tighten-only), and M4's boundary.
+- Cosmetic: nested backticks in a resolved reason break markdown rendering.
