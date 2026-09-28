@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.37
+# The Ship of Theseus — v0.38
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -1553,3 +1553,90 @@ Local work is about 5 % of startup; the other 95 % is two network calls on the s
 | Process start to accepting events in under 2 s, warm-up excluded (§9) | Met, at 1.3 s, but 1.2 s of it is network on the start path: secrets through `op` and the GitHub token check run before the store opens | The startup order dates from M0, and no bench timed startup end to end | Serve first; secrets and checks resolve in the background (P5b, M3.5) |
 
 **Known gaps carried forward.** The simulator's random operations do not yet include the kernel calls M3 added (decline, wake, the resume flag, records riding in the plan and settle frames); the core scenarios cover them, the fault injection does not. An allowed call interrupted between its plan and its authorization is treated as awaiting confirmation (the safe direction). In-process results over `[tools].result_max_chars` are truncated without a full-output reference (`fs.read` pages instead). `session.history` returns whole sessions, and `theseus confirm` without an id asks each waiting session in turn. The web transcript renders plain text, not markdown. The `updates` thinking display is wired but not yet exercised live. A profile's `max_output_tokens` still wins over the catalog, so a config carrying the old `max_tokens = 1024` truncates tool inputs; regenerate it from `theseusd example-config`. Since 8c8a53a the template caps no profile, so every model runs at its catalog ceiling. Budgets count every token at full weight, cache reads included, and each provider call reserves its output cap plus the input estimate: about 130 k at Sonnet 5's ceiling, so the default million-token budget ends a session near 862 k minus its context (theseus-0sg). A session's limit is fixed when its execution opens; changing `default_budget` affects new sessions only. Discord: attachments are listed in the input by name and size, not read; a DM place whose channel could not be opened at startup stays silent until that user writes; rendering remembers the last eight turns per place, so a confirm answered after a restart is settled by the button handler from the message itself; slash commands are registered globally; there are no threads. Delivery is not yet durable: a turn that ends while Discord is unreachable, or after the 20 s startup wait gave up, is in the store and the web UI but is not re-posted when Discord returns (delivery becomes an action with its own completion in M5).
+
+## A3b. The build chain from the 2026-09-27 decisions (theseus-5r9)
+
+_P5c's items, in the order Eddie approved on 2026-09-27, each recorded when its review ends. Step 1 is spec v0.37 (3877fe9)._
+
+### Step 2a. Consequences in the gate (theseus-770; 2026-09-27, 22:30–23:24; 03521f0, a218d8b, a3dcb64, 43faa91)
+
+**What exists.**
+- **Kinds.** Nine seed kinds (`theseus_tools::consequence::SEED_KINDS`), graded as §3.9 lists them, with `opaque` beside the three that need approval. `[consequences.kinds.<name>]` regrades a seed or adds a kind. Every key is optional (`irreversible`, `description`, `argv`), and Eddie's pre-2a template loads unchanged (tested from a fixture copy).
+- **Detection, layers 1 to 3.** A toollet declares consequences in its plan (`Plan.consequences`). Today every native toollet declares none:
+  - the read-only toollets only read;
+  - `fs.edit` keeps the replaced text in its arguments;
+  - `fs.patch` now refuses a deletion that does not show every line it removes, so a patch always records what it took.
+
+  For `proc.run`, `theseus_tools::shell` finds every command a call would start. It parses `bash`, `sh`, `dash`, `zsh`, and `ksh -c` strings (operators, pipes, subshells, `$(…)`, backticks, heredocs, redirections), sees through wrappers (`env`, `sudo`, `xargs`, `timeout`, `nohup`, `find -exec`, `ssh`, and more), and tracks every directory a command might run in. The rule table (`RULES_VERSION = 2026-09-27.1`, 33 rules) then names what each command does.
+
+  Whatever the parser cannot see through is `opaque`: inline code, scripts, task runners, `eval`, remote commands, unknown git and gh subcommands, and a program word built from an expansion.
+- **The regenerable rule.** It decides when a recursive delete is not `bulk_delete`:
+  - inside a work tree, the target must be at or under a directory with a known build-output name (25 of them), which the repository's own ignore files ignore and under which `HEAD` tracks nothing;
+  - outside any work tree, the target must be under `/tmp`;
+  - a target the parser cannot resolve never qualifies.
+- **Examples are the tests.** Every rule carries examples it must and must not match (162 and 125). Each example runs three ways (as shell text, under `bash -c`, and as a direct argv) in a fixture repository with ignored outputs, tracked work, and a force-added `build/`. A planted wrong example fails the test.
+- **The irreversible column** (`ToolPolicy::decide`; the table is on `Enforcement`):
+  - The floor is decided first, and nothing after it changes that answer.
+  - An irreversible call waits for approval at every level.
+  - A call that is irreversible and also against the policy gets the stricter treatment: refused under `strict` and `notify`, a marked wait under `ask` and `open`.
+  - A needs-approval kind raises an allow-listed call: it waits under `strict` and `ask`, and runs with a notice naming the kind under `notify` and `open`.
+- **The kinds appear wherever the decision does:**
+  - `Decision` and `ConfirmRequest` (the new fields are optional, so old clients keep working);
+  - the notice text ("irreversible: history_rewrite · needs approval: opaque");
+  - the ledger rows `tool.confirm_requested`, `tool.notified`, and `tool.denied`;
+  - the node's gate record, the tool span's attributes, and the counter `theseus.tool.consequences`;
+  - Discord ("⛔ Irreversible. Approve?"), the web confirm card (an irreversible pill and a red border), and `theseus watch` and `theseus confirm`.
+- **Replay.** `theseus policy replay [-n N]` (`policy.replay`, read-only) judges the newest N tool calls again with the current gate, and lists the ones it would treat or name differently. `theseus policy rules` (`policy.rules`) lists the kinds as graded, and every rule with its example counts.
+
+**How it is proven.**
+- **Tests.** 132; the gate passed at 43faa91, and again in review.
+- **Seven scenarios** over the real store and kernel, with a local bare repository as `origin`:
+  - Under `notify`, a force push parks, with `history_rewrite` named on the card, in the ledger row, and in the node. The remote does not move until the call is approved, and then the rewritten history lands.
+  - A plain push runs with one notice.
+  - `rm -rf somedir` parks, and `rm -rf target` runs.
+  - A force push inside `bash -c` parks.
+  - `open` still parks a force push.
+  - `strict` changes nothing else.
+- **A 28-spelling test:** quoting, wrappers, compound commands, substitutions, and `find -exec`; no spelling hides a force push.
+- **Live, on a scratch daemon** (GLM 5.3 flash, `notify`):
+  - The model's force push waited, and the bare remote stayed put.
+  - A decline reached the model.
+  - A feature-branch push and `rm -rf target` each ran with a notice.
+- **In review, on a copy of Eddie's store,** with the installed release binaries:
+  - `policy rules` lists 9 kinds and 33 rules.
+  - `policy replay -n 500` judged his 4 past tool calls and reported 2 changed. Both are his exit test's `bash -c 'sleep 45; echo done'`, which waited under the enforcement of the time and would now run with a notice under `notify`.
+  - So replay compares against the whole current gate, settings included. The "should have asked" flow (2b) should hold the settings fixed and vary only the rule.
+
+**Found in review** (2026-09-28, 00:05–00:14). A probe of the detector and the gate (not committed) confirmed that the plain spellings are caught, and these are not:
+- **The floor**, a gap since M3b. It checks only the top-level program, and only the plan's resources.
+  - Under both `notify` and `open`, `env op read …`, `bash -c 'op read …'`, and `bash -c 'theseusd config'` each run with an amber notice.
+  - A floor path named as an argument or a redirection (`cat <store file>`, `cat < <store file>`) is judged only by the deny list, so under `open` it runs with a red notice.
+  - The deny list is blind inside shell strings too (`bash -c 'sudo ls'`).
+- **Detection.**
+  - Brace expansion: `git push origin main --{force,}`, `rm -rf target/{,../src}`.
+  - Words the parser cannot resolve: `F=--force; git push origin main $F`, `git push origin main -$(printf f)`, `bash -c 'git push origin main "$@"' _ -f`, `F=-rf; rm $F somedir`.
+  - Unique-prefix long options, which git and GNU tools accept: `git push --mirro`, `git push --force-with-leas`, `git reset --har`, `rm --recursiv`.
+  - A glob followed by `..`: `rm -rf target/*/../../src` resolves to `src`.
+
+All of them are fixed in step 2a+ (theseus-xbg), before 2b.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| Detection rules are versioned data (§3.9) | Each row is a Rust matcher; its id, table version, and examples are data. The owner's `argv` prefixes are the data-only form | Shell semantics need code; the examples keep each matcher honest | Keep. A proposed rule (2b) lands as an owner prefix first |
+| Owner-added kinds (§3.9) | They also take `argv` prefixes | A kind with no reader is inert (P0) | Part I §3.9 to say so |
+| A needs-approval kind raises a call that needs confirmation | It also raises an allow-listed call | Allow lists match spelling; consequences are semantic | Held for Eddie |
+| Layer 2 lives in `proc.run`'s plan | It lives in the gate | The plan stays the toollet's own statement | Keep |
+| `external_post` excludes Theseus's own places | Every loopback post counts | An over-approximation, until an exception names Theseus's own addresses | Held for Eddie; with 2b or a later exception |
+| An overwrite loses no work unnoticed | `fs.write` is not graded, and it keeps no before-image | It touches one file and is the everyday path; its class already stops it under `strict` and `ask` | Held for Eddie: a before-image, or a grade when the file has uncommitted changes |
+| P5c goes from 2a straight to 2b | Step 2a+ added between them | The holes above | Recorded here |
+| The web confirm card is seen | Checked through the bundle and the RPC, not screenshotted | The OpenClaw browser tool refuses localhost | A headless-Chrome screenshot in 2a+ |
+
+**Known gaps.**
+- Argv detection cannot see:
+  - git config (`remote.*.push = +…`, `remote.*.mirror`);
+  - `proc.run`'s environment (`GIT_CONFIG_*`);
+  - escape hatches inside text tools (`awk`'s `system()`, `sed`'s `e`);
+  - what runs behind `eval "$(…)"`, a heredoc fed to a shell, or `ssh`, beyond naming the call `opaque`.
+- A floor check over argv, however careful, stops only the spellings it can read. Code the gate cannot parse is `opaque`, and under `notify` it runs with a notice. Only M4's boundary closes this for certain: L1 gives a job no ambient credentials and keeps the token file out of its reach.
