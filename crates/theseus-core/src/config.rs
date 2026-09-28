@@ -645,8 +645,13 @@ impl Config {
         let cfg: Config = toml::from_str(text).context("parsing config TOML")?;
         cfg.validate()?;
         // Serde's alias does not say which name a key came in under, so the
-        // old names are looked up in the document itself.
-        let table: toml::Table = toml::from_str(text).unwrap_or_default();
+        // old names are looked up in the document itself; a document that
+        // never spells one skips the second parse (startup stays FAST).
+        let table: toml::Table = if RENAMED.iter().any(|(_, old, _)| text.contains(old)) {
+            toml::from_str(text).unwrap_or_default()
+        } else {
+            toml::Table::new()
+        };
         let mut warnings: Vec<String> = RENAMED
             .iter()
             .filter(|(section, old, _)| table.get(*section).and_then(|t| t.get(*old)).is_some())
