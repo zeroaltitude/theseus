@@ -1526,4 +1526,63 @@ mod tests {
             }
         }
     }
+
+    /// FAST (spec v0.36): the gate must stay well under a millisecond even on a
+    /// long, nested `bash -c` string. Prints the measured per-call time; the
+    /// bound is loose (debug build) to catch only a pathological regression.
+    #[test]
+    fn decide_is_fast_on_a_long_shell_string_and_a_plain_argv() {
+        use std::time::Instant;
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().canonicalize().unwrap();
+        let p = policy(&root);
+        let x = T(ToolClass::Run);
+        // ~2 KB, 30 commands, with wrappers, redirections, and nested
+        // substitutions — the shape a rule-heavy loop produces.
+        let mut cmds = vec![];
+        let rootd = root.display();
+        for i in 0..30 {
+            cmds.push(format!(
+                "sudo env A=1 git -C sub{i} status > out{i}.log 2>&1 && x=$(echo $(basename {rootd}/p{i}))"
+            ));
+        }
+        let script = cmds.join(" ; ");
+        assert!(script.len() > 1800, "script is {} bytes", script.len());
+        let bash = plan(
+            root.clone(),
+            Access::Exec,
+            Some(vec!["bash", "-c", script.as_str()]),
+        );
+        let plain = plan(
+            root.clone(),
+            Access::Exec,
+            Some(vec!["git", "push", "--force", "origin", "main"]),
+        );
+        let time = |pl: &Plan| {
+            let iters = 200u32;
+            // Warm up, then measure.
+            for _ in 0..20 {
+                std::hint::black_box(p.decide(&x, pl));
+            }
+            let t = Instant::now();
+            for _ in 0..iters {
+                std::hint::black_box(p.decide(&x, pl));
+            }
+            t.elapsed() / iters
+        };
+        let bash_per = time(&bash);
+        let plain_per = time(&plain);
+        println!(
+            "FAST decide: bash -c (~{}B) = {bash_per:?}, plain argv = {plain_per:?}",
+            script.len()
+        );
+        assert!(
+            bash_per < std::time::Duration::from_millis(5),
+            "decide on a long bash -c string was {bash_per:?} (debug); expected well under 1ms in release"
+        );
+        assert!(
+            plain_per < std::time::Duration::from_millis(2),
+            "{plain_per:?}"
+        );
+    }
 }

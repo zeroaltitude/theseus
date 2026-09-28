@@ -435,3 +435,83 @@ async fn replay_judges_past_calls_with_the_current_rules_and_writes_nothing() {
         .iter()
         .any(|x| x.id == "git.push.force" && !x.must.is_empty()));
 }
+
+// ---------------------------------------------------------------- step 2a+
+
+/// Under `notify`, the floor refuses a program it reaches through a wrapper, and
+/// the refusal is the tool result the model sees (spec §3.9, step 2a+).
+#[tokio::test]
+async fn notify_refuses_env_theseusd_version_and_the_model_hears_it() {
+    let rig = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": ["env", "theseusd", "--version"]}),
+                )],
+            ),
+            Scripted::text("Noted."),
+        ],
+        |cfg| cfg.policy.enforcement = Enforcement::Notify,
+    );
+    let res = turn(&rig.core, None, "check the version").await;
+    assert!(
+        res.awaiting_confirm.is_none(),
+        "the floor refuses, it does not park"
+    );
+    let rs = results(&rig.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Denied, "{rs:?}");
+    assert!(
+        rs[0].1.contains("floor") && rs[0].1.contains("theseusd"),
+        "the refusal names the floor and reaches the model: {}",
+        rs[0].1
+    );
+}
+
+/// Under `notify`, a brace-spelled force push inside `bash -c` parks as
+/// irreversible, and the local bare remote does not move.
+#[tokio::test]
+async fn notify_parks_a_brace_force_push_and_the_remote_does_not_move() {
+    if !have_git() {
+        return;
+    }
+    let r = run(
+        Enforcement::Notify,
+        json!(["bash", "-c", "git push origin main --{force,}"]),
+        true,
+    )
+    .await;
+    let before = r.world.remote_head();
+    r.assert_parked_irreversible("history_rewrite");
+    assert_eq!(
+        r.world.remote_head(),
+        before,
+        "nothing pushed while waiting"
+    );
+}
+
+/// Under `open`, a floor path named as an argument is refused as floor — where
+/// before it ran with only a red notice. The store sits at `../store` from the
+/// working directory, so no absolute path needs to be known ahead of the rig.
+#[tokio::test]
+async fn open_refuses_cat_of_a_store_file_as_floor() {
+    let r = run(
+        Enforcement::Open,
+        json!(["cat", "../store/some-node"]),
+        false,
+    )
+    .await;
+    assert!(
+        r.res.awaiting_confirm.is_none(),
+        "the floor refuses, it does not park"
+    );
+    let rs = results(&r.rig.core, &r.res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Denied, "{rs:?}");
+    assert!(
+        rs[0].1.contains("floor"),
+        "open does not lift the floor: {}",
+        rs[0].1
+    );
+}
