@@ -215,6 +215,17 @@ pub fn regenerable(w: &Word, cwds: &Cwds) -> bool {
         return false;
     }
     let text = if w.glob {
+        // A `..` at or after the first glob component escapes wherever the glob
+        // lands (`target/*/../../src` deletes `src`, not `target`): never
+        // regenerable. Only the fixed prefix before the glob is judged otherwise.
+        let parts: Vec<&str> = w.text.split('/').collect();
+        let first_glob = parts
+            .iter()
+            .position(|p| p.contains(['*', '?', '[']))
+            .unwrap_or(0);
+        if parts[first_glob..].contains(&"..") {
+            return false;
+        }
         glob_prefix(&w.text)
     } else {
         w.text.clone()
@@ -347,6 +358,8 @@ fn from(c: &Cmd, i: usize) -> Cmd {
         cwds: c.cwds.clone(),
         more_operands: c.more_operands,
         unparsed: false,
+        via: c.via.clone(),
+        redirs: c.redirs.clone(),
         text: c.text.clone(),
     }
 }
@@ -470,41 +483,44 @@ fn dry_run(c: &Cmd) -> bool {
 
 const PUSH_VALUE: &[&str] = &["-o", "--push-option", "--repo", "--receive-pack", "--exec"];
 
+/// A dangerous positional operand: a literal `+refspec`/`:ref`, or a dynamic
+/// word (quoted or not) that could expand to one. Skips the remote (`skip`).
+fn dangerous_refspec(c: &Cmd, skip: usize, mark: char) -> bool {
+    c.positionals(PUSH_VALUE)
+        .iter()
+        .skip(skip)
+        .any(|w| w.dynamic || (w.text.len() > 1 && w.text.starts_with(mark)))
+}
+
 fn git_push_force(c: &Cmd) -> bool {
     let Some(p) = git_sub(c, &["push"]) else {
         return false;
     };
-    if dry_run(&p) || p.has_short('n') {
+    // Exemptions are exact: a dry run never counts by abbreviation or a variable.
+    if dry_run(&p) || p.opt_exact(&[], &['n']) {
         return false;
     }
-    p.has_any(&["--force", "--force-with-lease", "--mirror"], &['f'])
-        || p.positionals(PUSH_VALUE)
-            .iter()
-            .skip(1)
-            .any(|w| w.text.starts_with('+'))
+    p.opt_detect(&["--force", "--force-with-lease", "--mirror"], &['f'])
+        || dangerous_refspec(&p, 1, '+')
 }
 
 fn git_push_delete(c: &Cmd) -> bool {
     let Some(p) = git_sub(c, &["push"]) else {
         return false;
     };
-    if dry_run(&p) || p.has_short('n') {
+    if dry_run(&p) || p.opt_exact(&[], &['n']) {
         return false;
     }
-    p.has_any(&["--delete", "--prune"], &['d'])
-        || p.positionals(PUSH_VALUE)
-            .iter()
-            .skip(1)
-            .any(|w| w.text.len() > 1 && w.text.starts_with(':'))
+    p.opt_detect(&["--delete", "--prune"], &['d']) || dangerous_refspec(&p, 1, ':')
 }
 
 fn git_reset_hard(c: &Cmd) -> bool {
-    git_sub(c, &["reset"]).is_some_and(|s| s.has_long("--hard"))
+    git_sub(c, &["reset"]).is_some_and(|s| s.opt_detect(&["--hard"], &[]))
 }
 
 fn git_clean_force(c: &Cmd) -> bool {
     git_sub(c, &["clean"]).is_some_and(|s| {
-        s.has_any(&["--force"], &['f']) && !(s.has_short('n') || s.has_long("--dry-run"))
+        s.opt_detect(&["--force"], &['f']) && !(s.opt_exact(&[], &['n']) || s.has_long("--dry-run"))
     })
 }
 
@@ -527,7 +543,7 @@ fn tree_pathspec(w: &Word, cwds: &Cwds) -> bool {
 fn git_discard_tree(c: &Cmd) -> bool {
     let cwds = git_cwds(c);
     if let Some(s) = git_sub(c, &["checkout"]) {
-        if s.has_any(&["--force"], &['f']) {
+        if s.opt_detect(&["--force"], &['f']) {
             return true;
         }
         let words = s.args();
@@ -737,7 +753,11 @@ fn git_opaque(c: &Cmd) -> bool {
 // ---------------------------------------------------------------- rules: deletes
 
 fn rm_recursive(c: &Cmd) -> bool {
-    if c.prog() != "rm" || !c.has_any(&["--recursive"], &['r', 'R']) {
+    // `-r` may hide in an unquoted variable (`F=-rf; rm $F dir`); `opt_detect`
+    // treats an unquoted dynamic option word as possibly `-r`. A quoted operand
+    // (`rm "$f"`) is one word and is not an option, so a plain `rm "$f"` loop
+    // deleting one file stays quiet.
+    if c.prog() != "rm" || !c.opt_detect(&["--recursive"], &['r', 'R']) {
         return false;
     }
     if c.more_operands {
@@ -1355,6 +1375,9 @@ pub static RULES: &[Rule] = &[
             "git -C somedir push -fu origin feature",
             "git push --mirror backup",
             "/usr/bin/git push -f",
+            // Unique-prefix long options, which git accepts.
+            "git push --mirro backup",
+            "git push origin main --force-with-leas",
         ],
         must_not: &[
             "git push",
@@ -1366,6 +1389,8 @@ pub static RULES: &[Rule] = &[
             "git fetch origin +main:main",
             "git pull --force",
             "echo git push -f",
+            // A real long option that is not an abbreviation of a force flag.
+            "git push --follow-tags",
         ],
     },
     Rule {
@@ -1413,6 +1438,7 @@ pub static RULES: &[Rule] = &[
             "git reset --hard",
             "git reset --hard HEAD~1",
             "git -C somedir reset --hard origin/main",
+            "git reset --har HEAD~1",
         ],
         must_not: &[
             "git reset",
@@ -1485,6 +1511,10 @@ pub static RULES: &[Rule] = &[
             "rm -rf .git",
             "cd target; rm -rf somedir",
             "ls | xargs rm -rf",
+            // A `..` at or after the first glob component escapes the glob.
+            "rm -rf target/*/../../src",
+            // A unique-prefix long option.
+            "rm --recursiv -f somedir",
         ],
         must_not: &[
             "rm -rf target",
@@ -1986,7 +2016,7 @@ mod tests {
     fn fires(rule: &Rule, text: &str, root: &Path) -> (bool, bool, Option<bool>) {
         let cwds = Cwds::one(root);
         let mut parsed = vec![];
-        shell::parse_script(text, &cwds, 0, &mut parsed);
+        shell::parse_script(text, &cwds, 0, &[], None, &mut parsed);
         let as_text = parsed.iter().any(|c| (rule.test)(c));
         let bash = shell::commands(&["bash".into(), "-c".into(), text.into()], root)
             .iter()
@@ -2114,14 +2144,91 @@ mod tests {
             "echo \"$(git push --force)\"",
             "cat <<EOF\n$(git push -f)\nEOF",
             "find . -maxdepth 0 -exec git push -f \\;",
+            // 2a+: over-approximation over every word, not just the program.
+            "git push origin main --{force,}",    // brace expansion
+            "F=--force; git push origin main $F", // an unquoted variable option
+            "git push origin main -$(printf f)",  // a substitution in an option
+            "git push origin \"$BRANCH\"",        // a dynamic refspec operand
+            "git push --mirro backup",            // a unique-prefix long option
+            "git reset --har",                    // (bulk_delete, but still irreversible)
         ]
         .into_iter()
         .filter(|t| {
             !detect(&["bash".into(), "-c".into(), (*t).into()], root, &[])
                 .iter()
-                .any(|c| c.kind == kind::HISTORY_REWRITE)
+                .any(|c| matches!(c.kind.as_str(), "history_rewrite" | "bulk_delete"))
         })
         .collect();
-        assert!(hidden.is_empty(), "these hid a force push: {hidden:#?}");
+        assert!(
+            hidden.is_empty(),
+            "these hid an irreversible call: {hidden:#?}"
+        );
+        // `bash -c 'script' arg0 args…`: the positional parameters are literal.
+        assert!(
+            detect(
+                &[
+                    "bash".into(),
+                    "-c".into(),
+                    "git push origin main \"$@\"".into(),
+                    "_".into(),
+                    "-f".into(),
+                ],
+                root,
+                &[],
+            )
+            .iter()
+            .any(|c| c.kind == kind::HISTORY_REWRITE),
+            "\"$@\" is substituted with the literal args, so -f is seen exactly"
+        );
+    }
+
+    /// The recursive-delete siblings of the force-push test: no spelling hides a
+    /// `bulk_delete`, and the precise rules keep common safe calls quiet.
+    #[test]
+    fn no_spelling_hides_a_recursive_delete() {
+        let Some(d) = fixture() else { return };
+        let root = d.path().canonicalize().unwrap();
+        let fires = |t: &str| {
+            detect(&["bash".into(), "-c".into(), t.into()], &root, &[])
+                .iter()
+                .any(|c| c.kind == kind::BULK_DELETE)
+        };
+        let hidden: Vec<&str> = [
+            "rm -rf target/{,../src}", // a brace alternative escapes the build output
+            "F=-rf; rm $F somedir",    // -r hidden in an unquoted variable
+            "rm -rf somedir/{a,b}/../..", // a brace then `..` climbs to the work tree
+            "rm --recursiv -f somedir", // a unique-prefix long option
+            "rm -rf target/*/../../src", // a glob then `..` escapes to tracked work
+        ]
+        .into_iter()
+        .filter(|t| !fires(t))
+        .collect();
+        assert!(
+            hidden.is_empty(),
+            "these hid a recursive delete: {hidden:#?}"
+        );
+        // Precision: a quoted operand with no `-r` deletes one file, and a plain
+        // push or a build-output delete is not a consequence.
+        assert!(
+            !fires("for f in *.log; do rm \"$f\"; done"),
+            "a quoted single operand with no -r is one file, not a bulk delete"
+        );
+        assert!(
+            !fires("rm -rf target/{debug,release}"),
+            "both are build outputs"
+        );
+        let force = |t: &str| {
+            detect(&["bash".into(), "-c".into(), t.into()], &root, &[])
+                .iter()
+                .any(|c| c.kind == kind::HISTORY_REWRITE)
+        };
+        assert!(
+            !force("git push origin main"),
+            "a plain push is no consequence"
+        );
+        assert!(
+            !force("git push --follow-tags"),
+            "not an abbreviation of a force flag"
+        );
     }
 }

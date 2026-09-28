@@ -21,9 +21,15 @@ pub const MAX_DEPTH: usize = 8;
 pub struct Word {
     pub text: String,
     /// Holds an expansion the parser cannot resolve (`$VAR`, `$(…)`, `` `…` ``).
+    /// For a simple `$name`/`${name}`, `text` keeps the reference (`$HOME`), so a
+    /// path judgment can resolve `$HOME`/`~` even though the word stays dynamic.
     pub dynamic: bool,
     /// Holds an unquoted glob character, expanded at run time.
     pub glob: bool,
+    /// Any part of the word was quoted or backslash-escaped. A quoted word is
+    /// exactly one word: it never brace-expands, and a quoted dynamic word is a
+    /// single operand, never a split-out option (`rm "$f"` deletes one file).
+    pub quoted: bool,
     /// Command substitutions inside the word, run before the command.
     subs: Vec<String>,
 }
@@ -109,6 +115,14 @@ pub struct Cmd {
     pub more_operands: bool,
     /// The parser could not see through this text (the only word is the text).
     pub unparsed: bool,
+    /// The wrapper and shell programs this command was reached through, in order
+    /// (`sudo`, `bash`, `env`, …), because `expand` replaces `sudo x` with `x`.
+    /// The floor and the deny list judge these too.
+    pub via: Vec<String>,
+    /// The targets of this command's file redirections (`>`, `>>`, `<`, `<>`,
+    /// `&>`, `>|`, `2>file`), as words. Not heredoc bodies, here-strings, or
+    /// `>&2`-style fd duplications.
+    pub redirs: Vec<Word>,
     /// Where it came from, as written, for the notice.
     pub text: String,
 }
@@ -164,6 +178,36 @@ impl Cmd {
         }
         None
     }
+    /// Detection (a rule's trigger): could an option-position word carry any of
+    /// these long options or short letters? Over-approximates on purpose, as the
+    /// parser does for the program word: a long option matches by unique prefix
+    /// (git and GNU getopt_long accept unambiguous prefixes; an ambiguous one
+    /// errors, so flagging it costs nothing), and an **unquoted** dynamic word
+    /// before `--` could expand to any option. A quoted dynamic word is a single
+    /// operand, never an option. Never use this for an exemption.
+    pub fn opt_detect(&self, longs: &[&str], shorts: &[char]) -> bool {
+        self.args().iter().take_while(|w| w.text != "--").any(|w| {
+            if w.dynamic {
+                return !w.quoted;
+            }
+            (is_short_cluster(&w.text) && shorts.iter().any(|c| w.text[1..].contains(*c)))
+                || longs.iter().any(|l| long_opt_match(&w.text, l, true))
+        })
+    }
+
+    /// Exact (an exemption, e.g. `--dry-run`, `--staged`): only a literal exact
+    /// spelling counts. A dynamic word never satisfies it, and neither does an
+    /// abbreviation.
+    pub fn opt_exact(&self, longs: &[&str], shorts: &[char]) -> bool {
+        self.args().iter().take_while(|w| w.text != "--").any(|w| {
+            if w.dynamic {
+                return false;
+            }
+            (is_short_cluster(&w.text) && shorts.iter().any(|c| w.text[1..].contains(*c)))
+                || longs.iter().any(|l| long_opt_match(&w.text, l, false))
+        })
+    }
+
     /// Positional words (not options), skipping the values of `takes_value`
     /// options; everything after `--` is positional.
     pub fn positionals<'a>(&'a self, takes_value: &[&str]) -> Vec<&'a Word> {
@@ -202,7 +246,19 @@ fn is_short_cluster(s: &str) -> bool {
         && s[1..].chars().all(|c| c.is_ascii_alphanumeric())
 }
 
-/// Every command `argv` would start, run in `cwd`.
+/// Does the word `w` (a `--long` or `--long=value`) name the long option
+/// `name`? Exact when `!prefix`; when `prefix`, an unambiguous abbreviation
+/// counts too: `--forc` names `--force` (at least one character after `--`).
+pub fn long_opt_match(w: &str, name: &str, prefix: bool) -> bool {
+    let head = w.split('=').next().unwrap_or(w);
+    if head == name {
+        return true;
+    }
+    prefix && head.len() > 2 && head.starts_with("--") && name.starts_with(head)
+}
+
+/// Every command `argv` would start, run in `cwd`. A direct argv receives its
+/// words literally (no shell): no brace expansion, no redirections.
 pub fn commands(argv: &[String], cwd: &Path) -> Vec<Cmd> {
     let words: Vec<Word> = argv.iter().map(|a| Word::lit(a)).collect();
     let mut out = vec![];
@@ -212,20 +268,30 @@ pub fn commands(argv: &[String], cwd: &Path) -> Vec<Cmd> {
         false,
         0,
         argv.join(" ").as_str(),
+        &[],
         &mut out,
     );
     out
 }
 
-/// Parse shell text into its commands.
-pub fn parse_script(text: &str, cwds: &Cwds, depth: usize, out: &mut Vec<Cmd>) {
+/// Parse shell text into its commands. `via` is the wrapper/shell chain already
+/// stepped through; `params` are literal positional parameters for `$1`…, when
+/// known (a `bash -c 'script' arg0 args…`).
+pub fn parse_script(
+    text: &str,
+    cwds: &Cwds,
+    depth: usize,
+    via: &[String],
+    params: Option<&[String]>,
+    out: &mut Vec<Cmd>,
+) {
     if depth > MAX_DEPTH {
-        out.push(unparsed(text, cwds));
+        out.push(unparsed(text, cwds, via));
         return;
     }
-    match lex(text) {
-        Ok(toks) => Parser::new(cwds.clone(), depth, out).run(toks),
-        Err(_) => out.push(unparsed(text, cwds)),
+    match lex(text, params) {
+        Ok(toks) => Parser::new(cwds.clone(), depth, via.to_vec(), out).run(toks),
+        Err(_) => out.push(unparsed(text, cwds, via)),
     }
 }
 
@@ -233,7 +299,7 @@ pub fn parse_script(text: &str, cwds: &Cwds, depth: usize, out: &mut Vec<Cmd>) {
 /// around it (no operators, redirections, or heredocs): an argv.
 pub fn words_of(text: &str) -> Option<Vec<Word>> {
     let mut out = vec![];
-    for t in lex(text).ok()? {
+    for t in lex(text, None).ok()? {
         match t {
             Tok::Word(w) => out.push(w),
             _ => return None,
@@ -242,12 +308,14 @@ pub fn words_of(text: &str) -> Option<Vec<Word>> {
     Some(out)
 }
 
-fn unparsed(text: &str, cwds: &Cwds) -> Cmd {
+fn unparsed(text: &str, cwds: &Cwds, via: &[String]) -> Cmd {
     Cmd {
         words: vec![Word::lit(text)],
         cwds: cwds.clone(),
         more_operands: false,
         unparsed: true,
+        via: via.to_vec(),
+        redirs: vec![],
         text: text.into(),
     }
 }
@@ -259,15 +327,19 @@ enum Tok {
     Word(Word),
     /// `&&`, `||`, `;`, `;;`, `|`, `&`, `(`, `)`, or a newline.
     Op(&'static str),
-    /// A redirection: the next word is its target, not an argument.
+    /// A file redirection (`>`, `>>`, `<`, `<>`, `&>`, `>|`, `2>file`): the next
+    /// word is its target, judged as a path but not run as an argument.
     Redir,
+    /// A redirection whose next word is not a file path: a here-string (`<<<`)
+    /// body, or an fd duplication (`>&2`, `2>&1`). Consumed, not captured.
+    RedirDrop,
     /// `<<` or `<<-`: the next word is a heredoc delimiter.
     HereDoc,
     /// Command substitutions found in a heredoc body.
     Subs(Vec<String>),
 }
 
-fn lex(s: &str) -> Result<Vec<Tok>, String> {
+fn lex(s: &str, params: Option<&[String]>) -> Result<Vec<Tok>, String> {
     let c: Vec<char> = s.chars().collect();
     let n = c.len();
     let mut i = 0;
@@ -363,12 +435,14 @@ fn lex(s: &str) -> Result<Vec<Tok>, String> {
                     text: c[i..end].iter().collect(),
                     dynamic: true,
                     glob: false,
+                    quoted: false,
                     subs: vec![inner],
                 }));
                 i = end;
             }
             '<' if next == Some('<') && c.get(i + 2) == Some(&'<') => {
-                toks.push(Tok::Redir);
+                // Here-string `<<<`: the next word is data, not a file.
+                toks.push(Tok::RedirDrop);
                 i += 3;
             }
             '<' if next == Some('<') => {
@@ -378,15 +452,22 @@ fn lex(s: &str) -> Result<Vec<Tok>, String> {
                 i += if strip { 3 } else { 2 };
             }
             '<' | '>' => {
-                toks.push(Tok::Redir);
-                i += 1;
-                if matches!(c.get(i), Some('>') | Some('&') | Some('|')) {
+                // `>&` / `<&` is an fd duplication (`2>&1`, `>&2`): drop its word.
+                // `>>`, `>|`, `<>` are file redirections: capture the target.
+                if c.get(i + 1) == Some(&'&') {
+                    toks.push(Tok::RedirDrop);
+                    i += 2;
+                } else {
+                    toks.push(Tok::Redir);
                     i += 1;
+                    if matches!(c.get(i), Some('>') | Some('|')) {
+                        i += 1;
+                    }
                 }
             }
             _ => {
                 let start = i;
-                let (w, end) = lex_word(&c, i)?;
+                let (w, end) = lex_word(&c, i, params)?;
                 i = end;
                 let raw = &c[start..end];
                 // `2>` / `10<`: digits right before a redirection are its fd.
@@ -409,7 +490,7 @@ fn lex(s: &str) -> Result<Vec<Tok>, String> {
 
 const WORD_END: &[char] = &[' ', '\t', '\r', '\n', ';', '&', '|', '(', ')', '<', '>'];
 
-fn lex_word(c: &[char], mut i: usize) -> Result<(Word, usize), String> {
+fn lex_word(c: &[char], mut i: usize, params: Option<&[String]>) -> Result<(Word, usize), String> {
     let n = c.len();
     let mut w = Word::default();
     while i < n && !WORD_END.contains(&c[i]) {
@@ -417,12 +498,14 @@ fn lex_word(c: &[char], mut i: usize) -> Result<(Word, usize), String> {
         let next = c.get(i + 1).copied();
         match ch {
             '\\' => {
+                w.quoted = true;
                 if let Some(x) = next.filter(|x| *x != '\n') {
                     w.text.push(x);
                 }
                 i = (i + 2).min(n);
             }
             '\'' => {
+                w.quoted = true;
                 let end = c[i + 1..]
                     .iter()
                     .position(|&x| x == '\'')
@@ -432,10 +515,11 @@ fn lex_word(c: &[char], mut i: usize) -> Result<(Word, usize), String> {
                 i = end + 1;
             }
             '"' => {
-                i = lex_double(c, i + 1, &mut w)?;
+                w.quoted = true;
+                i = lex_double(c, i + 1, &mut w, params)?;
             }
             '$' => {
-                i = lex_dollar(c, i, &mut w, false)?;
+                i = lex_dollar(c, i, &mut w, false, params)?;
             }
             '`' => {
                 let (inner, end) = backtick(c, i + 1)?;
@@ -459,7 +543,12 @@ fn lex_word(c: &[char], mut i: usize) -> Result<(Word, usize), String> {
 }
 
 /// Inside `"…"` from `i`; returns the index after the closing quote.
-fn lex_double(c: &[char], mut i: usize, w: &mut Word) -> Result<usize, String> {
+fn lex_double(
+    c: &[char],
+    mut i: usize,
+    w: &mut Word,
+    params: Option<&[String]>,
+) -> Result<usize, String> {
     let n = c.len();
     while i < n {
         match c[i] {
@@ -476,7 +565,7 @@ fn lex_double(c: &[char], mut i: usize, w: &mut Word) -> Result<usize, String> {
                 }
                 i += 2;
             }
-            '$' => i = lex_dollar(c, i, w, true)?,
+            '$' => i = lex_dollar(c, i, w, true, params)?,
             '`' => {
                 let (inner, end) = backtick(c, i + 1)?;
                 w.subs.push(inner);
@@ -494,12 +583,23 @@ fn lex_double(c: &[char], mut i: usize, w: &mut Word) -> Result<usize, String> {
 }
 
 /// A `$` at `i`: `$'…'`, `$((…))`, `$(…)`, `${…}`, `$name`, or a lone `$`.
-/// Inside double quotes `$'` and `$"` are a literal `$`.
-fn lex_dollar(c: &[char], i: usize, w: &mut Word, in_double: bool) -> Result<usize, String> {
+/// Inside double quotes `$'` and `$"` are a literal `$`. `params` are the
+/// positional parameters of a `bash -c 'script' arg0 args…` when they are all
+/// literal: `$1`…`$9`, `$@`, and `$*` are substituted, so the script is judged
+/// exactly; without them these stay dynamic. A simple `$name`/`${name}` keeps
+/// its spelling in `text` (still dynamic) so a path judgment can read `$HOME`.
+fn lex_dollar(
+    c: &[char],
+    i: usize,
+    w: &mut Word,
+    in_double: bool,
+    params: Option<&[String]>,
+) -> Result<usize, String> {
     let next = c.get(i + 1).copied();
     match next {
         Some('\'') if !in_double => {
             // ANSI-C quoting: backslash escapes, no expansion.
+            w.quoted = true;
             let mut j = i + 2;
             loop {
                 match c.get(j) {
@@ -539,10 +639,15 @@ fn lex_dollar(c: &[char], i: usize, w: &mut Word, in_double: bool) -> Result<usi
         }
         Some('{') => {
             let (inner, end) = balanced(c, i + 2, '{', '}')?;
+            // `${1}`, `${@}` substitute like the bare forms when params are known.
+            if let Some(v) = params.and_then(|p| positional(&inner, p)) {
+                w.text.push_str(&v);
+                return Ok(end);
+            }
             // `${x:-$(cmd)}` runs cmd.
             w.subs.extend(subs_in_text(&inner)?);
             w.dynamic = true;
-            w.text.push('$');
+            w.text.push_str(&format!("${{{inner}}}"));
             Ok(end)
         }
         Some(x) if x.is_ascii_alphanumeric() || x == '_' => {
@@ -557,13 +662,30 @@ fn lex_dollar(c: &[char], i: usize, w: &mut Word, in_double: bool) -> Result<usi
                     j += 1;
                 }
             }
-            w.dynamic = true;
-            w.text.push('$');
+            let name: String = c[i + 1..j].iter().collect();
+            if let Some(v) = params.and_then(|p| positional(&name, p)) {
+                w.text.push_str(&v);
+            } else {
+                w.dynamic = true;
+                w.text.push('$');
+                w.text.push_str(&name);
+            }
             Ok(j)
         }
-        Some('@' | '*' | '#' | '?' | '$' | '!' | '-') => {
+        Some(sym @ ('@' | '*')) => {
+            if let Some(p) = params {
+                w.text.push_str(&p.join(" "));
+            } else {
+                w.dynamic = true;
+                w.text.push('$');
+                w.text.push(sym);
+            }
+            Ok(i + 2)
+        }
+        Some(sym @ ('#' | '?' | '$' | '!' | '-')) => {
             w.dynamic = true;
             w.text.push('$');
+            w.text.push(sym);
             Ok(i + 2)
         }
         _ => {
@@ -571,6 +693,20 @@ fn lex_dollar(c: &[char], i: usize, w: &mut Word, in_double: bool) -> Result<usi
             Ok(i + 1)
         }
     }
+}
+
+/// A positional parameter reference resolved against literal args: `1`…`9` →
+/// that arg (empty past the end), `@`/`*` → all args joined. `None` for a name
+/// that is not positional, so the caller keeps it dynamic.
+fn positional(name: &str, params: &[String]) -> Option<String> {
+    if name == "@" || name == "*" {
+        return Some(params.join(" "));
+    }
+    let n: usize = name.parse().ok()?;
+    if n == 0 {
+        return None; // $0 is the script name, not a positional we track.
+    }
+    Some(params.get(n - 1).cloned().unwrap_or_default())
 }
 
 /// From just after an opening `open`, find its match; returns the inner text
@@ -590,7 +726,7 @@ fn balanced(c: &[char], mut i: usize, open: char, close: char) -> Result<(String
             }
             '"' => {
                 let mut scratch = Word::default();
-                i = lex_double(c, i + 1, &mut scratch)?;
+                i = lex_double(c, i + 1, &mut scratch, None)?;
             }
             '`' => i = backtick(c, i + 1)?.1,
             x if x == open => {
@@ -661,46 +797,60 @@ struct Parser<'a> {
     /// Saved at each `(`, unioned back at its `)`.
     stack: Vec<Cwds>,
     depth: usize,
+    /// The wrapper/shell chain this script was reached through.
+    via: Vec<String>,
     out: &'a mut Vec<Cmd>,
     cur: Vec<Word>,
     text: Vec<String>,
+    /// The current simple command's file-redirection targets.
+    redirs: Vec<Word>,
     /// A `cd` just finished: where it leads, applied at the next operator.
     pending_cd: Option<Cwds>,
 }
 
 impl<'a> Parser<'a> {
-    fn new(cwds: Cwds, depth: usize, out: &'a mut Vec<Cmd>) -> Self {
+    fn new(cwds: Cwds, depth: usize, via: Vec<String>, out: &'a mut Vec<Cmd>) -> Self {
         Parser {
             list_start: cwds.clone(),
             cwds,
             stack: vec![],
             depth,
+            via,
             out,
             cur: vec![],
             text: vec![],
+            redirs: vec![],
             pending_cd: None,
         }
     }
 
     fn run(mut self, toks: Vec<Tok>) {
-        let mut redir = false;
+        // `Capture`: the next word is a file-redirection target to keep.
+        // `Drop`: the next word is a heredoc delimiter, here-string, or fd dup.
+        #[derive(PartialEq)]
+        enum Redir {
+            None,
+            Capture,
+            Drop,
+        }
+        let mut redir = Redir::None;
         for t in toks {
             match t {
                 Tok::Word(w) => {
                     for s in &w.subs {
-                        parse_script(s, &self.cwds, self.depth + 1, self.out);
+                        parse_script(s, &self.cwds, self.depth + 1, &self.via, None, self.out);
                     }
-                    if redir {
-                        redir = false;
-                        continue;
+                    match std::mem::replace(&mut redir, Redir::None) {
+                        Redir::Capture => self.redirs.push(w),
+                        Redir::Drop => {}
+                        Redir::None => self.push_word(w),
                     }
-                    self.text.push(w.text.clone());
-                    self.cur.push(w);
                 }
-                Tok::Redir | Tok::HereDoc => redir = true,
+                Tok::Redir => redir = Redir::Capture,
+                Tok::RedirDrop | Tok::HereDoc => redir = Redir::Drop,
                 Tok::Subs(subs) => {
                     for s in &subs {
-                        parse_script(s, &self.cwds, self.depth + 1, self.out);
+                        parse_script(s, &self.cwds, self.depth + 1, &self.via, None, self.out);
                     }
                 }
                 Tok::Op(op) => {
@@ -710,6 +860,15 @@ impl<'a> Parser<'a> {
             }
         }
         self.finish();
+    }
+
+    /// Add a word to the current command, brace-expanding an unquoted `{a,b}` or
+    /// `{1..3}` into several words first (a direct argv never reaches here).
+    fn push_word(&mut self, w: Word) {
+        for x in brace_expand_word(w) {
+            self.text.push(x.text.clone());
+            self.cur.push(x);
+        }
     }
 
     fn operator(&mut self, op: &str) {
@@ -744,6 +903,7 @@ impl<'a> Parser<'a> {
     fn finish(&mut self) {
         let mut words = std::mem::take(&mut self.cur);
         let text = std::mem::take(&mut self.text).join(" ");
+        let redirs = std::mem::take(&mut self.redirs);
         // Reserved words in command position, and the headers of compound
         // commands whose own words are not commands.
         loop {
@@ -793,8 +953,138 @@ impl<'a> Parser<'a> {
             }
             _ => {}
         }
-        expand(words, self.cwds.clone(), false, self.depth, &text, self.out);
+        let mark = self.out.len();
+        expand(
+            words,
+            self.cwds.clone(),
+            false,
+            self.depth,
+            &text,
+            &self.via,
+            self.out,
+        );
+        // The redirection targets belong to this simple command. Over-approximate
+        // by attaching them to every command it expanded to (through wrappers or a
+        // `bash -c` string), so the floor and deny list judge them wherever they
+        // could be written.
+        if !redirs.is_empty() {
+            for c in &mut self.out[mark..] {
+                c.redirs.extend(redirs.iter().cloned());
+            }
+        }
     }
+}
+
+/// Brace-expand one unquoted word (`--{force,}` → `--force`, `--`). A quoted or
+/// dynamic word, or one without a brace, is returned unchanged. Past the cap the
+/// word becomes dynamic (opaque), never silently one literal.
+fn brace_expand_word(w: Word) -> Vec<Word> {
+    if w.dynamic || w.quoted || !w.text.contains('{') {
+        return vec![w];
+    }
+    match brace_expand(&w.text) {
+        Some(list) if list.len() > 1 => list
+            .into_iter()
+            .map(|t| {
+                let glob = t.contains(['*', '?', '[']);
+                Word {
+                    text: t,
+                    glob,
+                    ..Default::default()
+                }
+            })
+            .collect(),
+        Some(_) => vec![w],
+        None => vec![Word { dynamic: true, ..w }],
+    }
+}
+
+/// Cartesian brace expansion of `{a,b}` alternatives and `{m..n}` numeric
+/// ranges, capped at `BRACE_CAP` results (`None` past the cap). A group with no
+/// comma and no range stays literal, as the shell leaves it.
+const BRACE_CAP: usize = 64;
+
+fn brace_expand(s: &str) -> Option<Vec<String>> {
+    let mut out = vec![];
+    expand_braces(s, &mut out)?;
+    Some(out)
+}
+
+fn expand_braces(s: &str, out: &mut Vec<String>) -> Option<()> {
+    let c: Vec<char> = s.chars().collect();
+    // The first top-level `{ … }` with a comma or a `..` range.
+    let Some(open) = c.iter().position(|&x| x == '{') else {
+        push_capped(out, s.to_string())?;
+        return Some(());
+    };
+    let mut depth = 0usize;
+    let mut close = None;
+    let mut alts: Vec<String> = vec![];
+    let mut cur = String::new();
+    for (k, &ch) in c.iter().enumerate().skip(open) {
+        match ch {
+            '{' => {
+                depth += 1;
+                if depth > 1 {
+                    cur.push(ch);
+                }
+            }
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(k);
+                    alts.push(std::mem::take(&mut cur));
+                    break;
+                }
+                cur.push(ch);
+            }
+            ',' if depth == 1 => alts.push(std::mem::take(&mut cur)),
+            _ => cur.push(ch),
+        }
+    }
+    let Some(close) = close else {
+        // Unbalanced: leave it literal.
+        push_capped(out, s.to_string())?;
+        return Some(());
+    };
+    let prefix: String = c[..open].iter().collect();
+    let suffix: String = c[close + 1..].iter().collect();
+    let fields = if alts.len() == 1 {
+        // No top-level comma: a `{m..n}` range, else a literal group.
+        match numeric_range(&alts[0]) {
+            Some(r) => r,
+            None => {
+                push_capped(out, format!("{prefix}{{{}}}{suffix}", alts[0]))?;
+                return Some(());
+            }
+        }
+    } else {
+        alts
+    };
+    for f in fields {
+        expand_braces(&format!("{prefix}{f}{suffix}"), out)?;
+    }
+    Some(())
+}
+
+fn numeric_range(s: &str) -> Option<Vec<String>> {
+    let (a, b) = s.split_once("..")?;
+    let a: i64 = a.parse().ok()?;
+    let b: i64 = b.parse().ok()?;
+    let range: Vec<String> = if a <= b {
+        (a..=b).map(|n| n.to_string()).collect()
+    } else {
+        (b..=a).rev().map(|n| n.to_string()).collect()
+    };
+    (range.len() <= BRACE_CAP).then_some(range)
+}
+
+fn push_capped(out: &mut Vec<String>, s: String) -> Option<()> {
+    if out.len() >= BRACE_CAP {
+        return None;
+    }
+    out.push(s);
+    Some(())
 }
 
 fn is_assignment(s: &str) -> bool {
@@ -849,20 +1139,23 @@ fn wrapper_opts(p: &str) -> Option<&'static [&'static str]> {
 }
 
 /// See through shells, wrappers, `eval`, `find -exec`, and `ssh` to the
-/// commands they start; emit what remains.
+/// commands they start; emit what remains. `via` is the wrapper/shell chain
+/// already stepped through, recorded on every command so the floor and deny list
+/// can judge a wrapper (`sudo`) the expander otherwise drops.
 fn expand(
     mut words: Vec<Word>,
     cwds: Cwds,
     more_operands: bool,
     depth: usize,
     text: &str,
+    via: &[String],
     out: &mut Vec<Cmd>,
 ) {
     if words.is_empty() {
         return;
     }
     if depth > MAX_DEPTH {
-        out.push(unparsed(text, &cwds));
+        out.push(unparsed(text, &cwds, via));
         return;
     }
     // The program is its file name: `/usr/bin/git` is `git`. A relative path
@@ -882,8 +1175,16 @@ fn expand(
             cwds,
             more_operands: more,
             unparsed: false,
+            via: via.to_vec(),
+            redirs: vec![],
             text: text.into(),
         })
+    };
+    // Stepping through this program to what it starts: it joins `via`.
+    let via_with = |p: &str| {
+        let mut v = via.to_vec();
+        v.push(p.to_string());
+        v
     };
     if words[0].dynamic {
         emit(words, cwds, more_operands, out);
@@ -925,7 +1226,27 @@ fn expand(
         }
         if c_mode {
             match words.get(i) {
-                Some(w) if !w.dynamic => parse_script(&w.text, &cwds, depth + 1, out),
+                Some(w) if !w.dynamic => {
+                    // `bash -c 'script' arg0 args…`: the words after the script
+                    // are `$0` and the positional parameters `$1`…, substituted
+                    // when every one is literal, so the script is judged exactly.
+                    let script = w.text.clone();
+                    let rest = &words[i + 1..];
+                    let params: Option<Vec<String>> =
+                        if !rest.is_empty() && rest.iter().all(|w| !w.dynamic) {
+                            Some(rest.iter().skip(1).map(|w| w.text.clone()).collect())
+                        } else {
+                            None
+                        };
+                    parse_script(
+                        &script,
+                        &cwds,
+                        depth + 1,
+                        &via_with(&prog),
+                        params.as_deref(),
+                        out,
+                    );
+                }
                 // `bash -c "$X"`: the script is not known.
                 _ => emit(words, cwds, more_operands, out),
             }
@@ -952,7 +1273,7 @@ fn expand(
                         rest.push(' ');
                         rest.push_str(&x.text);
                     }
-                    parse_script(&rest, &cwds, depth + 1, out);
+                    parse_script(&rest, &cwds, depth + 1, &via_with(&prog), None, out);
                 }
                 return;
             }
@@ -983,6 +1304,7 @@ fn expand(
             more_operands,
             depth + 1,
             text,
+            &via_with(&prog),
             out,
         );
         return;
@@ -1004,6 +1326,7 @@ fn expand(
             more_operands,
             depth + 1,
             text,
+            &via_with(&prog),
             out,
         );
         return;
@@ -1022,7 +1345,7 @@ fn expand(
             .iter()
             .map(|w| w.text.as_str())
             .collect();
-        parse_script(&s.join(" "), &cwds, depth + 1, out);
+        parse_script(&s.join(" "), &cwds, depth + 1, &via_with(&prog), None, out);
         return;
     }
     if prog == "eval" {
@@ -1030,7 +1353,7 @@ fn expand(
         let s: Vec<&str> = words[1..].iter().map(|w| w.text.as_str()).collect();
         let joined = s.join(" ");
         emit(words, cwds.clone(), more_operands, out);
-        parse_script(&joined, &cwds, depth + 1, out);
+        parse_script(&joined, &cwds, depth + 1, &via_with(&prog), None, out);
         return;
     }
     if prog == "ssh" {
@@ -1051,7 +1374,14 @@ fn expand(
             let s: Vec<&str> = words[i + 1..].iter().map(|w| w.text.as_str()).collect();
             let joined = s.join(" ");
             emit(words, cwds, more_operands, out);
-            parse_script(&joined, &Cwds::unknown(), depth + 1, out);
+            parse_script(
+                &joined,
+                &Cwds::unknown(),
+                depth + 1,
+                &via_with(&prog),
+                None,
+                out,
+            );
         }
         return;
     }
@@ -1088,7 +1418,15 @@ fn expand(
                         inner.push(w.clone());
                     }
                 }
-                expand(inner, cwds.clone(), true, depth + 1, text, out);
+                expand(
+                    inner,
+                    cwds.clone(),
+                    true,
+                    depth + 1,
+                    text,
+                    &via_with(&prog),
+                    out,
+                );
                 j = k + 1;
                 continue;
             }
@@ -1114,12 +1452,28 @@ fn expand(
         // `sudo -s` / `sudo -i` with no command: a shell.
         if i >= words.len() {
             if prog == "sudo" && words.iter().any(|w| w.text == "-s" || w.text == "-i") {
-                emit(vec![Word::lit("sh")], cwds, more_operands, out);
+                out.push(Cmd {
+                    words: vec![Word::lit("sh")],
+                    cwds,
+                    more_operands,
+                    unparsed: false,
+                    via: via_with(&prog),
+                    redirs: vec![],
+                    text: text.into(),
+                });
             }
             return;
         }
         let more = more_operands || prog == "xargs";
-        expand(words.split_off(i), cwds, more, depth + 1, text, out);
+        expand(
+            words.split_off(i),
+            cwds,
+            more,
+            depth + 1,
+            text,
+            &via_with(&prog),
+            out,
+        );
         return;
     }
     emit(words, cwds, more_operands, out);
@@ -1131,7 +1485,7 @@ mod tests {
 
     fn progs(s: &str) -> Vec<String> {
         let mut out = vec![];
-        parse_script(s, &Cwds::one(Path::new("/w")), 0, &mut out);
+        parse_script(s, &Cwds::one(Path::new("/w")), 0, &[], None, &mut out);
         out.iter()
             .map(|c| {
                 let words: Vec<&str> = c.words.iter().map(|w| w.text.as_str()).collect();
@@ -1170,7 +1524,8 @@ mod tests {
         );
         assert_eq!(
             progs("for f in a b; do rm -rf \"$f\"; done"),
-            vec!["rm -rf $"]
+            vec!["rm -rf $f"],
+            "a simple $name keeps its spelling (still dynamic)"
         );
         assert_eq!(
             progs("FOO=1 BAR=2 git push -f 2>&1 >/dev/null"),
@@ -1237,7 +1592,7 @@ mod tests {
     fn a_cd_moves_later_commands_and_a_failure_keeps_the_old_directory_possible() {
         let cmds = |s: &str| {
             let mut out = vec![];
-            parse_script(s, &Cwds::one(Path::new("/w")), 0, &mut out);
+            parse_script(s, &Cwds::one(Path::new("/w")), 0, &[], None, &mut out);
             out
         };
         let dirs = |c: &Cmd| {
@@ -1271,6 +1626,8 @@ mod tests {
             "git push -fu origin +main --push-option=x",
             &Cwds::one(Path::new("/")),
             0,
+            &[],
+            None,
             &mut out,
         );
         let c = &out[0];
@@ -1283,6 +1640,8 @@ mod tests {
             "curl -XPOST https://x -d a",
             &Cwds::one(Path::new("/")),
             0,
+            &[],
+            None,
             &mut out,
         );
         assert_eq!(out[0].value_of(&["-X", "--request"]), Some("POST"));
