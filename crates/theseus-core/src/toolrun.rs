@@ -1165,7 +1165,9 @@ impl ToolRuntime {
                         ResultStatus::Cancelled
                     };
                     let text = if status == ResultStatus::Denied {
-                        format!("Not run: the operator declined this call ({reason}).")
+                        // The kernel records "denied by <who>: <note>"; the model reads the note.
+                        let note = reason.split_once(": ").map_or(reason.as_str(), |(_, n)| n);
+                        format!("Not run: the operator declined this call ({note}).")
                     } else {
                         format!("Not run: {reason}.")
                     };

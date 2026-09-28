@@ -1195,6 +1195,15 @@ fn session_header(s: &SessionInfo) -> String {
     )
 }
 
+/// A result status as the operator reads it: `denied` is a call that never
+/// ran (declined, or superseded by a new message).
+fn status_word(status: &str) -> &str {
+    match status {
+        "denied" => "not run",
+        s => s,
+    }
+}
+
 fn clip(s: &str, max: usize) -> String {
     let one = s.replace('\n', " ⏎ ");
     if one.chars().count() <= max {
@@ -1314,7 +1323,7 @@ fn print_node(n: &NodeInfo, full: bool) {
                 println!(
                     "      ← {} {}{late}{ms} · {}\n{}",
                     s("tool"),
-                    s("status"),
+                    status_word(s("status")),
                     fmt_bytes(n.bytes),
                     indent(&n.text, "        ")
                 );
@@ -1322,7 +1331,7 @@ fn print_node(n: &NodeInfo, full: bool) {
                 println!(
                     "      ← {} {}{late}{ms} · {}: {}",
                     s("tool"),
-                    s("status"),
+                    status_word(s("status")),
                     fmt_bytes(n.bytes),
                     clip(&n.text, 160)
                 );
@@ -1483,7 +1492,7 @@ impl Printer {
                 eprintln!(
                     "  ← {} {}{}",
                     s("tool"),
-                    s("status"),
+                    status_word(&s("status")),
                     if extra.is_empty() {
                         String::new()
                     } else {

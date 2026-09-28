@@ -136,7 +136,7 @@ function ResultLine({ r, open }: { r: NodeInfo; open: boolean }) {
   return (
     <>
       <div className="result-line">
-        <span className={`pill ${STATUS_CLASS[status] ?? ''}`}>{status}</span>
+        <span className={`pill ${STATUS_CLASS[status] ?? ''}`}>{status === 'denied' ? 'not run' : status}</span>
         {d.late === true && <span className="pill accent" title="arrived after the turn that asked for it">late</span>}
         {exit != null && <span className={exit === 0 ? 'muted' : 'bad'}>exit {str(exit)}</span>}
         {d.duration_ms != null && <span className="muted">{fmt(Number(d.duration_ms))} ms</span>}

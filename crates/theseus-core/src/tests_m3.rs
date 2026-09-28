@@ -288,7 +288,7 @@ async fn a_declined_write_and_a_superseded_one_never_run() {
     let rs = results(&r.core, &res.session_id);
     assert_eq!(rs[0].0, ResultStatus::Denied);
     assert!(
-        rs[0].1.contains("declined") && rs[0].1.contains("not now"),
+        rs[0].1.contains("declined") && rs[0].1.contains("not now") && !rs[0].1.contains("denied"),
         "{rs:?}"
     );
 
