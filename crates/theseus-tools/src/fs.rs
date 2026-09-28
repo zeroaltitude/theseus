@@ -117,7 +117,6 @@ impl Tool for Read {
                 access: Access::Read,
             }],
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -238,7 +237,6 @@ impl Tool for WriteFile {
                 access: Access::Write,
             }],
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -331,7 +329,6 @@ impl Tool for Edit {
                 access: Access::Write,
             }],
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -481,7 +478,6 @@ impl Tool for Patch {
             ),
             resources,
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -506,7 +502,7 @@ impl Tool for Patch {
             })?;
             let applied = diffy::apply(&original, &p).map_err(|e| ToolFailure::new(format!("the patch does not apply to {target}: {e}. Read the file and regenerate the hunk against its current contents.")))?;
             // A deletion carries the whole file, so the call records what it
-            // removed and stays reversible (no consequence to declare).
+            // removed and stays reversible.
             if f.new.is_none() && !applied.is_empty() {
                 return Err(ToolFailure::new(format!(
                     "the section deleting {target} leaves {} line(s) the patch does not show: a deletion must remove every line. Read the file and include all of it.",
@@ -606,7 +602,6 @@ impl Tool for Glob {
                 access: Access::Read,
             }],
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -794,7 +789,6 @@ impl Tool for Grep {
                 access: Access::Read,
             }],
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -958,7 +952,6 @@ impl Tool for List {
                 access: Access::Read,
             }],
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {

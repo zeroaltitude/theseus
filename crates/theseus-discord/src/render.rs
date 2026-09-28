@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use serde_json::Value;
-use theseus_protocol::{ConfirmRequest, ConsequenceTag, TurnSubmitResult};
+use theseus_protocol::{ConfirmRequest, TurnSubmitResult};
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
 pub const PART_LIMIT: usize = 1900;
@@ -76,8 +76,7 @@ struct ToolLine {
     summary: String,
     correlation_id: Option<String>,
     state: ToolState,
-    /// `approval_skipped` or `off_policy` when the enforcement level let it
-    /// run, `irreversible` when it waits for an irreversible consequence.
+    /// `approval_skipped` or `off_policy` when the enforcement level let it run.
     notice: Option<String>,
 }
 
@@ -225,24 +224,19 @@ impl Renderer {
                 } else {
                     ("⚠️ Ran without approval", AMBER, "asked for your approval")
                 };
-                let mut fields = vec![
-                    ("What".into(), clip(&str_of(p, "summary"), 1000)),
-                    (
-                        format!("The policy would have {would}"),
-                        clip(&str_of(p, "rule"), 1000),
-                    ),
-                ];
-                let named = consequences(p);
-                if !named.is_empty() {
-                    fields.push(("Consequences".into(), named));
-                }
-                fields.push(("Setting".into(), format!("`{}`", str_of(p, "setting"))));
-                fields.push(("Outcome".into(), "⏳ running".into()));
                 let card = NoticeCard {
                     title: title.into(),
                     color,
                     description: format!("`{tool}` {}", summarize(tool, &input)),
-                    fields,
+                    fields: vec![
+                        ("What".into(), clip(&str_of(p, "summary"), 1000)),
+                        (
+                            format!("The policy would have {would}"),
+                            clip(&str_of(p, "rule"), 1000),
+                        ),
+                        ("Setting".into(), format!("`{}`", str_of(p, "setting"))),
+                        ("Outcome".into(), "⏳ running".into()),
+                    ],
                 };
                 self.notices.insert(use_id.clone(), card.clone());
                 vec![Op::Notice {
@@ -266,26 +260,16 @@ impl Renderer {
                     {
                         l.state = ToolState::Waiting;
                         l.correlation_id = Some(corr.clone());
-                        if req.irreversible {
-                            l.notice = Some("irreversible".into());
-                        }
                     }
                     t.dirty = true;
                 }
                 let line = format!("`{}` {}", req.tool, summarize(&req.tool, &req.input));
                 let key = format!("confirm:{corr}");
-                let mut content = match (req.against_policy, req.irreversible) {
-                    (true, true) => {
-                        format!("🚨 **Against policy and irreversible. Approve anyway?** {line}")
-                    }
-                    (true, false) => format!("🚨 **Against policy. Approve anyway?** {line}"),
-                    (false, true) => format!("⛔ **Irreversible. Approve?** {line}"),
-                    (false, false) => format!("**Approve?** {line}"),
+                let mut content = if req.against_policy {
+                    format!("🚨 **Against policy. Approve anyway?** {line}")
+                } else {
+                    format!("**Approve?** {line}")
                 };
-                let named = ConsequenceTag::summary(&req.consequences);
-                if !named.is_empty() {
-                    content.push_str(&format!("\n**{named}**"));
-                }
                 if !req.reason.is_empty() {
                     content.push_str(&format!("\n{}", clip(&req.reason, 300)));
                 }
@@ -293,11 +277,10 @@ impl Renderer {
                     "\n-# expires <t:{}:R> · you can also answer in the web UI or with `theseus confirm`",
                     req.expires_at_ms / 1000
                 ));
-                let line = match (req.against_policy, named.is_empty()) {
-                    (true, true) => format!("{line} (against policy)"),
-                    (true, false) => format!("{line} (against policy; {named})"),
-                    (false, false) => format!("{line} ({named})"),
-                    (false, true) => line,
+                let line = if req.against_policy {
+                    format!("{line} (against policy)")
+                } else {
+                    line
                 };
                 self.confirms.insert(corr.clone(), (key.clone(), line));
                 vec![self.upsert(&key, content, Buttons::Confirm(corr))]
@@ -485,7 +468,6 @@ fn tool_lines(tools: &[ToolLine]) -> String {
         .map(|l| {
             let mark = match l.notice.as_deref() {
                 Some("off_policy") => " · 🚨 against policy",
-                Some("irreversible") => " · ⛔ irreversible",
                 Some(_) => " · ⚠️ without approval",
                 None => "",
             };
@@ -598,14 +580,6 @@ pub fn summarize(tool: &str, input: &Value) -> String {
 fn denial_reason(gate: Option<&Value>) -> Option<String> {
     let r = gate?.get("result")?;
     (r.get("gate").and_then(Value::as_str) == Some("deny")).then(|| str_of(r, "reason"))
-}
-
-/// The consequences a notice names (`needs approval: opaque`), or nothing.
-fn consequences(p: &Value) -> String {
-    let tags: Vec<ConsequenceTag> =
-        serde_json::from_value(p.get("consequences").cloned().unwrap_or_default())
-            .unwrap_or_default();
-    ConsequenceTag::summary(&tags)
 }
 
 fn str_of(v: &Value, k: &str) -> String {
@@ -827,59 +801,6 @@ mod tests {
         let lines =
             upserts(&r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
         assert!(lines[0].1.contains("⚠️ without approval"), "{lines:?}");
-    }
-
-    #[test]
-    fn irreversible_confirms_and_named_notices_say_what_the_call_would_do() {
-        let mut r = Renderer::default();
-        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
-        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
-            "input": {"argv": ["git", "push", "--force"]}, "gate": {"result": {"gate": "confirm"}}}));
-        let ops = r.on_notification("confirm.requested", &json!({"correlation_id": "act_1", "session_id": "s",
-            "execution_id": "e", "tool": "proc.run", "input": {"argv": ["git", "push", "--force"]},
-            "reason": "irreversible: history_rewrite: an irreversible call waits for approval at every enforcement level (enforcement = notify)",
-            "by": "operator", "requested_at_ms": 1, "expires_at_ms": 900001, "irreversible": true,
-            "consequences": [{"kind": "history_rewrite", "irreversible": true, "rule": "git.push.force", "detail": "git push --force"}]}));
-        let up = upserts(&ops);
-        assert!(
-            up[0].1.starts_with("⛔ **Irreversible. Approve?**"),
-            "{}",
-            up[0].1
-        );
-        assert!(
-            up[0].1.contains("**irreversible: history_rewrite**"),
-            "{}",
-            up[0].1
-        );
-        let lines = upserts(&r.tick());
-        assert!(
-            lines[0].1.contains("⛔ irreversible") && lines[0].1.contains("waiting for approval"),
-            "{lines:?}"
-        );
-        let ops = r.on_notification(
-            "confirm.resolved",
-            &json!({"correlation_id": "act_1", "approved": false, "by": "discord:eddie"}),
-        );
-        assert!(
-            upserts(&ops)[0]
-                .1
-                .contains("(irreversible: history_rewrite)"),
-            "{ops:?}"
-        );
-        // A notice names a needs-approval kind that ran.
-        let ops = r.on_notification("policy.notified", &json!({"session_id": "s", "turn_id": "t1", "tool_use_id": "u2",
-            "tool": "proc.run", "input": {"argv": ["python3", "-c", "x"]}, "summary": "run `python3 -c x` in /w",
-            "kind": "approval_skipped", "setting": "enforcement = notify", "rule": "run: proc.run is `confirm` for run tools",
-            "consequences": [{"kind": "opaque", "irreversible": false, "rule": "opaque.inline"}]}));
-        let Op::Notice { card, .. } = &ops[0] else {
-            panic!("{ops:?}")
-        };
-        assert!(
-            card.fields
-                .contains(&("Consequences".into(), "needs approval: opaque".into())),
-            "{card:?}"
-        );
-        assert!(card.fields.iter().any(|(n, _)| n == "Outcome"));
     }
 
     #[test]

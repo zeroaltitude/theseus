@@ -750,74 +750,9 @@ impl Core {
                             against_policy: gate["decision"]["against_policy"]
                                 .as_bool()
                                 .unwrap_or(false),
-                            consequences: serde_json::from_value(
-                                gate["decision"]["consequences"].clone(),
-                            )
-                            .unwrap_or_default(),
-                            irreversible: gate["decision"]["irreversible"]
-                                .as_bool()
-                                .unwrap_or(false),
                         });
                     }
                 }
-            }
-        }
-        Ok(out)
-    }
-
-    /// `policy.replay`: judge the newest `limit` tool calls with the current
-    /// gate and list the ones it would treat or name differently. Read-only.
-    pub fn policy_replay(&self, limit: usize) -> Result<theseus_protocol::PolicyReplayResult> {
-        let limit = limit.clamp(1, 10_000);
-        let total = self.store.node_count()? as usize;
-        let mut window = (limit * 8).max(256);
-        let calls: Vec<Node> = loop {
-            let found: Vec<Node> = self
-                .store
-                .recent_nodes(window.min(total.max(1)))?
-                .into_iter()
-                .rev()
-                .filter_map(|(_, n)| matches!(n.body, Body::ToolCall { .. }).then_some(n))
-                .take(limit)
-                .collect();
-            if found.len() >= limit || window >= total {
-                break found;
-            }
-            window = window.saturating_mul(4);
-        };
-        let policy = &self.tools.policy;
-        let mut out = theseus_protocol::PolicyReplayResult {
-            rules_version: theseus_tools::consequence::RULES_VERSION.into(),
-            enforcement: policy.enforcement.as_str().into(),
-            ..Default::default()
-        };
-        for n in calls {
-            let Body::ToolCall {
-                tool, input, gate, ..
-            } = &n.body
-            else {
-                continue;
-            };
-            let Some(t) = self.tools.registry.get(tool) else {
-                continue;
-            };
-            let Some((then, now, summary)) =
-                policy.replay_call(t.as_ref(), &self.tools.ctx, input, gate)
-            else {
-                continue;
-            };
-            out.examined += 1;
-            if crate::policy::verdict_changed(&then, &now) {
-                out.changed += 1;
-                out.calls.push(theseus_protocol::ReplayCall {
-                    node_id: n.id.clone(),
-                    session_id: n.session_id.clone(),
-                    at_ms: n.created_at_ms,
-                    tool: tool.clone(),
-                    summary,
-                    then,
-                    now,
-                });
             }
         }
         Ok(out)
@@ -1456,20 +1391,6 @@ impl Core {
                         p.author.as_deref().unwrap_or(client),
                     )
                     .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
-                Ok(serde_json::to_value(r).unwrap())
-            }
-            method::POLICY_RULES => {
-                Ok(serde_json::to_value(self.tools.policy.rules_info()).unwrap())
-            }
-            method::POLICY_REPLAY => {
-                let p: theseus_protocol::PolicyReplayParams = if req.params.is_null() {
-                    Default::default()
-                } else {
-                    parse(req.params)?
-                };
-                let r = self
-                    .policy_replay(p.limit.unwrap_or(200) as usize)
-                    .map_err(&bad)?;
                 Ok(serde_json::to_value(r).unwrap())
             }
             method::TOOL_LIST => {

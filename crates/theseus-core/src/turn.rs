@@ -976,18 +976,16 @@ impl TurnRunner {
                         );
                         let t0 = trace.now_us();
                         let invalid = resp.invalid_tool_inputs.get(&u.id).map(String::as_str);
-                        let (outcome, mark) = self
+                        let outcome = self
                             .tools
-                            .process_marked(&ctx(Some(loop_index)), &node.id, u, invalid)
+                            .process(&ctx(Some(loop_index)), &node.id, u, invalid)
                             .await?;
-                        let mark = mark.unwrap_or_default();
                         trace.record(
                             &format!("tool {}", u.name),
                             "tool",
                             t0,
                             trace.now_us(),
-                            json!({"tool_use_id": u.id, "outcome": format!("{outcome:?}"),
-                                "consequences": mark.consequences, "irreversible": mark.irreversible}),
+                            json!({"tool_use_id": u.id, "outcome": format!("{outcome:?}")}),
                         );
                         match outcome {
                             CallOutcome::AwaitingConfirm { correlation_id } => {

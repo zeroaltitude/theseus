@@ -18,11 +18,11 @@ use crate::store::Store;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
-pub(crate) struct Rig {
-    pub(crate) core: Arc<Core>,
-    pub(crate) fake: Arc<FakeProvider>,
-    pub(crate) root: PathBuf,
-    pub(crate) _dir: tempfile::TempDir,
+struct Rig {
+    core: Arc<Core>,
+    fake: Arc<FakeProvider>,
+    root: PathBuf,
+    _dir: tempfile::TempDir,
 }
 
 fn config(root: &Path, state: &Path) -> Config {
@@ -38,7 +38,7 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg
 }
 
-pub(crate) fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
+fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -60,7 +60,7 @@ fn rig(script: Vec<Scripted>) -> Rig {
     rig_with(script, |_| {})
 }
 
-pub(crate) async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
+async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
     let rec = match session {
         Some(id) => core
             .store
@@ -105,7 +105,7 @@ fn kinds(core: &Core, sid: &str) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn results(core: &Core, sid: &str) -> Vec<(ResultStatus, String)> {
+fn results(core: &Core, sid: &str) -> Vec<(ResultStatus, String)> {
     core.store
         .session_nodes(sid)
         .unwrap()

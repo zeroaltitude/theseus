@@ -45,37 +45,7 @@ pub struct Config {
     #[serde(default)]
     pub policy: PolicyConfig,
     #[serde(default)]
-    pub consequences: ConsequencesConfig,
-    #[serde(default)]
     pub discord: DiscordConfig,
-}
-
-/// `[consequences]`: the kinds the gate names beside a tool's class (spec
-/// §3.9). The built-in kinds and their grades come from the rule table
-/// (`theseus_tools::consequence::SEED_KINDS`); this adds kinds or regrades
-/// built-in ones. Every key is optional.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ConsequencesConfig {
-    /// `[consequences.kinds.<name>]`: a new kind, or a built-in one regraded.
-    #[serde(default)]
-    pub kinds: BTreeMap<String, KindConfig>,
-}
-
-/// One kind in `[consequences.kinds]`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct KindConfig {
-    /// Wait for approval at every enforcement level. Default: the built-in
-    /// kind's grade, or false (needs approval) for a new kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub irreversible: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// argv prefixes that carry this kind, matched against every command a
-    /// call would run (inside `bash -c` too), e.g. `[["./deploy.sh", "prod"]]`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub argv: Vec<Vec<String>>,
 }
 
 /// `[discord]`: the Discord binding (M3). It connects only when the token
@@ -678,23 +648,6 @@ impl Config {
                 );
             }
         }
-        for (name, k) in &self.consequences.kinds {
-            if name.is_empty()
-                || !name
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-            {
-                anyhow::bail!(
-                    "consequences.kinds.{name:?}: a kind name is lowercase letters, digits, and underscores"
-                );
-            }
-            if k.argv
-                .iter()
-                .any(|p| p.is_empty() || p[0].trim().is_empty())
-            {
-                anyhow::bail!("consequences.kinds.{name}.argv: every prefix must name a program");
-            }
-        }
         if let Some(h) = &self.telemetry.headers_secret {
             if !self.secrets.contains_key(h) {
                 anyhow::bail!(
@@ -873,75 +826,6 @@ mod tests {
             );
         }
         assert!(missing.is_empty(), "undocumented config keys: {missing:?}");
-    }
-
-    /// Eddie's deployment is the template as it stood before `[consequences]`
-    /// existed (524f535). It loads unchanged, gets the built-in kinds, and the
-    /// template's settings are the same lines: 2a added comments only.
-    #[test]
-    fn a_config_from_before_consequences_loads_unchanged_with_the_built_in_kinds() {
-        const BEFORE: &str = include_str!("../config/fixtures/template-before-consequences.toml");
-        let cfg: Config = toml::from_str(BEFORE).unwrap();
-        cfg.validate().unwrap();
-        assert!(cfg.consequences.kinds.is_empty());
-        assert_eq!(cfg.policy.enforcement, crate::policy::Enforcement::Notify);
-        let k = crate::policy::Kinds::from_config(&cfg.consequences);
-        assert!(k.irreversible("history_rewrite") && k.irreversible("bulk_delete"));
-        assert!(!k.irreversible("merge") && !k.irreversible("opaque"));
-        assert!(k.owner_rules.is_empty());
-        let settings = |t: &str| {
-            t.lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .map(String::from)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            settings(BEFORE),
-            settings(Config::EXAMPLE_TOML),
-            "the template's live settings are unchanged"
-        );
-    }
-
-    #[test]
-    fn consequence_kinds_regrade_and_add_and_bad_names_are_refused() {
-        let cfg: Config = toml::from_str(
-            r#"
-[secrets]
-anthropic_api_key = "op://v/i/f"
-[consequences.kinds.merge]
-irreversible = true
-[consequences.kinds.history_rewrite]
-irreversible = false
-[consequences.kinds.deploy]
-description = "a production deploy"
-argv = [["./deploy.sh", "prod"]]
-"#,
-        )
-        .unwrap();
-        cfg.validate().unwrap();
-        let k = crate::policy::Kinds::from_config(&cfg.consequences);
-        assert!(k.irreversible("merge"), "regraded up");
-        assert!(!k.irreversible("history_rewrite"), "regraded down");
-        assert!(
-            !k.irreversible("deploy"),
-            "a new kind needs approval by default"
-        );
-        assert!(
-            k.irreversible("publish"),
-            "untouched kinds keep their grade"
-        );
-        assert_eq!(k.owner_rules.len(), 1);
-        assert_eq!(k.descriptions["deploy"], "a production deploy");
-        for bad in [
-            "[consequences.kinds.Deploy]",
-            "[consequences.kinds.x]\nargv = [[]]",
-        ] {
-            let text = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n{bad}\n");
-            let c: Config = toml::from_str(&text).unwrap();
-            assert!(c.validate().is_err(), "{bad}");
-        }
-        assert!(toml::from_str::<Config>("[consequences.kinds.x]\nirreversable = true\n").is_err());
     }
 
     fn walk(v: &toml::Value, path: &str, f: &mut dyn FnMut(&str, bool)) {

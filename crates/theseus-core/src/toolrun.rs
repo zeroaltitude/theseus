@@ -89,13 +89,6 @@ pub enum CallOutcome {
     Background { correlation_id: String },
 }
 
-/// What the gate named on one call, for its span.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct GateMark {
-    pub consequences: Vec<String>,
-    pub irreversible: bool,
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct ResumeOutcome {
     /// Result nodes written (the model has something new to read).
@@ -192,7 +185,6 @@ impl ToolRuntime {
                 enforcement: Default::default(),
                 floor_paths: vec![],
                 floor_argv: crate::policy::floor_argv(),
-                kinds: Default::default(),
             },
             ctx: ToolCtx::for_tests(&tmp),
             spool: None,
@@ -432,35 +424,6 @@ impl ToolRuntime {
         call: &ToolUse,
         invalid_raw: Option<&str>,
     ) -> Result<CallOutcome> {
-        let mut mark = None;
-        self.process_inner(tc, assistant_node, call, invalid_raw, &mut mark)
-            .await
-    }
-
-    /// `process`, and what the gate named: the consequence kinds and whether
-    /// one is irreversible (for the tool span and its metric).
-    pub async fn process_marked(
-        &self,
-        tc: &TurnCtx<'_>,
-        assistant_node: &str,
-        call: &ToolUse,
-        invalid_raw: Option<&str>,
-    ) -> Result<(CallOutcome, Option<GateMark>)> {
-        let mut mark = None;
-        let outcome = self
-            .process_inner(tc, assistant_node, call, invalid_raw, &mut mark)
-            .await?;
-        Ok((outcome, mark))
-    }
-
-    async fn process_inner(
-        &self,
-        tc: &TurnCtx<'_>,
-        assistant_node: &str,
-        call: &ToolUse,
-        invalid_raw: Option<&str>,
-        mark: &mut Option<GateMark>,
-    ) -> Result<CallOutcome> {
         let Some(tool) = self.registry.by_wire(&call.name).cloned() else {
             let node = self.result_node(
                 tc,
@@ -518,10 +481,6 @@ impl ToolRuntime {
         let (result, trace) = run_gate(&gp, &mut proposal, tc.authority);
         let plan = gp.plan.lock().unwrap().clone();
         let decision = gp.decision.lock().unwrap().clone();
-        *mark = decision.as_ref().map(|d| GateMark {
-            consequences: d.consequences.iter().map(|c| c.kind.clone()).collect(),
-            irreversible: d.irreversible,
-        });
         proposal.resource = plan
             .as_ref()
             .and_then(|p| p.resources.first())
@@ -567,15 +526,10 @@ impl ToolRuntime {
                     json!({"reason": reason}),
                 );
                 tc.store.append(vec![call_node.record()?, node.record()?])?;
-                let (consequences, irreversible) = decision
-                    .as_ref()
-                    .map(|d| (d.consequences.clone(), d.irreversible))
-                    .unwrap_or_default();
                 self.ledger(
                     tc,
                     if status == ResultStatus::Denied { "tool.denied" } else { "tool.invalid_input" },
-                    json!({"tool": tool.name(), "tool_use_id": call.id, "reason": reason, "input": call.input,
-                        "consequences": consequences, "irreversible": irreversible}),
+                    json!({"tool": tool.name(), "tool_use_id": call.id, "reason": reason, "input": call.input}),
                 );
                 self.announce_end(tc, &node);
                 Ok(CallOutcome::Done { status })
@@ -602,10 +556,7 @@ impl ToolRuntime {
                     },
                 )?;
                 let now = theseus_protocol::now_unix_ms();
-                let (reason, against_policy, consequences, irreversible) = match decision {
-                    Some(d) => (d.reason, d.against_policy, d.consequences, d.irreversible),
-                    None => Default::default(),
-                };
+                let against_policy = decision.as_ref().is_some_and(|d| d.against_policy);
                 let req = ConfirmRequest {
                     correlation_id: a.correlation_id.clone(),
                     session_id: tc.session_id.into(),
@@ -613,13 +564,11 @@ impl ToolRuntime {
                     tool: tool.name().into(),
                     input: call.input.clone(),
                     resource: proposal.resource.clone(),
-                    reason,
+                    reason: decision.map(|d| d.reason).unwrap_or_default(),
                     by,
                     requested_at_ms: now,
                     expires_at_ms: now + tc.confirm_ttl_ms,
                     against_policy,
-                    consequences,
-                    irreversible,
                 };
                 self.ledger(tc, "tool.confirm_requested", serde_json::to_value(&req)?);
                 tc.sink.send(notify::CONFIRM_REQUESTED, &req);
@@ -633,8 +582,7 @@ impl ToolRuntime {
                     let summary = plan.as_ref().map(|p| p.summary.clone()).unwrap_or_default();
                     let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
                         "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
-                        "summary": summary, "kind": n.kind, "setting": n.setting, "rule": n.rule,
-                        "consequences": n.consequences});
+                        "summary": summary, "kind": n.kind, "setting": n.setting, "rule": n.rule});
                     self.ledger(tc, "tool.notified", payload.clone());
                     tc.sink.send(notify::POLICY_NOTIFIED, payload);
                 }
@@ -1351,7 +1299,6 @@ pub fn build_runtime(
             enforcement: cfg.policy.enforcement,
             floor_paths,
             floor_argv: crate::policy::floor_argv(),
-            kinds: crate::policy::Kinds::from_config(&cfg.consequences),
         },
         ctx: ToolCtx {
             roots,

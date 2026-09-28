@@ -174,7 +174,6 @@ impl Tool for Diff {
                 access: Access::Read,
             }],
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -417,7 +416,6 @@ impl Tool for Log {
                 access: Access::Read,
             }],
             argv: None,
-            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
