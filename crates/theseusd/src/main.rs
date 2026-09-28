@@ -125,7 +125,9 @@ async fn main() -> Result<()> {
     }
 
     let op = OpReader::from_env(cli.op_token_file.as_deref())?;
-    let cfg = Config::load(&cli.config, &op).await?;
+    let mut cfg = Config::load(&cli.config, &op).await?;
+    // The floor keeps the token file, whether the flag or the environment named it.
+    cfg.op_token_file = op.token_file().map(std::path::Path::to_path_buf);
     if let Some(Cmd::Config) = cli.cmd {
         println!("# source: {}", cli.config);
         print!("{}", toml::to_string_pretty(&cfg)?);
@@ -345,5 +347,22 @@ async fn github_token_report(cfg: &Config, secrets: &Secrets) {
             }
         }
         Err(e) => tracing::warn!(error = %e, "could not check GitHub token; continuing"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The flag and the environment name the token file through one field,
+    /// which `OpReader` records and the floor keeps (theseus-8az).
+    #[test]
+    fn the_token_file_comes_from_the_flag_or_the_environment() {
+        let flag = Cli::try_parse_from(["theseusd", "--op-token-file", "/x/flag"]).unwrap();
+        assert_eq!(flag.op_token_file.as_deref(), Some("/x/flag"));
+        std::env::set_var("THESEUS_OP_TOKEN_FILE", "/x/env");
+        let env = Cli::try_parse_from(["theseusd"]).unwrap();
+        std::env::remove_var("THESEUS_OP_TOKEN_FILE");
+        assert_eq!(env.op_token_file.as_deref(), Some("/x/env"));
     }
 }

@@ -121,19 +121,22 @@ impl SecretRef {
 pub struct OpReader {
     token: Secret,
     op_bin: PathBuf,
+    /// The token file it was pointed at, expanded; read only when
+    /// `OP_SERVICE_ACCOUNT_TOKEN` is unset.
+    token_file: Option<PathBuf>,
 }
 
 impl OpReader {
     /// Token from `OP_SERVICE_ACCOUNT_TOKEN`, or from `token_file` if given.
     pub fn from_env(token_file: Option<&str>) -> Result<Self> {
+        let token_file = token_file.map(crate::config::expand);
         let token = match std::env::var(TOKEN_ENV) {
             Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
             _ => {
-                let path = token_file.with_context(|| {
+                let path = token_file.as_deref().with_context(|| {
                     format!("{TOKEN_ENV} is not set and no --op-token-file was given; refusing to start without 1Password access")
                 })?;
-                let path = crate::config::expand(path);
-                let meta = std::fs::metadata(&path)
+                let meta = std::fs::metadata(path)
                     .with_context(|| format!("token file {} not readable", path.display()))?;
                 #[cfg(unix)]
                 {
@@ -148,7 +151,7 @@ impl OpReader {
                     }
                 }
                 let _ = meta;
-                std::fs::read_to_string(&path)?.trim().to_string()
+                std::fs::read_to_string(path)?.trim().to_string()
             }
         };
         if token.is_empty() {
@@ -158,7 +161,15 @@ impl OpReader {
         Ok(Self {
             token: Secret::new(token),
             op_bin,
+            token_file,
         })
+    }
+
+    /// The token file this reader was pointed at (`--op-token-file` or
+    /// `THESEUS_OP_TOKEN_FILE`), whether or not the environment's token made
+    /// reading it unnecessary.
+    pub fn token_file(&self) -> Option<&std::path::Path> {
+        self.token_file.as_deref()
     }
 
     pub async fn read(&self, r: &SecretRef) -> Result<Secret> {

@@ -112,16 +112,17 @@ default_deadline_secs = 600             # deadline for an action whose tool decl
 confirm_ttl_secs = 900                  # how long a bound confirmation stays valid
 
 # ---------------------------------------------------------------- tools
-# Toollets (fs.*, text.diff, git.diff/log, proc.run). Every path a tool touches
-# must resolve (after `..` and symlinks) under the workspace: projects_dir plus
-# any more roots. There is no built-in workspace: without projects_dir (or
-# roots) every path is outside it. deny_paths win even inside it.
+# Toollets (fs.*, text.diff, git.diff/log, proc.run). The workspace is
+# projects_dir plus any more roots, and a path is judged after `..` and
+# symlinks resolve. There is no built-in workspace: without projects_dir (or
+# roots) every path is outside it. A path outside the workspace, or on
+# approve_paths (even inside it), waits for your approval.
 [tools]
 enabled = true
 projects_dir = "/home/zeroaltitude/projects"   # the operator's projects directory: the workspace, and where relative paths resolve
 # roots = []                            # more workspace roots beside projects_dir
 # cwd = "/home/zeroaltitude/projects/theseus"   # where relative paths resolve and programs run (default: projects_dir)
-deny_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "~/.config/op", "~/.openclaw-1password-service-token", "~/.theseus"]
+approve_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "~/.config/op", "~/.openclaw-1password-service-token", "~/.theseus"]
 result_max_chars = 30000                # characters of a result the model sees (head and tail kept)
 max_read_bytes = 262144                 # cap on one fs.read
 max_entries = 500                       # cap on fs.list / fs.glob / fs.grep entries
@@ -138,19 +139,18 @@ proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME"
 #   open      run
 #   notify    run, and post a notice (Discord, web UI, CLI, and a `tool.notified` ledger row)
 #   approve   wait for your Approve (Discord, web UI, or `theseus confirm`)
-#   deny      refuse
+# approve is the strongest: nothing is turned away without asking you.
 # Before any posture, in this order:
-#   1. the floor always waits for your approval, at every posture, even open
-#      and deny (never refused, never silent): Theseus's own binary, store,
-#      spool, and bindings file; the 1Password CLI, its credentials, and the
-#      token file;
-#   2. your deny lists refuse: deny_argv, [tools].deny_paths, and any path
-#      outside the workspace roots (a floor entry on them still asks);
+#   1. the floor always waits for your approval, at every posture, even open,
+#      and says so: Theseus's own binary, store, spool, and bindings file; the
+#      1Password CLI, its credentials, and the token file this daemon was given;
+#   2. your approve lists wait for your approval: approve_argv,
+#      [tools].approve_paths, and any path outside the workspace roots;
 #   3. your allow list runs: allow_argv.
 [policy]
-enforcement = "notify"                  # open | notify | approve | deny: what every tool and MCP inherits (built-in default: open)
+enforcement = "notify"                  # open | notify | approve: what every tool and MCP inherits (built-in default: open)
 allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
-deny_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"], ["op"], ["theseusd"]]
+approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"]]  # proc.run waits for your approval on these (op and theseusd are on the floor)
 
 # Per-tool postures, one line for every tool (keep it that way as tools are
 # added). A set line overrides enforcement; a commented one inherits it.
@@ -174,8 +174,9 @@ deny_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], [
 # from that server, "server/tool" one tool. An MCP tool's posture comes from
 # its [policy.tools] line, then "server/tool", then "server", then enforcement.
 # [policy.mcp]
-# "some-server" = "approve"             # every tool from this MCP server
-# "some-server/dangerous-tool" = "deny"
+# "some-server" = "notify"              # every tool from this MCP server
+# "some-server/read-only-tool" = "open"
+# "some-server/dangerous-tool" = "approve"
 
 # ---------------------------------------------------------------- catalog
 # Built in (version 2026-09-26.1): claude-fable-5-1, claude-fable-5, claude-opus-5-5,

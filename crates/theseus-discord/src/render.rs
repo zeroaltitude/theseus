@@ -67,9 +67,16 @@ enum ToolState {
     Running,
     Waiting,
     Background,
-    Done { status: String, ms: u64 },
-    Denied(String),
-    Answered { approved: bool, by: String },
+    Done {
+        status: String,
+        ms: u64,
+    },
+    /// Declined, superseded, or cancelled before it ran.
+    NotRun,
+    Answered {
+        approved: bool,
+        by: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -147,10 +154,7 @@ impl Renderer {
             "tool.proposed" => {
                 let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
                 let input = p.get("input").cloned().unwrap_or(Value::Null);
-                let state = match denial_reason(p.get("gate")) {
-                    Some(r) => ToolState::Denied(r),
-                    None => ToolState::Proposed,
-                };
+                let state = ToolState::Proposed;
                 let notice = p
                     .pointer("/gate/decision/notify/kind")
                     .and_then(Value::as_str)
@@ -205,9 +209,12 @@ impl Renderer {
                 self.update_tool(turn_id, &use_id, |l| {
                     l.state = match status.as_str() {
                         "background" => ToolState::Background,
+                        // A decline keeps saying who declined.
                         "denied" => match &l.state {
-                            ToolState::Denied(r) => ToolState::Denied(r.clone()),
-                            _ => ToolState::Denied(String::new()),
+                            ToolState::Answered {
+                                approved: false, ..
+                            } => l.state.clone(),
+                            _ => ToolState::NotRun,
                         },
                         _ => ToolState::Done {
                             status: status.clone(),
@@ -470,8 +477,7 @@ fn tool_lines(tools: &[ToolLine]) -> String {
                 }
                 ToolState::Done { status, ms } if status == "ok" => format!("✅ {head} · {ms} ms"),
                 ToolState::Done { status, ms } => format!("❌ {head} · {status} · {ms} ms"),
-                ToolState::Denied(r) if r.is_empty() => format!("🚫 {head} · denied"),
-                ToolState::Denied(r) => format!("🚫 {head} · denied: {}", clip(r, 200)),
+                ToolState::NotRun => format!("🚫 {head} · not run"),
                 ToolState::Answered { approved: true, by } => {
                     format!("👍 {head} · approved by {by}")
                 }
@@ -564,11 +570,6 @@ pub fn summarize(tool: &str, input: &Value) -> String {
         serde_json::to_string(input).unwrap_or_default()
     };
     clip(&text.replace('`', "'").replace('\n', " "), 90)
-}
-
-fn denial_reason(gate: Option<&Value>) -> Option<String> {
-    let r = gate?.get("result")?;
-    (r.get("gate").and_then(Value::as_str) == Some("deny")).then(|| str_of(r, "reason"))
 }
 
 fn str_of(v: &Value, k: &str) -> String {
@@ -835,11 +836,39 @@ mod tests {
     }
 
     #[test]
-    fn denied_and_failed_turns_say_why() {
+    fn a_declined_call_keeps_saying_who_declined_it() {
         let mut r = Renderer::default();
         r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
         r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "fs.read",
-            "input": {"path": "~/.ssh/config"}, "gate": {"result": {"gate": "deny", "reason": "protected path"}}}));
+            "input": {"path": "/etc/hosts"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
+        r.on_notification("confirm.requested", &json!({"correlation_id": "act_9",
+            "session_id": "s", "execution_id": "e", "tool": "fs.read", "input": {"path": "/etc/hosts"},
+            "reason": "read /etc/hosts: fs.read — approve (/etc/hosts is outside the workspace roots: /w)",
+            "by": "operator", "requested_at_ms": 0, "expires_at_ms": 60_000}));
+        r.on_notification(
+            "confirm.resolved",
+            &json!({"correlation_id": "act_9", "approved": false, "by": "eddie"}),
+        );
+        r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "denied", "duration_ms": 0}),
+        );
+        let ops = upserts(&r.on_notification("turn.ended", &ended("t1", None)));
+        assert!(
+            ops.contains(&(
+                "t1:L0:tools".into(),
+                "👎 `fs.read` /etc/hosts · declined by eddie".into()
+            )),
+            "{ops:?}"
+        );
+    }
+
+    #[test]
+    fn a_call_that_never_ran_and_a_failed_turn_say_so() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "fs.read",
+            "input": {"path": "~/.ssh/config"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
         r.on_notification(
             "tool.ended",
             &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "denied", "duration_ms": 0}),
@@ -850,7 +879,7 @@ mod tests {
         ));
         assert!(ops.contains(&(
             "t1:L0:tools".into(),
-            "🚫 `fs.read` ~/.ssh/config · denied: protected path".into()
+            "🚫 `fs.read` ~/.ssh/config · not run".into()
         )));
         assert!(ops.contains(&(
             "t1:failed".into(),

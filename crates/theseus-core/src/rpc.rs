@@ -248,6 +248,7 @@ impl Core {
             enforcement = tools.policy.enforcement.as_str(),
             overrides = ?tools.policy.tools,
             mcp = ?tools.policy.mcp,
+            floor = ?tools.policy.floor_paths,
             catalog = %catalog.version,
             "tools and catalog"
         );
@@ -783,7 +784,7 @@ impl Core {
         i
     }
 
-    /// Answer a confirm: bind it (approve) or deny the action, then wake the
+    /// Answer a confirm: bind it (approve) or decline the action, then wake the
     /// execution so the driver resumes the turn exactly where it parked.
     pub fn confirm_action(
         &self,

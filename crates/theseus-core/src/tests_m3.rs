@@ -1,5 +1,5 @@
 //! M3 integration tests: scripted tool loops through the whole core — nodes,
-//! compilation, the gate, confirm and deny, background jobs with late results,
+//! compilation, the gate, confirm and decline, background jobs with late results,
 //! continuation turns, and memory across a restart.
 
 use std::path::{Path, PathBuf};
@@ -30,7 +30,7 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.tools.deny_paths = vec![root.join("secret").to_string_lossy().into_owned()];
+    cfg.tools.approve_paths = vec![root.join("secret").to_string_lossy().into_owned()];
     cfg.tools.proc_sync_secs = 10;
     // The template is a deployment (enforcement = notify); these scenarios
     // test the gate's stops, so what the template leaves to enforcement (the
@@ -294,7 +294,7 @@ async fn a_declined_write_and_a_superseded_one_never_run() {
 
     let res2 = turn(&r.core, Some(&res.session_id), "write b").await;
     assert!(res2.awaiting_confirm.is_some());
-    // The operator types instead of confirming: the pending write is denied as superseded.
+    // The operator types instead of confirming: the pending write is superseded, never run.
     let res3 = turn(&r.core, Some(&res.session_id), "actually, don't").await;
     assert_eq!(res3.output, "Okay, never mind then.");
     assert!(!r.root.join("b.txt").exists());
@@ -309,44 +309,162 @@ async fn a_declined_write_and_a_superseded_one_never_run() {
 }
 
 #[tokio::test]
-async fn outside_the_roots_and_protected_paths_are_denied_with_a_clear_reason() {
+async fn outside_the_roots_and_approve_paths_wait_with_a_clear_reason() {
+    let outside = tempfile::tempdir().unwrap();
+    let file = outside.path().canonicalize().unwrap().join("notes.txt");
+    std::fs::write(&file, "outside the workspace\n").unwrap();
     let r = rig(vec![
         Scripted::tools(
             "",
+            &[("t1", "fs_read", json!({"path": file.to_string_lossy()}))],
+        ),
+        Scripted::text("Read it."),
+        Scripted::tools("", &[("t2", "fs_read", json!({"path": "secret/key.pem"}))]),
+        Scripted::text("Skipped it."),
+        Scripted::tools(
+            "",
             &[
-                ("t1", "fs_read", json!({"path": "/etc/hostname"})),
-                ("t2", "fs_read", json!({"path": "secret/key.pem"})),
                 ("t3", "fs_read", json!({"path": 42})),
                 ("t4", "no_such_tool", json!({})),
             ],
         ),
-        Scripted::text("Those were refused."),
+        Scripted::text("Those were errors."),
     ]);
-    let res = turn(&r.core, None, "read things").await;
-    assert_eq!(res.loops, 2);
-    let rs = results(&r.core, &res.session_id);
-    assert_eq!(rs.len(), 4);
-    assert_eq!(rs[0].0, ResultStatus::Denied);
+    // Outside the roots: the call waits, and runs once approved.
+    let res = turn(&r.core, None, "read the notes").await;
+    let sid = res.session_id.clone();
+    let corr = res
+        .awaiting_confirm
+        .clone()
+        .expect("outside the roots waits");
+    let pending = r.core.pending_confirms(&sid).unwrap();
+    assert!(!pending[0].floor);
     assert!(
-        rs[0].1.contains("outside the workspace roots"),
+        pending[0].reason.ends_with(&format!(
+            "fs.read — approve ({} is outside the workspace roots: {})",
+            file.display(),
+            r.root.display()
+        )),
         "{}",
-        rs[0].1
+        pending[0].reason
     );
-    assert_eq!(rs[1].0, ResultStatus::Denied);
-    assert!(rs[1].1.contains("protected"), "{}", rs[1].1);
+    assert!(
+        results(&r.core, &sid).is_empty(),
+        "nothing runs before the answer"
+    );
+    r.core.confirm_action(&corr, true, None, "test").unwrap();
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cont.output, "Read it.");
+    let rs = results(&r.core, &sid);
+    assert_eq!(rs[0].0, ResultStatus::Ok, "{rs:?}");
+    assert!(rs[0].1.contains("outside the workspace"), "{}", rs[0].1);
+
+    // On approve_paths, inside the roots: the call waits; a decline means it never runs.
+    std::fs::create_dir_all(r.root.join("secret")).unwrap();
+    std::fs::write(r.root.join("secret/key.pem"), "not for the model\n").unwrap();
+    let res = turn(&r.core, Some(&sid), "read the key").await;
+    let corr = res
+        .awaiting_confirm
+        .clone()
+        .expect("an approve_paths hit waits");
+    let pending = r.core.pending_confirms(&sid).unwrap();
+    assert!(!pending[0].floor);
+    assert!(
+        pending[0].reason.ends_with(&format!(
+            "fs.read — approve ({0}/secret/key.pem is protected: {0}/secret is on the approve list)",
+            r.root.display()
+        )),
+        "{}",
+        pending[0].reason
+    );
+    r.core.confirm_action(&corr, false, None, "test").unwrap();
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cont.output, "Skipped it.");
+    let rs = results(&r.core, &sid);
+    assert_eq!(rs[1].0, ResultStatus::Denied, "declined, never run: {rs:?}");
+    assert!(!rs[1].1.contains("not for the model"), "{}", rs[1].1);
+
+    // Bad input and unknown tools are errors, as before.
+    let res = turn(&r.core, Some(&sid), "try these").await;
+    assert_eq!(res.output, "Those were errors.");
+    let rs = results(&r.core, &sid);
     assert_eq!(rs[2].0, ResultStatus::Error);
     assert!(rs[2].1.starts_with("Invalid input"), "{}", rs[2].1);
     assert_eq!(rs[3].0, ResultStatus::Error);
     assert!(rs[3].1.contains("Unknown tool"));
-    let denied = r
+    assert!(
+        ledgered(&r, "tool.denied").is_empty(),
+        "the gate refused nothing"
+    );
+    assert_eq!(ledgered(&r, "tool.confirm_requested").len(), 2);
+    assert_eq!(ledgered(&r, "tool.invalid_input").len(), 1);
+}
+
+#[tokio::test]
+async fn the_token_file_the_daemon_was_given_is_on_the_floor() {
+    let elsewhere = tempfile::tempdir().unwrap();
+    let token = elsewhere.path().canonicalize().unwrap().join("op-token");
+    std::fs::write(&token, "a decoy, not a token\n").unwrap();
+    let script = || {
+        vec![
+            Scripted::tools(
+                "",
+                &[("t1", "fs_read", json!({"path": token.to_string_lossy()}))],
+            ),
+            Scripted::text("Waiting on you."),
+        ]
+    };
+    // Named by `--op-token-file` or THESEUS_OP_TOKEN_FILE, it is the floor.
+    let given = token.clone();
+    let r = rig_with(script(), move |cfg| {
+        cfg.policy.enforcement = Posture::Open;
+        cfg.op_token_file = Some(given);
+    });
+    let res = turn(&r.core, None, "read the token").await;
+    let corr = res
+        .awaiting_confirm
+        .clone()
+        .expect("the floor waits, even under open");
+    let pending = r.core.pending_confirms(&res.session_id).unwrap();
+    assert!(pending[0].floor, "{}", pending[0].reason);
+    assert!(
+        pending[0].reason.ends_with(&format!(
+            "fs.read — approve (floor: {} is Theseus's own state or the 1Password token)",
+            token.display()
+        )),
+        "{}",
+        pending[0].reason
+    );
+    r.core.confirm_action(&corr, false, None, "test").unwrap();
+    let cont = r
         .core
-        .store
-        .ledger_tail::<crate::ledger::LedgerRow>(200)
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
         .unwrap()
-        .into_iter()
-        .filter(|(_, row)| row.kind == "tool.denied")
-        .count();
-    assert_eq!(denied, 2);
+        .unwrap();
+    assert_eq!(cont.output, "Waiting on you.");
+    assert_eq!(results(&r.core, &res.session_id)[0].0, ResultStatus::Denied);
+    // The same file, not named as the token file, is only outside the roots.
+    let r = rig_with(script(), |cfg| cfg.policy.enforcement = Posture::Open);
+    let res = turn(&r.core, None, "read the token").await;
+    assert!(res.awaiting_confirm.is_some());
+    let pending = r.core.pending_confirms(&res.session_id).unwrap();
+    assert!(!pending[0].floor, "{}", pending[0].reason);
+    assert!(
+        pending[0].reason.contains("is outside the workspace roots"),
+        "{}",
+        pending[0].reason
+    );
 }
 
 #[tokio::test]

@@ -33,7 +33,7 @@ Quick start:
   theseus ask -s <session> \"...\"            continue a session (its whole history is the context)
   theseus history [session]                  a session's transcript: messages, tool calls, results
   theseus watch [session]                    follow a session live (turns started anywhere)
-  theseus confirm [id] [--deny]              answer a tool call waiting for you (no id: list them)
+  theseus confirm [id] [--decline]           answer a tool call waiting for you (no id: list them)
   theseus tools                              the toollets, their policy, and calls so far
   theseus catalog                            models, context windows, and prices
   theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn
@@ -128,8 +128,8 @@ enum Cmd {
     Confirm {
         correlation_id: Option<String>,
         /// Decline instead of approve (the model is told, and carries on without it).
-        #[arg(long)]
-        deny: bool,
+        #[arg(long, alias = "deny")]
+        decline: bool,
         /// A note for the ledger and, on a decline, for the model.
         #[arg(long)]
         note: Option<String>,
@@ -466,7 +466,7 @@ async fn run(cli: Cli) -> Result<()> {
             }
             if let (Some(corr), false) = (&r.awaiting_confirm, json) {
                 eprintln!(
-                    "[parked: waiting for your answer on {corr} · `theseus confirm {corr}` or `--deny`; the turn resumes on its own]"
+                    "[parked: waiting for your answer on {corr} · `theseus confirm {corr}` or `--decline`; the turn resumes on its own]"
                 );
             }
             if trace && !json {
@@ -522,7 +522,7 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Confirm {
             correlation_id,
-            deny,
+            decline,
             note,
             no_wait,
         } => {
@@ -568,7 +568,7 @@ async fn run(cli: Cli) -> Result<()> {
                     method::ACTION_CONFIRM,
                     serde_json::to_value(ActionConfirmParams {
                         correlation_id: corr.clone(),
-                        approve: !deny,
+                        approve: !decline,
                         note,
                         watch: !no_wait,
                         author: None,
@@ -626,7 +626,7 @@ async fn run(cli: Cli) -> Result<()> {
                         } else {
                             eprintln!("{}", status_line(&t));
                             if let Some(c) = &t.awaiting_confirm {
-                                eprintln!("[parked again: `theseus confirm {c}` or `--deny`]");
+                                eprintln!("[parked again: `theseus confirm {c}` or `--decline`]");
                             }
                         }
                     }
@@ -1271,8 +1271,7 @@ fn print_node(n: &NodeInfo, full: bool) {
         "tool_call" => {
             let input = d.get("input").map(|v| v.to_string()).unwrap_or_default();
             // The policy's verdict (its posture; the band for older rows) with
-            // its reason; a call that failed validation never reached policy,
-            // so fall back to the gate result.
+            // its reason; a call that failed validation never reached policy.
             let gate = match d.get("decision") {
                 Some(Value::Object(o)) => format!(
                     "{}: {}",
@@ -1282,11 +1281,10 @@ fn print_node(n: &NodeInfo, full: bool) {
                         .unwrap_or("?"),
                     clip(o.get("reason").and_then(Value::as_str).unwrap_or(""), 90)
                 ),
-                _ => d
-                    .pointer("/result/gate")
-                    .and_then(Value::as_str)
-                    .unwrap_or("-")
-                    .to_string(),
+                _ => match d.pointer("/result/gate").and_then(Value::as_str) {
+                    Some("deny") => "invalid input".into(),
+                    g => g.unwrap_or("-").to_string(),
+                },
             };
             println!(
                 "      ⚙ {} {} [{}]",
@@ -1336,7 +1334,7 @@ fn print_node(n: &NodeInfo, full: bool) {
 
 fn print_confirm(c: &ConfirmRequest) {
     println!(
-        "  ? {} waits for you in {}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
+        "  ? {} waits for you in {}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --decline {}",
         c.tool,
         c.session_id,
         c.reason,
@@ -1497,7 +1495,7 @@ impl Printer {
                 self.settle();
                 if let Ok(c) = serde_json::from_value::<ConfirmRequest>(p.clone()) {
                     eprintln!(
-                        "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
+                        "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --decline {}",
                         c.tool,
                         if c.floor { " (FLOOR)" } else { "" },
                         c.reason,

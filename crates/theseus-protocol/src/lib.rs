@@ -128,7 +128,7 @@ pub mod error_code {
     pub const METHOD_NOT_FOUND: i64 = -32601;
     pub const INVALID_PARAMS: i64 = -32602;
     pub const INTERNAL: i64 = -32603;
-    /// Theseus-specific: the gate refused (fail closed).
+    /// Theseus-specific: blocked (fail closed).
     pub const BLOCKED: i64 = -32001;
     pub const NOT_FOUND: i64 = -32002;
     pub const PROVIDER: i64 = -32003;
@@ -805,7 +805,7 @@ pub struct ToolInfo {
     pub class: String,
     /// `inproc` or `job`.
     pub backend: String,
-    /// Its posture today: `open`, `notify`, `approve`, or `deny`.
+    /// Its posture today: `open`, `notify`, or `approve`.
     pub policy: String,
     pub input_schema: Value,
     #[serde(default)]

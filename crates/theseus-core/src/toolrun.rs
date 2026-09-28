@@ -1,6 +1,6 @@
 //! Tool calls (spec §3.16, §3.17, §3.23): every call the model makes becomes a
 //! kernel action. The ordering is the gate's: the toollet validates its own
-//! input and names what it will touch; policy says allow, confirm, or deny;
+//! input and names what it will touch; policy says run, notify, or wait;
 //! a confirm is bound to the exact proposal; authorization re-checks the
 //! digest; dispatch is committed before anything runs. The `ToolCall` node is
 //! written in the same frame as the `planned` transition and an in-process
@@ -172,12 +172,13 @@ impl ToolRuntime {
         let tmp = std::env::temp_dir();
         Self {
             registry: Registry::new(),
+            // No tools to call; were one to appear, it would wait.
             policy: ToolPolicy {
                 roots: vec![],
-                deny_paths: vec![],
+                approve_paths: vec![],
                 allow_argv: vec![],
-                deny_argv: vec![],
-                enforcement: crate::policy::Posture::Deny,
+                approve_argv: vec![],
+                enforcement: crate::policy::Posture::Approve,
                 tools: BTreeMap::new(),
                 mcp: BTreeMap::new(),
                 confirmer: "operator".into(),
@@ -232,12 +233,12 @@ impl ToolRuntime {
             .collect();
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
-             - Workspace roots, the only places tools may touch: {}.\n\
+             - Workspace roots: {}. A path outside them, or on the operator's approve list, waits for the operator's approval.\n\
              - Relative paths resolve against {}.\n\
-             - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval; deny refuses): {}.{}\n\
+             - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
              - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run. proc_run runs one program with a typed argv and no shell; pass [\"bash\", \"-c\", \"...\"] explicitly only when a shell is truly needed.\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
-             - A denied call is final for that request: tell the operator and do not route around it.\n\
+             - A declined call is final for that request: tell the operator and do not route around it.\n\
              - proc_run calls that take longer than {} seconds continue in the background; their result arrives in a later message.",
             roots.join(", "),
             self.ctx.cwd.display(),
@@ -507,25 +508,21 @@ impl ToolRuntime {
         );
 
         match result {
+            // Only validation stops a call here: the policy runs, notifies,
+            // or waits (theseus-8az), so a `Deny` is input that failed the
+            // toollet's own parse.
             GateResult::Deny { reason } => {
-                let (status, text) = if !trace.validated {
-                    (
-                        ResultStatus::Error,
-                        format!(
-                            "Invalid input: {}",
-                            reason.trim_start_matches("validation: ")
-                        ),
-                    )
-                } else {
-                    (ResultStatus::Denied, format!("Denied by policy: {reason}. This is final for this request; tell the operator rather than trying another way around it."))
-                };
+                let text = format!(
+                    "Invalid input: {}",
+                    reason.trim_start_matches("validation: ")
+                );
                 let call_node =
                     self.tool_call_node(tc, assistant_node, call, tool.name(), None, gate);
                 let node = self.result_node(
                     tc,
                     &call.id,
                     tool.name(),
-                    status,
+                    ResultStatus::Error,
                     &text,
                     None,
                     None,
@@ -537,11 +534,13 @@ impl ToolRuntime {
                 tc.store.append(vec![call_node.record()?, node.record()?])?;
                 self.ledger(
                     tc,
-                    if status == ResultStatus::Denied { "tool.denied" } else { "tool.invalid_input" },
+                    "tool.invalid_input",
                     json!({"tool": tool.name(), "tool_use_id": call.id, "reason": reason, "input": call.input}),
                 );
                 self.announce_end(tc, &node);
-                Ok(CallOutcome::Done { status })
+                Ok(CallOutcome::Done {
+                    status: ResultStatus::Error,
+                })
             }
             GateResult::NeedsConfirm { by } => {
                 let retry = map_retry(tool.retry());
@@ -943,9 +942,9 @@ impl ToolRuntime {
     }
 
     /// Continuation: answer every `tool_use` of the last assistant message that
-    /// has no result yet — run what was confirmed, deny what new input
-    /// superseded, report what the restart left unknown, and wait on what is
-    /// still pending.
+    /// has no result yet — run what was confirmed, close what was declined or
+    /// superseded by new input, report what the restart left unknown, and wait
+    /// on what is still pending.
     pub async fn resume(&self, tc: &TurnCtx<'_>, has_input: bool) -> Result<ResumeOutcome> {
         let mut out = ResumeOutcome::default();
         let nodes = tc.store.session_nodes(tc.session_id)?;
@@ -990,7 +989,7 @@ impl ToolRuntime {
             let tool = self.registry.by_wire(&u.name).cloned();
             let Some(corr) = corr else {
                 if call_node.is_some() {
-                    // Denied or invalid at the gate, but the result write was lost: answer again.
+                    // Stopped at the gate (invalid input), but the result write was lost: answer again.
                     self.not_run(
                         tc,
                         &u,
@@ -1277,10 +1276,11 @@ pub fn build_runtime(
         canon_path(cfg.discord.bindings_path(&state)),
         canon("~/.config/op"),
     ];
-    if let Ok(f) = std::env::var("THESEUS_OP_TOKEN_FILE") {
-        floor_paths.push(canon(&f));
+    // The token file the daemon was given, by flag or by environment.
+    if let Some(f) = &cfg.op_token_file {
+        floor_paths.push(canon_path(f.clone()));
     }
-    let deny: Vec<PathBuf> = t.deny_paths.iter().map(|p| canon(p)).collect();
+    let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
     let registry = if t.enabled {
         theseus_tools::default_registry()
     } else {
@@ -1297,9 +1297,9 @@ pub fn build_runtime(
         registry,
         policy: ToolPolicy {
             roots: roots.clone(),
-            deny_paths: deny,
+            approve_paths: approve,
             allow_argv: cfg.policy.allow_argv.clone(),
-            deny_argv: cfg.policy.deny_argv.clone(),
+            approve_argv: cfg.policy.approve_argv.clone(),
             enforcement: cfg.policy.enforcement,
             tools: cfg.policy.tools.clone(),
             mcp: cfg.policy.mcp.clone(),

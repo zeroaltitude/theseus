@@ -46,7 +46,19 @@ pub struct Config {
     pub policy: PolicyConfig,
     #[serde(default)]
     pub discord: DiscordConfig,
+    /// The 1Password token file this daemon was pointed at (`--op-token-file`
+    /// or `THESEUS_OP_TOKEN_FILE`): set at startup, never read from the TOML.
+    /// The floor keeps it, whichever way it was named (theseus-8az).
+    #[serde(skip)]
+    pub op_token_file: Option<PathBuf>,
 }
+
+/// Keys renamed by theseus-8az, as (section, old, new): the old name still
+/// loads (a serde alias), with a warning to rename it.
+const RENAMED: &[(&str, &str, &str)] = &[
+    ("tools", "deny_paths", "approve_paths"),
+    ("policy", "deny_argv", "approve_argv"),
+];
 
 /// `[discord]`: the Discord binding (M3). It connects only when the token
 /// secret resolves and the bindings file exists; otherwise health reports it
@@ -118,9 +130,9 @@ pub struct ToolsConfig {
     /// Where relative paths resolve and programs run by default (default: `projects_dir`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
-    /// Denied even under a root.
-    #[serde(default = "default_deny_paths")]
-    pub deny_paths: Vec<String>,
+    /// Paths that wait for approval, even under a root (old name `deny_paths`).
+    #[serde(default = "default_approve_paths", alias = "deny_paths")]
+    pub approve_paths: Vec<String>,
     /// Characters of a tool result the model sees (head and tail kept).
     #[serde(default = "default_result_max_chars")]
     pub result_max_chars: usize,
@@ -141,7 +153,7 @@ pub struct ToolsConfig {
     pub proc_env: Vec<String>,
 }
 
-fn default_deny_paths() -> Vec<String> {
+fn default_approve_paths() -> Vec<String> {
     [
         "~/.ssh",
         "~/.gnupg",
@@ -196,7 +208,7 @@ impl Default for ToolsConfig {
             projects_dir: None,
             roots: vec![],
             cwd: None,
-            deny_paths: default_deny_paths(),
+            approve_paths: default_approve_paths(),
             result_max_chars: default_result_max_chars(),
             max_read_bytes: default_max_read_bytes(),
             max_entries: default_max_entries(),
@@ -214,16 +226,16 @@ impl Default for ToolsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyConfig {
-    /// The posture every tool and MCP inherits: open | notify | approve | deny.
+    /// The posture every tool and MCP inherits: open | notify | approve.
     #[serde(default)]
     pub enforcement: crate::policy::Posture,
     /// `proc.run` argv prefixes that run (open) when every path argument is
     /// inside the roots.
     #[serde(default = "default_allow_argv")]
     pub allow_argv: Vec<Vec<String>>,
-    /// `proc.run` argv prefixes that never run.
-    #[serde(default = "default_deny_argv")]
-    pub deny_argv: Vec<Vec<String>>,
+    /// `proc.run` argv prefixes that wait for approval (old name `deny_argv`).
+    #[serde(default = "default_approve_argv", alias = "deny_argv")]
+    pub approve_argv: Vec<Vec<String>>,
     /// Per-tool postures by canonical name, e.g. `"proc.run" = "approve"`.
     #[serde(default)]
     pub tools: BTreeMap<String, crate::policy::Posture>,
@@ -231,27 +243,28 @@ pub struct PolicyConfig {
     /// `"server/tool"` (one tool), for tools named `mcp:<server>/<tool>`.
     #[serde(default)]
     pub mcp: BTreeMap<String, crate::policy::Posture>,
-    /// The retired class modes (`read`, `write`, `run`; theseus-8az), still
-    /// accepted so an older config loads, and never honored. `validate`
-    /// refuses a retired `deny`, which would otherwise loosen silently.
+    /// The retired class keys (`read`, `write`, `run`; theseus-8az), still
+    /// accepted so an older config loads, and never honored. Only the old
+    /// template's words (`allow`, `confirm`) load: `validate` fails any other
+    /// value, since dropping it silently could loosen a stated boundary.
     #[serde(default, skip_serializing)]
-    pub read: Option<crate::policy::Mode>,
+    pub read: Option<String>,
     #[serde(default, skip_serializing)]
-    pub write: Option<crate::policy::Mode>,
+    pub write: Option<String>,
     #[serde(default, skip_serializing)]
-    pub run: Option<crate::policy::Mode>,
+    pub run: Option<String>,
 }
 
 impl PolicyConfig {
-    /// The retired class keys this config still sets.
-    pub fn retired(&self) -> Vec<(&'static str, crate::policy::Mode)> {
+    /// The retired class keys this config still sets, with their values.
+    pub fn retired(&self) -> Vec<(&'static str, &str)> {
         [
-            ("read", self.read),
-            ("write", self.write),
-            ("run", self.run),
+            ("read", &self.read),
+            ("write", &self.write),
+            ("run", &self.run),
         ]
         .into_iter()
-        .filter_map(|(k, v)| v.map(|v| (k, v)))
+        .filter_map(|(k, v)| v.as_deref().map(|v| (k, v)))
         .collect()
     }
 }
@@ -267,7 +280,8 @@ fn default_allow_argv() -> Vec<Vec<String>> {
     // without the git binary.
     argvs(&[&["ls"], &["pwd"]])
 }
-fn default_deny_argv() -> Vec<Vec<String>> {
+fn default_approve_argv() -> Vec<Vec<String>> {
+    // No `op` or `theseusd`: the floor asks for those whatever the lists say.
     argvs(&[
         &["sudo"],
         &["su"],
@@ -277,8 +291,6 @@ fn default_deny_argv() -> Vec<Vec<String>> {
         &["dd"],
         &["shutdown"],
         &["reboot"],
-        &["op"],
-        &["theseusd"],
     ])
 }
 
@@ -287,7 +299,7 @@ impl Default for PolicyConfig {
         Self {
             enforcement: Default::default(),
             allow_argv: default_allow_argv(),
-            deny_argv: default_deny_argv(),
+            approve_argv: default_approve_argv(),
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
             read: None,
@@ -620,15 +632,38 @@ impl Config {
             std::fs::read_to_string(&path)
                 .with_context(|| format!("reading config file {}", path.display()))?
         };
-        let cfg: Config = toml::from_str(&text).context("parsing config TOML")?;
-        cfg.validate()?;
-        for (key, _) in cfg.policy.retired() {
-            tracing::warn!(
-                "policy.{key} is retired and ignored (theseus-8az): every tool inherits \
-                 [policy].enforcement unless [policy.tools] names it"
-            );
+        let (cfg, warnings) = Self::parse(&text)?;
+        for w in &warnings {
+            tracing::warn!("{w}");
         }
         Ok(cfg)
+    }
+
+    /// Parse and validate a config document. The warnings name the renamed
+    /// and retired keys it still uses; the caller logs them at startup.
+    pub fn parse(text: &str) -> Result<(Self, Vec<String>)> {
+        let cfg: Config = toml::from_str(text).context("parsing config TOML")?;
+        cfg.validate()?;
+        // Serde's alias does not say which name a key came in under, so the
+        // old names are looked up in the document itself.
+        let table: toml::Table = toml::from_str(text).unwrap_or_default();
+        let mut warnings: Vec<String> = RENAMED
+            .iter()
+            .filter(|(section, old, _)| table.get(*section).and_then(|t| t.get(*old)).is_some())
+            .map(|(section, old, new)| {
+                format!(
+                    "{section}.{old} is renamed {section}.{new} (theseus-8az): a match waits for \
+                     your approval; rename the key"
+                )
+            })
+            .collect();
+        warnings.extend(cfg.policy.retired().into_iter().map(|(key, _)| {
+            format!(
+                "policy.{key} is retired and ignored (theseus-8az): every tool inherits \
+                 [policy].enforcement unless [policy.tools] names it"
+            )
+        }));
+        Ok((cfg, warnings))
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -702,7 +737,7 @@ impl Config {
             .policy
             .allow_argv
             .iter()
-            .chain(&self.policy.deny_argv)
+            .chain(&self.policy.approve_argv)
             .enumerate()
         {
             if argv.is_empty() {
@@ -710,16 +745,16 @@ impl Config {
             }
         }
         let registry = theseus_tools::default_registry();
-        for (key, mode) in self.policy.retired() {
-            if mode == crate::policy::Mode::Deny {
+        for (key, value) in self.policy.retired() {
+            if !matches!(value, "allow" | "confirm") {
                 let lines: Vec<String> = registry
                     .all()
                     .filter(|t| t.class().as_str() == key)
-                    .map(|t| format!("\"{}\" = \"deny\"", t.name()))
+                    .map(|t| format!("\"{}\" = \"approve\"", t.name()))
                     .collect();
                 anyhow::bail!(
-                    "policy.{key} = \"deny\" is retired (theseus-8az) and would no longer refuse anything; \
-                     say it per tool under [policy.tools]: {}",
+                    "policy.{key} = {value:?} is retired (theseus-8az); a tool's posture is \
+                     open | notify | approve, set under [policy.tools] (to make these wait: {})",
                     lines.join(", ")
                 );
             }
@@ -870,8 +905,12 @@ mod tests {
         // The commented tool lines and the [policy.mcp] example are real too.
         assert_eq!(cfg.policy.tools["proc.run"], Posture::Approve);
         assert_eq!(cfg.policy.tools.len(), 11);
-        assert_eq!(cfg.policy.mcp["some-server"], Posture::Approve);
-        assert_eq!(cfg.policy.mcp["some-server/dangerous-tool"], Posture::Deny);
+        assert_eq!(cfg.policy.mcp["some-server"], Posture::Notify);
+        assert_eq!(cfg.policy.mcp["some-server/read-only-tool"], Posture::Open);
+        assert_eq!(
+            cfg.policy.mcp["some-server/dangerous-tool"],
+            Posture::Approve
+        );
     }
 
     /// The template's [policy.tools] names every tool in the registry, one
@@ -921,73 +960,163 @@ mod tests {
         assert_eq!(set.len(), reads.len(), "{set:?}");
     }
 
+    /// The template's [policy] is the config to set (theseus-8az): notify
+    /// everywhere, reads open, the default approve lists, no retired keys, a
+    /// commented [policy.mcp], and no word of a deny.
+    #[test]
+    fn example_template_is_the_policy_to_set() {
+        let (cfg, warnings) = Config::parse(Config::EXAMPLE_TOML).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(cfg.policy.enforcement, Posture::Notify);
+        assert!(cfg.policy.retired().is_empty());
+        assert_eq!(cfg.policy.allow_argv, default_allow_argv());
+        assert_eq!(cfg.policy.approve_argv, default_approve_argv());
+        assert_eq!(cfg.tools.approve_paths, default_approve_paths());
+        assert!(cfg.policy.mcp.is_empty(), "[policy.mcp] stays commented");
+        let section: Vec<&str> = Config::EXAMPLE_TOML
+            .lines()
+            .skip_while(|l| !l.contains("------ policy"))
+            .take_while(|l| !l.contains("------ catalog"))
+            .collect();
+        assert!(section.contains(&"[policy]") && section.contains(&"# [policy.mcp]"));
+        for l in &section {
+            let key = l.trim_start_matches("# ").split('=').next().unwrap().trim();
+            assert!(!["read", "write", "run"].contains(&key), "retired key: {l}");
+            assert!(!l.to_lowercase().contains("refuse"), "{l}");
+        }
+        assert!(
+            !Config::EXAMPLE_TOML.to_lowercase().contains("deny"),
+            "the template never speaks of a deny"
+        );
+    }
+
     fn policy_only(policy: &str) -> Result<Config> {
-        let text = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[policy]\n{policy}\n");
-        let cfg: Config = toml::from_str(&text)?;
-        cfg.validate()?;
-        Ok(cfg)
+        Ok(parse_policy(policy)?.0)
+    }
+
+    fn parse_policy(policy: &str) -> Result<(Config, Vec<String>)> {
+        Config::parse(&format!(
+            "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[policy]\n{policy}\n"
+        ))
     }
 
     #[test]
     fn a_policy_with_only_enforcement_loads_and_every_tool_inherits_it() {
-        let cfg = policy_only("enforcement = \"notify\"").unwrap();
+        let (cfg, warnings) = parse_policy("enforcement = \"notify\"").unwrap();
         assert_eq!(cfg.policy.enforcement, Posture::Notify);
         assert!(cfg.policy.tools.is_empty() && cfg.policy.mcp.is_empty());
-        assert!(cfg.policy.retired().is_empty());
+        assert!(cfg.policy.retired().is_empty() && warnings.is_empty());
         assert_eq!(policy_only("").unwrap().policy.enforcement, Posture::Open);
     }
 
-    /// The live vault config's [policy] as of 2026-09-28: the retired class
-    /// keys at the old template's values, no [policy.tools].
+    /// The live vault config's shape as of 2026-09-28 (checked by key name
+    /// only): the old list names, the retired class keys at the old
+    /// template's values, and no [policy.tools]. It loads, the lists keep
+    /// their entries under the new names, and each old key gets a warning.
     #[test]
-    fn the_live_policy_shape_still_loads_and_its_retired_keys_are_named() {
-        let cfg = policy_only(
-            "enforcement = \"notify\"\nread = \"allow\"\nwrite = \"confirm\"\nrun = \"confirm\"\n\
-             allow_argv = [[\"ls\"], [\"pwd\"]]\ndeny_argv = [[\"sudo\"], [\"op\"], [\"theseusd\"]]",
-        )
-        .unwrap();
+    fn the_live_config_shape_still_loads_with_a_warning_per_old_key() {
+        let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                    [tools]\nprojects_dir = \"/w\"\ndeny_paths = [\"~/.ssh\", \"~/.theseus\"]\n\n\
+                    [policy]\nenforcement = \"notify\"\nread = \"allow\"\nwrite = \"confirm\"\nrun = \"confirm\"\n\
+                    allow_argv = [[\"ls\"], [\"pwd\"]]\ndeny_argv = [[\"sudo\"], [\"op\"], [\"theseusd\"]]\n";
+        let (cfg, warnings) = Config::parse(text).unwrap();
         assert_eq!(cfg.policy.enforcement, Posture::Notify);
+        assert_eq!(cfg.tools.approve_paths, ["~/.ssh", "~/.theseus"]);
+        assert_eq!(
+            cfg.policy.approve_argv,
+            argvs(&[&["sudo"], &["op"], &["theseusd"]])
+        );
         let keys: Vec<&str> = cfg.policy.retired().iter().map(|(k, _)| *k).collect();
         assert_eq!(keys, ["read", "write", "run"]);
-        let shown = toml::to_string(&cfg.policy).unwrap();
+        assert_eq!(warnings.len(), 5, "{warnings:?}");
+        for (w, start) in warnings.iter().zip([
+            "tools.deny_paths is renamed tools.approve_paths (theseus-8az)",
+            "policy.deny_argv is renamed policy.approve_argv (theseus-8az)",
+            "policy.read is retired and ignored",
+            "policy.write is retired and ignored",
+            "policy.run is retired and ignored",
+        ]) {
+            assert!(w.starts_with(start), "{w}");
+        }
+        // `theseusd config` shows the new names and nothing retired.
+        let shown = toml::to_string(&cfg.policy).unwrap() + &toml::to_string(&cfg.tools).unwrap();
+        assert!(shown.contains("approve_argv = ") && shown.contains("approve_paths = "));
         assert!(
-            !shown.contains("read") && !shown.contains("confirm"),
-            "retired keys are not shown as settings: {shown}"
+            !shown.contains("deny") && !shown.contains("read =") && !shown.contains("confirm"),
+            "{shown}"
         );
+        // An old and a new name together set one key twice.
+        let both = text.replace("[policy]\n", "[policy]\napprove_argv = [[\"x\"]]\n");
+        let e = format!("{:#}", Config::parse(&both).unwrap_err());
+        assert!(e.contains("duplicate"), "{e}");
     }
 
+    /// There is no deny posture: `deny`, wherever a posture goes, fails to
+    /// load, and the error names open, notify, and approve (theseus-8az).
     #[test]
-    fn a_retired_deny_an_unknown_tool_and_the_old_words_are_refused() {
-        let e = policy_only("run = \"deny\"").unwrap_err().to_string();
+    fn deny_and_the_old_words_fail_to_load_naming_the_three_postures() {
+        let three = |e: &str| e.contains("open") && e.contains("notify") && e.contains("approve");
+        for doc in [
+            "enforcement = \"deny\"",
+            "[policy.tools]\n\"proc.run\" = \"deny\"",
+            "[policy.mcp]\n\"x\" = \"deny\"",
+        ] {
+            let e = format!("{:#}", policy_only(doc).unwrap_err());
+            assert!(
+                e.contains("unknown variant `deny`") && three(&e),
+                "{doc}: {e}"
+            );
+        }
+        let e = format!("{:#}", policy_only("run = \"deny\"").unwrap_err());
         assert!(
-            e.contains("policy.run = \"deny\" is retired") && e.contains("\"proc.run\" = \"deny\""),
+            e.contains("policy.run = \"deny\" is retired")
+                && e.contains("open | notify | approve")
+                && e.contains("\"proc.run\" = \"approve\""),
             "{e}"
         );
-        let e = policy_only("write = \"deny\"").unwrap_err().to_string();
-        assert!(
-            e.contains("\"fs.write\" = \"deny\"") && e.contains("\"fs.patch\" = \"deny\""),
-            "{e}"
-        );
-        let e = policy_only("[policy.tools]\n\"proc.rum\" = \"approve\"")
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("\"proc.rum\" is not a tool"), "{e}");
-        policy_only("[policy.tools]\n\"mcp:x/y\" = \"deny\"").unwrap();
-        assert!(policy_only("[policy.tools]\n\"mcp:x\" = \"deny\"").is_err());
-        assert!(policy_only("[policy.mcp]\n\"a/b/c\" = \"deny\"").is_err());
+        let e = format!("{:#}", policy_only("write = \"deny\"").unwrap_err());
+        for w in ["fs.edit", "fs.write", "fs.patch"] {
+            assert!(e.contains(&format!("\"{w}\" = \"approve\"")), "{e}");
+        }
+        assert!(policy_only("read = \"bogus\"").is_err());
         for old in ["strict", "ask", "allow", "confirm"] {
             let e = format!(
                 "{:#}",
                 policy_only(&format!("enforcement = \"{old}\"")).unwrap_err()
             );
-            assert!(
-                e.contains("open") && e.contains("notify") && e.contains("approve"),
-                "{old}: {e}"
-            );
+            assert!(three(&e), "{old}: {e}");
         }
         assert!(
             policy_only("[policy.overrides]\n\"fs.edit\" = \"allow\"").is_err(),
             "the old overrides table is [policy.tools] now"
+        );
+    }
+
+    #[test]
+    fn an_unknown_tool_name_still_fails_to_load() {
+        let e = format!(
+            "{:#}",
+            policy_only("[policy.tools]\n\"proc.rum\" = \"approve\"").unwrap_err()
+        );
+        assert!(e.contains("\"proc.rum\" is not a tool"), "{e}");
+        policy_only("[policy.tools]\n\"mcp:x/y\" = \"approve\"").unwrap();
+        assert!(policy_only("[policy.tools]\n\"mcp:x\" = \"approve\"").is_err());
+        assert!(policy_only("[policy.mcp]\n\"a/b/c\" = \"approve\"").is_err());
+    }
+
+    /// `op` and `theseusd` are not on the default approve list: the floor
+    /// asks for them whatever the lists say.
+    #[test]
+    fn the_default_approve_argv_leaves_op_and_theseusd_to_the_floor() {
+        let d = default_approve_argv();
+        assert!(
+            !d.iter().any(|a| a[0] == "op" || a[0] == "theseusd"),
+            "{d:?}"
+        );
+        assert!(d.contains(&vec!["sudo".to_string()]), "{d:?}");
+        assert_eq!(
+            crate::policy::floor_argv(),
+            argvs(&[&["theseusd"], &["op"]])
         );
     }
 
