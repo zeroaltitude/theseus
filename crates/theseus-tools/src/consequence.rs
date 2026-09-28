@@ -23,8 +23,11 @@ use crate::paths;
 use crate::shell::{self, expand_tilde, Cmd, Cwds, Word};
 
 /// The rule table's version: recorded with every detection, so a replay can
-/// say which table judged a call.
-pub const RULES_VERSION: &str = "2026-09-27.1";
+/// say which table judged a call. Bumped whenever detection changes: 2a+ made
+/// the parser read every word (brace expansion, unresolved words, prefix
+/// options, glob-then-`..`); 2a++ made a quoted variable a possible option, gave
+/// `$@`/`$*` bash's word semantics, and reached a run-time program word.
+pub const RULES_VERSION: &str = "2026-09-28.1";
 
 /// The built-in kinds.
 pub mod kind {
@@ -514,6 +517,10 @@ fn git_push_delete(c: &Cmd) -> bool {
     p.opt_detect(&["--delete", "--prune"], &['d']) || dangerous_refspec(&p, 1, ':')
 }
 
+// `reset` and `clean` are dangerous through an option (`--hard`, `-f`), so any
+// dynamic word before `--` counts (`opt_detect`): `m=--hard; git reset "$m"`
+// waits, and so does the common `git reset "$SHA"` — accepted over-approximation
+// (spec §3.9). Exemptions stay exact.
 fn git_reset_hard(c: &Cmd) -> bool {
     git_sub(c, &["reset"]).is_some_and(|s| s.opt_detect(&["--hard"], &[]))
 }
@@ -540,6 +547,11 @@ fn tree_pathspec(w: &Word, cwds: &Cwds) -> bool {
     cwds.dirs.iter().any(|d| d.join(&raw).is_dir())
 }
 
+// A checkout/restore is destructive through `-f` (which needs no operand:
+// `git checkout -f` discards the whole tree) or a tree pathspec. A dynamic word
+// counts as a possible `-f` (`opt_detect`), so `git checkout "$branch"` now
+// waits — accepted over-approximation, since `-f` cannot be excused by an
+// operand the way `rm`'s `-r` can (open question for Eddie).
 fn git_discard_tree(c: &Cmd) -> bool {
     let cwds = git_cwds(c);
     if let Some(s) = git_sub(c, &["checkout"]) {
@@ -753,39 +765,130 @@ fn git_opaque(c: &Cmd) -> bool {
 // ---------------------------------------------------------------- rules: deletes
 
 fn rm_recursive(c: &Cmd) -> bool {
-    // `-r` may hide in an unquoted variable (`F=-rf; rm $F dir`); `opt_detect`
-    // treats an unquoted dynamic option word as possibly `-r`. A quoted operand
-    // (`rm "$f"`) is one word and is not an option, so a plain `rm "$f"` loop
-    // deleting one file stays quiet.
-    if c.prog() != "rm" || !c.opt_detect(&["--recursive"], &['r', 'R']) {
+    if c.prog() != "rm" {
+        return false;
+    }
+    // `-r` may be certain (a literal `-r`/`-R`/`--recursive`, or `--recursiv`),
+    // or only possible (hidden in a variable, `F=-rf; rm $F dir`). Quoting stops
+    // word splitting, not option parsing: `rm "$x" dir` could be `rm -rf dir`.
+    let literal_r = c.opt_literal(&["--recursive"], &['r', 'R']);
+    if !literal_r && !c.has_dynamic_option() {
         return false;
     }
     if c.more_operands {
         return true;
     }
-    c.positionals(&[]).iter().any(|w| !regenerable(w, &c.cwds))
+    let targets = c.positionals(&[]);
+    let non_regen = targets.iter().any(|w| !regenerable(w, &c.cwds));
+    if literal_r {
+        // The flag is certainly present; any non-regenerable target loses work.
+        return non_regen;
+    }
+    // Only a dynamic word could be `-r`. It might be the flag itself, using up
+    // one word, so a recursive delete needs a *separate* target: at least two
+    // operand words, one of them a non-regenerable target. Alone, `rm "$f"` is
+    // either an option deleting nothing or one file with no `-r` — quiet.
+    targets.len() >= 2 && non_regen
 }
+
+/// find primaries whose next word is a value (a name, path, number, or time),
+/// never `-delete` or a command. The value is skipped, so `-name "$p"` does not
+/// look like a hidden `-delete`.
+const FIND_VALUE_PRIMARIES: &[&str] = &[
+    "-name",
+    "-iname",
+    "-path",
+    "-ipath",
+    "-wholename",
+    "-iwholename",
+    "-lname",
+    "-ilname",
+    "-regex",
+    "-iregex",
+    "-newer",
+    "-anewer",
+    "-cnewer",
+    "-newermt",
+    "-newerat",
+    "-newerct",
+    "-type",
+    "-xtype",
+    "-size",
+    "-perm",
+    "-user",
+    "-group",
+    "-uid",
+    "-gid",
+    "-inum",
+    "-links",
+    "-mtime",
+    "-atime",
+    "-ctime",
+    "-mmin",
+    "-amin",
+    "-cmin",
+    "-used",
+    "-fstype",
+    "-samefile",
+    "-maxdepth",
+    "-mindepth",
+    "-regextype",
+];
 
 fn find_delete(c: &Cmd) -> bool {
     if c.prog() != "find" {
         return false;
     }
     let args = c.args();
-    let deletes = args.iter().enumerate().any(|(i, w)| {
-        w.text == "-delete"
-            || (matches!(w.text.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir")
-                && args
-                    .get(i + 1)
-                    .is_some_and(|p| Path::new(&p.text).file_name().is_some_and(|n| n == "rm")))
-    });
+    // Roots: leading path words. A dynamic word is a root only in first position
+    // (the search path); a later dynamic word is a possible expression primary
+    // (`find . "$x"` could be `find . -delete`).
+    let mut roots_end = 0;
+    while roots_end < args.len() {
+        let t = args[roots_end].text.as_str();
+        if t.starts_with('-') || t == "(" || t == "!" || t == "," {
+            break;
+        }
+        if args[roots_end].dynamic && roots_end > 0 {
+            break;
+        }
+        roots_end += 1;
+    }
+    // Walk the expression for a delete: a literal `-delete`; `-exec`/`-ok` whose
+    // command is `rm` or a dynamic word; or any dynamic word in a primary
+    // position (it could be `-delete` or `-exec rm`). A value-primary's value is
+    // data and is skipped.
+    let mut deletes = false;
+    let mut j = roots_end;
+    while j < args.len() {
+        let t = args[j].text.as_str();
+        if matches!(t, "-exec" | "-execdir" | "-ok" | "-okdir") {
+            if let Some(cmd0) = args.get(j + 1) {
+                if cmd0.dynamic || Path::new(&cmd0.text).file_name().is_some_and(|n| n == "rm") {
+                    deletes = true;
+                }
+            }
+            j += 1;
+            while j < args.len() && args[j].text != ";" && args[j].text != "+" {
+                j += 1;
+            }
+            j += 1;
+            continue;
+        }
+        if t == "-delete" {
+            deletes = true;
+        } else if FIND_VALUE_PRIMARIES.contains(&t) {
+            j += 1; // its value is data, not a primary
+        } else if args[j].dynamic {
+            deletes = true;
+        }
+        j += 1;
+    }
     if !deletes {
         return false;
     }
     let dot = Word::lit(".");
-    let mut roots: Vec<&Word> = args
-        .iter()
-        .take_while(|w| !(w.text.starts_with('-') || w.text == "(" || w.text == "!"))
-        .collect();
+    let mut roots: Vec<&Word> = args[..roots_end].iter().collect();
     if roots.is_empty() {
         roots.push(&dot);
     }
@@ -2239,5 +2342,84 @@ mod tests {
             !force("git push --follow-tags"),
             "not an abbreviation of a force flag"
         );
+    }
+
+    /// Step 2a++: quoting stops word splitting, not option parsing, so a quoted
+    /// variable can be an option; and `$@`/`$*` expand with bash's word
+    /// semantics. Each review spelling is caught, and the safe calls stay quiet.
+    #[test]
+    fn a_quoted_variable_can_be_an_option_and_at_expands_per_argument() {
+        let Some(d) = fixture() else { return };
+        let root = d.path().canonicalize().unwrap();
+        let has = |argv: &[&str], kind: &str| {
+            detect(
+                &argv.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                &root,
+                &[],
+            )
+            .iter()
+            .any(|c| c.kind == kind)
+        };
+        let bash = |t: &str, kind: &str| has(&["bash", "-c", t], kind);
+        // A quoted variable is one word that could be any single option.
+        let missed: Vec<&str> = [
+            ("x=-rf; rm \"$x\" somedir", kind::BULK_DELETE),
+            ("m=--hard; git reset \"$m\"", kind::BULK_DELETE),
+            ("m=--hard; git reset \"$m\" HEAD~3", kind::BULK_DELETE),
+            ("f=--force; git push \"$f\"", kind::HISTORY_REWRITE),
+            (
+                "f=--force; git push \"$f\" origin main",
+                kind::HISTORY_REWRITE,
+            ),
+            ("x=-delete; find . \"$x\"", kind::BULK_DELETE),
+        ]
+        .into_iter()
+        .filter(|(t, k)| !bash(t, k))
+        .map(|(t, _)| t)
+        .collect();
+        assert!(
+            missed.is_empty(),
+            "a quoted variable hid an option: {missed:#?}"
+        );
+        // `"$@"` is one word per argument, so `-rf` and `somedir` arrive as two
+        // words; joined into one they would hide (`-rf somedir` is no `-r`).
+        assert!(
+            has(
+                &["bash", "-c", "rm \"$@\"", "_", "-rf", "somedir"],
+                kind::BULK_DELETE
+            ),
+            "\"$@\" expands to -rf and somedir as separate words"
+        );
+        assert!(
+            has(
+                &["bash", "-c", "rm $@", "_", "-rf", "somedir"],
+                kind::BULK_DELETE
+            ),
+            "an unquoted $@ splits into -rf and somedir"
+        );
+        assert!(
+            has(
+                &["bash", "-c", "git push origin main \"$@\"", "_", "--force"],
+                kind::HISTORY_REWRITE
+            ),
+            "\"$@\" carries --force through as its own word"
+        );
+        // `"$*"` joins into one word: `rm -rf "$*"` deletes one path (with a
+        // space), which is still a recursive delete of non-regenerable work.
+        assert!(
+            has(
+                &["bash", "-c", "rm -rf \"$*\"", "_", "a", "b"],
+                kind::BULK_DELETE
+            ),
+            "\"$*\" is one joined operand under -rf"
+        );
+        // Precision: these stay quiet.
+        assert!(!bash(
+            "for f in *.log; do rm \"$f\"; done",
+            kind::BULK_DELETE
+        ));
+        assert!(!bash("git push origin main", kind::HISTORY_REWRITE));
+        assert!(!bash("rm -rf target", kind::BULK_DELETE));
+        assert!(!bash("find . -name \"$p\" -print", kind::BULK_DELETE));
     }
 }

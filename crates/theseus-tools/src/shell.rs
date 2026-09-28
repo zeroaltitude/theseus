@@ -11,6 +11,7 @@
 //! past `MAX_DEPTH`) comes out as a command marked `unparsed` or `dynamic`,
 //! which the rule table turns into `opaque`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// How deep shells, `$(…)`, and wrappers may nest before the rest is opaque.
@@ -27,8 +28,10 @@ pub struct Word {
     /// Holds an unquoted glob character, expanded at run time.
     pub glob: bool,
     /// Any part of the word was quoted or backslash-escaped. A quoted word is
-    /// exactly one word: it never brace-expands, and a quoted dynamic word is a
-    /// single operand, never a split-out option (`rm "$f"` deletes one file).
+    /// exactly one word: it never brace-expands, and it never word-splits. It
+    /// may still be an option: quoting stops word splitting, not option parsing,
+    /// so a quoted dynamic word is one word that could be any single option
+    /// (`git reset "$m"`). Detection reflects that; see `opt_detect`.
     pub quoted: bool,
     /// Command substitutions inside the word, run before the command.
     subs: Vec<String>,
@@ -138,6 +141,22 @@ impl Cmd {
     pub fn dynamic_program(&self) -> bool {
         self.words.first().is_some_and(|w| w.dynamic)
     }
+    /// The program word's full spelling, including any command substitutions
+    /// inside it, so the floor can scan a dynamic program word (`$(echo op)`,
+    /// `` `which theseusd` ``, `$x$y`) for a floor program name (spec §3.9).
+    pub fn program_spelling(&self) -> String {
+        match self.words.first() {
+            Some(w) => {
+                let mut s = w.text.clone();
+                for sub in &w.subs {
+                    s.push(' ');
+                    s.push_str(sub);
+                }
+                s
+            }
+            None => String::new(),
+        }
+    }
     /// A short option letter, alone or combined (`-rf` has `r`), before `--`.
     pub fn has_short(&self, c: char) -> bool {
         self.args()
@@ -182,16 +201,44 @@ impl Cmd {
     /// these long options or short letters? Over-approximates on purpose, as the
     /// parser does for the program word: a long option matches by unique prefix
     /// (git and GNU getopt_long accept unambiguous prefixes; an ambiguous one
-    /// errors, so flagging it costs nothing), and an **unquoted** dynamic word
-    /// before `--` could expand to any option. A quoted dynamic word is a single
-    /// operand, never an option. Never use this for an exemption.
+    /// errors, so flagging it costs nothing), and **any dynamic word** before
+    /// `--` could expand to this option. Quoting stops word splitting, not option
+    /// parsing: a quoted dynamic word is exactly one word, but that one word may
+    /// be any single option (`m=--hard; git reset "$m"`). A rule that must stay
+    /// quiet when the dynamic word is the *only* operand (e.g. `rm "$f"`, one
+    /// file with no `-r`) guards that itself; see `rm_recursive`. Never use this
+    /// for an exemption.
     pub fn opt_detect(&self, longs: &[&str], shorts: &[char]) -> bool {
         self.args().iter().take_while(|w| w.text != "--").any(|w| {
             if w.dynamic {
-                return !w.quoted;
+                return true;
             }
             (is_short_cluster(&w.text) && shorts.iter().any(|c| w.text[1..].contains(*c)))
                 || longs.iter().any(|l| long_opt_match(&w.text, l, true))
+        })
+    }
+
+    /// Is there a dynamic word before `--`? A dynamic word could expand to any
+    /// option, so a rule whose danger is purely an option (`git reset --hard`,
+    /// `git clean -f`) must treat one as a possible trigger. Distinct from
+    /// `opt_detect` only in intent: this asks "could an option hide here?"
+    pub fn has_dynamic_option(&self) -> bool {
+        self.args()
+            .iter()
+            .take_while(|w| w.text != "--")
+            .any(|w| w.dynamic)
+    }
+
+    /// A *literal* option match (a bare word, prefix-matched like `opt_detect`),
+    /// ignoring dynamic words. It answers "is this option certainly present?",
+    /// where `opt_detect` also says "yes" for a dynamic word that merely could be
+    /// it. Used where a rule must separate a certain flag from a possible one
+    /// (`rm_recursive`: is `-r` definitely here, or only maybe in a variable?).
+    pub fn opt_literal(&self, longs: &[&str], shorts: &[char]) -> bool {
+        self.args().iter().take_while(|w| w.text != "--").any(|w| {
+            !w.dynamic
+                && ((is_short_cluster(&w.text) && shorts.iter().any(|c| w.text[1..].contains(*c)))
+                    || longs.iter().any(|l| long_opt_match(&w.text, l, true)))
         })
     }
 
@@ -290,9 +337,115 @@ pub fn parse_script(
         return;
     }
     match lex(text, params) {
-        Ok(toks) => Parser::new(cwds.clone(), depth, via.to_vec(), out).run(toks),
+        Ok(toks) => {
+            let assigns = collect_assignments(&toks);
+            Parser::new(cwds.clone(), depth, via.to_vec(), out, assigns).run(toks)
+        }
         Err(_) => out.push(unparsed(text, cwds, via)),
     }
+}
+
+/// A simple `$name`/`${name}` reference (no other text, no command substitution),
+/// for judging a program word built at run time. `$1`…, `$@`, `$(…)`, `$x$y`,
+/// and `${x:-y}` are not simple names.
+fn simple_var_name(w: &Word) -> Option<&str> {
+    if !w.dynamic || !w.subs.is_empty() {
+        return None;
+    }
+    let t = w.text.as_str();
+    let name = t
+        .strip_prefix("${")
+        .and_then(|r| r.strip_suffix('}'))
+        .or_else(|| t.strip_prefix('$'))?;
+    (!name.is_empty()
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+    .then_some(name)
+}
+
+/// The name and literal value of an assignment word (`name=value`,
+/// `name+=value`, `name[i]=value`); `None` value when the right side is dynamic.
+fn parse_assignment(w: &Word) -> Option<(String, Option<String>)> {
+    if !is_assignment(&w.text) {
+        return None;
+    }
+    let (lhs, value) = w.text.split_once('=')?;
+    let name = lhs.strip_suffix('+').unwrap_or(lhs);
+    let name = name.split('[').next().unwrap_or(name);
+    let val = if w.dynamic {
+        None
+    } else {
+        Some(value.to_string())
+    };
+    Some((name.to_string(), val))
+}
+
+/// Record one assignment to `name`. A literal value joins the candidate set; a
+/// dynamic value poisons the name (`None`), so it stays dynamic forever after.
+fn record_assignment(
+    map: &mut HashMap<String, Option<Vec<String>>>,
+    name: String,
+    val: Option<String>,
+) {
+    let slot = map.entry(name).or_insert_with(|| Some(Vec::new()));
+    match val {
+        None => *slot = None,
+        Some(v) => {
+            if let Some(list) = slot {
+                if !list.contains(&v) {
+                    list.push(v);
+                }
+            }
+        }
+    }
+}
+
+/// Every literal assignment in one script, `name` → its candidate values (the
+/// union across branches and loops, an over-approximation) or `None` when any
+/// assignment to it is dynamic. Only assignments in command position, and the
+/// arguments of `export`/`declare`/`local`/`readonly`/`typeset`, count.
+fn collect_assignments(toks: &[Tok]) -> HashMap<String, Option<Vec<String>>> {
+    let mut map: HashMap<String, Option<Vec<String>>> = HashMap::new();
+    let mut cmd_start = true;
+    let mut assign_cmd = false;
+    let mut skip_target = false;
+    for t in toks {
+        match t {
+            Tok::Op(_) | Tok::Subs(_) => {
+                cmd_start = true;
+                assign_cmd = false;
+                skip_target = false;
+            }
+            Tok::Redir | Tok::RedirDrop | Tok::HereDoc => skip_target = true,
+            Tok::Word(w) => {
+                if skip_target {
+                    skip_target = false;
+                    continue;
+                }
+                let assignment = parse_assignment(w);
+                if cmd_start {
+                    if let Some((name, val)) = assignment {
+                        record_assignment(&mut map, name, val);
+                        continue; // leading assignments keep command position
+                    }
+                    if !w.dynamic
+                        && matches!(
+                            w.text.as_str(),
+                            "export" | "declare" | "local" | "readonly" | "typeset"
+                        )
+                    {
+                        assign_cmd = true;
+                    }
+                    cmd_start = false;
+                } else if assign_cmd {
+                    if let Some((name, val)) = assignment {
+                        record_assignment(&mut map, name, val);
+                    }
+                }
+            }
+        }
+    }
+    map
 }
 
 /// The words of `text` when it is one simple command with no shell syntax
@@ -466,6 +619,19 @@ fn lex(s: &str, params: Option<&[String]>) -> Result<Vec<Tok>, String> {
                 }
             }
             _ => {
+                // `$@`/`$*` (and `${@}`/`${*}`, quoted or not), standing alone,
+                // expand to the known positional parameters with bash's word
+                // semantics: `"$@"` and unquoted `$@`/`$*` to one word per
+                // argument, `"$*"` to one word joined by spaces.
+                if let Some(p) = params {
+                    if let Some((words, end)) = positional_list(&c, i, p) {
+                        i = end;
+                        for w in words {
+                            toks.push(Tok::Word(w));
+                        }
+                        continue;
+                    }
+                }
                 let start = i;
                 let (w, end) = lex_word(&c, i, params)?;
                 i = end;
@@ -489,6 +655,50 @@ fn lex(s: &str, params: Option<&[String]>) -> Result<Vec<Tok>, String> {
 }
 
 const WORD_END: &[char] = &[' ', '\t', '\r', '\n', ';', '&', '|', '(', ')', '<', '>'];
+
+/// A standalone `$@`/`$*`/`${@}`/`${*}`, quoted or not, at index `i`, expanded
+/// against the literal positional parameters `params`. Returns the words and the
+/// index after the token, or `None` when the token is not one of these standing
+/// alone (it must end at a word boundary). `"$@"`, `$@`, `$*`, `${@}`, `${*}`
+/// yield one word per argument; only `"$*"` (and `"${*}"`) joins into one word.
+fn positional_list(c: &[char], i: usize, params: &[String]) -> Option<(Vec<Word>, usize)> {
+    let g = |k: usize| c.get(k).copied();
+    let (quoted, sym, end) = if g(i) == Some('"') {
+        match (g(i + 1), g(i + 2), g(i + 3), g(i + 4), g(i + 5)) {
+            (Some('$'), Some(s @ ('@' | '*')), Some('"'), _, _) => (true, s, i + 4),
+            (Some('$'), Some('{'), Some(s @ ('@' | '*')), Some('}'), Some('"')) => (true, s, i + 6),
+            _ => return None,
+        }
+    } else if g(i) == Some('$') {
+        match (g(i + 1), g(i + 2), g(i + 3)) {
+            (Some(s @ ('@' | '*')), _, _) => (false, s, i + 2),
+            (Some('{'), Some(s @ ('@' | '*')), Some('}')) => (false, s, i + 4),
+            _ => return None,
+        }
+    } else {
+        return None;
+    };
+    if !(end >= c.len() || WORD_END.contains(&c[end])) {
+        return None; // embedded in a larger word; leave it to lex_word (joined)
+    }
+    let words = if quoted && sym == '*' {
+        vec![Word {
+            text: params.join(" "),
+            quoted: true,
+            ..Default::default()
+        }]
+    } else {
+        params
+            .iter()
+            .map(|a| Word {
+                text: a.clone(),
+                quoted,
+                ..Default::default()
+            })
+            .collect()
+    };
+    Some((words, end))
+}
 
 fn lex_word(c: &[char], mut i: usize, params: Option<&[String]>) -> Result<(Word, usize), String> {
     let n = c.len();
@@ -806,10 +1016,18 @@ struct Parser<'a> {
     redirs: Vec<Word>,
     /// A `cd` just finished: where it leads, applied at the next operator.
     pending_cd: Option<Cwds>,
+    /// This script's literal assignments, for resolving a `$name` program word.
+    assigns: HashMap<String, Option<Vec<String>>>,
 }
 
 impl<'a> Parser<'a> {
-    fn new(cwds: Cwds, depth: usize, via: Vec<String>, out: &'a mut Vec<Cmd>) -> Self {
+    fn new(
+        cwds: Cwds,
+        depth: usize,
+        via: Vec<String>,
+        out: &'a mut Vec<Cmd>,
+        assigns: HashMap<String, Option<Vec<String>>>,
+    ) -> Self {
         Parser {
             list_start: cwds.clone(),
             cwds,
@@ -821,6 +1039,7 @@ impl<'a> Parser<'a> {
             text: vec![],
             redirs: vec![],
             pending_cd: None,
+            assigns,
         }
     }
 
@@ -952,6 +1171,38 @@ impl<'a> Parser<'a> {
                 return;
             }
             _ => {}
+        }
+        // A program word built at run time (spec §3.9, step 2a++): a simple
+        // `$name` whose every assignment in this script is literal is judged as
+        // each candidate value, the union across branches (an over-approximation).
+        // A poisoned or unknown name stays dynamic, and the floor scans its
+        // spelling for a floor program (`op`, `theseusd`).
+        let resolved: Option<Vec<String>> = words
+            .first()
+            .filter(|w| w.dynamic)
+            .and_then(simple_var_name)
+            .and_then(|name| self.assigns.get(name))
+            .and_then(|slot| slot.clone());
+        if let Some(cands) = resolved {
+            let base = words;
+            for cand in cands {
+                let mut ws = base.clone();
+                ws[0] = Word::lit(&cand);
+                let mark = self.out.len();
+                expand(
+                    ws,
+                    self.cwds.clone(),
+                    false,
+                    self.depth,
+                    &text,
+                    &self.via,
+                    self.out,
+                );
+                for c in &mut self.out[mark..] {
+                    c.redirs.extend(redirs.iter().cloned());
+                }
+            }
+            return;
         }
         let mark = self.out.len();
         expand(
