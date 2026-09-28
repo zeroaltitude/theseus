@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.38
+# The Ship of Theseus — v0.39
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -1640,3 +1640,74 @@ All of them are fixed in step 2a+ (theseus-xbg), before 2b.
   - escape hatches inside text tools (`awk`'s `system()`, `sed`'s `e`);
   - what runs behind `eval "$(…)"`, a heredoc fed to a shell, or `ssh`, beyond naming the call `opaque`.
 - A floor check over argv, however careful, stops only the spellings it can read. Code the gate cannot parse is `opaque`, and under `notify` it runs with a notice. Only M4's boundary closes this for certain: L1 gives a job no ambient credentials and keeps the token file out of its reach.
+
+### Step 2a+. Gate hardening from the 2a review (theseus-xbg; 2026-09-28, 00:24–01:28; 0d0b769, 0093ec4, e57c48c)
+
+**What exists.**
+- **The floor and the deny list judge every command a call starts** (`ToolPolicy::floor_over_commands`, `deny_over_commands`), over what `shell::commands` returns:
+  - each command's words, and the wrappers it was reached through (`Cmd.via`);
+  - its path arguments and redirection targets (`Cmd.redirs`, including fd forms), resolved against every directory it might run in;
+  - those directories themselves.
+
+  `$HOME`, `${HOME}`, and `~` resolve to the daemon's HOME for path judgments. The floor still runs first and is refused at every level; the deny list follows the ladder.
+- **A floor mention scan over code the gate cannot parse** (`floor_mention`). It covers unparsed commands, dynamic programs, inline code, `eval`, and remote commands, and it looks for:
+  - a floor path, in its canonical, `~/`, `$HOME/`, or `${HOME}/` form, or a floor file's name;
+  - `theseusd` as a word;
+  - `op` followed by one of its subcommands.
+
+  The refusal says it came from a mention, so a model can rephrase an innocent call.
+- **Detection reads every word, not just the program:**
+  - brace expansion inside shell strings, capped at 64 results (past the cap, the word is dynamic);
+  - `$1`…`$9`, `$@`, and `$*` substituted for `bash -c 'script' arg0 args…` when the args are literal;
+  - an unquoted unresolved word counts as any option, and a dynamic positional as a dangerous operand;
+  - unique-prefix long options count as triggers;
+  - a glob followed by `..` is never regenerable.
+
+  Triggers and exemptions use separate helpers (`opt_detect` and `opt_exact`). An exemption never accepts a variable or an abbreviation.
+
+**How it is proven.** 138 tests; the gate passed at each commit and again in review.
+- **Unit tests.**
+  - Seven floor spellings are refused with `floor: true` at all four levels.
+  - `bash -c 'sudo ls'` follows the ladder.
+  - Mentions inside `python3 -c` are refused.
+  - The `$HOME` forms reach a HOME-based floor path.
+- **Scenarios** over the real store and kernel:
+  - Under `notify`, `env theseusd --version` is refused, and the model is told why.
+  - Under `notify`, `bash -c 'git push origin main --{force,}'` parks as `history_rewrite`, and the bare remote does not move.
+  - Under `open`, `cat` of a store file is refused as floor.
+- **FAST.** In release, `ToolPolicy::decide` takes 510 µs on a 2.9 KB `bash -c` string of 30 commands, and 9.8 µs on a plain argv.
+- **Live, on a scratch daemon** (GLM 5.3 flash, `notify`):
+  - `bash -c 'theseusd --version'` and `bash -c 'cat <state>/store/MANIFEST.json'` are refused as floor.
+  - A brace-spelled force push parks, the ledger row carries the expanded command, and the bare remote stays put through a decline.
+- **The web confirm card has its first screenshot** (`shots/2a-plus-web-confirm.png`): the `IRREVERSIBLE` pill, the red border, the kind line, the exact command, and Approve and Decline.
+- **In review:** installed at e57c48c. On a copy of Eddie's store, replay is unchanged (2 of 4, the same two calls).
+
+**Found in review** (2026-09-28, 01:32–01:37). A second probe (not committed) confirmed that the floor spellings from the first review are refused and that all eleven detection misses are now caught. These still get through:
+- **The floor:**
+  - a program word built at run time: `x=op; $x read op://…`, `$(echo op) read op://…`;
+  - inline code in its natural form: `python3 -c 'subprocess.run(["op","read","op://…"])'`, `perl -e 'system("op", "read", …)'`. The scan wants `op read`, with a space;
+  - a relative program path inside a string, which keeps its directory: `bash -c './target/release/theseusd config'`;
+  - globs through a floor path: `cat <state>/sta*/store/wal`.
+- **Detection:**
+  - A quoted variable is treated as never an option. Quoting stops word splitting, not option parsing, so `x=-rf; rm "$x" somedir`, `m=--hard; git reset "$m"`, `f=--force; git push "$f"`, and `x=-delete; find . "$x"` all get through.
+  - `"$@"` with two or more literal arguments is joined into one word, so `bash -c 'rm "$@"' _ -rf somedir` gets through.
+- **The record:** the rule table's version is still `2026-09-27.1`, although detection changed. Replay and the ledger therefore cannot tell old judgments from new ones.
+
+All of these go to step 2a++ (theseus-0tv).
+
+A correction to the first review's record: its probe expected `history_rewrite` for `git reset --har`, but that rule's kind is `bulk_delete`. The miss in 2a was still real (the rule matched only the exact option), and 2a+ catches it.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The floor is refused at every level (§3.9) | True now for the command forms the gate can read: wrappers, shell strings, arguments, redirections, and working directories. Step 2a++ closes what the second probe found | Before 2a+, the floor saw only the top-level program and the plan's resources (a gap since M3b) | Keep |
+| The floor judges what a proposal became | It also scans unparsable code for a mention of a floor path or program | The gate cannot see inside inline code; a mention is all it has | Keep; M4's boundary is the real close |
+| The parser over-approximates the program word | It over-approximates every word a rule reads | §3.9's "over-approximates on purpose", applied consistently | Keep. Accepted friction: inside `bash -c`, `git push origin "$BRANCH"` and `git reset $SHA` now wait. Held for Eddie |
+| P5c goes from 2a+ to 2b | Step 2a++ added between them | The second probe | Recorded here |
+
+**Known gaps.**
+- A recursive read through an ancestor of a floor path (`find ~ -exec cat {} +`, `grep -r x ~`) is judged by the deny list, not by the floor. `~/.theseus` and the token file are on the deny list by default. A floor rule for ancestors would be far too broad, because `~` is an ancestor of everything.
+- Deliberate obfuscation in inline code (string building, base64) stays `opaque`.
+
+Only M4's boundary closes these.
