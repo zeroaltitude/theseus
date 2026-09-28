@@ -767,6 +767,53 @@ pub struct ConfirmRequest {
     /// The policy would refuse this call; `enforcement = ask` asks instead.
     #[serde(default)]
     pub against_policy: bool,
+    /// What the call would do to the world, as the gate named it (spec §3.9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consequences: Vec<ConsequenceTag>,
+    /// A consequence is irreversible: this waits at every enforcement level.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub irreversible: bool,
+}
+
+/// One thing a call would do to the world (spec §3.9), as the gate named it:
+/// a kind (`history_rewrite`, `opaque`, or one the owner added) and its grade.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsequenceTag {
+    pub kind: String,
+    /// Graded irreversible: the call waits for approval at every level.
+    #[serde(default)]
+    pub irreversible: bool,
+    /// The rule that found it (`git.push.force`, `config:deploy`, `toollet:<name>`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub rule: String,
+    /// The command it was found in, as the parser read it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub detail: String,
+}
+
+impl ConsequenceTag {
+    /// One line for a notice: `irreversible: history_rewrite · needs approval: opaque`.
+    pub fn summary(tags: &[ConsequenceTag]) -> String {
+        let names = |irreversible: bool| {
+            let mut v: Vec<&str> = vec![];
+            for t in tags.iter().filter(|t| t.irreversible == irreversible) {
+                if !v.contains(&t.kind.as_str()) {
+                    v.push(&t.kind);
+                }
+            }
+            v.join(", ")
+        };
+        let mut parts = vec![];
+        let i = names(true);
+        if !i.is_empty() {
+            parts.push(format!("irreversible: {i}"));
+        }
+        let n = names(false);
+        if !n.is_empty() {
+            parts.push(format!("needs approval: {n}"));
+        }
+        parts.join(" · ")
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

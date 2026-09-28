@@ -79,6 +79,7 @@ impl Tool for Diff {
             summary: "diff two texts".into(),
             resources,
             argv: None,
+            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {

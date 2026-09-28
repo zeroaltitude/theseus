@@ -15,10 +15,12 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod consequence;
 pub mod fs;
 pub mod git;
 pub mod paths;
 pub mod proc;
+pub mod shell;
 pub mod text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +95,11 @@ pub struct Plan {
     pub argv: Option<Vec<String>>,
     /// One line for humans ("edit src/main.rs (1 occurrence)").
     pub summary: String,
+    /// What the call would do to the world, declared by the toollet from its
+    /// typed arguments (spec §3.9, detection layer 1). `proc.run` declares
+    /// none: the gate matches its argv against the rule table instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consequences: Vec<consequence::Consequence>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

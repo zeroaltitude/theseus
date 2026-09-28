@@ -117,6 +117,7 @@ impl Tool for Read {
                 access: Access::Read,
             }],
             argv: None,
+            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -237,6 +238,7 @@ impl Tool for WriteFile {
                 access: Access::Write,
             }],
             argv: None,
+            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -329,6 +331,7 @@ impl Tool for Edit {
                 access: Access::Write,
             }],
             argv: None,
+            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -478,6 +481,7 @@ impl Tool for Patch {
             ),
             resources,
             argv: None,
+            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -501,6 +505,14 @@ impl Tool for Patch {
                 ToolFailure::new(format!("cannot parse the section for {target}: {e}"))
             })?;
             let applied = diffy::apply(&original, &p).map_err(|e| ToolFailure::new(format!("the patch does not apply to {target}: {e}. Read the file and regenerate the hunk against its current contents.")))?;
+            // A deletion carries the whole file, so the call records what it
+            // removed and stays reversible (no consequence to declare).
+            if f.new.is_none() && !applied.is_empty() {
+                return Err(ToolFailure::new(format!(
+                    "the section deleting {target} leaves {} line(s) the patch does not show: a deletion must remove every line. Read the file and include all of it.",
+                    applied.lines().count()
+                )));
+            }
             let stat = {
                 let d = similar::TextDiff::from_lines(&original, &applied);
                 let (mut add, mut del) = (0, 0);
@@ -594,6 +606,7 @@ impl Tool for Glob {
                 access: Access::Read,
             }],
             argv: None,
+            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -781,6 +794,7 @@ impl Tool for Grep {
                 access: Access::Read,
             }],
             argv: None,
+            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -944,6 +958,7 @@ impl Tool for List {
                 access: Access::Read,
             }],
             argv: None,
+            consequences: vec![],
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -1128,6 +1143,18 @@ mod tests {
             fs::read_to_string(d.path().join("x.txt")).unwrap(),
             "one\nTWO\nthree\n"
         );
+        // A deletion must show every line it removes; a partial one deletes nothing.
+        let partial = "--- a/x.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-one\n";
+        let e = Patch.run(&json!({"patch": partial}), &c).unwrap_err();
+        assert!(
+            e.message.contains("must remove every line"),
+            "{}",
+            e.message
+        );
+        assert!(d.path().join("x.txt").exists());
+        let whole = "--- a/x.txt\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-one\n-TWO\n-three\n";
+        Patch.run(&json!({"patch": whole}), &c).unwrap();
+        assert!(!d.path().join("x.txt").exists());
     }
 
     #[test]

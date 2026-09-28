@@ -70,6 +70,7 @@ impl Tool for Run {
                 access: Access::Exec,
             }],
             argv: Some(a.argv),
+            consequences: vec![],
         })
     }
     fn job(&self, input: &Value, ctx: &ToolCtx) -> Result<JobSpec, String> {

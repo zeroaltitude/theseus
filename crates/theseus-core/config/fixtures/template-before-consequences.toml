@@ -133,17 +133,14 @@ proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME"
 # ---------------------------------------------------------------- policy
 # The gate's three bands (spec §3.9): allow | confirm | deny, by tool class.
 # Confirmations appear in Discord and the web UI (Approve / Decline) and in
-# `theseus confirm`. enforcement decides what the stops do, as one setting so
-# they stay compatible (a call against the policy never meets less friction
-# than one that only needs approval, and an irreversible call never meets less
-# than either; see [consequences] below):
-#   enforcement   needs approval       irreversible         against policy
-#   strict        waits for Approve    waits for Approve    refused
-#   ask           waits for Approve    waits for Approve    waits for Approve, marked "against policy"
-#   notify        runs, amber notice   waits for Approve    refused
-#   open          runs, amber notice   waits for Approve    runs, red notice
-# A call both irreversible and against the policy takes the stricter one:
-# refused under strict and notify, a marked wait under ask and open.
+# `theseus confirm`. enforcement decides what the two stops do, as one setting
+# so they stay compatible (a call against the policy never meets less friction
+# than one that only needs approval):
+#   enforcement   needs approval           against policy
+#   strict        waits for Approve        refused
+#   ask           waits for Approve        waits for Approve, marked "against policy"
+#   notify        runs, amber notice       refused
+#   open          runs, amber notice       runs, red notice
 # A notice goes to the session's channel (Discord, web UI, CLI) and the ledger
 # (`tool.notified`). The floor is refused at every level: Theseus's store,
 # spool, and bindings file, its own binary, and the 1Password CLI and its
@@ -157,25 +154,6 @@ allow_argv = [["ls"], ["pwd"]]          # run unconfirmed only if every path arg
 deny_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"], ["op"], ["theseusd"]]
 # [policy.overrides]                    # per-tool modes by canonical name
 # "fs.edit" = "allow"
-
-# ---------------------------------------------------------------- consequences
-# What a call would do to the world, named beside its tool's class (spec §3.9).
-# Detection is deterministic: a toollet declares its own, and proc.run is read
-# by a versioned rule table over argv and every command inside a `bash -c`
-# string. `theseus policy rules` lists the table, and `theseus policy replay`
-# shows what the current table would change over past calls. Built-in kinds:
-#   irreversible (waits at every level)   history_rewrite, destroy_remote, bulk_delete, publish, external_post
-#   needs approval                        merge, access_change, spend, opaque (the rules cannot see through it)
-# A plain `git push` is no consequence, and neither is a recursive delete of a
-# gitignored build output (target/, node_modules/, dist/, ...) or of a path
-# under /tmp outside any repository. A section here regrades a built-in kind
-# or adds one of the owner's own, with argv prefixes that detect it.
-# [consequences.kinds.merge]
-# irreversible = true                   # merges wait for approval under notify and open too
-# [consequences.kinds.deploy]
-# irreversible = true                   # a new kind (built-in default for a new kind: false, needs approval)
-# description = "a production deploy"
-# argv = [["./deploy.sh", "prod"]]      # argv prefixes, matched against every command a call would run
 
 # ---------------------------------------------------------------- catalog
 # Built in (version 2026-09-26.1): claude-fable-5-1, claude-fable-5, claude-opus-5-5,

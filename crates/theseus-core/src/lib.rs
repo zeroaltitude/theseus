@@ -40,4 +40,6 @@ pub fn new_id(prefix: &str) -> String {
 }
 
 #[cfg(test)]
+mod tests_consequences;
+#[cfg(test)]
 mod tests_m3;

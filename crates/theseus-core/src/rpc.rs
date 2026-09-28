@@ -750,6 +750,13 @@ impl Core {
                             against_policy: gate["decision"]["against_policy"]
                                 .as_bool()
                                 .unwrap_or(false),
+                            consequences: serde_json::from_value(
+                                gate["decision"]["consequences"].clone(),
+                            )
+                            .unwrap_or_default(),
+                            irreversible: gate["decision"]["irreversible"]
+                                .as_bool()
+                                .unwrap_or(false),
                         });
                     }
                 }

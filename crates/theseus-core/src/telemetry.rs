@@ -99,6 +99,7 @@ struct Instruments {
     first_token_ms: Histogram<f64>,
     cost_usd: Counter<f64>,
     tool_calls: Counter<u64>,
+    tool_consequences: Counter<u64>,
 }
 
 impl Instruments {
@@ -136,6 +137,12 @@ impl Instruments {
             tool_calls: meter
                 .u64_counter("theseus.tool.calls")
                 .with_description("Tool calls proposed by the model, by tool")
+                .build(),
+            tool_consequences: meter
+                .u64_counter("theseus.tool.consequences")
+                .with_description(
+                    "Consequences the gate named on tool calls, by tool, kind, and grade",
+                )
                 .build(),
         }
     }
@@ -272,7 +279,12 @@ impl Telemetry {
             inner.instruments.cost_usd.add(c, &attrs);
         }
         if let Some(t) = &result.trace {
-            count_tools(&inner.instruments.tool_calls, t, &attrs);
+            count_tools(
+                &inner.instruments.tool_calls,
+                &inner.instruments.tool_consequences,
+                t,
+                &attrs,
+            );
             export_tree(inner, t);
         }
     }
@@ -372,17 +384,35 @@ fn record_tokens(counter: &Counter<u64>, u: &Usage, base: &[KeyValue]) {
 }
 
 /// One `theseus.tool.calls` per `tool <wire name>` span, labelled with the
-/// canonical tool name (`fs_read` → `fs.read`).
-fn count_tools(counter: &Counter<u64>, s: &Span, base: &[KeyValue]) {
+/// canonical tool name (`fs_read` → `fs.read`), and one
+/// `theseus.tool.consequences` per consequence kind the gate named on it.
+fn count_tools(counter: &Counter<u64>, kinds: &Counter<u64>, s: &Span, base: &[KeyValue]) {
     if s.kind == "tool" {
         if let Some(wire) = s.name.strip_prefix("tool ") {
             let mut a = base.to_vec();
             a.push(KeyValue::new("theseus.tool", wire.replacen('_', ".", 1)));
             counter.add(1, &a);
+            let irreversible = s.attrs.get("irreversible").and_then(Value::as_bool);
+            for k in s
+                .attrs
+                .get("consequences")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                let mut b = a.clone();
+                b.push(KeyValue::new("theseus.consequence", k.to_string()));
+                b.push(KeyValue::new(
+                    "theseus.irreversible",
+                    irreversible.unwrap_or(false),
+                ));
+                kinds.add(1, &b);
+            }
         }
     }
     for c in &s.children {
-        count_tools(counter, c, base);
+        count_tools(counter, kinds, c, base);
     }
 }
 
@@ -670,6 +700,16 @@ mod tests {
             end_us: Some(20),
             ..Default::default()
         });
+        let mut forced = Span {
+            name: "tool proc_run".into(),
+            kind: "tool".into(),
+            start_us: 20,
+            end_us: Some(30),
+            ..Default::default()
+        };
+        forced.attrs =
+            serde_json::json!({"consequences": ["history_rewrite"], "irreversible": true});
+        trace.children[0].children.push(forced);
         let mut r = result_with(trace);
         r.cost_usd = Some(0.0123);
         tel.record_turn(&r);
@@ -684,6 +724,10 @@ mod tests {
         assert!(names.contains(&"theseus.cost.usd".to_string()), "{names:?}");
         assert!(
             names.contains(&"theseus.tool.calls".to_string()),
+            "{names:?}"
+        );
+        assert!(
+            names.contains(&"theseus.tool.consequences".to_string()),
             "{names:?}"
         );
     }
