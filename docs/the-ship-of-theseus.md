@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.36
+# The Ship of Theseus — v0.37
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -46,8 +46,9 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Memory | Not a separate store. The graph is **append-only, always**: compaction *adds* summary nodes and later views may not include what was trimmed, but no node is ever lost. "Memory" is any node that retains enough strength to be selected into a prompt; decay lowers selection weight and moves payload to cold storage, it never removes anything. Implemented natively behind a `MemoryScience` trait; Vestige not used. |
 | MCP | Full mode: Theseus is both client and server. Prompts and elicitation in; sampling in, budgeted and Jev-judged. |
 | Proactivity | The agent may open a conversation with a human unprompted. Safety rests on the Jev security classifier plus a default-safe operator environment. |
-| Destructive confirm | Goes to the person who issued the request, as a Discord component. When there is no requester (proactive or scheduled work), it goes to the **owner**. Timeout means no action. |
+| Destructive confirm | Goes to the person who issued the request, as an **approval dialogue in a trusted channel**. A trusted channel is any surface the static config lists as trusted (a Discord channel or DM, the web UI, the CLI), provided every member is a trusted user, also listed in static config (Eddie, 2026-09-27; §3.9). When there is no requester (proactive or scheduled work), it goes to the **owner**. Timeout means no action. |
 | Owner vs operators | One **owner** per deployment: whoever runs the Theseus runtime, whether that is Eddie, a company's CTO, or a single person on their own laptop. The owner holds final authority over policy, budgets, and unrequested destructive actions. Many **operators** may converse with and configure the system within what the owner allows. |
+| Owner's property | There is never a proposed action the owner cannot give an overriding approval for when it concerns the owner's own property (a repository, computer, or instance the owner owns), so long as it is in concordance with the model's terms of use and safety policy (Eddie, 2026-09-27). Property is declared statically in config. The override is owner-only and given in a trusted channel, and the floor takes a stronger ceremony (§3.9). |
 | Unprompted actions | All allowed without confirm: DM a human, open a thread, post in a channel, speak in voice. The agent must be invited to a channel first, voice or text; it never joins uninvited. |
 | Task terminal/stalled states | Judged by Jev like every other loop state; escalated to a human only when Jev's confidence is in question. No separate verification tier. Deterministic control paths (`/stop`, revocation, budget exhaustion) bypass Jev entirely (§3.15). |
 | Provider outage | Fail closed and say so in Discord. No secondary provider. |
@@ -81,6 +82,8 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | NATIVE FIRST | The default way Theseus does anything is a small, typed, in-process Rust toollet. Shelling out is the escape hatch, ledgered as such; the ratio of shell calls to native calls is a health metric, and the most frequent shell patterns are the queue for the next toollet. Typed arguments are what let policy read intent, provenance ride on outputs, and the learning loop see what the agent actually does. (Eddie, 2026-09-26.) |
 | EXQUISITE VISIBILITY | Every turn, loop, provider call, hook site, judgment, and completion is timed and attributed as it happens, in the record, before anyone asks. Statistics and visualization are built with the feature, not after it. Nothing that matters is sampled away, and any OpenTelemetry backend can be pointed at the running system for service-level stats without code changes. We move carefully because we can see. (Eddie, 2026-09-25.) |
 | APPEND-ONLY | The **event record** only grows. Compaction, supersession, suppression, and forgetting are new records; nothing in the record is rewritten. Projections (retention, heat, task state, trust annotations, indexes) are mutable and rebuildable from the record. Payload erasure under §5.6 is the single, receipted exception. |
+| IRREVERSIBLE WAITS | The gate protects the owner's options. A call is irreversible when, after it, no option the owner has restores what was there: a history rewrite, a destroyed remote, lost uncommitted work, a publication, a post outside Theseus. An irreversible call waits for approval at every enforcement level. Everything else may run with a notice when the owner chooses `notify` or `open`, because a notice is enough while the owner can still undo (§3.9). (Eddie, 2026-09-27.) |
+| FUNGIBLE ONTOLOGY | The kinds of context (channel, guild, person, topic, culture, expertise, and any kind added later) are data, not code. They live in a versioned table that the owner, operators, and Jev extend, and whose memberships are trained, re-associated, and indexed by embedding. Interpretations route context; they never grant access (§4.1a). (Eddie, 2026-09-27.) |
 
 ## 3. Architecture
 
@@ -151,6 +154,8 @@ The word *session* is used deliberately and narrowly. A **session is a compiler 
 **One turn per session.** Every session has exactly one execution (§3.15) and that execution has one turn lock. "Hundreds or thousands of sessions running simultaneously" therefore means: thousands of task and conversation sessions exist as durable nodes; at any instant those with runnable model work hold a turn, the rest are `waiting` and cost nothing. An **admission scheduler** bounds how many hold a turn at once by budget, provider rate limits, and a configured concurrency ceiling; it is a queue, not a policy, and it never reorders deterministic control paths (`/stop`, `/cancel`, revocation).
 
 **Promotion.** A conversation accumulates intent; at some point it becomes a structured, trackable, goal-oriented piece of work. That moment is `task.create` with `autonomous: true` (proposed by the model, judged by Jev under `CLASSIFY`, or asked for by a human). Promotion **forks an execution**: the new task execution inherits the requesting principal's authority and delegation limits (never broader, §3.9), receives its own budget allotment carved from the requester's, records `origin_channel`, and gets a `reports_to` edge to that channel. The conversation session returns to its human cadence immediately; it is not blocked by the task and never was the task.
+
+**Promotion requires an arrangement** (Eddie, 2026-09-27; openrig's mission install, Appendix F). The requesting conversation's agent holds the discussion, so it writes an `Arrangement` node. The node names the pieces the task needs (objective, acceptance criteria, design nodes, all by id), what to trust, and what supersedes what. The task's first compilation admits the pieces by reference, never paraphrased, so a later correction still reaches them. The arrangement comes right after the objective, rendered as testimony with its origin and as-of. Promotion is refused without an arrangement, and the refusal gives the reason. No arrangement is ever generated at install time, because a generated summary is a second source that drifts. If a one-line objective is drawn from a long discussion, promotion flags it and asks for the design to be attached.
 
 **How they stay connected.** Only through the graph, never through shared in-memory state:
 
@@ -241,9 +246,9 @@ One agent, many roles. The role table is a **living, versioned table** seeded be
 
 Operators may define roles by hand in the web UI **and** Jev proposes new ones through the learning channel; both land in the same versioned role table. Role changes are **announced by default**: a short, in-channel note ("switching to reviewer") that is also a `Judgment`-linked event in the graph, so humans see the shift and can react to it, and the ledger can learn from those reactions. A binding may set `announce: false` to make role changes silent.
 
-Beyond this set, the ontology grows to include Jev classifies the role each turn and scores the candidates. A role is a bundle of **values**, never filters: per-node-kind budget weights, personality guidance, stance (goal-directed, exploratory, learning), preferred tools and shell classes, verbosity, stop-criteria strictness. The role ontology is Jev-owned and grows through the learning loop: poorly covered classification clusters propose new roles; scored classifications flow to the operator on the learning channel (§3.10) and the web UI.
+Beyond this set the table grows: Jev classifies the role each turn and scores the candidates. A role is a bundle of **values**, never filters: per-node-kind budget weights, personality guidance, stance (goal-directed, exploratory, learning), preferred tools and shell classes, verbosity, stop-criteria strictness. The role ontology is Jev-owned and grows through the learning loop: poorly covered classification clusters propose new roles; scored classifications flow to the operator on the learning channel (§3.10) and the web UI.
 
-Jev's ontology, minimum: roles, people, topics, events, resources, memories, capabilities, deep knowledge. Expanding and honing it is a permanent activity.
+Jev's ontology, minimum: roles, people, topics, events, resources, memories, capabilities, deep knowledge. Expanding and honing it is a permanent activity. Since v0.37 the ontology is one mechanism (§4.1a), and roles are one kind in its table, beside channel, guild, person, topic, culture, and expertise.
 
 ### 3.5 Tasks (fluid)
 
@@ -302,16 +307,63 @@ Question packs in the design so far: `classify.v1`, `loop.v1`, `continuation.v1`
 
 **Authority context.** Every execution carries an explicit authority context, fixed at creation and re-validated at each tool call: the **principal** (the requesting human, the owner for scheduled or proactive work, or an MCP client identity for inbound MCP calls), any **delegation** (a human may delegate a bounded capability set for a bounded time), the **binding ceiling**, and the **resource ceilings** of the channel and guild. Effective permission is the intersection: no broader than what the principal holds, capped by the binding and resource ceilings, with explicit deny taking precedence over any allow. Authority is never derived from whoever happens to be present in a channel; an administrator and an ordinary user sharing a channel do not pool their powers.
 
-**Enforcement, and the floor** (Eddie, 2026-09-26). The gate's bands stay allow, confirm, deny; one setting, `[policy].enforcement`, decides what the two stops do. It is a single element so the stops stay compatible by construction: a call against the policy never meets less friction than a call that only needs approval.
+**Enforcement, and the floor** (Eddie, 2026-09-26; the irreversible column 2026-09-27). The gate's bands stay allow, confirm, deny. One setting, `[policy].enforcement`, decides what the stops do. It is a single element so the stops stay compatible by construction: a call against the policy never meets less friction than a call that only needs approval, and an irreversible call never meets less friction than either of them. A call that is both irreversible and against the policy takes the stricter treatment.
 
-| `enforcement` | a call that needs approval | a call against the policy |
-|---|---|---|
-| `strict` (default) | waits for Approve | refused, with the reason |
-| `ask` | waits for Approve | waits for Approve, marked "against policy" |
-| `notify` | runs, amber notice | refused |
-| `open` | runs, amber notice | runs, red notice |
+| `enforcement` | a call that needs approval | an irreversible call | a call against the policy |
+|---|---|---|---|
+| `strict` (default) | waits for approval | waits for approval | refused, with the reason |
+| `ask` | waits for approval | waits for approval | waits for approval, marked "against policy" |
+| `notify` | runs, amber notice | waits for approval | refused |
+| `open` | runs, amber notice | waits for approval | runs, red notice |
+
+Every "refused" in this table means refused unless the owner overrides it (below).
 
 A call that runs without asking is never silent: it is ledgered (`tool.notified`), carried on its tool-call node, and posted as a structured notice in the session's channel (on Discord an embed card with what ran, what the policy said, the level, and the outcome). Below every level is a **floor**, checked first in the same deterministic gate and refused at every level: Theseus's own state (store, spool, bindings file) and binary, and the 1Password CLI and its credentials, because the kernel is off limits to the agent (§3.21) and the vault holds every secret. No model judgment, Jev pack, or hook decides it; a transform hook can rewrite a proposal, but the floor judges what the proposal became. The workspace itself is configuration (`[tools].projects_dir`, plus any more `roots`); nothing assumes where an operator keeps projects.
+
+**Approval** (Eddie, 2026-09-27). An approval is a dialogue in a **trusted channel**: a surface listed in static config (`[approval].channels`) whose members are all **trusted users** (`[approval].trusted_users`). Any surface can be listed: a Discord channel or DM, the web UI, the CLI.
+- Theseus checks who can see a Discord channel when it posts the dialogue, and again when an answer arrives. If anyone outside the trusted list can see it, the dialogue is not posted there, and an answer from there does not count. The call keeps waiting, and health says why.
+- A DM between the bot and a trusted user qualifies.
+- The approver must be a trusted user and must hold the capability (confirmation is not authorization, below).
+- Both lists live in the vault-held config, which agents cannot write.
+
+Beads: theseus-sgh.
+
+**Owner override** (Eddie, 2026-09-27; §1 "Owner's property"). Every "refused" above means refused unless the owner overrides.
+- An override is possible only when every target the call touches is the owner's declared property. That property is `[owner]` in static config: repository patterns, hosts, cloud accounts. A call that touches anyone else's property keeps its refusal.
+- The override is its own dialogue, in a trusted channel, and only the owner can give it. It names the rule being overridden and why that rule refused, is bound to the exact action's digest, and is ledgered as `policy.overridden`.
+- The floor can be overridden too, at every enforcement level, but only with a **stronger ceremony**: the owner alone, the exact command shown, and a typed confirmation instead of a button.
+- An override approves what the model proposed. Theseus never turns a model's refusal into an action, and no override reaches property that is not the owner's.
+
+Beads: theseus-qc4.
+
+**Consequences** (Eddie, 2026-09-27; Appendix F). The gate names what a call would do to the world, beside what kind of tool it is. One property carries the policy: `irreversible` (§2, IRREVERSIBLE WAITS). The specific kinds are its reasons: they are what detection matches, what a notice names ("irreversible: history_rewrite"), and what an exception can single out.
+- **Irreversible by default:**
+  - `history_rewrite`: a force push; deleting a remote branch or tag.
+  - `destroy_remote`: deleting a repository or bucket, terminating an instance, dropping a database.
+  - `bulk_delete`: a recursive delete, or `git clean -fdx`, that loses uncommitted work.
+  - `publish`: a release, a package publish, making something public.
+  - `external_post`: posting anywhere other than Theseus's own places.
+- **Need approval by default:** `merge`, `access_change`, `spend`.
+
+Detection is deterministic, in four layers:
+1. A native toollet declares its consequences in its plan, from its typed arguments.
+2. `proc.run` is matched against a versioned rule table over argv; `bash -c` strings are parsed.
+3. A call the rules cannot see through is `opaque`, and needs approval.
+4. From M4, the boundary sees the effect itself. A job has no ambient credentials and must ask Theseus for one, so the request is the consequence. Outward traffic passes a proxy that recognizes request shapes.
+
+Jev's `security.v1` may add a consequence, and never removes one.
+
+The table grows in two ways:
+- **Kinds** are added only by the owner; Jev may propose one.
+- **Detection rules** are versioned data. Each ships with examples it must and must not match, and is replayed against the ledger before it is accepted ("would have changed N of the last M calls"). Rules are proposed from four sources: a "should have asked" button on every notice, the shell-fallback queue, Jev in shadow, and gaps the boundary reports.
+
+Beads: theseus-770.
+
+**Exposure** (M4; Appendix F).
+- Integrity labels (`untrusted`, `quarantined`) inherit only along transmission edges, as an `effective_trust` projection, so they do not saturate.
+- A tool call proposed from a context that holds a quarantined node, or untrusted text shaped like instructions, is judged one enforcement step stricter: `notify` behaves as `ask`, `open` as `notify`, and `ask` as `strict`. This holds only while that node is in the compiled context.
+
+Beads: theseus-3vu.
 
 **Revocation.** If a principal loses a Discord role mid-execution, the execution is re-validated on its next tool call and, if it no longer holds the needed permission, transitions to `blocked` with a clear message.
 
@@ -323,7 +375,7 @@ A call that runs without asking is never silent: it is ledgered (`tool.notified`
 
 **Confirmation is not authorization.** A confirm click proves intent for one exact action; it grants no capability the confirmer does not already hold. Confirmations are bound to the exact tool, arguments, target resource, policy context, and an expiry; a changed argument invalidates the confirm.
 
-**Gate.** IAM-shaped policy inside Theseus. Tools carry tags: `read`, `write`, `destructive`, `spend`, `privileged`, `mcp:<server>`. Every tool call passes a three-band gate: allow, confirm, deny. Confirm goes to the requesting principal as a component on the message that would perform the action; for owner-authority executions it goes to the owner. On timeout nothing happens and there is no other fallback. Jev's `security.v1` feeds the risk score and never decides alone; adversarial content can move it.
+**Gate.** IAM-shaped policy inside Theseus. Tools carry tags: `read`, `write`, `destructive`, `spend`, `privileged`, `mcp:<server>`. Each call also carries its consequences (above). Every tool call passes a three-band gate: allow, confirm, deny. Confirm goes to the requesting principal as a component on the message that would perform the action; for owner-authority executions it goes to the owner. On timeout nothing happens and there is no other fallback. Jev's `security.v1` feeds the risk score and never decides alone; adversarial content can move it.
 
 **Information flow.** Cross-channel and cross-namespace recall is two decisions, not one: a **read** decision (may this execution's principal see nodes from that namespace or channel?) and a **disclosure** decision (may the result be shown in this channel to these participants?). Identity continuity for a `Person` namespace is not permission to disclose that person's data in a different guild or to other people. Both decisions are policy, evaluated deterministically, with Jev able to tighten but not loosen.
 
@@ -458,7 +510,7 @@ Hooks are the extension and observation surface for everything the harness does.
 | Discord | `MessageSending` (transform or cancel), `MessageSent`, `VoiceSpeaking` (transform or cancel), `ComponentInteraction` | as noted |
 | Config | `BindingChanged`, `PolicyChanged`, `PackPromoted` | observe |
 
-`defer` on `PreToolCall` parks the execution as `waiting` with the pending call preserved; the confirm gate and MCP elicitation are both built on it, so a Discord component answer resumes the execution exactly where it stopped.
+`defer` on `PreToolCall` parks the execution as `waiting` with the pending call preserved, so an answer given out of band resumes the execution exactly where it stopped; MCP elicitation is built on it. **Amended in v0.37 to match the build** (theseus-0dp): the confirm is decided by the deterministic policy gate (§3.9), not by `PreToolCall`'s `defer`. `tool.pre_call` is a tighten-only hook point in front of that gate: it may deny, defer, or transform, and the gate then judges what the call became. Every declared event has a dispatch site, or a "reserved for Mx" marker (P0's standing rules). Every gate, transform, and claim site honors its result, and a scenario per gating point proves that a blocking handler stops the action.
 
 ### 3.18 Wire protocol and client isolation
 
@@ -584,6 +636,57 @@ One master graph per deployment. Everything the agent could put in front of a mo
 - **Multi-parent by design.** The graph is a DAG, not a tree. One `ToolResult` written by a task execution is `in_session` of that task, `in_channel` of the channel it was reported to, `includes`-d by any number of later compilations, and `summarizes`-d by a compaction. Each membership is its own edge; none is privileged. **Order is positional**: every record carries its monotonic WAL position, and any lineage (a channel's transcript, a session's tail, a compilation's contents) is a filter over membership edges sorted by position. `next` is a convenience edge for the per-channel fast path, never the definition of order.
 - **Roots:** a node a lineage starts from. A channel's first node is its first root. A `Compilation` (§4.4a) is a root for the session that made it; a compaction's `Summary` is a compilation whose `summarizes` edges point at the range it stands in for. The range is not removed; it is simply outside the default view. The graph never loses a node.
 - **A context is a path selection.** The guaranteed default: follow `next` back to the nearest root within the channel. That is a plain transcript, served as a sequential read of an append-only per-channel log, never a graph traversal, and it must work with no Jev and no index.
+- **Classificatory kinds are ontology.** `Person`, `Topic`, `Event`, `Resource`, `Capability`, and `Role` are seed kinds of the ontology (§4.1a), and their instances are categories. A new kind is a row in the ontology's table, not new code. The machinery kinds (messages, tool calls, tasks, executions, compilations, summaries, judgments, suppressions, redactions) stay code.
+
+### 4.1a Ontology: kinds, categories, memberships, guidance (Eddie, 2026-09-27)
+
+_The ontology is fungible (§2). This section began as openrig's pods, which it calls "context domains" (Appendix F), and was generalized at Eddie's direction so that nothing about which kinds of context exist is hard-coded. The first new kind is the **topic**. Beads: theseus-8kk._
+
+**What is code, and what is data.** The code is small and fixed:
+- the machinery kinds (§4.1);
+- one generic `Category` node;
+- one membership edge, `member_of`, carrying `origin` (`transport | operator | jev | sweep | dream`), `confidence`, and `as_of`;
+- `Guidance` nodes attached to categories;
+- a closed set of **composition rules** the compiler knows:
+  - `chain`: walk up the parents, nearer overriding farther (for rules);
+  - `intent_line`: one line per category (for intent);
+  - `ranked`: admitted within the budget by relevance (for lessons);
+  - `recall_only`: never admitted automatically.
+
+The data is a versioned **kinds table**, like the role table (§3.4). Its seed rows are `channel`, `guild`, and `person` (given), and `topic`, `culture`, and `expertise` (interpreted). Each row declares:
+- what may be a member, and how many categories of the kind a session may hold;
+- its parent kind (topics nest);
+- its precedence against other kinds, so that clashes resolve the same way every time;
+- which origins may assign membership;
+- its composition rule;
+- a description, which is embedded.
+
+The owner or an operator adds rows in the web UI. Jev or a dream may propose rows, which are accepted like new roles. Every row carries `added_by`.
+
+**Four verbs.**
+- *Added*, as above.
+- *Trained*: a Jev `categorize.v1` judgment assigns memberships, in shadow first, and operator corrections are its signal.
+- *Re-associated*: a membership is an append-only record. A sweep, a dream, or a live check writes a newer one that supersedes the old.
+- *Embedded*: each category keeps its description and a centroid of its members in the index tender. They are used to propose memberships for new sessions, to find near-duplicate categories to merge, and to find drifted ones to split.
+
+**Two guardrails.**
+- *Given versus interpreted.* Channel, guild, and person memberships come from the transport. They are facts, and they are never re-associated. Topic, culture, and expertise memberships are interpretations, and they may be.
+- *Interpretations route context but never grant access.* Which nodes a principal may read, and which audiences may see them, is decided by §3.9's labels and the bindings the operator declares. An interpreted membership never decides it. It is the same line §1 draws for roles.
+
+**The compiler.**
+- A compile looks up the session's current memberships, one read per kind, all precomputed. FAST forbids an embedding search or a Jev call on this path.
+- It walks each category's parents and admits guidance by its kind's rule and precedence.
+- The manifest records every membership used, with its origin and as-of, so "why did it know that?" always has an answer.
+- An interpreted membership change takes effect at the session's next recompile, so the prompt cache survives it. A declared change that alters access forces a recompile (§4.4a).
+
+**Consequences** (§3.9) are also a kind in this table, on the authority side. Their memberships come only from deterministic detection, and Jev may add one but never remove one.
+
+**Phasing.**
+- **M4:** the kinds table, declared memberships, guidance, and the compile walk, beside the labels.
+- **M5:** `categorize.v1` in shadow.
+- **M6:** embeddings, sweeps and dreams, lessons as guidance, and §5.5's namespaces as kinds.
+
+Every kind picks one of the closed composition rules, so no kind can exist without a reader (P0's standing rules).
 
 ### 4.2 Continuation strategies
 
@@ -611,7 +714,7 @@ Compiling every turn from scratch would be wrong twice over: it burns a prompt-c
 
 Each turn the harness asks one question before the model runs: **append, or recompile?** The answer is layered so that the expensive judge is consulted only when something has actually changed.
 
-1. **Deterministic triggers force a recompile** and never consult Jev: the audience or a confidentiality label in play changed (disclosure, §3.9); policy, tool schemas, role, or binding revision changed; the model changed; the tail would overflow the window or the configured tail budget; the session is new (a promoted task's first turn is always a compile); the execution glided to another channel; a redaction touched a node inside the current compilation.
+1. **Deterministic triggers force a recompile** and never consult Jev: the audience or a confidentiality label in play changed (disclosure, §3.9); a declared ontology membership changed in a way that alters access (§4.1a; an interpreted membership change waits for the next recompile, so the prompt cache survives it); policy, tool schemas, role, or binding revision changed; the model changed; the tail would overflow the window or the configured tail budget; the session is new (a promoted task's first turn is always a compile); the execution glided to another channel; a redaction touched a node inside the current compilation.
 2. **Candidate signals arm the judge**, cheaply and deterministically: a reference to another channel or an old topic (`mentions_conversation`, a recall hit outside the tail), a material task-state change in the session's scope, a long dormancy gap, a role hint change, a human asking for a fresh look, the tail crossing a soft length band, a cache-state change reported by the provider. If no signal fired, the turn **appends** and Jev is not called.
 3. **Jev decides when a signal fired**: `continue.v1` receives the signals, the tail length, the cache state, the current compilation's manifest summary, and the budget, and answers `append` or `recompile(strategy)`. Jev owns this judgment as a core responsibility: it is deciding whether the world has changed enough that the model needs a rebuilt view rather than one more message.
 
@@ -698,7 +801,7 @@ FSRS models human recall; agent context selection has a different objective, sel
 
 ### 5.5 Namespaces, trust, forgetting
 
-Namespaces: `person:<discord_user>`, `guild:<id>`, `channel:<id>`, `global`; bindings declare read and write sets; personal preferences always write to the person namespace. Trust labels on every durable node; external-derived nodes are recalled with their label and never gate policy. Forgetting is always an append: FSRS decay by disuse lowers retention; `supersedes` chains leave the superseded node in place so backward reach still works; operator `forget` appends a `Suppression` node that excludes its target from every view, every index, and tiering rehydration, with a receipt. Payload erasure is the single exception, specified in §5.6.
+Namespaces are kinds in the ontology (§4.1a): `person:<discord_user>`, `guild:<id>`, `channel:<id>`, `topic:<id>`, `global`, and any kind added to the table later. Bindings declare read and write sets; personal preferences always write to the person namespace. Trust labels on every durable node; external-derived nodes are recalled with their label and never gate policy. Forgetting is always an append: FSRS decay by disuse lowers retention; `supersedes` chains leave the superseded node in place so backward reach still works; operator `forget` appends a `Suppression` node that excludes its target from every view, every index, and tiering rehydration, with a receipt. Payload erasure is the single exception, specified in §5.6.
 
 ### 5.6 Redaction (the exception to append-only)
 
@@ -807,6 +910,12 @@ workspace.{create, attach_repo, snapshot, list}
 | **A4 dev box** | named EC2 | seconds | its own | full, curated | the box's | curated environments |
 
 **L1 contract** (what "sandbox" means here, so it is not called strong by assertion): user, pid, mount, uts, ipc, and **net** namespaces; no network by default, with an explicit per-job egress allowlist and **no access to the instance metadata service or to localhost services**, including Theseus's own MCP server and web UI; capabilities dropped to none; a default seccomp profile; no device nodes beyond null/zero/random; masked `/proc` and `/sys`; cgroup limits on CPU, memory, pids, and disk with output size caps; the whole process tree killed on timeout or cancel. Anything the contract does not grant is denied. L0 grants everything the operator's user can do, and the spec says so plainly.
+
+**The consequence boundary** (M4; §3.9 Consequences). L1 is where consequences stop depending on spelling:
+- **Credential brokering.** A job starts with no ambient credentials. To push, publish, or post it must ask Theseus for a scoped credential, and that request is the consequence, judged by the gate.
+- **Egress recognition.** Allowlisted egress passes a local proxy that recognizes request shapes: a git receive-pack, a PR merge, a registry publish. So `./deploy.sh` is caught when it pushes, however the command was written.
+
+L0 has neither: its job environment keeps `HOME`, so the operator's credential helpers are ambient. Under L0 the argv rules and `opaque` are the whole of detection.
 
 **Default (decided 2026-09-25).** Both L0 and L1 ship in the first useful agent. L0 is the early operator default; it is explicitly provisional and expected to be revisited once L1 has run real work for a while. Roles and Jev may steer a job to L1 within policy at any time; the default only decides what happens when nothing else has an opinion.
 
@@ -926,13 +1035,21 @@ _Tabitha, 2026-09-27 (theseus-s3m). Eddie paused development to ask what Theseus
   - listing toollets default to narrow results and say what they left out (§3.24, theseus-8ye);
   - herdr is Apache-2.0, so its ideas are re-implemented, never copied, which keeps Theseus's MIT option.
 
-**Held for Eddie** (theseus-vmh):
-- a context-domain scope between session and guild (openrig's pod), with guidance at every level and `domain:<id>` memory namespaces (recommended, alongside M6);
-- integrity labels that inherit only along transmission edges, a stricter band for a tool call proposed in a context holding a quarantined node, and consequence tags (`publish`, `merge`, `history_rewrite`, `external_post`). All three interact with `enforcement = notify`, under which a call that needs approval runs with a notice; the recommendation puts `history_rewrite` and `publish` in the "against the policy" column by default;
-- the standing rule that a new route lands with its edge and reverse index, and a new edge, label, or hook with its reader, on the same commit;
-- a herdr adapter, only if herdr is in daily use;
-- a `theseus tui`;
-- refusing promotion without an authored arrangement summary.
+**Decided by Eddie** (walkthrough, 2026-09-27 13:53–22:21; theseus-vmh, now closed). Each decision is written into Part I in v0.37, and the build order is P5c.
+1. **The context domain becomes the topic, in a fungible ontology.** The kinds of context are data (§2 FUNGIBLE ONTOLOGY; §4.1a). They can be added, trained by Jev, re-associated by sweep, dream, or live check, and indexed by embedding. Tabitha's two guardrails were confirmed: given memberships are facts and are never re-associated; interpretations route context but never grant access (theseus-8kk).
+2. **Irreversible consequences wait for approval.** Eddie generalized the consequence tags into one idea, irreversibility, and the kinds remain as its reasons (§2 IRREVERSIBLE WAITS; §3.9).
+   - *Enforcement:* under `notify`, dangers that aren't irreversible get a notice, and irreversible ones wait for approval. So do they under `open`.
+   - *Approval* is a dialogue in a statically configured trusted channel, among trusted users only. Any surface can be configured as one.
+   - *A new principle:* the owner can override any refusal on the owner's own property, within the model's terms of use and safety policy. Overriding the floor takes the stronger ceremony (owner only, exact command shown, typed confirmation).
+   - *Also adopted:* integrity labels by transmission, and the exposure rule as a one-step-stricter enforcement level. `opaque` stays at needs-approval, and Jev learns to classify related calls (theseus-770, theseus-sgh, theseus-qc4, theseus-3vu).
+3. **The standing rule is adopted with a gate test:** nothing is declared without its reader (P0; theseus-wjy).
+4. **The herdr adapter:** build it (theseus-l1l).
+5. **`theseus tui`:** build it; "first we try everything" (theseus-7yx).
+6. **Promotion requires an authored arrangement** (§3.2a; theseus-vug).
+
+**Side findings, decided the same night.**
+- The hook sites are to be fixed as proposed (§3.17 amended; theseus-0dp).
+- Three OpenClaw bugs that cost this research its replies went to Tank: the 8 MiB stream cap (openclaw-v1et), a rebuilt `dist/` under a running gateway (openclaw-lzca), and a watchdog false positive (openclaw-jygw).
 
 **Not adopted:**
 - multi-harness orchestration (§1 stands);
@@ -969,6 +1086,16 @@ Each milestone below says what it will **build**, what must be **proved** before
 There are no duration estimates. Milestones are ordered by what each must prove before the next can begin, and two things will dominate the pace: how much of the kernel the simulator forces us to rewrite (it always forces some), and how much time the Discord and Anthropic integration steals from the kernel if started too early. The plan defends against the second by refusing to start them until M2 is green.
 
 Every milestone has three parts: **build** (what exists at the end), **prove** (the test that gates the next milestone, always executable, never a judgment call), and **not yet** (what a reasonable person would want to add here and must not). Milestones are Beads epics under `openclaw-ph78`; each "prove" line becomes a closing criterion.
+
+**Standing rules for every milestone.** Part III records where any of them slipped.
+1. **Visibility** (M0.6). A new kind of work lands with its span, attributes, and metric on the same commit. A new capability lands as a native toollet unless a written reason says it cannot.
+2. **Speed** (M3.5, §2 FAST). New startup work lands with its bench row. A new on-disk format lands with the reader for the format it replaces.
+3. **Nothing declared without its reader** (Eddie, 2026-09-27; theseus-wjy).
+   - Every new route by which content reaches another context lands with its edge and a reverse-index entry. Examples are a summary admitted into another session, a task report into a channel, borrowing, gliding, and MCP.
+   - Every new edge type, label, or hook event lands with at least one reader, on the same commit.
+   - Anything declared ahead of its reader carries a "reserved for Mx" marker, and Part III lists it.
+
+   The gate enforces rule 3 with a registry test: it enumerates every hook event, edge type, and label, and fails unless each one has a reader or a reserved marker.
 
 ## P1. Milestones at a glance
 
@@ -1094,6 +1221,32 @@ Not in the original plan. This is Eddie's principle (§2 FAST), adopted after an
 
 **Not yet.** Turn-path latency beyond §9's 5 ms. The arena's memory layout (M6–M7). Anything that needs more than one node.
 
+## P5c. The build order after M3 (added 2026-09-27)
+
+These are Eddie's decisions from the openrig and herdr walkthrough (Appendix F). Eddie approved the order on 2026-09-27; the umbrella issue is theseus-5r9. The items run strictly in sequence on `main`, each through the gate. Each is recorded in Part III as it lands.
+
+1. **Irreversible consequences, trusted approval, owner override** (theseus-770, theseus-sgh, theseus-qc4; §3.9). *Prove:*
+   - `proc.run git push --force` in a workspace repository waits for approval under `notify` and under `open`.
+   - An answer from an untrusted channel or user does not count.
+   - An owner override of an against-policy call on declared property runs and is ledgered.
+   - A floor override requires the typed ceremony, and a call on undeclared property cannot be overridden.
+   - Every detection rule passes its examples.
+   - An existing config with no `[approval]` or `[owner]` section still loads.
+2. **Hooks and the reader rule** (theseus-0dp, theseus-wjy; §3.17, P0). *Prove:*
+   - A blocking in-process handler on each gating event stops its action in a scenario.
+   - The registry test fails a branch that declares an event without a site.
+3. **Protocol push** (theseus-in3): `execution.changed`, a watch over all sessions, `session.wait`, and one `attention()` mapping. *Prove:*
+   - A client learns every execution transition without polling.
+   - `session.wait` returns on `blocked`, `settled`, and `terminal`.
+   - A subscriber that falls behind re-snapshots.
+4. **The herdr adapter** (theseus-l1l). *Prove:*
+   - In a herdr pane, a session waiting on a confirm shows `blocked` within a second.
+   - Answering in the pane resumes the session, when the CLI is a trusted channel.
+   - `theseus herdr sync` is idempotent.
+5. **M3.5 Fast** (P5b, theseus-qa0).
+6. **Epidemiology, step 1** (theseus-n4m): reverse compilation membership, a reverse `derived_from` column, `node.reach`, and reach shown in the Observatory. *Prove:* `node.reach` returns every compilation and session that included a node, in a core scenario.
+7. **`theseus tui`** (theseus-7yx). *Prove:* from the TUI alone, the operator can see every session's state, jump to the next session that needs attention, approve or decline a confirm (as a trusted channel), and submit input.
+
 ## P6. M4 — Boundaries
 
 Make the durability and safety claims true, and measure them.
@@ -1105,10 +1258,13 @@ Make the durability and safety claims true, and measure them.
 - Confidentiality labels on nodes with inheritance through generated nodes; audience-safe compilation; disclosure tests in the simulator (private material never reaches a public audience's context).
 - Control-plane separation as an installer option: dedicated `theseus` user owning store, WAL, spool, and policy; L0 jobs as the operator.
 - Cancellation verification per backend (systemd scope, L1 process tree), and `cancel_unsupported` reporting.
+- The ontology (§4.1a, theseus-8kk): the kinds table, declared memberships, guidance, and the compile walk, with topics as the first new kind.
+- Integrity labels by transmission, and the one-step-stricter rule for exposed contexts (§3.9 Exposure). Also the `external` origin, file hashes, and the `Advisory` with its correction control (theseus-3vu).
+- The consequence boundary under L1 (§7): credential brokering and egress recognition.
 
 **Prove.** Every row of the durability table is demonstrated by a test: process crash, node restart with disk intact, SSD loss with restore from S3, external effect without evidence. The measured off-node recovery point under a synthetic load is under 60 s at p99 and the turn-latency cost of the durability work is reported. L1 contract tests pass. Disclosure tests pass.
 
-**Not yet.** No AWS shell classes. No hooks. No Jev.
+**Not yet.** No AWS shell classes. No hook handlers beyond tests; the hook points themselves are wired before M4 (P5c). No Jev.
 
 ## P7. M5 — Judgment
 
@@ -1121,6 +1277,9 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 - Hooks: `Gate`, `Transform`, `Claim`, `Observe` kinds with fail-closed gates, typed observer results, ordering before final authorization, ledger rows per invocation. Compiled-in handlers first; remote handlers over the protocol may observe.
 - Roles table with the twelve seed rows, announced role changes, roles as hints in the compiler.
 - Executions gain `waiting` on Jev recovery and provider outage (fail closed, say so).
+- Task sessions and promotion, with the required arrangement (§3.2a) and pieces admitted by reference.
+- Independence as a compiler property, obligation invariants, honest delivery receipts, and `relies_on` in shadow (theseus-vug).
+- `categorize.v1` in shadow (§4.1a).
 
 **Prove.** On a held-out set of recorded trajectories, Jev-driven stopping and classification beat the deterministic-only baseline at equal total budget (judge cost included) on task success, false completion, and unnecessary continuation. Any pack that does not beat baseline stays in shadow and the plan says so.
 
@@ -1135,6 +1294,7 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 - The memory pass and recall as specified, consolidation as a tender job producing shadow syntheses with citation checks.
 - Tiering tender: demote by heat, rehydrate on reference; arena as a bounded cache with the presence filter.
 - The ablation harness: each feature toggled independently at fixed total budget, scored on §5.5a's metrics over recorded trajectories and a live canary.
+- The ontology's learning half (§4.1a): category embeddings, re-association by sweep and dream, lessons as guidance, and §5.5's namespaces as kinds. Also compilations that are never silently thinner, testimony and precedence, and volatile values rendered as-of (theseus-3nk).
 
 **Prove.** An ablation report exists and is honest. Features that do not move task success, false completion, stale recall, or disclosure violations at equal cost are disabled by default and marked experimental in the spec.
 
@@ -1389,7 +1549,7 @@ Local work is about 5 % of startup; the other 95 % is two network calls on the s
 | Manifest records the tail range | As-of position; the tail is everything after it | A range would duplicate the as-of and the session's position table | Keep |
 | Four-part cache layout (§4.5) | `cache_control` on the system block plus automatic top-level caching | Automatic caching follows the growing prefix; continuations read 4.5–8 k cached tokens | Moved to provider-safe caching (§4.5, theseus-ev1) |
 | Recovery from transient provider failures in continuations | A continuation that fails after admission parks the execution waiting for input, with `turn.failed` | No automatic retry by design (§3.13); the late result is in the graph and the next input sees it | Consider a retry wake with backoff |
-| The run-hooks path wired at each event site (P2); the core's hook sites and the kernel gate meet when tools arrive (A2) | The same fourteen events as at M0 are dispatched. `tool.pre_call`, `tool.post_call`, `confirm.requested`, `action.planned`, `action.dispatched`, `completion.received`, and `ledger.row` sit on paths that exist and are never dispatched, and the confirm is decided in the policy gate, not through `PreToolCall`'s `defer` (§3.17). `memory.*` and `judgment.made` wait for their subsystems | Not recorded when M2 and M3 landed; found by the theseus-s3m review, 2026-09-27 (Appendix F) | Wire the seven as zero-handler observe sites, or amend §3.17 (theseus-0dp) |
+| The run-hooks path wired at each event site (P2); the core's hook sites and the kernel gate meet when tools arrive (A2) | The same fourteen events as at M0 are dispatched. `tool.pre_call`, `tool.post_call`, `confirm.requested`, `action.planned`, `action.dispatched`, `completion.received`, and `ledger.row` sit on paths that exist and are never dispatched, and the confirm is decided in the policy gate, not through `PreToolCall`'s `defer` (§3.17). `memory.*` and `judgment.made` wait for their subsystems | Not recorded when M2 and M3 landed; found by the theseus-s3m review, 2026-09-27 (Appendix F). Re-verified that night, with a further finding: three dispatched sites discard their result. They are `tool.proposed` (gate), `context.built` (transform), and `reply.claim` (claim). With `tool.pre_call` unwired, no hook could stop a tool call. This is latent while `Hooks::dispatch` always returns `Proceed` (only remote observers exist) | Eddie, 2026-09-27: fix as proposed. Wire the seven, make the three honor their results, amend §3.17 (done in v0.37), add a blocking scenario per gating point, and let the P0 registry test prevent a recurrence (theseus-0dp, P5c item 2) |
 | Process start to accepting events in under 2 s, warm-up excluded (§9) | Met, at 1.3 s, but 1.2 s of it is network on the start path: secrets through `op` and the GitHub token check run before the store opens | The startup order dates from M0, and no bench timed startup end to end | Serve first; secrets and checks resolve in the background (P5b, M3.5) |
 
 **Known gaps carried forward.** The simulator's random operations do not yet include the kernel calls M3 added (decline, wake, the resume flag, records riding in the plan and settle frames); the core scenarios cover them, the fault injection does not. An allowed call interrupted between its plan and its authorization is treated as awaiting confirmation (the safe direction). In-process results over `[tools].result_max_chars` are truncated without a full-output reference (`fs.read` pages instead). `session.history` returns whole sessions, and `theseus confirm` without an id asks each waiting session in turn. The web transcript renders plain text, not markdown. The `updates` thinking display is wired but not yet exercised live. A profile's `max_output_tokens` still wins over the catalog, so a config carrying the old `max_tokens = 1024` truncates tool inputs; regenerate it from `theseusd example-config`. Since 8c8a53a the template caps no profile, so every model runs at its catalog ceiling. Budgets count every token at full weight, cache reads included, and each provider call reserves its output cap plus the input estimate: about 130 k at Sonnet 5's ceiling, so the default million-token budget ends a session near 862 k minus its context (theseus-0sg). A session's limit is fixed when its execution opens; changing `default_budget` affects new sessions only. Discord: attachments are listed in the input by name and size, not read; a DM place whose channel could not be opened at startup stays silent until that user writes; rendering remembers the last eight turns per place, so a confirm answered after a restart is settled by the button handler from the message itself; slash commands are registered globally; there are no threads. Delivery is not yet durable: a turn that ends while Discord is unreachable, or after the 20 s startup wait gave up, is in the store and the web UI but is not re-posted when Discord returns (delivery becomes an action with its own completion in M5).
