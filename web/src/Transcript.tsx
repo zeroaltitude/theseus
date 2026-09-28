@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { ConfirmRequest, NodeInfo, ProviderErrorData, Span, TurnResult, Usage } from './protocol'
+import type { ConfirmRequest, ConsequenceTag, NodeInfo, ProviderErrorData, Span, TurnResult, Usage } from './protocol'
+import { consequenceSummary } from './protocol'
 import TraceView from './TraceView'
 
 // The transcript is rebuilt from the session's durable nodes (session.history):
@@ -102,15 +103,19 @@ function ConfirmCard({ c, onConfirm, now }: { c: ConfirmRequest; onConfirm: Tran
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const left = Math.max(0, Math.round((c.expires_at_ms - now) / 1000))
+  const named = consequenceSummary(c.consequences)
   const answer = async (approve: boolean) => {
     setBusy(true); setErr(null)
     try { await onConfirm(c.correlation_id, approve, note) } catch (e) { setErr((e as { message?: string }).message ?? String(e)); setBusy(false) }
   }
   return (
-    <div className={`confirm ${c.against_policy ? 'against' : ''}`}>
+    <div className={`confirm ${c.against_policy ? 'against' : ''} ${c.irreversible ? 'irreversible' : ''}`}>
       <div className="confirm-head"><b>{c.tool}</b> {c.against_policy
-        ? <><span className="pill bad">against policy</span> the policy would refuse this; approve anyway?</>
-        : 'needs your confirmation'}</div>
+        ? <><span className="pill bad">against policy</span>{c.irreversible && <> <span className="pill bad">irreversible</span></>} the policy would refuse this; approve anyway?</>
+        : c.irreversible
+          ? <><span className="pill bad">irreversible</span> nothing restores what this changes; approve?</>
+          : 'needs your confirmation'}</div>
+      {named && <div className="consequences"><b>{named}</b></div>}
       <div className="muted small">{c.reason}</div>
       <Preview tool={c.tool} input={c.input} />
       <div className="confirm-actions">
@@ -161,9 +166,10 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
   const [open, setOpen] = useState(false)
   const d = (call?.detail ?? {}) as Record<string, unknown>
   const tool = str(d.tool) || (results[0] ? str((results[0].detail ?? {}).tool) : wireToName(use.name))
-  const decision = d.decision as { mode?: string; reason?: string; notify?: { kind: string; setting: string; rule: string } } | null | undefined
+  const decision = d.decision as { mode?: string; reason?: string; notify?: { kind: string; setting: string; rule: string }; consequences?: ConsequenceTag[]; irreversible?: boolean } | null | undefined
   const gate = decision?.mode ?? (d.result as { gate?: string } | undefined)?.gate
   const notice = decision?.notify
+  const named = consequenceSummary(decision?.consequences)
   const input = call ? d.input : use.input
   return (
     <div className={`tool ${confirm ? 'awaiting' : ''}`}>
@@ -174,6 +180,8 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
         {gate && <span className={`pill ${GATE_CLASS[gate] ?? ''}`} title={decision?.reason ?? ''}>{gate}</span>}
         {notice && <span className={`pill ${notice.kind === 'off_policy' ? 'bad' : 'warn'}`}
           title={`${notice.setting}\nthe policy said: ${notice.rule}`}>{notice.kind === 'off_policy' ? 'ran against policy' : 'ran without approval'}</span>}
+        {named && <span className={`pill ${decision?.irreversible ? 'bad' : 'warn'}`}
+          title={(decision?.consequences ?? []).map((t) => `${t.kind} (${t.rule ?? ''}): ${t.detail ?? ''}`).join('\n')}>{named}</span>}
         {running && results.length === 0 && <span className="accent small">running {Math.max(0, Math.round((now - running.startedAt) / 1000))} s…</span>}
       </div>
       {open && (

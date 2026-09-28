@@ -195,3 +195,5 @@ button.link.danger { color: var(--bad); }
 
 /* A confirm that stands in for a refusal (enforcement = ask). */
 .confirm.against { border-color: var(--bad, #d93025); }
+.confirm.irreversible { border-color: var(--bad, #d93025); border-width: 2px; }
+.confirm .consequences { color: var(--bad, #d93025); }

@@ -121,6 +121,22 @@ export interface ConfirmRequest {
   correlation_id: string; session_id: string; execution_id: string
   tool: string; input: unknown; resource?: string | null; reason: string; by: string
   requested_at_ms: number; expires_at_ms: number; against_policy?: boolean
+  /// What the call would do to the world (spec §3.9); `irreversible` waits at every level.
+  consequences?: ConsequenceTag[]; irreversible?: boolean
+}
+
+/// One consequence the gate named: a kind and its grade.
+export interface ConsequenceTag { kind: string; irreversible?: boolean; rule?: string; detail?: string }
+
+/// `irreversible: history_rewrite · needs approval: opaque` (as the Rust ConsequenceTag::summary).
+export function consequenceSummary(tags: ConsequenceTag[] | undefined): string {
+  const names = (irreversible: boolean) => [...new Set((tags ?? []).filter((t) => (t.irreversible ?? false) === irreversible).map((t) => t.kind))].join(', ')
+  const parts: string[] = []
+  const i = names(true)
+  if (i) parts.push(`irreversible: ${i}`)
+  const n = names(false)
+  if (n) parts.push(`needs approval: ${n}`)
+  return parts.join(' · ')
 }
 
 export interface SessionHistory { session: SessionInfo; nodes: NodeInfo[]; pending_confirms: ConfirmRequest[] }

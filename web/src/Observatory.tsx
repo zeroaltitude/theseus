@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, CatalogList, CompilationInfo, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, ToolList } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ConsequenceTag, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, ToolList } from './protocol'
+import { consequenceSummary } from './protocol'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -569,8 +570,8 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'context.compiled': return `${s('decision')}${g('trigger') ? ` (${s('trigger')})` : ''} · ${s('prefix_nodes')}+${s('tail_nodes')} nodes · ${s('messages')} msg · ~${s('est_tokens')} tok`
     case r.kind === 'context.recompiled': return `${s('trigger')} · ${s('strategy')} · ${s('includes')} node(s)${g('strip_thinking') ? ' · thinking stripped' : ''}`
     case r.kind === 'tool.denied': return `${s('tool')} · ${s('reason')}`
-    case r.kind === 'tool.notified': return `${g('kind') === 'off_policy' ? 'ran against policy' : 'ran without approval'} · ${s('tool')} · ${s('summary')} · ${s('setting')}`
-    case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`
+    case r.kind === 'tool.notified': return `${g('kind') === 'off_policy' ? 'ran against policy' : 'ran without approval'} · ${s('tool')} · ${s('summary')} · ${s('setting')}${consequenceSummary(g('consequences') as ConsequenceTag[] | undefined) ? ` · ${consequenceSummary(g('consequences') as ConsequenceTag[] | undefined)}` : ''}`
+    case r.kind === 'tool.confirm_requested': return `${s('tool')}${g('irreversible') ? ' · IRREVERSIBLE' : ''} · ${s('reason')}`
     case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
     case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('note') ? ` · ${s('note')}` : ''}`
     case r.kind === 'turn.trace': return 'timing tree (open for spans)'

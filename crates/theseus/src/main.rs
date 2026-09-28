@@ -1331,10 +1331,12 @@ fn print_node(n: &NodeInfo, full: bool) {
 }
 
 fn print_confirm(c: &ConfirmRequest) {
+    let named = theseus_protocol::ConsequenceTag::summary(&c.consequences);
     println!(
-        "  ? {} waits for you in {}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
+        "  ? {} waits for you in {}{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
         c.tool,
         c.session_id,
+        if named.is_empty() { String::new() } else { format!(" [{named}]") },
         c.reason,
         clip(&c.input.to_string(), 200),
         c.correlation_id,
@@ -1492,10 +1494,17 @@ impl Printer {
             notify::CONFIRM_REQUESTED => {
                 self.settle();
                 if let Ok(c) = serde_json::from_value::<ConfirmRequest>(p.clone()) {
+                    let named = theseus_protocol::ConsequenceTag::summary(&c.consequences);
                     eprintln!(
-                        "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
+                        "  ? {} needs your confirmation{}{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --deny {}",
                         c.tool,
-                        if c.against_policy { " (AGAINST POLICY)" } else { "" },
+                        match (c.against_policy, c.irreversible) {
+                            (true, true) => " (AGAINST POLICY, IRREVERSIBLE)",
+                            (true, false) => " (AGAINST POLICY)",
+                            (false, true) => " (IRREVERSIBLE)",
+                            (false, false) => "",
+                        },
+                        if named.is_empty() { String::new() } else { format!(" [{named}]") },
                         c.reason,
                         clip(&c.input.to_string(), 200),
                         c.correlation_id,
@@ -1506,8 +1515,12 @@ impl Printer {
             notify::POLICY_NOTIFIED => {
                 self.settle();
                 let off = p.get("kind").and_then(Value::as_str) == Some("off_policy");
+                let tags: Vec<theseus_protocol::ConsequenceTag> =
+                    serde_json::from_value(p.get("consequences").cloned().unwrap_or_default())
+                        .unwrap_or_default();
+                let named = theseus_protocol::ConsequenceTag::summary(&tags);
                 eprintln!(
-                    "  {} {} {}: {}\n      the policy said: {}\n      ({})",
+                    "  {} {} {}: {}\n      the policy said: {}{}\n      ({})",
                     if off { "!!" } else { "!" },
                     if off {
                         "ran against policy"
@@ -1517,6 +1530,11 @@ impl Printer {
                     p.get("tool").and_then(Value::as_str).unwrap_or("?"),
                     p.get("summary").and_then(Value::as_str).unwrap_or(""),
                     p.get("rule").and_then(Value::as_str).unwrap_or(""),
+                    if named.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n      {named}")
+                    },
                     p.get("setting").and_then(Value::as_str).unwrap_or("")
                 );
             }
