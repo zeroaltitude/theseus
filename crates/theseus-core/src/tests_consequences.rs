@@ -470,6 +470,43 @@ async fn notify_refuses_env_theseusd_version_and_the_model_hears_it() {
     );
 }
 
+/// Under `notify`, inline code that calls `theseusd` in its natural form
+/// (`subprocess.run(["theseusd", …])`) is refused as floor, not parked, and the
+/// reason the model receives says it came from an unparsable mention (step 2a++).
+#[tokio::test]
+async fn notify_refuses_inline_theseusd_call_as_floor() {
+    let rig = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": [
+                        "python3",
+                        "-c",
+                        "import subprocess; subprocess.run([\"theseusd\",\"--version\"])"
+                    ]}),
+                )],
+            ),
+            Scripted::text("Noted."),
+        ],
+        |cfg| cfg.policy.enforcement = Enforcement::Notify,
+    );
+    let res = turn(&rig.core, None, "check the version").await;
+    assert!(
+        res.awaiting_confirm.is_none(),
+        "the floor refuses, it does not park"
+    );
+    let rs = results(&rig.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Denied, "{rs:?}");
+    assert!(
+        rs[0].1.contains("floor") && rs[0].1.contains("theseusd"),
+        "the refusal names the floor and theseusd, and reaches the model: {}",
+        rs[0].1
+    );
+}
+
 /// Under `notify`, a brace-spelled force push inside `bash -c` parks as
 /// irreversible, and the local bare remote does not move.
 #[tokio::test]

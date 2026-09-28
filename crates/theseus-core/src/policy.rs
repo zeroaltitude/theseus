@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{Authority, Policy, PolicyDecision, Proposal};
 use theseus_protocol::ConsequenceTag;
 use theseus_tools::consequence::{self, Consequence, OwnerRule};
-use theseus_tools::shell::{self, Cmd};
+use theseus_tools::shell::{self, Cmd, Word};
 use theseus_tools::{paths, Access, Plan, Tool, ToolClass, ToolCtx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -358,6 +358,11 @@ fn command_paths(cmd: &Cmd, home: Option<&Path>) -> Vec<(String, PathBuf)> {
     };
     let mut out = vec![];
     for w in cmd.args() {
+        // A glob is judged by its pattern (`command_glob_words`), not as a
+        // literal path with the metacharacters taken verbatim.
+        if w.glob {
+            continue;
+        }
         if let Some(v) = arg_path_value(&w.text) {
             if looks_like_path(v) {
                 out.extend(resolved(v).into_iter().map(|p| (w.text.clone(), p)));
@@ -366,6 +371,9 @@ fn command_paths(cmd: &Cmd, home: Option<&Path>) -> Vec<(String, PathBuf)> {
     }
     // A redirection target is a path even when it is a bare word (`> log`).
     for w in &cmd.redirs {
+        if w.glob {
+            continue;
+        }
         out.extend(resolved(&w.text).into_iter().map(|p| (w.text.clone(), p)));
     }
     out
@@ -423,16 +431,178 @@ fn mentions_word(text: &str, word: &str) -> bool {
     })
 }
 
-/// Does `text` mention `op <subcommand>` (the CLI, by any path)?
+/// Does `text` mention `op <subcommand>` (the CLI, by any path)? The word `op`
+/// may be followed by any run of separators — whitespace, quotes, commas,
+/// brackets, parentheses, or shell operators — then a subcommand, so inline code
+/// like `subprocess.run(["op", "read", …])` counts, not only `op read`.
 fn mentions_op(text: &str) -> bool {
     let toks: Vec<&str> = text
         .split(|c: char| {
-            c.is_whitespace() || matches!(c, '(' | ')' | ';' | '&' | '|' | '"' | '\'' | '`' | '=')
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    '(' | ')'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | ','
+                        | ';'
+                        | '&'
+                        | '|'
+                        | '"'
+                        | '\''
+                        | '`'
+                        | '='
+                )
         })
         .filter(|t| !t.is_empty())
         .collect();
     toks.windows(2)
         .any(|w| basename(w[0]) == "op" && OP_SUBCOMMANDS.contains(&w[1]))
+}
+
+/// The contents of `"…"` and `'…'` string literals in `text`, for the floor's
+/// scan of inline code: a literal whose content is exactly a floor program (or
+/// ends in `/op` or `/theseusd`) is a call to it (`subprocess.run(["op", …])`,
+/// `system("/usr/bin/op")`).
+fn quoted_literals(text: &str) -> Vec<String> {
+    let cs: Vec<char> = text.chars().collect();
+    let mut out = vec![];
+    let mut i = 0;
+    while i < cs.len() {
+        let q = cs[i];
+        if q == '"' || q == '\'' {
+            if let Some(k) = cs[i + 1..].iter().position(|&c| c == q) {
+                out.push(cs[i + 1..i + 1 + k].iter().collect());
+                i += k + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Is a floor program named as a string literal in `text`?
+fn floor_program_literal(text: &str) -> bool {
+    quoted_literals(text)
+        .iter()
+        .any(|s| s == "op" || s == "theseusd" || s.ends_with("/op") || s.ends_with("/theseusd"))
+}
+
+/// Path components (the `Normal` parts) of an absolute path, glob characters and
+/// all; the root and any prefix are dropped so two paths compare component-wise.
+fn path_comps(p: &Path) -> Vec<String> {
+    p.components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Does one glob component pattern match a literal path component? Supports `*`,
+/// `?`, and `[…]`; `*` and `?` match a leading dot, to over-approximate
+/// `dotglob`. A `[…]` class is over-approximated as a single-character wildcard.
+fn glob_seg_match(pat: &str, lit: &str) -> bool {
+    fn m(p: &[char], s: &[char]) -> bool {
+        match p.split_first() {
+            None => s.is_empty(),
+            Some(('*', rest)) => m(rest, s) || (!s.is_empty() && m(p, &s[1..])),
+            Some(('?', rest)) => !s.is_empty() && m(rest, &s[1..]),
+            Some(('[', rest)) => {
+                let after = rest
+                    .iter()
+                    .position(|&c| c == ']')
+                    .map(|k| &rest[k + 1..])
+                    .unwrap_or(&[]);
+                !s.is_empty() && m(after, &s[1..])
+            }
+            Some((c, rest)) => !s.is_empty() && s[0] == *c && m(rest, &s[1..]),
+        }
+    }
+    m(
+        &pat.chars().collect::<Vec<_>>(),
+        &lit.chars().collect::<Vec<_>>(),
+    )
+}
+
+/// Resolve a leading `~`, `$HOME`, or `${HOME}` (the daemon HOME) in a glob
+/// pattern; the rest, glob characters included, is left untouched.
+fn resolve_glob_home(pattern: &str, home: Option<&Path>) -> String {
+    if pattern == "~" || pattern.starts_with("~/") {
+        return shellexpand::tilde(pattern).into_owned();
+    }
+    if let Some(h) = home {
+        if pattern == "$HOME" || pattern == "${HOME}" {
+            return h.display().to_string();
+        }
+        if let Some(r) = pattern.strip_prefix("$HOME/") {
+            return h.join(r).to_string_lossy().into_owned();
+        }
+        if let Some(r) = pattern.strip_prefix("${HOME}/") {
+            return h.join(r).to_string_lossy().into_owned();
+        }
+    }
+    pattern.to_string()
+}
+
+/// Could the glob `pattern` (run in `cwd`, `~`/`$HOME` resolved) name `target`
+/// or something inside it? Match component by component. The pattern must have
+/// at least as many components as the target: a shorter pattern names an
+/// ancestor, left to the deny list as a non-glob ancestor already is, so
+/// `ls ~/*` stays allowed.
+fn glob_reaches(pattern: &str, cwd: &Path, home: Option<&Path>, target: &Path) -> bool {
+    let base = resolve_glob_home(pattern, home);
+    let full = if Path::new(&base).is_absolute() {
+        PathBuf::from(&base)
+    } else {
+        cwd.join(&base)
+    };
+    let canon = paths::canonical_best_effort(&full);
+    let pat = path_comps(&canon);
+    let tgt = path_comps(target);
+    if pat.is_empty() || pat.len() < tgt.len() {
+        return false;
+    }
+    tgt.iter().zip(&pat).all(|(t, p)| glob_seg_match(p, t))
+}
+
+/// The glob path words of a command: its path-like glob arguments and glob
+/// redirection targets, judged by pattern (not resolved to a concrete path).
+fn command_glob_words(cmd: &Cmd) -> Vec<&Word> {
+    let mut out = vec![];
+    for w in cmd.args() {
+        if w.glob {
+            if let Some(v) = arg_path_value(&w.text) {
+                if looks_like_path(v) {
+                    out.push(w);
+                }
+            }
+        }
+    }
+    for w in &cmd.redirs {
+        if w.glob {
+            out.push(w);
+        }
+    }
+    out
+}
+
+/// Could any glob path word of `cmd` name `target` or something inside it, under
+/// any directory the command might run in?
+fn cmd_glob_reaches<'a>(cmd: &'a Cmd, home: Option<&Path>, target: &Path) -> Option<&'a Word> {
+    command_glob_words(cmd).into_iter().find(|w| {
+        if is_rooted(&w.text) {
+            glob_reaches(&w.text, Path::new("/"), home, target)
+        } else {
+            cmd.cwds
+                .dirs
+                .iter()
+                .any(|d| glob_reaches(&w.text, d, home, target))
+        }
+    })
 }
 
 /// The spellings of a floor path a mention scan searches raw text for: its
@@ -592,7 +762,16 @@ impl ToolPolicy {
         };
         let never = "no setting allows it";
         for cmd in cmds {
-            let words: Vec<String> = cmd.words.iter().map(|w| w.text.clone()).collect();
+            // The program is matched by its file name, so a relative path reaches
+            // the floor just as the top-level check reduces an absolute one:
+            // `./target/release/theseusd` and `target/debug/theseusd` are both
+            // `theseusd`.
+            let mut words: Vec<String> = cmd.words.iter().map(|w| w.text.clone()).collect();
+            if !cmd.dynamic_program() {
+                if let Some(first) = words.first_mut() {
+                    *first = basename(first).to_string();
+                }
+            }
             for f in &self.floor_argv {
                 if prefix_match(&words, f) {
                     return Some(floor(format!(
@@ -633,6 +812,17 @@ impl ToolPolicy {
                         )));
                     }
                 }
+                // A glob path argument or redirection target, judged by pattern.
+                for f in &self.floor_paths {
+                    if let Some(w) = cmd_glob_reaches(cmd, home, f) {
+                        return Some(floor(format!(
+                            "`{}` globs `{}` into the floor ({}: it could name it or something inside it); {never}",
+                            cmd_display(cmd),
+                            w.text,
+                            f.display()
+                        )));
+                    }
+                }
             }
             if consequence::unreadable(cmd) {
                 if let Some(reason) = self.floor_mention(cmd, home) {
@@ -643,14 +833,31 @@ impl ToolPolicy {
         None
     }
 
-    /// A floor path, `theseusd`, or `op <subcommand>` named in a command's raw
-    /// text, when the gate cannot parse that command (inline code, `eval`, a
-    /// remote command, or unreadable text). The reason says the refusal came from
-    /// a mention in unparsable code, so a model can rephrase an innocent call.
+    /// A floor mention in a command the gate cannot parse (inline interpreter
+    /// code, `eval`, a dynamic program, a remote command, or unreadable text).
+    /// The reason says the refusal came from an unparsable mention, so a model
+    /// can rephrase an innocent call. It looks for, in the command's raw text:
+    /// a floor path (any form); `op://`, a 1Password secret reference; a floor
+    /// program named as a string literal (`"op"`, `'theseusd'`, `"/usr/bin/op"`);
+    /// `theseusd` as a word; or `op` followed by a subcommand across separators
+    /// (`"op", "read"`). For a dynamic program word it also scans the word's own
+    /// spelling, substitutions included (`$(echo op)`, `` `which theseusd` ``).
     fn floor_mention(&self, cmd: &Cmd, home: Option<&Path>) -> Option<String> {
         let text = &cmd.text;
         let unparsable =
             "in code the gate cannot parse; rephrase so the gate can see it does not touch the floor";
+        if cmd.dynamic_program() {
+            let spell = cmd.program_spelling();
+            for name in ["theseusd", "op"] {
+                if mentions_word(&spell, name) {
+                    return Some(format!(
+                        "`{}` builds its program from `{}`, which names `{name}` (on the floor) {unparsable}",
+                        cmd_display(cmd),
+                        spell.trim()
+                    ));
+                }
+            }
+        }
         for f in &self.floor_paths {
             for form in floor_path_forms(f, home) {
                 if text.contains(&form) {
@@ -660,6 +867,18 @@ impl ToolPolicy {
                     ));
                 }
             }
+        }
+        if text.contains("op://") {
+            return Some(format!(
+                "`{}` mentions an `op://` secret reference {unparsable}",
+                cmd_display(cmd)
+            ));
+        }
+        if floor_program_literal(text) {
+            return Some(format!(
+                "`{}` names a floor program as a string literal {unparsable}",
+                cmd_display(cmd)
+            ));
         }
         if mentions_word(text, "theseusd") {
             return Some(format!(
@@ -682,7 +901,13 @@ impl ToolPolicy {
     /// directories it runs in. No mention scan (that is the floor's alone).
     fn deny_over_commands(&self, cmds: &[Cmd], home: Option<&Path>) -> Option<Decision> {
         for cmd in cmds {
-            let words: Vec<String> = cmd.words.iter().map(|w| w.text.clone()).collect();
+            // The program is matched by its file name, as the floor does.
+            let mut words: Vec<String> = cmd.words.iter().map(|w| w.text.clone()).collect();
+            if !cmd.dynamic_program() {
+                if let Some(first) = words.first_mut() {
+                    *first = basename(first).to_string();
+                }
+            }
             for e in &self.deny_argv {
                 if prefix_match(&words, e) {
                     return Some(Decision::new(
@@ -724,6 +949,19 @@ impl ToolPolicy {
                             format!(
                                 "`{}` runs inside a protected directory ({} is on the deny list)",
                                 cmd_display(cmd),
+                                d.display()
+                            ),
+                        ));
+                    }
+                }
+                for d in &self.deny_paths {
+                    if let Some(w) = cmd_glob_reaches(cmd, home, d) {
+                        return Some(Decision::new(
+                            Mode::Deny,
+                            format!(
+                                "`{}` globs `{}` into a protected path ({} is on the deny list)",
+                                cmd_display(cmd),
+                                w.text,
                                 d.display()
                             ),
                         ));
@@ -1524,6 +1762,78 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// Step 2a++: the floor closes on a program word built at run time, natural
+    /// inline code, a relative program path, and a glob through a floor path.
+    #[test]
+    fn round_two_floor_closes_run_time_programs_inline_code_relative_paths_and_globs() {
+        use Enforcement::*;
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().canonicalize().unwrap();
+        let x = T(ToolClass::Run);
+        let at = |e: Enforcement| {
+            let mut q = policy(&root);
+            q.enforcement = e;
+            q
+        };
+        let exec = |argv: Vec<&str>| plan(root.clone(), Access::Exec, Some(argv));
+        let rs = root.display().to_string();
+        // A: run-time program words, natural inline code, relative program paths.
+        let a_prog_var = "x=op; $x read op://v/i/f".to_string();
+        let a_prog_sub = "$(echo op) read op://v/i/f".to_string();
+        let a_prog_td = "x=theseusd; $x --version".to_string();
+        let a_py =
+            "import subprocess; subprocess.run([\"op\",\"read\",\"op://v/i/f\"])".to_string();
+        let a_rel = "./target/release/theseusd config".to_string();
+        let a_rel2 = "target/debug/theseusd config".to_string();
+        // A4: a glob through a floor path (`state` is the floor here).
+        let a_glob1 = format!("cat {rs}/sta*/store/wal");
+        let a_glob2 = format!("cat {rs}/*/store/wal");
+        let floors: Vec<Vec<&str>> = vec![
+            vec!["bash", "-c", &a_prog_var],
+            vec!["bash", "-c", &a_prog_sub],
+            vec!["bash", "-c", &a_prog_td],
+            vec!["python3", "-c", &a_py],
+            vec!["perl", "-e", "system(\"op\", \"read\", \"op://v/i/f\")"],
+            vec!["bash", "-c", &a_rel],
+            vec!["bash", "-c", &a_rel2],
+            vec!["bash", "-c", &a_glob1],
+            vec!["bash", "-c", &a_glob2],
+        ];
+        for argv in &floors {
+            for e in [Strict, Ask, Notify, Open] {
+                let out = at(e).decide(&x, &exec(argv.clone()));
+                assert!(
+                    out.floor && out.mode == Mode::Deny && out.notify.is_none(),
+                    "floor must hold at {} for {argv:?}: {}",
+                    e.as_str(),
+                    out.reason
+                );
+            }
+        }
+        // Precision: a glob whose fewer components name an ancestor stays off the
+        // floor (`ls ~/*` is not `~/.theseus/store`); a benign relative program
+        // and a benign inline print are not floored.
+        let allowed_glob = exec(vec!["bash", "-c", "ls ~/*"]);
+        assert!(!at(Open).decide(&x, &allowed_glob).floor);
+        let ok_rel = exec(vec!["bash", "-c", "./scripts/build.sh"]);
+        assert!(!at(Notify).decide(&x, &ok_rel).floor);
+        let ok_py = exec(vec!["python3", "-c", "print(1)"]);
+        assert!(!at(Notify).decide(&x, &ok_py).floor);
+        // `grep -r "op://" crates` and `rg 'op read' docs` are parsed working
+        // commands, not inline code, so the mention scan never runs on them.
+        for argv in [
+            vec!["grep", "-r", "op://", "crates"],
+            vec!["rg", "op read", "docs"],
+        ] {
+            let out = at(Open).decide(&x, &exec(argv));
+            assert!(
+                !out.floor,
+                "a parsed command is not mention-scanned: {}",
+                out.reason
+            );
         }
     }
 
