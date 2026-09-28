@@ -1195,11 +1195,12 @@ fn session_header(s: &SessionInfo) -> String {
     )
 }
 
-/// A result status as the operator reads it: `denied` is a call that never
-/// ran (declined, or superseded by a new message).
+/// A result status as the operator reads it: `declined` is a call that never
+/// ran (declined, or superseded by a new message). A daemon from before
+/// theseus-8az says `denied`.
 fn status_word(status: &str) -> &str {
     match status {
-        "denied" => "not run",
+        "declined" | "denied" => "not run",
         s => s,
     }
 }

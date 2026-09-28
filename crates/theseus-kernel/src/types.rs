@@ -332,6 +332,19 @@ pub struct Action {
     pub completions_seen: u32,
 }
 
+impl Action {
+    /// The note from a decline, when `Kernel::decline_action` settled this
+    /// action: its resolution reads `declined by <who>: <note>`, or `denied by
+    /// <who>: <note>` in rows written before theseus-8az.
+    pub fn declined_note(&self) -> Option<&str> {
+        let r = self.resolution.as_deref()?;
+        let rest = r
+            .strip_prefix("declined by ")
+            .or_else(|| r.strip_prefix("denied by "))?;
+        Some(rest.split_once(": ").map_or(rest, |(_, note)| note))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {

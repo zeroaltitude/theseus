@@ -286,7 +286,7 @@ async fn a_declined_write_and_a_superseded_one_never_run() {
     assert_eq!(cont.output, "Understood, not writing.");
     assert!(!r.root.join("a.txt").exists());
     let rs = results(&r.core, &res.session_id);
-    assert_eq!(rs[0].0, ResultStatus::Denied);
+    assert_eq!(rs[0].0, ResultStatus::Declined);
     assert!(
         rs[0].1.contains("declined") && rs[0].1.contains("not now") && !rs[0].1.contains("denied"),
         "{rs:?}"
@@ -299,13 +299,60 @@ async fn a_declined_write_and_a_superseded_one_never_run() {
     assert_eq!(res3.output, "Okay, never mind then.");
     assert!(!r.root.join("b.txt").exists());
     let rs = results(&r.core, &res.session_id);
-    assert_eq!(rs[1].0, ResultStatus::Denied);
+    assert_eq!(rs[1].0, ResultStatus::Declined);
     assert!(rs[1].1.contains("new message"), "{rs:?}");
-    // The request that followed has the denial before the new input, in one user message.
+    // The request that followed has the decline before the new input, in one user message.
     let last = r.fake.requests().pop().unwrap();
     let final_user = last.messages.last().unwrap();
     assert_eq!(final_user["content"][0]["type"], "tool_result");
     assert_eq!(final_user["content"][1]["text"], "actually, don't");
+}
+
+/// A daemon from before theseus-8az recorded a decline as `denied by <who>:
+/// <note>`. Resumed by this binary, such an action still reaches the model as
+/// a decline with the operator's note. New declines use the new names.
+#[tokio::test]
+async fn a_decline_recorded_under_the_old_names_still_reads_as_a_decline() {
+    use theseus_store::{kinds, NewRecord};
+    let r = rig(vec![
+        Scripted::tools(
+            "",
+            &[("t1", "fs_write", json!({"path": "a.txt", "content": "x"}))],
+        ),
+        Scripted::text("Understood, not writing."),
+    ]);
+    let res = turn(&r.core, None, "write a").await;
+    let corr = res.awaiting_confirm.clone().unwrap();
+    r.core
+        .confirm_action(&corr, false, Some("not now"), "test")
+        .unwrap();
+    let mut a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(
+        a.resolution.as_deref(),
+        Some("declined by operator: not now")
+    );
+    assert_eq!(ledgered(&r, "action.declined").len(), 1);
+    assert!(ledgered(&r, "action.denied").is_empty());
+    // Store the action again as the previous binary wrote it.
+    a.resolution = Some("denied by operator: not now".into());
+    let rec = NewRecord::json(kinds::ACTION, Some(&corr), &a)
+        .unwrap()
+        .scoped(&a.session_id);
+    r.core.store.append(vec![rec]).unwrap();
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cont.output, "Understood, not writing.");
+    assert!(!r.root.join("a.txt").exists());
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Declined);
+    assert_eq!(
+        rs[0].1,
+        "Not run: the operator declined this call (not now)."
+    );
 }
 
 #[tokio::test]
@@ -391,7 +438,11 @@ async fn outside_the_roots_and_approve_paths_wait_with_a_clear_reason() {
         .unwrap();
     assert_eq!(cont.output, "Skipped it.");
     let rs = results(&r.core, &sid);
-    assert_eq!(rs[1].0, ResultStatus::Denied, "declined, never run: {rs:?}");
+    assert_eq!(
+        rs[1].0,
+        ResultStatus::Declined,
+        "declined, never run: {rs:?}"
+    );
     assert!(!rs[1].1.contains("not for the model"), "{}", rs[1].1);
 
     // Bad input and unknown tools are errors, as before.
@@ -453,7 +504,10 @@ async fn the_token_file_the_daemon_was_given_is_on_the_floor() {
         .unwrap()
         .unwrap();
     assert_eq!(cont.output, "Waiting on you.");
-    assert_eq!(results(&r.core, &res.session_id)[0].0, ResultStatus::Denied);
+    assert_eq!(
+        results(&r.core, &res.session_id)[0].0,
+        ResultStatus::Declined
+    );
     // The same file, not named as the token file, is only outside the roots.
     let r = rig_with(script(), |cfg| cfg.policy.enforcement = Posture::Open);
     let res = turn(&r.core, None, "read the token").await;
@@ -780,5 +834,9 @@ async fn under_open_a_floor_path_still_waits_and_is_never_refused() {
         .unwrap();
     assert_eq!(cont.output, "Understood, I will not read it.");
     let rs = results(&r.core, &res.session_id);
-    assert_eq!(rs[0].0, ResultStatus::Denied, "declined, never run: {rs:?}");
+    assert_eq!(
+        rs[0].0,
+        ResultStatus::Declined,
+        "declined, never run: {rs:?}"
+    );
 }

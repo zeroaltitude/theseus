@@ -653,7 +653,8 @@ impl Kernel {
     /// A human declined a planned action (a confirm answered "no", or new
     /// input superseded the question). The action settles `Cancelled` with the
     /// reason as its resolution and its reservation released; it never ran.
-    pub fn deny_action(&self, correlation_id: &str, by: &str, reason: &str) -> Result<Action> {
+    /// Rows written before theseus-8az say `action.denied` and `denied by`.
+    pub fn decline_action(&self, correlation_id: &str, by: &str, reason: &str) -> Result<Action> {
         let mut a = self
             .action(correlation_id)?
             .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
@@ -668,7 +669,7 @@ impl Kernel {
         let now = self.now_ms();
         a.state = ActionState::Cancelled;
         a.settled_at_ms = Some(now);
-        a.resolution = Some(format!("denied by {by}: {reason}"));
+        a.resolution = Some(format!("declined by {by}: {reason}"));
         let mut frame = vec![self.action_record(&a)?];
         if let Some(mut e) = self.execution(&a.execution_id)? {
             if let Some(r) = &a.reservation_id {
@@ -678,7 +679,7 @@ impl Kernel {
             frame.push(self.exec_record(&e)?);
         }
         frame.push(self.ledger(
-            "action.denied",
+            "action.declined",
             Some(&a.session_id),
             json!({"correlation_id": a.correlation_id, "tool": a.tool, "by": by, "reason": reason}),
         )?);

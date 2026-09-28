@@ -551,6 +551,8 @@ function summarize(r: LedgerEntry): string {
   switch (true) {
     case r.kind === 'action.planned': return `${s('tool')} · reserved ${s('reserved')} · ${s('retry_class').replace(/[{}"]/g, '')}`
     case r.kind === 'action.dispatched': return `${s('tool')}${g('external_op_id') ? ` · ext ${s('external_op_id')}` : ''}`
+    // Rows from before theseus-8az say `action.denied`.
+    case r.kind === 'action.declined' || r.kind === 'action.denied': return `${s('tool')} · declined by ${s('by')} · ${s('reason')}`
     case r.kind.startsWith('action.'): return `${s('outcome') || s('cancel') || ''}${g('duration_ms') != null ? ` · ${s('duration_ms')} ms` : ''}${g('usage_units') != null ? ` · ${s('usage_units')} units` : ''}${g('execution_state') ? ` · execution ${s('execution_state')}` : ''}`
     case r.kind === 'execution.running': return `turn ${s('turn')} · ${s('queued_results')} queued result(s)`
     case r.kind === 'execution.waiting': return `wake ${s('wake')} · turn ${s('turn')} took ${s('turn_ms')} ms`

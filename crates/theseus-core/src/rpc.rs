@@ -823,7 +823,7 @@ impl Core {
             self.kernel
                 .bind_confirm(correlation_id, OPERATOR, &proposal)?;
         } else {
-            self.kernel.deny_action(
+            self.kernel.decline_action(
                 correlation_id,
                 OPERATOR,
                 note.unwrap_or("the operator declined"),
@@ -1488,7 +1488,7 @@ impl Core {
                 let rows: Vec<(u64, LedgerRow)> = self.store.ledger_tail(scan).map_err(bad)?;
                 let rows: Vec<LedgerEntry> = rows
                     .into_iter()
-                    .filter(|(_, r)| p.kind.as_deref().is_none_or(|k| r.kind == k))
+                    .filter(|(_, r)| p.kind.as_deref().is_none_or(|k| r.is_kind(k)))
                     .filter(|(_, r)| {
                         p.session_id
                             .as_deref()
@@ -2049,6 +2049,105 @@ mod tests {
             serde_json::from_value(responses(&tail)[0].result.clone().unwrap()).unwrap();
         assert_eq!(t.rows.len(), 2);
         assert!(t.rows.iter().all(|r| r.kind == "provider.call"));
+    }
+
+    /// Rows stored before theseus-8az renamed the decline vocabulary: a tool
+    /// result with status `denied` and an `action.denied` ledger row. Both
+    /// still decode, and the history and ledger reads serve them.
+    #[tokio::test]
+    async fn rows_stored_with_the_old_denied_names_still_decode() {
+        use crate::node::ResultStatus;
+        let core = test_core("hi");
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        let sid = rec.session_id.clone();
+        core.store.put_session(&sid, &rec).unwrap();
+        let n = Node::tool_result(
+            &sid,
+            Some("turn_1"),
+            Some(0),
+            Body::ToolResult {
+                tool_use_id: "toolu_1".into(),
+                tool: "fs.write".into(),
+                status: ResultStatus::Declined,
+                is_error: true,
+                content: "Not run: the operator declined this call (not now).".into(),
+                correlation_id: Some("act_1".into()),
+                bytes_total: 0,
+                truncated: false,
+                full_ref: None,
+                duration_ms: None,
+                late: false,
+                meta: Value::Null,
+            },
+        );
+        let mut old = serde_json::to_value(&n).unwrap();
+        old["body"]["status"] = json!("denied");
+        let r = theseus_store::NewRecord::json(theseus_store::kinds::NODE, Some(&n.id), &old)
+            .unwrap()
+            .scoped(&sid);
+        assert!(String::from_utf8_lossy(&r.payload).contains(r#""status":"denied""#));
+        core.store.append(vec![r]).unwrap();
+        let old_row = json!({"correlation_id": "act_1", "tool": "fs.write", "by": "operator", "reason": "not now"});
+        for kind in ["action.denied", "action.declined"] {
+            core.store
+                .append_ledger(&LedgerRow::new(kind, Some(&sid), None, old_row.clone()))
+                .unwrap();
+        }
+
+        let nodes = core.store.session_nodes(&sid).unwrap();
+        assert!(
+            matches!(
+                &nodes[0].1.body,
+                Body::ToolResult {
+                    status: ResultStatus::Declined,
+                    ..
+                }
+            ),
+            "{nodes:?}"
+        );
+        let tail = |id, kind: &str| {
+            Request::new(
+                Id::Num(id),
+                method::LEDGER_TAIL,
+                LedgerTailParams {
+                    n: Some(10),
+                    kind: Some(kind.into()),
+                    session_id: None,
+                },
+            )
+        };
+        let got = roundtrip(
+            core.clone(),
+            vec![
+                Request::new(
+                    Id::Num(1),
+                    method::SESSION_HISTORY,
+                    theseus_protocol::SessionHistoryParams {
+                        session_id: sid.clone(),
+                        n: None,
+                    },
+                ),
+                tail(2, "action.declined"),
+                tail(3, "action.denied"),
+            ],
+        )
+        .await;
+        let rs = responses(&got);
+        let result = |id| {
+            rs.iter()
+                .find(|r| r.id == Id::Num(id))
+                .and_then(|r| r.result.clone())
+                .unwrap()
+        };
+        let h: theseus_protocol::SessionHistoryResult = serde_json::from_value(result(1)).unwrap();
+        assert_eq!(h.nodes[0].detail["status"], "declined");
+        // Either name reads the rows stored under both.
+        for id in [2, 3] {
+            let t: LedgerTailResult = serde_json::from_value(result(id)).unwrap();
+            let kinds: Vec<&str> = t.rows.iter().map(|r| r.kind.as_str()).collect();
+            assert_eq!(kinds, ["action.denied", "action.declined"], "{t:?}");
+            assert_eq!(t.rows[0].data, old_row);
+        }
     }
 
     #[tokio::test]

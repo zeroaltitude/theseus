@@ -126,7 +126,9 @@ function ConfirmCard({ c, onConfirm, now }: { c: ConfirmRequest; onConfirm: Tran
   )
 }
 
-const STATUS_CLASS: Record<string, string> = { ok: 'ok', error: 'bad', denied: 'warn', background: 'accent', unknown: 'warn', cancelled: 'muted' }
+// A call that never ran; rows from before theseus-8az say `denied`.
+const NOT_RUN = ['declined', 'denied']
+const STATUS_CLASS: Record<string, string> = { ok: 'ok', error: 'bad', declined: 'warn', denied: 'warn', background: 'accent', unknown: 'warn', cancelled: 'muted' }
 const GATE_CLASS: Record<string, string> = { allow: 'ok', open: 'ok', notify: 'warn', confirm: 'accent', approve: 'accent', deny: 'bad' }
 
 function ResultLine({ r, open }: { r: NodeInfo; open: boolean }) {
@@ -136,7 +138,7 @@ function ResultLine({ r, open }: { r: NodeInfo; open: boolean }) {
   return (
     <>
       <div className="result-line">
-        <span className={`pill ${STATUS_CLASS[status] ?? ''}`}>{status === 'denied' ? 'not run' : status}</span>
+        <span className={`pill ${STATUS_CLASS[status] ?? ''}`}>{NOT_RUN.includes(status) ? 'not run' : status}</span>
         {d.late === true && <span className="pill accent" title="arrived after the turn that asked for it">late</span>}
         {exit != null && <span className={exit === 0 ? 'muted' : 'bad'}>exit {str(exit)}</span>}
         {d.duration_ms != null && <span className="muted">{fmt(Number(d.duration_ms))} ms</span>}

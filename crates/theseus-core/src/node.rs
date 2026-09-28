@@ -36,8 +36,11 @@ pub enum ResultStatus {
     Ok,
     /// The tool ran and failed, or its input was invalid.
     Error,
-    /// Policy or a human said no.
-    Denied,
+    /// The call never ran: the operator declined it, a new message superseded
+    /// it, or its confirmation lapsed. Rows written before theseus-8az say
+    /// `denied`.
+    #[serde(alias = "denied")]
+    Declined,
     /// Still running as a background job; the real result arrives later.
     Background,
     /// The outcome could not be established (the harness restarted mid-call).
@@ -50,7 +53,7 @@ impl ResultStatus {
         match self {
             ResultStatus::Ok => "ok",
             ResultStatus::Error => "error",
-            ResultStatus::Denied => "denied",
+            ResultStatus::Declined => "declined",
             ResultStatus::Background => "background",
             ResultStatus::Unknown => "unknown",
             ResultStatus::Cancelled => "cancelled",

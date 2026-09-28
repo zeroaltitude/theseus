@@ -300,7 +300,7 @@ impl ToolRuntime {
                 is_error: matches!(
                     status,
                     ResultStatus::Error
-                        | ResultStatus::Denied
+                        | ResultStatus::Declined
                         | ResultStatus::Unknown
                         | ResultStatus::Cancelled
                 ),
@@ -1058,7 +1058,7 @@ impl ToolRuntime {
                         }
                         Err(e) => {
                             // The confirm expired or no longer matches: say so, never run it.
-                            tc.kernel.deny_action(
+                            tc.kernel.decline_action(
                                 &corr,
                                 "harness",
                                 &format!("confirmation invalid: {e}"),
@@ -1067,7 +1067,7 @@ impl ToolRuntime {
                                 tc,
                                 &u.id,
                                 &tool_name,
-                                ResultStatus::Denied,
+                                ResultStatus::Declined,
                                 &format!("Not run: the confirmation is no longer valid ({e})."),
                                 Some(&corr),
                                 None,
@@ -1083,13 +1083,13 @@ impl ToolRuntime {
                 }
                 ActionState::Planned => {
                     if has_input {
-                        tc.kernel.deny_action(
+                        tc.kernel.decline_action(
                             &corr,
                             &self.policy.confirmer,
                             "superseded: the operator sent a new message instead of confirming",
                         )?;
                         tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false, "superseded": true}));
-                        let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Denied, "Not run: the operator sent a new message instead of confirming this call.", Some(&corr), None, false, None, None, Value::Null);
+                        let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Declined, "Not run: the operator sent a new message instead of confirming this call.", Some(&corr), None, false, None, None, Value::Null);
                         self.write_result(tc, node)?;
                         out.wrote += 1;
                     } else {
@@ -1158,18 +1158,19 @@ impl ToolRuntime {
                     out.wrote += 1;
                 }
                 ActionState::Cancelled => {
-                    let reason = a.resolution.clone().unwrap_or_else(|| "cancelled".into());
-                    let status = if reason.starts_with("denied") {
-                        ResultStatus::Denied
-                    } else {
-                        ResultStatus::Cancelled
-                    };
-                    let text = if status == ResultStatus::Denied {
-                        // The kernel records "denied by <who>: <note>"; the model reads the note.
-                        let note = reason.split_once(": ").map_or(reason.as_str(), |(_, n)| n);
-                        format!("Not run: the operator declined this call ({note}).")
-                    } else {
-                        format!("Not run: {reason}.")
+                    // A decline records who declined; the model reads only the note.
+                    let (status, text) = match a.declined_note() {
+                        Some(note) => (
+                            ResultStatus::Declined,
+                            format!("Not run: the operator declined this call ({note})."),
+                        ),
+                        None => (
+                            ResultStatus::Cancelled,
+                            format!(
+                                "Not run: {}.",
+                                a.resolution.as_deref().unwrap_or("cancelled")
+                            ),
+                        ),
                     };
                     let node = self.result_node(
                         tc,

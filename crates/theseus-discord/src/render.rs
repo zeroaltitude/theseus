@@ -209,8 +209,9 @@ impl Renderer {
                 self.update_tool(turn_id, &use_id, |l| {
                     l.state = match status.as_str() {
                         "background" => ToolState::Background,
-                        // A decline keeps saying who declined.
-                        "denied" => match &l.state {
+                        // A decline keeps saying who declined. A daemon from
+                        // before theseus-8az says `denied`.
+                        "declined" | "denied" => match &l.state {
                             ToolState::Answered {
                                 approved: false, ..
                             } => l.state.clone(),
@@ -837,55 +838,64 @@ mod tests {
 
     #[test]
     fn a_declined_call_keeps_saying_who_declined_it() {
-        let mut r = Renderer::default();
-        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
-        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "fs.read",
-            "input": {"path": "/etc/hosts"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
-        r.on_notification("confirm.requested", &json!({"correlation_id": "act_9",
-            "session_id": "s", "execution_id": "e", "tool": "fs.read", "input": {"path": "/etc/hosts"},
-            "reason": "read /etc/hosts: fs.read — approve (/etc/hosts is outside the workspace roots: /w)",
-            "by": "operator", "requested_at_ms": 0, "expires_at_ms": 60_000}));
-        r.on_notification(
-            "confirm.resolved",
-            &json!({"correlation_id": "act_9", "approved": false, "by": "eddie"}),
-        );
-        r.on_notification(
-            "tool.ended",
-            &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "denied", "duration_ms": 0}),
-        );
-        let ops = upserts(&r.on_notification("turn.ended", &ended("t1", None)));
-        assert!(
-            ops.contains(&(
-                "t1:L0:tools".into(),
-                "👎 `fs.read` /etc/hosts · declined by eddie".into()
-            )),
-            "{ops:?}"
-        );
+        // `denied` is the status name before theseus-8az.
+        for status in ["declined", "denied"] {
+            let mut r = Renderer::default();
+            r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+            r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "fs.read",
+                "input": {"path": "/etc/hosts"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
+            r.on_notification("confirm.requested", &json!({"correlation_id": "act_9",
+                "session_id": "s", "execution_id": "e", "tool": "fs.read", "input": {"path": "/etc/hosts"},
+                "reason": "read /etc/hosts: fs.read — approve (/etc/hosts is outside the workspace roots: /w)",
+                "by": "operator", "requested_at_ms": 0, "expires_at_ms": 60_000}));
+            r.on_notification(
+                "confirm.resolved",
+                &json!({"correlation_id": "act_9", "approved": false, "by": "eddie"}),
+            );
+            r.on_notification(
+                "tool.ended",
+                &json!({"turn_id": "t1", "tool_use_id": "u1", "status": status, "duration_ms": 0}),
+            );
+            let ops = upserts(&r.on_notification("turn.ended", &ended("t1", None)));
+            assert!(
+                ops.contains(&(
+                    "t1:L0:tools".into(),
+                    "👎 `fs.read` /etc/hosts · declined by eddie".into()
+                )),
+                "{status}: {ops:?}"
+            );
+        }
     }
 
     #[test]
     fn a_call_that_never_ran_and_a_failed_turn_say_so() {
-        let mut r = Renderer::default();
-        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
-        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "fs.read",
-            "input": {"path": "~/.ssh/config"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
-        r.on_notification(
-            "tool.ended",
-            &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "denied", "duration_ms": 0}),
-        );
-        let ops = upserts(&r.on_notification(
-            "turn.failed",
-            &json!({"session_id": "s", "turn_id": "t1", "class": "overloaded", "error": "try later"}),
-        ));
-        assert!(ops.contains(&(
-            "t1:L0:tools".into(),
-            "🚫 `fs.read` ~/.ssh/config · not run".into()
-        )));
-        assert!(ops.contains(&(
-            "t1:failed".into(),
-            "⚠️ **Turn failed** (overloaded): try later".into()
-        )));
-        assert!(!r.busy());
+        // `denied` is the status name before theseus-8az.
+        for status in ["declined", "denied"] {
+            let mut r = Renderer::default();
+            r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+            r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "fs.read",
+                "input": {"path": "~/.ssh/config"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
+            r.on_notification(
+                "tool.ended",
+                &json!({"turn_id": "t1", "tool_use_id": "u1", "status": status, "duration_ms": 0}),
+            );
+            let ops = upserts(&r.on_notification(
+                "turn.failed",
+                &json!({"session_id": "s", "turn_id": "t1", "class": "overloaded", "error": "try later"}),
+            ));
+            assert!(
+                ops.contains(&(
+                    "t1:L0:tools".into(),
+                    "🚫 `fs.read` ~/.ssh/config · not run".into()
+                )),
+                "{status}: {ops:?}"
+            );
+            assert!(ops.contains(&(
+                "t1:failed".into(),
+                "⚠️ **Turn failed** (overloaded): try later".into()
+            )));
+            assert!(!r.busy());
+        }
     }
 
     #[test]

@@ -591,7 +591,7 @@ mod tests {
                 tool_use_id: id.into(),
                 tool: "fs.read".into(),
                 status,
-                is_error: matches!(status, ResultStatus::Error | ResultStatus::Denied),
+                is_error: matches!(status, ResultStatus::Error | ResultStatus::Declined),
                 content: content.into(),
                 correlation_id: None,
                 bytes_total: 0,

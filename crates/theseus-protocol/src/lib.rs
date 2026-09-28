@@ -602,7 +602,8 @@ pub struct TurnSubmitResult {
 pub struct LedgerTailParams {
     #[serde(default)]
     pub n: Option<usize>,
-    /// Only rows of this kind (e.g. "turn.ended", "provider.error").
+    /// Only rows of this kind (e.g. "turn.ended", "provider.error"). A renamed
+    /// kind also reads the rows stored under its old name.
     #[serde(default)]
     pub kind: Option<String>,
     #[serde(default)]
