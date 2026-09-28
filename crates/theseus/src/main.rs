@@ -1270,12 +1270,16 @@ fn print_node(n: &NodeInfo, full: bool) {
         }
         "tool_call" => {
             let input = d.get("input").map(|v| v.to_string()).unwrap_or_default();
-            // The policy's verdict with its reason; a call that failed
-            // validation never reached policy, so fall back to the gate result.
+            // The policy's verdict (its posture; the band for older rows) with
+            // its reason; a call that failed validation never reached policy,
+            // so fall back to the gate result.
             let gate = match d.get("decision") {
                 Some(Value::Object(o)) => format!(
                     "{}: {}",
-                    o.get("mode").and_then(Value::as_str).unwrap_or("?"),
+                    o.get("posture")
+                        .or_else(|| o.get("mode"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("?"),
                     clip(o.get("reason").and_then(Value::as_str).unwrap_or(""), 90)
                 ),
                 _ => d
