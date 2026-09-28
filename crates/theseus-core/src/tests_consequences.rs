@@ -349,3 +349,89 @@ async fn strict_changes_nothing_else() {
     assert!(res.awaiting_confirm.is_none());
     assert_eq!(results(&rig.core, &res.session_id)[0].0, ResultStatus::Ok);
 }
+
+/// A `tool_call` node as the gate wrote it before consequences existed: no
+/// `consequences`, no `rules`, and at `notify` a proc.run ran with a notice.
+fn node_from_before(root: &Path, session_id: &str, argv: &[&str]) -> crate::node::Node {
+    let summary = format!("run `{}` in {}", argv.join(" "), root.display());
+    let rule = format!("{summary}: proc.run is `confirm` for run tools");
+    crate::node::Node::tool_call(
+        session_id,
+        Some("turn_before"),
+        Some(0),
+        Body::ToolCall {
+            tool_use_id: crate::new_id("toolu"),
+            tool: "proc.run".into(),
+            wire_name: "proc_run".into(),
+            input: json!({ "argv": argv }),
+            assistant_node: "asst_before".into(),
+            correlation_id: Some(crate::new_id("act")),
+            gate: json!({
+                "result": {"gate": "allow"},
+                "validated": true,
+                "decision": {"mode": "allow", "reason": format!("ran without approval: {rule}"),
+                    "notify": {"kind": "approval_skipped", "setting": "enforcement = notify", "rule": rule}},
+                "plan": {"resources": [{"path": root, "access": "exec"}], "argv": argv, "summary": summary},
+            }),
+        },
+    )
+}
+
+#[tokio::test]
+async fn replay_judges_past_calls_with_the_current_rules_and_writes_nothing() {
+    if !have_git() {
+        return;
+    }
+    // Today's gate parked this one; replay finds nothing to change about it.
+    let r = run(
+        Enforcement::Notify,
+        json!(["git", "push", "--force", "origin", "main"]),
+        true,
+    )
+    .await;
+    // Two calls from before the rule table: a force push that ran with only a
+    // notice, and a plain push.
+    let store = &r.rig.core.store;
+    let sid = &r.res.session_id;
+    for argv in [
+        &["git", "push", "--force", "origin", "main"][..],
+        &["git", "push", "origin", "main"][..],
+    ] {
+        let n = node_from_before(&r.rig.root, sid, argv);
+        store.append(vec![n.record().unwrap()]).unwrap();
+    }
+    let (nodes, rows) = (store.node_count().unwrap(), store.ledger_len().unwrap());
+    let out = r.rig.core.policy_replay(10).unwrap();
+    assert_eq!((out.examined, out.changed), (3, 1), "{out:#?}");
+    assert_eq!(out.rules_version, theseus_tools::consequence::RULES_VERSION);
+    assert_eq!(out.enforcement, "notify");
+    let c = &out.calls[0];
+    assert_eq!(c.tool, "proc.run");
+    assert!(c.summary.contains("git push --force"), "{}", c.summary);
+    assert_eq!(c.then.treatment, "ran without approval");
+    assert!(c.then.consequences.is_empty() && c.then.rules.is_none());
+    assert_eq!(c.now.treatment, "waited");
+    assert_eq!(c.now.consequences[0].kind, "history_rewrite");
+    assert!(c.now.consequences[0].irreversible);
+    assert_eq!(
+        (store.node_count().unwrap(), store.ledger_len().unwrap()),
+        (nodes, rows),
+        "replay is read-only"
+    );
+    let limited = r.rig.core.policy_replay(1).unwrap();
+    assert_eq!(
+        (limited.examined, limited.changed),
+        (1, 0),
+        "only the newest call"
+    );
+    // The rule table as the operator sees it.
+    let rules = r.rig.core.tools.policy.rules_info();
+    assert!(rules
+        .kinds
+        .iter()
+        .any(|k| k.name == "history_rewrite" && k.irreversible && k.source == "built_in"));
+    assert!(rules
+        .rules
+        .iter()
+        .any(|x| x.id == "git.push.force" && !x.must.is_empty()));
+}

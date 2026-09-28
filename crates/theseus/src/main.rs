@@ -178,6 +178,12 @@ enum Cmd {
         #[arg(short, long)]
         session: Option<String>,
     },
+    /// The gate's consequence kinds and detection rules; `policy replay` judges past tool
+    /// calls with them ("would have changed N of the last M calls").
+    Policy {
+        #[command(subcommand)]
+        cmd: Option<PolicyCmd>,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -185,6 +191,23 @@ enum Cmd {
     },
     /// Ask the server to stop cleanly (removes its socket).
     Shutdown,
+}
+
+#[derive(Subcommand, Debug)]
+enum PolicyCmd {
+    /// Every consequence kind as graded (built in, regraded, or the owner's), and every rule.
+    Rules {
+        /// Also print each rule's examples (+ must match, - must not).
+        #[arg(long, short)]
+        verbose: bool,
+    },
+    /// Judge the newest tool calls with the current gate and list what it would treat or
+    /// name differently. Read-only.
+    Replay {
+        /// How many of the newest tool calls.
+        #[arg(short, long, default_value_t = 200)]
+        n: u32,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -894,6 +917,101 @@ async fn run(cli: Cli) -> Result<()> {
                         if n.method == notify::HOOK_EVENT {
                             println!("{}", serde_json::to_string(&n.params)?);
                         }
+                    }
+                }
+            }
+        },
+        Cmd::Policy { cmd } => match cmd.unwrap_or(PolicyCmd::Rules { verbose: false }) {
+            PolicyCmd::Rules { verbose } => {
+                let v = conn
+                    .call(method::POLICY_RULES, Value::Null, |_, _| {})
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    let r: theseus_protocol::PolicyRulesResult = serde_json::from_value(v)?;
+                    println!(
+                        "rule table {} · enforcement = {}",
+                        r.rules_version, r.enforcement
+                    );
+                    println!("{:<16} {:<15} {:<9} description", "kind", "grade", "source");
+                    for k in &r.kinds {
+                        println!(
+                            "{:<16} {:<15} {:<9} {}",
+                            k.name,
+                            if k.irreversible {
+                                "irreversible"
+                            } else {
+                                "needs approval"
+                            },
+                            k.source,
+                            k.description
+                        );
+                    }
+                    println!();
+                    println!("{:<27} {:<16} {:<8} why", "rule", "kind", "examples");
+                    for x in &r.rules {
+                        println!(
+                            "{:<27} {:<16} {:<8} {}",
+                            x.id,
+                            x.kind,
+                            format!("{}/{}", x.must.len(), x.must_not.len()),
+                            x.why
+                        );
+                        if verbose {
+                            for m in &x.must {
+                                println!("    + {m}");
+                            }
+                            for m in &x.must_not {
+                                println!("    - {m}");
+                            }
+                        }
+                    }
+                }
+            }
+            PolicyCmd::Replay { n } => {
+                let v = conn
+                    .call(
+                        method::POLICY_REPLAY,
+                        serde_json::json!({ "limit": n }),
+                        |_, _| {},
+                    )
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    let r: theseus_protocol::PolicyReplayResult = serde_json::from_value(v)?;
+                    println!(
+                        "rule table {} · enforcement = {}: would have changed {} of the last {} calls",
+                        r.rules_version, r.enforcement, r.changed, r.examined
+                    );
+                    let named = |v: &theseus_protocol::ReplayVerdict| {
+                        let s = theseus_protocol::ConsequenceTag::summary(&v.consequences);
+                        if s.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({s})")
+                        }
+                    };
+                    for c in &r.calls {
+                        println!(
+                            "  {} {} {} {}",
+                            fmt_time(c.at_ms),
+                            c.session_id,
+                            c.tool,
+                            clip(&c.summary, 140)
+                        );
+                        println!(
+                            "      then: {}{}{}",
+                            c.then.treatment,
+                            named(&c.then),
+                            c.then
+                                .rules
+                                .as_deref()
+                                .map(|v| format!(" [rules {v}]"))
+                                .unwrap_or_default()
+                        );
+                        println!("      now:  {}{}", c.now.treatment, named(&c.now));
                     }
                 }
             }

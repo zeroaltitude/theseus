@@ -38,6 +38,10 @@ pub mod method {
     pub const COMPILATION_LIST: &str = "compilation.list";
     pub const NODE_LIST: &str = "node.list";
     pub const TOOL_LIST: &str = "tool.list";
+    /// The consequence kinds as graded, and the rule table (spec §3.9).
+    pub const POLICY_RULES: &str = "policy.rules";
+    /// Judge past tool calls with the current rules; read-only.
+    pub const POLICY_REPLAY: &str = "policy.replay";
     pub const SHUTDOWN: &str = "shutdown";
 }
 
@@ -866,6 +870,82 @@ pub struct ToolListResult {
     /// `proc.run` calls over all tool calls (spec §3.23 shell-fallback ratio).
     pub shell_fallback_ratio: f64,
     pub calls_total: u64,
+}
+
+/// `policy.rules`: every consequence kind as graded, and every detection rule.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PolicyRulesResult {
+    /// The built-in rule table's version.
+    pub rules_version: String,
+    /// `[policy].enforcement`.
+    pub enforcement: String,
+    pub kinds: Vec<KindInfo>,
+    pub rules: Vec<RuleInfo>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct KindInfo {
+    pub name: String,
+    pub irreversible: bool,
+    pub description: String,
+    /// `built_in`, `regraded` (a built-in kind the config changed), or `config`.
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RuleInfo {
+    pub id: String,
+    pub kind: String,
+    pub why: String,
+    /// Examples it must match and must not match (the table's tests).
+    #[serde(default)]
+    pub must: Vec<String>,
+    #[serde(default)]
+    pub must_not: Vec<String>,
+    /// `built_in`, or `config` for an owner's argv prefix.
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PolicyReplayParams {
+    /// How many of the newest tool calls to judge (default 200).
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// `policy.replay`: what the current gate would decide for past tool calls.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PolicyReplayResult {
+    pub rules_version: String,
+    pub enforcement: String,
+    /// Tool calls judged, newest first.
+    pub examined: u32,
+    /// Of those, how many the current gate would treat or name differently.
+    pub changed: u32,
+    /// The changed calls, newest first.
+    pub calls: Vec<ReplayCall>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReplayCall {
+    pub node_id: String,
+    pub session_id: String,
+    pub at_ms: u64,
+    pub tool: String,
+    pub summary: String,
+    pub then: ReplayVerdict,
+    pub now: ReplayVerdict,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReplayVerdict {
+    /// `ran`, `ran without approval`, `ran against policy`, `waited`, or `refused`.
+    pub treatment: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consequences: Vec<ConsequenceTag>,
+    /// The rule table that judged it (absent for calls from before the table).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<String>,
 }
 
 /// `error.data` on a provider failure.

@@ -528,6 +528,147 @@ impl ToolPolicy {
     }
 }
 
+/// How a decision treated a call, in the words `policy.replay` prints.
+pub fn treatment(mode: &str, notice: Option<&str>) -> &'static str {
+    match (mode, notice) {
+        ("allow", Some("off_policy")) => "ran against policy",
+        ("allow", Some(_)) => "ran without approval",
+        ("allow", None) => "ran",
+        ("confirm", _) => "waited",
+        _ => "refused",
+    }
+}
+
+impl ToolPolicy {
+    /// `policy.rules`: the kinds as graded and every detection rule.
+    pub fn rules_info(&self) -> theseus_protocol::PolicyRulesResult {
+        use theseus_protocol::{KindInfo, RuleInfo};
+        let seed = |n: &str| consequence::SEED_KINDS.iter().find(|k| k.name == n);
+        let kinds = self
+            .kinds
+            .grades
+            .iter()
+            .map(|(name, irreversible)| KindInfo {
+                name: name.clone(),
+                irreversible: *irreversible,
+                description: self
+                    .kinds
+                    .descriptions
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_default(),
+                source: match seed(name) {
+                    Some(k)
+                        if k.irreversible == *irreversible
+                            && self.kinds.descriptions.get(name).map(String::as_str)
+                                == Some(k.description) =>
+                    {
+                        "built_in"
+                    }
+                    Some(_) => "regraded",
+                    None => "config",
+                }
+                .into(),
+            })
+            .collect();
+        let mut rules: Vec<RuleInfo> = consequence::RULES
+            .iter()
+            .map(|r| RuleInfo {
+                id: r.id.into(),
+                kind: r.kind.into(),
+                why: r.why.into(),
+                must: r.must.iter().map(|x| x.to_string()).collect(),
+                must_not: r.must_not.iter().map(|x| x.to_string()).collect(),
+                source: "built_in".into(),
+            })
+            .collect();
+        rules.extend(self.kinds.owner_rules.iter().map(|o| RuleInfo {
+            id: format!("config:{}", o.kind),
+            kind: o.kind.clone(),
+            why: format!("argv starts with `{}`", o.prefix.join(" ")),
+            must: vec![],
+            must_not: vec![],
+            source: "config".into(),
+        }));
+        theseus_protocol::PolicyRulesResult {
+            rules_version: consequence::RULES_VERSION.into(),
+            enforcement: self.enforcement.as_str().into(),
+            kinds,
+            rules,
+        }
+    }
+
+    /// Judge one past call again: what the stored gate record says happened,
+    /// and what the current gate (rules, kinds, and settings) would decide for
+    /// the same plan. Read-only; `None` for a call that never passed
+    /// validation or whose tool is gone.
+    pub fn replay_call(
+        &self,
+        tool: &dyn Tool,
+        ctx: &ToolCtx,
+        input: &serde_json::Value,
+        gate: &serde_json::Value,
+    ) -> Option<(
+        theseus_protocol::ReplayVerdict,
+        theseus_protocol::ReplayVerdict,
+        String,
+    )> {
+        use theseus_protocol::ReplayVerdict;
+        if gate["validated"] != serde_json::Value::Bool(true) {
+            return None;
+        }
+        let d = &gate["decision"];
+        let then = ReplayVerdict {
+            treatment: treatment(
+                d["mode"].as_str().unwrap_or("deny"),
+                d["notify"]["kind"].as_str(),
+            )
+            .into(),
+            consequences: serde_json::from_value(d["consequences"].clone()).unwrap_or_default(),
+            rules: d["rules"].as_str().map(String::from),
+        };
+        // The plan as judged then (its resources and argv), with the
+        // toollet's current declarations.
+        let replanned = tool.plan(input, ctx).ok();
+        let mut plan: Plan = match serde_json::from_value(gate["plan"].clone()) {
+            Ok(p) => p,
+            Err(_) => replanned.clone()?,
+        };
+        if let Some(p) = replanned {
+            plan.consequences = p.consequences;
+        }
+        let now_d = self.decide(tool, &plan);
+        let now = ReplayVerdict {
+            treatment: treatment(
+                now_d.mode.as_str(),
+                now_d.notify.as_ref().map(|n| n.kind.as_str()),
+            )
+            .into(),
+            consequences: now_d.consequences,
+            rules: now_d.rules.map(String::from),
+        };
+        Some((then, now, plan.summary))
+    }
+}
+
+/// Did the verdict change: another treatment, or other kinds or grades?
+pub fn verdict_changed(
+    then: &theseus_protocol::ReplayVerdict,
+    now: &theseus_protocol::ReplayVerdict,
+) -> bool {
+    let kinds = |v: &theseus_protocol::ReplayVerdict| {
+        let mut k: Vec<(String, bool)> = v
+            .consequences
+            .iter()
+            .map(|t| (t.kind.clone(), t.irreversible))
+            .collect();
+        k.sort();
+        k.dedup();
+        k
+    };
+    then.treatment != now.treatment || kinds(then) != kinds(now)
+}
+
 /// The kernel's gate ordering (transform → validate → policy) over a toollet:
 /// `validate` is the toollet's own typed parse, `decide` is `ToolPolicy`.
 pub struct GatePolicy<'a> {
