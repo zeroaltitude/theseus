@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// How deep shells, `$(…)`, and wrappers may nest before the rest is opaque.
 pub const MAX_DEPTH: usize = 8;
@@ -126,6 +127,10 @@ pub struct Cmd {
     /// `&>`, `>|`, `2>file`), as words. Not heredoc bodies, here-strings, or
     /// `>&2`-style fd duplications.
     pub redirs: Vec<Word>,
+    /// Variable references resolved from the script's literal assignments, as
+    /// `(spelling, value)` pairs (`$F` → `--force`), so a notice or refusal can
+    /// show where each resolved value came from (spec §3.9, step 2a.3).
+    pub resolved: Vec<(String, String)>,
     /// Where it came from, as written, for the notice.
     pub text: String,
 }
@@ -133,6 +138,19 @@ pub struct Cmd {
 impl Cmd {
     pub fn prog(&self) -> &str {
         self.words.first().map(|w| w.text.as_str()).unwrap_or("")
+    }
+    /// The command as the rules read it: its resolved words, or the raw text when
+    /// the parser could not see through it.
+    pub fn display(&self) -> String {
+        if self.unparsed {
+            self.text.clone()
+        } else {
+            self.words
+                .iter()
+                .map(|w| w.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
     }
     pub fn args(&self) -> &[Word] {
         self.words.get(1..).unwrap_or(&[])
@@ -229,16 +247,17 @@ impl Cmd {
             .any(|w| w.dynamic)
     }
 
-    /// A *literal* option match (a bare word, prefix-matched like `opt_detect`),
-    /// ignoring dynamic words. It answers "is this option certainly present?",
+    /// A *certain* option match. It answers "is this option definitely present?",
     /// where `opt_detect` also says "yes" for a dynamic word that merely could be
     /// it. Used where a rule must separate a certain flag from a possible one
-    /// (`rm_recursive`: is `-r` definitely here, or only maybe in a variable?).
+    /// (`rm_recursive`: is `-r` definitely here, or only maybe in a variable?). A
+    /// dynamic word's literal prefix counts (`-r$(printf f)` certainly has `-r`),
+    /// but a word that begins with a reference (`$x`) does not.
     pub fn opt_literal(&self, longs: &[&str], shorts: &[char]) -> bool {
         self.args().iter().take_while(|w| w.text != "--").any(|w| {
-            !w.dynamic
-                && ((is_short_cluster(&w.text) && shorts.iter().any(|c| w.text[1..].contains(*c)))
-                    || longs.iter().any(|l| long_opt_match(&w.text, l, true)))
+            let head = literal_head(w);
+            (is_short_cluster(head) && shorts.iter().any(|c| head[1..].contains(*c)))
+                || longs.iter().any(|l| long_opt_match(head, l, true))
         })
     }
 
@@ -293,6 +312,18 @@ fn is_short_cluster(s: &str) -> bool {
         && s[1..].chars().all(|c| c.is_ascii_alphanumeric())
 }
 
+/// The certain leading option text of a word: the whole word when literal, or the
+/// prefix before the first `$` of a dynamic word (`-r$(printf f)` certainly
+/// carries `-r`; `--hard$x` certainly `--hard`). Empty when a dynamic word starts
+/// with a reference (`$x`), which carries no certain option (spec §3.9, step 2a.3).
+fn literal_head(w: &Word) -> &str {
+    if w.dynamic {
+        w.text.split('$').next().unwrap_or("")
+    } else {
+        &w.text
+    }
+}
+
 /// Does the word `w` (a `--long` or `--long=value`) name the long option
 /// `name`? Exact when `!prefix`; when `prefix`, an unambiguous abbreviation
 /// counts too: `--forc` names `--force` (at least one character after `--`).
@@ -316,6 +347,7 @@ pub fn commands(argv: &[String], cwd: &Path) -> Vec<Cmd> {
         0,
         argv.join(" ").as_str(),
         &[],
+        None,
         &mut out,
     );
     out
@@ -332,38 +364,99 @@ pub fn parse_script(
     params: Option<&[String]>,
     out: &mut Vec<Cmd>,
 ) {
+    parse_script_in(text, cwds, depth, via, params, None, out)
+}
+
+/// `parse_script`, threading the enclosing scope's literal assignments `parent`
+/// so a subshell or `eval` can resolve a variable defined outside it (spec §3.9,
+/// step 2a.3). A `bash -c` string passes `None`: it is a fresh shell, and the
+/// outer shell already expanded its argument.
+#[allow(clippy::too_many_arguments)]
+fn parse_script_in(
+    text: &str,
+    cwds: &Cwds,
+    depth: usize,
+    via: &[String],
+    params: Option<&[String]>,
+    parent: Option<Rc<VarCtx>>,
+    out: &mut Vec<Cmd>,
+) {
     if depth > MAX_DEPTH {
         out.push(unparsed(text, cwds, via));
         return;
     }
     match lex(text, params) {
         Ok(toks) => {
-            let assigns = collect_assignments(&toks);
-            Parser::new(cwds.clone(), depth, via.to_vec(), out, assigns).run(toks)
+            let vars = collect_vars(&toks, parent);
+            Parser::new(cwds.clone(), depth, via.to_vec(), out, vars).run(toks)
         }
         Err(_) => out.push(unparsed(text, cwds, via)),
     }
 }
 
-/// A simple `$name`/`${name}` reference (no other text, no command substitution),
-/// for judging a program word built at run time. `$1`…, `$@`, `$(…)`, `$x$y`,
-/// and `${x:-y}` are not simple names.
-fn simple_var_name(w: &Word) -> Option<&str> {
-    if !w.dynamic || !w.subs.is_empty() {
-        return None;
-    }
-    let t = w.text.as_str();
-    let name = t
-        .strip_prefix("${")
-        .and_then(|r| r.strip_suffix('}'))
-        .or_else(|| t.strip_prefix('$'))?;
-    (!name.is_empty()
-        && !name.starts_with(|c: char| c.is_ascii_digit())
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
-    .then_some(name)
+/// How far a name is resolved from the script's literal assignments (spec §3.9,
+/// step 2a.3). A name absent from the map, or mapped to `None`, is unresolvable
+/// and stays dynamic; the environment is unknown (except `HOME`, resolved for
+/// path judgments only, which is never in this map unless the script assigns it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VarVal {
+    /// A scalar's candidate values (the union across branches).
+    Scalar(Vec<String>),
+    /// An array's candidate element-lists; only literal elements (an element with
+    /// a substitution, a glob, or another reference poisons the array).
+    Array(Vec<Vec<String>>),
 }
 
-/// The name and literal value of an assignment word (`name=value`,
+/// A script's literal assignments, for resolving simple variable references
+/// everywhere they appear. Built once per parsed script (`collect_vars`); a
+/// subshell or `eval` links to its enclosing scope through `parent` (a cheap
+/// reference-count, not a copy), and a name it does not define is looked up
+/// there. A `bash -c` string is a fresh scope (no parent), because the outer
+/// shell expands its argument before it is re-parsed.
+#[derive(Debug)]
+pub struct VarCtx {
+    /// name → its values, or `None` when any assignment to it is not literal.
+    vars: HashMap<String, Option<VarVal>>,
+    /// The enclosing scope, for a subshell or `eval`.
+    parent: Option<Rc<VarCtx>>,
+    /// The positional parameters (`$1`…, `$@`, `$*`), or `None` when unknown: a
+    /// dynamic `set --`, a `shift`, or a function in the script (its body sees a
+    /// caller's arguments, which this flat parser cannot scope).
+    positionals: Option<Vec<String>>,
+    /// The script assigns `IFS`, so unquoted word-splitting is unpredictable: an
+    /// unquoted resolved value is left dynamic.
+    ifs_assigned: bool,
+}
+
+impl VarCtx {
+    /// A name's value, defined in this scope or an enclosing one; a local
+    /// definition (even a poisoning one) shadows the parent, as in bash.
+    fn lookup(&self, name: &str) -> Option<&Option<VarVal>> {
+        let mut ctx = self;
+        loop {
+            if let Some(v) = ctx.vars.get(name) {
+                return Some(v);
+            }
+            ctx = ctx.parent.as_deref()?;
+        }
+    }
+    /// A name's scalar candidates, if it resolves to a scalar.
+    fn scalar(&self, name: &str) -> Option<&[String]> {
+        match self.lookup(name) {
+            Some(Some(VarVal::Scalar(v))) => Some(v),
+            _ => None,
+        }
+    }
+    /// A name's array candidates, if it resolves to an array.
+    fn array(&self, name: &str) -> Option<&[Vec<String>]> {
+        match self.lookup(name) {
+            Some(Some(VarVal::Array(v))) => Some(v),
+            _ => None,
+        }
+    }
+}
+
+/// The name and literal value of a scalar assignment word (`name=value`,
 /// `name+=value`, `name[i]=value`); `None` value when the right side is dynamic.
 fn parse_assignment(w: &Word) -> Option<(String, Option<String>)> {
     if !is_assignment(&w.text) {
@@ -380,72 +473,428 @@ fn parse_assignment(w: &Word) -> Option<(String, Option<String>)> {
     Some((name.to_string(), val))
 }
 
-/// Record one assignment to `name`. A literal value joins the candidate set; a
-/// dynamic value poisons the name (`None`), so it stays dynamic forever after.
-fn record_assignment(
-    map: &mut HashMap<String, Option<Vec<String>>>,
-    name: String,
-    val: Option<String>,
-) {
-    let slot = map.entry(name).or_insert_with(|| Some(Vec::new()));
-    match val {
-        None => *slot = None,
-        Some(v) => {
-            if let Some(list) = slot {
-                if !list.contains(&v) {
-                    list.push(v);
-                }
+/// Record a scalar assignment. A literal value joins the candidate set; a dynamic
+/// value, or a conflict with an array of the same name, poisons it (`None`).
+fn record_scalar(map: &mut HashMap<String, Option<VarVal>>, name: String, val: Option<String>) {
+    let slot = map
+        .entry(name)
+        .or_insert_with(|| Some(VarVal::Scalar(vec![])));
+    match (slot.as_mut(), val) {
+        (_, None) => *slot = None,
+        (Some(VarVal::Scalar(list)), Some(v)) => {
+            if !list.contains(&v) {
+                list.push(v);
             }
         }
+        (Some(VarVal::Array(_)), Some(_)) => *slot = None, // scalar/array conflict
+        (None, Some(_)) => {}                              // already poisoned
     }
 }
 
-/// Every literal assignment in one script, `name` → its candidate values (the
-/// union across branches and loops, an over-approximation) or `None` when any
-/// assignment to it is dynamic. Only assignments in command position, and the
-/// arguments of `export`/`declare`/`local`/`readonly`/`typeset`, count.
-fn collect_assignments(toks: &[Tok]) -> HashMap<String, Option<Vec<String>>> {
-    let mut map: HashMap<String, Option<Vec<String>>> = HashMap::new();
+/// Record an array assignment. Every element must be a literal (no substitution,
+/// glob, or reference), or the name is poisoned; a conflict with a scalar of the
+/// same name poisons it too.
+fn record_array(map: &mut HashMap<String, Option<VarVal>>, name: &str, elems: &[Word]) {
+    let literal: Option<Vec<String>> = elems
+        .iter()
+        .map(|e| (!e.dynamic && !e.glob && e.subs.is_empty()).then(|| e.text.clone()))
+        .collect();
+    let slot = map
+        .entry(name.to_string())
+        .or_insert_with(|| Some(VarVal::Array(vec![])));
+    match (slot.as_mut(), literal) {
+        (_, None) => *slot = None,
+        (Some(VarVal::Array(cands)), Some(list)) => {
+            if !cands.contains(&list) {
+                cands.push(list);
+            }
+        }
+        (Some(VarVal::Scalar(_)), Some(_)) => *slot = None, // scalar/array conflict
+        (None, Some(_)) => {}
+    }
+}
+
+/// Collect a script's literal assignments (spec §3.9, step 2a.3), inheriting
+/// `parent` (a subshell or `eval` sees the enclosing scope). Scalars, arrays,
+/// `for` loop variables, and `set --` positionals all count, each unioned across
+/// branches. Only assignments in command position, and the arguments of
+/// `export`/`declare`/`local`/`readonly`/`typeset`, are scalar assignments.
+fn collect_vars(toks: &[Tok], parent: Option<Rc<VarCtx>>) -> Rc<VarCtx> {
+    let mut vars: HashMap<String, Option<VarVal>> = HashMap::new();
+    let mut positionals = parent.as_ref().and_then(|p| p.positionals.clone());
+    let mut ifs_assigned = parent.as_ref().is_some_and(|p| p.ifs_assigned);
     let mut cmd_start = true;
     let mut assign_cmd = false;
     let mut skip_target = false;
-    for t in toks {
-        match t {
-            Tok::Op(_) | Tok::Subs(_) => {
+    let mut has_func = false;
+    let mut i = 0;
+    while i < toks.len() {
+        match &toks[i] {
+            Tok::Op(op) => {
+                // A function definition (`name ()`): the positionals its body
+                // sees are a caller's, unknown to this flat parser.
+                if *op == "("
+                    && matches!(toks.get(i + 1), Some(Tok::Op(")")))
+                    && i > 0
+                    && matches!(&toks[i - 1], Tok::Word(_))
+                {
+                    has_func = true;
+                }
+                cmd_start = true;
+                assign_cmd = false;
+                skip_target = false;
+            }
+            Tok::Subs(_) => {
                 cmd_start = true;
                 assign_cmd = false;
                 skip_target = false;
             }
             Tok::Redir | Tok::RedirDrop | Tok::HereDoc => skip_target = true,
+            Tok::Array { name, elems } => {
+                record_array(&mut vars, name, elems);
+                // An array assignment holds command position, like a scalar one.
+            }
             Tok::Word(w) => {
                 if skip_target {
                     skip_target = false;
+                    i += 1;
                     continue;
                 }
                 let assignment = parse_assignment(w);
                 if cmd_start {
                     if let Some((name, val)) = assignment {
-                        record_assignment(&mut map, name, val);
+                        if name == "IFS" {
+                            ifs_assigned = true;
+                        }
+                        record_scalar(&mut vars, name, val);
+                        i += 1;
                         continue; // leading assignments keep command position
                     }
-                    if !w.dynamic
-                        && matches!(
-                            w.text.as_str(),
-                            "export" | "declare" | "local" | "readonly" | "typeset"
-                        )
-                    {
-                        assign_cmd = true;
+                    if !w.dynamic {
+                        match w.text.as_str() {
+                            "export" | "declare" | "local" | "readonly" | "typeset" => {
+                                assign_cmd = true;
+                            }
+                            "for" | "select" => {
+                                i = record_for(toks, i, &mut vars);
+                                cmd_start = false;
+                                continue;
+                            }
+                            "set" => {
+                                if let Some(ni) = record_set(toks, i, &mut positionals) {
+                                    i = ni;
+                                    cmd_start = false;
+                                    continue;
+                                }
+                            }
+                            "shift" => positionals = None,
+                            "function" => has_func = true,
+                            _ => {}
+                        }
                     }
                     cmd_start = false;
                 } else if assign_cmd {
                     if let Some((name, val)) = assignment {
-                        record_assignment(&mut map, name, val);
+                        if name == "IFS" {
+                            ifs_assigned = true;
+                        }
+                        record_scalar(&mut vars, name, val);
                     }
                 }
             }
         }
+        i += 1;
     }
-    map
+    if has_func {
+        positionals = None;
+    }
+    Rc::new(VarCtx {
+        vars,
+        parent,
+        positionals,
+        ifs_assigned,
+    })
+}
+
+/// A `for name in w1 w2 …` (or `select`) header at token `i`: record `name`'s
+/// candidate values (the listed words), poisoned if the list has a dynamic word
+/// or a glob. Returns the index to resume at (the terminator after the list).
+fn record_for(toks: &[Tok], i: usize, map: &mut HashMap<String, Option<VarVal>>) -> usize {
+    let name = match toks.get(i + 1) {
+        Some(Tok::Word(w)) if !w.dynamic && is_name(&w.text) => w.text.clone(),
+        _ => return i + 1,
+    };
+    if !matches!(toks.get(i + 2), Some(Tok::Word(w)) if w.text == "in") {
+        // `for name; do …` iterates the positionals; not resolved here.
+        return i + 1;
+    }
+    let mut j = i + 3;
+    let mut words = vec![];
+    let mut poison = false;
+    while let Some(Tok::Word(w)) = toks.get(j) {
+        if w.dynamic || w.glob || !w.subs.is_empty() {
+            poison = true;
+        } else {
+            words.push(w.text.clone());
+        }
+        j += 1;
+    }
+    if poison || words.is_empty() {
+        map.insert(name, None);
+    } else {
+        for v in words {
+            record_scalar(map, name.clone(), Some(v));
+        }
+    }
+    j
+}
+
+/// A `set` command at token `i`. Only `set -- w1 w2 …` is handled (it redefines
+/// the positionals): literal words set them, a dynamic word makes them unknown.
+/// Returns the resume index, or `None` if this is some other `set` (e.g. `set -e`).
+fn record_set(toks: &[Tok], i: usize, positionals: &mut Option<Vec<String>>) -> Option<usize> {
+    if !matches!(toks.get(i + 1), Some(Tok::Word(w)) if w.text == "--") {
+        return None;
+    }
+    let mut j = i + 2;
+    let mut words = vec![];
+    let mut ok = true;
+    while let Some(Tok::Word(w)) = toks.get(j) {
+        if w.dynamic || w.glob || !w.subs.is_empty() {
+            ok = false;
+        } else {
+            words.push(w.text.clone());
+        }
+        j += 1;
+    }
+    *positionals = ok.then_some(words);
+    Some(j)
+}
+
+/// A bare identifier (a legal variable name).
+fn is_name(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with(|c: char| c.is_ascii_digit())
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// ---------------------------------------------------------------- resolution
+
+/// The cap on resolved words/candidates for one reference or command; past it a
+/// word or command stays as written (dynamic), never a silent single value.
+const RESOLVE_CAP: usize = 64;
+
+/// Does `s` hold an unquoted glob metacharacter?
+fn has_glob(s: &str) -> bool {
+    s.contains(['*', '?', '['])
+}
+
+/// Split an unquoted resolved value on whitespace (default IFS), each field a
+/// literal word carrying the glob flag when it holds a metacharacter.
+fn split_into_words(v: &str) -> Vec<Word> {
+    v.split_whitespace()
+        .map(|p| Word {
+            text: p.to_string(),
+            glob: has_glob(p),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// The words `${name[@]}`/`${name[*]}` or `$@`/`$*` expand to, given the element
+/// list and whether the reference used `*` and was quoted (spec §3.9): `"$*"`
+/// joins to one word; every other form is one word per element.
+fn list_words(elems: &[String], star: bool, quoted: bool) -> Vec<Word> {
+    if star && quoted {
+        return vec![Word {
+            text: elems.join(" "),
+            quoted: true,
+            ..Default::default()
+        }];
+    }
+    elems
+        .iter()
+        .map(|e| Word {
+            text: e.clone(),
+            quoted,
+            glob: !quoted && has_glob(e),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// A whole-word array reference `${name[@]}` / `${name[*]}`: the name and whether
+/// it used `*`. `None` for anything else (a scalar, an embedded reference).
+fn array_ref(text: &str) -> Option<(&str, bool)> {
+    let inner = text.strip_prefix("${")?.strip_suffix('}')?;
+    let (name, sub) = inner.split_once('[')?;
+    let star = match sub {
+        "@]" => false,
+        "*]" => true,
+        _ => return None,
+    };
+    is_name(name).then_some((name, star))
+}
+
+/// A whole-word positional list `$@`/`$*`/`${@}`/`${*}`: whether it used `*`.
+fn at_ref(text: &str) -> Option<bool> {
+    match text {
+        "$@" | "${@}" => Some(false),
+        "$*" | "${*}" => Some(true),
+        _ => None,
+    }
+}
+
+/// Resolve the `$` reference at `c[i]` to its candidate scalar values, and the
+/// index after it. `${name}`, `$name`, and `$1`… (a positional) resolve; an
+/// array-typed name, `$@`/`$*`, an arithmetic or brace-modifier form, and an
+/// unassigned name do not (the caller keeps the word dynamic).
+fn scalar_ref_at(c: &[char], i: usize, ctx: &VarCtx) -> Option<(Vec<String>, usize)> {
+    let (name, end): (String, usize) = if c.get(i + 1) == Some(&'{') {
+        let close = c[i + 2..].iter().position(|&x| x == '}')? + i + 2;
+        (c[i + 2..close].iter().collect(), close + 1)
+    } else {
+        let mut j = i + 1;
+        if c.get(j).is_some_and(|x| x.is_ascii_digit()) {
+            j += 1; // a single-digit positional
+        } else {
+            while c
+                .get(j)
+                .is_some_and(|y| y.is_ascii_alphanumeric() || *y == '_')
+            {
+                j += 1;
+            }
+        }
+        (c[i + 1..j].iter().collect(), j)
+    };
+    if let Ok(n) = name.parse::<usize>() {
+        if n == 0 {
+            return None;
+        }
+        let p = ctx.positionals.as_ref()?;
+        return Some((vec![p.get(n - 1).cloned().unwrap_or_default()], end));
+    }
+    if !is_name(&name) {
+        return None;
+    }
+    Some((ctx.scalar(&name)?.to_vec(), end))
+}
+
+/// Substitute every `$` reference in `text` from `ctx`, returning the product of
+/// candidate strings, or `None` when any reference is unresolvable (so the word
+/// stays dynamic). Literal characters pass through unchanged.
+fn resolve_scalar_text(text: &str, ctx: &VarCtx) -> Option<Vec<String>> {
+    let c: Vec<char> = text.chars().collect();
+    let mut results = vec![String::new()];
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] == '$' {
+            let (values, ni) = scalar_ref_at(&c, i, ctx)?;
+            let mut next = Vec::new();
+            for r in &results {
+                for v in &values {
+                    next.push(format!("{r}{v}"));
+                    if next.len() > RESOLVE_CAP {
+                        return None;
+                    }
+                }
+            }
+            results = next;
+            i = ni;
+        } else {
+            for r in results.iter_mut() {
+                r.push(c[i]);
+            }
+            i += 1;
+        }
+    }
+    Some(results)
+}
+
+/// Resolve one word to its possible expansions, each a sequence of words (a
+/// scalar with several candidates, or a value that word-splits, yields more than
+/// one). A word with no resolvable reference is returned unchanged.
+fn resolve_word(w: &Word, ctx: &VarCtx) -> Vec<Vec<Word>> {
+    let keep = || vec![vec![w.clone()]];
+    if !w.dynamic || !w.subs.is_empty() {
+        return keep();
+    }
+    if let Some((name, star)) = array_ref(&w.text) {
+        return match ctx.array(name) {
+            Some(cands) if !cands.is_empty() => cands
+                .iter()
+                .map(|e| list_words(e, star, w.quoted))
+                .collect(),
+            _ => keep(),
+        };
+    }
+    if let Some(star) = at_ref(&w.text) {
+        return match &ctx.positionals {
+            Some(p) => vec![list_words(p, star, w.quoted)],
+            None => keep(),
+        };
+    }
+    match resolve_scalar_text(&w.text, ctx) {
+        Some(values) => {
+            let mut out = vec![];
+            for v in values {
+                if w.quoted {
+                    out.push(vec![Word {
+                        text: v,
+                        quoted: true,
+                        ..Default::default()
+                    }]);
+                } else if ctx.ifs_assigned {
+                    return keep(); // unquoted splitting is unpredictable
+                } else {
+                    out.push(split_into_words(&v));
+                }
+            }
+            out
+        }
+        None => keep(),
+    }
+}
+
+/// Resolve every word of one simple command from the script's literal
+/// assignments (spec §3.9, step 2a.3), returning each possible resolved word-list
+/// with the `(spelling, value)` pairs it resolved (for the notice). Usually one
+/// list; more when a name has several candidates. A command with no resolvable
+/// reference, or one past `RESOLVE_CAP`, is returned as written.
+type Resolved = (Vec<Word>, Vec<(String, String)>);
+
+fn resolve_command(words: &[Word], ctx: &VarCtx) -> Vec<Resolved> {
+    if !words.iter().any(|w| w.dynamic && w.subs.is_empty()) {
+        return vec![(words.to_vec(), vec![])];
+    }
+    let mut lists: Vec<Resolved> = vec![(vec![], vec![])];
+    for w in words {
+        let alts = resolve_word(w, ctx);
+        let resolvable = w.dynamic && w.subs.is_empty();
+        let mut next = Vec::new();
+        for (base_words, base_prov) in &lists {
+            for alt in &alts {
+                let mut ws = base_words.clone();
+                ws.extend(alt.iter().cloned());
+                let mut prov = base_prov.clone();
+                // A word actually resolved when its alternative is not just itself.
+                if resolvable && !(alt.len() == 1 && alt[0] == *w) {
+                    let value = alt
+                        .iter()
+                        .map(|w| w.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    prov.push((w.text.clone(), value));
+                }
+                next.push((ws, prov));
+                if next.len() > RESOLVE_CAP {
+                    return vec![(words.to_vec(), vec![])];
+                }
+            }
+        }
+        lists = next;
+    }
+    lists
 }
 
 /// The words of `text` when it is one simple command with no shell syntax
@@ -469,6 +918,7 @@ fn unparsed(text: &str, cwds: &Cwds, via: &[String]) -> Cmd {
         unparsed: true,
         via: via.to_vec(),
         redirs: vec![],
+        resolved: vec![],
         text: text.into(),
     }
 }
@@ -490,6 +940,13 @@ enum Tok {
     HereDoc,
     /// Command substitutions found in a heredoc body.
     Subs(Vec<String>),
+    /// An array assignment `name=(w1 w2 …)` (or `name+=(…)`): its elements, for
+    /// `collect_vars`; it starts no command. Substitutions in the elements are
+    /// still parsed for what they run.
+    Array {
+        name: String,
+        elems: Vec<Word>,
+    },
 }
 
 fn lex(s: &str, params: Option<&[String]>) -> Result<Vec<Tok>, String> {
@@ -574,8 +1031,23 @@ fn lex(s: &str, params: Option<&[String]>) -> Result<Vec<Tok>, String> {
                 i += if next == Some('&') { 2 } else { 1 };
             }
             '(' => {
-                toks.push(Tok::Op("("));
-                i += 1;
+                // `name=(…)` / `name+=(…)`, the `(` right after the `name=` word
+                // (no space): an array assignment, not a subshell.
+                let arr = (i > 0 && !c[i - 1].is_whitespace())
+                    .then(|| match toks.last() {
+                        Some(Tok::Word(w)) => array_assign_prefix(&w.text),
+                        _ => None,
+                    })
+                    .flatten();
+                if let Some(name) = arr {
+                    toks.pop();
+                    let (elems, end) = lex_array(&c, i + 1)?;
+                    toks.push(Tok::Array { name, elems });
+                    i = end;
+                } else {
+                    toks.push(Tok::Op("("));
+                    i += 1;
+                }
             }
             ')' => {
                 toks.push(Tok::Op(")"));
@@ -698,6 +1170,43 @@ fn positional_list(c: &[char], i: usize, params: &[String]) -> Option<(Vec<Word>
             .collect()
     };
     Some((words, end))
+}
+
+/// The name of an assignment word whose value is about to be an array literal:
+/// `a=` → `a`, `a+=` → `a`. `None` for anything that is not a bare `name=`/
+/// `name+=` (an empty right-hand side, the `(` supplying the value).
+fn array_assign_prefix(text: &str) -> Option<String> {
+    let lhs = text.strip_suffix('=')?;
+    let lhs = lhs.strip_suffix('+').unwrap_or(lhs);
+    (!lhs.is_empty()
+        && !lhs.starts_with(|c: char| c.is_ascii_digit())
+        && lhs.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+    .then(|| lhs.to_string())
+}
+
+/// The element words of an array literal, from just after the opening `(` to the
+/// matching `)`. Elements are whitespace-separated words (each lexed like any
+/// word, so quotes and substitutions are handled); returns the index after `)`.
+fn lex_array(c: &[char], mut i: usize) -> Result<(Vec<Word>, usize), String> {
+    let n = c.len();
+    let mut elems = vec![];
+    loop {
+        while i < n && matches!(c[i], ' ' | '\t' | '\r' | '\n') {
+            i += 1;
+        }
+        match c.get(i) {
+            None => return Err("unterminated array".into()),
+            Some(')') => return Ok((elems, i + 1)),
+            Some(_) => {
+                let (w, ni) = lex_word(c, i, None)?;
+                if ni == i {
+                    return Err("array element stalled".into());
+                }
+                elems.push(w);
+                i = ni;
+            }
+        }
+    }
 }
 
 fn lex_word(c: &[char], mut i: usize, params: Option<&[String]>) -> Result<(Word, usize), String> {
@@ -1016,8 +1525,9 @@ struct Parser<'a> {
     redirs: Vec<Word>,
     /// A `cd` just finished: where it leads, applied at the next operator.
     pending_cd: Option<Cwds>,
-    /// This script's literal assignments, for resolving a `$name` program word.
-    assigns: HashMap<String, Option<Vec<String>>>,
+    /// This script's literal assignments, for resolving variable references. An
+    /// `Rc` so a subshell or `eval` links to it without copying it.
+    vars: Rc<VarCtx>,
 }
 
 impl<'a> Parser<'a> {
@@ -1026,7 +1536,7 @@ impl<'a> Parser<'a> {
         depth: usize,
         via: Vec<String>,
         out: &'a mut Vec<Cmd>,
-        assigns: HashMap<String, Option<Vec<String>>>,
+        vars: Rc<VarCtx>,
     ) -> Self {
         Parser {
             list_start: cwds.clone(),
@@ -1039,7 +1549,7 @@ impl<'a> Parser<'a> {
             text: vec![],
             redirs: vec![],
             pending_cd: None,
-            assigns,
+            vars,
         }
     }
 
@@ -1057,7 +1567,16 @@ impl<'a> Parser<'a> {
             match t {
                 Tok::Word(w) => {
                     for s in &w.subs {
-                        parse_script(s, &self.cwds, self.depth + 1, &self.via, None, self.out);
+                        // A `$(…)` body is a subshell: it inherits this scope.
+                        parse_script_in(
+                            s,
+                            &self.cwds,
+                            self.depth + 1,
+                            &self.via,
+                            None,
+                            Some(self.vars.clone()),
+                            self.out,
+                        );
                     }
                     match std::mem::replace(&mut redir, Redir::None) {
                         Redir::Capture => self.redirs.push(w),
@@ -1069,7 +1588,32 @@ impl<'a> Parser<'a> {
                 Tok::RedirDrop | Tok::HereDoc => redir = Redir::Drop,
                 Tok::Subs(subs) => {
                     for s in &subs {
-                        parse_script(s, &self.cwds, self.depth + 1, &self.via, None, self.out);
+                        parse_script_in(
+                            s,
+                            &self.cwds,
+                            self.depth + 1,
+                            &self.via,
+                            None,
+                            Some(self.vars.clone()),
+                            self.out,
+                        );
+                    }
+                }
+                Tok::Array { elems, .. } => {
+                    // An array assignment starts no command; its elements'
+                    // substitutions still run in this scope.
+                    for e in &elems {
+                        for s in &e.subs {
+                            parse_script_in(
+                                s,
+                                &self.cwds,
+                                self.depth + 1,
+                                &self.via,
+                                None,
+                                Some(self.vars.clone()),
+                                self.out,
+                            );
+                        }
                     }
                 }
                 Tok::Op(op) => {
@@ -1172,55 +1716,32 @@ impl<'a> Parser<'a> {
             }
             _ => {}
         }
-        // A program word built at run time (spec §3.9, step 2a++): a simple
-        // `$name` whose every assignment in this script is literal is judged as
-        // each candidate value, the union across branches (an over-approximation).
-        // A poisoned or unknown name stays dynamic, and the floor scans its
-        // spelling for a floor program (`op`, `theseusd`).
-        let resolved: Option<Vec<String>> = words
-            .first()
-            .filter(|w| w.dynamic)
-            .and_then(simple_var_name)
-            .and_then(|name| self.assigns.get(name))
-            .and_then(|slot| slot.clone());
-        if let Some(cands) = resolved {
-            let base = words;
-            for cand in cands {
-                let mut ws = base.clone();
-                ws[0] = Word::lit(&cand);
-                let mark = self.out.len();
-                expand(
-                    ws,
-                    self.cwds.clone(),
-                    false,
-                    self.depth,
-                    &text,
-                    &self.via,
-                    self.out,
-                );
-                for c in &mut self.out[mark..] {
-                    c.redirs.extend(redirs.iter().cloned());
-                }
-            }
-            return;
-        }
-        let mark = self.out.len();
-        expand(
-            words,
-            self.cwds.clone(),
-            false,
-            self.depth,
-            &text,
-            &self.via,
-            self.out,
-        );
-        // The redirection targets belong to this simple command. Over-approximate
-        // by attaching them to every command it expanded to (through wrappers or a
-        // `bash -c` string), so the floor and deny list judge them wherever they
-        // could be written.
-        if !redirs.is_empty() {
+        // Resolve every simple variable reference from this script's literal
+        // assignments (spec §3.9, step 2a.3), before `expand` sees the words: a
+        // program reached through a wrapper, an option or operand carried in a
+        // variable, an array, a `$@`, or an embedded reference is judged for what
+        // it became. Each resolved word-list is expanded on its own; a word with
+        // an unresolvable reference stays dynamic (the floor scans its spelling).
+        // The redirection targets belong to this simple command, so they are
+        // attached to every command it expanded to (a wrapper or `bash -c` may
+        // move where they are written).
+        for (ws, prov) in resolve_command(&words, &self.vars) {
+            let mark = self.out.len();
+            expand(
+                ws,
+                self.cwds.clone(),
+                false,
+                self.depth,
+                &text,
+                &self.via,
+                Some(&self.vars),
+                self.out,
+            );
             for c in &mut self.out[mark..] {
                 c.redirs.extend(redirs.iter().cloned());
+                if !prov.is_empty() {
+                    c.resolved = prov.clone();
+                }
             }
         }
     }
@@ -1393,6 +1914,7 @@ fn wrapper_opts(p: &str) -> Option<&'static [&'static str]> {
 /// commands they start; emit what remains. `via` is the wrapper/shell chain
 /// already stepped through, recorded on every command so the floor and deny list
 /// can judge a wrapper (`sudo`) the expander otherwise drops.
+#[allow(clippy::too_many_arguments)]
 fn expand(
     mut words: Vec<Word>,
     cwds: Cwds,
@@ -1400,6 +1922,7 @@ fn expand(
     depth: usize,
     text: &str,
     via: &[String],
+    vars: Option<&Rc<VarCtx>>,
     out: &mut Vec<Cmd>,
 ) {
     if words.is_empty() {
@@ -1428,6 +1951,7 @@ fn expand(
             unparsed: false,
             via: via.to_vec(),
             redirs: vec![],
+            resolved: vec![],
             text: text.into(),
         })
     };
@@ -1489,12 +2013,13 @@ fn expand(
                         } else {
                             None
                         };
-                    parse_script(
+                    parse_script_in(
                         &script,
                         &cwds,
                         depth + 1,
                         &via_with(&prog),
                         params.as_deref(),
+                        None,
                         out,
                     );
                 }
@@ -1524,7 +2049,7 @@ fn expand(
                         rest.push(' ');
                         rest.push_str(&x.text);
                     }
-                    parse_script(&rest, &cwds, depth + 1, &via_with(&prog), None, out);
+                    parse_script_in(&rest, &cwds, depth + 1, &via_with(&prog), None, None, out);
                 }
                 return;
             }
@@ -1556,6 +2081,7 @@ fn expand(
             depth + 1,
             text,
             &via_with(&prog),
+            vars,
             out,
         );
         return;
@@ -1578,6 +2104,7 @@ fn expand(
             depth + 1,
             text,
             &via_with(&prog),
+            vars,
             out,
         );
         return;
@@ -1596,15 +2123,32 @@ fn expand(
             .iter()
             .map(|w| w.text.as_str())
             .collect();
-        parse_script(&s.join(" "), &cwds, depth + 1, &via_with(&prog), None, out);
+        parse_script_in(
+            &s.join(" "),
+            &cwds,
+            depth + 1,
+            &via_with(&prog),
+            None,
+            None,
+            out,
+        );
         return;
     }
     if prog == "eval" {
-        // Opaque in itself, and its text is still read for what it names.
+        // Opaque in itself, and its text is still read for what it names. `eval`
+        // runs in the current shell, so it inherits this scope's assignments.
         let s: Vec<&str> = words[1..].iter().map(|w| w.text.as_str()).collect();
         let joined = s.join(" ");
         emit(words, cwds.clone(), more_operands, out);
-        parse_script(&joined, &cwds, depth + 1, &via_with(&prog), None, out);
+        parse_script_in(
+            &joined,
+            &cwds,
+            depth + 1,
+            &via_with(&prog),
+            None,
+            vars.cloned(),
+            out,
+        );
         return;
     }
     if prog == "ssh" {
@@ -1625,11 +2169,12 @@ fn expand(
             let s: Vec<&str> = words[i + 1..].iter().map(|w| w.text.as_str()).collect();
             let joined = s.join(" ");
             emit(words, cwds, more_operands, out);
-            parse_script(
+            parse_script_in(
                 &joined,
                 &Cwds::unknown(),
                 depth + 1,
                 &via_with(&prog),
+                None,
                 None,
                 out,
             );
@@ -1676,6 +2221,7 @@ fn expand(
                     depth + 1,
                     text,
                     &via_with(&prog),
+                    vars,
                     out,
                 );
                 j = k + 1;
@@ -1710,6 +2256,7 @@ fn expand(
                     unparsed: false,
                     via: via_with(&prog),
                     redirs: vec![],
+                    resolved: vec![],
                     text: text.into(),
                 });
             }
@@ -1723,6 +2270,7 @@ fn expand(
             depth + 1,
             text,
             &via_with(&prog),
+            vars,
             out,
         );
         return;
@@ -1775,8 +2323,8 @@ mod tests {
         );
         assert_eq!(
             progs("for f in a b; do rm -rf \"$f\"; done"),
-            vec!["rm -rf $f"],
-            "a simple $name keeps its spelling (still dynamic)"
+            vec!["rm -rf a", "rm -rf b"],
+            "a for-loop variable resolves to each listed value (step 2a.3)"
         );
         assert_eq!(
             progs("FOO=1 BAR=2 git push -f 2>&1 >/dev/null"),
@@ -1896,5 +2444,56 @@ mod tests {
             &mut out,
         );
         assert_eq!(out[0].value_of(&["-X", "--request"]), Some("POST"));
+    }
+
+    /// Step 2a.3: a simple variable reference resolves from the script's literal
+    /// assignments everywhere — through a wrapper, `eval`, a nested `bash -c`, an
+    /// array, `set --`, and an embedded reference — with bash's word semantics.
+    #[test]
+    fn resolves_variables_everywhere() {
+        // Through wrappers and re-parses: the resolved program reaches `expand`.
+        assert_eq!(progs("x=op; command $x whoami"), vec!["op whoami"]);
+        assert_eq!(progs("x=op; exec \"$x\" whoami"), vec!["op whoami"]);
+        assert_eq!(progs("x=op; env $x whoami"), vec!["op whoami"]);
+        assert_eq!(progs("x=op; timeout 5 $x whoami"), vec!["op whoami"]);
+        assert_eq!(
+            progs("x=op; eval \"$x whoami\""),
+            vec!["eval op whoami", "op whoami"]
+        );
+        assert_eq!(progs("x=op; bash -c \"$x whoami\""), vec!["op whoami"]);
+        // Embedded references take the product of candidates.
+        assert_eq!(
+            progs("a=these; b=usd; $a$b --version"),
+            vec!["theseusd --version"]
+        );
+        // An unquoted value word-splits; a quoted one is a single word.
+        assert_eq!(progs("x=\"-rf somedir\"; rm $x"), vec!["rm -rf somedir"]);
+        assert_eq!(
+            progs("x=\"-rf somedir\"; rm \"$x\""),
+            vec!["rm -rf somedir"]
+        );
+        // An array, quoted `[@]`, is one word per element; `set --` redefines `$@`
+        // (the `set` command itself is emitted, harmlessly).
+        assert_eq!(
+            progs("a=(-rf somedir); rm \"${a[@]}\""),
+            vec!["rm -rf somedir"]
+        );
+        assert_eq!(
+            progs("set -- -rf somedir; rm \"$@\""),
+            vec!["set -- -rf somedir", "rm -rf somedir"]
+        );
+        // A `for` list of literals gives one command per value.
+        assert_eq!(
+            progs("for b in main dev; do git push origin $b; done"),
+            vec!["git push origin main", "git push origin dev"]
+        );
+        // Unresolvable: an unassigned name, an IFS-split value, a glob `for` list,
+        // and a `set --` with a dynamic word all stay dynamic (spelling kept).
+        assert_eq!(progs("echo $UNSET"), vec!["echo $UNSET"]);
+        assert_eq!(progs("IFS=,; x=a,b; rm $x"), vec!["rm $x"]);
+        assert_eq!(progs("for f in *.log; do rm \"$f\"; done"), vec!["rm $f"]);
+        assert_eq!(progs("set -- $y; rm \"$@\""), vec!["set -- $y", "rm $@"]);
+        // A `$name` is not resolved from a dynamic assignment (it is poisoned).
+        assert_eq!(progs("x=$(id -u); echo $x"), vec!["id -u", "echo $x"]);
     }
 }

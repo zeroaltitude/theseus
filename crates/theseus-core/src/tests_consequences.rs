@@ -552,3 +552,77 @@ async fn open_refuses_cat_of_a_store_file_as_floor() {
         rs[0].1
     );
 }
+
+/// Step 2a.3: a variable that resolves through a wrapper and an embedded
+/// reference to a floor program is refused, under `notify`, and the model hears it.
+#[tokio::test]
+async fn notify_refuses_a_resolved_floor_program_through_a_wrapper() {
+    let rig = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "a=these; b=usd; command $a$b --version"]}),
+                )],
+            ),
+            Scripted::text("Noted."),
+        ],
+        |cfg| cfg.policy.enforcement = Enforcement::Notify,
+    );
+    let res = turn(&rig.core, None, "check the version").await;
+    assert!(
+        res.awaiting_confirm.is_none(),
+        "the floor refuses, it does not park"
+    );
+    let rs = results(&rig.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Denied, "{rs:?}");
+    assert!(
+        rs[0].1.contains("floor") && rs[0].1.contains("theseusd"),
+        "the refusal names the floor and the resolved program: {}",
+        rs[0].1
+    );
+}
+
+/// Step 2a.3: `BRANCH=main; git push origin "$BRANCH"` resolves to a plain push,
+/// so under `notify` it runs with an ordinary notice (not a wait) and the remote
+/// moves — the friction round 2 added is gone when the value is literal.
+#[tokio::test]
+async fn notify_runs_a_resolved_plain_push_with_a_notice() {
+    if !have_git() {
+        return;
+    }
+    let r = run(
+        Enforcement::Notify,
+        json!(["bash", "-c", "BRANCH=main; git push origin \"$BRANCH\""]),
+        false,
+    )
+    .await;
+    r.assert_ran_with_notice();
+    assert_eq!(
+        r.world.remote_head(),
+        git(&r.rig.root, &["rev-parse", "main"]),
+        "the resolved plain push landed"
+    );
+}
+
+/// Step 2a.3: `DIR=somedir; rm -rf "$DIR"` resolves to a recursive delete of
+/// tracked work, so it parks under `notify`, and the files remain after a decline.
+#[tokio::test]
+async fn notify_parks_a_resolved_recursive_delete() {
+    if !have_git() {
+        return;
+    }
+    let r = run(
+        Enforcement::Notify,
+        json!(["bash", "-c", "DIR=somedir; rm -rf \"$DIR\""]),
+        false,
+    )
+    .await;
+    r.assert_parked_irreversible("bulk_delete");
+    assert!(
+        r.rig.root.join("somedir/a.txt").exists(),
+        "nothing deleted while waiting"
+    );
+}

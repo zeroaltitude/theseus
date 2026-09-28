@@ -388,16 +388,20 @@ fn command_dirs(cmd: &Cmd) -> Vec<PathBuf> {
         .collect()
 }
 
-/// A short, readable form of a command for a reason string.
+/// A short, readable form of a command for a reason string: its resolved words,
+/// and where each value it resolved came from (spec §3.9, step 2a.3).
 fn cmd_display(cmd: &Cmd) -> String {
-    if cmd.unparsed {
-        cmd.text.clone()
+    let base = cmd.display();
+    if cmd.resolved.is_empty() {
+        base
     } else {
-        cmd.words
+        let p = cmd
+            .resolved
             .iter()
-            .map(|w| w.text.as_str())
+            .map(|(k, v)| format!("`{k}` = `{v}`"))
             .collect::<Vec<_>>()
-            .join(" ")
+            .join(", ");
+        format!("{base} ({p})")
     }
 }
 
@@ -1837,6 +1841,61 @@ mod tests {
         }
     }
 
+    /// Step 2a.3: the floor resolves a variable used as the program through a
+    /// wrapper, `eval`, a nested `bash -c`, or an embedded reference, and stays
+    /// off a benign resolved program.
+    #[test]
+    fn round_three_floor_resolves_variables_through_wrappers_and_reparses() {
+        use Enforcement::*;
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().canonicalize().unwrap();
+        let x = T(ToolClass::Run);
+        let at = |e: Enforcement| {
+            let mut q = policy(&root);
+            q.enforcement = e;
+            q
+        };
+        let exec = |argv: Vec<&str>| plan(root.clone(), Access::Exec, Some(argv));
+        // A variable reaches the program through a wrapper, `eval`, a nested
+        // `bash -c`, or an embedded reference; each resolves to a floor program.
+        let floors = [
+            "x=op; command $x whoami",
+            "x=op; exec \"$x\" whoami",
+            "x=op; env $x whoami",
+            "x=op; timeout 5 $x whoami",
+            "x=op; eval \"$x whoami\"",
+            "x=op; bash -c \"$x whoami\"",
+            "x=o; y=p; $x$y whoami",
+            "a=these; b=usd; command $a$b --version",
+        ];
+        for spelling in floors {
+            for e in [Strict, Ask, Notify, Open] {
+                let out = at(e).decide(&x, &exec(vec!["bash", "-c", spelling]));
+                assert!(
+                    out.floor && out.mode == Mode::Deny && out.notify.is_none(),
+                    "floor must hold at {} for `{spelling}`: {}",
+                    e.as_str(),
+                    out.reason
+                );
+            }
+        }
+        // Precision: a variable that resolves to a harmless program is not floored.
+        let ok = exec(vec!["bash", "-c", "x=ls; $x -la"]);
+        assert!(
+            !at(Open).decide(&x, &ok).floor,
+            "{}",
+            at(Open).decide(&x, &ok).reason
+        );
+        // The refusal reason shows the resolved program and where it came from.
+        let out = at(Notify).decide(&x, &exec(vec!["bash", "-c", "x=op; $x read op://v/i"]));
+        assert!(out.floor, "{}", out.reason);
+        assert!(
+            out.reason.contains("op read op://v/i") && out.reason.contains("`$x` = `op`"),
+            "reason shows the resolved command and provenance: {}",
+            out.reason
+        );
+    }
+
     /// FAST (spec v0.36): the gate must stay well under a millisecond even on a
     /// long, nested `bash -c` string. Prints the measured per-call time; the
     /// bound is loose (debug build) to catch only a pathological regression.
@@ -1858,10 +1917,25 @@ mod tests {
         }
         let script = cmds.join(" ; ");
         assert!(script.len() > 1800, "script is {} bytes", script.len());
+        // Step 2a.3: 20 literal assignments and 30 references over the long
+        // string, so resolution runs on every command.
+        let mut heavy = cmds.clone();
+        for i in 0..20 {
+            heavy.push(format!("v{i}=val{i}"));
+        }
+        for i in 0..30 {
+            heavy.push(format!("git push origin \"$v{}\"", i % 20));
+        }
+        let heavy_script = heavy.join(" ; ");
         let bash = plan(
             root.clone(),
             Access::Exec,
             Some(vec!["bash", "-c", script.as_str()]),
+        );
+        let resolve = plan(
+            root.clone(),
+            Access::Exec,
+            Some(vec!["bash", "-c", heavy_script.as_str()]),
         );
         let plain = plan(
             root.clone(),
@@ -1881,14 +1955,20 @@ mod tests {
             t.elapsed() / iters
         };
         let bash_per = time(&bash);
+        let resolve_per = time(&resolve);
         let plain_per = time(&plain);
         println!(
-            "FAST decide: bash -c (~{}B) = {bash_per:?}, plain argv = {plain_per:?}",
-            script.len()
+            "FAST decide: bash -c (~{}B) = {bash_per:?}, +20 assigns/30 refs (~{}B) = {resolve_per:?}, plain argv = {plain_per:?}",
+            script.len(),
+            heavy_script.len()
         );
         assert!(
             bash_per < std::time::Duration::from_millis(5),
             "decide on a long bash -c string was {bash_per:?} (debug); expected well under 1ms in release"
+        );
+        assert!(
+            resolve_per < std::time::Duration::from_millis(8),
+            "decide with resolution was {resolve_per:?} (debug); expected well under 1ms in release"
         );
         assert!(
             plain_per < std::time::Duration::from_millis(2),

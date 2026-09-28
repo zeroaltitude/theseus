@@ -26,8 +26,12 @@ use crate::shell::{self, expand_tilde, Cmd, Cwds, Word};
 /// say which table judged a call. Bumped whenever detection changes: 2a+ made
 /// the parser read every word (brace expansion, unresolved words, prefix
 /// options, glob-then-`..`); 2a++ made a quoted variable a possible option, gave
-/// `$@`/`$*` bash's word semantics, and reached a run-time program word.
-pub const RULES_VERSION: &str = "2026-09-28.1";
+/// `$@`/`$*` bash's word semantics, and reached a run-time program word; 2a.3
+/// resolves every simple variable reference from the script's literal
+/// assignments (through wrappers, `eval`, arrays, `set --`, and embedded refs),
+/// reads a literal option prefix on a dynamic word, and judges an unresolvable
+/// git subcommand as each subcommand a git rule reads.
+pub const RULES_VERSION: &str = "2026-09-28.2";
 
 /// The built-in kinds.
 pub mod kind {
@@ -133,11 +137,26 @@ pub struct Rule {
 pub fn detect(argv: &[String], cwd: &Path, owner: &[OwnerRule]) -> Vec<Consequence> {
     let mut out: Vec<Consequence> = vec![];
     for c in shell::commands(argv, cwd) {
-        let mut add = |kind: &str, rule: &str| {
+        // The detail shows the resolved command and where each value came from
+        // (spec §3.9, step 2a.3), so the operator sees what the gate judged.
+        let base = c.display();
+        let prov = if c.resolved.is_empty() {
+            String::new()
+        } else {
+            let p = c
+                .resolved
+                .iter()
+                .map(|(k, v)| format!("`{k}` = `{v}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(" ({p})")
+        };
+        let dyn_sub = git_dynamic_sub(&c);
+        let mut push = |kind: &str, rule: &str, detail: String| {
             let x = Consequence {
                 kind: kind.into(),
                 rule: rule.into(),
-                detail: c.text.clone(),
+                detail,
             };
             if !out.contains(&x) {
                 out.push(x);
@@ -145,7 +164,12 @@ pub fn detect(argv: &[String], cwd: &Path, owner: &[OwnerRule]) -> Vec<Consequen
         };
         for r in RULES {
             if (r.test)(&c) {
-                add(r.kind, r.id);
+                let mut detail = format!("{base}{prov}");
+                // An unresolvable git subcommand: say which subcommand the rule read.
+                if let (Some(sp), Some(sub)) = (&dyn_sub, rule_git_sub(r.id)) {
+                    detail = format!("{detail} (possibly: `{sp}` could be `{sub}`)");
+                }
+                push(r.kind, r.id, detail);
             }
         }
         for o in owner {
@@ -154,7 +178,11 @@ pub fn detect(argv: &[String], cwd: &Path, owner: &[OwnerRule]) -> Vec<Consequen
                 && words.len() >= o.prefix.len()
                 && words.iter().zip(&o.prefix).all(|(a, b)| a == b)
             {
-                add(&o.kind, &format!("config:{}", o.kind));
+                push(
+                    &o.kind,
+                    &format!("config:{}", o.kind),
+                    format!("{base}{prov}"),
+                );
             }
         }
     }
@@ -363,6 +391,7 @@ fn from(c: &Cmd, i: usize) -> Cmd {
         unparsed: false,
         via: c.via.clone(),
         redirs: c.redirs.clone(),
+        resolved: c.resolved.clone(),
         text: c.text.clone(),
     }
 }
@@ -403,7 +432,34 @@ fn git(c: &Cmd) -> Option<Cmd> {
 }
 
 fn git_sub(c: &Cmd, subs: &[&str]) -> Option<Cmd> {
-    git(c).filter(|s| subs.contains(&s.prog()))
+    let s = git(c)?;
+    // An unresolvable subcommand (`git $x -f`) could be any of them, so it is
+    // judged as each git rule's subcommand; every rule whose options fire flags
+    // it (spec §3.9, step 2a.3). A literal subcommand must be in the list.
+    (s.words[0].dynamic || subs.contains(&s.prog())).then_some(s)
+}
+
+/// The spelling of git's subcommand when it is unresolvable (`git $x -f` → `$x`),
+/// for the "possibly" note; `None` when it is literal or absent.
+fn git_dynamic_sub(c: &Cmd) -> Option<String> {
+    git(c).and_then(|s| {
+        s.words
+            .first()
+            .filter(|w| w.dynamic)
+            .map(|w| w.text.clone())
+    })
+}
+
+/// The git subcommand a rule reads, for the "possibly" note on an unresolvable
+/// subcommand.
+fn rule_git_sub(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "git.push.force" | "git.push.delete" => "push",
+        "git.reset.hard" => "reset",
+        "git.clean.force" => "clean",
+        "git.discard.tree" => "checkout",
+        _ => return None,
+    })
 }
 
 /// Where a git command resolves paths: its `-C` directories, joined.
@@ -2421,5 +2477,92 @@ mod tests {
         assert!(!bash("git push origin main", kind::HISTORY_REWRITE));
         assert!(!bash("rm -rf target", kind::BULK_DELETE));
         assert!(!bash("find . -name \"$p\" -print", kind::BULK_DELETE));
+    }
+
+    /// Step 2a.3: resolving every simple variable reference from the script's
+    /// literal assignments makes a hidden option, operand, or subcommand exact,
+    /// and makes an honest script with literal values exact instead of a wait.
+    #[test]
+    fn resolution_from_literal_assignments_reaches_every_word() {
+        let Some(d) = fixture() else { return };
+        let root = d.path().canonicalize().unwrap();
+        let has = |argv: &[&str], kind: &str| {
+            detect(
+                &argv.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                &root,
+                &[],
+            )
+            .iter()
+            .any(|c| c.kind == kind)
+        };
+        let bash = |t: &str, kind: &str| has(&["bash", "-c", t], kind);
+        // Must catch: resolution reaches an option or operand carried in a
+        // variable, an array, `set --`, a literal option prefix on a dynamic
+        // word, and a git subcommand (resolved, or judged as each when it is not).
+        let missed: Vec<&str> = [
+            ("DIR=src; rm -rf \"$DIR\"", kind::BULK_DELETE),
+            ("set -- -rf somedir; rm \"$@\"", kind::BULK_DELETE),
+            ("a=(-rf somedir); rm \"${a[@]}\"", kind::BULK_DELETE),
+            ("x=\"-rf somedir\"; rm $x", kind::BULK_DELETE),
+            ("rm -r$(printf f) somedir", kind::BULK_DELETE),
+            ("x=push; git $x -f origin main", kind::HISTORY_REWRITE),
+            ("git $x -f origin main", kind::HISTORY_REWRITE),
+        ]
+        .into_iter()
+        .filter(|(t, k)| !bash(t, k))
+        .map(|(t, _)| t)
+        .collect();
+        assert!(missed.is_empty(), "resolution missed: {missed:#?}");
+        assert!(bash(
+            "for b in main dev; do git push --force origin $b; done",
+            kind::HISTORY_REWRITE
+        ));
+        // Precision: with literal values the honest calls are exact and quiet.
+        let over: Vec<&str> = [
+            (
+                "BRANCH=main; git push origin \"$BRANCH\"",
+                kind::HISTORY_REWRITE,
+            ),
+            ("SHA=abc123; git reset $SHA", kind::BULK_DELETE),
+            ("DIR=target; rm -rf \"$DIR\"", kind::BULK_DELETE),
+            ("for f in *.log; do rm \"$f\"; done", kind::BULK_DELETE),
+            (
+                "for b in main dev; do git push origin $b; done",
+                kind::HISTORY_REWRITE,
+            ),
+        ]
+        .into_iter()
+        .filter(|(t, k)| bash(t, k))
+        .map(|(t, _)| t)
+        .collect();
+        assert!(over.is_empty(), "resolution over-refused: {over:#?}");
+        // The detail shows the resolved command and where a value came from.
+        let cs = detect(
+            &[
+                "bash".into(),
+                "-c".into(),
+                "F=--force; git push origin main $F".into(),
+            ],
+            &root,
+            &[],
+        );
+        let f = cs.iter().find(|c| c.kind == kind::HISTORY_REWRITE).unwrap();
+        assert_eq!(
+            f.detail, "git push origin main --force (`$F` = `--force`)",
+            "{}",
+            f.detail
+        );
+        // An unresolvable git subcommand names the subcommand each rule read.
+        let cs = detect(
+            &["bash".into(), "-c".into(), "git $x -f origin main".into()],
+            &root,
+            &[],
+        );
+        let f = cs.iter().find(|c| c.kind == kind::HISTORY_REWRITE).unwrap();
+        assert!(
+            f.detail.contains("possibly: `$x` could be `push`"),
+            "{}",
+            f.detail
+        );
     }
 }
