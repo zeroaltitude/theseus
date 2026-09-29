@@ -973,18 +973,29 @@ impl ToolRuntime {
         );
         let (t, input, ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
         // A free core first (theseus-a60): the deadline counts the run, not
-        // the wait for one.
-        let run = self.cpu.spawn(move || t.run_with_image(&input, &ctx)).await;
+        // the wait for one. The call's time is its run's own, timed on its
+        // core: its result may wait for the turn's task, busy with the frames
+        // of the calls beside it.
+        let run = self
+            .cpu
+            .spawn(move || {
+                let t0 = Instant::now();
+                (t.run_with_image(&input, &ctx), t0.elapsed())
+            })
+            .await;
         let started = theseus_protocol::now_unix_ms();
         let t0 = Instant::now();
-        let outcome =
+        let (outcome, took) =
             match tokio::time::timeout(Duration::from_millis(INPROC_DEADLINE_MS), run).await {
-                Ok(Ok(Ok(out))) => Ok(out),
-                Ok(Ok(Err(f))) => Err(f.message),
-                Ok(Err(join)) => Err(format!("the tool panicked: {join}")),
-                Err(_) => Err(format!("timed out after {} ms", INPROC_DEADLINE_MS)),
+                Ok(Ok((Ok(out), took))) => (Ok(out), took),
+                Ok(Ok((Err(f), took))) => (Err(f.message), took),
+                Ok(Err(join)) => (Err(format!("the tool panicked: {join}")), t0.elapsed()),
+                Err(_) => (
+                    Err(format!("timed out after {} ms", INPROC_DEADLINE_MS)),
+                    t0.elapsed(),
+                ),
             };
-        let dur = t0.elapsed().as_millis() as u64;
+        let dur = took.as_millis() as u64;
         let (status, mut text, meta, img) = match outcome {
             Ok((o, img)) => (ResultStatus::Ok, o.text, o.meta, img),
             Err(m) => (ResultStatus::Error, m, Value::Null, None),

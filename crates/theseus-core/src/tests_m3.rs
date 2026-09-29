@@ -3592,6 +3592,40 @@ mod parallel {
         assert_eq!(results, in_order.iter().collect::<Vec<_>>());
     }
 
+    /// A call's time is its run's own (theseus-a60): seven reads that take
+    /// no time say so, though each result waits in the turn's task behind the
+    /// frames of the calls beside it (about 7 ms each on this disk).
+    #[tokio::test]
+    async fn a_calls_time_is_its_own_run_not_its_wait_for_the_turn() {
+        let seven: Vec<_> = (1..=7)
+            .map(|i| read(&format!("q{i}"), "hello.txt"))
+            .collect();
+        let r = rig(vec![calls(&seven), Scripted::text("Read seven times.")]);
+        std::fs::write(r.root.join("hello.txt"), "hi\n").unwrap();
+        let res = turn(&r.core, None, "read hello.txt seven times").await;
+        assert_eq!(res.tool_calls, 7);
+        let times: Vec<u64> = r
+            .core
+            .store
+            .session_nodes(&res.session_id)
+            .unwrap()
+            .into_iter()
+            .filter_map(|(_, n)| match n.body {
+                Body::ToolResult { duration_ms, .. } => duration_ms,
+                _ => None,
+            })
+            .collect();
+        assert_eq!(times.len(), 7);
+        assert!(times.iter().all(|ms| *ms < 20), "{times:?}");
+        let trace = res.trace.as_ref().unwrap();
+        let spans = &span(trace, 0, "tools").children;
+        let waited: Vec<u64> = spans
+            .iter()
+            .map(|s| (s.end_us.unwrap() - s.start_us) / 1000)
+            .collect();
+        eprintln!("results' own times {times:?} ms; their spans in the turn {waited:?} ms");
+    }
+
     /// A write is a barrier: a read of the same path after it reads what it
     /// wrote. A program is one too: the call before it has finished when it
     /// starts, and the calls after it start when it has ended, together.
