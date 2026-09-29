@@ -43,9 +43,11 @@ pub struct Config {
     pub telemetry: crate::telemetry::TelemetryConfig,
     #[serde(default)]
     pub kernel: KernelSection,
-    /// Model catalog rows that replace or add to the built-in table.
+    /// Every model's prices (the template lists each built-in model): a table
+    /// over a built-in model replaces the fields it names; a complete one adds
+    /// a model. A built-in model with no table keeps its built-in prices.
     #[serde(default)]
-    pub catalog: BTreeMap<String, crate::catalog::CatalogEntry>,
+    pub catalog: BTreeMap<String, crate::catalog::CatalogRow>,
     #[serde(default)]
     pub tools: ToolsConfig,
     #[serde(default)]
@@ -805,6 +807,23 @@ impl Config {
                 self.model.live
             );
         }
+        let builtin = crate::catalog::Catalog::builtin();
+        for (id, row) in &self.catalog {
+            for (key, price) in row.prices() {
+                if price.is_some_and(|p| !p.is_finite() || p < 0.0) {
+                    anyhow::bail!(
+                        "catalog.\"{id}\".{key} must be a price in US dollars per million tokens, \
+                         zero or more"
+                    );
+                }
+            }
+            if let Err(missing) = row.over(builtin.get(id)) {
+                anyhow::bail!(
+                    "catalog.\"{id}\" is not a built-in model, so its table needs {}",
+                    missing.join(", ")
+                );
+            }
+        }
         Ok(())
     }
 
@@ -1189,6 +1208,86 @@ mod tests {
             crate::policy::floor_argv(),
             argvs(&[&["theseusd"], &["op"]])
         );
+    }
+
+    /// The template's [catalog] is the built-in catalog, model for model and
+    /// price for price (theseus-0sg). Eddie pastes the template into the
+    /// vault, so the config is where he reads prices; were a built-in price to
+    /// change without the template, this fails and prints the tables to paste.
+    #[test]
+    fn the_template_catalog_is_the_builtin_catalog() {
+        use crate::catalog::Catalog;
+        let text = Config::EXAMPLE_TOML;
+        let start = text
+            .find("[catalog.\"")
+            .expect("the template has catalog tables");
+        let end = start
+            + text[start..]
+                .find("# A model the built-in table lacks")
+                .expect("the template ends its tables with the new-model example");
+        let want = Catalog::template_tables();
+        assert!(
+            text[start..end] == want,
+            "the template's [catalog] tables are not the built-in catalog; replace them with:\n{want}"
+        );
+        let cfg = Config::example();
+        let builtin = Catalog::builtin();
+        assert_eq!(
+            cfg.catalog.keys().collect::<Vec<_>>(),
+            builtin.entries.keys().collect::<Vec<_>>(),
+            "one table per built-in model"
+        );
+        assert!(Catalog::missing_from(&cfg.catalog).is_empty());
+        let loaded = Catalog::with_overrides(&cfg.catalog);
+        for (id, e) in &builtin.entries {
+            let got = loaded.get(id).unwrap();
+            assert_eq!(
+                got,
+                &crate::catalog::CatalogEntry {
+                    source: "config".into(),
+                    ..e.clone()
+                },
+                "{id}: the template changes nothing but where the price is read"
+            );
+        }
+        assert!(loaded
+            .version
+            .ends_with(&format!("+config:{}", builtin.entries.len())));
+    }
+
+    /// A [catalog] table over a built-in model may name one price; a model
+    /// the built-in table lacks must name every figure; a price is dollars.
+    #[test]
+    fn a_catalog_table_names_what_it_changes_and_a_new_model_names_everything() {
+        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n";
+        let (cfg, _) = Config::parse(&format!(
+            "{base}[catalog.\"claude-sonnet-5-5\"]\ncache_read_per_mtok = 0.1\n"
+        ))
+        .unwrap();
+        let c = crate::catalog::Catalog::with_overrides(&cfg.catalog);
+        let s = c.get("claude-sonnet-5-5").unwrap();
+        assert_eq!((s.cache_read_per_mtok, s.output_per_mtok), (0.1, 10.0));
+        let e = format!(
+            "{:#}",
+            Config::parse(&format!(
+                "{base}[catalog.\"mystery\"]\ninput_per_mtok = 1.0\n"
+            ))
+            .unwrap_err()
+        );
+        assert!(
+            e.contains("catalog.\"mystery\" is not a built-in model")
+                && e.contains("provider, context_window, max_output_tokens, output_per_mtok"),
+            "{e}"
+        );
+        let e = format!(
+            "{:#}",
+            Config::parse(&format!(
+                "{base}[catalog.\"glm-5.3\"]\noutput_per_mtok = -1.0\n"
+            ))
+            .unwrap_err()
+        );
+        assert!(e.contains("catalog.\"glm-5.3\".output_per_mtok"), "{e}");
+        assert!(Config::parse(&format!("{base}[catalog.\"glm-5.3\"]\nprice = 1.0\n")).is_err());
     }
 
     /// Every key the code can read appears in the template (set or commented),

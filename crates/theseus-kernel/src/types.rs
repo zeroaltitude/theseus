@@ -21,6 +21,39 @@ pub type CorrelationId = String;
 /// migrations can read old rows.
 pub const SCHEMA: u16 = 1;
 
+/// US dollars in millionths ($1 is 1,000,000). Budgets count in these, so
+/// every sum and every comparison against a limit is exact (theseus-0sg).
+pub type Micros = u64;
+pub const MICROS_PER_USD: u64 = 1_000_000;
+
+/// Dollars to micro-dollars, to the nearest one; negative and NaN are zero.
+pub fn usd_to_micros(usd: f64) -> Micros {
+    if usd.is_finite() && usd > 0.0 {
+        (usd * MICROS_PER_USD as f64).round() as u64
+    } else {
+        0
+    }
+}
+
+pub fn micros_to_usd(m: Micros) -> f64 {
+    m as f64 / MICROS_PER_USD as f64
+}
+
+/// A dollar amount as a sentence says it: `$100`, `$0.45`, `$12.30`,
+/// `$0.002`, `$0.004521`. Exact to the micro-dollar, with no trailing zeros
+/// past the cents.
+pub fn usd(m: Micros) -> String {
+    let (whole, frac) = (m / MICROS_PER_USD, m % MICROS_PER_USD);
+    if frac == 0 {
+        return format!("${whole}");
+    }
+    let mut digits = format!("{frac:06}");
+    while digits.len() > 2 && digits.ends_with('0') {
+        digits.pop();
+    }
+    format!("${whole}.{digits}")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecState {

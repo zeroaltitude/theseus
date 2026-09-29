@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
 pub const BUILTIN_VERSION: &str = "2026-09-28.1";
@@ -75,6 +76,139 @@ impl CatalogEntry {
             + u.cache_read_input_tokens as f64 * self.cache_read_per_mtok
             + u.cache_creation_input_tokens as f64 * self.cache_write_per_mtok)
             / 1_000_000.0
+    }
+
+    /// What a call's usage costs in micro-dollars, the budget's unit: input,
+    /// output, cache reads, and cache writes each at its own price, rounded
+    /// up to the next micro-dollar (theseus-0sg).
+    pub fn cost_micros(&self, u: &Usage) -> Micros {
+        micros_of(&[
+            (u.input_tokens, self.input_per_mtok),
+            (u.output_tokens, self.output_per_mtok),
+            (u.cache_read_input_tokens, self.cache_read_per_mtok),
+            (u.cache_creation_input_tokens, self.cache_write_per_mtok),
+        ])
+    }
+
+    /// What a call reserves before it runs: its output cap at the output
+    /// price plus its input estimate at the input price.
+    pub fn reserve_micros(&self, max_output_tokens: u32, input_estimate: u64) -> Micros {
+        micros_of(&[
+            (max_output_tokens as u64, self.output_per_mtok),
+            (input_estimate, self.input_per_mtok),
+        ])
+    }
+}
+
+/// Σ tokens × price, rounded up to the next micro-dollar. A price in dollars
+/// per million tokens is micro-dollars per token, so a price with up to six
+/// decimals is an exact integer once scaled by a million, and the sum is
+/// exact before the one rounding.
+fn micros_of(terms: &[(u64, f64)]) -> Micros {
+    let scaled: u128 = terms
+        .iter()
+        .map(|&(tokens, per_mtok)| tokens as u128 * usd_to_micros(per_mtok) as u128)
+        .sum();
+    u64::try_from(scaled.div_ceil(MICROS_PER_USD as u128)).unwrap_or(u64::MAX)
+}
+
+/// A `[catalog."<id>"]` table in the config. Over a built-in model every
+/// field is optional and replaces only what it names; the template names the
+/// four prices. A model the built-in table lacks needs `provider`,
+/// `context_window`, `max_output_tokens`, and the four prices.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogRow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_per_mtok: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_per_mtok: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_per_mtok: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_per_mtok: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<ThinkingMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal_fallbacks: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_min_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vision: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+impl CatalogRow {
+    /// The prices this row sets, by key, for checking them.
+    pub fn prices(&self) -> [(&'static str, Option<f64>); 4] {
+        [
+            ("input_per_mtok", self.input_per_mtok),
+            ("output_per_mtok", self.output_per_mtok),
+            ("cache_read_per_mtok", self.cache_read_per_mtok),
+            ("cache_write_per_mtok", self.cache_write_per_mtok),
+        ]
+    }
+
+    /// This row over the built-in entry, if the model has one. Without one,
+    /// `Err` names the fields a new model still needs.
+    pub fn over(&self, base: Option<&CatalogEntry>) -> Result<CatalogEntry, Vec<&'static str>> {
+        let entry = match base {
+            Some(b) => b.clone(),
+            None => {
+                let missing: Vec<&'static str> = [
+                    ("provider", self.provider.is_none()),
+                    ("context_window", self.context_window.is_none()),
+                    ("max_output_tokens", self.max_output_tokens.is_none()),
+                ]
+                .into_iter()
+                .chain(self.prices().map(|(k, v)| (k, v.is_none())))
+                .filter_map(|(k, gone)| gone.then_some(k))
+                .collect();
+                if !missing.is_empty() {
+                    return Err(missing);
+                }
+                CatalogEntry {
+                    provider: String::new(),
+                    context_window: 0,
+                    max_output_tokens: 0,
+                    input_per_mtok: 0.0,
+                    output_per_mtok: 0.0,
+                    cache_read_per_mtok: 0.0,
+                    cache_write_per_mtok: 0.0,
+                    thinking: ThinkingMode::None,
+                    effort: false,
+                    refusal_fallbacks: false,
+                    cache_min_tokens: 0,
+                    vision: false,
+                    source: String::new(),
+                }
+            }
+        };
+        let r = self.clone();
+        Ok(CatalogEntry {
+            provider: r.provider.unwrap_or(entry.provider),
+            context_window: r.context_window.unwrap_or(entry.context_window),
+            max_output_tokens: r.max_output_tokens.unwrap_or(entry.max_output_tokens),
+            input_per_mtok: r.input_per_mtok.unwrap_or(entry.input_per_mtok),
+            output_per_mtok: r.output_per_mtok.unwrap_or(entry.output_per_mtok),
+            cache_read_per_mtok: r.cache_read_per_mtok.unwrap_or(entry.cache_read_per_mtok),
+            cache_write_per_mtok: r.cache_write_per_mtok.unwrap_or(entry.cache_write_per_mtok),
+            thinking: r.thinking.unwrap_or(entry.thinking),
+            effort: r.effort.unwrap_or(entry.effort),
+            refusal_fallbacks: r.refusal_fallbacks.unwrap_or(entry.refusal_fallbacks),
+            cache_min_tokens: r.cache_min_tokens.unwrap_or(entry.cache_min_tokens),
+            vision: r.vision.unwrap_or(entry.vision),
+            source: r.source.unwrap_or_else(|| "config".into()),
+        })
     }
 }
 
@@ -200,22 +334,33 @@ impl Catalog {
         }
     }
 
-    /// The built-in table with `[catalog."<id>"]` entries replacing or adding
-    /// rows. Any override changes the version string, so a priced row says so.
-    pub fn with_overrides(overrides: &BTreeMap<String, CatalogEntry>) -> Self {
+    /// The built-in table with the config's `[catalog."<id>"]` tables over
+    /// it: a table over a built-in row replaces the fields it names, and a
+    /// complete table adds a model. Any table changes the version string, so
+    /// a priced row says so. `Config::validate` refuses an incomplete new
+    /// model, so none is skipped here.
+    pub fn with_overrides(overrides: &BTreeMap<String, CatalogRow>) -> Self {
         let mut c = Self::builtin();
         if overrides.is_empty() {
             return c;
         }
-        for (k, v) in overrides {
-            let mut v = v.clone();
-            if v.source.is_empty() {
-                v.source = "config".into();
+        for (k, row) in overrides {
+            if let Ok(e) = row.over(c.entries.get(k)) {
+                c.entries.insert(k.clone(), e);
             }
-            c.entries.insert(k.clone(), v);
         }
         c.version = format!("{BUILTIN_VERSION}+config:{}", overrides.len());
         c
+    }
+
+    /// Built-in models the config has no `[catalog]` table for: they run at
+    /// the built-in prices, and startup names them.
+    pub fn missing_from(overrides: &BTreeMap<String, CatalogRow>) -> Vec<String> {
+        Self::builtin()
+            .entries
+            .into_keys()
+            .filter(|id| !overrides.contains_key(id))
+            .collect()
     }
 
     pub fn get(&self, model: &str) -> Option<&CatalogEntry> {
@@ -225,6 +370,32 @@ impl Catalog {
     /// Dollars for a call, or `None` when the model is not in the catalog.
     pub fn cost_usd(&self, model: &str, usage: &Usage) -> Option<f64> {
         self.get(model).map(|e| e.cost_usd(usage))
+    }
+
+    /// The template's `[catalog]` tables: every built-in model with its four
+    /// prices. The template holds this text verbatim, and a test compares
+    /// the two, so the prices Eddie reads in his config are the built-in ones.
+    pub fn template_tables() -> String {
+        let mut out = String::new();
+        for (id, e) in &Self::builtin().entries {
+            let head = format!("[catalog.\"{id}\"]");
+            out.push_str(&format!(
+                "{head:<40}# {} · {}-token window · {} out\n",
+                e.provider,
+                crate::narrative::thousands(e.context_window),
+                crate::narrative::thousands(e.max_output_tokens as u64)
+            ));
+            for (key, price) in [
+                ("input_per_mtok", e.input_per_mtok),
+                ("output_per_mtok", e.output_per_mtok),
+                ("cache_read_per_mtok", e.cache_read_per_mtok),
+                ("cache_write_per_mtok", e.cache_write_per_mtok),
+            ] {
+                out.push_str(&format!("{key} = {price:?}\n"));
+            }
+            out.push('\n');
+        }
+        out
     }
 }
 
@@ -268,17 +439,101 @@ mod tests {
     #[test]
     fn overrides_replace_add_and_change_the_version() {
         let mut o = BTreeMap::new();
-        let mut e = Catalog::builtin().get("claude-sonnet-5").unwrap().clone();
-        e.input_per_mtok = 3.0;
-        e.source = String::new();
-        o.insert("claude-sonnet-5".to_string(), e);
+        o.insert(
+            "claude-sonnet-5".to_string(),
+            CatalogRow {
+                input_per_mtok: Some(3.0),
+                ..Default::default()
+            },
+        );
         let c = Catalog::with_overrides(&o);
-        assert_eq!(c.get("claude-sonnet-5").unwrap().input_per_mtok, 3.0);
-        assert_eq!(c.get("claude-sonnet-5").unwrap().source, "config");
+        let s5 = c.get("claude-sonnet-5").unwrap();
+        assert_eq!(s5.input_per_mtok, 3.0);
+        assert_eq!(s5.output_per_mtok, 10.0, "an unnamed field stays built in");
+        assert_eq!(s5.context_window, 1_000_000);
+        assert_eq!(s5.source, "config");
         assert!(c.version.starts_with(BUILTIN_VERSION) && c.version.contains("+config:1"));
         assert_eq!(
             Catalog::with_overrides(&BTreeMap::new()).version,
             BUILTIN_VERSION
         );
+        // A model the built-in table lacks needs every figure a call uses.
+        let partial = CatalogRow {
+            input_per_mtok: Some(1.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            partial.over(None).unwrap_err(),
+            [
+                "provider",
+                "context_window",
+                "max_output_tokens",
+                "output_per_mtok",
+                "cache_read_per_mtok",
+                "cache_write_per_mtok"
+            ]
+        );
+        let full = CatalogRow {
+            provider: Some("zai".into()),
+            context_window: Some(200_000),
+            max_output_tokens: Some(8_192),
+            input_per_mtok: Some(1.0),
+            output_per_mtok: Some(2.0),
+            cache_read_per_mtok: Some(0.1),
+            cache_write_per_mtok: Some(0.0),
+            ..Default::default()
+        };
+        o.insert("new-model".into(), full);
+        let c = Catalog::with_overrides(&o);
+        assert_eq!(c.get("new-model").unwrap().max_output_tokens, 8_192);
+        assert!(c.version.ends_with("+config:2"), "{}", c.version);
+        assert_eq!(
+            Catalog::missing_from(&o).len(),
+            Catalog::builtin().entries.len() - 1
+        );
+    }
+
+    /// One call's reservation and settlement in micro-dollars, by hand from
+    /// the catalog (theseus-0sg). Sonnet 5.5: $2 in, $10 out, $0.20 cache
+    /// read, $2.50 cache write per million tokens, so a price per million
+    /// tokens is micro-dollars per token.
+    #[test]
+    fn a_calls_reservation_and_cost_in_micro_dollars_match_the_prices() {
+        let s55 = Catalog::builtin().get("claude-sonnet-5-5").unwrap().clone();
+        // Reserve: the 128,000-token output cap at $10, a 44,000-token input
+        // estimate at $2: 1,280,000 + 88,000 µ$ = $1.368.
+        assert_eq!(s55.reserve_micros(128_000, 44_000), 1_368_000);
+        // Settle: 1,200 in at $2, 900 out at $10, 40,000 cache reads at
+        // $0.20, 3,000 cache writes at $2.50: 2,400 + 9,000 + 8,000 + 7,500.
+        let u = Usage {
+            input_tokens: 1_200,
+            output_tokens: 900,
+            cache_read_input_tokens: 40_000,
+            cache_creation_input_tokens: 3_000,
+        };
+        assert_eq!(s55.cost_micros(&u), 26_900);
+        assert!((s55.cost_usd(&u) - 0.0269).abs() < 1e-12);
+        // A cache read weighs a fiftieth of an output token, not the same.
+        let reads = Usage {
+            cache_read_input_tokens: 1_000_000,
+            ..Default::default()
+        };
+        let outs = Usage {
+            output_tokens: 1_000_000,
+            ..Default::default()
+        };
+        assert_eq!(
+            (s55.cost_micros(&reads), s55.cost_micros(&outs)),
+            (200_000, 10_000_000)
+        );
+        // Fractions of a micro-dollar round up, once per call: 7 GLM-5.3
+        // Flash cache reads at $0.03 are 0.21 µ$, so 1.
+        let flash = Catalog::builtin().get("glm-5.3-flash").unwrap().clone();
+        let tiny = Usage {
+            cache_read_input_tokens: 7,
+            ..Default::default()
+        };
+        assert_eq!(flash.cost_micros(&tiny), 1);
+        assert_eq!(flash.cost_micros(&Usage::default()), 0);
     }
 }
