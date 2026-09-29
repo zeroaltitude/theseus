@@ -26,13 +26,13 @@ use theseus_kernel::{
 };
 use theseus_protocol::{notify, ConfirmRequest};
 use theseus_store::Store as _;
-use theseus_tools::{Backend, JobSpec, Registry, Retry, Tool, ToolCtx};
+use theseus_tools::{Backend, JobSpec, Plan, Registry, Retry, Tool, ToolCtx};
 
 use crate::bus::EventSink;
 use crate::ledger::LedgerRow;
 use crate::narrative::{self, narrate_turn, Narrator};
 use crate::node::{Body, Node, ResultStatus};
-use crate::policy::{Posture, ToolPolicy};
+use crate::policy::{Decision, Posture, ToolPolicy};
 use crate::provider::ToolUse;
 use crate::scrub::Scrubber;
 use crate::store::Store;
@@ -282,24 +282,11 @@ impl ToolRuntime {
             .or_default() += 1;
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn result_node(
-        &self,
-        tc: &TurnCtx<'_>,
-        tool_use_id: &str,
-        tool: &str,
-        status: ResultStatus,
-        raw: &str,
-        correlation_id: Option<&str>,
-        duration_ms: Option<u64>,
-        late: bool,
-        full_ref: Option<String>,
-        bytes_total: Option<u64>,
-        meta: Value,
-    ) -> Node {
-        let (scrubbed, redactions) = self.scrubber.scrub(raw);
+    /// The node for a result, its text scrubbed of secret values and capped.
+    fn result_node(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>) -> Node {
+        let (scrubbed, redactions) = self.scrubber.scrub(&r.text);
         let (content, truncated) = cap(&scrubbed, self.result_max_chars);
-        let mut meta = meta;
+        let mut meta = r.meta;
         if redactions > 0 {
             meta["redactions"] = json!(redactions);
         }
@@ -308,27 +295,32 @@ impl ToolRuntime {
             Some(tc.turn_id),
             tc.loop_index,
             Body::ToolResult {
-                tool_use_id: tool_use_id.into(),
-                tool: tool.into(),
-                status,
+                tool_use_id: r.tool_use_id.into(),
+                tool: r.tool.into(),
+                status: r.status,
                 is_error: matches!(
-                    status,
+                    r.status,
                     ResultStatus::Error
                         | ResultStatus::Declined
                         | ResultStatus::Unknown
                         | ResultStatus::Cancelled
                 ),
                 content,
-                correlation_id: correlation_id.map(str::to_string),
-                bytes_total: bytes_total.unwrap_or(raw.len() as u64),
+                correlation_id: r.correlation_id.map(str::to_string),
+                bytes_total: r.bytes_total.unwrap_or(r.text.len() as u64),
                 truncated,
-                full_ref,
-                duration_ms,
-                late,
+                full_ref: r.full_ref,
+                duration_ms: r.duration_ms,
+                late: r.late,
                 meta,
-                image: None,
+                image: r.image,
             },
         )
+    }
+
+    /// A result on its own frame, announced.
+    fn answer(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>) -> Result<ResultStatus> {
+        Self::write_result(tc, &self.result_node(tc, r))
     }
 
     fn announce_end(tc: &TurnCtx<'_>, node: &Node) {
@@ -365,24 +357,14 @@ impl ToolRuntime {
                 }),
             );
             if tc.narrator.on() {
-                narrate_result(
-                    tc,
-                    tool,
-                    *status,
-                    *duration_ms,
-                    correlation_id.as_deref(),
-                    *late,
-                    *bytes_total,
-                    content,
-                    meta,
-                );
+                narrate_result(tc, node);
             }
         }
         tc.node_written(node);
     }
 
     /// A call's main resource for the narrative, scrubbed of any secret value.
-    fn subject(&self, tool: &str, plan: &theseus_tools::Plan) -> String {
+    fn subject(&self, tool: &str, plan: &Plan) -> String {
         let s = narrative::subject(
             tool,
             plan.argv.as_deref(),
@@ -403,28 +385,33 @@ impl ToolRuntime {
         Ok(status)
     }
 
+    /// A call's tool, if it is still registered, and its canonical name (the
+    /// wire name when it is not).
+    fn tool_of(&self, call: &ToolUse) -> (Option<Arc<dyn Tool>>, String) {
+        let tool = self.registry.by_wire(&call.name).cloned();
+        let name = tool
+            .as_ref()
+            .map(|t| t.name().to_string())
+            .unwrap_or_else(|| call.name.clone());
+        (tool, name)
+    }
+
     /// Answer a `tool_use` that will not run (the response was cut off, the
     /// operator moved on), so the transcript stays valid.
     pub fn not_run(&self, tc: &TurnCtx<'_>, call: &ToolUse, reason: &str) -> Result<()> {
-        let tool = self
-            .registry
-            .by_wire(&call.name)
-            .map(|t| t.name().to_string())
-            .unwrap_or_else(|| call.name.clone());
-        let node = self.result_node(
+        let (_, tool) = self.tool_of(call);
+        self.answer(
             tc,
-            &call.id,
-            &tool,
-            ResultStatus::Cancelled,
-            &format!("Not run: {reason}."),
-            None,
-            None,
-            false,
-            None,
-            None,
-            json!({"not_run": reason}),
-        );
-        Self::write_result(tc, &node)?;
+            ResultNode {
+                meta: json!({"not_run": reason}),
+                ..ResultNode::new(
+                    &call.id,
+                    &tool,
+                    ResultStatus::Cancelled,
+                    format!("Not run: {reason}."),
+                )
+            },
+        )?;
         Ok(())
     }
 
@@ -470,75 +457,93 @@ impl ToolRuntime {
         invalid_raw: Option<&str>,
     ) -> Result<CallOutcome> {
         let Some(tool) = self.registry.by_wire(&call.name).cloned() else {
-            narrate_turn!(
-                tc,
-                Tool,
-                "The model called an unknown tool `{}`; it gets an error.",
-                call.name.chars().take(40).collect::<String>()
-            );
-            let node = self.result_node(
-                tc,
-                &call.id,
-                &call.name,
-                ResultStatus::Error,
-                &format!(
-                    "Unknown tool `{}`. Available: {}.",
-                    call.name,
-                    self.registry
-                        .all()
-                        .map(|t| theseus_tools::wire_name(t.name()))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                None,
-                None,
-                false,
-                None,
-                None,
-                Value::Null,
-            );
-            return Ok(CallOutcome::Done {
-                status: Self::write_result(tc, &node)?,
-            });
+            return self.unknown_tool(tc, call);
         };
         self.count(tool.name());
         if let Some(raw) = invalid_raw {
-            let body = json!({"INVALID_JSON": raw}).to_string();
-            let node = self.result_node(
-                tc,
-                &call.id,
-                tool.name(),
-                ResultStatus::Error,
-                &body,
-                None,
-                None,
-                false,
-                None,
-                None,
-                Value::Null,
-            );
-            tc.ledger(
-                "tool.invalid_input",
-                json!({"tool": tool.name(), "tool_use_id": call.id}),
-            );
-            narrate_turn!(
-                tc,
-                Tool,
-                "{}: the input is not valid JSON, so it does not run.",
-                tool.name()
-            );
-            return Ok(CallOutcome::Done {
-                status: Self::write_result(tc, &node)?,
-            });
+            return self.invalid_json(tc, call, tool.name(), raw);
         }
+        let g = match self.gate(tc, tool.as_ref(), call) {
+            Ok(g) => g,
+            Err(bad) => return self.invalid_input(tc, assistant_node, call, tool.name(), bad),
+        };
+        if let Some(n) = &g.decision.notify {
+            // A notify posture runs the call and says so where the operator looks.
+            let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
+                "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
+                "summary": g.plan.summary, "kind": n.kind, "setting": n.setting, "rule": n.rule});
+            tc.ledger("tool.notified", payload.clone());
+            tc.sink.send(notify::POLICY_NOTIFIED, payload);
+        }
+        let a = self.plan_call(tc, assistant_node, call, tool.as_ref(), &g)?;
+        if tc.narrator.on() {
+            self.narrate_gate(tc, tool.name(), &g);
+        }
+        if g.decision.posture == Posture::Approve {
+            return self.ask(tc, a, call, tool.name(), g);
+        }
+        tc.kernel.authorize(&a.correlation_id, &g.proposal, None)?;
+        self.execute(tc, &a.correlation_id, tool, call).await
+    }
 
-        let mut proposal = self.proposal_for(tool.as_ref(), &call.input);
-        // The toollet's own typed parse names the resources, and an `Err` is
-        // invalid input. The policy then runs the call, notifies, or waits
-        // (§3.9); nothing it decides refuses one (theseus-8az). The gate JSON
-        // keeps the keys stored tool-call nodes carry.
+    fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
+        narrate_turn!(
+            tc,
+            Tool,
+            "The model called an unknown tool `{}`; it gets an error.",
+            call.name.chars().take(40).collect::<String>()
+        );
+        let text = format!(
+            "Unknown tool `{}`. Available: {}.",
+            call.name,
+            self.registry
+                .all()
+                .map(|t| theseus_tools::wire_name(t.name()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let r = ResultNode::new(&call.id, &call.name, ResultStatus::Error, text);
+        Ok(CallOutcome::Done {
+            status: self.answer(tc, r)?,
+        })
+    }
+
+    fn invalid_json(
+        &self,
+        tc: &TurnCtx<'_>,
+        call: &ToolUse,
+        tool: &str,
+        raw: &str,
+    ) -> Result<CallOutcome> {
+        let body = json!({"INVALID_JSON": raw}).to_string();
+        let node = self.result_node(
+            tc,
+            ResultNode::new(&call.id, tool, ResultStatus::Error, body),
+        );
+        tc.ledger(
+            "tool.invalid_input",
+            json!({"tool": tool, "tool_use_id": call.id}),
+        );
+        narrate_turn!(
+            tc,
+            Tool,
+            "{}: the input is not valid JSON, so it does not run.",
+            tool
+        );
+        Ok(CallOutcome::Done {
+            status: Self::write_result(tc, &node)?,
+        })
+    }
+
+    /// The gate for one call (§3.17). The toollet's own typed parse names the
+    /// resources, and an `Err` is invalid input. The policy then runs the
+    /// call, notifies, or waits (§3.9); nothing it decides refuses one
+    /// (theseus-8az). The record keeps the keys stored tool-call nodes carry,
+    /// and `tool.proposed` shows it to the session's clients.
+    fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
+        let mut proposal = self.proposal_for(tool, &call.input);
         let planned = tool.plan(&call.input, &self.ctx).map(|plan| {
-            let decision = self.policy.decide(tool.as_ref(), &plan);
+            let decision = self.policy.decide(tool, &plan);
             (plan, decision)
         });
         let result = match &planned {
@@ -551,7 +556,7 @@ impl ToolRuntime {
         if let Ok((plan, _)) = &planned {
             proposal.resource = plan.resources.first().map(|r| r.path.display().to_string());
         }
-        let gate = json!({
+        let record = json!({
             "result": result,
             "validated": planned.is_ok(),
             "decision": planned.as_ref().ok().map(|(_, d)| d),
@@ -560,55 +565,72 @@ impl ToolRuntime {
         });
         tc.sink.send(
             notify::TOOL_PROPOSED,
-            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "input": call.input, "gate": gate}),
+            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "input": call.input, "gate": record}),
         );
-
-        let (plan, decision) = match planned {
-            Ok(planned) => planned,
-            Err(e) => {
-                let reason = format!("validation: {e}");
-                let call_node =
-                    Self::tool_call_node(tc, assistant_node, call, tool.name(), None, gate);
-                let node = self.result_node(
-                    tc,
-                    &call.id,
-                    tool.name(),
-                    ResultStatus::Error,
-                    &format!("Invalid input: {e}"),
-                    None,
-                    None,
-                    false,
-                    None,
-                    None,
-                    json!({"reason": reason}),
-                );
-                tc.store.append(&[call_node.record()?, node.record()?])?;
-                tc.ledger(
-                    "tool.invalid_input",
-                    json!({"tool": tool.name(), "tool_use_id": call.id, "reason": reason, "input": call.input}),
-                );
-                narrate_turn!(
-                    tc,
-                    Tool,
-                    "{}: the input is invalid, so it does not run.",
-                    tool.name()
-                );
-                Self::announce_end(tc, &node);
-                return Ok(CallOutcome::Done {
-                    status: ResultStatus::Error,
-                });
-            }
-        };
-        if let Some(n) = &decision.notify {
-            // A notify posture runs the call and says so where the operator looks.
-            let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
-                "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
-                "summary": plan.summary, "kind": n.kind, "setting": n.setting, "rule": n.rule});
-            tc.ledger("tool.notified", payload.clone());
-            tc.sink.send(notify::POLICY_NOTIFIED, payload);
+        match planned {
+            Ok((plan, decision)) => Ok(Gated {
+                plan,
+                decision,
+                proposal,
+                record,
+            }),
+            Err(error) => Err(Invalid { record, error }),
         }
+    }
+
+    /// Invalid input: the call node and its error in one frame; it never runs.
+    fn invalid_input(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        call: &ToolUse,
+        tool: &str,
+        bad: Invalid,
+    ) -> Result<CallOutcome> {
+        let reason = format!("validation: {}", bad.error);
+        let call_node = Self::tool_call_node(tc, assistant_node, call, tool, None, bad.record);
+        let node = self.result_node(
+            tc,
+            ResultNode {
+                meta: json!({"reason": reason}),
+                ..ResultNode::new(
+                    &call.id,
+                    tool,
+                    ResultStatus::Error,
+                    format!("Invalid input: {}", bad.error),
+                )
+            },
+        );
+        tc.store.append(&[call_node.record()?, node.record()?])?;
+        tc.ledger(
+            "tool.invalid_input",
+            json!({"tool": tool, "tool_use_id": call.id, "reason": reason, "input": call.input}),
+        );
+        narrate_turn!(
+            tc,
+            Tool,
+            "{}: the input is invalid, so it does not run.",
+            tool
+        );
+        Self::announce_end(tc, &node);
+        Ok(CallOutcome::Done {
+            status: ResultStatus::Error,
+        })
+    }
+
+    /// Plan the call as a kernel action, with its `ToolCall` node in the same
+    /// frame. A call that waits for the operator keeps its proposal on the
+    /// action (theseus-0g4).
+    fn plan_call(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        call: &ToolUse,
+        tool: &dyn Tool,
+        g: &Gated,
+    ) -> Result<Action> {
         let retry = map_retry(tool.retry());
-        let deadline = Some(self.deadline_ms(tool.as_ref(), &call.input));
+        let deadline = Some(self.deadline_ms(tool, &call.input));
         let node = |a: &Action| {
             Ok(vec![Self::tool_call_node(
                 tc,
@@ -616,74 +638,83 @@ impl ToolRuntime {
                 call,
                 tool.name(),
                 Some(&a.correlation_id),
-                gate.clone(),
+                g.record.clone(),
             )
             .record()?])
         };
-        // A call that waits keeps its proposal on the action (theseus-0g4).
-        let a = if decision.posture == Posture::Approve {
+        if g.decision.posture == Posture::Approve {
             tc.kernel
-                .plan_confirm_with(tc.guard, &proposal, retry, deadline, node)?
+                .plan_confirm_with(tc.guard, &g.proposal, retry, deadline, node)
         } else {
             tc.kernel
-                .plan_action_with(tc.guard, &proposal, retry, deadline, 0, node)?
-        };
-        if tc.narrator.on() {
-            let subject = self.subject(tool.name(), &plan);
-            let why = narrative::gate_why(
-                &decision.reason,
-                &plan.summary,
-                tool.name(),
-                decision.posture.as_str(),
-                plan.argv.as_deref(),
-                &self.policy.posture(tool.name()).1,
-            );
-            let why = self.scrubber.scrub(&why).0;
-            match decision.posture {
-                Posture::Approve => {
-                    narrate_turn!(
-                        tc,
-                        Tool,
-                        "{subject}: posture approve ({why}), waiting for approval."
-                    )
-                }
-                Posture::Notify => {
-                    narrate_turn!(
-                        tc,
-                        Tool,
-                        "{subject}: posture notify ({why}), running and telling the \
-                         operator."
-                    )
-                }
-                Posture::Open => {
-                    narrate_turn!(tc, Tool, "{subject}: posture open ({why}), running.")
-                }
+                .plan_action_with(tc.guard, &g.proposal, retry, deadline, 0, node)
+        }
+    }
+
+    /// The narrative's line for the gate's decision.
+    fn narrate_gate(&self, tc: &TurnCtx<'_>, tool: &str, g: &Gated) {
+        let subject = self.subject(tool, &g.plan);
+        let why = narrative::gate_why(
+            &g.decision.reason,
+            &g.plan.summary,
+            tool,
+            g.decision.posture.as_str(),
+            g.plan.argv.as_deref(),
+            &self.policy.posture(tool).1,
+        );
+        let why = self.scrubber.scrub(&why).0;
+        match g.decision.posture {
+            Posture::Approve => {
+                narrate_turn!(
+                    tc,
+                    Tool,
+                    "{subject}: posture approve ({why}), waiting for approval."
+                )
+            }
+            Posture::Notify => {
+                narrate_turn!(
+                    tc,
+                    Tool,
+                    "{subject}: posture notify ({why}), running and telling the \
+                     operator."
+                )
+            }
+            Posture::Open => {
+                narrate_turn!(tc, Tool, "{subject}: posture open ({why}), running.")
             }
         }
-        if decision.posture == Posture::Approve {
-            let now = theseus_protocol::now_unix_ms();
-            let req = ConfirmRequest {
-                correlation_id: a.correlation_id.clone(),
-                session_id: tc.session_id.into(),
-                execution_id: tc.execution_id.into(),
-                tool: tool.name().into(),
-                input: call.input.clone(),
-                resource: proposal.resource.clone(),
-                reason: decision.reason,
-                by: self.policy.confirmer.clone(),
-                requested_at_ms: now,
-                expires_at_ms: now + tc.confirm_ttl_ms,
-                floor: decision.floor,
-                budget: None,
-            };
-            tc.ledger("tool.confirm_requested", serde_json::to_value(&req)?);
-            tc.sink.send(notify::CONFIRM_REQUESTED, &req);
-            return Ok(CallOutcome::AwaitingConfirm {
-                correlation_id: a.correlation_id,
-            });
-        }
-        tc.kernel.authorize(&a.correlation_id, &proposal, None)?;
-        self.execute(tc, &a.correlation_id, tool, call).await
+    }
+
+    /// The call waits for the operator: the question goes to the ledger and
+    /// to the session's clients, and the turn parks on it.
+    fn ask(
+        &self,
+        tc: &TurnCtx<'_>,
+        a: Action,
+        call: &ToolUse,
+        tool: &str,
+        g: Gated,
+    ) -> Result<CallOutcome> {
+        let now = theseus_protocol::now_unix_ms();
+        let req = ConfirmRequest {
+            correlation_id: a.correlation_id.clone(),
+            session_id: tc.session_id.into(),
+            execution_id: tc.execution_id.into(),
+            tool: tool.into(),
+            input: call.input.clone(),
+            resource: g.proposal.resource,
+            reason: g.decision.reason,
+            by: self.policy.confirmer.clone(),
+            requested_at_ms: now,
+            expires_at_ms: now + tc.confirm_ttl_ms,
+            floor: g.decision.floor,
+            budget: None,
+        };
+        tc.ledger("tool.confirm_requested", serde_json::to_value(&req)?);
+        tc.sink.send(notify::CONFIRM_REQUESTED, &req);
+        Ok(CallOutcome::AwaitingConfirm {
+            correlation_id: a.correlation_id,
+        })
     }
 
     fn deadline_ms(&self, tool: &dyn Tool, input: &Value) -> u64 {
@@ -709,208 +740,209 @@ impl ToolRuntime {
         call: &ToolUse,
     ) -> Result<CallOutcome> {
         match tool.backend() {
-            Backend::Inproc => {
-                tc.kernel.dispatch(correlation_id, None)?;
-                tc.sink.send(
-                    notify::TOOL_STARTED,
-                    json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "inproc"}),
-                );
-                let started = theseus_protocol::now_unix_ms();
-                let t0 = Instant::now();
-                let (t, input, ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
-                let run = tokio::task::spawn_blocking(move || t.run_with_image(&input, &ctx));
-                let outcome = match tokio::time::timeout(
-                    Duration::from_millis(INPROC_DEADLINE_MS),
-                    run,
-                )
-                .await
-                {
-                    Ok(Ok(Ok(out))) => Ok(out),
-                    Ok(Ok(Err(f))) => Err(f.message),
-                    Ok(Err(join)) => Err(format!("the tool panicked: {join}")),
-                    Err(_) => Err(format!("timed out after {} ms", INPROC_DEADLINE_MS)),
-                };
-                let dur = t0.elapsed().as_millis() as u64;
-                let (status, mut text, meta, img) = match outcome {
-                    Ok((o, img)) => (ResultStatus::Ok, o.text, o.meta, img),
-                    Err(m) => (ResultStatus::Error, m, Value::Null, None),
-                };
-                // An image the tool read goes to the blobs once; the node
-                // holds the reference (theseus-9g2).
-                let image = img.and_then(|d| {
-                    match crate::attach::store_image(&d.bytes, tc.store.blobs()) {
-                        Ok((info, digest)) => Some(crate::node::Attachment {
-                            name: d.name,
-                            media_type: info.media_type.into(),
-                            size: d.bytes.len() as u64,
-                            content: crate::node::AttachmentContent::Image {
-                                digest,
-                                width: info.width,
-                                height: info.height,
-                            },
-                        }),
-                        Err(why) => {
-                            text.push_str(&format!(" It is not shown: {why}."));
-                            None
-                        }
-                    }
-                });
-                let mut node = self.result_node(
-                    tc,
-                    &call.id,
-                    tool.name(),
-                    status,
-                    &text,
-                    Some(correlation_id),
-                    Some(dur),
-                    false,
-                    None,
-                    None,
-                    meta.clone(),
-                );
-                if let Body::ToolResult { image: slot, .. } = &mut node.body {
-                    *slot = image;
-                }
-                let c = Completion {
-                    correlation_id: correlation_id.into(),
-                    outcome: if status == ResultStatus::Ok {
-                        Outcome::Succeeded
-                    } else {
-                        Outcome::Failed
-                    },
-                    result_ref: Some(node.id.clone()),
-                    external_op_id: None,
-                    started_at_ms: started,
-                    finished_at_ms: theseus_protocol::now_unix_ms(),
-                    producer: format!("inproc:{}", tool.name()),
-                    signature: None,
-                    cost_micros: None,
-                    detail: Some(json!({"duration_ms": dur, "meta": meta})),
-                };
-                tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
-                Self::announce_end(tc, &node);
-                Ok(CallOutcome::Done { status })
-            }
-            Backend::Job => {
-                let spec: JobSpec = match tool.job(&call.input, &self.ctx) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tc.kernel.dispatch(correlation_id, None)?;
-                        return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e);
-                    }
-                };
-                let Some(spool) = self.spool.clone() else {
-                    tc.kernel.dispatch(correlation_id, None)?;
-                    return self.settle_job_failure(
-                        tc,
-                        correlation_id,
-                        tool.name(),
-                        call,
-                        "no completion spool is configured",
-                    );
-                };
-                let mut env = self.proc_env.clone();
-                for (k, v) in &spec.env {
-                    if forbidden_env(k) {
-                        tc.kernel.dispatch(correlation_id, None)?;
-                        return self.settle_job_failure(
-                            tc,
-                            correlation_id,
-                            tool.name(),
-                            call,
-                            &format!("environment variable {k} may not be set by a tool call"),
-                        );
-                    }
-                    env.retain(|(ek, _)| ek != k);
-                    env.push((k.clone(), v.clone()));
-                }
-                let args = WrapperArgs {
-                    spool_dir: spool.dir().to_path_buf(),
-                    correlation_id: correlation_id.into(),
-                    deadline_ms: spec.timeout_secs * 1000,
-                    notify_socket: self.notify_socket.clone(),
-                    argv: spec.argv.clone(),
-                    cwd: Some(spec.cwd.clone()),
-                    env,
-                };
-                // Outbox: `dispatched` is durable before the process exists.
-                tc.kernel.dispatch(correlation_id, None)?;
-                let pid = match self.launcher.launch(&spool, &args) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        return self.settle_job_failure(
-                            tc,
-                            correlation_id,
-                            tool.name(),
-                            call,
-                            &format!("could not start the job: {e}"),
-                        );
-                    }
-                };
-                tc.sink.send(
-                    notify::TOOL_STARTED,
-                    json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "job", "pid": pid, "argv": spec.argv, "cwd": spec.cwd}),
-                );
-                tc.ledger("tool.job_started", json!({"correlation_id": correlation_id, "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "timeout_secs": spec.timeout_secs}));
-                let t0 = Instant::now();
-                let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
-                narrate_turn!(
-                    tc,
-                    Tool,
-                    "{} started as job {} (pid {pid}); the turn waits up to {} \
-                     for it.",
-                    self.scrubber
-                        .scrub(&narrative::subject(
-                            tool.name(),
-                            Some(&spec.argv),
-                            None,
-                            &spec.cwd
-                        ))
-                        .0,
-                    narrative::short(correlation_id),
-                    narrative::duration(bound.as_millis() as u64)
-                );
-                loop {
-                    if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
-                        let node = self.job_result_node(
-                            tc,
-                            &call.id,
-                            tool.name(),
-                            &done,
-                            Some(t0.elapsed().as_millis() as u64),
-                            false,
-                        );
-                        let status = Self::write_result(tc, &node)?;
-                        return Ok(CallOutcome::Done { status });
-                    }
-                    if t0.elapsed() >= bound {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-                let text = format!(
-                    "Still running as background job {correlation_id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.",
-                    self.proc_sync_secs, spec.timeout_secs
-                );
-                let node = self.result_node(
-                    tc,
-                    &call.id,
-                    tool.name(),
-                    ResultStatus::Background,
-                    &text,
-                    Some(correlation_id),
-                    None,
-                    false,
-                    None,
-                    None,
-                    json!({"pid": pid}),
-                );
-                Self::write_result(tc, &node)?;
-                Ok(CallOutcome::Background {
-                    correlation_id: correlation_id.into(),
-                })
-            }
+            Backend::Inproc => self.run_inproc(tc, correlation_id, tool, call).await,
+            Backend::Job => self.run_job(tc, correlation_id, tool.as_ref(), call).await,
         }
+    }
+
+    /// An in-process tool: its result node rides in its completion's frame.
+    async fn run_inproc(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: Arc<dyn Tool>,
+        call: &ToolUse,
+    ) -> Result<CallOutcome> {
+        tc.kernel.dispatch(correlation_id, None)?;
+        tc.sink.send(
+            notify::TOOL_STARTED,
+            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "inproc"}),
+        );
+        let started = theseus_protocol::now_unix_ms();
+        let t0 = Instant::now();
+        let (t, input, ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
+        let run = tokio::task::spawn_blocking(move || t.run_with_image(&input, &ctx));
+        let outcome =
+            match tokio::time::timeout(Duration::from_millis(INPROC_DEADLINE_MS), run).await {
+                Ok(Ok(Ok(out))) => Ok(out),
+                Ok(Ok(Err(f))) => Err(f.message),
+                Ok(Err(join)) => Err(format!("the tool panicked: {join}")),
+                Err(_) => Err(format!("timed out after {} ms", INPROC_DEADLINE_MS)),
+            };
+        let dur = t0.elapsed().as_millis() as u64;
+        let (status, mut text, meta, img) = match outcome {
+            Ok((o, img)) => (ResultStatus::Ok, o.text, o.meta, img),
+            Err(m) => (ResultStatus::Error, m, Value::Null, None),
+        };
+        // An image the tool read goes to the blobs once; the node holds the
+        // reference (theseus-9g2).
+        let image =
+            img.and_then(
+                |d| match crate::attach::store_image(&d.bytes, tc.store.blobs()) {
+                    Ok((info, digest)) => Some(crate::node::Attachment {
+                        name: d.name,
+                        media_type: info.media_type.into(),
+                        size: d.bytes.len() as u64,
+                        content: crate::node::AttachmentContent::Image {
+                            digest,
+                            width: info.width,
+                            height: info.height,
+                        },
+                    }),
+                    Err(why) => {
+                        text.push_str(&format!(" It is not shown: {why}."));
+                        None
+                    }
+                },
+            );
+        let node = self.result_node(
+            tc,
+            ResultNode {
+                correlation_id: Some(correlation_id),
+                duration_ms: Some(dur),
+                meta: meta.clone(),
+                image,
+                ..ResultNode::new(&call.id, tool.name(), status, text)
+            },
+        );
+        let c = Completion {
+            correlation_id: correlation_id.into(),
+            outcome: if status == ResultStatus::Ok {
+                Outcome::Succeeded
+            } else {
+                Outcome::Failed
+            },
+            result_ref: Some(node.id.clone()),
+            external_op_id: None,
+            started_at_ms: started,
+            finished_at_ms: theseus_protocol::now_unix_ms(),
+            producer: format!("inproc:{}", tool.name()),
+            signature: None,
+            cost_micros: None,
+            detail: Some(json!({"duration_ms": dur, "meta": meta})),
+        };
+        tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
+        Self::announce_end(tc, &node);
+        Ok(CallOutcome::Done { status })
+    }
+
+    /// A job: started through the wrapper, waited for up to `proc_sync_secs`,
+    /// then left to run in the background with a placeholder result.
+    async fn run_job(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: &dyn Tool,
+        call: &ToolUse,
+    ) -> Result<CallOutcome> {
+        let spec: JobSpec = match tool.job(&call.input, &self.ctx) {
+            Ok(s) => s,
+            Err(e) => {
+                tc.kernel.dispatch(correlation_id, None)?;
+                return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e);
+            }
+        };
+        let Some(spool) = self.spool.clone() else {
+            tc.kernel.dispatch(correlation_id, None)?;
+            return self.settle_job_failure(
+                tc,
+                correlation_id,
+                tool.name(),
+                call,
+                "no completion spool is configured",
+            );
+        };
+        let mut env = self.proc_env.clone();
+        for (k, v) in &spec.env {
+            if forbidden_env(k) {
+                tc.kernel.dispatch(correlation_id, None)?;
+                return self.settle_job_failure(
+                    tc,
+                    correlation_id,
+                    tool.name(),
+                    call,
+                    &format!("environment variable {k} may not be set by a tool call"),
+                );
+            }
+            env.retain(|(ek, _)| ek != k);
+            env.push((k.clone(), v.clone()));
+        }
+        let args = WrapperArgs {
+            spool_dir: spool.dir().to_path_buf(),
+            correlation_id: correlation_id.into(),
+            deadline_ms: spec.timeout_secs * 1000,
+            notify_socket: self.notify_socket.clone(),
+            argv: spec.argv.clone(),
+            cwd: Some(spec.cwd.clone()),
+            env,
+        };
+        // Outbox: `dispatched` is durable before the process exists.
+        tc.kernel.dispatch(correlation_id, None)?;
+        let pid = match self.launcher.launch(&spool, &args) {
+            Ok(p) => p,
+            Err(e) => {
+                return self.settle_job_failure(
+                    tc,
+                    correlation_id,
+                    tool.name(),
+                    call,
+                    &format!("could not start the job: {e}"),
+                );
+            }
+        };
+        tc.sink.send(
+            notify::TOOL_STARTED,
+            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "job", "pid": pid, "argv": spec.argv, "cwd": spec.cwd}),
+        );
+        tc.ledger("tool.job_started", json!({"correlation_id": correlation_id, "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "timeout_secs": spec.timeout_secs}));
+        let t0 = Instant::now();
+        let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
+        narrate_turn!(
+            tc,
+            Tool,
+            "{} started as job {} (pid {pid}); the turn waits up to {} \
+             for it.",
+            self.scrubber
+                .scrub(&narrative::subject(
+                    tool.name(),
+                    Some(&spec.argv),
+                    None,
+                    &spec.cwd
+                ))
+                .0,
+            narrative::short(correlation_id),
+            narrative::duration(bound.as_millis() as u64)
+        );
+        loop {
+            if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
+                let r = ResultNode {
+                    duration_ms: Some(t0.elapsed().as_millis() as u64),
+                    ..Self::job_result(tc, &done, &call.id, tool.name())
+                };
+                return Ok(CallOutcome::Done {
+                    status: self.answer(tc, r)?,
+                });
+            }
+            if t0.elapsed() >= bound {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let text = format!(
+            "Still running as background job {correlation_id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.",
+            self.proc_sync_secs, spec.timeout_secs
+        );
+        self.answer(
+            tc,
+            ResultNode {
+                correlation_id: Some(correlation_id),
+                meta: json!({"pid": pid}),
+                ..ResultNode::new(&call.id, tool.name(), ResultStatus::Background, text)
+            },
+        )?;
+        Ok(CallOutcome::Background {
+            correlation_id: correlation_id.into(),
+        })
     }
 
     fn settle_job_failure(
@@ -923,16 +955,10 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         let node = self.result_node(
             tc,
-            &call.id,
-            tool,
-            ResultStatus::Error,
-            msg,
-            Some(correlation_id),
-            None,
-            false,
-            None,
-            None,
-            Value::Null,
+            ResultNode {
+                correlation_id: Some(correlation_id),
+                ..ResultNode::new(&call.id, tool, ResultStatus::Error, msg)
+            },
         );
         let now = theseus_protocol::now_unix_ms();
         let c = Completion {
@@ -971,15 +997,15 @@ impl ToolRuntime {
         })
     }
 
-    fn job_result_node(
-        &self,
+    /// A settled job's result: how it ended (its exit code, a timeout, or an
+    /// unknown outcome), then its output, the tail of it when it is long,
+    /// with the whole kept in the spool.
+    fn job_result<'a>(
         tc: &TurnCtx<'_>,
-        tool_use_id: &str,
-        tool: &str,
-        a: &Action,
-        duration_ms: Option<u64>,
-        late: bool,
-    ) -> Node {
+        a: &'a Action,
+        tool_use_id: &'a str,
+        tool: &'a str,
+    ) -> ResultNode<'a> {
         let completion: Option<Completion> = tc
             .store
             .inner()
@@ -1017,282 +1043,299 @@ impl ToolRuntime {
         } else {
             format!("{header}{out}")
         };
-        let dur = duration_ms.or_else(|| detail.get("duration_ms").and_then(Value::as_u64));
-        self.result_node(
-            tc,
-            tool_use_id,
-            tool,
-            status,
-            &raw,
-            Some(&a.correlation_id),
-            dur,
-            late,
-            a.result_ref.clone(),
-            Some(total),
-            json!({"exit_code": exit, "detail": detail}),
-        )
+        ResultNode {
+            correlation_id: Some(&a.correlation_id),
+            duration_ms: detail.get("duration_ms").and_then(Value::as_u64),
+            full_ref: a.result_ref.clone(),
+            bytes_total: Some(total),
+            meta: json!({"exit_code": exit, "detail": detail}),
+            ..ResultNode::new(tool_use_id, tool, status, raw)
+        }
     }
 
     /// Continuation: answer every `tool_use` of the last assistant message that
     /// has no result yet — run what was confirmed, close what was declined or
     /// superseded by new input, report what the restart left unknown, and wait
-    /// on what is still pending.
+    /// on what is still pending. Each call is first placed (`Pending`), then
+    /// acted on.
     pub async fn resume(&self, tc: &TurnCtx<'_>, has_input: bool) -> Result<ResumeOutcome> {
         let mut out = ResumeOutcome::default();
         let nodes = tc.store.session_nodes(tc.session_id)?;
-        let answered: HashSet<String> = nodes
-            .iter()
-            .filter_map(|(_, n)| match &n.body {
-                Body::ToolResult {
-                    tool_use_id,
-                    late: false,
-                    ..
-                } => Some(tool_use_id.clone()),
-                _ => None,
-            })
-            .collect();
-        let calls: HashMap<String, Node> = nodes
-            .iter()
-            .filter_map(|(_, n)| match &n.body {
-                Body::ToolCall { tool_use_id, .. } => Some((tool_use_id.clone(), n.clone())),
-                _ => None,
-            })
-            .collect();
-        let Some((_, last)) = nodes
-            .iter()
-            .rev()
-            .find(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))
-        else {
+        let Some((assistant, pending)) = unanswered(&nodes) else {
             return Ok(out);
         };
-        let Body::AssistantMessage { blocks, .. } = &last.body else {
-            return Ok(out);
-        };
-        let pending: Vec<ToolUse> = crate::provider::tool_uses_in(blocks)
-            .into_iter()
-            .filter(|u| !answered.contains(&u.id))
+        let calls: HashMap<&str, &Node> = nodes
+            .iter()
+            .filter_map(|(_, n)| match &n.body {
+                Body::ToolCall { tool_use_id, .. } => Some((tool_use_id.as_str(), n)),
+                _ => None,
+            })
             .collect();
         for u in pending {
-            let call_node = calls.get(&u.id);
-            let corr = call_node.and_then(|n| match &n.body {
-                Body::ToolCall { correlation_id, .. } => correlation_id.clone(),
-                _ => None,
-            });
-            let tool = self.registry.by_wire(&u.name).cloned();
-            let Some(corr) = corr else {
-                if call_node.is_some() {
+            let node = calls.get(u.id.as_str()).copied();
+            let job = match Self::where_is(tc, node)? {
+                Pending::NeverPlanned if has_input => {
+                    self.not_run(tc, &u, "the operator sent a new message before this ran")?;
+                    None
+                }
+                Pending::NeverPlanned => match self.process(tc, &assistant.id, &u, None).await? {
+                    CallOutcome::AwaitingConfirm { correlation_id } => {
+                        out.awaiting = Some(correlation_id);
+                        return Ok(out);
+                    }
+                    CallOutcome::Background { correlation_id } => Some(correlation_id),
+                    CallOutcome::Done { .. } => None,
+                },
+                Pending::StoppedAtGate => {
                     // Stopped at the gate (invalid input), but the result write was lost: answer again.
                     self.not_run(
                         tc,
                         &u,
                         "the harness restarted before its result was recorded",
                     )?;
-                    out.wrote += 1;
-                    continue;
+                    None
                 }
-                if has_input {
-                    self.not_run(tc, &u, "the operator sent a new message before this ran")?;
-                    out.wrote += 1;
-                    continue;
+                Pending::Waiting(corr) if has_input => {
+                    self.supersede(tc, &u, &corr)?;
+                    None
                 }
-                match self.process(tc, &last.id, &u, None).await? {
-                    CallOutcome::AwaitingConfirm { correlation_id } => {
-                        out.awaiting = Some(correlation_id);
-                        return Ok(out);
-                    }
-                    CallOutcome::Background { correlation_id } => {
-                        out.background.push(correlation_id);
-                        out.wrote += 1;
-                    }
-                    CallOutcome::Done { .. } => out.wrote += 1,
+                Pending::Waiting(corr) => {
+                    out.awaiting = Some(corr);
+                    return Ok(out);
                 }
-                continue;
+                Pending::Confirmed(a) => self.run_confirmed(tc, &u, &a, node).await?,
+                Pending::Authorized(a) => self.run_authorized(tc, &u, &a).await?,
+                Pending::Dispatched(a) => self.check_dispatched(tc, &u, &a)?,
+                Pending::Settled(a) => {
+                    self.answer_settled(tc, &u, &a)?;
+                    None
+                }
+                Pending::Cancelled(a) => {
+                    self.answer_cancelled(tc, &u, &a)?;
+                    None
+                }
             };
-            let a = tc
-                .kernel
-                .action(&corr)?
-                .ok_or_else(|| anyhow!("action {corr} vanished"))?;
-            let tool_name = tool
-                .as_ref()
-                .map(|t| t.name().to_string())
-                .unwrap_or_else(|| u.name.clone());
-            match a.state {
-                _ if a.awaits_confirm() => {
-                    if has_input {
-                        narrate_turn!(
-                            tc,
-                            Approval,
-                            "{tool_name}: new input came instead of an answer, so it is \
-                             declined."
-                        );
-                        tc.kernel.decline_action(
-                            &corr,
-                            &self.policy.confirmer,
-                            "superseded: the operator sent a new message instead of confirming",
-                        )?;
-                        tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false, "superseded": true}));
-                        let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Declined, "Not run: the operator sent a new message instead of confirming this call.", Some(&corr), None, false, None, None, Value::Null);
-                        Self::write_result(tc, &node)?;
-                        out.wrote += 1;
-                    } else {
-                        out.awaiting = Some(corr);
-                        return Ok(out);
-                    }
-                }
-                ActionState::Planned => {
-                    // Confirmed, and not yet authorized.
-                    let Some(tool) = tool else {
-                        self.not_run(tc, &u, "the tool is no longer registered")?;
-                        out.wrote += 1;
-                        continue;
-                    };
-                    match confirm_proposal(tc.store, &a, call_node)
-                        .and_then(|p| tc.kernel.authorize(&corr, &p, Some(&self.policy.confirmer)))
-                    {
-                        Ok(_) => {
-                            // `action.confirm` announced the answer; this only acts on it.
-                            narrate_turn!(tc, Approval, "{tool_name}: approved; running it now.");
-                            match self.execute(tc, &corr, tool, &u).await? {
-                                CallOutcome::Background { correlation_id } => {
-                                    out.background.push(correlation_id)
-                                }
-                                CallOutcome::AwaitingConfirm { .. } => {
-                                    unreachable!("an authorized action does not ask again")
-                                }
-                                CallOutcome::Done { .. } => {}
-                            }
-                            out.wrote += 1;
-                        }
-                        Err(e) => {
-                            // The confirm expired or no longer matches: say so, never run it.
-                            narrate_turn!(
-                                tc,
-                                Approval,
-                                "{tool_name}: the approval no longer holds ({e}), so it \
-                                 does not run."
-                            );
-                            tc.kernel.decline_action(
-                                &corr,
-                                "harness",
-                                &format!("confirmation invalid: {e}"),
-                            )?;
-                            let node = self.result_node(
-                                tc,
-                                &u.id,
-                                &tool_name,
-                                ResultStatus::Declined,
-                                &format!("Not run: the confirmation is no longer valid ({e})."),
-                                Some(&corr),
-                                None,
-                                false,
-                                None,
-                                None,
-                                Value::Null,
-                            );
-                            Self::write_result(tc, &node)?;
-                            out.wrote += 1;
-                        }
-                    }
-                }
-                ActionState::Authorized => {
-                    let Some(tool) = tool else {
-                        self.not_run(tc, &u, "the tool is no longer registered")?;
-                        out.wrote += 1;
-                        continue;
-                    };
-                    narrate_turn!(
-                        tc,
-                        Tool,
-                        "{tool_name}: authorized before a restart; running it now."
-                    );
-                    if let CallOutcome::Background { correlation_id } =
-                        self.execute(tc, &corr, tool, &u).await?
-                    {
-                        out.background.push(correlation_id)
-                    }
-                    out.wrote += 1;
-                }
-                ActionState::Dispatched => {
-                    let is_job = tool
-                        .as_ref()
-                        .map(|t| t.backend() == Backend::Job)
-                        .unwrap_or(false);
-                    let settled = match &self.spool {
-                        Some(sp) if is_job => Self::job_settled(tc.kernel, sp, &corr)?,
-                        _ => None,
-                    };
-                    if let Some(done) = settled {
-                        let node = self.job_result_node(tc, &u.id, &tool_name, &done, None, false);
-                        Self::write_result(tc, &node)?;
-                        out.wrote += 1;
-                        continue;
-                    }
-                    let alive = is_job
-                        && self
-                            .spool
-                            .as_ref()
-                            .and_then(|sp| sp.read_pid(&corr))
-                            .map(theseus_kernel::job::pid_alive)
-                            .unwrap_or(false);
-                    if alive {
-                        let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Background, &format!("Still running as background job {corr} (the harness restarted meanwhile). Its result will arrive in a later message."), Some(&corr), None, false, None, None, Value::Null);
-                        Self::write_result(tc, &node)?;
-                        out.background.push(corr);
-                        out.wrote += 1;
-                    } else {
-                        let _ = tc.kernel.mark_unknown(&corr, "interrupted_by_restart");
-                        let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Unknown, "The harness restarted while this call was running, and whether it completed cannot be established. Check the current state before retrying.", Some(&corr), None, false, None, None, Value::Null);
-                        Self::write_result(tc, &node)?;
-                        out.wrote += 1;
-                    }
-                }
-                ActionState::Succeeded | ActionState::Failed | ActionState::OutcomeUnknown => {
-                    let node = if tool
-                        .as_ref()
-                        .map(|t| t.backend() == Backend::Job)
-                        .unwrap_or(false)
-                    {
-                        self.job_result_node(tc, &u.id, &tool_name, &a, None, false)
-                    } else {
-                        self.result_node(tc, &u.id, &tool_name, if a.state == ActionState::Succeeded { ResultStatus::Ok } else { ResultStatus::Unknown }, "The call settled but its output was lost in a restart. Check the current state before relying on it.", Some(&corr), None, false, None, None, Value::Null)
-                    };
-                    Self::write_result(tc, &node)?;
-                    out.wrote += 1;
-                }
-                ActionState::Cancelled => {
-                    // A decline records who declined; the model reads only the note.
-                    let (status, text) = match a.declined_note() {
-                        Some(note) => (
-                            ResultStatus::Declined,
-                            format!("Not run: the operator declined this call ({note})."),
-                        ),
-                        None => (
-                            ResultStatus::Cancelled,
-                            format!(
-                                "Not run: {}.",
-                                a.resolution.as_deref().unwrap_or("cancelled")
-                            ),
-                        ),
-                    };
-                    let node = self.result_node(
-                        tc,
-                        &u.id,
-                        &tool_name,
-                        status,
-                        &text,
-                        Some(&corr),
-                        None,
-                        false,
-                        None,
-                        None,
-                        Value::Null,
-                    );
-                    Self::write_result(tc, &node)?;
-                    out.wrote += 1;
-                }
-            }
+            out.background.extend(job);
+            out.wrote += 1;
         }
         Ok(out)
+    }
+
+    /// Where a call stands, from its tool-call node and its action.
+    fn where_is(tc: &TurnCtx<'_>, node: Option<&Node>) -> Result<Pending> {
+        let Some(node) = node else {
+            return Ok(Pending::NeverPlanned);
+        };
+        let Body::ToolCall {
+            correlation_id: Some(corr),
+            ..
+        } = &node.body
+        else {
+            return Ok(Pending::StoppedAtGate);
+        };
+        let a = tc
+            .kernel
+            .action(corr)?
+            .ok_or_else(|| anyhow!("action {corr} vanished"))?;
+        Ok(match a.state {
+            _ if a.awaits_confirm() => Pending::Waiting(a.correlation_id),
+            ActionState::Planned => Pending::Confirmed(a),
+            ActionState::Authorized => Pending::Authorized(a),
+            ActionState::Dispatched => Pending::Dispatched(a),
+            ActionState::Succeeded | ActionState::Failed | ActionState::OutcomeUnknown => {
+                Pending::Settled(a)
+            }
+            ActionState::Cancelled => Pending::Cancelled(a),
+        })
+    }
+
+    /// New input came instead of an answer: the waiting call is declined.
+    fn supersede(&self, tc: &TurnCtx<'_>, u: &ToolUse, corr: &str) -> Result<()> {
+        let (_, name) = self.tool_of(u);
+        narrate_turn!(
+            tc,
+            Approval,
+            "{name}: new input came instead of an answer, so it is \
+             declined."
+        );
+        tc.kernel.decline_action(
+            corr,
+            &self.policy.confirmer,
+            "superseded: the operator sent a new message instead of confirming",
+        )?;
+        tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false, "superseded": true}));
+        self.answer(
+            tc,
+            ResultNode {
+                correlation_id: Some(corr),
+                ..ResultNode::new(
+                    &u.id,
+                    &name,
+                    ResultStatus::Declined,
+                    "Not run: the operator sent a new message instead of confirming this call.",
+                )
+            },
+        )?;
+        Ok(())
+    }
+
+    /// A confirmed call: authorized against the proposal its confirm bound,
+    /// then run. A confirm that no longer holds declines it instead. Returns
+    /// the job it left running in the background, if any.
+    async fn run_confirmed(
+        &self,
+        tc: &TurnCtx<'_>,
+        u: &ToolUse,
+        a: &Action,
+        node: Option<&Node>,
+    ) -> Result<Option<String>> {
+        let (tool, name) = self.tool_of(u);
+        let Some(tool) = tool else {
+            self.not_run(tc, u, "the tool is no longer registered")?;
+            return Ok(None);
+        };
+        let corr = &a.correlation_id;
+        let authorized = confirm_proposal(tc.store, a, node)
+            .and_then(|p| tc.kernel.authorize(corr, &p, Some(&self.policy.confirmer)));
+        match authorized {
+            Ok(_) => {
+                // `action.confirm` announced the answer; this only acts on it.
+                narrate_turn!(tc, Approval, "{name}: approved; running it now.");
+                match self.execute(tc, corr, tool, u).await? {
+                    CallOutcome::Background { correlation_id } => Ok(Some(correlation_id)),
+                    CallOutcome::AwaitingConfirm { .. } => {
+                        unreachable!("an authorized action does not ask again")
+                    }
+                    CallOutcome::Done { .. } => Ok(None),
+                }
+            }
+            Err(e) => {
+                // The confirm expired or no longer matches: say so, never run it.
+                narrate_turn!(
+                    tc,
+                    Approval,
+                    "{name}: the approval no longer holds ({e}), so it \
+                     does not run."
+                );
+                tc.kernel
+                    .decline_action(corr, "harness", &format!("confirmation invalid: {e}"))?;
+                self.answer(
+                    tc,
+                    ResultNode {
+                        correlation_id: Some(corr),
+                        ..ResultNode::new(
+                            &u.id,
+                            &name,
+                            ResultStatus::Declined,
+                            format!("Not run: the confirmation is no longer valid ({e})."),
+                        )
+                    },
+                )?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Authorized before a restart and never dispatched: run it now.
+    async fn run_authorized(
+        &self,
+        tc: &TurnCtx<'_>,
+        u: &ToolUse,
+        a: &Action,
+    ) -> Result<Option<String>> {
+        let (tool, name) = self.tool_of(u);
+        let Some(tool) = tool else {
+            self.not_run(tc, u, "the tool is no longer registered")?;
+            return Ok(None);
+        };
+        narrate_turn!(
+            tc,
+            Tool,
+            "{name}: authorized before a restart; running it now."
+        );
+        Ok(match self.execute(tc, &a.correlation_id, tool, u).await? {
+            CallOutcome::Background { correlation_id } => Some(correlation_id),
+            _ => None,
+        })
+    }
+
+    /// Dispatched before a restart: the job's settled result, a placeholder if
+    /// it still runs (returned as a background job), or `unknown`.
+    fn check_dispatched(
+        &self,
+        tc: &TurnCtx<'_>,
+        u: &ToolUse,
+        a: &Action,
+    ) -> Result<Option<String>> {
+        let (tool, name) = self.tool_of(u);
+        let corr = &a.correlation_id;
+        let is_job = tool.as_ref().is_some_and(|t| t.backend() == Backend::Job);
+        let settled = match &self.spool {
+            Some(sp) if is_job => Self::job_settled(tc.kernel, sp, corr)?,
+            _ => None,
+        };
+        if let Some(done) = settled {
+            self.answer(tc, Self::job_result(tc, &done, &u.id, &name))?;
+            return Ok(None);
+        }
+        let alive = is_job
+            && self
+                .spool
+                .as_ref()
+                .and_then(|sp| sp.read_pid(corr))
+                .is_some_and(theseus_kernel::job::pid_alive);
+        if alive {
+            self.answer(tc, ResultNode { correlation_id: Some(corr), ..ResultNode::new(&u.id, &name, ResultStatus::Background, format!("Still running as background job {corr} (the harness restarted meanwhile). Its result will arrive in a later message.")) })?;
+            return Ok(Some(corr.clone()));
+        }
+        let _ = tc.kernel.mark_unknown(corr, "interrupted_by_restart");
+        self.answer(tc, ResultNode { correlation_id: Some(corr), ..ResultNode::new(&u.id, &name, ResultStatus::Unknown, "The harness restarted while this call was running, and whether it completed cannot be established. Check the current state before retrying.") })?;
+        Ok(None)
+    }
+
+    /// Settled, but its result node was lost in a restart: a job's output is
+    /// in the spool; an in-process call's is gone.
+    fn answer_settled(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<()> {
+        let (tool, name) = self.tool_of(u);
+        let r = if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
+            Self::job_result(tc, a, &u.id, &name)
+        } else {
+            let status = if a.state == ActionState::Succeeded {
+                ResultStatus::Ok
+            } else {
+                ResultStatus::Unknown
+            };
+            ResultNode { correlation_id: Some(&a.correlation_id), ..ResultNode::new(&u.id, &name, status, "The call settled but its output was lost in a restart. Check the current state before relying on it.") }
+        };
+        self.answer(tc, r)?;
+        Ok(())
+    }
+
+    /// Declined or cancelled before it ran.
+    fn answer_cancelled(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<()> {
+        let (_, name) = self.tool_of(u);
+        // A decline records who declined; the model reads only the note.
+        let (status, text) = match a.declined_note() {
+            Some(note) => (
+                ResultStatus::Declined,
+                format!("Not run: the operator declined this call ({note})."),
+            ),
+            None => (
+                ResultStatus::Cancelled,
+                format!(
+                    "Not run: {}.",
+                    a.resolution.as_deref().unwrap_or("cancelled")
+                ),
+            ),
+        };
+        self.answer(
+            tc,
+            ResultNode {
+                correlation_id: Some(&a.correlation_id),
+                ..ResultNode::new(&u.id, &name, status, text)
+            },
+        )?;
+        Ok(())
     }
 
     /// Settled actions queued for this execution since its last turn: a
@@ -1326,8 +1369,13 @@ impl ToolRuntime {
             if already {
                 continue;
             }
-            let node = self.job_result_node(tc, &tool_use_id, &tool, a, None, true);
-            Self::write_result(tc, &node)?;
+            self.answer(
+                tc,
+                ResultNode {
+                    late: true,
+                    ..Self::job_result(tc, a, &tool_use_id, &tool)
+                },
+            )?;
             tc.ledger(
                 "tool.late_result",
                 json!({"correlation_id": a.correlation_id, "tool": tool, "state": a.state}),
@@ -1336,6 +1384,113 @@ impl ToolRuntime {
         }
         Ok(n)
     }
+}
+
+/// A tool result to write: the call it answers, its status and text, and
+/// what else the call site knows. Name only what differs from `new`, as
+/// `ResultNode { late: true, ..ResultNode::new(…) }`.
+struct ResultNode<'a> {
+    tool_use_id: &'a str,
+    tool: &'a str,
+    status: ResultStatus,
+    /// Before it is scrubbed and capped.
+    text: String,
+    correlation_id: Option<&'a str>,
+    duration_ms: Option<u64>,
+    late: bool,
+    /// The whole output, when the text is its tail.
+    full_ref: Option<String>,
+    /// Bytes of the whole output; the text's own length when None.
+    bytes_total: Option<u64>,
+    meta: Value,
+    image: Option<crate::node::Attachment>,
+}
+
+impl<'a> ResultNode<'a> {
+    fn new(
+        tool_use_id: &'a str,
+        tool: &'a str,
+        status: ResultStatus,
+        text: impl Into<String>,
+    ) -> Self {
+        Self {
+            tool_use_id,
+            tool,
+            status,
+            text: text.into(),
+            correlation_id: None,
+            duration_ms: None,
+            late: false,
+            full_ref: None,
+            bytes_total: None,
+            meta: Value::Null,
+            image: None,
+        }
+    }
+}
+
+/// A call through the gate: the toollet's plan, the policy's decision, the
+/// proposal a confirm would bind, and the record its node keeps.
+struct Gated {
+    plan: Plan,
+    decision: Decision,
+    proposal: Proposal,
+    record: Value,
+}
+
+/// A call whose input the toollet refused; its gate record is still stored.
+struct Invalid {
+    record: Value,
+    error: String,
+}
+
+/// Where one `tool_use` of the last assistant message stands when a turn
+/// resumes it.
+enum Pending {
+    /// No tool-call node: the gate never saw it.
+    NeverPlanned,
+    /// A tool-call node and no action: it stopped at the gate, and its result
+    /// was lost.
+    StoppedAtGate,
+    /// Waiting for the operator (`Action::awaits_confirm`).
+    Waiting(String),
+    /// Confirmed, and not yet authorized.
+    Confirmed(Action),
+    /// Authorized before a restart, and never dispatched.
+    Authorized(Action),
+    /// Dispatched: still running, settled in the spool, or lost.
+    Dispatched(Action),
+    /// Settled, and its result node lost in a restart.
+    Settled(Action),
+    /// Declined or cancelled before it ran.
+    Cancelled(Action),
+}
+
+/// The last assistant message, and its `tool_use`s with no result yet.
+fn unanswered(nodes: &[(u64, Node)]) -> Option<(&Node, Vec<ToolUse>)> {
+    let answered: HashSet<&str> = nodes
+        .iter()
+        .filter_map(|(_, n)| match &n.body {
+            Body::ToolResult {
+                tool_use_id,
+                late: false,
+                ..
+            } => Some(tool_use_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let (_, last) = nodes
+        .iter()
+        .rev()
+        .find(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))?;
+    let Body::AssistantMessage { blocks, .. } = &last.body else {
+        return None;
+    };
+    let pending = crate::provider::tool_uses_in(blocks)
+        .into_iter()
+        .filter(|u| !answered.contains(u.id.as_str()))
+        .collect();
+    Some((last, pending))
 }
 
 /// The tool runtime from config: registry, canonical roots, policy, limits,
@@ -1432,22 +1587,25 @@ pub fn build_runtime(
 
 /// The narrative's line for a result node: done, failed, not run, sent to the
 /// background, or a late result. Sizes and the exit code, never the output.
-#[allow(clippy::too_many_arguments)]
-fn narrate_result(
-    tc: &TurnCtx<'_>,
-    tool: &str,
-    status: ResultStatus,
-    duration_ms: Option<u64>,
-    correlation_id: Option<&str>,
-    late: bool,
-    bytes_total: u64,
-    content: &str,
-    meta: &Value,
-) {
+fn narrate_result(tc: &TurnCtx<'_>, node: &Node) {
+    let Body::ToolResult {
+        tool,
+        status,
+        duration_ms,
+        correlation_id,
+        late,
+        bytes_total,
+        content,
+        meta,
+        ..
+    } = &node.body
+    else {
+        return;
+    };
     let size = format!(
         "{} ({})",
         narrative::count(narrative::lines_in(content), "line", "lines"),
-        narrative::bytes(bytes_total)
+        narrative::bytes(*bytes_total)
     );
     let exit = meta
         .get("exit_code")
@@ -1457,8 +1615,11 @@ fn narrate_result(
     let took = duration_ms
         .map(|ms| format!(" in {}", narrative::duration(ms)))
         .unwrap_or_default();
-    let job = correlation_id.map(narrative::short).unwrap_or_default();
-    if late {
+    let job = correlation_id
+        .as_deref()
+        .map(narrative::short)
+        .unwrap_or_default();
+    if *late {
         narrate_turn!(
             tc,
             Job,
