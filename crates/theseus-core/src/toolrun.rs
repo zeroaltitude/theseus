@@ -81,16 +81,25 @@ pub struct TurnCtx<'a> {
 }
 
 impl TurnCtx<'_> {
-    /// A ledger row for this turn. A failed append is logged, not fatal.
+    /// A ledger row for this turn. It is no state transition, so it rides in
+    /// the turn's next frame (theseus-qa0). A row that cannot be encoded is
+    /// logged, not fatal.
     pub fn ledger(&self, kind: &str, data: Value) {
-        if let Err(e) = self.store.append_ledger(&LedgerRow::new(
-            kind,
-            Some(self.session_id),
-            Some(self.turn_id),
-            data,
-        )) {
+        if let Err(e) = self
+            .ledger_record(kind, data)
+            .and_then(|r| self.store.defer(r))
+        {
             tracing::warn!(error = %e, "ledger append failed");
         }
+    }
+
+    /// A ledger row for this turn, as a record for a frame the caller builds.
+    pub fn ledger_record(&self, kind: &str, data: Value) -> Result<theseus_store::NewRecord> {
+        theseus_store::NewRecord::json(
+            theseus_store::kinds::LEDGER,
+            None,
+            &LedgerRow::new(kind, Some(self.session_id), Some(self.turn_id), data),
+        )
     }
 
     /// Tell the session's clients about a node this turn wrote.
@@ -480,14 +489,7 @@ impl ToolRuntime {
             Err(bad) => return self.invalid_input(tc, assistant_node, call, tool.name(), bad),
         };
         let a = self.plan_call(tc, assistant_node, call, tool.as_ref(), &g)?;
-        if let Some(n) = &g.decision.notify {
-            // A notify posture runs the call and says so where the operator
-            // looks, naming the call so "should have asked" can point at it.
-            let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
-                "tool_use_id": call.id, "correlation_id": a.correlation_id, "tool": tool.name(),
-                "input": call.input, "summary": g.plan.summary, "kind": n.kind,
-                "setting": n.setting, "rule": n.rule});
-            tc.ledger("tool.notified", payload.clone());
+        if let Some(payload) = Self::notified(tc, call, tool.name(), &a.correlation_id, &g) {
             tc.sink.send(notify::POLICY_NOTIFIED, payload);
         }
         if tc.narrator.on() {
@@ -496,8 +498,24 @@ impl ToolRuntime {
         if g.decision.posture == Posture::Approve {
             return self.ask(tc, a, call, tool.name(), g);
         }
-        tc.kernel.authorize(&a.correlation_id, &g.proposal, None)?;
         self.execute(tc, &a.correlation_id, tool, call).await
+    }
+
+    /// A notify posture runs the call and says so where the operator looks,
+    /// naming the call so "should have asked" can point at it: the
+    /// `tool.notified` row and notice, or None for any other posture.
+    fn notified(
+        tc: &TurnCtx<'_>,
+        call: &ToolUse,
+        tool: &str,
+        correlation_id: &str,
+        g: &Gated,
+    ) -> Option<Value> {
+        let n = g.decision.notify.as_ref()?;
+        Some(json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
+            "tool_use_id": call.id, "correlation_id": correlation_id, "tool": tool,
+            "input": call.input, "summary": g.plan.summary, "kind": n.kind,
+            "setting": n.setting, "rule": n.rule}))
     }
 
     fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
@@ -636,7 +654,8 @@ impl ToolRuntime {
 
     /// Plan the call as a kernel action, with its `ToolCall` node in the same
     /// frame. A call that waits for the operator keeps its proposal on the
-    /// action (theseus-0g4).
+    /// action (theseus-0g4). One the policy runs is authorized and dispatched
+    /// in that frame too, with its `tool.notified` row (theseus-qa0).
     fn plan_call(
         &self,
         tc: &TurnCtx<'_>,
@@ -648,7 +667,7 @@ impl ToolRuntime {
         let retry = map_retry(tool.retry());
         let deadline = Some(self.deadline_ms(tool, &call.input));
         let node = |a: &Action| {
-            Ok(vec![Self::tool_call_node(
+            Self::tool_call_node(
                 tc,
                 assistant_node,
                 call,
@@ -656,15 +675,23 @@ impl ToolRuntime {
                 Some(&a.correlation_id),
                 g.record.clone(),
             )
-            .record()?])
+            .record()
         };
         if g.decision.posture == Posture::Approve {
-            tc.kernel
-                .plan_confirm_with(tc.guard, &g.proposal, retry, deadline, node)
-        } else {
-            tc.kernel
-                .plan_action_with(tc.guard, &g.proposal, retry, deadline, 0, node)
+            return tc
+                .kernel
+                .plan_confirm_with(tc.guard, &g.proposal, retry, deadline, |a| {
+                    Ok(vec![node(a)?])
+                });
         }
+        tc.kernel
+            .plan_and_dispatch(tc.guard, &g.proposal, retry, deadline, 0, |a| {
+                let mut records = vec![node(a)?];
+                if let Some(p) = Self::notified(tc, call, tool.name(), &a.correlation_id, g) {
+                    records.push(tc.ledger_record("tool.notified", p)?);
+                }
+                Ok(records)
+            })
     }
 
     /// The narrative's line for the gate's decision.
@@ -747,7 +774,9 @@ impl ToolRuntime {
         }
     }
 
-    /// Run an authorized action to a result (or a background placeholder).
+    /// Run a dispatched action to a result (or a background placeholder).
+    /// Dispatch is already durable: `plan_and_dispatch`, or `dispatch` for a
+    /// call that was confirmed or authorized before a restart.
     async fn execute(
         &self,
         tc: &TurnCtx<'_>,
@@ -769,7 +798,6 @@ impl ToolRuntime {
         tool: Arc<dyn Tool>,
         call: &ToolUse,
     ) -> Result<CallOutcome> {
-        tc.kernel.dispatch(correlation_id, None)?;
         tc.sink.send(
             notify::TOOL_STARTED,
             json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "inproc"}),
@@ -853,13 +881,9 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         let spec: JobSpec = match tool.job(&call.input, &self.ctx) {
             Ok(s) => s,
-            Err(e) => {
-                tc.kernel.dispatch(correlation_id, None)?;
-                return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e);
-            }
+            Err(e) => return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e),
         };
         let Some(spool) = self.spool.clone() else {
-            tc.kernel.dispatch(correlation_id, None)?;
             return self.settle_job_failure(
                 tc,
                 correlation_id,
@@ -871,7 +895,6 @@ impl ToolRuntime {
         let mut env = self.proc_env.clone();
         for (k, v) in &spec.env {
             if forbidden_env(k) {
-                tc.kernel.dispatch(correlation_id, None)?;
                 return self.settle_job_failure(
                     tc,
                     correlation_id,
@@ -892,8 +915,7 @@ impl ToolRuntime {
             cwd: Some(spec.cwd.clone()),
             env,
         };
-        // Outbox: `dispatched` is durable before the process exists.
-        tc.kernel.dispatch(correlation_id, None)?;
+        // Outbox: `dispatched` was durable before the process exists.
         let pid = match self.launcher.launch(&spool, &args) {
             Ok(p) => p,
             Err(e) => {
@@ -1217,6 +1239,7 @@ impl ToolRuntime {
             Ok(_) => {
                 // `action.confirm` announced the answer; this only acts on it.
                 narrate_turn!(tc, Approval, "{name}: approved; running it now.");
+                tc.kernel.dispatch(corr, None)?;
                 match self.execute(tc, corr, tool, u).await? {
                     CallOutcome::Background { correlation_id } => Ok(Some(correlation_id)),
                     CallOutcome::AwaitingConfirm { .. } => {
@@ -1269,6 +1292,7 @@ impl ToolRuntime {
             Tool,
             "{name}: authorized before a restart; running it now."
         );
+        tc.kernel.dispatch(&a.correlation_id, None)?;
         Ok(match self.execute(tc, &a.correlation_id, tool, u).await? {
             CallOutcome::Background { correlation_id } => Some(correlation_id),
             _ => None,

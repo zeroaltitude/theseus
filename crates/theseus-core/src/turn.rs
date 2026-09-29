@@ -105,6 +105,14 @@ struct Waits {
     admit_us: u64,
 }
 
+/// A turn's own handles on the store and the kernel (theseus-qa0). A ledger
+/// row the turn writes is no state transition, so it waits in `store` for
+/// the next frame either of them commits for the turn.
+struct Frames {
+    store: Store,
+    kernel: Kernel,
+}
+
 /// Why a turn did not run: a secret it needs is not there.
 struct SecretRefusal {
     /// `secret_failed` or `secret_resolving`.
@@ -717,15 +725,24 @@ impl TurnRunner {
             lock_us: admission_wait_us,
             admit_us,
         };
-        let r = self.run_inner(&guard, req, arrived, waits).await;
+        let store = self.store.for_turn();
+        let frames = Frames {
+            kernel: self.kernel.view(store.shared()),
+            store,
+        };
+        let r = self.run_inner(&guard, &frames, req, arrived, waits).await;
         let (end, rewake) = match &r {
             Ok((_, end, rewake)) => (end.clone(), *rewake),
             Err(_) => (TurnEnd::Wait { wake: Wake::Input }, false),
         };
         let exec_id = guard.execution_id.clone();
         let parked = self.narrator.on().then(|| self.park_sentence(&end));
-        if let Err(e) = self.kernel.end_turn(guard, end) {
+        if let Err(e) = frames.kernel.end_turn(guard, end) {
             tracing::warn!(error = %e, "end_turn failed");
+        }
+        // Rows still waiting when the turn's last frame failed or wrote none.
+        if let Err(e) = frames.store.flush() {
+            tracing::warn!(error = %e, "ledger append failed");
         }
         if let Some(p) = parked {
             let turn_id = match &r {
@@ -791,6 +808,7 @@ impl TurnRunner {
     async fn run_inner(
         &self,
         guard: &TurnGuard,
+        frames: &Frames,
         req: TurnRequest,
         arrived: Instant,
         waits: Waits,
@@ -819,8 +837,8 @@ impl TurnRunner {
         let sid = session.session_id.clone();
         let turn_id = crate::new_id("turn");
         let tc = TurnCtx {
-            kernel: &self.kernel,
-            store: &self.store,
+            kernel: &frames.kernel,
+            store: &frames.store,
             guard,
             session_id: &sid,
             execution_id: &guard.execution_id,
@@ -865,7 +883,7 @@ impl TurnRunner {
                     _ => title,
                 });
             }
-            self.store.append(&[node.record()?])?;
+            t.tc.store.append(&[node.record()?])?;
             t.tc.node_written(&node);
         }
 
@@ -909,7 +927,7 @@ impl TurnRunner {
                 .await?
             {
                 Called::Answered(called) => *called,
-                Called::Failed(failure) => return Err(self.fail(t, &mut session, failure)),
+                Called::Failed(failure) => return Err(Self::fail(t, &mut session, failure)),
                 Called::OverBudget {
                     needed,
                     available,
@@ -936,7 +954,7 @@ impl TurnRunner {
     /// restart survived). Returns how many nodes that wrote.
     async fn catch_up(&self, t: &mut Turn<'_>, has_input: bool) -> Result<u32> {
         let t0 = t.trace.now_us();
-        let settled = self.kernel.take_results(t.tc.guard)?;
+        let settled = t.tc.kernel.take_results(t.tc.guard)?;
         let absorbed = self.tools.absorb(&t.tc, &settled)?;
         // An approved budget question: the call that did not fit proceeds.
         let reset = settled
@@ -1053,7 +1071,7 @@ impl TurnRunner {
             blobs: Some(self.store.blobs()),
         });
         if compiled.new_compilation {
-            self.persist_compilation(&compiled, session, t.tc.turn_id)?;
+            Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();
         let mut summary = json!({
@@ -1190,12 +1208,15 @@ impl TurnRunner {
         // The output cap at the output price, the input estimate at the input price.
         let reserve = price.reserve_micros(target.max_tokens, compiled.est_tokens);
         let o0 = t.trace.now_us();
-        let action = match self.kernel.plan_action(
+        // It never needs a confirm, so its plan, authorization, and dispatch
+        // are one frame, with the loop's rows in front (theseus-qa0).
+        let action = match t.tc.kernel.plan_and_dispatch(
             t.tc.guard,
             &proposal,
             RetryClass::SafeToRepeat,
             Some(self.cfg.model.timeouts.total_secs * 1000),
             reserve,
+            |_| Ok(vec![]),
         ) {
             Ok(a) => a,
             Err(e) => {
@@ -1228,9 +1249,6 @@ impl TurnRunner {
                 }));
             }
         };
-        self.kernel
-            .authorize(&action.correlation_id, &proposal, None)?;
-        self.kernel.dispatch(&action.correlation_id, None)?;
         narrate_turn!(
             t.tc,
             Model,
@@ -1301,7 +1319,7 @@ impl TurnRunner {
                 let node = self.settle_call(t, &action, compiled, &resp, started_ms, i)?;
                 Ok(Called::Answered(Box::new((resp, node))))
             }
-            Err(e) => Ok(Called::Failed(self.settle_failed(
+            Err(e) => Ok(Called::Failed(Self::settle_failed(
                 t,
                 &action,
                 started_ms,
@@ -1326,7 +1344,7 @@ impl TurnRunner {
         spent: Micros,
         limit: Micros,
     ) -> Result<()> {
-        let q = self.kernel.ask_budget(t.tc.guard, needed)?;
+        let q = t.tc.kernel.ask_budget(t.tc.guard, needed)?;
         let lifetime = session.cost_usd + t.cost.unwrap_or(0.0);
         let question = format!(
             "This session has spent {} of its {} limit. Reset its spend to $0 and continue?",
@@ -1430,38 +1448,9 @@ impl TurnRunner {
             .get(&resp.model)
             .or_else(|| self.catalog.get(&target.model))
             .map_or(action.reserved_micros, |e| e.cost_micros(&resp.usage));
-        let s0 = t.trace.now_us();
-        self.kernel.accept_completion_with(
-            &Completion {
-                correlation_id: action.correlation_id.clone(),
-                outcome: ActionOutcome::Succeeded,
-                result_ref: Some(node.id.clone()),
-                external_op_id: resp.request_id.clone(),
-                started_at_ms: started_ms,
-                finished_at_ms: theseus_protocol::now_unix_ms(),
-                producer: format!("provider:{}", target.provider),
-                signature: None,
-                cost_micros: Some(cost),
-                detail: Some(json!({"served_model": resp.model, "message_id": resp.message_id})),
-            },
-            vec![node.record()?],
-        )?;
-        t.trace.record(
-            "action.settle",
-            "store",
-            s0,
-            t.trace.now_us(),
-            json!({"correlation_id": action.correlation_id, "outcome": "succeeded", "cost_usd": micros_to_usd(cost), "node_id": node.id}),
-        );
-        t.tc.node_written(&node);
-        add_usage(&mut t.usage, &resp.usage);
-        if !resp.text.is_empty() {
-            if !t.output.is_empty() {
-                t.output.push_str("\n\n");
-            }
-            t.output.push_str(&resp.text);
-        }
-        t.tc.ledger(
+        // The call's `provider.call` row rides in its completion's frame, after
+        // the node (theseus-qa0).
+        let row = t.tc.ledger_record(
             "provider.call",
             json!({
                 "loop": i,
@@ -1479,7 +1468,38 @@ impl TurnRunner {
                 "input_transformations": resp.input_transformations,
                 "node_id": node.id,
             }),
+        )?;
+        let s0 = t.trace.now_us();
+        t.tc.kernel.accept_completion_with(
+            &Completion {
+                correlation_id: action.correlation_id.clone(),
+                outcome: ActionOutcome::Succeeded,
+                result_ref: Some(node.id.clone()),
+                external_op_id: resp.request_id.clone(),
+                started_at_ms: started_ms,
+                finished_at_ms: theseus_protocol::now_unix_ms(),
+                producer: format!("provider:{}", target.provider),
+                signature: None,
+                cost_micros: Some(cost),
+                detail: Some(json!({"served_model": resp.model, "message_id": resp.message_id})),
+            },
+            vec![node.record()?, row],
+        )?;
+        t.trace.record(
+            "action.settle",
+            "store",
+            s0,
+            t.trace.now_us(),
+            json!({"correlation_id": action.correlation_id, "outcome": "succeeded", "cost_usd": micros_to_usd(cost), "node_id": node.id}),
         );
+        t.tc.node_written(&node);
+        add_usage(&mut t.usage, &resp.usage);
+        if !resp.text.is_empty() {
+            if !t.output.is_empty() {
+                t.output.push_str("\n\n");
+            }
+            t.output.push_str(&resp.text);
+        }
         narrate_turn!(
             t.tc,
             Model,
@@ -1522,7 +1542,6 @@ impl TurnRunner {
     /// Settle a call that failed: as failed, or as unknown when the provider
     /// may have done the work, and tell the ledger why.
     fn settle_failed(
-        &self,
         t: &mut Turn<'_>,
         action: &Action,
         started_ms: u64,
@@ -1538,7 +1557,7 @@ impl TurnRunner {
         t.trace
             .exit(json!({"error": class, "message": e.to_string()}));
         let s0 = t.trace.now_us();
-        let settled = self.kernel.accept_completion(&Completion {
+        let settled = t.tc.kernel.accept_completion(&Completion {
             correlation_id: action.correlation_id.clone(),
             outcome: if unknown {
                 ActionOutcome::Unknown
@@ -1737,7 +1756,7 @@ impl TurnRunner {
 
     /// End a turn that failed after it began: book what its finished loops
     /// spent, close its trace, and write `turn.failed`.
-    fn fail(&self, t: Turn<'_>, session: &mut SessionRecord, f: Failure) -> anyhow::Error {
+    fn fail(t: Turn<'_>, session: &mut SessionRecord, f: Failure) -> anyhow::Error {
         t.close_books(session);
         let finished = t.loops.saturating_sub(1) as u64;
         if finished == 0 {
@@ -1778,7 +1797,7 @@ impl TurnRunner {
             "turn.failed",
             json!({"loops": t.loops, "reason": f.reason, "usage_so_far": t.usage, "cost_usd": t.cost, "tool_calls": t.tool_calls}),
         );
-        let _ = self.store.put_session(t.tc.session_id, session);
+        let _ = t.tc.store.put_session(t.tc.session_id, session);
         TurnError {
             class: f.class,
             transient: f.transient,
@@ -1803,7 +1822,7 @@ impl TurnRunner {
         mut t: Turn<'_>,
         session: &mut SessionRecord,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool)> {
-        let settled = self.kernel.take_results(t.tc.guard)?;
+        let settled = t.tc.kernel.take_results(t.tc.guard)?;
         let late = self.tools.absorb(&t.tc, &settled)?;
         t.close_books(session);
         let target = t.target;
@@ -1813,7 +1832,7 @@ impl TurnRunner {
             model: target.model.clone(),
         });
         let w0 = t.trace.now_us();
-        self.store.put_session(t.tc.session_id, session)?;
+        t.tc.store.put_session(t.tc.session_id, session)?;
         t.trace
             .record("session.write", "store", w0, t.trace.now_us(), Value::Null);
 
@@ -1950,7 +1969,7 @@ impl TurnRunner {
     /// A new compilation (it carries its own `derived_from`) and the
     /// session's pointer, in one frame.
     fn persist_compilation(
-        &self,
+        store: &Store,
         compiled: &Compiled,
         session: &mut SessionRecord,
         turn_id: &str,
@@ -1976,7 +1995,7 @@ impl TurnRunner {
                 json!({"compilation_id": c.id, "trigger": c.trigger, "strategy": c.strategy, "as_of": c.as_of, "includes": c.includes.len(), "derived_from": c.derived_from, "strip_thinking": c.manifest.strip_thinking, "model": c.manifest.model}),
             ),
         )?);
-        self.store.append(&records)?;
+        store.append(&records)?;
         Ok(())
     }
 }

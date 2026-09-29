@@ -23,9 +23,12 @@
 //! execution, and a budget wait names its question; terminal stays terminal,
 //! and nothing new ever ends `budget_exhausted`. A question carries the
 //! proposal its answer binds, and any proposal an action keeps is the one it
-//! was planned under (theseus-0g4).
+//! was planned under (theseus-0g4). Half the actions are planned, authorized,
+//! and dispatched in one frame (`plan_and_dispatch`, theseus-qa0); such an
+//! action is never found planned or authorized, crash or no crash, and its
+//! three transitions carry their times in order.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -73,6 +76,8 @@ pub struct SimReport {
     pub budget_questions: u64,
     pub budget_resets: u64,
     pub budget_declines: u64,
+    /// Actions planned, authorized, and dispatched in one frame.
+    pub one_frame_dispatches: u64,
     pub legacy_migrated: u64,
     pub reconciles: u64,
     pub invariant_checks: u64,
@@ -113,6 +118,8 @@ struct World {
     resets_done: HashMap<String, u32>,
     /// Every execution seen terminal, and the state it ended in.
     terminal: HashMap<String, ExecState>,
+    /// Actions `plan_and_dispatch` returned: each was committed in one frame.
+    one_frame: HashSet<String>,
 }
 
 /// Executions stored with unit budgets before theseus-0sg, seeded into the
@@ -228,6 +235,7 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         budgets: HashMap::new(),
         resets_done: HashMap::new(),
         terminal: HashMap::new(),
+        one_frame: HashSet::new(),
     };
     w.rep.legacy_migrated = w
         .kernel
@@ -506,13 +514,22 @@ impl World {
                 policy_context: json!({}),
             };
             let reserve = self.rng.random_range(0..3_000);
-            let a = match self.kernel.plan_action(
-                g,
-                &prop,
-                RetryClass::SafeToRepeat,
-                Some(20_000),
-                reserve,
-            ) {
+            // Half the time, planned, authorized, and dispatched in one frame.
+            let one_frame = self.rng.random_bool(0.5);
+            let planned = if one_frame {
+                self.kernel.plan_and_dispatch(
+                    g,
+                    &prop,
+                    RetryClass::SafeToRepeat,
+                    Some(20_000),
+                    reserve,
+                    |_| Ok(vec![]),
+                )
+            } else {
+                self.kernel
+                    .plan_action(g, &prop, RetryClass::SafeToRepeat, Some(20_000), reserve)
+            };
+            let a = match planned {
                 Ok(a) => a,
                 Err(err) => {
                     if !matches!(
@@ -540,24 +557,29 @@ impl World {
                 }
             };
             self.rep.actions += 1;
-            if self.maybe_crash("after plan")? {
-                return Ok(());
-            }
-            self.kernel.authorize(&a.correlation_id, &prop, None)?;
-            if self.maybe_crash("after authorize")? {
-                return Ok(());
-            }
-            match self.kernel.dispatch(&a.correlation_id, None) {
-                Ok(_) => {}
-                Err(err) => {
-                    if matches!(
-                        err.downcast_ref::<KernelError>(),
-                        Some(KernelError::NotRunnable { .. })
-                    ) {
-                        self.guards.remove(&exec_id);
-                        return Ok(());
+            if one_frame {
+                self.rep.one_frame_dispatches += 1;
+                self.one_frame.insert(a.correlation_id.clone());
+            } else {
+                if self.maybe_crash("after plan")? {
+                    return Ok(());
+                }
+                self.kernel.authorize(&a.correlation_id, &prop, None)?;
+                if self.maybe_crash("after authorize")? {
+                    return Ok(());
+                }
+                match self.kernel.dispatch(&a.correlation_id, None) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        if matches!(
+                            err.downcast_ref::<KernelError>(),
+                            Some(KernelError::NotRunnable { .. })
+                        ) {
+                            self.guards.remove(&exec_id);
+                            return Ok(());
+                        }
+                        return Err(err);
                     }
-                    return Err(err);
                 }
             }
             // The fake tool starts a job.
@@ -945,6 +967,24 @@ impl World {
                     )
                 }
                 _ => {}
+            }
+        }
+        // An action planned in one frame with its authorization and dispatch
+        // (theseus-qa0) is there after any crash, and was never left planned
+        // or authorized: its three transitions were one commit, in order.
+        for c in &self.one_frame {
+            let a = by_corr
+                .get(c)
+                .ok_or_else(|| anyhow::anyhow!("{at}: one-frame action {c} is gone"))?;
+            if matches!(a.state, ActionState::Planned | ActionState::Authorized) {
+                bail!("{at}: one-frame action {c} is {:?}", a.state);
+            }
+            match (a.authorized_at_ms, a.dispatched_at_ms) {
+                (Some(au), Some(d)) if a.planned_at_ms <= au && au <= d => {}
+                times => bail!(
+                    "{at}: one-frame action {c} planned at {} with {times:?}",
+                    a.planned_at_ms
+                ),
             }
         }
         // Quarantine only ever holds ids we never minted.

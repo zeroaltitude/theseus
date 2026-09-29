@@ -245,8 +245,8 @@ pub struct Kernel {
     clock: Arc<dyn Clock>,
     cfg: KernelConfig,
     held: Arc<Mutex<HashSet<ExecutionId>>>,
-    /// 0..=4 while starting; 5 once accepting events.
-    phase: Mutex<u8>,
+    /// 0..=4 while starting; 5 once accepting events. Shared with every view.
+    phase: Arc<Mutex<u8>>,
     legacy_spend: Option<LegacySpend>,
 }
 
@@ -261,8 +261,23 @@ impl Kernel {
             clock,
             cfg,
             held: Arc::new(Mutex::new(HashSet::new())),
-            phase: Mutex::new(0),
+            phase: Arc::new(Mutex::new(0)),
             legacy_spend: None,
+        }
+    }
+
+    /// This kernel, committing its frames through `store`, another handle on
+    /// the same store: a turn's, whose frames also carry the ledger rows the
+    /// turn has waiting (theseus-qa0). The turn locks, the startup phase, the
+    /// clock, and the config are shared, so the view and the kernel are one.
+    pub fn view(&self, store: Arc<dyn Store>) -> Kernel {
+        Kernel {
+            store,
+            clock: self.clock.clone(),
+            cfg: self.cfg.clone(),
+            held: self.held.clone(),
+            phase: self.phase.clone(),
+            legacy_spend: self.legacy_spend.clone(),
         }
     }
 
@@ -786,7 +801,7 @@ impl Kernel {
         reserve_micros: Micros,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
-        let (a, mut frame) = self.plan_frame(
+        let (a, _, mut frame) = self.plan_frame(
             guard,
             proposal,
             retry_class,
@@ -795,6 +810,35 @@ impl Kernel {
             false,
         )?;
         frame.extend(extra(&a)?);
+        self.commit(&frame)?;
+        Ok(a)
+    }
+
+    /// `plan_action_with`, `authorize`, and `dispatch` in one frame, for an
+    /// action that needs no confirm: the provider call, and a tool call the
+    /// policy runs (theseus-qa0). Each transition keeps its own record and
+    /// row, in that order, so the record reads as it did in three frames; a
+    /// crash leaves all three or none of them. Over budget, it writes nothing.
+    pub fn plan_and_dispatch(
+        &self,
+        guard: &TurnGuard,
+        proposal: &Proposal,
+        retry_class: RetryClass,
+        deadline_ms: Option<u64>,
+        reserve_micros: Micros,
+        extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
+    ) -> Result<Action> {
+        let (mut a, mut e, mut frame) = self.plan_frame(
+            guard,
+            proposal,
+            retry_class,
+            deadline_ms,
+            reserve_micros,
+            false,
+        )?;
+        frame.extend(extra(&a)?);
+        frame.extend(self.authorize_frame(&mut a, proposal, None)?);
+        frame.extend(self.dispatch_frame(&mut a, &mut e, None)?);
         self.commit(&frame)?;
         Ok(a)
     }
@@ -811,14 +855,16 @@ impl Kernel {
         deadline_ms: Option<u64>,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
-        let (a, mut frame) = self.plan_frame(guard, proposal, retry_class, deadline_ms, 0, true)?;
+        let (a, _, mut frame) =
+            self.plan_frame(guard, proposal, retry_class, deadline_ms, 0, true)?;
         frame.extend(extra(&a)?);
         self.commit(&frame)?;
         Ok(a)
     }
 
-    /// The planned action and its frame so far: the execution's reservation
-    /// (if any), the action, and its `action.planned` row.
+    /// The planned action, its execution (with the reservation, if any), and
+    /// the frame so far: the execution's record when it reserved, the
+    /// action, and its `action.planned` row.
     fn plan_frame(
         &self,
         guard: &TurnGuard,
@@ -827,7 +873,7 @@ impl Kernel {
         deadline_ms: Option<u64>,
         reserve_micros: Micros,
         keep_proposal: bool,
-    ) -> Result<(Action, Vec<NewRecord>)> {
+    ) -> Result<(Action, Execution, Vec<NewRecord>)> {
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -890,7 +936,7 @@ impl Kernel {
             Some(&a.session_id),
             json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id, "tool": a.tool, "args_digest": a.args_digest, "retry_class": a.retry_class, "deadline_at_ms": a.deadline_at_ms, "reserved_usd": micros_to_usd(reserve_micros)}),
         )?);
-        Ok((a, frame))
+        Ok((a, e, frame))
     }
 
     /// Every action waiting for the operator's answer (`Action::awaits_confirm`):
@@ -1147,6 +1193,19 @@ impl Kernel {
         let mut a = self
             .action(correlation_id)?
             .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        let frame = self.authorize_frame(&mut a, proposal, confirm_required_from)?;
+        self.commit(&frame)?;
+        Ok(a)
+    }
+
+    /// `authorize`'s checks on `a`, and its frame: the action authorized and
+    /// its `action.authorized` row.
+    fn authorize_frame(
+        &self,
+        a: &mut Action,
+        proposal: &Proposal,
+        confirm_required_from: Option<&str>,
+    ) -> Result<Vec<NewRecord>> {
         if a.state != ActionState::Planned {
             return Err(KernelError::ActionState {
                 correlation_id: a.correlation_id.clone(),
@@ -1189,15 +1248,14 @@ impl Kernel {
         let now = self.now_ms();
         a.state = ActionState::Authorized;
         a.authorized_at_ms = Some(now);
-        self.commit(&[
-            action_record(&a)?,
+        Ok(vec![
+            action_record(a)?,
             self.ledger(
                 "action.authorized",
                 Some(&a.session_id),
                 json!({"correlation_id": a.correlation_id, "confirmed": a.confirm.is_some()}),
             )?,
-        ])?;
-        Ok(a)
+        ])
     }
 
     /// `dispatched`: committed before the call is made (transactional
@@ -1236,6 +1294,20 @@ impl Kernel {
             }
             .into());
         }
+        let frame = self.dispatch_frame(&mut a, &mut e, external_op_id)?;
+        self.commit(&frame)?;
+        Ok(a)
+    }
+
+    /// `dispatch`'s transition of an authorized `a` whose execution `e` was
+    /// not cancelled, and its frame: the action, the execution with the
+    /// action outstanding, and the `action.dispatched` row.
+    fn dispatch_frame(
+        &self,
+        a: &mut Action,
+        e: &mut Execution,
+        external_op_id: Option<&str>,
+    ) -> Result<Vec<NewRecord>> {
         let now = self.now_ms();
         a.state = ActionState::Dispatched;
         a.dispatched_at_ms = Some(now);
@@ -1244,16 +1316,15 @@ impl Kernel {
             e.outstanding.push(a.correlation_id.clone());
         }
         e.updated_at_ms = now;
-        self.commit(&[
-            action_record(&a)?,
-            exec_record(&e)?,
+        Ok(vec![
+            action_record(a)?,
+            exec_record(e)?,
             self.ledger(
                 "action.dispatched",
                 Some(&a.session_id),
                 json!({"correlation_id": a.correlation_id, "execution_id": e.id, "tool": a.tool, "external_op_id": a.external_op_id, "deadline_at_ms": a.deadline_at_ms}),
             )?,
-        ])?;
-        Ok(a)
+        ])
     }
 
     /// Accept a completion from any transport (§3.16). Idempotent; atomic

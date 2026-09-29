@@ -220,6 +220,77 @@ fn full_lifecycle_one_action_one_turn() {
     assert_eq!(stats.actions_by_state["succeeded"], 1);
 }
 
+/// `plan_and_dispatch` (theseus-qa0): planned, authorized, and dispatched in
+/// one frame, each transition with its record and row, in that order, and the
+/// caller's records after the plan's; the end state `dispatched` leaves; over
+/// budget, nothing written. A view commits through its own handle and shares
+/// the turn locks.
+#[test]
+fn plan_and_dispatch_is_three_transitions_in_one_frame() {
+    let w = world();
+    let (_, e, g) = running(&w);
+    let frames = || w.kernel.store().stats().unwrap().frames_appended;
+    let (f0, p0) = (frames(), w.kernel.store().last_position());
+    let p = proposal("provider.messages");
+    let view = w.kernel.view(w.kernel.store().clone());
+    let a = view
+        .plan_and_dispatch(&g, &p, RetryClass::SafeToRepeat, Some(60_000), 100, |a| {
+            Ok(vec![NewRecord::json(
+                kinds::META,
+                Some(&format!("extra:{}", a.correlation_id)),
+                &json!({"n": 1}),
+            )?])
+        })
+        .unwrap();
+    assert_eq!(frames() - f0, 1, "one frame");
+    let labels: Vec<String> = w
+        .kernel
+        .store()
+        .scan(p0 + 1, None, 100)
+        .unwrap()
+        .iter()
+        .map(|r| match r.kind {
+            kinds::LEDGER => r.decode::<LedgerRow>().unwrap().kind,
+            k => kinds::name(k).to_string(),
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            "execution",
+            "action",
+            "action.planned",
+            "meta",
+            "action",
+            "action.authorized",
+            "action",
+            "execution",
+            "action.dispatched"
+        ]
+    );
+    assert_eq!(a.state, ActionState::Dispatched);
+    assert!(a.authorized_at_ms.is_some() && a.dispatched_at_ms.is_some());
+    assert_eq!(w.kernel.action(&a.correlation_id).unwrap(), Some(a.clone()));
+    let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(e2.outstanding, vec![a.correlation_id]);
+    assert_eq!(e2.budget.reserved_micros, 100);
+    assert!(view.is_held(&e.id), "the view shares the turn locks");
+    assert!(view.is_accepting(), "and the startup phase");
+    // Over budget: the refusal writes nothing.
+    let (f1, p1) = (frames(), w.kernel.store().last_position());
+    let err = view
+        .plan_and_dispatch(&g, &p, RetryClass::SafeToRepeat, None, 1_000_000, |_| {
+            Ok(vec![])
+        })
+        .unwrap_err();
+    assert!(matches!(
+        err.downcast_ref::<KernelError>(),
+        Some(KernelError::OverBudget { .. })
+    ));
+    assert_eq!((frames(), w.kernel.store().last_position()), (f1, p1));
+    drop(g);
+}
+
 #[test]
 fn duplicate_completion_is_a_logged_noop_and_stray_is_quarantined() {
     let w = world();

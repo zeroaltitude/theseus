@@ -1043,10 +1043,24 @@ async fn session_list_counts_each_sessions_waiting_calls() {
     assert_eq!(waiting(&b.session_id), 1);
 }
 
+/// The ledger kinds written after WAL position `after`, in order.
+fn ledger_after(core: &Core, after: u64) -> Vec<String> {
+    core.store
+        .ledger_tail::<crate::ledger::LedgerRow>(1000)
+        .unwrap()
+        .into_iter()
+        .filter(|(p, _)| *p > after)
+        .map(|(_, row)| row.kind)
+        .collect()
+}
+
 /// Every WAL frame is its own fsync, so each frame on the turn path costs
-/// every turn. A plain one-loop turn writes 17 (27 before theseus-hco
-/// removed the hook rows); a change that adds one raises this on purpose.
-/// The template turns the narrative on, and a subscriber is watching: the
+/// every turn. A plain one-loop turn writes 8: 27 before theseus-hco removed
+/// the hook rows, 17 before theseus-qa0 let the rows that are no state
+/// transition ride in the next frame and planned, authorized, and dispatched
+/// the provider call in one. A change that adds one raises this on purpose.
+/// The rows keep the order they had when each was its own frame. The
+/// template turns the narrative on, and a subscriber is watching: the
 /// narrative is never stored, so it adds no frame (theseus-5fy).
 #[tokio::test]
 async fn a_plain_turn_stays_within_its_frame_budget() {
@@ -1058,10 +1072,31 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
     );
     let first = turn(&r.core, None, "warm up").await;
     let before = r.core.store.stats().unwrap().frames_appended;
+    let from = r.core.store.last_position();
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     assert_eq!(res.loops, 1);
     let frames = r.core.store.stats().unwrap().frames_appended - before;
-    assert!(frames <= 17, "a plain turn wrote {frames} frames");
+    assert!(frames <= 8, "a plain turn wrote {frames} frames");
+    assert_eq!(
+        ledger_after(&r.core, from),
+        [
+            "execution.queued",
+            "execution.running",
+            "turn.started",
+            "context.compiled",
+            "loop.started",
+            "action.planned",
+            "action.authorized",
+            "action.dispatched",
+            "action.succeeded",
+            "provider.call",
+            "loop.ended",
+            "execution.results_consumed",
+            "turn.ended",
+            "turn.trace",
+            "execution.waiting"
+        ]
+    );
     let sent = std::iter::from_fn(|| rx.try_recv().ok()).count();
     let lines = narrated(&r, &res.session_id);
     assert!(
@@ -1071,6 +1106,41 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
         "the turn was narrated"
     );
     assert_eq!(sent, lines.len(), "each line went to the watcher");
+}
+
+/// A loop with one in-process tool call costs four frames (theseus-qa0): the
+/// provider call's plan and its completion, and the tool call's plan (with
+/// its node) and its completion (with its result). Before, it cost twelve.
+#[tokio::test]
+async fn a_loop_with_one_tool_call_costs_four_frames() {
+    let r = rig(vec![
+        Scripted::text("first"),
+        Scripted::text("hello"),
+        Scripted::tools(
+            "Reading it.",
+            &[("t1", "fs_read", json!({"path": "hello.txt"}))],
+        ),
+        Scripted::text("It says hi."),
+    ]);
+    std::fs::write(r.root.join("hello.txt"), "hi\n").unwrap();
+    let sid = turn(&r.core, None, "warm up").await.session_id;
+    let frames = || r.core.store.stats().unwrap().frames_appended;
+    let f0 = frames();
+    turn(&r.core, Some(&sid), "hi").await;
+    let plain = frames() - f0;
+    let (f1, from) = (frames(), r.core.store.last_position());
+    let res = turn(&r.core, Some(&sid), "read hello.txt").await;
+    assert_eq!((res.loops, res.tool_calls), (2, 1));
+    let two_loops = frames() - f1;
+    assert!(plain <= 8, "a plain turn wrote {plain} frames");
+    assert!(
+        two_loops <= plain + 4,
+        "the second loop and its tool call wrote {} frames",
+        two_loops - plain
+    );
+    let rows = ledger_after(&r.core, from);
+    let planned = rows.iter().filter(|k| *k == "action.planned").count();
+    assert_eq!(planned, 3, "{rows:?}");
 }
 
 // ---------------------------------------------------------------- narrative (theseus-5fy)
