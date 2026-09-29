@@ -19,6 +19,9 @@
 # refuses to start if any reference fails. A reference may end in `#label`
 # to select one `label: value` line of a multi-line note.
 
+# The Narrative: a web UI tab narrating every session, turn, loop, and model call (default false: no tab, no lines).
+narrative = true
+
 # ---------------------------------------------------------------- model
 # The implicit "default" profile is built from this section. `live` names the
 # profile that is live at startup; a runtime switch (`theseus profile use`)

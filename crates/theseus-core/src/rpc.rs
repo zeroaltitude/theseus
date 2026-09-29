@@ -22,6 +22,7 @@ use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
 use crate::compiler::Recompile;
 use crate::ledger::LedgerRow;
+use crate::narrative::{narrate, Narrator};
 use crate::node::{Body, Node};
 use crate::provider::{Anthropic, Provider};
 use crate::scrub::Scrubber;
@@ -51,6 +52,8 @@ pub struct Core {
     pub runner: TurnRunner,
     pub secret_names: Vec<String>,
     pub telemetry: Arc<crate::telemetry::Telemetry>,
+    /// The narrative (`narrative = true`): live lines and a bounded tail.
+    pub narrator: Arc<Narrator>,
     started: Instant,
     turns: AtomicU64,
     provider_errors: AtomicU64,
@@ -221,6 +224,7 @@ impl Core {
             }
         }
         let bus = Arc::new(SessionBus::default());
+        let narrator = Arc::new(Narrator::new(cfg.narrative));
         let tools = Arc::new(crate::toolrun::build_runtime(
             &cfg,
             Some(spool.clone()),
@@ -246,6 +250,7 @@ impl Core {
             catalog: catalog.clone(),
             tools: tools.clone(),
             bus: bus.clone(),
+            narrator: narrator.clone(),
         };
         // A persisted runtime switch wins over config, if it still names a profile.
         let profiles = cfg.all_profiles();
@@ -271,6 +276,7 @@ impl Core {
             runner,
             secret_names,
             telemetry: Arc::new(telemetry),
+            narrator,
             started: Instant::now(),
             turns: AtomicU64::new(0),
             provider_errors: AtomicU64::new(0),
@@ -385,6 +391,24 @@ impl Core {
                         us = t0.elapsed().as_micros() as u64,
                         "heartbeat"
                     );
+                    let (due, evidence, unknown) = (
+                        rep.woke_due.len() as u64,
+                        rep.settled_from_evidence.len() as u64,
+                        rep.marked_unknown.len() as u64,
+                    );
+                    if self.narrator.on() && due + evidence + unknown > 0 {
+                        narrate!(
+                            self.narrator,
+                            Job,
+                            None,
+                            None,
+                            "Heartbeat ({why}): {} woke because a wait came due, {} \
+                             settled from a job wrapper's evidence, {} marked unknown.",
+                            crate::narrative::count(due, "execution", "executions"),
+                            crate::narrative::count(evidence, "action", "actions"),
+                            unknown
+                        );
+                    }
                     self.admission.notify_waiters();
                 } else {
                     tracing::debug!(
@@ -398,6 +422,35 @@ impl Core {
             }
             Err(e) => tracing::warn!(error = %e, "reconcile failed"),
         }
+    }
+
+    /// The narrative's line for a job's completion that came from the spool.
+    fn narrate_spooled(&self, c: &theseus_kernel::Completion) {
+        let Ok(Some(a)) = self.kernel.action(&c.correlation_id) else {
+            return;
+        };
+        let outcome = match c.outcome {
+            theseus_kernel::Outcome::Succeeded => "succeeded",
+            theseus_kernel::Outcome::Failed => "failed",
+            theseus_kernel::Outcome::Unknown => "an unknown outcome",
+        };
+        let exit = c
+            .detail
+            .as_ref()
+            .and_then(|d| d.get("exit_code"))
+            .and_then(Value::as_i64)
+            .map(|x| format!(", exit code {x}"))
+            .unwrap_or_default();
+        narrate!(
+            self.narrator,
+            Job,
+            Some(&a.session_id),
+            None,
+            "Job {} ({}) finished: {outcome}{exit}; its completion came \
+             from the spool.",
+            crate::narrative::short(&c.correlation_id),
+            a.tool
+        );
     }
 
     /// Accept every spooled completion, removing each file after its frame.
@@ -415,6 +468,9 @@ impl Core {
                     match self.kernel.accept_completion(&c) {
                         Ok(acc) => {
                             tracing::info!(correlation_id = %c.correlation_id, producer = %c.producer, result = ?acc, "completion accepted from spool");
+                            if self.narrator.on() {
+                                self.narrate_spooled(&c);
+                            }
                             if let Err(e) = self.spool.remove(&path) {
                                 tracing::warn!(error = %e, "spool remove failed");
                             }
@@ -456,6 +512,16 @@ impl Core {
             .kernel
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+        narrate!(
+            self.narrator,
+            Session,
+            Some(&e.session_id),
+            None,
+            "Execution {} cancelled by {by}: {} stopped; it is {} now.",
+            crate::narrative::short(id),
+            crate::narrative::count(to_kill.len() as u64, "action", "actions"),
+            e.state.as_str()
+        );
         Ok((e, to_kill))
     }
 
@@ -545,6 +611,7 @@ impl Core {
             cost_usd_total: self.cost_total(),
             catalog_version: self.catalog.version.clone(),
             bindings: self.bindings.read().unwrap().values().cloned().collect(),
+            narrative: self.narrator.on(),
         }
     }
 
@@ -827,10 +894,37 @@ impl Core {
             None,
             json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by}),
         ))?;
-        let _ = self.kernel.wake(
-            &a.execution_id,
-            if approve { "confirmed" } else { "declined" },
+        narrate!(
+            self.narrator,
+            Approval,
+            Some(&a.session_id),
+            None,
+            "{} {} by {by}{}.",
+            a.tool,
+            if approve { "approved" } else { "declined" },
+            if note.is_some_and(|n| !n.trim().is_empty()) {
+                ", with a note"
+            } else {
+                ""
+            }
         );
+        if self
+            .kernel
+            .wake(
+                &a.execution_id,
+                if approve { "confirmed" } else { "declined" },
+            )
+            .is_ok()
+        {
+            narrate!(
+                self.narrator,
+                Session,
+                Some(&a.session_id),
+                None,
+                "Woken by the {}; the driver resumes the turn.",
+                if approve { "approval" } else { "decline" }
+            );
+        }
         self.bus.publish(
             &a.session_id,
             &Message::Notification(theseus_protocol::Notification::new(
@@ -860,6 +954,22 @@ impl Core {
         let Some(session) = self.store.get_session::<SessionRecord>(&e.session_id)? else {
             return Ok(None);
         };
+        narrate!(
+            self.narrator,
+            Session,
+            Some(&session.session_id),
+            None,
+            "The driver resumes execution {}: {}.",
+            crate::narrative::short(&e.id),
+            match e.queued_results.len() {
+                0 if e.resume_pending => "it was woken".to_string(),
+                0 => "it is queued".to_string(),
+                n => format!(
+                    "{} arrived",
+                    crate::narrative::count(n as u64, "result", "results")
+                ),
+            }
+        );
         let (live, _) = self.live_profile();
         let target = self.runner.target_for_session(&session, &live)?;
         let sink = EventSink::new(self.bus.clone(), &session.session_id, None);
@@ -906,6 +1016,21 @@ impl Core {
             None,
         )?;
         let _ = by;
+        if self.narrator.on() {
+            self.narrator.first_sight(&rec.session_id);
+            narrate!(
+                self.narrator,
+                Session,
+                Some(&rec.session_id),
+                None,
+                "Session {} opened ({}); its execution {} has a budget of \
+                 {} units.",
+                crate::narrative::short(&rec.session_id),
+                rec.kind.as_str(),
+                crate::narrative::short(&exec.id),
+                crate::narrative::thousands(exec.budget.limit)
+            );
+        }
         rec.execution_id = Some(exec.id);
         self.store.put_session(&rec.session_id, &rec)?;
         self.store.append_ledger(&LedgerRow::new(
@@ -988,6 +1113,7 @@ impl Core {
         drop(tx);
         drop(resp_tx);
         self.bus.drop_conn(&client);
+        self.narrator.unwatch(&client);
         let _ = writer_task.await;
         Ok(())
     }
@@ -1429,6 +1555,27 @@ impl Core {
                     total: self.store.ledger_len().map_err(bad)?,
                 })
                 .unwrap())
+            }
+            method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
+                Err(RpcFailure::new(
+                    error_code::DISABLED,
+                    "narration is off: put `narrative = true` at the top of the config, \
+                     before any [table], and restart the daemon",
+                ))
+            }
+            method::NARRATIVE_WATCH => {
+                let lines = self.narrator.watch(client, tx.clone()).unwrap_or_default();
+                Ok(
+                    serde_json::to_value(theseus_protocol::NarrativeWatchResult {
+                        lines,
+                        capacity: self.narrator.capacity() as u32,
+                    })
+                    .unwrap(),
+                )
+            }
+            method::NARRATIVE_UNWATCH => {
+                self.narrator.unwatch(client);
+                Ok(json!({"watching": false}))
             }
             method::SHUTDOWN => {
                 let _ = self.store.append_ledger(&LedgerRow::new(
@@ -2415,5 +2562,151 @@ mod tests {
         drop(cw);
         drop(lines);
         let _ = srv.await;
+    }
+
+    /// Send one request on an open connection and read to its response,
+    /// keeping the notifications that came before it.
+    async fn ask<R, W>(
+        w: &mut W,
+        lines: &mut tokio::io::Lines<BufReader<R>>,
+        req: Request,
+    ) -> (Response, Vec<Notification>)
+    where
+        R: tokio::io::AsyncRead + Unpin,
+        W: tokio::io::AsyncWrite + Unpin,
+    {
+        let mut line = serde_json::to_string(&req).unwrap();
+        line.push('\n');
+        w.write_all(line.as_bytes()).await.unwrap();
+        let mut notes = Vec::new();
+        loop {
+            let l = lines.next_line().await.unwrap().unwrap();
+            match serde_json::from_str::<Message>(&l).unwrap() {
+                Message::Response(r) if r.id == req.id => return (r, notes),
+                Message::Notification(n) => notes.push(n),
+                _ => {}
+            }
+        }
+    }
+
+    /// `narrative.watch` returns the tail, then streams every line as
+    /// `narrative.line` on the same connection until `narrative.unwatch`; a
+    /// connection that arrives late gets the same lines as its tail. With
+    /// narration off, both methods refuse with DISABLED and health says so.
+    #[tokio::test]
+    async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
+        use theseus_protocol::{NarrativeLine, NarrativePart, NarrativeWatchResult};
+        let core = test_core("hello there");
+        assert!(core.health().narrative, "the template turns it on");
+        let (client, server) = duplex(256 * 1024);
+        let (sr, sw) = tokio::io::split(server);
+        let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "watcher".into()));
+        let (cr, mut cw) = tokio::io::split(client);
+        let mut lines = BufReader::new(cr).lines();
+        let watch = Request::new(Id::Num(1), method::NARRATIVE_WATCH, Value::Null);
+        let (r, _) = ask(&mut cw, &mut lines, watch).await;
+        let w: NarrativeWatchResult = serde_json::from_value(r.result.unwrap()).unwrap();
+        assert!(w.lines.is_empty(), "{:?}", w.lines);
+        assert_eq!(w.capacity, 500);
+        let submit = |id, session_id: Option<String>| {
+            Request::new(
+                Id::Num(id),
+                method::TURN_SUBMIT,
+                TurnSubmitParams {
+                    session_id,
+                    input: "hi".into(),
+                    profile: None,
+                    provider: None,
+                    model: None,
+                    author: Some("discord:eddie".into()),
+                },
+            )
+        };
+        let (r, notes) = ask(&mut cw, &mut lines, submit(2, None)).await;
+        let res: TurnSubmitResult = serde_json::from_value(r.result.unwrap()).unwrap();
+        let narrated: Vec<NarrativeLine> = notes
+            .iter()
+            .filter(|n| n.method == notify::NARRATIVE_LINE)
+            .map(|n| serde_json::from_value(n.params.clone()).unwrap())
+            .collect();
+        let says = |part: NarrativePart, needle: &str| {
+            narrated
+                .iter()
+                .any(|l| l.part == part && l.text.contains(needle))
+        };
+        for (part, needle) in [
+            (NarrativePart::Session, "opened (conversation)"),
+            (NarrativePart::Session, "budget of 20,000,000 units"),
+            (NarrativePart::Turn, "started by discord:eddie"),
+            (NarrativePart::Turn, "2 characters of input"),
+            (NarrativePart::Turn, "ended after 1 loop"),
+            (NarrativePart::Session, "Parked until the next input"),
+        ] {
+            assert!(
+                says(part, needle),
+                "no {part:?} line says {needle:?}: {narrated:#?}"
+            );
+        }
+        assert!(narrated
+            .iter()
+            .all(|l| l.session_id.as_deref() == Some(res.session_id.as_str())));
+        // A connection that arrives late gets those lines as its tail.
+        let late = roundtrip(
+            core.clone(),
+            vec![Request::new(
+                Id::Num(3),
+                method::NARRATIVE_WATCH,
+                Value::Null,
+            )],
+        )
+        .await;
+        let tail: NarrativeWatchResult =
+            serde_json::from_value(responses(&late)[0].result.clone().unwrap()).unwrap();
+        assert_eq!(tail.lines, narrated);
+        // Unwatched, the next turn's lines no longer come.
+        let unwatch = Request::new(Id::Num(4), method::NARRATIVE_UNWATCH, Value::Null);
+        let (r, _) = ask(&mut cw, &mut lines, unwatch).await;
+        assert_eq!(r.result.unwrap()["watching"], false);
+        let (r, notes) = ask(&mut cw, &mut lines, submit(5, Some(res.session_id.clone()))).await;
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert!(notes.iter().all(|n| n.method != notify::NARRATIVE_LINE));
+        assert!(
+            core.narrator.tail().len() > narrated.len(),
+            "still narrated"
+        );
+        cw.shutdown().await.unwrap();
+        drop(cw);
+        drop(lines);
+        let _ = srv.await;
+
+        // Off: the methods refuse and health says so.
+        let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+        let mut cfg = Config::example();
+        cfg.server.state_dir = dir.to_string_lossy().into_owned();
+        cfg.narrative = false;
+        let fake = FakeProvider {
+            reply: "x".into(),
+            ..Default::default()
+        };
+        let off = Core::with_provider(cfg, Arc::new(fake), store, vec![]).unwrap();
+        let msgs = roundtrip(
+            off.clone(),
+            vec![
+                Request::new(Id::Num(1), method::HEALTH, Value::Null),
+                Request::new(Id::Num(2), method::NARRATIVE_WATCH, Value::Null),
+                Request::new(Id::Num(3), method::NARRATIVE_UNWATCH, Value::Null),
+            ],
+        )
+        .await;
+        let rs = responses(&msgs);
+        let by = |id| rs.iter().find(|r| r.id == Id::Num(id)).unwrap();
+        assert_eq!(by(1).result.as_ref().unwrap()["narrative"], false);
+        for id in [2, 3] {
+            let e = by(id).error.as_ref().expect("refused");
+            assert_eq!(e.code, error_code::DISABLED);
+            assert!(e.message.contains("narrative = true"), "{}", e.message);
+        }
+        assert!(off.narrator.tail().is_empty());
     }
 }

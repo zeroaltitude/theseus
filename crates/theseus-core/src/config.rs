@@ -15,6 +15,12 @@ pub const DEFAULT_CONFIG_REF: &str = "op://Eddie-Tabitha/theseus-config/notesPla
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Narrate every step of the session/turn/loop/model-call structure into
+    /// the web UI's The Narrative tab. Absent or false: no line is made and
+    /// the tab never shows. First, because a TOML key after a table is that
+    /// table's.
+    #[serde(default)]
+    pub narrative: bool,
     #[serde(default)]
     pub model: ModelConfig,
     /// Named model profiles. The implicit `default` profile is built from `[model]`.
@@ -1088,6 +1094,32 @@ mod tests {
         let (_, warnings) =
             Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    /// `narrative` is a top-level key, off unless the config says true
+    /// (theseus-5fy). The vault config (checked 2026-09-28) has no such key and
+    /// loads unchanged; the template turns it on; written under a table it is
+    /// that table's key and fails to load.
+    #[test]
+    fn narrative_is_off_unless_the_config_says_true() {
+        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
+        let (cfg, warnings) = Config::parse(base).unwrap();
+        assert!(!cfg.narrative && warnings.is_empty(), "{warnings:?}");
+        for (value, want) in [("true", true), ("false", false)] {
+            let (cfg, _) = Config::parse(&format!("narrative = {value}\n\n{base}")).unwrap();
+            assert_eq!(cfg.narrative, want, "narrative = {value}");
+        }
+        let (cfg, warnings) = Config::parse(Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.narrative && warnings.is_empty(), "{warnings:?}");
+        let e = format!(
+            "{:#}",
+            Config::parse(&format!("{base}\n[web]\nnarrative = true\n")).unwrap_err()
+        );
+        assert!(e.contains("unknown field `narrative`"), "{e}");
+        assert!(Config::parse(&format!("narrative = \"yes\"\n{base}")).is_err());
+        // `theseusd config` prints it first, where it still means the top level.
+        let shown = toml::to_string_pretty(&cfg).unwrap();
+        assert!(shown.starts_with("narrative = true\n"), "{shown}");
     }
 
     /// There is no deny posture: `deny`, wherever a posture goes, fails to

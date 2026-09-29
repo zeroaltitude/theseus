@@ -36,6 +36,10 @@ pub mod method {
     pub const NODE_LIST: &str = "node.list";
     pub const TOOL_LIST: &str = "tool.list";
     pub const SHUTDOWN: &str = "shutdown";
+    /// The narrative (`narrative = true`): the recent tail, then every new
+    /// line as a `narrative.line` notification until `narrative.unwatch`.
+    pub const NARRATIVE_WATCH: &str = "narrative.watch";
+    pub const NARRATIVE_UNWATCH: &str = "narrative.unwatch";
 }
 
 /// Notification names (server → client).
@@ -65,6 +69,9 @@ pub mod notify {
     /// A call ran under a `notify` posture (`[policy].enforcement`, or a
     /// `[policy.tools]` / `[policy.mcp]` line), and the operator is told.
     pub const POLICY_NOTIFIED: &str = "policy.notified";
+    /// One line of the narrative, to every `narrative.watch` subscriber.
+    /// Unlike the others it is not a ledger row: the narrative is never stored.
+    pub const NARRATIVE_LINE: &str = "narrative.line";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -128,6 +135,8 @@ pub mod error_code {
     pub const BLOCKED: i64 = -32001;
     pub const NOT_FOUND: i64 = -32002;
     pub const PROVIDER: i64 = -32003;
+    /// The config turns this feature off (`narrative.watch` without `narrative = true`).
+    pub const DISABLED: i64 = -32004;
 }
 
 impl Request {
@@ -214,6 +223,10 @@ pub struct HealthResult {
     /// Channel bindings (M3: Discord) and what each is doing.
     #[serde(default)]
     pub bindings: Vec<BindingStatus>,
+    /// `narrative = true` in the config: the narrative runs, and the web UI
+    /// shows its tab.
+    #[serde(default)]
+    pub narrative: bool,
 }
 
 /// One channel binding as health reports it (spec P5: bindings as a file).
@@ -901,6 +914,59 @@ pub struct LoopEnded {
     pub tool_calls: u32,
     pub advancer: String,
     pub decision: String,
+}
+
+/// Which architectural part of the session/turn/loop structure a narrative
+/// line comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NarrativePart {
+    Session,
+    Turn,
+    Loop,
+    Context,
+    Model,
+    Tool,
+    Approval,
+    Job,
+}
+
+impl NarrativePart {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::Turn => "turn",
+            Self::Loop => "loop",
+            Self::Context => "context",
+            Self::Model => "model",
+            Self::Tool => "tool",
+            Self::Approval => "approval",
+            Self::Job => "job",
+        }
+    }
+}
+
+/// One sentence of the narrative, filled into a fixed template from the
+/// structure itself (never written by a model). Kept only in memory.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NarrativeLine {
+    /// Counts from 1 since the daemon started; a client merges the tail and
+    /// the live lines on it.
+    pub seq: u64,
+    pub at_unix_ms: u64,
+    pub part: NarrativePart,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NarrativeWatchResult {
+    /// The most recent lines, oldest first; at most `capacity`.
+    pub lines: Vec<NarrativeLine>,
+    pub capacity: u32,
 }
 
 pub fn now_unix_ms() -> u64 {

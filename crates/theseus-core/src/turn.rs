@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::{
-    Action, Authority, Completion, Execution, Kernel, KernelError, Outcome as ActionOutcome,
-    Proposal, RetryClass, TurnEnd, TurnGuard, Wake,
+    Action, Authority, Completion, ExecState, Execution, Kernel, KernelError,
+    Outcome as ActionOutcome, Proposal, RetryClass, TurnEnd, TurnGuard, Wake,
 };
 use theseus_protocol::{
     notify, LoopEnded, LoopStarted, ModelDelta, TurnStarted, TurnSubmitResult, Usage,
@@ -33,6 +33,7 @@ use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
 use crate::compiler::{compile, CompileInput, Compiled, Recompile, RequestSpec};
 use crate::ledger::LedgerRow;
+use crate::narrative::{self, narrate, narrate_turn, Narrator};
 use crate::node::{Body, Node};
 use crate::provider::{Delta, ModelResponse, Provider, ProviderError, ToolUse};
 use crate::session::{title_from, SessionRecord, TargetRef};
@@ -75,6 +76,7 @@ pub struct TurnRunner {
     pub catalog: Arc<Catalog>,
     pub tools: Arc<ToolRuntime>,
     pub bus: Arc<SessionBus>,
+    pub narrator: Arc<Narrator>,
 }
 
 /// One turn to run.
@@ -91,6 +93,8 @@ pub struct TurnRequest {
 
 /// How long a turn may wait for admission before the client gets an error.
 const ADMISSION_WAIT_MAX: Duration = Duration::from_secs(600);
+/// A wait for admission and the turn lock the narrative mentions.
+const LOCK_WAIT_NOTICEABLE_US: u64 = 50_000;
 /// The principal of every local protocol client (file permissions are the auth).
 pub const OPERATOR: &str = "operator";
 
@@ -177,7 +181,7 @@ impl<'a> Turn<'a> {
     }
 
     /// Tell the trace, the session's clients, and the ledger that the turn began.
-    fn announce(&mut self, input: Option<&str>, author: &str, lock_wait_us: u64) {
+    fn announce(&mut self, input: Option<&str>, author: &str, lock_wait_us: u64, admit_us: u64) {
         let (guard, target) = (self.tc.guard, self.target);
         self.trace.record(
             "admission.wait",
@@ -199,6 +203,37 @@ impl<'a> Turn<'a> {
             "turn.started",
             json!({"input_chars": input.map(|s| s.chars().count()), "profile": target.profile, "provider": target.provider, "model": target.model, "execution_id": guard.execution_id, "kernel_turn": guard.turn, "continuation": self.continuation, "author": author}),
         );
+        match input {
+            Some(text) => narrate_turn!(
+                self.tc,
+                Turn,
+                "Turn {} started by {author} on {} ({}): {} of input; up to \
+                 {}.",
+                narrative::short(self.tc.turn_id),
+                target.profile,
+                target.model,
+                narrative::count(text.chars().count() as u64, "character", "characters"),
+                narrative::count(target.max_loops as u64, "loop", "loops")
+            ),
+            None => narrate_turn!(
+                self.tc,
+                Turn,
+                "Continuation turn {} started by the {author} on {} ({}): \
+                 no new input; up to {}.",
+                narrative::short(self.tc.turn_id),
+                target.profile,
+                target.model,
+                narrative::count(target.max_loops as u64, "loop", "loops")
+            ),
+        }
+        if admit_us >= LOCK_WAIT_NOTICEABLE_US {
+            narrate_turn!(
+                self.tc,
+                Turn,
+                "It waited {} for admission and the turn lock.",
+                narrative::duration(admit_us / 1000)
+            );
+        }
     }
 
     /// Count the turn in its session. The success path and both failure
@@ -346,6 +381,17 @@ impl TurnRunner {
         )?;
         session.execution_id = Some(e.id.clone());
         self.store.put_session(&session.session_id, session)?;
+        narrate!(
+            self.narrator,
+            Session,
+            Some(&session.session_id),
+            None,
+            "Session {} had no execution; opened {} with a budget of {} \
+             units.",
+            narrative::short(&session.session_id),
+            narrative::short(&e.id),
+            narrative::thousands(e.budget.limit)
+        );
         Ok(e)
     }
 
@@ -405,11 +451,21 @@ impl TurnRunner {
         let arrived = Instant::now();
         let continuation = req.input.is_none();
         let exec = self.execution_for(&mut req.session)?;
+        // The narrative's session id and clock, taken only when it is on.
+        let sid = self.narrator.on().then(|| req.session.session_id.clone());
         if !continuation {
             if let Err(e) = self.kernel.wake_input(&exec.id) {
                 if let Some(KernelError::NotRunnable { state, .. }) =
                     e.downcast_ref::<KernelError>()
                 {
+                    narrate!(
+                        self.narrator,
+                        Turn,
+                        sid.as_deref(),
+                        None,
+                        "A turn from {} was refused: the execution is {state}.",
+                        req.author
+                    );
                     return Err(turn_error(
                         &format!("execution_{state}"),
                         &req.session.session_id,
@@ -420,25 +476,64 @@ impl TurnRunner {
                 }
                 return Err(e);
             }
+            if matches!(exec.state, ExecState::Waiting | ExecState::Blocked) {
+                narrate!(
+                    self.narrator,
+                    Session,
+                    sid.as_deref(),
+                    None,
+                    "Woken by new input from {}.",
+                    req.author
+                );
+            }
         }
+        let admitting = sid.is_some().then(Instant::now);
         let Some(guard) = self.admit(&exec.id, arrived, !continuation).await? else {
             anyhow::bail!("execution {} is not ready for a continuation turn", exec.id);
         };
+        let admit_us = admitting.map_or(0, |t| t.elapsed().as_micros() as u64);
         let admission_wait_us = arrived.elapsed().as_micros() as u64;
         let failure_sink = req.sink.clone();
         let r = self
-            .run_inner(&guard, req, arrived, admission_wait_us)
+            .run_inner(&guard, req, arrived, admission_wait_us, admit_us)
             .await;
         let (end, rewake) = match &r {
             Ok((_, end, rewake)) => (end.clone(), *rewake),
             Err(_) => (TurnEnd::Wait { wake: Wake::Input }, false),
         };
         let exec_id = guard.execution_id.clone();
+        let parked = self.narrator.on().then(|| self.park_sentence(&end));
         if let Err(e) = self.kernel.end_turn(guard, end) {
             tracing::warn!(error = %e, "end_turn failed");
         }
+        if let Some(p) = parked {
+            let turn_id = match &r {
+                Ok((res, _, _)) => Some(res.turn_id.clone()),
+                Err(e) => e
+                    .downcast_ref::<TurnError>()
+                    .map(|t| t.turn_id.clone())
+                    .filter(|t| !t.is_empty()),
+            };
+            narrate!(
+                self.narrator,
+                Session,
+                sid.as_deref(),
+                turn_id.as_deref(),
+                "{p}"
+            );
+        }
         if let Err(e) = &r {
             let te = e.downcast_ref::<TurnError>();
+            if te.is_none() {
+                // A fault, not a failure the turn reports itself (`fail`).
+                narrate!(
+                    self.narrator,
+                    Turn,
+                    sid.as_deref(),
+                    None,
+                    "The turn stopped on an internal error; the log has it."
+                );
+            }
             failure_sink.send(
                 notify::TURN_FAILED,
                 theseus_protocol::TurnFailed {
@@ -455,6 +550,14 @@ impl TurnRunner {
             // A background result landed while the turn ran; the model has not
             // read it yet, so the driver takes another turn.
             let _ = self.kernel.wake(&exec_id, "late_result");
+            narrate!(
+                self.narrator,
+                Session,
+                sid.as_deref(),
+                None,
+                "Woken again at once: a background result landed during the \
+                 turn."
+            );
         }
         self.admission.notify_waiters();
         r.map(|(res, _, _)| res)
@@ -469,6 +572,7 @@ impl TurnRunner {
         req: TurnRequest,
         arrived: Instant,
         lock_wait_us: u64,
+        admit_us: u64,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool)> {
         let TurnRequest {
             mut session,
@@ -502,9 +606,23 @@ impl TurnRunner {
             loop_index: None,
             sink: &sink,
             confirm_ttl_ms: self.kernel.config().confirm_ttl_ms,
+            narrator: &self.narrator,
         };
+        if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
+            narrate!(
+                self.narrator,
+                Session,
+                Some(&sid),
+                None,
+                "Session {} resumed: its first turn since the daemon \
+                 started, after {} and {}.",
+                narrative::short(&sid),
+                narrative::count(session.turns, "turn", "turns"),
+                narrative::money(Some(session.cost_usd))
+            );
+        }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
-        t.announce(input.as_deref(), &author, lock_wait_us);
+        t.announce(input.as_deref(), &author, lock_wait_us, admit_us);
 
         // 1. What happened while no turn was running.
         let caught_up = self.catch_up(&mut t, input.is_some()).await?;
@@ -526,6 +644,13 @@ impl TurnRunner {
         while run_model {
             let i = t.loops;
             t.loops += 1;
+            narrate_turn!(
+                t.tc,
+                Loop,
+                "Loop {} of up to {}.",
+                t.loops,
+                t.target.max_loops
+            );
             t.trace
                 .enter(&format!("loop {i}"), "loop", json!({"loop": i}));
             let compiled = self.compile_step(&mut t, &mut session, &spec, force.take(), i)?;
@@ -561,6 +686,38 @@ impl TurnRunner {
             t.trace.now_us(),
             json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background}),
         );
+        if t.tc.narrator.on() {
+            let mut done = Vec::new();
+            if !settled.is_empty() {
+                done.push(format!(
+                    "{} settled",
+                    narrative::count(settled.len() as u64, "action", "actions")
+                ));
+            }
+            if absorbed > 0 {
+                done.push(format!(
+                    "{} written",
+                    narrative::count(absorbed as u64, "late result", "late results")
+                ));
+            }
+            if resumed.wrote > 0 {
+                done.push(format!(
+                    "{} answered",
+                    narrative::count(resumed.wrote as u64, "pending call", "pending calls")
+                ));
+            }
+            if resumed.awaiting.is_some() {
+                done.push("a call still waits for approval".into());
+            }
+            if !done.is_empty() {
+                narrate_turn!(
+                    t.tc,
+                    Turn,
+                    "Caught up on the time between turns: {}.",
+                    done.join(", ")
+                );
+            }
+        }
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
         Ok(absorbed + resumed.wrote)
@@ -572,6 +729,12 @@ impl TurnRunner {
     fn has_news(&self, t: &mut Turn<'_>, wrote: bool) -> Result<bool> {
         if t.awaiting.is_some() {
             t.stop_reason = "awaiting_confirm".into();
+            narrate_turn!(
+                t.tc,
+                Turn,
+                "A call still waits for approval, so the model is not \
+                 called."
+            );
             return Ok(false);
         }
         if wrote {
@@ -585,6 +748,11 @@ impl TurnRunner {
         let awaiting_reply = matches!(last.map(|(_, n)| &n.body), Some(Body::UserMessage { .. }));
         if !awaiting_reply {
             t.stop_reason = "nothing_new".into();
+            narrate_turn!(
+                t.tc,
+                Turn,
+                "Nothing new for the model to read, so it is not called."
+            );
         }
         Ok(awaiting_reply)
     }
@@ -641,6 +809,46 @@ impl TurnRunner {
             .record("compile", "compile", c0, c1, summary.clone());
         t.tc.ledger("context.compiled", summary.clone());
         t.tc.sink.send(notify::CONTEXT_COMPILED, &summary);
+        let sizes = |c: &Compiled| {
+            format!(
+                "prefix {} + tail {}, {}, about {} tokens",
+                narrative::count(c.prefix_nodes as u64, "node", "nodes"),
+                c.tail_nodes,
+                narrative::count(c.messages as u64, "message", "messages"),
+                narrative::thousands(c.est_tokens)
+            )
+        };
+        if compiled.new_compilation {
+            narrate_turn!(
+                t.tc,
+                Context,
+                "Context: new compilation {} ({}) because {}: {}.",
+                narrative::short(&compiled.compilation.id),
+                compiled.compilation.strategy,
+                narrative::trigger_phrase(compiled.trigger.as_deref().unwrap_or("unknown")),
+                sizes(&compiled)
+            );
+        } else {
+            narrate_turn!(
+                t.tc,
+                Context,
+                "Context: appending to compilation {}: {}.",
+                narrative::short(&compiled.compilation.id),
+                sizes(&compiled)
+            );
+        }
+        if !compiled.repairs.is_empty() {
+            narrate_turn!(
+                t.tc,
+                Context,
+                "Context: repaired {} with a synthetic result.",
+                narrative::count(
+                    compiled.repairs.len() as u64,
+                    "tool call that had no result",
+                    "tool calls that had no result"
+                )
+            );
+        }
         t.tc.sink.send(
             notify::LOOP_STARTED,
             LoopStarted {
@@ -686,6 +894,34 @@ impl TurnRunner {
                     e.downcast_ref::<KernelError>(),
                     Some(KernelError::BudgetExhausted { .. })
                 );
+                match e.downcast_ref::<KernelError>() {
+                    Some(KernelError::BudgetExhausted {
+                        needed,
+                        available,
+                        limit,
+                    }) => {
+                        narrate!(
+                            self.narrator,
+                            Session,
+                            Some(t.tc.session_id),
+                            Some(t.tc.turn_id),
+                            "Budget exhausted: the call to {} needs {} units and {} of \
+                             {} remain; the execution ends.",
+                            target.model,
+                            narrative::thousands(*needed),
+                            narrative::thousands(*available),
+                            narrative::thousands(*limit)
+                        );
+                    }
+                    _ => {
+                        narrate_turn!(
+                            t.tc,
+                            Model,
+                            "The kernel would not plan the call to {}: {e}.",
+                            target.model
+                        )
+                    }
+                }
                 let class = if exhausted {
                     "budget_exhausted"
                 } else {
@@ -703,6 +939,17 @@ impl TurnRunner {
         self.kernel
             .authorize(&action.correlation_id, &proposal, None)?;
         self.kernel.dispatch(&action.correlation_id, None)?;
+        narrate_turn!(
+            t.tc,
+            Model,
+            "Calling {} on {}: reserving {} units ({} for output, {} \
+             for the input).",
+            target.model,
+            target.provider,
+            narrative::thousands(reserve),
+            narrative::thousands(target.max_tokens as u64),
+            narrative::thousands(compiled.est_tokens)
+        );
         t.trace.record(
             "action.outbox",
             "store",
@@ -864,11 +1111,41 @@ impl TurnRunner {
                 "node_id": node.id,
             }),
         );
+        narrate_turn!(
+            t.tc,
+            Model,
+            "{} answered in {}{}: {} in{}, {} out, {}; {}.",
+            resp.model,
+            narrative::duration(resp.timing.total_ms),
+            resp.timing
+                .first_token_ms
+                .map(|ms| format!(" (first token {})", narrative::duration(ms)))
+                .unwrap_or_default(),
+            narrative::count(
+                resp.usage.input_tokens
+                    + resp.usage.cache_read_input_tokens
+                    + resp.usage.cache_creation_input_tokens,
+                "token",
+                "tokens"
+            ),
+            if resp.usage.cache_read_input_tokens > 0 {
+                format!(
+                    " ({} from the cache)",
+                    narrative::thousands(resp.usage.cache_read_input_tokens)
+                )
+            } else {
+                String::new()
+            },
+            narrative::thousands(resp.usage.output_tokens),
+            narrative::money(call_cost),
+            narrative::stop_phrase(resp.stop_reason.as_deref(), resp.tool_uses().len())
+        );
         if resp.stop_reason.as_deref() == Some("refusal") {
             t.tc.ledger(
                 "provider.refusal",
                 json!({"stop_details": resp.stop_details, "model": resp.model}),
             );
+            narrate_turn!(t.tc, Model, "{} refused; the turn ends.", resp.model);
         }
         Ok(node)
     }
@@ -928,6 +1205,19 @@ impl TurnRunner {
                 "detail": pe.map(|p| serde_json::to_value(p).unwrap_or(Value::Null)),
                 "message": e.to_string(),
             }),
+        );
+        narrate_turn!(
+            t.tc,
+            Model,
+            "{} failed after {}: {class}{}; {}.",
+            target.model,
+            narrative::duration(call_started.elapsed().as_millis() as u64),
+            if transient { " (transient)" } else { "" },
+            if unknown {
+                "whether the provider did the work is unknown, so its units stay held"
+            } else {
+                "the call is settled as failed"
+            }
         );
         Failure {
             class: class.into(),
@@ -1044,6 +1334,32 @@ impl TurnRunner {
         );
         t.trace
             .exit(json!({"decision": decision.label(), "usage": resp.usage}));
+        match &decision {
+            Decision::Continue => narrate_turn!(
+                t.tc,
+                Loop,
+                "Loop {}: continuing, because the model asked for {} and \
+                 {}.",
+                i + 1,
+                narrative::count(uses as u64, "tool", "tools"),
+                if answered == 1 {
+                    "it has an answer"
+                } else {
+                    "each has an answer"
+                }
+            ),
+            Decision::EndTurn(reason) if reason == "no_tool_calls" && uses > 0 => {
+                narrate_turn!(
+                    t.tc,
+                    Loop,
+                    "Stopping: none of the model's {} ran.",
+                    narrative::count(uses as u64, "call", "calls")
+                )
+            }
+            Decision::EndTurn(reason) => {
+                narrate_turn!(t.tc, Loop, "Stopping: {}.", narrative::end_phrase(reason))
+            }
+        }
         match decision {
             Decision::Continue => true,
             Decision::EndTurn(reason) => {
@@ -1057,6 +1373,38 @@ impl TurnRunner {
     /// spent, close its trace, and write `turn.failed`.
     fn fail(&self, t: Turn<'_>, session: &mut SessionRecord, f: Failure) -> anyhow::Error {
         t.close_books(session);
+        let finished = t.loops.saturating_sub(1) as u64;
+        if finished == 0 {
+            narrate_turn!(
+                t.tc,
+                Turn,
+                "Turn {} failed ({}) in loop {}, before any loop finished; \
+                 it spent {}.",
+                narrative::short(t.tc.turn_id),
+                f.class,
+                t.loops,
+                narrative::money(t.cost)
+            );
+        } else {
+            narrate_turn!(
+                t.tc,
+                Turn,
+                "Turn {} failed ({}) in loop {}, after {}; {} spent {}: {}, \
+                 {}.",
+                narrative::short(t.tc.turn_id),
+                f.class,
+                t.loops,
+                narrative::count(finished, "finished loop", "finished loops"),
+                if finished == 1 {
+                    "that loop"
+                } else {
+                    "those loops"
+                },
+                narrative::money(t.cost),
+                narrative::count(t.usage.output_tokens, "token out", "tokens out"),
+                narrative::count(t.tool_calls as u64, "tool call", "tool calls")
+            );
+        }
         let trace = t
             .trace
             .finish(json!({"outcome": "failed", "class": f.class}));
@@ -1145,6 +1493,18 @@ impl TurnRunner {
             serde_json::to_value(&result.trace).unwrap_or(Value::Null),
         );
         t.tc.sink.send(notify::TURN_ENDED, &result);
+        narrate_turn!(
+            t.tc,
+            Turn,
+            "Turn {} ended after {} in {}: {}, {}, {}; {}.",
+            narrative::short(t.tc.turn_id),
+            narrative::count(result.loops as u64, "loop", "loops"),
+            narrative::duration(result.elapsed_ms),
+            narrative::count(result.tool_calls as u64, "tool call", "tool calls"),
+            narrative::count(result.usage.output_tokens, "token out", "tokens out"),
+            narrative::money(result.cost_usd),
+            narrative::end_phrase(&result.stop_reason)
+        );
         let end = self.park(t.tc.execution_id, t.awaiting, &t.background)?;
         Ok((result, end, late > 0))
     }
@@ -1184,6 +1544,31 @@ impl TurnRunner {
             Wake::Input
         };
         Ok(TurnEnd::Wait { wake })
+    }
+
+    /// Where the execution waits, as the narrative says it.
+    fn park_sentence(&self, end: &TurnEnd) -> String {
+        match end {
+            TurnEnd::Wait {
+                wake: Wake::Confirm { confirm_id },
+            } => {
+                let tool = self
+                    .kernel
+                    .action(confirm_id)
+                    .ok()
+                    .flatten()
+                    .map_or_else(|| "a call".to_string(), |a| a.tool);
+                format!("Parked until the operator answers the approval for {tool}.")
+            }
+            TurnEnd::Wait {
+                wake: Wake::Actions { correlation_ids },
+            } => match correlation_ids.len() {
+                1 => "Parked until 1 background job finishes.".into(),
+                n => format!("Parked until one of {n} background jobs finishes."),
+            },
+            TurnEnd::Wait { wake: Wake::Input } => "Parked until the next input.".into(),
+            other => format!("The turn ends the execution's wait: {other:?}."),
+        }
     }
 
     /// A new compilation (it carries its own `derived_from`) and the

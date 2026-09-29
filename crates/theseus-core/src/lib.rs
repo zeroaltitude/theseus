@@ -14,6 +14,7 @@ pub mod config;
 pub mod github;
 pub mod harness;
 pub mod ledger;
+pub mod narrative;
 pub mod node;
 pub mod policy;
 pub mod provider;

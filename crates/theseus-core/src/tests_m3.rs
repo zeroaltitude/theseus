@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::{NarrativeLine, SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::node::{Body, ResultStatus};
@@ -889,13 +889,292 @@ async fn session_list_counts_each_sessions_waiting_calls() {
 /// Every WAL frame is its own fsync, so each frame on the turn path costs
 /// every turn. A plain one-loop turn writes 17 (27 before theseus-hco
 /// removed the hook rows); a change that adds one raises this on purpose.
+/// The template turns the narrative on, and a subscriber is watching: the
+/// narrative is never stored, so it adds no frame (theseus-5fy).
 #[tokio::test]
 async fn a_plain_turn_stays_within_its_frame_budget() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("hello")]);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    assert!(
+        r.core.narrator.watch("watcher", tx).is_some(),
+        "narration is on"
+    );
     let first = turn(&r.core, None, "warm up").await;
     let before = r.core.store.stats().unwrap().frames_appended;
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     assert_eq!(res.loops, 1);
     let frames = r.core.store.stats().unwrap().frames_appended - before;
     assert!(frames <= 17, "a plain turn wrote {frames} frames");
+    let sent = std::iter::from_fn(|| rx.try_recv().ok()).count();
+    let lines = narrated(&r, &res.session_id);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.turn_id.as_deref() == Some(res.turn_id.as_str())),
+        "the turn was narrated"
+    );
+    assert_eq!(sent, lines.len(), "each line went to the watcher");
+}
+
+// ---------------------------------------------------------------- narrative (theseus-5fy)
+
+/// The lines narrated about one session, oldest first.
+fn narrated(r: &Rig, sid: &str) -> Vec<NarrativeLine> {
+    r.core
+        .narrator
+        .tail()
+        .into_iter()
+        .filter(|l| l.session_id.as_deref() == Some(sid))
+        .collect()
+}
+
+/// The parts in order, a run of one part counted once.
+fn parts(lines: &[NarrativeLine]) -> Vec<&'static str> {
+    let mut v: Vec<&'static str> = lines.iter().map(|l| l.part.as_str()).collect();
+    v.dedup();
+    v
+}
+
+/// Whether a line of `part` says `needle`.
+fn said(lines: &[NarrativeLine], part: &str, needle: &str) -> bool {
+    lines
+        .iter()
+        .any(|l| l.part.as_str() == part && l.text.contains(needle))
+}
+
+fn dump(lines: &[NarrativeLine]) -> String {
+    lines
+        .iter()
+        .map(|l| format!("{:>8} | {}", l.part.as_str(), l.text))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn read_hello() -> Vec<Scripted> {
+    vec![
+        Scripted::tools(
+            "Reading it.",
+            &[("t1", "fs_read", json!({"path": "hello.txt"}))],
+        ),
+        Scripted::text("It says hi."),
+    ]
+}
+
+/// Off means off: a tool turn makes no line, and the health flag is false.
+/// (`narrative.watch` refusing is `rpc::tests::narrative_watch_streams_a_turn_and_refuses_when_off`.)
+#[tokio::test]
+async fn with_narration_off_a_tool_turn_makes_no_line() {
+    let r = rig_with(read_hello(), |cfg| cfg.narrative = false);
+    std::fs::write(r.root.join("hello.txt"), "hi there\n").unwrap();
+    let res = turn(&r.core, None, "what does hello.txt say?").await;
+    assert_eq!((res.loops, res.tool_calls), (2, 1));
+    assert!(
+        r.core.narrator.tail().is_empty(),
+        "{}",
+        dump(&r.core.narrator.tail())
+    );
+    assert!(!r.core.health().narrative);
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    assert!(r.core.narrator.watch("w", tx).is_none());
+}
+
+/// On: a two-loop tool turn narrates each architectural part in order, from
+/// the values the structure holds, and never the input or the file's text.
+#[tokio::test]
+async fn a_two_loop_tool_turn_is_narrated_part_by_part() {
+    let r = rig(read_hello());
+    std::fs::write(r.root.join("hello.txt"), "hi there\n").unwrap();
+    let res = turn(&r.core, None, "what does hello.txt say?").await;
+    assert_eq!((res.loops, res.tool_calls), (2, 1));
+    assert!(r.core.health().narrative);
+    let lines = narrated(&r, &res.session_id);
+    assert_eq!(
+        parts(&lines),
+        [
+            "session", "turn", "loop", "context", "model", "tool", "loop", "context", "model",
+            "loop", "turn", "session"
+        ],
+        "\n{}",
+        dump(&lines)
+    );
+    for (part, needle) in [
+        ("session", "Woken by new input from test"),
+        ("turn", "started by test"),
+        ("turn", "24 characters of input"),
+        ("loop", "Loop 1 of up to 40"),
+        ("context", "new compilation"),
+        ("context", "because the session is new"),
+        ("model", "Calling claude-sonnet-5-5 on anthropic: reserving"),
+        ("model", "answered in"),
+        ("model", "it stopped to call 1 tool"),
+        ("tool", "fs.read hello.txt: posture open"),
+        ("tool", "fs.read done in"),
+        ("tool", "1 line"),
+        ("loop", "Loop 1: continuing"),
+        ("loop", "Loop 2 of up to 40"),
+        ("context", "appending to compilation"),
+        ("model", "it ended its turn"),
+        ("loop", "Stopping: the model ended its turn"),
+        ("turn", "ended after 2 loops"),
+        ("turn", "1 tool call"),
+        ("session", "Parked until the next input"),
+    ] {
+        assert!(
+            said(&lines, part, needle),
+            "no {part} line says {needle:?}:\n{}",
+            dump(&lines)
+        );
+    }
+    for l in &lines {
+        assert!(
+            !l.text.contains("hi there") && !l.text.contains("what does"),
+            "a line carries content: {}",
+            l.text
+        );
+        if l.part.as_str() != "session" {
+            assert_eq!(
+                l.turn_id.as_deref(),
+                Some(res.turn_id.as_str()),
+                "{}",
+                l.text
+            );
+        }
+    }
+    let seqs: Vec<u64> = lines.iter().map(|l| l.seq).collect();
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
+}
+
+/// A turn that fails in its second loop says so, with its class and what
+/// the finished loop spent.
+#[tokio::test]
+async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
+    use crate::provider::ProviderError;
+    let r = rig(vec![
+        Scripted::tools("", &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))]),
+        Scripted::Fail(ProviderError::Overloaded {
+            message: "busy".into(),
+        }),
+    ]);
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let (live, _) = r.core.live_profile();
+    let target = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, None)
+        .unwrap();
+    let err = r
+        .core
+        .runner
+        .run(TurnRequest {
+            session: rec.clone(),
+            input: Some("diff these".into()),
+            target,
+            sink: EventSink::new(r.core.bus.clone(), &rec.session_id, None),
+            author: "test".into(),
+            recompile: None,
+        })
+        .await
+        .expect_err("the second call fails");
+    let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
+    let lines = narrated(&r, &rec.session_id);
+    let spent = crate::narrative::money(te.cost_usd);
+    assert!(te.cost_usd.unwrap_or(0.0) > 0.0, "{spent}");
+    for (part, needle) in [
+        ("model", "failed after"),
+        ("model", "overloaded"),
+        ("turn", "failed (overloaded) in loop 2"),
+        ("turn", "1 finished loop"),
+        ("turn", spent.as_str()),
+        ("turn", "1 tool call"),
+        ("session", "Parked until the next input"),
+    ] {
+        assert!(
+            said(&lines, part, needle),
+            "no {part} line says {needle:?}:\n{}",
+            dump(&lines)
+        );
+    }
+    assert!(!said(&lines, "turn", "ended after"), "{}", dump(&lines));
+}
+
+/// Approval and jobs: a write waits and is approved, and the driver resumes
+/// it; a slow command goes to the background, and its completion comes back
+/// from the spool as a late result. The command's script is never shown.
+#[tokio::test]
+async fn the_narrative_follows_an_approval_and_a_background_job() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "fs_write",
+                    json!({"path": "out.txt", "content": "x\n"}),
+                )],
+            ),
+            Scripted::text("Written."),
+            Scripted::tools(
+                "",
+                &[(
+                    "t2",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "sleep 1.5; echo slow done"]}),
+                )],
+            ),
+            Scripted::text("Started; I'll report back."),
+            Scripted::text("The slow job finished."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.proc_sync_secs = 1;
+        },
+    );
+    let res = turn(&r.core, None, "write out.txt").await;
+    let corr = res.awaiting_confirm.clone().unwrap();
+    let exec = res.execution_id.clone().unwrap();
+    r.core.confirm_action(&corr, true, None, "test").unwrap();
+    r.core.continue_execution(&exec).await.unwrap().unwrap();
+    turn(&r.core, Some(&res.session_id), "run the slow one").await;
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        r.core.heartbeat("test");
+        let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+        if e.state.as_str() == "queued" {
+            break;
+        }
+    }
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.output, "The slow job finished.");
+    let lines = narrated(&r, &res.session_id);
+    for (part, needle) in [
+        ("tool", "fs.write out.txt: posture approve"),
+        ("tool", "waiting for approval"),
+        ("session", "Parked until the operator answers the approval"),
+        ("approval", "fs.write approved by test"),
+        ("session", "Woken by the approval"),
+        ("session", "The driver resumes execution"),
+        ("turn", "Continuation turn"),
+        ("approval", "fs.write: approved; running it now"),
+        ("tool", "fs.write done in"),
+        ("tool", "proc.run bash: posture open"),
+        ("tool", "started as job"),
+        ("job", "continues in the background"),
+        ("session", "Parked until 1 background job"),
+        ("job", "from the spool"),
+        ("job", "late result"),
+    ] {
+        assert!(
+            said(&lines, part, needle),
+            "no {part} line says {needle:?}:\n{}",
+            dump(&lines)
+        );
+    }
+    for l in &lines {
+        assert!(
+            !l.text.contains("sleep") && !l.text.contains("slow done"),
+            "a line carries the command: {}",
+            l.text
+        );
+    }
 }

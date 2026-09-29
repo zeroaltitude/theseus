@@ -29,6 +29,7 @@ use theseus_tools::{Backend, JobSpec, Registry, Retry, Tool, ToolCtx};
 
 use crate::bus::EventSink;
 use crate::ledger::LedgerRow;
+use crate::narrative::{self, narrate_turn, Narrator};
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::{Posture, ToolPolicy};
 use crate::provider::ToolUse;
@@ -75,6 +76,7 @@ pub struct TurnCtx<'a> {
     pub loop_index: Option<u32>,
     pub sink: &'a EventSink,
     pub confirm_ttl_ms: u64,
+    pub narrator: &'a Narrator,
 }
 
 impl TurnCtx<'_> {
@@ -360,8 +362,32 @@ impl ToolRuntime {
                     "preview": content.chars().take(2000).collect::<String>(),
                 }),
             );
+            if tc.narrator.on() {
+                narrate_result(
+                    tc,
+                    tool,
+                    *status,
+                    *duration_ms,
+                    correlation_id.as_deref(),
+                    *late,
+                    *bytes_total,
+                    content,
+                    meta,
+                );
+            }
         }
         tc.node_written(node);
+    }
+
+    /// A call's main resource for the narrative, scrubbed of any secret value.
+    fn subject(&self, tool: &str, plan: &theseus_tools::Plan) -> String {
+        let s = narrative::subject(
+            tool,
+            plan.argv.as_deref(),
+            plan.resources.first().map(|r| r.path.as_path()),
+            &self.ctx.cwd,
+        );
+        self.scrubber.scrub(&s).0
     }
 
     /// Write a result node on its own frame and announce it.
@@ -443,6 +469,12 @@ impl ToolRuntime {
         invalid_raw: Option<&str>,
     ) -> Result<CallOutcome> {
         let Some(tool) = self.registry.by_wire(&call.name).cloned() else {
+            narrate_turn!(
+                tc,
+                Tool,
+                "The model called an unknown tool `{}`; it gets an error.",
+                call.name.chars().take(40).collect::<String>()
+            );
             let node = self.result_node(
                 tc,
                 &call.id,
@@ -487,6 +519,12 @@ impl ToolRuntime {
             tc.ledger(
                 "tool.invalid_input",
                 json!({"tool": tool.name(), "tool_use_id": call.id}),
+            );
+            narrate_turn!(
+                tc,
+                Tool,
+                "{}: the input is not valid JSON, so it does not run.",
+                tool.name()
             );
             return Ok(CallOutcome::Done {
                 status: self.write_result(tc, node)?,
@@ -548,6 +586,12 @@ impl ToolRuntime {
                     "tool.invalid_input",
                     json!({"tool": tool.name(), "tool_use_id": call.id, "reason": reason, "input": call.input}),
                 );
+                narrate_turn!(
+                    tc,
+                    Tool,
+                    "{}: the input is invalid, so it does not run.",
+                    tool.name()
+                );
                 self.announce_end(tc, &node);
                 return Ok(CallOutcome::Done {
                     status: ResultStatus::Error,
@@ -581,6 +625,38 @@ impl ToolRuntime {
                     .record()?])
             },
         )?;
+        if tc.narrator.on() {
+            let subject = self.subject(tool.name(), &plan);
+            let why = narrative::gate_why(
+                &decision.reason,
+                &plan.summary,
+                tool.name(),
+                decision.posture.as_str(),
+                plan.argv.as_deref(),
+                &self.policy.posture(tool.name()).1,
+            );
+            let why = self.scrubber.scrub(&why).0;
+            match decision.posture {
+                Posture::Approve => {
+                    narrate_turn!(
+                        tc,
+                        Tool,
+                        "{subject}: posture approve ({why}), waiting for approval."
+                    )
+                }
+                Posture::Notify => {
+                    narrate_turn!(
+                        tc,
+                        Tool,
+                        "{subject}: posture notify ({why}), running and telling the \
+                         operator."
+                    )
+                }
+                Posture::Open => {
+                    narrate_turn!(tc, Tool, "{subject}: posture open ({why}), running.")
+                }
+            }
+        }
         if decision.posture == Posture::Approve {
             let now = theseus_protocol::now_unix_ms();
             let req = ConfirmRequest {
@@ -759,6 +835,22 @@ impl ToolRuntime {
                 tc.ledger("tool.job_started", json!({"correlation_id": correlation_id, "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "timeout_secs": spec.timeout_secs}));
                 let t0 = Instant::now();
                 let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
+                narrate_turn!(
+                    tc,
+                    Tool,
+                    "{} started as job {} (pid {pid}); the turn waits up to {} \
+                     for it.",
+                    self.scrubber
+                        .scrub(&narrative::subject(
+                            tool.name(),
+                            Some(&spec.argv),
+                            None,
+                            &spec.cwd
+                        ))
+                        .0,
+                    narrative::short(correlation_id),
+                    narrative::duration(bound.as_millis() as u64)
+                );
                 loop {
                     if let Some(done) = self.job_settled(tc.kernel, &spool, correlation_id)? {
                         let node = self.job_result_node(
@@ -1031,6 +1123,7 @@ impl ToolRuntime {
                     {
                         Ok(_) => {
                             // `action.confirm` announced the answer; this only acts on it.
+                            narrate_turn!(tc, Approval, "{tool_name}: approved; running it now.");
                             match self.execute(tc, &corr, tool, &u).await? {
                                 CallOutcome::Background { correlation_id } => {
                                     out.background.push(correlation_id)
@@ -1044,6 +1137,12 @@ impl ToolRuntime {
                         }
                         Err(e) => {
                             // The confirm expired or no longer matches: say so, never run it.
+                            narrate_turn!(
+                                tc,
+                                Approval,
+                                "{tool_name}: the approval no longer holds ({e}), so it \
+                                 does not run."
+                            );
                             tc.kernel.decline_action(
                                 &corr,
                                 "harness",
@@ -1069,6 +1168,12 @@ impl ToolRuntime {
                 }
                 ActionState::Planned => {
                     if has_input {
+                        narrate_turn!(
+                            tc,
+                            Approval,
+                            "{tool_name}: new input came instead of an answer, so it is \
+                             declined."
+                        );
                         tc.kernel.decline_action(
                             &corr,
                             &self.policy.confirmer,
@@ -1089,6 +1194,11 @@ impl ToolRuntime {
                         out.wrote += 1;
                         continue;
                     };
+                    narrate_turn!(
+                        tc,
+                        Tool,
+                        "{tool_name}: authorized before a restart; running it now."
+                    );
                     if let CallOutcome::Background { correlation_id } =
                         self.execute(tc, &corr, tool, &u).await?
                     {
@@ -1312,6 +1422,77 @@ pub fn build_runtime(
         proc_env,
         calls: Mutex::new(BTreeMap::new()),
     })
+}
+
+/// The narrative's line for a result node: done, failed, not run, sent to the
+/// background, or a late result. Sizes and the exit code, never the output.
+#[allow(clippy::too_many_arguments)]
+fn narrate_result(
+    tc: &TurnCtx<'_>,
+    tool: &str,
+    status: ResultStatus,
+    duration_ms: Option<u64>,
+    correlation_id: Option<&str>,
+    late: bool,
+    bytes_total: u64,
+    content: &str,
+    meta: &Value,
+) {
+    let size = format!(
+        "{} ({})",
+        narrative::count(narrative::lines_in(content), "line", "lines"),
+        narrative::bytes(bytes_total)
+    );
+    let exit = meta
+        .get("exit_code")
+        .and_then(Value::as_i64)
+        .map(|c| format!("exit code {c}, "))
+        .unwrap_or_default();
+    let took = duration_ms
+        .map(|ms| format!(" in {}", narrative::duration(ms)))
+        .unwrap_or_default();
+    let job = correlation_id.map(narrative::short).unwrap_or_default();
+    if late {
+        narrate_turn!(
+            tc,
+            Job,
+            "A late result for {tool} (job {job}) arrived: {}, \
+             {exit}{size}; the model reads it next.",
+            status.as_str()
+        );
+        return;
+    }
+    match status {
+        ResultStatus::Ok => narrate_turn!(tc, Tool, "{tool} done{took}: {exit}{size}."),
+        ResultStatus::Error => {
+            narrate_turn!(tc, Tool, "{tool} ended with an error{took}: {exit}{size}.")
+        }
+        ResultStatus::Background => {
+            narrate_turn!(
+                tc,
+                Job,
+                "{tool} continues in the background as job {job}; its \
+                 result comes in a later message."
+            )
+        }
+        ResultStatus::Declined => narrate_turn!(tc, Approval, "{tool} not run: it was declined."),
+        ResultStatus::Cancelled => narrate_turn!(
+            tc,
+            Tool,
+            "{tool} not run: {}.",
+            meta.get("not_run")
+                .and_then(Value::as_str)
+                .unwrap_or("it was cancelled")
+        ),
+        ResultStatus::Unknown => {
+            narrate_turn!(
+                tc,
+                Tool,
+                "{tool}: the outcome is unknown; the harness could not \
+                 establish whether it finished."
+            )
+        }
+    }
 }
 
 fn map_retry(r: Retry) -> RetryClass {
