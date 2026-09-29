@@ -108,6 +108,9 @@ pub struct Parts {
     pub scrubber: Arc<Scrubber>,
     pub launcher: Arc<dyn JobLauncher>,
     pub config_gate: Arc<ConfigGate>,
+    /// Toollets registered after the config's, so one may stand in for a
+    /// built-in (tests: one that takes a known time). The daemon adds none.
+    pub toollets: Vec<Arc<dyn theseus_tools::Tool>>,
 }
 
 const META_LIVE_PROFILE: &str = "live_profile";
@@ -173,6 +176,7 @@ impl Core {
             scrubber,
             launcher,
             config_gate,
+            toollets: vec![],
         })
     }
 
@@ -325,6 +329,7 @@ impl Core {
             scrubber,
             launcher,
             config_gate,
+            toollets,
         } = parts;
         let k0 = std::time::Instant::now();
         let cfg = Arc::new(cfg);
@@ -412,12 +417,12 @@ impl Core {
         }
         let bus = Arc::new(SessionBus::default());
         let narrator = Arc::new(Narrator::new(cfg.narrative));
-        let tools = Arc::new(crate::toolrun::build_runtime(
-            &cfg,
-            Some(spool.clone()),
-            scrubber,
-            launcher,
-        )?);
+        let mut tools =
+            crate::toolrun::build_runtime(&cfg, Some(spool.clone()), scrubber, launcher)?;
+        for t in toollets {
+            tools.registry.register(t);
+        }
+        let tools = Arc::new(tools);
         // "Should have asked" presses are the store's, not the config's.
         tools
             .tightened
@@ -589,6 +594,7 @@ impl Parts {
             scrubber: Arc::new(Scrubber::default()),
             launcher: Arc::new(crate::toolrun::InlineLauncher),
             config_gate: ConfigGate::file("test"),
+            toollets: vec![],
         }
     }
 }

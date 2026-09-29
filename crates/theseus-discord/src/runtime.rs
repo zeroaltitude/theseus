@@ -2107,6 +2107,7 @@ mod tests {
             scrubber: Arc::new(theseus_core::scrub::Scrubber::default()),
             launcher: Arc::new(theseus_core::toolrun::InlineLauncher),
             config_gate: theseus_core::config_gate::ConfigGate::file("test"),
+            toollets: vec![],
         })
         .unwrap()
     }

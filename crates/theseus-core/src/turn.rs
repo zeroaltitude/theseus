@@ -25,7 +25,7 @@ use theseus_kernel::{
     BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{
-    notify, BudgetAsk, ConfirmRequest, LoopEnded, LoopStarted, ModelDelta, TurnStarted,
+    notify, BudgetAsk, ConfirmRequest, LoopEnded, LoopStarted, ModelDelta, Span, TurnStarted,
     TurnSubmitResult, Usage,
 };
 use theseus_store::NewRecord;
@@ -44,7 +44,7 @@ use crate::secrets::{SecretBoard, Waited};
 use crate::session::{title_from, SessionRecord, TargetRef};
 use crate::startup::StartupLog;
 use crate::store::Store;
-use crate::toolrun::{CallOutcome, ToolRuntime, TurnCtx};
+use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
@@ -1647,9 +1647,10 @@ impl TurnRunner {
         }
     }
 
-    /// Gate and run the model's tool calls in order, until one waits on a
-    /// confirm. A response that did not stop for tools runs none of them.
-    /// Returns how many calls have an answer.
+    /// Gate the model's tool calls in order, until one waits on a confirm,
+    /// and run the ones before it, the reads of a group together
+    /// (`ToolRuntime::run_calls`, theseus-a60). A response that did not stop
+    /// for tools runs none of them. Returns how many calls have an answer.
     async fn run_tools(
         &self,
         t: &mut Turn<'_>,
@@ -1673,24 +1674,20 @@ impl TurnRunner {
             }
             return Ok(0);
         }
+        let calls: Vec<Call<'_>> = uses
+            .iter()
+            .map(|call| Call {
+                call,
+                invalid: resp.invalid_tool_inputs.get(&call.id).map(String::as_str),
+            })
+            .collect();
+        let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;
+        t.tool_calls += batch.ran.len() as u32;
+        Self::trace_calls(&mut t.trace, uses, &batch.ran);
         let mut answered = 0;
-        for u in uses {
-            t.tool_calls += 1;
-            let t0 = t.trace.now_us();
-            let invalid = resp.invalid_tool_inputs.get(&u.id).map(String::as_str);
-            let outcome = self.tools.process(&tc, &node.id, u, invalid).await?;
-            t.trace.record(
-                &format!("tool {}", u.name),
-                "tool",
-                t0,
-                t.trace.now_us(),
-                json!({"tool_use_id": u.id, "outcome": format!("{outcome:?}")}),
-            );
-            match outcome {
-                CallOutcome::AwaitingConfirm { correlation_id } => {
-                    t.awaiting = Some(correlation_id);
-                    break;
-                }
+        for r in batch.ran {
+            match r.outcome {
+                CallOutcome::AwaitingConfirm { .. } => {}
                 CallOutcome::Background { correlation_id } => {
                     t.background.push(correlation_id);
                     answered += 1;
@@ -1698,7 +1695,41 @@ impl TurnRunner {
                 CallOutcome::Done { .. } => answered += 1,
             }
         }
+        t.awaiting = batch.awaiting;
         Ok(answered)
+    }
+
+    /// A span per call, in the order the calls ran. The calls of a group that
+    /// ran together sit under one `tools` span, so their spans overlap there.
+    fn trace_calls(trace: &mut Trace, uses: &[ToolUse], ran: &[Ran]) {
+        let span = |r: &Ran| Span {
+            name: format!("tool {}", uses[r.index].name),
+            kind: "tool".into(),
+            start_us: trace.at(r.started),
+            end_us: Some(trace.at(r.ended)),
+            attrs: json!({"tool_use_id": uses[r.index].id, "outcome": format!("{:?}", r.outcome)}),
+            children: Vec::new(),
+        };
+        let mut groups: BTreeMap<usize, Vec<Span>> = BTreeMap::new();
+        for r in ran {
+            groups.entry(r.group).or_default().push(span(r));
+        }
+        for (_, mut spans) in groups {
+            if spans.len() == 1 {
+                trace.push(spans.remove(0));
+                continue;
+            }
+            let start_us = spans.iter().map(|s| s.start_us).min().unwrap_or(0);
+            let end_us = spans.iter().filter_map(|s| s.end_us).max();
+            trace.push(Span {
+                name: "tools".into(),
+                kind: "tools".into(),
+                start_us,
+                end_us,
+                attrs: json!({"calls": spans.len(), "together": true}),
+                children: spans,
+            });
+        }
     }
 
     /// The Advancer decides whether the turn continues; the loop's end is

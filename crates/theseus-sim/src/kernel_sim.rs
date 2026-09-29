@@ -27,6 +27,14 @@
 //! and dispatched in one frame (`plan_and_dispatch`, theseus-qa0); such an
 //! action is never found planned or authorized, crash or no crash, and its
 //! three transitions carry their times in order.
+//!
+//! A quarter of the turns run a batch, as a response's calls run together
+//! (theseus-a60): 3 to 6 actions dispatched back to back, one frame each,
+//! before any completes. The in-process ones then complete in the turn in a
+//! random order, and the rest are jobs. A crash may come after the batch is
+//! dispatched or between two of its completions; an in-process call it
+//! interrupts has no evidence, so it must end unknown or cancelled, never
+//! lost or left dispatched, and every other invariant holds for each action.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -34,6 +42,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Result};
 use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use serde_json::json;
 use theseus_kernel::job::WrapperEvidence;
@@ -78,6 +87,11 @@ pub struct SimReport {
     pub budget_declines: u64,
     /// Actions planned, authorized, and dispatched in one frame.
     pub one_frame_dispatches: u64,
+    /// Turns that dispatched several actions at once (theseus-a60), their
+    /// actions, and the crashes that came inside one.
+    pub batches: u64,
+    pub batch_actions: u64,
+    pub batch_crashes: u64,
     pub legacy_migrated: u64,
     pub reconciles: u64,
     pub invariant_checks: u64,
@@ -499,6 +513,9 @@ impl World {
         if self.maybe_crash("after take_results")? {
             return Ok(());
         }
+        if self.chance(0.25) {
+            return self.take_a_batch(&exec_id);
+        }
         // 0..=2 actions.
         let n_actions = self.rng.random_range(0..=2);
         let mut dispatched = Vec::new();
@@ -631,6 +648,122 @@ impl World {
                 },
                 4..=6 => TurnEnd::Wait { wake: Wake::Input },
                 _ => TurnEnd::Requeue,
+            }
+        };
+        let e = self.kernel.end_turn(g, end)?;
+        if e.state.is_terminal() {
+            self.kill_jobs(&e.outstanding)?;
+        }
+        Ok(())
+    }
+
+    /// A turn whose actions run together (theseus-a60): 3 to 6 dispatched
+    /// back to back, one frame each, as the tool runtime plans a group. Like
+    /// its tool calls, they reserve nothing. Half are in-process calls, which
+    /// complete in the turn in a random order; the rest are jobs. A crash
+    /// after the dispatch, or between two completions, leaves each in-process
+    /// call it interrupts with no evidence: a lost job, which must end unknown
+    /// or cancelled.
+    fn take_a_batch(&mut self, exec_id: &str) -> Result<()> {
+        let n = self.rng.random_range(3..=6);
+        let mut batch: Vec<(String, bool)> = Vec::new();
+        for _ in 0..n {
+            let g = self.guards.get(exec_id).unwrap();
+            let prop = Proposal {
+                tool: "fake.read".into(),
+                args: json!({"n": self.rng.random_range(0..1000)}),
+                resource: None,
+                policy_context: json!({}),
+            };
+            let a = self.kernel.plan_and_dispatch(
+                g,
+                &prop,
+                RetryClass::SafeToRepeat,
+                Some(20_000),
+                0,
+                |_| Ok(vec![]),
+            )?;
+            self.rep.actions += 1;
+            self.rep.one_frame_dispatches += 1;
+            self.one_frame.insert(a.correlation_id.clone());
+            let in_process = self.chance(0.5);
+            batch.push((a.correlation_id, in_process));
+        }
+        self.rep.batches += 1;
+        self.rep.batch_actions += batch.len() as u64;
+        let now = self.now();
+        for (corr, in_process) in &batch {
+            let lost = !in_process && self.chance(self.p.p_lost_job);
+            if lost {
+                self.rep.lost_jobs += 1;
+            }
+            let delay = self.rng.random_range(0..40_000);
+            self.jobs.push(Job {
+                corr: corr.clone(),
+                // An in-process call finishes in the turn, or never.
+                finish_at: if *in_process || lost {
+                    None
+                } else {
+                    Some(now + delay)
+                },
+                outcome: if self.rng.random_bool(0.8) {
+                    Outcome::Succeeded
+                } else {
+                    Outcome::Failed
+                },
+                spooled: false,
+                settled: false,
+                cancelled: false,
+                reserved: 0,
+            });
+        }
+        if self.maybe_crash("after a batch dispatch")? {
+            self.rep.batch_crashes += 1;
+            return Ok(());
+        }
+        let mut in_process: Vec<String> = batch
+            .iter()
+            .filter(|(_, p)| *p)
+            .map(|(c, _)| c.clone())
+            .collect();
+        in_process.shuffle(&mut self.rng);
+        for corr in in_process {
+            let i = self.jobs.iter().position(|j| j.corr == corr).unwrap();
+            let c = Completion {
+                correlation_id: corr.clone(),
+                outcome: self.jobs[i].outcome,
+                result_ref: Some(format!("node_{corr}")),
+                external_op_id: None,
+                started_at_ms: now,
+                finished_at_ms: self.now(),
+                producer: "inproc:fake.read".into(),
+                signature: None,
+                cost_micros: None,
+                detail: None,
+            };
+            self.kernel.accept_completion(&c)?;
+            // Committed: it must stay settled.
+            self.jobs[i].spooled = true;
+            self.jobs[i].settled = true;
+            self.rep.completions_delivered += 1;
+            if self.maybe_crash("between a batch's completions")? {
+                self.rep.batch_crashes += 1;
+                return Ok(());
+            }
+        }
+        let g = self.guards.remove(exec_id).unwrap();
+        let jobs: Vec<String> = batch
+            .iter()
+            .filter(|(_, p)| !p)
+            .map(|(c, _)| c.clone())
+            .collect();
+        let end = if jobs.is_empty() {
+            TurnEnd::Wait { wake: Wake::Input }
+        } else {
+            TurnEnd::Wait {
+                wake: Wake::Actions {
+                    correlation_ids: jobs,
+                },
             }
         };
         let e = self.kernel.end_turn(g, end)?;

@@ -40,6 +40,16 @@ fn config(root: &Path, state: &Path) -> Config {
 }
 
 fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_full(script, tweak, vec![])
+}
+
+/// A rig whose tool runtime also has `toollets`, registered after the
+/// built-ins, so one may stand in for a built-in (theseus-a60).
+fn rig_full(
+    script: Vec<Scripted>,
+    tweak: impl FnOnce(&mut Config),
+    toollets: Vec<Arc<dyn theseus_tools::Tool>>,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -48,7 +58,11 @@ fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
+    let core = Core::build(crate::rpc::Parts {
+        toollets,
+        ..crate::rpc::Parts::for_tests(cfg, fake.clone(), store)
+    })
+    .unwrap();
     Rig {
         core,
         fake,
@@ -3314,4 +3328,689 @@ async fn without_approval_every_surface_tightens_and_undoes() {
     assert!(ledgered(&r, "approval.refused").is_empty());
     assert_eq!(ledgered(&r, "policy.tightened").len(), 4);
     assert_eq!(ledgered(&r, "policy.untightened").len(), 4);
+}
+
+// ---------------------------------------------------------------- parallel tool calls (theseus-a60)
+
+mod parallel {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+
+    use theseus_kernel::ActionState;
+    use theseus_protocol::Span;
+    use theseus_tools::{Plan, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput};
+
+    /// How long each run of a slowed toollet sleeps first, by its tool and
+    /// input, and when each run started and ended.
+    #[derive(Default)]
+    struct Timing {
+        delay_ms: Mutex<HashMap<String, u64>>,
+        runs: Mutex<Vec<(String, Instant, Instant)>>,
+    }
+
+    impl Timing {
+        fn set(&self, delays: &[(&str, u64)]) {
+            let mut d = self.delay_ms.lock().unwrap();
+            for (k, ms) in delays {
+                d.insert(k.to_string(), *ms);
+            }
+        }
+
+        /// The last run of `key` (`fs.read:a.txt`): its start and end.
+        fn of(&self, key: &str) -> (Instant, Instant) {
+            let runs = self.runs.lock().unwrap();
+            let (_, a, b) = runs
+                .iter()
+                .rev()
+                .find(|(k, _, _)| k == key)
+                .unwrap_or_else(|| panic!("no run of {key}"));
+            (*a, *b)
+        }
+    }
+
+    /// A toollet that takes a known time: a built-in's plan and output under
+    /// its own name and class, after a sleep set by its input's path or
+    /// pattern.
+    struct Slowed {
+        name: &'static str,
+        class: ToolClass,
+        inner: Arc<dyn Tool>,
+        timing: Arc<Timing>,
+    }
+
+    impl Tool for Slowed {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+        fn description(&self) -> &'static str {
+            self.inner.description()
+        }
+        fn input_schema(&self) -> Value {
+            self.inner.input_schema()
+        }
+        fn class(&self) -> ToolClass {
+            self.class
+        }
+        fn retry(&self) -> Retry {
+            self.inner.retry()
+        }
+        fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
+            self.inner.plan(input, ctx)
+        }
+        fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
+            let on = input
+                .get("path")
+                .or_else(|| input.get("pattern"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let key = format!("{}:{on}", self.name);
+            let ms = self.timing.delay_ms.lock().unwrap().get(&key).copied();
+            let t0 = Instant::now();
+            std::thread::sleep(Duration::from_millis(ms.unwrap_or(0)));
+            let out = self.inner.run(input, ctx);
+            self.timing
+                .runs
+                .lock()
+                .unwrap()
+                .push((key, t0, Instant::now()));
+            out
+        }
+    }
+
+    fn slowed(
+        name: &'static str,
+        class: ToolClass,
+        inner: Arc<dyn Tool>,
+        timing: &Arc<Timing>,
+    ) -> Arc<dyn Tool> {
+        Arc::new(Slowed {
+            name,
+            class,
+            inner,
+            timing: timing.clone(),
+        })
+    }
+
+    fn read(id: &str, path: &str) -> (String, &'static str, Value) {
+        (id.into(), "fs_read", json!({ "path": path }))
+    }
+
+    fn calls(v: &[(String, &'static str, Value)]) -> Scripted {
+        let v: Vec<(&str, &str, Value)> = v
+            .iter()
+            .map(|(id, n, i)| (id.as_str(), *n, i.clone()))
+            .collect();
+        Scripted::tools("", &v)
+    }
+
+    /// The `tool_use_id`s of the last request's tool results, in order.
+    fn results_sent(r: &Rig) -> Vec<String> {
+        let last = r.fake.requests().pop().unwrap();
+        last.messages
+            .last()
+            .unwrap()
+            .get("content")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .filter(|b| b["type"] == "tool_result")
+            .map(|b| b["tool_use_id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// Each node of a session as `user`, `assistant`, `call <id>`, or
+    /// `result <id>`, in WAL order.
+    fn labels(core: &Core, sid: &str) -> Vec<String> {
+        core.store
+            .session_nodes(sid)
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| match &n.body {
+                Body::ToolCall { tool_use_id, .. } => format!("call {tool_use_id}"),
+                Body::ToolResult { tool_use_id, .. } => format!("result {tool_use_id}"),
+                Body::UserMessage { .. } => "user".into(),
+                _ => "assistant".into(),
+            })
+            .collect()
+    }
+
+    /// The loop's span named `name`.
+    fn span<'a>(trace: &'a Span, lp: usize, name: &str) -> &'a Span {
+        trace.children[lp..]
+            .iter()
+            .find(|s| s.kind == "loop")
+            .and_then(|l| l.children.iter().find(|s| s.name == name))
+            .unwrap_or_else(|| panic!("no {name} span in loop {lp}"))
+    }
+
+    /// A response of 5 `fs.read`s and 2 `fs.grep`s, each taking a known time
+    /// and the first the slowest, finishes in about the slowest call, not
+    /// the sum. The calls' spans overlap under one `tools` span. Their results
+    /// are written as the calls finish, and the next request carries them in
+    /// call order, byte for byte what it carries when they finish in order.
+    #[tokio::test]
+    async fn five_reads_and_two_greps_take_the_slowest_call_not_the_sum() {
+        let timing = Arc::<Timing>::default();
+        let mut v: Vec<_> = (1..=5)
+            .map(|i| read(&format!("t{i}"), &format!("r{i}.txt")))
+            .collect();
+        v.push(("t6".into(), "fs_grep", json!({"pattern": "alpha"})));
+        v.push(("t7".into(), "fs_grep", json!({"pattern": "beta"})));
+        let r = rig_full(
+            vec![
+                calls(&v),
+                Scripted::text("Read and searched."),
+                calls(&v),
+                Scripted::text("Read and searched."),
+            ],
+            |_| {},
+            vec![
+                slowed(
+                    "fs.read",
+                    ToolClass::Read,
+                    Arc::new(theseus_tools::fs::Read),
+                    &timing,
+                ),
+                slowed(
+                    "fs.grep",
+                    ToolClass::Read,
+                    Arc::new(theseus_tools::fs::Grep),
+                    &timing,
+                ),
+            ],
+        );
+        for i in 1..=5 {
+            let text = format!("file {i}: alpha\nbeta {i}\n");
+            std::fs::write(r.root.join(format!("r{i}.txt")), text).unwrap();
+        }
+        let keys = [
+            "fs.read:r1.txt",
+            "fs.read:r2.txt",
+            "fs.read:r3.txt",
+            "fs.read:r4.txt",
+            "fs.read:r5.txt",
+            "fs.grep:alpha",
+            "fs.grep:beta",
+        ];
+        // Out of call order: the first call is the slowest, the fourth the fastest.
+        let delays = [900, 300, 700, 100, 500, 800, 200];
+        let set = |d: &[u64]| {
+            let pairs: Vec<(&str, u64)> = keys.iter().copied().zip(d.iter().copied()).collect();
+            timing.set(&pairs);
+        };
+        set(&delays);
+        let ask = "read r1.txt to r5.txt, and grep alpha and beta";
+        let res = turn(&r.core, None, ask).await;
+        assert_eq!((res.loops, res.tool_calls), (2, 7), "{res:?}");
+
+        // Every call started before any finished.
+        let runs: Vec<(Instant, Instant)> = keys.iter().map(|k| timing.of(k)).collect();
+        let last_start = runs.iter().map(|(a, _)| *a).max().unwrap();
+        let first_end = runs.iter().map(|(_, b)| *b).min().unwrap();
+        assert!(last_start < first_end, "the calls did not overlap");
+        // About the slowest call (900 ms), not the sum (3,500 ms).
+        let trace = res.trace.as_ref().unwrap();
+        let tools = span(trace, 0, "tools");
+        assert_eq!((tools.kind.as_str(), tools.children.len()), ("tools", 7));
+        let took_ms = tools.duration_us() / 1000;
+        assert!(
+            (900..1750).contains(&took_ms),
+            "the calls took {took_ms} ms"
+        );
+        let latest = tools.children.iter().map(|s| s.start_us).max().unwrap();
+        let earliest = tools
+            .children
+            .iter()
+            .filter_map(|s| s.end_us)
+            .min()
+            .unwrap();
+        assert!(latest < earliest, "the spans overlap");
+
+        // Written as they finished: the fastest before the slowest...
+        let sid = &res.session_id;
+        let written = labels(&r.core, sid);
+        let at = |l: &str| written.iter().position(|x| x == l).unwrap();
+        assert!(at("result t4") < at("result t1"), "{written:?}");
+        // ...and sent in call order.
+        let order: Vec<String> = (1..=7).map(|i| format!("t{i}")).collect();
+        assert_eq!(results_sent(&r), order);
+
+        // The same calls finishing in call order: the same request, byte for byte.
+        set(&[100, 150, 200, 250, 300, 350, 400]);
+        let again = turn(&r.core, None, ask).await;
+        assert_eq!(again.tool_calls, 7);
+        let reqs = r.fake.requests();
+        assert_eq!(reqs.len(), 4);
+        assert_eq!(reqs[3].messages, reqs[1].messages);
+        assert_eq!(reqs[3].digest(), reqs[1].digest());
+        let written = labels(&r.core, &again.session_id);
+        let results: Vec<&String> = written.iter().filter(|l| l.starts_with("result")).collect();
+        let in_order: Vec<String> = order.iter().map(|id| format!("result {id}")).collect();
+        assert_eq!(results, in_order.iter().collect::<Vec<_>>());
+    }
+
+    /// A write is a barrier: a read of the same path after it reads what it
+    /// wrote. A program is one too: the call before it has finished when it
+    /// starts, and the calls after it start when it has ended, together.
+    #[tokio::test]
+    async fn a_write_and_a_program_are_barriers() {
+        let timing = Arc::<Timing>::default();
+        let r = rig_full(
+            vec![
+                calls(&[
+                    (
+                        "w1".into(),
+                        "fs_write",
+                        json!({"path": "a.txt", "content": "new\n"}),
+                    ),
+                    read("w2", "a.txt"),
+                ]),
+                Scripted::text("Written and read."),
+                calls(&[
+                    read("p1", "x.txt"),
+                    ("p2".into(), "test_run", json!({"path": "run.txt"})),
+                    read("p3", "y.txt"),
+                    read("p4", "z.txt"),
+                ]),
+                Scripted::text("Done."),
+            ],
+            |cfg| {
+                cfg.policy.tools.insert("fs.write".into(), Posture::Open);
+                cfg.policy.tools.insert("test.run".into(), Posture::Open);
+            },
+            vec![
+                slowed(
+                    "fs.read",
+                    ToolClass::Read,
+                    Arc::new(theseus_tools::fs::Read),
+                    &timing,
+                ),
+                slowed(
+                    "fs.write",
+                    ToolClass::Write,
+                    Arc::new(theseus_tools::fs::WriteFile),
+                    &timing,
+                ),
+                slowed(
+                    "test.run",
+                    ToolClass::Run,
+                    Arc::new(theseus_tools::fs::Read),
+                    &timing,
+                ),
+            ],
+        );
+        std::fs::write(r.root.join("a.txt"), "old\n").unwrap();
+        for f in ["x.txt", "y.txt", "z.txt", "run.txt"] {
+            std::fs::write(r.root.join(f), format!("{f}\n")).unwrap();
+        }
+        timing.set(&[
+            ("fs.write:a.txt", 300),
+            ("fs.read:x.txt", 200),
+            ("test.run:run.txt", 300),
+            ("fs.read:y.txt", 150),
+            ("fs.read:z.txt", 150),
+        ]);
+        let res = turn(&r.core, None, "write a.txt, then read it").await;
+        assert_eq!(res.tool_calls, 2);
+        let rs = results(&r.core, &res.session_id);
+        assert!(
+            rs[1].1.contains("new"),
+            "the read ran after the write: {rs:?}"
+        );
+        let (_, wrote) = timing.of("fs.write:a.txt");
+        let (read_at, _) = timing.of("fs.read:a.txt");
+        assert!(read_at >= wrote);
+
+        turn(
+            &r.core,
+            Some(&res.session_id),
+            "read x, run, then read y and z",
+        )
+        .await;
+        let (_, x_end) = timing.of("fs.read:x.txt");
+        let (run_start, run_end) = timing.of("test.run:run.txt");
+        let (y_start, y_end) = timing.of("fs.read:y.txt");
+        let (z_start, z_end) = timing.of("fs.read:z.txt");
+        assert!(
+            run_start >= x_end,
+            "the program waited for the read before it"
+        );
+        assert!(
+            y_start >= run_end && z_start >= run_end,
+            "the reads waited for it"
+        );
+        assert!(
+            y_start < z_end && z_start < y_end,
+            "the reads after it ran together"
+        );
+        assert_eq!(results_sent(&r), ["p1", "p2", "p3", "p4"].map(String::from));
+    }
+
+    /// An approval in the middle: the calls before it run, together; it asks;
+    /// the calls after it are not even gated. After the approval, it runs,
+    /// then the rest, together. The transcript is the sequential one with
+    /// each group's nodes in the order they happened, and the request is the
+    /// sequential one.
+    #[tokio::test]
+    async fn an_approval_in_the_middle_runs_the_calls_before_it_and_the_rest_after_it() {
+        let timing = Arc::<Timing>::default();
+        let r = rig_full(
+            vec![
+                calls(&[
+                    read("a1", "a.txt"),
+                    read("a2", "b.txt"),
+                    (
+                        "a3".into(),
+                        "fs_write",
+                        json!({"path": "c.txt", "content": "c\n"}),
+                    ),
+                    read("a4", "d.txt"),
+                    read("a5", "e.txt"),
+                ]),
+                Scripted::text("All done."),
+            ],
+            |_| {},
+            vec![slowed(
+                "fs.read",
+                ToolClass::Read,
+                Arc::new(theseus_tools::fs::Read),
+                &timing,
+            )],
+        );
+        for f in ["a.txt", "b.txt", "d.txt", "e.txt"] {
+            std::fs::write(r.root.join(f), format!("{f}\n")).unwrap();
+        }
+        timing.set(&[
+            ("fs.read:a.txt", 250),
+            ("fs.read:b.txt", 50),
+            ("fs.read:d.txt", 250),
+            ("fs.read:e.txt", 50),
+        ]);
+        let res = turn(&r.core, None, "read a and b, write c, read d and e").await;
+        let corr = res.awaiting_confirm.clone().expect("the write asks");
+        assert_eq!(res.tool_calls, 3, "a4 and a5 were not gated");
+        let sid = res.session_id.clone();
+        assert_eq!(
+            labels(&r.core, &sid),
+            [
+                "user",
+                "assistant",
+                "call a1",
+                "call a2",
+                "result a2",
+                "result a1",
+                "call a3"
+            ]
+        );
+        assert_eq!(r.fake.requests().len(), 1);
+
+        r.core.confirm_action(&corr, true, None, "test").unwrap();
+        let exec = res.execution_id.clone().unwrap();
+        let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+        assert_eq!(cont.output, "All done.");
+        assert!(r.root.join("c.txt").exists());
+        let actual = labels(&r.core, &sid);
+        assert_eq!(
+            actual[7..],
+            [
+                "result a3",
+                "call a4",
+                "call a5",
+                "result a5",
+                "result a4",
+                "assistant"
+            ]
+        );
+        // The sequential transcript, with each group's nodes reordered only
+        // among themselves.
+        let sequential = [
+            "user",
+            "assistant",
+            "call a1",
+            "result a1",
+            "call a2",
+            "result a2",
+            "call a3",
+            "result a3",
+            "call a4",
+            "result a4",
+            "call a5",
+            "result a5",
+            "assistant",
+        ];
+        let group = |v: &[String], s: std::ops::Range<usize>| {
+            let mut g = v[s].to_vec();
+            g.sort();
+            g
+        };
+        let seq: Vec<String> = sequential.iter().map(|s| s.to_string()).collect();
+        assert_eq!(actual.len(), seq.len());
+        for s in [2..6, 8..12] {
+            assert_eq!(group(&actual, s.clone()), group(&seq, s));
+        }
+        for i in [0, 1, 6, 7, 12] {
+            assert_eq!(actual[i], seq[i]);
+        }
+        assert_eq!(
+            results_sent(&r),
+            ["a1", "a2", "a3", "a4", "a5"].map(String::from)
+        );
+    }
+
+    /// A read that computes for `ms` milliseconds: how many run at once, and
+    /// whether the daemon's pool ever held more permits than it has.
+    #[derive(Default)]
+    struct Busy {
+        now: AtomicUsize,
+        max: AtomicUsize,
+        runs: AtomicUsize,
+        over: AtomicUsize,
+        pool: OnceLock<Arc<crate::cpu::CpuPool>>,
+    }
+
+    impl Tool for Busy {
+        fn name(&self) -> &'static str {
+            "test.busy"
+        }
+        fn description(&self) -> &'static str {
+            "Computes for a while."
+        }
+        fn input_schema(&self) -> Value {
+            json!({"type": "object", "properties": {"ms": {"type": "integer"}}})
+        }
+        fn class(&self) -> ToolClass {
+            ToolClass::Read
+        }
+        fn retry(&self) -> Retry {
+            Retry::SafeToRepeat
+        }
+        fn plan(&self, _: &Value, _: &ToolCtx) -> Result<Plan, String> {
+            Ok(Plan {
+                summary: "compute".into(),
+                ..Default::default()
+            })
+        }
+        fn run(&self, input: &Value, _: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
+            let n = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max.fetch_max(n, Ordering::SeqCst);
+            let pool = self.pool.get().expect("set once the core is built");
+            if pool.busy() > pool.size() || pool.busy() == 0 {
+                self.over.fetch_add(1, Ordering::SeqCst);
+            }
+            let ms = input.get("ms").and_then(Value::as_u64).unwrap_or(50);
+            let until = Instant::now() + Duration::from_millis(ms);
+            let mut x = 1u64;
+            while Instant::now() < until {
+                x = x
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+            }
+            self.now.fetch_sub(1, Ordering::SeqCst);
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            Ok(ToolOutput {
+                text: format!("{}", x % 7),
+                meta: Value::Null,
+            })
+        }
+    }
+
+    /// 32 CPU-bound calls at once, 8 in each of 4 sessions' turns, never hold
+    /// more of the daemon's permits than it has cores: each run holds one, and
+    /// no more run at once than there are permits.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn thirty_two_cpu_bound_calls_never_hold_more_permits_than_there_are_cores() {
+        let busy = Arc::new(Busy::default());
+        let eight: Vec<_> = (1..=8)
+            .map(|i| (format!("b{i}"), "test_busy", json!({"ms": 60})))
+            .collect();
+        let r = rig_full(
+            (0..4).map(|_| calls(&eight)).collect(),
+            |cfg| {
+                cfg.policy.tools.insert("test.busy".into(), Posture::Open);
+            },
+            vec![busy.clone()],
+        );
+        let pool = r.core.tools.cpu.clone();
+        busy.pool.set(pool.clone()).ok().unwrap();
+        let stats = || r.core.store.stats().unwrap();
+        let s0 = stats();
+        // Each turn in its own task, as the daemon runs them.
+        let turns = (0..4).map(|_| {
+            let core = r.core.clone();
+            tokio::spawn(async move { turn(&core, None, "compute").await })
+        });
+        let done: Vec<_> = futures_util::future::join_all(turns)
+            .await
+            .into_iter()
+            .map(|t| t.unwrap())
+            .collect();
+        let s1 = stats();
+        assert_eq!(done.iter().map(|t| t.tool_calls).sum::<u32>(), 32);
+        assert_eq!(busy.runs.load(Ordering::SeqCst), 32);
+        let max = busy.max.load(Ordering::SeqCst);
+        assert!(
+            max <= pool.size(),
+            "{max} ran at once on {} cores",
+            pool.size()
+        );
+        assert!(max >= 2.min(pool.size()), "they ran together: {max}");
+        assert_eq!(busy.over.load(Ordering::SeqCst), 0, "a run held no permit");
+        assert_eq!(pool.busy(), 0, "every permit came back");
+        eprintln!(
+            "32 calls in 4 sessions: at most {max} at once on {} cores; {} frames, {} fdatasyncs",
+            pool.size(),
+            s1.frames_appended - s0.frames_appended,
+            s1.syncs - s0.syncs
+        );
+    }
+
+    /// A turn, returning its failure rather than panicking on it.
+    async fn try_turn(
+        core: &Arc<Core>,
+        rec: SessionRecord,
+        input: &str,
+    ) -> anyhow::Result<TurnSubmitResult> {
+        let (live, _) = core.live_profile();
+        let target = core.runner.resolve_target(&live, None, None, None)?;
+        let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
+        core.runner
+            .run(TurnRequest {
+                session: rec,
+                input: Some(input.into()),
+                target,
+                sink,
+                author: "test".into(),
+                recompile: None,
+                attachments: vec![],
+                arrived: None,
+                config_wait_us: 0,
+            })
+            .await
+    }
+
+    /// A cancel while a batch runs leaves no call dispatched: each running
+    /// call is cancelled at once, its late completion is recorded when it
+    /// comes, and the turn ends because its next provider call is refused.
+    #[tokio::test]
+    async fn a_cancel_during_a_batch_leaves_no_call_dispatched() {
+        let timing = Arc::<Timing>::default();
+        let four: Vec<_> = ["a", "b", "c", "d"]
+            .iter()
+            .map(|f| read(&format!("c_{f}"), &format!("{f}.txt")))
+            .collect();
+        let r = rig_full(
+            vec![calls(&four)],
+            |_| {},
+            vec![slowed(
+                "fs.read",
+                ToolClass::Read,
+                Arc::new(theseus_tools::fs::Read),
+                &timing,
+            )],
+        );
+        for f in ["a", "b", "c", "d"] {
+            std::fs::write(r.root.join(format!("{f}.txt")), "x\n").unwrap();
+            timing.set(&[(&format!("fs.read:{f}.txt"), 600)]);
+        }
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        r.core.store.put_session(&rec.session_id, &rec).unwrap();
+        let sid = rec.session_id.clone();
+        let core = r.core.clone();
+        let running = tokio::spawn(async move { try_turn(&core, rec, "read four").await });
+        let dispatched = || {
+            r.core
+                .kernel
+                .actions()
+                .unwrap()
+                .into_iter()
+                .filter(|a| {
+                    a.session_id == sid && a.tool == "fs.read" && a.state == ActionState::Dispatched
+                })
+                .collect::<Vec<_>>()
+        };
+        let t0 = Instant::now();
+        while dispatched().len() < 4 {
+            assert!(t0.elapsed() < Duration::from_secs(5), "never dispatched");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let exec = dispatched()[0].execution_id.clone();
+        let (_, stopped) = r.core.cancel_execution(&exec, "test").unwrap();
+        assert_eq!(stopped.len(), 4, "the four running calls");
+        let err = running
+            .await
+            .unwrap()
+            .expect_err("the next provider call is refused");
+        let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
+        assert_eq!(te.class, "kernel", "{err:#}");
+        let actions: Vec<_> = r
+            .core
+            .kernel
+            .actions()
+            .unwrap()
+            .into_iter()
+            .filter(|a| a.execution_id == exec)
+            .collect();
+        for a in &actions {
+            assert!(
+                a.state.is_settled(),
+                "{} {} left {:?}",
+                a.tool,
+                a.correlation_id,
+                a.state
+            );
+        }
+        let calls: Vec<_> = actions.iter().filter(|a| a.tool == "fs.read").collect();
+        assert_eq!(calls.len(), 4);
+        for a in calls {
+            assert_eq!(a.state, ActionState::Cancelled);
+            let why = a.resolution.as_deref().unwrap_or_default();
+            assert!(why.starts_with("late completion after cancel"), "{why}");
+        }
+        let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+        assert_eq!(e.state.as_str(), "cancelled");
+        assert!(e.outstanding.is_empty(), "{:?}", e.outstanding);
+    }
 }

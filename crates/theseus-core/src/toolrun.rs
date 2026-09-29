@@ -26,7 +26,7 @@ use theseus_kernel::{
 };
 use theseus_protocol::{notify, ConfirmRequest};
 use theseus_store::Store as _;
-use theseus_tools::{Backend, JobSpec, Plan, Registry, Retry, Tool, ToolCtx};
+use theseus_tools::{Backend, JobSpec, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::bus::EventSink;
 use crate::ledger::LedgerRow;
@@ -121,6 +121,45 @@ pub enum CallOutcome {
     Background { correlation_id: String },
 }
 
+/// A `tool_use` as the model sent it.
+pub struct Call<'a> {
+    pub call: &'a ToolUse,
+    /// Its raw input, when that was not valid JSON.
+    pub invalid: Option<&'a str>,
+}
+
+/// What `run_calls` did with a response's calls (theseus-a60).
+pub struct Batch {
+    /// Every call that has an answer, or asked, in call order. The calls
+    /// after the one that asked are not here: they were never gated.
+    pub ran: Vec<Ran>,
+    /// The call that waits for the operator.
+    pub awaiting: Option<String>,
+}
+
+/// One call of a batch: what became of it, and when it ran.
+pub struct Ran {
+    /// Its place among the calls.
+    pub index: usize,
+    pub outcome: CallOutcome,
+    pub started: Instant,
+    pub ended: Instant,
+    /// The group it ran in, numbered in the order the groups ran. A call
+    /// answered at the gate, a write, a program, and a question are each a
+    /// group of one.
+    pub group: usize,
+}
+
+/// A call through the gate.
+enum Admitted {
+    /// Answered there: an unknown tool, or invalid input.
+    Answered(CallOutcome),
+    /// The policy runs it.
+    Runs(Arc<dyn Tool>, Gated),
+    /// It waits for the operator.
+    Asks(Arc<dyn Tool>, Gated),
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct ResumeOutcome {
     /// Result nodes written (the model has something new to read).
@@ -148,6 +187,9 @@ pub struct ToolRuntime {
     /// "Should have asked" (theseus-sgh): the tools that ask first because
     /// someone pressed it, from the store. The gate reads them per call.
     pub tightened: crate::tighten::Tightenings,
+    /// The daemon's cores (theseus-a60): every in-process toollet runs under
+    /// one of its permits.
+    pub cpu: Arc<crate::cpu::CpuPool>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -232,6 +274,7 @@ impl ToolRuntime {
             proc_env: vec![],
             calls: Mutex::new(BTreeMap::new()),
             tightened: Default::default(),
+            cpu: crate::cpu::CpuPool::for_host(),
         }
     }
 
@@ -469,25 +512,151 @@ impl ToolRuntime {
         )
     }
 
-    /// One `tool_use` from the model, through the gate and (if allowed) run.
-    pub async fn process(
+    /// A response's `tool_use`s (theseus-a60): gated in order, then run, the
+    /// `Read` calls of a group together.
+    /// - An unknown tool, invalid JSON, or invalid input is answered at once,
+    ///   wherever it is.
+    /// - The first call whose posture is approve ends the gating: it asks
+    ///   after every call before it has finished, and the calls after it wait,
+    ///   ungated, for the continuation.
+    /// - The rest run in groups: consecutive `Read` calls at once, as futures
+    ///   in the caller's task, and each `Write` or `Run` call alone. So a
+    ///   write or a program starts after every call before it has finished,
+    ///   and the calls after it start after it finishes.
+    ///
+    /// Every kernel call stays in the caller's task, one at a time: the
+    /// kernel rewrites an execution's record from what it read.
+    pub async fn run_calls(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        calls: &[Call<'_>],
+    ) -> Result<Batch> {
+        let mut ran = Vec::new();
+        let mut runnable = Vec::new();
+        let mut ask = None;
+        for (i, c) in calls.iter().enumerate() {
+            let started = Instant::now();
+            match self.admit(tc, assistant_node, c)? {
+                Admitted::Answered(outcome) => ran.push(Ran {
+                    index: i,
+                    outcome,
+                    started,
+                    ended: Instant::now(),
+                    group: ran.len(),
+                }),
+                Admitted::Asks(tool, g) => {
+                    ask = Some((i, tool, g));
+                    break;
+                }
+                Admitted::Runs(tool, g) => runnable.push((i, tool, g)),
+            }
+        }
+        let mut group = Vec::new();
+        let mut next = ran.len();
+        for (i, tool, g) in runnable {
+            if tool.class() == ToolClass::Read {
+                group.push((i, tool, g));
+                continue;
+            }
+            for run in [std::mem::take(&mut group), vec![(i, tool, g)]] {
+                self.run_group(tc, assistant_node, calls, run, &mut next, &mut ran)
+                    .await?;
+            }
+        }
+        self.run_group(tc, assistant_node, calls, group, &mut next, &mut ran)
+            .await?;
+        let mut awaiting = None;
+        if let Some((i, tool, g)) = ask {
+            let started = Instant::now();
+            let outcome = self
+                .start(tc, assistant_node, calls[i].call, tool, g)
+                .await?;
+            if let CallOutcome::AwaitingConfirm { correlation_id } = &outcome {
+                awaiting = Some(correlation_id.clone());
+            }
+            ran.push(Ran {
+                index: i,
+                outcome,
+                started,
+                ended: Instant::now(),
+                group: next,
+            });
+        }
+        ran.sort_by_key(|r| r.index);
+        Ok(Batch { ran, awaiting })
+    }
+
+    /// One call through the gate: counted, and answered now if it cannot run.
+    fn admit(&self, tc: &TurnCtx<'_>, assistant_node: &str, c: &Call<'_>) -> Result<Admitted> {
+        let call = c.call;
+        let Some(tool) = self.registry.by_wire(&call.name).cloned() else {
+            return self.unknown_tool(tc, call).map(Admitted::Answered);
+        };
+        self.count(tool.name());
+        if let Some(raw) = c.invalid {
+            return self
+                .invalid_json(tc, call, tool.name(), raw)
+                .map(Admitted::Answered);
+        }
+        match self.gate(tc, tool.as_ref(), call) {
+            Err(bad) => self
+                .invalid_input(tc, assistant_node, call, tool.name(), bad)
+                .map(Admitted::Answered),
+            Ok(g) if g.decision.posture == Posture::Approve => Ok(Admitted::Asks(tool, g)),
+            Ok(g) => Ok(Admitted::Runs(tool, g)),
+        }
+    }
+
+    /// A group of calls, each started at once in the caller's task. Every call
+    /// finishes before the first error is returned, so none is left between
+    /// its dispatch and its completion.
+    async fn run_group(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        calls: &[Call<'_>],
+        group: Vec<(usize, Arc<dyn Tool>, Gated)>,
+        next: &mut usize,
+        ran: &mut Vec<Ran>,
+    ) -> Result<()> {
+        if group.is_empty() {
+            return Ok(());
+        }
+        let id = *next;
+        *next += 1;
+        let runs = group.into_iter().map(|(i, tool, g)| async move {
+            let started = Instant::now();
+            let r = self.start(tc, assistant_node, calls[i].call, tool, g).await;
+            (i, started, Instant::now(), r)
+        });
+        let mut failed = None;
+        for (index, started, ended, r) in futures_util::future::join_all(runs).await {
+            match r {
+                Ok(outcome) => ran.push(Ran {
+                    index,
+                    outcome,
+                    started,
+                    ended,
+                    group: id,
+                }),
+                Err(e) => {
+                    failed.get_or_insert(e);
+                }
+            }
+        }
+        failed.map_or(Ok(()), Err)
+    }
+
+    /// A gated call: planned (with its `ToolCall` node), then asked, or run.
+    async fn start(
         &self,
         tc: &TurnCtx<'_>,
         assistant_node: &str,
         call: &ToolUse,
-        invalid_raw: Option<&str>,
+        tool: Arc<dyn Tool>,
+        g: Gated,
     ) -> Result<CallOutcome> {
-        let Some(tool) = self.registry.by_wire(&call.name).cloned() else {
-            return self.unknown_tool(tc, call);
-        };
-        self.count(tool.name());
-        if let Some(raw) = invalid_raw {
-            return self.invalid_json(tc, call, tool.name(), raw);
-        }
-        let g = match self.gate(tc, tool.as_ref(), call) {
-            Ok(g) => g,
-            Err(bad) => return self.invalid_input(tc, assistant_node, call, tool.name(), bad),
-        };
         let a = self.plan_call(tc, assistant_node, call, tool.as_ref(), &g)?;
         if let Some(payload) = Self::notified(tc, call, tool.name(), &a.correlation_id, &g) {
             tc.sink.send(notify::POLICY_NOTIFIED, payload);
@@ -802,10 +971,12 @@ impl ToolRuntime {
             notify::TOOL_STARTED,
             json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "inproc"}),
         );
+        let (t, input, ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
+        // A free core first (theseus-a60): the deadline counts the run, not
+        // the wait for one.
+        let run = self.cpu.spawn(move || t.run_with_image(&input, &ctx)).await;
         let started = theseus_protocol::now_unix_ms();
         let t0 = Instant::now();
-        let (t, input, ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
-        let run = tokio::task::spawn_blocking(move || t.run_with_image(&input, &ctx));
         let outcome =
             match tokio::time::timeout(Duration::from_millis(INPROC_DEADLINE_MS), run).await {
                 Ok(Ok(Ok(out))) => Ok(out),
@@ -1109,21 +1280,26 @@ impl ToolRuntime {
                 _ => None,
             })
             .collect();
+        // Calls no turn has gated run as a response's calls do (theseus-a60).
+        let mut fresh = Vec::new();
         for u in pending {
             let node = calls.get(u.id.as_str()).copied();
-            let job = match Self::where_is(tc, node)? {
-                Pending::NeverPlanned if has_input => {
+            let place = Self::where_is(tc, node)?;
+            if matches!(place, Pending::NeverPlanned) && !has_input {
+                fresh.push(u);
+                continue;
+            }
+            if self
+                .run_fresh(tc, &assistant.id, &mut fresh, &mut out)
+                .await?
+            {
+                return Ok(out);
+            }
+            let job = match place {
+                Pending::NeverPlanned => {
                     self.not_run(tc, &u, "the operator sent a new message before this ran")?;
                     None
                 }
-                Pending::NeverPlanned => match self.process(tc, &assistant.id, &u, None).await? {
-                    CallOutcome::AwaitingConfirm { correlation_id } => {
-                        out.awaiting = Some(correlation_id);
-                        return Ok(out);
-                    }
-                    CallOutcome::Background { correlation_id } => Some(correlation_id),
-                    CallOutcome::Done { .. } => None,
-                },
                 Pending::StoppedAtGate => {
                     // Stopped at the gate (invalid input), but the result write was lost: answer again.
                     self.not_run(
@@ -1156,7 +1332,43 @@ impl ToolRuntime {
             out.background.extend(job);
             out.wrote += 1;
         }
+        self.run_fresh(tc, &assistant.id, &mut fresh, &mut out)
+            .await?;
         Ok(out)
+    }
+
+    /// Calls no turn has gated, through `run_calls`. True when one of them
+    /// now waits for the operator, where the continuation stops.
+    async fn run_fresh(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        fresh: &mut Vec<ToolUse>,
+        out: &mut ResumeOutcome,
+    ) -> Result<bool> {
+        if fresh.is_empty() {
+            return Ok(false);
+        }
+        let calls: Vec<Call<'_>> = fresh
+            .iter()
+            .map(|call| Call {
+                call,
+                invalid: None,
+            })
+            .collect();
+        let batch = self.run_calls(tc, assistant_node, &calls).await?;
+        drop(calls);
+        fresh.clear();
+        for r in batch.ran {
+            match r.outcome {
+                CallOutcome::AwaitingConfirm { .. } => continue,
+                CallOutcome::Background { correlation_id } => out.background.push(correlation_id),
+                CallOutcome::Done { .. } => {}
+            }
+            out.wrote += 1;
+        }
+        out.awaiting = batch.awaiting;
+        Ok(out.awaiting.is_some())
     }
 
     /// Where a call stands, from its tool-call node and its action.
@@ -1625,6 +1837,7 @@ pub fn build_runtime(
         calls: Mutex::new(BTreeMap::new()),
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),
+        cpu: crate::cpu::CpuPool::for_host(),
     })
 }
 

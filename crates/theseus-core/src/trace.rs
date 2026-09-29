@@ -56,6 +56,11 @@ impl Trace {
         self.origin.elapsed().as_micros() as u64
     }
 
+    /// Where an instant falls on the trace's clock.
+    pub fn at(&self, i: Instant) -> u64 {
+        i.saturating_duration_since(self.origin).as_micros() as u64
+    }
+
     /// Open a child span under the innermost open span.
     pub fn enter(&mut self, name: &str, kind: &str, attrs: Value) {
         let start_us = self.now_us();
@@ -105,18 +110,23 @@ impl Trace {
 
     /// A span with explicit bounds, recorded after the fact.
     pub fn record(&mut self, name: &str, kind: &str, start_us: u64, end_us: u64, attrs: Value) {
+        self.push(Span {
+            name: name.into(),
+            kind: kind.into(),
+            start_us,
+            end_us: Some(end_us),
+            attrs,
+            children: Vec::new(),
+        });
+    }
+
+    /// A finished span, with any children, under the innermost open span.
+    pub fn push(&mut self, span: Span) {
         self.stack
             .last_mut()
             .expect("open span")
             .children
-            .push(Span {
-                name: name.into(),
-                kind: kind.into(),
-                start_us,
-                end_us: Some(end_us),
-                attrs,
-                children: Vec::new(),
-            });
+            .push(span);
     }
 
     /// Close everything and return the root.

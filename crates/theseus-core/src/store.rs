@@ -82,8 +82,10 @@ impl TurnState {
     }
 
     /// The nodes a committed frame wrote join the turn's transcript, from
-    /// the bytes just written. A node that does not decode drops the
-    /// transcript, so the next reader reads it again from the store.
+    /// the bytes just written, at their positions: two frames committed at
+    /// once may return in the other order (theseus-a60). A node that does not
+    /// decode drops the transcript, so the next reader reads it again from
+    /// the store.
     fn wrote(&self, records: &[NewRecord], positions: &[u64]) {
         let mut t = self.transcript.lock().unwrap();
         let Some((session, _)) = t.as_ref() else {
@@ -96,7 +98,13 @@ impl TurnState {
             .map(|(r, p)| serde_json::from_slice::<Node>(&r.payload).map(|n| (*p, Arc::new(n))))
             .collect();
         match (new, t.as_mut()) {
-            (Ok(new), Some((_, nodes))) => nodes.extend(new),
+            (Ok(new), Some((_, nodes))) => {
+                for (p, n) in new {
+                    // Nearly always at the end: then this is a push.
+                    let at = nodes.partition_point(|(q, _)| *q < p);
+                    nodes.insert(at, (p, n));
+                }
+            }
             (Err(e), _) => {
                 tracing::warn!(error = %e, "a node the turn wrote did not decode; its transcript is read again");
                 *t = None;
@@ -532,6 +540,36 @@ mod tests {
             .unwrap();
         let held = t.turn.as_ref().unwrap().transcript.lock().unwrap();
         assert_eq!(held.as_ref().unwrap().1.len(), 3);
+    }
+
+    /// Two frames committed at once can return in the other order than their
+    /// positions (theseus-a60). Their nodes still join the kept transcript at
+    /// their positions, as a fresh read has them (in a test build,
+    /// `transcript` compares the two).
+    #[test]
+    fn nodes_join_the_kept_transcript_at_their_positions() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        let t = store.for_turn();
+        let node = |text: &str| Node::user("ses_t", None, "op", text);
+        let first = node("first");
+        let p0 = t.append(&[first.record().unwrap()]).unwrap()[0];
+        assert_eq!(t.transcript("ses_t").unwrap().len(), 1);
+        let (a, b) = (node("a"), node("b"));
+        let (ra, rb) = (vec![a.record().unwrap()], vec![b.record().unwrap()]);
+        // Both frames are written; the later one's commit returns first.
+        let pa = store.inner.append(&ra).unwrap();
+        let pb = store.inner.append(&rb).unwrap();
+        let turn = t.turn.as_ref().unwrap();
+        turn.wrote(&rb, &pb);
+        turn.wrote(&ra, &pa);
+        let kept: Vec<(u64, String)> = t
+            .transcript("ses_t")
+            .unwrap()
+            .iter()
+            .map(|(p, n)| (*p, n.id.clone()))
+            .collect();
+        assert_eq!(kept, [(p0, first.id), (pa[0], a.id), (pb[0], b.id)]);
     }
 
     /// `flush` writes what still waits in one frame, and nothing when

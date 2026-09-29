@@ -518,7 +518,7 @@ async fn run(cli: Cli) -> Result<()> {
                                     "--- trace up to the failure ({} total)",
                                     fmt_us(t.duration_us())
                                 );
-                                print_span(&t, 0, t.duration_us().max(1));
+                                print_span(&t, 0, &Frame::turn(&t));
                             }
                         }
                     }
@@ -542,7 +542,7 @@ async fn run(cli: Cli) -> Result<()> {
             if trace && !json {
                 if let Some(t) = &r.trace {
                     eprintln!("--- trace ({} total)", fmt_us(t.duration_us()));
-                    print_span(t, 0, t.duration_us().max(1));
+                    print_span(t, 0, &Frame::turn(t));
                 }
             }
         }
@@ -1294,17 +1294,38 @@ fn startup_line(phases: &[theseus_protocol::StartupPhase]) -> Option<String> {
     Some(line)
 }
 
-/// Indented tree with a 24-column bar: where in the turn each span sat.
-fn print_span(s: &theseus_protocol::Span, depth: usize, total_us: u64) {
+/// A span's bar is drawn on this stretch of the turn: its start, its length,
+/// and whether it is a `tools` span's own time rather than the whole turn's.
+struct Frame {
+    from_us: u64,
+    total_us: u64,
+    grouped: bool,
+}
+
+impl Frame {
+    fn turn(root: &theseus_protocol::Span) -> Self {
+        Self {
+            from_us: 0,
+            total_us: root.duration_us().max(1),
+            grouped: false,
+        }
+    }
+}
+
+/// Indented tree with a 24-column bar: where in the turn each span sat. The
+/// calls a `tools` span ran together are drawn on its own time, with `▓`, so
+/// their overlap shows however short the group is beside the turn.
+fn print_span(s: &theseus_protocol::Span, depth: usize, f: &Frame) {
     let width = 24usize;
-    let a = ((s.start_us as f64 / total_us as f64) * width as f64).floor() as usize;
-    let b =
-        ((s.end_us.unwrap_or(s.start_us) as f64 / total_us as f64) * width as f64).ceil() as usize;
+    let at = |us: u64| us.saturating_sub(f.from_us) as f64 / f.total_us as f64 * width as f64;
+    let a = at(s.start_us).floor() as usize;
+    let b = at(s.end_us.unwrap_or(s.start_us)).ceil() as usize;
     let (a, b) = (a.min(width), b.clamp(a.min(width), width));
+    let fill = if f.grouped { '▓' } else { '█' };
     let mut bar = String::new();
     for i in 0..width {
         bar.push(if i >= a && (i < b || (i == a && a == b)) {
-            '█'
+            fill
         } else {
             '·'
         });
@@ -1330,8 +1351,14 @@ fn print_span(s: &theseus_protocol::Span, depth: usize, total_us: u64) {
         s.kind,
         attrs
     );
+    let own = Frame {
+        from_us: s.start_us,
+        total_us: s.duration_us().max(1),
+        grouped: true,
+    };
+    let f = if s.kind == "tools" { &own } else { f };
     for c in &s.children {
-        print_span(c, depth + 1, total_us);
+        print_span(c, depth + 1, f);
     }
 }
 

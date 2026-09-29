@@ -51,11 +51,12 @@ function Row({ s, depth, total, onPick, picked }: {
 export default function TraceView({ root }: { root: Span }) {
   const [picked, setPicked] = useState<Span | null>(null)
   const total = Math.max((root.end_us ?? root.start_us) - root.start_us, 1)
-  // Summary line: where did the time go, by kind, counting only leaf-ish spans.
+  // Summary line: where did the time go, by kind, counting only leaf-ish spans
+  // (a `tools` span holds calls that ran together: its calls count, not it).
   const byKind = new Map<string, number>()
   const walk = (s: Span) => {
     const end = s.end_us ?? s.start_us
-    if (s.kind !== 'turn' && s.kind !== 'loop' && end > s.start_us) byKind.set(s.kind, (byKind.get(s.kind) ?? 0) + (end - s.start_us))
+    if (s.kind !== 'turn' && s.kind !== 'loop' && s.kind !== 'tools' && end > s.start_us) byKind.set(s.kind, (byKind.get(s.kind) ?? 0) + (end - s.start_us))
     s.children?.forEach(walk)
   }
   walk(root)

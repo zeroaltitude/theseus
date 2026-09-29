@@ -290,9 +290,9 @@ fn main() -> Result<()> {
                 })
                 .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
                 println!(
-                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
+                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
                     rep.steps, rep.crashes, rep.startup_faults, rep.sessions, rep.turns, rep.actions,
-                    rep.one_frame_dispatches,
+                    rep.one_frame_dispatches, rep.batches, rep.batch_actions, rep.batch_crashes,
                     rep.completions_delivered, rep.duplicates, rep.notify_dropped, rep.lost_jobs,
                     rep.late_after_cancel, rep.cancels, rep.unknowns, rep.resolved_unknowns,
                     rep.budget_questions, rep.budget_resets, rep.budget_declines, rep.legacy_migrated,
@@ -306,6 +306,9 @@ fn main() -> Result<()> {
                 totals.turns += rep.turns;
                 totals.actions += rep.actions;
                 totals.one_frame_dispatches += rep.one_frame_dispatches;
+                totals.batches += rep.batches;
+                totals.batch_actions += rep.batch_actions;
+                totals.batch_crashes += rep.batch_crashes;
                 totals.completions_delivered += rep.completions_delivered;
                 totals.duplicates += rep.duplicates;
                 totals.notify_dropped += rep.notify_dropped;
@@ -319,9 +322,10 @@ fn main() -> Result<()> {
             }
             if seeds > 1 {
                 println!(
-                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} invariant checks · {} ms · all invariants held",
+                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} invariant checks · {} ms · all invariants held",
                     seeds, totals.crashes, totals.startup_faults, totals.turns, totals.actions,
-                    totals.one_frame_dispatches,
+                    totals.one_frame_dispatches, totals.batches, totals.batch_actions,
+                    totals.batch_crashes,
                     totals.completions_delivered, totals.duplicates, totals.notify_dropped,
                     totals.lost_jobs, totals.late_after_cancel, totals.cancels, totals.unknowns,
                     totals.resolved_unknowns, totals.budget_questions, totals.budget_resets,
