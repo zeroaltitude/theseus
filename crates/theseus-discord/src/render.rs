@@ -88,7 +88,8 @@ struct ToolLine {
     summary: String,
     correlation_id: Option<String>,
     state: ToolState,
-    /// The notice kind (`notify`) when a notify posture ran it.
+    /// The setting that made it a notice (`enforcement = notify`) when a
+    /// notify posture ran it.
     notice: Option<String>,
 }
 
@@ -117,9 +118,20 @@ pub struct Renderer {
     confirms: HashMap<String, (String, String, bool)>,
     /// tool_use_id → the notice card posted for it (updated when the call ends).
     notices: HashMap<String, NoticeCard>,
+    /// `[discord] notice_embeds`: a notified call posts its own card. Off, its
+    /// tool line alone carries the notice.
+    notice_embeds: bool,
 }
 
 impl Renderer {
+    /// A place's renderer; `notice_embeds` is the `[discord]` setting.
+    pub fn new(notice_embeds: bool) -> Self {
+        Self {
+            notice_embeds,
+            ..Self::default()
+        }
+    }
+
     /// True while a turn is running (the place keeps "typing…" alive).
     pub fn busy(&self) -> bool {
         self.turns.back().is_some_and(|t| !t.ended)
@@ -158,9 +170,9 @@ impl Renderer {
                 let input = p.get("input").cloned().unwrap_or(Value::Null);
                 let state = ToolState::Proposed;
                 let notice = p
-                    .pointer("/gate/decision/notify/kind")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
+                    .pointer("/gate/decision/notify")
+                    .filter(|n| n.is_object())
+                    .map(|n| str_of(n, "setting"));
                 let line = ToolLine {
                     tool_use_id: str_of(p, "tool_use_id"),
                     tool: tool.to_string(),
@@ -227,6 +239,7 @@ impl Renderer {
                 });
                 ops
             }
+            "policy.notified" if !self.notice_embeds => vec![],
             "policy.notified" => {
                 let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
                 let input = p.get("input").cloned().unwrap_or(Value::Null);
@@ -491,10 +504,10 @@ fn tool_lines(tools: &[ToolLine]) -> String {
     let lines: Vec<String> = tools
         .iter()
         .map(|l| {
-            let mark = if l.notice.is_some() {
-                " · 🔔 notified"
-            } else {
-                ""
+            let mark = match l.notice.as_deref() {
+                Some("") => " · 🔔 notified".to_string(),
+                Some(setting) => format!(" · 🔔 notified ({setting})"),
+                None => String::new(),
             };
             let head = format!("`{}` {}{mark}", l.tool, l.summary);
             match &l.state {
@@ -519,11 +532,12 @@ fn tool_lines(tools: &[ToolLine]) -> String {
             }
         })
         .collect();
-    // Keep the newest lines when a loop made more calls than one message holds.
+    // Keep the newest lines when a loop made more calls than one message holds,
+    // with room for the line that counts the rest.
     let mut kept: Vec<&String> = Vec::new();
     let mut len = 0;
     for l in lines.iter().rev() {
-        if len + l.len() + 1 > PART_LIMIT - 40 {
+        if len + l.len() + 1 > PART_LIMIT - 60 {
             break;
         }
         len += l.len() + 1;
@@ -533,7 +547,16 @@ fn tool_lines(tools: &[ToolLine]) -> String {
     let hidden = lines.len() - kept.len();
     let mut s = String::new();
     if hidden > 0 {
-        s.push_str(&format!("-# … {hidden} earlier call(s)\n"));
+        s.push_str(&format!("-# … {hidden} earlier call(s)"));
+        // This line may be the only place Discord shows their notices.
+        let notified = tools[..hidden]
+            .iter()
+            .filter(|l| l.notice.is_some())
+            .count();
+        if notified > 0 {
+            s.push_str(&format!(" · 🔔 {notified} notified"));
+        }
+        s.push('\n');
     }
     s.push_str(
         &kept
@@ -837,9 +860,23 @@ mod tests {
         );
     }
 
+    /// `tool.proposed` and `policy.notified` for a call that runs under
+    /// `enforcement = notify`, shaped as the core sends them.
+    fn notified(use_id: &str, cmd: &str) -> (Value, Value) {
+        let argv: Vec<&str> = cmd.split(' ').collect();
+        let rule = "proc.run — notify (enforcement = notify)";
+        let proposed = json!({"turn_id": "t1", "tool_use_id": use_id, "tool": "proc.run",
+            "input": {"argv": argv}, "gate": {"result": {"gate": "allow"}, "decision": {"posture": "notify",
+            "reason": rule, "notify": {"kind": "notify", "setting": "enforcement = notify", "rule": rule}}}});
+        let notice = json!({"session_id": "s", "turn_id": "t1", "tool_use_id": use_id, "tool": "proc.run",
+            "input": {"argv": argv}, "summary": format!("run `{cmd}` in /w"), "kind": "notify",
+            "setting": "enforcement = notify", "rule": rule});
+        (proposed, notice)
+    }
+
     #[test]
-    fn a_notified_call_posts_a_card_and_the_card_gets_its_outcome() {
-        let mut r = Renderer::default();
+    fn with_notice_embeds_a_notified_call_posts_a_card_and_the_card_gets_its_outcome() {
+        let mut r = Renderer::new(true);
         r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
         r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
             "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "allow"},
@@ -872,7 +909,124 @@ mod tests {
         assert_eq!(card.fields[2].1, "✅ ok · 900 ms");
         let lines =
             upserts(&r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
-        assert!(lines[0].1.contains("🔔 notified"), "{lines:?}");
+        assert!(
+            lines[0].1.contains("🔔 notified (enforcement = notify)"),
+            "{lines:?}"
+        );
+    }
+
+    /// Without `notice_embeds` (the default, theseus-w4f) a notified call posts
+    /// nothing of its own: its tool line says it was notified, under which
+    /// setting, and then how it ended.
+    #[test]
+    fn without_notice_embeds_a_notified_call_rides_on_its_tool_line() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        let (proposed, notice) = notified("u1", "cargo test");
+        r.on_notification("tool.proposed", &proposed);
+        assert_eq!(r.on_notification("policy.notified", &notice), vec![]);
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t1", "tool_use_id": "u1"}),
+        );
+        assert_eq!(
+            r.tick(),
+            vec![Op::Upsert {
+                key: "t1:L0:tools".into(),
+                content: "⏳ `proc.run` cargo test · 🔔 notified (enforcement = notify)".into(),
+                buttons: Buttons::Keep
+            }]
+        );
+        let ops = r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "error", "duration_ms": 900}),
+        );
+        assert_eq!(ops, vec![], "no card to edit");
+        assert_eq!(
+            r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})),
+            vec![Op::Upsert {
+                key: "t1:L0:tools".into(),
+                content:
+                    "❌ `proc.run` cargo test · 🔔 notified (enforcement = notify) · error · 900 ms"
+                        .into(),
+                buttons: Buttons::Keep
+            }]
+        );
+    }
+
+    /// The Daily Driver's proof (theseus-w4f): thirty notified calls in one
+    /// loop post one tool message, edited in place as they run, and nothing
+    /// else; the turn's reply is its only other message. The message keeps
+    /// the newest lines, each with its notice and outcome, and counts the
+    /// notices of the lines it folds.
+    #[test]
+    fn thirty_notified_calls_post_one_tool_message_edited_in_place() {
+        let mut r = Renderer::default();
+        assert_eq!(
+            r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"})),
+            vec![Op::Typing]
+        );
+        let calls: Vec<(Value, Value)> = (0..30)
+            .map(|i| notified(&format!("u{i}"), &format!("echo {i}")))
+            .collect();
+        // One model response proposes all thirty; they then run in order.
+        let mut ops = vec![];
+        for (proposed, _) in &calls {
+            ops.extend(r.on_notification("tool.proposed", proposed));
+        }
+        ops.extend(r.tick());
+        for (i, (_, notice)) in calls.iter().enumerate() {
+            let id = json!(format!("u{i}"));
+            ops.extend(r.on_notification("policy.notified", notice));
+            ops.extend(
+                r.on_notification("tool.started", &json!({"turn_id": "t1", "tool_use_id": id})),
+            );
+            ops.extend(r.tick());
+            ops.extend(r.on_notification(
+                "tool.ended",
+                &json!({"turn_id": "t1", "tool_use_id": id, "status": "ok", "duration_ms": 3}),
+            ));
+            ops.extend(r.tick());
+        }
+        ops.extend(r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
+        assert!(
+            ops.iter()
+                .all(|o| matches!(o, Op::Upsert { key, .. } if key == "t1:L0:tools")),
+            "{ops:?}"
+        );
+        assert!(
+            ops.len() > 30,
+            "created once, then edited as the calls run: {ops:?}"
+        );
+        let Some(Op::Upsert { content, .. }) = ops.last() else {
+            unreachable!()
+        };
+        assert!(content.len() <= PART_LIMIT, "{}", content.len());
+        let shown: Vec<&str> = content.lines().skip(1).collect();
+        let folded = 30 - shown.len();
+        assert!(
+            content.starts_with(&format!(
+                "-# … {folded} earlier call(s) · 🔔 {folded} notified\n"
+            )),
+            "{content}"
+        );
+        for (line, i) in shown.iter().zip(folded..) {
+            assert_eq!(
+                *line,
+                format!("✅ `proc.run` echo {i} · 🔔 notified (enforcement = notify) · 3 ms")
+            );
+        }
+        r.on_notification(
+            "model.delta",
+            &json!({"turn_id": "t1", "loop_index": 1, "text": "All thirty ran."}),
+        );
+        let mut end = ended("t1", None);
+        end["tool_calls"] = json!(30);
+        let keys: Vec<String> = upserts(&r.on_notification("turn.ended", &end))
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(keys, ["t1:L1:p0"]);
     }
 
     #[test]

@@ -217,6 +217,7 @@ async fn serve(
         app_id,
         bot_id: me.id.get(),
         edit_interval: Duration::from_millis(cfg.edit_interval_ms.max(250)),
+        notice_embeds: cfg.notice_embeds,
         routes: Mutex::new(Routes::default()),
     });
 
@@ -361,6 +362,8 @@ struct Shared {
     app_id: Id<ApplicationMarker>,
     bot_id: u64,
     edit_interval: Duration,
+    /// `[discord] notice_embeds`: each place's renderer posts notice cards.
+    notice_embeds: bool,
     routes: Mutex<Routes>,
 }
 
@@ -453,7 +456,7 @@ impl Shared {
             users,
             mention_only,
             session_id,
-            renderer: Renderer::default(),
+            renderer: Renderer::new(self.notice_embeds),
             msgs: HashMap::new(),
             inflight: false,
             queued: Vec::new(),
@@ -1157,7 +1160,7 @@ impl Place {
             )
             .await;
         self.session_id = sid;
-        self.renderer = Renderer::default();
+        self.renderer = Renderer::new(self.shared.notice_embeds);
         self.report();
         Ok(())
     }

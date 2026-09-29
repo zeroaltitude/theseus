@@ -680,7 +680,7 @@ async fn watched_turn(r: &Rig, input: &str) -> (TurnSubmitResult, Vec<Value>) {
 fn ledgered(r: &Rig, kind: &str) -> Vec<Value> {
     r.core
         .store
-        .ledger_tail::<crate::ledger::LedgerRow>(300)
+        .ledger_tail::<crate::ledger::LedgerRow>(10_000)
         .unwrap()
         .into_iter()
         .filter(|(_, row)| row.kind == kind)
@@ -766,6 +766,57 @@ async fn under_notify_a_command_runs_with_a_notice_and_a_read_stays_quiet() {
     let rows = ledgered(&r, "tool.notified");
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0]["tool"], "proc.run");
+}
+
+/// Thirty notified commands in one turn (theseus-w4f): all run, each posts a
+/// notice and a `tool.notified` row, and each `tool.proposed` carries the
+/// setting that Discord's tool line names.
+#[tokio::test]
+async fn thirty_notified_commands_give_thirty_notices_and_ledger_rows() {
+    let ids: Vec<String> = (0..30).map(|i| format!("t{i}")).collect();
+    let calls: Vec<(&str, &str, Value)> = ids
+        .iter()
+        .map(|id| (id.as_str(), "proc_run", json!({"argv": ["echo", id]})))
+        .collect();
+    let r = rig_with(
+        vec![
+            Scripted::tools("", &calls),
+            Scripted::text("All thirty ran."),
+        ],
+        |cfg| cfg.policy.enforcement = Posture::Notify,
+    );
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.core.bus.watch(&rec.session_id, "watcher", tx);
+    let res = turn(&r.core, Some(&rec.session_id), "echo thirty times").await;
+    assert_eq!(res.output, "All thirty ran.");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs.len(), 30);
+    assert!(rs.iter().all(|(s, _)| *s == ResultStatus::Ok), "{rs:?}");
+    let (mut notices, mut settings) = (0, vec![]);
+    while let Ok(m) = rx.try_recv() {
+        if let theseus_protocol::Message::Notification(n) = m {
+            match n.method.as_str() {
+                theseus_protocol::notify::POLICY_NOTIFIED => notices += 1,
+                theseus_protocol::notify::TOOL_PROPOSED => {
+                    settings.push(n.params["gate"]["decision"]["notify"]["setting"].clone())
+                }
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(notices, 30);
+    assert_eq!(settings, vec![json!("enforcement = notify"); 30]);
+    let rows = ledgered(&r, "tool.notified");
+    let mut ledgered_ids: Vec<&str> = rows
+        .iter()
+        .map(|row| row["tool_use_id"].as_str().unwrap())
+        .collect();
+    ledgered_ids.sort_unstable();
+    let mut want: Vec<&str> = ids.iter().map(String::as_str).collect();
+    want.sort_unstable();
+    assert_eq!(ledgered_ids, want);
 }
 
 #[tokio::test]

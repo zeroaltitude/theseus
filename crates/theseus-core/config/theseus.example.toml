@@ -301,6 +301,7 @@ enabled = true
 token_secret = "discord_bot_token"      # name of the [secrets] entry holding the bot token
 bindings_file = "bindings.toml"         # the guild, channel, and who may drive it; relative = in the state dir
 edit_interval_ms = 1200                 # how often a streaming reply is edited (Discord rate-limits edits)
+notice_embeds = false                   # an embed per notified call; off, its line in the tool message says 🔔 notified
 
 # ---------------------------------------------------------------- web
 # The localhost web UI. Loopback only; a non-loopback bind is refused.

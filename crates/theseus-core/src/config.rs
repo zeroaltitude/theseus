@@ -87,6 +87,11 @@ pub struct DiscordConfig {
     /// How often a streaming reply is edited; Discord rate-limits edits per channel.
     #[serde(default = "default_edit_interval_ms")]
     pub edit_interval_ms: u64,
+    /// Post each notified call's own embed, edited with its outcome. Off (the
+    /// default), the call's line in the loop's tool message carries the notice;
+    /// the ledger row and the web UI's notice are the same either way.
+    #[serde(default)]
+    pub notice_embeds: bool,
 }
 
 fn default_discord_token_secret() -> String {
@@ -106,6 +111,7 @@ impl Default for DiscordConfig {
             token_secret: default_discord_token_secret(),
             bindings_file: default_bindings_file(),
             edit_interval_ms: default_edit_interval_ms(),
+            notice_embeds: false,
         }
     }
 }
@@ -1232,6 +1238,27 @@ mod tests {
             );
             assert!(Config::parse(&doc).is_err(), "{bad}");
         }
+    }
+
+    /// Eddie's vault config (its [discord] keys checked 2026-09-29, by name
+    /// only) has no `notice_embeds` (theseus-w4f). It loads unchanged, with no
+    /// warning and the embeds off; the key parses either way, and the
+    /// template leaves it off.
+    #[test]
+    fn the_vault_discord_section_loads_with_notice_embeds_off() {
+        let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                    [discord]\nenabled = true\ntoken_secret = \"discord_bot_token\"\n\
+                    bindings_file = \"bindings.toml\"\nedit_interval_ms = 1200\n";
+        let (cfg, warnings) = Config::parse(text).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(!cfg.discord.notice_embeds);
+        assert_eq!(cfg.discord.edit_interval_ms, 1200);
+        assert!(!DiscordConfig::default().notice_embeds);
+        for on in [true, false] {
+            let doc = text.replace("1200\n", &format!("1200\nnotice_embeds = {on}\n"));
+            assert_eq!(Config::parse(&doc).unwrap().0.discord.notice_embeds, on);
+        }
+        assert!(!Config::example().discord.notice_embeds);
     }
 
     /// Context files (theseus-58a): a profile that names none takes
