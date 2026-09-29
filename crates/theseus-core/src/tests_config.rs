@@ -756,6 +756,42 @@ async fn an_invalid_note_and_an_unreachable_vault_each_hold_and_recover() {
 
 // ---------------------------------------------------------------- security
 
+/// The copy is on the tool floor, as the token file is (theseus-2fo): a tool
+/// that would write it waits for approval, even under `open` and even inside
+/// the roots, and the copy is left as it was.
+#[tokio::test]
+async fn the_copy_is_on_the_floor() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    // Inside the roots on purpose: only the floor stops the write.
+    let copy = root.join(config_copy::FILE);
+    let text = note(&root, dir.path(), |c| c.policy.enforcement = Posture::Open);
+    config_copy::write(&copy, REF, &text).unwrap();
+    let mut cfg = Config::parse(&text).unwrap().0;
+    cfg.config_copy = Some(copy.clone());
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let widen =
+        json!({"path": copy.to_string_lossy(), "content": "[approval]\nchannels = [\"cli\"]\n"});
+    let fake = Arc::new(FakeProvider::scripted(vec![
+        Scripted::tools("", &[("t1", "fs_write", widen)]),
+        Scripted::text("Waiting on you."),
+    ]));
+    let core = Core::build(Parts::for_tests(cfg, fake, store)).unwrap();
+    let res = turn(&core, "widen the approval").await;
+    res.awaiting_confirm
+        .clone()
+        .expect("the floor waits, even under open");
+    let pending = core.pending_confirms(&res.session_id).unwrap();
+    assert!(pending[0].floor, "{}", pending[0].reason);
+    assert_eq!(
+        config_copy::read(&copy, REF).unwrap().unwrap().text,
+        text,
+        "the copy is untouched"
+    );
+}
+
 const EDDIE: &str = "159471966640799744";
 
 /// A copy edited to widen `[approval]` (the CLI added to its channels) never

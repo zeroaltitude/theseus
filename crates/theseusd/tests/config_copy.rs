@@ -285,6 +285,53 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
         "{shown}"
     );
 
+    // A store that still holds a unit budget (from before theseus-0sg) is
+    // migrated only under the vault's own config: the start from the copy
+    // refuses it before any write, and execs itself, in place, to read the
+    // vault first.
+    {
+        use theseus_store::{kinds, NewRecord};
+        let store = theseus_core::store::Store::open(&r.path("state").join("store")).unwrap();
+        let legacy = json!({"id": "exe_old", "schema": 1, "session_id": "ses_old", "kind": "conversation",
+            "authority": {"principal": "operator", "ceilings": {}}, "outstanding": [], "queued_results": [],
+            "turns": 3, "interrupted": 0, "resume_pending": false, "created_at_ms": 1_790_000_000_000u64,
+            "updated_at_ms": 1_790_000_500_000u64, "state": "waiting", "wake": {"on": "input"},
+            "budget": {"limit": 20_000_000, "spent": 154_321, "reserved": 0, "held_unknown": 0,
+                "control_reserve": 10_000, "reservations": {}}});
+        store
+            .append(
+                &[NewRecord::json(kinds::EXECUTION, Some("exe_old"), &legacy)
+                    .unwrap()
+                    .scoped("ses_old")],
+            )
+            .unwrap();
+    }
+    let (mut child, h, _) = r.start();
+    let pid = child.id();
+    assert_eq!(h["config"]["started_from"], "vault", "{}", h["config"]);
+    assert!(
+        h["config"]["detail"]
+            .as_str()
+            .is_some_and(|d| d.starts_with("the store still holds unit budgets")),
+        "{}",
+        h["config"]
+    );
+    assert_eq!(
+        r.ledger("budget.migrated").len(),
+        1,
+        "migrated under the vault's config"
+    );
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the same process: pid {pid}"
+    );
+    r.until(&mut child, "the copy kept", |h| {
+        h["config"]["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("the copy is kept"))
+    });
+    r.stop(child);
+
     // The note changes: the daemon serves from the old copy, finds the
     // change, and restarts itself onto the vault's version, in place.
     let changed = test_note(&r, 42.5);

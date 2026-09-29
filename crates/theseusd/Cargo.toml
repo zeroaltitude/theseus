@@ -30,6 +30,7 @@ futures-util.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+theseus-store.workspace = true
 
 [features]
 # OTLP export (spec §3.20): `cargo build --release -p theseusd --features otel`.
