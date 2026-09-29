@@ -38,6 +38,33 @@ export interface Health {
   approval?: ApprovalStatus
   /// The tools that ask first because someone pressed "should have asked" (theseus-sgh).
   tightenings?: Tightening[]
+  /// Where the vault's secrets stand: the daemon serves before they resolve (theseus-qa0).
+  secrets?: SecretsStatus
+  /// The last start's phases, timed from process start (theseus-qa0).
+  startup?: StartupPhase[]
+}
+
+/// `resolving` until every secret has settled, then `ready`, or `failed` naming each
+/// one that did not resolve. Empty from a daemon older than theseus-qa0.
+export interface SecretsStatus {
+  state: string
+  ready: string[]; resolving: string[]; failed: { name: string; error: string }[]
+  /// `inject`, or `inject, then read` after a failed injection.
+  method?: string | null
+  rounds: number
+  /// Milliseconds after process start.
+  started_ms?: number | null; settled_ms?: number | null
+  retry_in_ms?: number | null
+}
+
+/// One phase of the last start. On the path to serving (`background` false): config,
+/// store, providers, kernel, core, socket. After it: secrets, `provider.<name>` (a
+/// turn's first wait for its key), discord.token, github.check, telemetry.headers.
+export interface StartupPhase {
+  name: string; background: boolean
+  /// Microseconds after process start; `end_us` is absent while it runs.
+  start_us: number; end_us?: number | null
+  detail?: Record<string, unknown> | null
 }
 
 /// A runtime tightening (theseus-sgh): one press on a notice made a tool ask first. It is

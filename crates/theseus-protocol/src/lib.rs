@@ -333,9 +333,10 @@ pub struct SecretFailed {
 /// One phase of the last start (theseus-qa0), timed from process start.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartupPhase {
-    /// `config`, `store`, `kernel`, `core`, `socket` on the path to serving;
-    /// `secrets`, `provider.<name>`, `discord.token`, `github.check`,
-    /// `telemetry.headers`, `driver.bindings` after it.
+    /// `config`, `store`, `providers`, `kernel`, `core`, `socket` on the path
+    /// to serving, one after another; `secrets`, `provider.<name>` (a turn's
+    /// first wait for its key), `discord.token`, `github.check`, and
+    /// `telemetry.headers` after it.
     pub name: String,
     /// After the socket answers: nothing on the path to serving waits for it.
     #[serde(default)]

@@ -197,18 +197,15 @@ async fn main() -> Result<()> {
     );
     let socket_path = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
     let bindings_path = cfg.discord.bindings_path(&state_dir);
-    let t = Instant::now();
+    // Records `providers`, `kernel`, and `core`, one after another.
     let core = Core::new(cfg, secrets, store, startup.clone())?;
-    startup.record("core", false, t, serde_json::Value::Null);
 
-    // The harness loop: heartbeat reconciler and the wrapper notify socket;
-    // the driver takes continuation turns (job results, confirms, restarts).
-    tokio::spawn(theseus_core::harness::run(core.clone()));
+    // The harness loop and the continuation driver start once the socket
+    // answers (`after_serving`).
     if !cli.stdio {
         // Discord binds below; continuations wait until it watches its sessions.
         core.bindings.expect();
     }
-    tokio::spawn(theseus_core::harness::drive(core.clone()));
     tokio::spawn(core.clone().watch_secrets());
     tokio::spawn(core.clone().install_telemetry());
 
@@ -271,23 +268,21 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result
     Ok(())
 }
 
-/// What runs once the socket answers: the start path's phases in the
-/// ledger, the kernel's counts in the log, and the GitHub token check once
-/// its secret resolves. The network stays off the start path (§9).
+/// What runs once the socket answers: the kernel's startup report and the
+/// start path's phases in the ledger (one frame), the kernel's counts in the
+/// log, and the GitHub token check once its secret resolves. The network and
+/// every fsync but the kernel's one stay off the start path (§9).
 async fn after_serving(core: Arc<Core>) {
     let serving = core.startup_log.us(Instant::now());
-    let phases: Vec<_> = core
-        .startup_log
-        .snapshot()
-        .into_iter()
-        .filter(|p| !p.background)
-        .collect();
+    // The harness loop (heartbeat reconciler, wrapper notify socket) and the
+    // driver (continuation turns: job results, confirms, restarts). Both
+    // write to the disk at once, and a write beside the socket's `bind` can
+    // wait on the same journal commit: theseus-qa0 measured `bind` at 11 ms
+    // instead of 1 when it did.
+    tokio::spawn(theseus_core::harness::run(core.clone()));
+    tokio::spawn(theseus_core::harness::drive(core.clone()));
     tracing::info!(serving_ms = serving / 1000, "serving");
-    core.binding_ledger(
-        "server.serving",
-        None,
-        json!({"serving_us": serving, "phases": phases}),
-    );
+    core.announce_serving(serving);
     let k = core.kernel_status();
     tracing::info!(
         admission_ceiling = k.admission_ceiling,

@@ -1653,6 +1653,11 @@ impl Kernel {
         let t0 = std::time::Instant::now();
         let mut rep = StartupReport::default();
         let fault = self.cfg.fault_after_startup_step;
+        // Each step's `startup.step` row waits for the last step and goes in
+        // its frame: a clean start pays one fsync for its record, not five
+        // (theseus-qa0; about 7 ms each on this WSL disk). A step that changes
+        // state still commits that change in its own frame, as it happens.
+        let mut step_rows: Vec<NewRecord> = Vec::with_capacity(5);
         let mut step = |n: u8, name: &'static str, t: std::time::Instant| -> Result<()> {
             rep.steps.push(StartupStep {
                 step: n,
@@ -1669,11 +1674,11 @@ impl Kernel {
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 1;
         let st = self.store.stats()?;
-        self.commit(&[self.ledger(
+        step_rows.push(self.ledger(
             "startup.step",
             None,
             json!({"step": 1, "name": "store", "last_position": st.last_position, "truncated_bytes": st.truncated_bytes, "replayed_into_index": st.replayed_into_index}),
-        )?])?;
+        )?);
         step(1, "store", t)?;
 
         // 2. load executions; requeue interrupted turns; rewrite, once, the
@@ -1721,11 +1726,11 @@ impl Kernel {
         if !migrated.is_empty() {
             self.commit(&migrated)?;
         }
-        self.commit(&[self.ledger(
+        step_rows.push(self.ledger(
             "startup.step",
             None,
             json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten}),
-        )?])?;
+        )?);
         step(2, "load", t)?;
 
         // 3. drain spool
@@ -1740,32 +1745,33 @@ impl Kernel {
             }
             rep.spool_quarantined = drained.malformed as u32;
         }
-        self.commit(&[self.ledger(
+        step_rows.push(self.ledger(
             "startup.step",
             None,
             json!({"step": 3, "name": "spool", "drained": rep.spool_drained, "malformed": rep.spool_quarantined}),
-        )?])?;
+        )?);
         step(3, "spool", t)?;
 
         // 4. reconcile
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 4;
         rep.reconcile = self.reconcile(evidence)?;
-        self.commit(&[self.ledger(
+        step_rows.push(self.ledger(
             "startup.step",
             None,
             json!({"step": 4, "name": "reconcile", "report": rep.reconcile}),
-        )?])?;
+        )?);
         step(4, "reconcile", t)?;
 
         // 5. accept
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 5;
-        self.commit(&[self.ledger(
+        step_rows.push(self.ledger(
             "startup.step",
             None,
             json!({"step": 5, "name": "accepting"}),
-        )?])?;
+        )?);
+        self.commit(&step_rows)?;
         step(5, "accepting", t)?;
         rep.elapsed_us = t0.elapsed().as_micros() as u64;
         Ok(rep)

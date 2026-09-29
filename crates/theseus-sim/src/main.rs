@@ -12,6 +12,11 @@
 //!               seeded fault injection (crash between any two frames, crash
 //!               inside startup steps, lost/duplicate/late completions,
 //!               dropped notifies, cancels), invariants checked every step.
+//! `bench lifecycle`  the §9 lifecycle budgets on a real `theseusd` (M3.5,
+//!               theseus-qa0): cold start, clean shutdown with a job running,
+//!               SIGKILL and restart, each p50/p95; `--check` fails a miss.
+//!               The gate runs it (`scripts/gate.sh`).
+//! `synth-store` a store of parked sessions, many to a frame.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -24,7 +29,10 @@ use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
 
+mod fake_model;
 mod kernel_sim;
+mod lifecycle;
+mod synth;
 
 #[derive(Parser)]
 #[command(
@@ -102,10 +110,122 @@ enum Cmd {
         #[arg(long)]
         verbose: bool,
     },
+    /// Benchmarks against a real daemon.
+    Bench {
+        #[command(subcommand)]
+        bench: BenchCmd,
+    },
+    /// Write a store of parked sessions, many to a frame (the lifecycle
+    /// bench's synthetic store).
+    SynthStore {
+        #[arg(long)]
+        dir: PathBuf,
+        #[arg(long, default_value_t = 10_000)]
+        sessions: u64,
+    },
+}
+
+#[derive(Subcommand)]
+enum BenchCmd {
+    /// The §9 lifecycle budgets: cold start to the first health answer,
+    /// clean shutdown with executions waiting and a job running, and SIGKILL
+    /// then restart, each run N times with p50 and p95.
+    Lifecycle {
+        /// The daemon to measure (default: the `theseusd` beside this binary).
+        #[arg(long)]
+        theseusd: Option<PathBuf>,
+        #[arg(long, default_value_t = 10)]
+        runs: usize,
+        /// A synthetic store of this many parked sessions (0: empty).
+        #[arg(long, default_value_t = 0)]
+        sessions: u64,
+        /// Or a copy of this store directory (e.g. a copy of ~/.theseus/store).
+        #[arg(long, conflicts_with = "sessions")]
+        store: Option<PathBuf>,
+        /// The fake op's answer time: a start that waited for it would show.
+        #[arg(long, default_value_t = 1000)]
+        resolver_ms: u64,
+        /// Which phases, comma-separated.
+        #[arg(long, value_delimiter = ',', default_value = "cold,shutdown,kill")]
+        phases: Vec<String>,
+        /// Compare each p95 with §9 plus the margin, and exit 1 on a miss.
+        #[arg(long)]
+        check: bool,
+        /// The noise allowed over every budget, in ms. Default: each phase's
+        /// own, measured on this machine (`lifecycle::margin_ms`).
+        #[arg(long)]
+        margin_ms: Option<f64>,
+        /// Also write the report as JSON here.
+        #[arg(long)]
+        json: Option<PathBuf>,
+        /// Work in this directory and keep it (default: a temporary one).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
     match Cli::parse().cmd {
+        Cmd::SynthStore { dir, sessions } => {
+            let g = synth::generate(&dir, sessions)?;
+            println!(
+                "synthetic store at {}: {} sessions, {} records in {} frames, {:.1} MB of WAL, in {:.0} ms",
+                dir.display(),
+                g.sessions,
+                g.records,
+                g.frames,
+                g.wal_bytes as f64 / 1e6,
+                g.ms
+            );
+            Ok(())
+        }
+        Cmd::Bench {
+            bench:
+                BenchCmd::Lifecycle {
+                    theseusd,
+                    runs,
+                    sessions,
+                    store,
+                    resolver_ms,
+                    phases,
+                    check,
+                    margin_ms,
+                    json,
+                    dir,
+                },
+        } => {
+            let theseusd = match theseusd {
+                Some(p) => p,
+                None => std::env::current_exe()?
+                    .parent()
+                    .context("locating this binary's directory")?
+                    .join("theseusd"),
+            };
+            if let Some(p) = phases
+                .iter()
+                .find(|p| !lifecycle::PHASES.contains(&p.as_str()))
+            {
+                bail!("no phase {p:?}; the phases are {:?}", lifecycle::PHASES);
+            }
+            let report = lifecycle::run(&lifecycle::Opts {
+                theseusd,
+                runs: runs.max(1),
+                sessions,
+                store,
+                resolver_ms,
+                phases,
+                margin_ms,
+                dir,
+            })?;
+            lifecycle::print(&report);
+            if let Some(path) = json {
+                std::fs::write(&path, serde_json::to_vec_pretty(&report)?)?;
+            }
+            if check && !report.ok() {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
         Cmd::Worker {
             dir,
             seed,

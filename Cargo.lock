@@ -3267,8 +3267,11 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "theseus-core",
  "theseus-kernel",
+ "theseus-protocol",
  "theseus-store",
+ "toml",
 ]
 
 [[package]]

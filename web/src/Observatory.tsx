@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, CatalogList, CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, ToolList } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList } from './protocol'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -364,6 +364,11 @@ export default function Observatory({ client, health, tick, currentSession, onRe
         ) : <div className="muted">no health yet</div>}
       </ObsSection>
 
+      <ObsSection id="startup" title="Startup" open={open.startup ?? true} onToggle={() => toggle('startup')}
+        count={startupCount(health)}>
+        <StartupView health={health} />
+      </ObsSection>
+
       <ObsSection id="discord" title="Discord" open={open.discord ?? true} onToggle={() => toggle('discord')}
         count={(health?.bindings ?? []).map((b) => `${b.state} · ${b.places.length} place${b.places.length === 1 ? '' : 's'} · ${b.messages_in} in · ${b.messages_out} out`).join(' ') || 'no binding'}>
         {(health?.bindings ?? []).length === 0 && <div className="muted pad">no binding reported: a daemon older than M3c, or a <code>--stdio</code> server (only the socket daemon binds)</div>}
@@ -655,6 +660,96 @@ function ObsSection({ title, count, open, onToggle, children }: {
       </h3>
       {open && children}
     </section>
+  )
+}
+
+const SECRETS_CLASS: Record<string, string> = { ready: 'ok', resolving: 'warn', failed: 'bad' }
+
+/// When the last start served, and where its secrets stand, in a few words.
+function startupCount(health: Health | null): string {
+  const phases = health?.startup ?? []
+  const ends = phases.filter((p) => !p.background && p.end_us != null).map((p) => p.end_us!)
+  const serving = ends.length ? `serving at ${fmtUs(Math.max(...ends))}` : ''
+  const s = health?.secrets?.state
+  const secrets = s === 'failed'
+    ? `secrets failed: ${health!.secrets!.failed.map((f) => f.name).join(', ')}`
+    : s ? `secrets ${s}` : ''
+  return [serving, secrets].filter(Boolean).join(' · ')
+}
+
+/// What a phase found, from its detail.
+function phaseOutcome(p: StartupPhase): string {
+  const d = p.detail ?? {}
+  const parts: string[] = []
+  if (typeof d.outcome === 'string') parts.push(d.outcome)
+  if (typeof d.state === 'string') parts.push(d.state)
+  if (typeof d.method === 'string') parts.push(d.method)
+  if (typeof d.secret === 'string') parts.push(`secret ${d.secret}`)
+  if (typeof d.waited_ms === 'number') parts.push(`waited ${fmt(d.waited_ms)} ms`)
+  if (typeof d.source === 'string') parts.push(`from ${d.source}`)
+  if (typeof d.last_position === 'number') parts.push(`${fmt(d.last_position)} positions`)
+  if (typeof d.replayed_into_index === 'number' && d.replayed_into_index > 0) parts.push(`${fmt(d.replayed_into_index)} replayed`)
+  if (typeof d.login === 'string') parts.push(d.login)
+  if (typeof d.error === 'string') parts.push(d.error)
+  if (Array.isArray(d.failed) && d.failed.length > 0) parts.push(`failed: ${d.failed.join(', ')}`)
+  if (Array.isArray(d.steps)) {
+    parts.push((d.steps as { name: string; us: number }[]).map((s) => `${s.name} ${fmtUs(s.us)}`).join(' · '))
+  }
+  return parts.join(' · ')
+}
+
+/// The last start (theseus-qa0): the phases on the path to serving, then those after it
+/// (the secrets, and each consumer's wait for its own), on one axis from process start,
+/// so a slow start names its cause the first time it happens.
+function StartupView({ health }: { health: Health | null }) {
+  const phases = health?.startup ?? []
+  const s = health?.secrets
+  if (!phases.length && !s?.state) {
+    return <div className="muted pad">no startup phases: a daemon older than M3.5 (theseus-qa0)</div>
+  }
+  const ends = phases.filter((p) => !p.background && p.end_us != null).map((p) => p.end_us!)
+  const serving = ends.length ? Math.max(...ends) : 0
+  const span = Math.max(1, serving, ...phases.map((p) => p.end_us ?? p.start_us))
+  return (
+    <>
+      <div className="kv">
+        <div><span className="muted">serving</span> <b>{fmtUs(serving)}</b> <span className="muted">after the process started</span></div>
+        {s?.state && (
+          <div>
+            <span className="muted">secrets</span> <span className={`pill ${SECRETS_CLASS[s.state] ?? ''}`}>{s.state}</span>
+            {s.settled_ms != null && <span className="muted small"> settled {fmt(s.settled_ms)} ms after start{s.method ? `, by ${s.method}` : ''}{s.rounds > 1 ? `, in ${s.rounds} rounds` : ''}</span>}
+            {s.ready.length > 0 && <span className="muted small"> · ready: {s.ready.join(', ')}</span>}
+            {s.resolving.length > 0 && <span className="warn small"> · resolving: {s.resolving.join(', ')}</span>}
+          </div>
+        )}
+        {(s?.failed ?? []).map((f) => (
+          <div key={f.name} className="bad small">{f.name} did not resolve: {f.error}. Whatever needs it waits, and never runs without it.</div>
+        ))}
+        {s?.retry_in_ms != null && s.failed.length > 0 && <div className="muted small">fetched again in {Math.ceil(s.retry_in_ms / 1000)} s</div>}
+      </div>
+      <table className="obs-table startup-phases">
+        <thead><tr><th>phase</th><th>began</th><th>took</th><th className="phase-axis">from process start to {fmtUs(span)}</th><th>found</th></tr></thead>
+        <tbody>
+          {phases.map((p) => {
+            const end = p.end_us ?? span
+            return (
+              <tr key={`${p.name}-${p.start_us}`}>
+                <td><code>{p.name}</code>{p.background && <span className="muted small"> after serving</span>}</td>
+                <td className="muted small">{fmtUs(p.start_us)}</td>
+                <td>{p.end_us == null ? <span className="warn">running</span> : fmtUs(p.end_us - p.start_us)}</td>
+                <td className="phase-axis">
+                  <div className="phase-track">
+                    <div className={`phase-bar ${p.background ? 'after' : 'path'}`}
+                      style={{ left: `${(p.start_us / span) * 100}%`, width: `${Math.max(0.4, ((end - p.start_us) / span) * 100)}%` }} />
+                  </div>
+                </td>
+                <td className="muted small">{phaseOutcome(p)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </>
   )
 }
 

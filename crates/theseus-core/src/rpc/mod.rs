@@ -114,6 +114,7 @@ impl Core {
         store: Store,
         startup_log: Arc<StartupLog>,
     ) -> Result<Arc<Self>> {
+        let t = Instant::now();
         let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
         for (name, pc) in cfg.all_providers() {
             let timeouts = pc
@@ -144,6 +145,8 @@ impl Core {
                 .context("locating the theseusd binary for the job wrapper")?,
         };
         let launcher: Arc<dyn JobLauncher> = Arc::new(WrapperLauncher { self_exe });
+        // The start path's phases follow one another: providers, kernel, core.
+        startup_log.record("providers", false, t, json!({"providers": providers.len()}));
         Self::build(Parts {
             cfg,
             providers,
@@ -291,6 +294,7 @@ impl Core {
             scrubber,
             launcher,
         } = parts;
+        let k0 = std::time::Instant::now();
         let cfg = Arc::new(cfg);
         // The kernel shares the store. Its spool sits beside the store dir:
         // `store` → `spool`, `store-stdio` → `spool-stdio`.
@@ -323,7 +327,6 @@ impl Core {
             )
             .with_legacy_spend(legacy_spend),
         );
-        let k0 = std::time::Instant::now();
         let startup = kernel
             .startup(
                 Some(&spool),
@@ -338,6 +341,7 @@ impl Core {
             k0,
             json!({"steps": startup.steps.iter().map(|s| json!({"name": s.name, "us": s.elapsed_us})).collect::<Vec<_>>()}),
         );
+        let c0 = std::time::Instant::now();
         for st in &startup.steps {
             tracing::info!(step = st.step, name = %st.name, us = st.elapsed_us, "kernel startup step");
         }
@@ -445,13 +449,43 @@ impl Core {
             bindings: BindingBoard::default(),
             approval,
         });
-        core.store.append_ledger(&LedgerRow::new(
-            "server.started",
-            None,
-            None,
-            json!({"startup": core.startup_report}),
-        ))?;
+        // `server.started` waits for `announce_serving`: nothing on the start
+        // path needs it durable, and its frame is an fsync (theseus-qa0).
+        core.startup_log.record("core", false, c0, Value::Null);
         Ok(core)
+    }
+
+    /// Once the socket answers: the kernel's startup report
+    /// (`server.started`) and the start path's phases (`server.serving`),
+    /// in one frame, off the start path (theseus-qa0).
+    pub fn announce_serving(&self, serving_us: u64) {
+        let phases: Vec<_> = self
+            .startup_log
+            .snapshot()
+            .into_iter()
+            .filter(|p| !p.background)
+            .collect();
+        let rows = [
+            LedgerRow::new(
+                "server.started",
+                None,
+                None,
+                json!({"startup": self.startup_report}),
+            ),
+            LedgerRow::new(
+                "server.serving",
+                None,
+                None,
+                json!({"serving_us": serving_us, "phases": phases}),
+            ),
+        ];
+        let frame: Result<Vec<_>> = rows
+            .iter()
+            .map(|r| theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, r))
+            .collect();
+        if let Err(e) = frame.and_then(|f| self.store.append(&f)) {
+            tracing::warn!(error = %e, "ledger append failed");
+        }
     }
 
     pub fn live_profile(&self) -> (String, String) {
