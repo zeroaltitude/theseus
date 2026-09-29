@@ -70,6 +70,9 @@ pub struct Core {
     pub shutdown: tokio::sync::Notify,
     /// Channel bindings: their status for health, and how many still start.
     pub bindings: BindingBoard,
+    /// `[approval]`: who may answer a waiting call, and through which
+    /// channels, with the Discord binding's checks (theseus-sgh).
+    pub approval: crate::approval::Approval,
 }
 
 /// What a `Core` is built from. `Core::new` resolves these from the config and
@@ -264,6 +267,7 @@ impl Core {
             None => (cfg.model.live.clone(), "config".to_string()),
         };
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
+        let approval = crate::approval::Approval::new(cfg.approval.as_ref());
         let core = Arc::new(Self {
             cfg,
             store,
@@ -283,6 +287,7 @@ impl Core {
             live: std::sync::RwLock::new(live),
             shutdown: tokio::sync::Notify::new(),
             bindings: BindingBoard::default(),
+            approval,
         });
         core.store.append_ledger(&LedgerRow::new(
             "server.started",

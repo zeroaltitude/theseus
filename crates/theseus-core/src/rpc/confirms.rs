@@ -8,6 +8,7 @@ use serde_json::json;
 use theseus_protocol::{notify, ConfirmRequest, Message};
 
 use super::Core;
+use crate::approval::{Answerer, Refusal};
 use crate::ledger::LedgerRow;
 use crate::narrative::narrate;
 use crate::node::{Body, Node};
@@ -154,25 +155,38 @@ impl Core {
 
     /// Answer a confirm: bind it (approve) or decline the action, then wake the
     /// execution so the driver resumes the turn exactly where it parked.
+    ///
+    /// This is the one place an answer becomes a decision, for a tool call and
+    /// a budget question alike, so `[approval]` is judged here (theseus-sgh):
+    /// an answer that does not count is refused with the reason, ledgered as
+    /// `approval.refused`, and narrated, and the question keeps waiting. `by`
+    /// is who answered and through what; a bare label is no known surface.
     pub fn confirm_action(
         &self,
         correlation_id: &str,
         approve: bool,
         note: Option<&str>,
-        by: &str,
+        by: impl Into<Answerer>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
+        let who = by.into();
         let a = self
             .kernel
             .action(correlation_id)?
             .ok_or_else(|| anyhow::anyhow!("no action {correlation_id}"))?;
+        if let Err(r) = self.approval.judge(&who) {
+            self.refused(&a, approve, &who, &r)?;
+            return Err(r.into());
+        }
+        let by = who.label.as_str();
         if a.state != theseus_kernel::ActionState::Planned {
             anyhow::bail!(
                 "action {correlation_id} is {}, not waiting for confirmation",
                 a.state.as_str()
             );
         }
+        let via = who.via();
         if a.tool == BUDGET_TOOL {
-            return self.answer_budget(&a, approve, note, by);
+            return self.answer_budget(&a, approve, note, by, &via);
         }
         if approve {
             let proposal = crate::toolrun::confirm_proposal(&self.store, &a, None)?;
@@ -189,7 +203,7 @@ impl Core {
             "action.confirm_answered",
             Some(&a.session_id),
             None,
-            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by}),
+            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via}),
         ))?;
         narrate!(
             self.narrator,
@@ -240,6 +254,31 @@ impl Core {
         })
     }
 
+    /// An answer that does not count: ledgered with who, where, and why, and
+    /// narrated. Nothing else changes: the action still waits, and so does
+    /// its execution.
+    fn refused(&self, a: &Action, approve: bool, who: &Answerer, r: &Refusal) -> Result<()> {
+        self.store.append_ledger(&LedgerRow::new(
+            "approval.refused",
+            Some(&a.session_id),
+            None,
+            json!({"correlation_id": a.correlation_id, "tool": a.tool, "approve": approve,
+                   "who": r.who, "via": r.via, "why": r.why, "by": who.label}),
+        ))?;
+        narrate!(
+            self.narrator,
+            Approval,
+            Some(&a.session_id),
+            None,
+            "An answer to {} from {} through {} did not count: {}. It keeps waiting.",
+            a.tool,
+            r.who,
+            r.via,
+            r.why
+        );
+        Ok(())
+    }
+
     /// Answer a budget question (theseus-0sg). Approve: the execution's spend
     /// goes back to $0 and the driver makes the waiting call; the session's
     /// lifetime cost is untouched. Decline: the question closes and the
@@ -251,6 +290,7 @@ impl Core {
         approve: bool,
         note: Option<&str>,
         by: &str,
+        via: &str,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let correlation_id = q.correlation_id.as_str();
         if approve {
@@ -283,7 +323,7 @@ impl Core {
             "action.confirm_answered",
             Some(&q.session_id),
             None,
-            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "tool": q.tool}),
+            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via, "tool": q.tool}),
         ))?;
         self.bus.publish(
             &q.session_id,

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use theseus_core::approval::{Client, Surface};
 use theseus_core::config::DEFAULT_CONFIG_REF;
 use theseus_core::secrets::{OpReader, Secret, Secrets};
 use theseus_core::store::Store;
@@ -208,7 +209,7 @@ async fn main() -> Result<()> {
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
         core.clone()
-            .serve_connection(stdin, stdout, "stdio".into())
+            .serve_connection(stdin, stdout, Client::new("stdio", Surface::Cli))
             .await?;
         return Ok(());
     }
@@ -274,7 +275,9 @@ async fn serve_socket(
                 let client = format!("sock#{conn_id}");
                 tracing::info!(client = %client, "client connected");
                 tokio::spawn(async move {
-                    if let Err(e) = core.serve_connection(r, w, client.clone()).await {
+                    // The socket is mode 0600: whoever connects is the CLI.
+                    let cli = Client::new(client.clone(), Surface::Cli);
+                    if let Err(e) = core.serve_connection(r, w, cli).await {
                         tracing::warn!(client = %client, error = %e, "connection ended with error");
                     } else {
                         tracing::info!(client = %client, "client disconnected");

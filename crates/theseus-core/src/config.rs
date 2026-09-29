@@ -54,6 +54,10 @@ pub struct Config {
     pub policy: PolicyConfig,
     #[serde(default)]
     pub discord: DiscordConfig,
+    /// Who may answer a waiting call, and through which channels. Absent (as
+    /// in a config from before theseus-sgh): no rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<ApprovalConfig>,
     /// The 1Password token file this daemon was pointed at (`--op-token-file`
     /// or `THESEUS_OP_TOKEN_FILE`): set at startup, never read from the TOML.
     /// The floor keeps it, whichever way it was named (theseus-8az).
@@ -117,6 +121,30 @@ impl Default for DiscordConfig {
             notice_embeds: false,
         }
     }
+}
+
+/// `[approval]` (spec §3.9 "Approval", theseus-sgh): an answer to a waiting
+/// call counts only from a trusted user through a trusted channel. Without
+/// the section there is no rule: the CLI, the local web UI, and a place's
+/// listed Discord users answer, as before.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalConfig {
+    /// Who may answer, as surface-qualified ids: `discord:<user id>`. The CLI
+    /// and the web UI need no entry: whoever reaches them is this machine's
+    /// operator. Default: nobody on Discord.
+    #[serde(default)]
+    pub trusted_users: Vec<String>,
+    /// Where an approval dialogue may happen: `cli`, `web`, `discord:dm` (a
+    /// DM between the bot and a trusted user), or `discord:<channel id>` (a
+    /// guild channel that only trusted users can view). Default: the CLI and
+    /// the web UI.
+    #[serde(default = "default_approval_channels")]
+    pub channels: Vec<String>,
+}
+
+fn default_approval_channels() -> Vec<String> {
+    vec!["cli".into(), "web".into()]
 }
 
 impl DiscordConfig {
@@ -690,6 +718,24 @@ impl Config {
                 if units.len() == 1 { "it" } else { "them" },
             ));
         }
+        if let Some(a) = &cfg.approval {
+            if a.channels.is_empty() {
+                warnings.push(
+                    "approval.channels is empty, so no answer counts: a call that waits for \
+                     approval waits until it expires, and a budget question until a new message \
+                     replaces it"
+                        .into(),
+                );
+            } else if a.trusted_users.is_empty()
+                && a.channels.iter().any(|c| c.starts_with("discord:"))
+            {
+                warnings.push(
+                    "approval.channels lists Discord, but approval.trusted_users names nobody, \
+                     so no Discord answer counts"
+                        .into(),
+                );
+            }
+        }
         Ok((cfg, warnings))
     }
 
@@ -816,6 +862,14 @@ impl Config {
                     "catalog.\"{id}\" is not a built-in model, so its table needs {}",
                     missing.join(", ")
                 );
+            }
+        }
+        if let Some(a) = &self.approval {
+            for u in &a.trusted_users {
+                crate::approval::parse_user(u).map_err(anyhow::Error::msg)?;
+            }
+            for c in &a.channels {
+                crate::approval::Channel::parse(c).map_err(anyhow::Error::msg)?;
             }
         }
         Ok(())
@@ -1444,6 +1498,84 @@ mod tests {
         );
         assert!(e.contains("catalog.\"glm-5.3\".output_per_mtok"), "{e}");
         assert!(Config::parse(&format!("{base}[catalog.\"glm-5.3\"]\nprice = 1.0\n")).is_err());
+    }
+
+    /// `[approval]` (theseus-sgh). Eddie's vault config (its sections checked
+    /// 2026-09-29, by name only) has none: it loads with no rule and no new
+    /// warning, and `theseusd config` prints no such section. The template
+    /// keeps it commented, with Eddie's DM as the example, and each of its
+    /// lines parses. A section sets only what it names: channels default to
+    /// the CLI and the web UI, trusted users to nobody.
+    #[test]
+    fn approval_is_no_rule_unless_the_config_has_the_section() {
+        let vault = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                     [kernel]\nadmission_ceiling = 8\nheartbeat_secs = 60\n\n\
+                     [discord]\nenabled = true\ntoken_secret = \"discord_bot_token\"\n\
+                     bindings_file = \"bindings.toml\"\nedit_interval_ms = 1200\n\n\
+                     [web]\nenabled = true\nbind = \"127.0.0.1\"\nport = 7433\n";
+        let (cfg, warnings) = Config::parse(vault).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(cfg.approval.is_none());
+        assert!(!crate::approval::Approval::new(cfg.approval.as_ref()).configured());
+        let shown = toml::to_string_pretty(&cfg).unwrap();
+        assert!(!shown.contains("approval"), "{shown}");
+        assert!(
+            Config::example().approval.is_none(),
+            "the template leaves it commented"
+        );
+        let has = |line: &str| Config::EXAMPLE_TOML.lines().any(|l| l.starts_with(line));
+        assert!(has("# [approval]"));
+        assert!(has("# trusted_users = [\"discord:159471966640799744\"]"));
+        assert!(has("# channels = [\"cli\", \"web\", \"discord:dm\"]"));
+
+        let with = |section: &str| Config::parse(&format!("{vault}\n[approval]\n{section}\n"));
+        let (cfg, w) = with("").unwrap();
+        let a = cfg.approval.unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(
+            (a.trusted_users.len(), a.channels),
+            (0, vec!["cli".to_string(), "web".to_string()])
+        );
+        let (cfg, w) = with(
+            "trusted_users = [\"discord:159471966640799744\"]\nchannels = [\"cli\", \"web\", \"discord:dm\", \"discord:333333333333333333\"]",
+        )
+        .unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(cfg.approval.unwrap().channels.len(), 4);
+        for (bad, says) in [
+            (
+                "trusted_users = [\"eddie\"]",
+                "approval.trusted_users entry \"eddie\" is not a surface-qualified id",
+            ),
+            (
+                "trusted_users = [\"159471966640799744\"]",
+                "write \"discord:<user id>\"",
+            ),
+            (
+                "channels = [\"discord:general\"]",
+                "approval.channels entry \"discord:general\" is not a channel",
+            ),
+            (
+                "channels = [\"slack\"]",
+                "\"discord:dm\", or \"discord:<channel id>\"",
+            ),
+            ("users = []", "unknown field `users`"),
+        ] {
+            let e = format!("{:#}", with(bad).unwrap_err());
+            assert!(e.contains(says), "{bad}: {e}");
+        }
+        let (_, w) = with("channels = []").unwrap();
+        assert!(
+            w.len() == 1 && w[0].starts_with("approval.channels is empty, so no answer counts"),
+            "{w:?}"
+        );
+        let (_, w) = with("channels = [\"discord:dm\"]").unwrap();
+        assert!(
+            w.len() == 1
+                && w[0]
+                    .contains("approval.trusted_users names nobody, so no Discord answer counts"),
+            "{w:?}"
+        );
     }
 
     /// Every key the code can read appears in the template (set or commented),

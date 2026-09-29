@@ -13,10 +13,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use theseus_core::approval::{Checked, Client, Surface};
 use theseus_core::config::DiscordConfig;
 use theseus_core::Core;
 use theseus_protocol::{
-    Attachment, BindingStatus, Notification, PlaceStatus, SessionInfo, SessionKind,
+    Attachment, BindingStatus, DiscordOrigin, Notification, PlaceStatus, SessionInfo, SessionKind,
     SessionListResult, SessionOpenParams, SessionRef, TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::sync::{mpsc, oneshot};
@@ -26,17 +27,19 @@ use twilight_model::application::command::CommandType;
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
 use twilight_model::channel::message::{AllowedMentions, MessageFlags};
+use twilight_model::guild::Permissions;
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
-use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, MessageMarker};
+use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, MessageMarker, RoleMarker};
 use twilight_model::id::Id;
 use twilight_util::builder::command::CommandBuilder;
 
 use crate::bindings::{snowflake, Bindings};
 use crate::files;
-use crate::render::{Buttons, NoticeCard, Op, Renderer};
+use crate::render::{Buttons, NoticeCard, Op, Renderer, Route};
 use crate::rpc_client::{CallError, RpcClient};
+use crate::viewers;
 
 /// The connection label every Discord call carries; authors refine it per message.
 const CLIENT: &str = "discord";
@@ -191,7 +194,15 @@ async fn serve(
 
     let me = http.current_user().await?.model().await?;
     board.update(|s| s.bot_user = Some(format!("{} ({})", me.name, me.id)));
-    let app_id = http.current_user_application().await?.model().await?.id;
+    let app = http.current_user_application().await?.model().await?;
+    let app_id = app.id;
+    // Who can view a guild channel takes the member list, which Discord
+    // gives only when the portal has the Server Members intent on
+    // (theseus-sgh). It is read from the application's flags; the gateway
+    // intents stay as they are, since asking for a privileged intent the
+    // portal has off closes the gateway.
+    let members_intent = viewers::members_intent(app.flags);
+    board.update(|s| s.members_intent = Some(members_intent));
     let guild = Id::new(snowflake("guild_id", &bindings.guild_id)?);
     let in_guild = http
         .current_user_guilds()
@@ -209,7 +220,7 @@ async fn serve(
     }
     register_commands(&http, app_id, &board).await;
 
-    let (rpc, notes) = RpcClient::connect(core.clone(), CLIENT);
+    let (rpc, notes) = RpcClient::connect(core.clone(), Client::new(CLIENT, Surface::Discord));
     let shared = Arc::new(Shared {
         core: core.clone(),
         rpc: rpc.clone(),
@@ -222,6 +233,7 @@ async fn serve(
         routes: Mutex::new(Routes::default()),
         files_http: files::client(),
         max_text: core.cfg.tools.max_read_bytes as u64,
+        members_intent,
     });
 
     shared.refresh_bot_roles(guild).await;
@@ -269,6 +281,14 @@ async fn serve(
     tokio::spawn(route(shared.clone(), notes));
     // Every place watches its session now: turns the kernel resumes can run.
     ready.fire();
+    // Who can view each guild channel `[approval]` lists, for health and for
+    // the first answer; each card and each answer checks again.
+    let checks = shared.clone();
+    tokio::spawn(async move {
+        for c in checks.core.approval.discord_channels() {
+            checks.check_channel(c).await;
+        }
+    });
 
     let intents = Intents::GUILDS
         | Intents::GUILD_MESSAGES
@@ -372,12 +392,16 @@ struct Shared {
     files_http: reqwest::Client,
     /// `[tools].max_read_bytes`: the largest text attachment downloaded.
     max_text: u64,
+    /// The portal has the Server Members intent on: a listed guild channel's
+    /// viewers can be checked (theseus-sgh).
+    members_intent: bool,
 }
 
 /// One message for a turn: who wrote it, what it says, its files (still
 /// downloading, theseus-9g2), and its Discord id.
 struct Inbound {
     author: String,
+    author_id: u64,
     text: String,
     files: Option<Pending>,
     message: Id<MessageMarker>,
@@ -409,6 +433,10 @@ struct Routes {
     by_channel: HashMap<u64, mpsc::UnboundedSender<PlaceMsg>>,
     /// DM user id → place mailbox (the DM channel may open later)
     by_dm_user: HashMap<u64, mpsc::UnboundedSender<PlaceMsg>>,
+    /// The DM places in bindings-file order: (user id, label)
+    dms: Vec<(u64, String)>,
+    /// DM user id → the DM's channel id, once it is open
+    dm_channel: HashMap<u64, u64>,
     /// channel id → who may drive it
     users: HashMap<u64, Vec<u64>>,
     /// channel ids where only an @mention or a reply to the bot starts a turn
@@ -431,6 +459,13 @@ enum PlaceMsg {
     DmChannel(Id<ChannelMarker>),
     /// Something to say that is not part of a turn.
     Notice(String),
+    /// Another place's approval card, for this DM to post or settle
+    /// (theseus-sgh).
+    Card {
+        key: String,
+        content: String,
+        buttons: Buttons,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -474,6 +509,10 @@ impl Shared {
             }
             if kind == "dm" {
                 r.by_dm_user.insert(users[0], tx.clone());
+                r.dms.push((users[0], label.clone()));
+                if let Some(c) = channel {
+                    r.dm_channel.insert(users[0], c.get());
+                }
             }
         }
         let notice_tx = tx.clone();
@@ -486,13 +525,14 @@ impl Shared {
             users,
             mention_only,
             session_id,
-            renderer: Renderer::new(self.notice_embeds),
+            renderer: self.renderer(),
             msgs: HashMap::new(),
             inflight: false,
             queued: Vec::new(),
             anchor: None,
             saw_failure: false,
             last_activity_ms: 0,
+            last_author: None,
             tx,
         };
         place.report();
@@ -661,6 +701,7 @@ impl Shared {
         self.board.update(|s| s.messages_in += 1);
         let _ = tx.send(PlaceMsg::Inbound(Inbound {
             author: m.author.name.clone(),
+            author_id: m.author.id.get(),
             text,
             files,
             message: m.id,
@@ -714,6 +755,21 @@ impl Shared {
                     false,
                 )
                 .await;
+                // A guild channel `[approval]` lists is checked again as the
+                // answer arrives; the core judges the answer against it.
+                if let (Some(c), Some(_)) = (channel, i.guild_id) {
+                    if self.core.approval.lists_discord_channel(c) {
+                        self.check_channel(c).await;
+                    }
+                }
+                let discord = match (&user, channel) {
+                    (Some((u, _)), Some(c)) => Some(DiscordOrigin {
+                        user_id: u.to_string(),
+                        channel_id: c.to_string(),
+                        guild_id: i.guild_id.map(|g| g.to_string()),
+                    }),
+                    _ => None,
+                };
                 let r = self
                     .rpc
                     .call::<_, Value>(
@@ -724,9 +780,33 @@ impl Shared {
                             note: None,
                             watch: false,
                             author: Some(who.clone()),
+                            discord,
                         },
                     )
                     .await;
+                if let Err(e) = &r {
+                    if e.code == theseus_protocol::error_code::REFUSED {
+                        // The answer did not count: the card keeps its
+                        // buttons for one that does, and only the presser
+                        // is told why.
+                        self.core.binding_ledger(
+                            "discord.confirm",
+                            None,
+                            json!({"correlation_id": corr, "approve": approve, "by": who, "ok": false, "refused": true, "error": e.message}),
+                        );
+                        let why = e.data.get("why").and_then(Value::as_str);
+                        self.followup(
+                            &i,
+                            &format!(
+                                "🔐 Your answer did not count: {}. It keeps waiting for an \
+                                 answer that does.",
+                                why.unwrap_or(&e.message)
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
+                }
                 let line = i
                     .message
                     .as_ref()
@@ -800,6 +880,138 @@ impl Shared {
             }
             _ => {}
         }
+    }
+
+    /// An ephemeral follow-up to an interaction already acknowledged.
+    async fn followup(&self, i: &Interaction, text: &str) {
+        let none = AllowedMentions::default();
+        if let Err(e) = self
+            .http
+            .interaction(self.app_id)
+            .create_followup(&i.token)
+            .content(text)
+            .flags(MessageFlags::EPHEMERAL)
+            .allowed_mentions(Some(&none))
+            .await
+        {
+            self.board.error("interaction follow-up", None, e);
+        }
+    }
+
+    /// A place's renderer: the `[discord]` notice setting, and, under
+    /// `[approval]`, where else its cards can be answered.
+    fn renderer(&self) -> Renderer {
+        let mut r = Renderer::new(self.notice_embeds);
+        if let Some(e) = self.core.approval.elsewhere() {
+            r.set_elsewhere(e);
+        }
+        r
+    }
+
+    /// The DM an approval card goes to when its place is not a trusted
+    /// channel: the turn's author's, when they are a trusted user with an
+    /// open DM here, else the first such DM in the bindings file.
+    fn approval_dm(&self, prefer: Option<u64>) -> Option<(u64, String)> {
+        let r = self.routes.lock().unwrap();
+        let trusted: Vec<&(u64, String)> = r
+            .dms
+            .iter()
+            .filter(|(u, _)| {
+                r.dm_channel
+                    .get(u)
+                    .is_some_and(|c| self.core.approval.trusts_dm(*u, Some(*c)))
+            })
+            .collect();
+        prefer
+            .and_then(|p| trusted.iter().find(|(u, _)| *u == p))
+            .or(trusted.first())
+            .map(|d| (*d).clone())
+    }
+
+    /// Hand an approval card to the DM place of `user`.
+    fn to_dm(&self, user: u64, card: PlaceMsg) {
+        let tx = self.routes.lock().unwrap().by_dm_user.get(&user).cloned();
+        match tx {
+            Some(tx) => {
+                let _ = tx.send(card);
+            }
+            None => self.board.error(
+                "approval card",
+                None,
+                format!("no DM place for user {user}"),
+            ),
+        }
+    }
+
+    /// Check who can view a guild channel `[approval]` lists, and tell the
+    /// core, which judges answers from there against it (theseus-sgh).
+    /// Without the Server Members intent it cannot be verified. True when it
+    /// is trusted.
+    async fn check_channel(&self, channel: u64) -> bool {
+        let (trusted, detail) = if !self.members_intent {
+            (false, viewers::NO_INTENT.to_string())
+        } else {
+            match self.viewers(channel).await {
+                Ok(v) => v,
+                Err(e) => (false, format!("could not check who can view it: {e}")),
+            }
+        };
+        self.core.approval_checked(
+            channel,
+            Checked {
+                trusted,
+                detail,
+                at_ms: theseus_protocol::now_unix_ms(),
+            },
+        );
+        trusted
+    }
+
+    /// Everyone outside `[approval].trusted_users` who can view a guild
+    /// channel: the guild's roles and owner, the channel's overwrites, and
+    /// every member, through twilight's permission calculation.
+    async fn viewers(&self, channel: u64) -> anyhow::Result<(bool, String)> {
+        let ch = self.http.channel(Id::new(channel)).await?.model().await?;
+        let guild_id = ch
+            .guild_id
+            .ok_or_else(|| anyhow::anyhow!("it is not a guild channel"))?;
+        let guild = self.http.guild(guild_id).await?.model().await?;
+        let roles: Vec<(Id<RoleMarker>, Permissions)> =
+            guild.roles.iter().map(|r| (r.id, r.permissions)).collect();
+        let mut members = Vec::new();
+        let mut after = None;
+        loop {
+            let mut req = self.http.guild_members(guild_id).limit(1000);
+            if let Some(a) = after {
+                req = req.after(a);
+            }
+            let page = req.await?.models().await?;
+            let full = page.len() == 1000;
+            after = page.last().map(|m| m.user.id);
+            members.extend(page.into_iter().map(|m| viewers::Member {
+                id: m.user.id.get(),
+                name: m.user.name,
+                roles: m.roles,
+            }));
+            if !full {
+                break;
+            }
+        }
+        let g = viewers::Guild {
+            id: guild_id,
+            owner: guild.owner_id,
+            roles: &roles,
+        };
+        let overwrites = ch.permission_overwrites.unwrap_or_default();
+        let outside = viewers::outsiders(
+            &g,
+            ch.kind,
+            &overwrites,
+            &members,
+            &self.core.approval.discord_users(),
+            self.bot_id,
+        );
+        Ok(viewers::verdict(&outside, members.len()))
     }
 
     async fn respond(
@@ -945,6 +1157,8 @@ struct Place {
     anchor: Option<Id<MessageMarker>>,
     saw_failure: bool,
     last_activity_ms: u64,
+    /// Who wrote the latest message here: the DM an approval card prefers.
+    last_author: Option<u64>,
     tx: mpsc::UnboundedSender<PlaceMsg>,
 }
 
@@ -975,6 +1189,7 @@ impl Place {
         match m {
             PlaceMsg::Inbound(m) => {
                 self.last_activity_ms = theseus_protocol::now_unix_ms();
+                self.last_author = Some(m.author_id);
                 let mut row = json!({"place": self.label, "author": m.author, "chars": m.text.chars().count(), "message_id": m.message.to_string()});
                 if let Some(p) = &m.files {
                     row["attachments"] = json!(p.metas.len());
@@ -997,6 +1212,12 @@ impl Place {
             PlaceMsg::Event(n) => {
                 if n.method == theseus_protocol::notify::TURN_FAILED {
                     self.saw_failure = true;
+                }
+                if n.method == theseus_protocol::notify::CONFIRM_REQUESTED
+                    && self.shared.core.approval.configured()
+                {
+                    let route = self.approval_route().await;
+                    self.renderer.set_route(route);
                 }
                 let ops = self.renderer.on_notification(&n.method, &n.params);
                 self.apply(ops).await;
@@ -1046,12 +1267,23 @@ impl Place {
                 let _ = reply.send(text);
             }
             PlaceMsg::Notice(text) => self.say(&text, None).await,
+            PlaceMsg::Card {
+                key,
+                content,
+                buttons,
+            } => {
+                // Another place's card: never a reply to this DM's own turn.
+                let anchor = self.anchor.take();
+                self.upsert(&key, &content, buttons).await;
+                self.anchor = anchor;
+            }
             PlaceMsg::DmChannel(c) => {
                 if self.channel != Some(c) {
                     self.channel = Some(c);
                     let mut r = self.shared.routes.lock().unwrap();
                     r.by_channel.insert(c.get(), self.tx.clone());
                     r.users.insert(c.get(), self.users.clone());
+                    r.dm_channel.insert(self.users[0], c.get());
                     drop(r);
                     self.report();
                 }
@@ -1201,9 +1433,41 @@ impl Place {
             )
             .await;
         self.session_id = sid;
-        self.renderer = Renderer::new(self.shared.notice_embeds);
+        self.renderer = self.shared.renderer();
         self.report();
         Ok(())
+    }
+
+    /// Where this place's approval card goes now (theseus-sgh): here when
+    /// the place is a trusted channel, which for a listed guild channel means
+    /// a fresh check of who can view it; else a trusted user's DM, with a
+    /// note here; else the note alone.
+    async fn approval_route(&self) -> Route {
+        let ap = &self.shared.core.approval;
+        let channel = self.channel.map(|c| c.get());
+        let why = match (self.kind, channel) {
+            ("dm", _) if ap.trusts_dm(self.users[0], channel) => return Route::Here,
+            ("dm", _) if !ap.discord_users().contains(&self.users[0]) => {
+                "its user is not in [approval] trusted_users".to_string()
+            }
+            ("dm", _) => "[approval] channels does not list \"discord:dm\"".to_string(),
+            (_, Some(c)) if ap.lists_discord_channel(c) => {
+                if self.shared.check_channel(c).await {
+                    return Route::Here;
+                }
+                ap.checked(c).map(|k| k.detail).unwrap_or_default()
+            }
+            _ => "it is not listed in [approval] channels".to_string(),
+        };
+        match self.shared.approval_dm(self.last_author) {
+            Some((user, dm)) => Route::Dm {
+                user,
+                dm,
+                place: self.label.clone(),
+                why,
+            },
+            None => Route::Elsewhere { why },
+        }
     }
 
     async fn apply(&mut self, ops: Vec<Op>) {
@@ -1216,6 +1480,19 @@ impl Place {
                     buttons,
                 } => self.upsert(&key, &content, buttons).await,
                 Op::Notice { key, card } => self.notice(&key, &card).await,
+                Op::InDm {
+                    user,
+                    key,
+                    content,
+                    buttons,
+                } => self.shared.to_dm(
+                    user,
+                    PlaceMsg::Card {
+                        key,
+                        content,
+                        buttons,
+                    },
+                ),
             }
         }
     }

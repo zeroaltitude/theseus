@@ -15,6 +15,7 @@ use theseus_protocol::{
 use super::confirms::waiting_by_execution;
 use super::server::{Conn, RpcFailure};
 use super::{Core, META_LIVE_PROFILE};
+use crate::approval::{Answerer, Refusal};
 use crate::bus::EventSink;
 use crate::compiler::Recompile;
 use crate::ledger::LedgerRow;
@@ -60,7 +61,22 @@ impl Core {
             catalog_version: self.catalog.version.clone(),
             bindings: self.bindings.all(),
             narrative: self.narrator.on(),
+            approval: self.approval_status(),
         }
+    }
+
+    /// `[approval]` for health: each listed channel's state, judged with the
+    /// Discord binding's latest checks and state.
+    pub fn approval_status(&self) -> theseus_protocol::ApprovalStatus {
+        let discord = self
+            .bindings
+            .all()
+            .into_iter()
+            .find(|b| b.kind == "discord");
+        self.approval.status(
+            self.cfg.web.enabled,
+            discord.as_ref().map(|b| b.state.as_str()),
+        )
     }
 
     pub(super) fn session_open(
@@ -463,13 +479,22 @@ impl Core {
                 self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
             }
         }
-        self.confirm_action(
-            &p.correlation_id,
-            p.approve,
-            p.note.as_deref(),
-            p.author.as_deref().unwrap_or(conn.client),
-        )
-        .map_err(RpcFailure::invalid)
+        // Who answered, as the connection knows it: its label names, and its
+        // surface and the binding's Discord ids decide (theseus-sgh).
+        let who = Answerer {
+            label: p.author.unwrap_or_else(|| conn.client.to_string()),
+            surface: conn.surface,
+            discord: p.discord,
+        };
+        self.confirm_action(&p.correlation_id, p.approve, p.note.as_deref(), who)
+            .map_err(|e| match e.downcast::<Refusal>() {
+                Ok(r) => RpcFailure {
+                    code: error_code::REFUSED,
+                    message: r.to_string(),
+                    data: json!({"who": r.who, "via": r.via, "why": r.why}),
+                },
+                Err(e) => RpcFailure::invalid(e),
+            })
     }
 
     pub(super) fn tool_list(&self) -> theseus_protocol::ToolListResult {

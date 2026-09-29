@@ -34,6 +34,19 @@ export interface Health {
   bindings?: BindingStatus[]
   /// `narrative = true` in the config: The Narrative tab shows.
   narrative?: boolean
+  /// `[approval]`: who may answer a waiting call, and where (theseus-sgh).
+  approval?: ApprovalStatus
+}
+
+/// `[approval]` as health reports it. Not configured: every surface answers
+/// as before (the CLI, the web UI, a place's listed Discord users).
+export interface ApprovalStatus {
+  configured: boolean; trusted_users: string[]; channels: ApprovalChannel[]
+}
+
+export interface ApprovalChannel {
+  /// `cli`, `web`, `discord:dm`, or `discord:<channel id>`.
+  channel: string; state: 'trusted' | 'not_trusted'; detail: string; checked_at_ms: number
 }
 
 export interface PlaceStatus {
@@ -47,6 +60,8 @@ export interface BindingStatus {
   connected_at_ms: number; latency_ms?: number
   messages_in: number; messages_out: number; edits: number; interactions: number
   ignored: number; errors: number; last_error?: string
+  /// The portal has the Server Members intent on: who can view a guild channel can be checked.
+  members_intent?: boolean
 }
 
 export interface SessionInfo {

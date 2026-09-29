@@ -61,6 +61,46 @@ pub enum Op {
         content: String,
         buttons: Buttons,
     },
+    /// The same, in the DM with `user`: an approval card this place may not
+    /// carry (theseus-sgh).
+    InDm {
+        user: u64,
+        key: String,
+        content: String,
+        buttons: Buttons,
+    },
+}
+
+/// Where a place's approval cards go (theseus-sgh, spec §3.9 "Approval").
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Route {
+    /// Here: the place is a trusted channel, or there is no `[approval]`.
+    #[default]
+    Here,
+    /// To the DM with a trusted user, `user`, which `dm` names (`DM @eddie`);
+    /// the place (`place`, as `#general`) gets a one-line note that says so
+    /// and why it is not trusted (`why`).
+    Dm {
+        user: u64,
+        dm: String,
+        place: String,
+        why: String,
+    },
+    /// Nowhere on Discord: the place is not trusted, and no trusted DM is
+    /// bound. The note says why, and where to answer.
+    Elsewhere { why: String },
+}
+
+/// A card asked for: its message key, the line it describes, whether it is
+/// a budget question, the DM it went to (user, label), and whether the place
+/// has a note about it.
+#[derive(Debug, Clone)]
+struct Card {
+    key: String,
+    line: String,
+    budget: bool,
+    dm: Option<(u64, String)>,
+    note: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,13 +154,18 @@ pub struct Renderer {
     turns: VecDeque<TurnView>,
     /// key → the content Discord last received for it.
     emitted: HashMap<String, String>,
-    /// correlation id → (message key, the line it describes, a budget question).
-    confirms: HashMap<String, (String, String, bool)>,
+    /// correlation id → the card asked for it.
+    confirms: HashMap<String, Card>,
     /// tool_use_id → the notice card posted for it (updated when the call ends).
     notices: HashMap<String, NoticeCard>,
     /// `[discord] notice_embeds`: a notified call posts its own card. Off, its
     /// tool line alone carries the notice.
     notice_embeds: bool,
+    /// Where this place's approval cards go (`set_route`).
+    route: Route,
+    /// Where else an approval can be answered, as a card says it ("in the web
+    /// UI or with `theseus confirm`"); None says that, and "" says nothing.
+    elsewhere: Option<String>,
 }
 
 impl Renderer {
@@ -130,6 +175,23 @@ impl Renderer {
             notice_embeds,
             ..Self::default()
         }
+    }
+
+    /// Where this place's next approval card goes (theseus-sgh).
+    pub fn set_route(&mut self, route: Route) {
+        self.route = route;
+    }
+
+    /// Where else an approval can be answered, for a card to say: the
+    /// trusted local surfaces when `[approval]` is set ("" for none).
+    pub fn set_elsewhere(&mut self, elsewhere: impl Into<String>) {
+        self.elsewhere = Some(elsewhere.into());
+    }
+
+    fn elsewhere(&self) -> &str {
+        self.elsewhere
+            .as_deref()
+            .unwrap_or("in the web UI or with `theseus confirm`")
     }
 
     /// True while a turn is running (the place keeps "typing…" alive).
@@ -267,12 +329,18 @@ impl Renderer {
                 if let Some(b) = &req.budget {
                     // No tool line waits: the turn stopped before its call.
                     let corr = req.correlation_id.clone();
-                    let key = format!("confirm:{corr}");
+                    let also = match self.elsewhere() {
+                        "" => String::new(),
+                        e => format!(" You can also answer {e}."),
+                    };
+                    let asked_for = match &self.route {
+                        Route::Dm { place, .. } => format!("For {place}. "),
+                        _ => String::new(),
+                    };
                     let content = format!(
-                        "{BUDGET_ASK}{}\n-# Approve resets its spend to $0 and the waiting call goes on; \
-                         the session's lifetime cost ({}) keeps counting. Decline, or send a new \
-                         message, and it keeps waiting. You can also answer in the web UI or with \
-                         `theseus confirm`.",
+                        "{BUDGET_ASK}{}\n-# {asked_for}Approve resets its spend to $0 and the waiting \
+                         call goes on; the session's lifetime cost ({}) keeps counting. Decline, or \
+                         send a new message, and it keeps waiting.{also}",
                         clip(&req.reason, 300),
                         dollars(b.lifetime_usd)
                     );
@@ -281,9 +349,7 @@ impl Renderer {
                         dollars(b.spent_usd),
                         dollars(b.limit_usd)
                     );
-                    self.confirms
-                        .insert(corr.clone(), (key.clone(), line, true));
-                    return vec![self.upsert(&key, content, Buttons::Confirm(corr))];
+                    return self.ask(corr, content, line, true);
                 }
                 // The newest proposed call of this tool is the one waiting.
                 let corr = req.correlation_id.clone();
@@ -301,13 +367,20 @@ impl Renderer {
                     t.dirty = true;
                 }
                 let line = format!("`{}` {}", req.tool, summarize(&req.tool, &req.input));
-                let key = format!("confirm:{corr}");
                 let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });
                 if !req.reason.is_empty() {
                     content.push_str(&format!("\n{}", clip(&req.reason, 300)));
                 }
+                let asked_for = match &self.route {
+                    Route::Dm { place, .. } => format!("for {place} · "),
+                    _ => String::new(),
+                };
+                let also = match self.elsewhere() {
+                    "" => String::new(),
+                    e => format!(" · you can also answer {e}"),
+                };
                 content.push_str(&format!(
-                    "\n-# expires <t:{}:R> · you can also answer in the web UI or with `theseus confirm`",
+                    "\n-# {asked_for}expires <t:{}:R>{also}",
                     req.expires_at_ms / 1000
                 ));
                 let line = if req.floor {
@@ -315,9 +388,7 @@ impl Renderer {
                 } else {
                     line
                 };
-                self.confirms
-                    .insert(corr.clone(), (key.clone(), line, false));
-                vec![self.upsert(&key, content, Buttons::Confirm(corr))]
+                self.ask(corr, content, line, false)
             }
             "confirm.resolved" => {
                 let corr = str_of(p, "correlation_id");
@@ -346,9 +417,10 @@ impl Renderer {
                         }
                     }
                 }
-                let Some((key, line, budget)) = self.confirms.remove(&corr) else {
+                let Some(card) = self.confirms.remove(&corr) else {
                     return vec![];
                 };
+                let (line, budget) = (&card.line, card.budget);
                 let content = if budget && superseded {
                     format!("⏭️ **Replaced**: a new message came first, and its call asks again if it still does not fit. {line}")
                 } else if budget && !approved {
@@ -360,7 +432,7 @@ impl Renderer {
                 } else {
                     format!("❎ **Declined** by {by} · {line}")
                 };
-                vec![self.upsert(&key, content, Buttons::Clear)]
+                self.settle(card, content)
             }
             "loop.ended" => {
                 if let Some(t) = self.turn_mut(turn_id) {
@@ -444,6 +516,78 @@ impl Renderer {
                     .then(|| self.upsert(&key, content, Buttons::Keep))
             })
             .collect()
+    }
+
+    /// Post a card for `corr` where the route says: here, in the DM with a
+    /// note here, or only a note here.
+    fn ask(&mut self, corr: String, content: String, line: String, budget: bool) -> Vec<Op> {
+        let key = format!("confirm:{corr}");
+        let note_key = format!("approval:{corr}");
+        let mut card = Card {
+            key: key.clone(),
+            line: line.clone(),
+            budget,
+            dm: None,
+            note: false,
+        };
+        let ops = match self.route.clone() {
+            Route::Here => vec![self.upsert(&key, content, Buttons::Confirm(corr.clone()))],
+            Route::Dm { user, dm, why, .. } => {
+                card.dm = Some((user, dm.clone()));
+                card.note = true;
+                vec![
+                    Op::InDm {
+                        user,
+                        key,
+                        content,
+                        buttons: Buttons::Confirm(corr.clone()),
+                    },
+                    self.upsert(
+                        &note_key,
+                        format!(
+                            "🔐 Approval for {line} was asked in {dm}: this channel is not a \
+                             trusted channel ({why})."
+                        ),
+                        Buttons::Keep,
+                    ),
+                ]
+            }
+            Route::Elsewhere { why } => {
+                card.note = true;
+                let answer = match self.elsewhere() {
+                    "" => ", and no trusted channel is bound here to answer it".to_string(),
+                    e => format!(": answer {e}"),
+                };
+                vec![self.upsert(
+                    &note_key,
+                    format!(
+                        "🔐 {line} waits for approval, and this channel is not a trusted \
+                         channel ({why}){answer}."
+                    ),
+                    Buttons::Keep,
+                )]
+            }
+        };
+        self.confirms.insert(corr, card);
+        ops
+    }
+
+    /// A card answered: settled where it was posted, and its note updated.
+    fn settle(&mut self, card: Card, content: String) -> Vec<Op> {
+        let note_key = card.key.replacen("confirm:", "approval:", 1);
+        match (&card.dm, card.note) {
+            (Some((user, dm)), _) => vec![
+                Op::InDm {
+                    user: *user,
+                    key: card.key.clone(),
+                    content: content.clone(),
+                    buttons: Buttons::Clear,
+                },
+                self.upsert(&note_key, format!("🔐 {content} (in {dm})"), Buttons::Keep),
+            ],
+            (None, true) => vec![self.upsert(&note_key, format!("🔐 {content}"), Buttons::Keep)],
+            (None, false) => vec![self.upsert(&card.key, content, Buttons::Clear)],
+        }
     }
 
     fn upsert(&mut self, key: &str, content: String, buttons: Buttons) -> Op {
@@ -710,7 +854,7 @@ mod tests {
         ops.iter()
             .filter_map(|o| match o {
                 Op::Upsert { key, content, .. } => Some((key.clone(), content.clone())),
-                Op::Typing | Op::Notice { .. } => None,
+                Op::Typing | Op::Notice { .. } | Op::InDm { .. } => None,
             })
             .collect()
     }
@@ -1027,6 +1171,214 @@ mod tests {
             .map(|(k, _)| k)
             .collect();
         assert_eq!(keys, ["t1:L1:p0"]);
+    }
+
+    fn waiting_write(r: &mut Renderer) -> Vec<Op> {
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
+            "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
+        r.on_notification("confirm.requested", &json!({"correlation_id": "act_1", "session_id": "s",
+            "execution_id": "e", "tool": "proc.run", "input": {"argv": ["cargo", "test"]}, "reason": "run cargo test",
+            "by": "operator", "requested_at_ms": 1, "expires_at_ms": 1790000000000u64}))
+    }
+
+    /// A place that is not a trusted channel (theseus-sgh) sends its card to
+    /// the trusted user's DM and says so in one line here; the answer settles
+    /// the card in the DM and the note here.
+    #[test]
+    fn a_card_for_an_untrusted_place_goes_to_the_dm_with_a_note_here() {
+        let mut r = Renderer::default();
+        r.set_route(Route::Dm {
+            user: 159471966640799744,
+            dm: "DM @eddie".into(),
+            place: "#general".into(),
+            why: "it is not listed in [approval] channels".into(),
+        });
+        r.set_elsewhere("with `theseus confirm`");
+        let ops = waiting_write(&mut r);
+        let [Op::InDm {
+            user,
+            key,
+            content,
+            buttons,
+        }, Op::Upsert {
+            key: note_key,
+            content: note,
+            buttons: Buttons::Keep,
+        }] = &ops[..]
+        else {
+            panic!("{ops:?}")
+        };
+        assert_eq!((*user, key.as_str()), (159471966640799744, "confirm:act_1"));
+        assert!(
+            content.starts_with("**Approve?** `proc.run` cargo test\nrun cargo test\n"),
+            "{content}"
+        );
+        assert!(
+            content.ends_with("-# for #general · expires <t:1790000000:R> · you can also answer with `theseus confirm`"),
+            "{content}"
+        );
+        assert_eq!(buttons, &Buttons::Confirm("act_1".into()));
+        assert_eq!(note_key, "approval:act_1");
+        assert_eq!(
+            note,
+            "🔐 Approval for `proc.run` cargo test was asked in DM @eddie: this channel is not a \
+             trusted channel (it is not listed in [approval] channels)."
+        );
+        assert!(
+            !ops.iter().any(|o| matches!(
+                o,
+                Op::Upsert {
+                    buttons: Buttons::Confirm(_),
+                    ..
+                }
+            )),
+            "no buttons here"
+        );
+        let ops = r.on_notification(
+            "confirm.resolved",
+            &json!({"correlation_id": "act_1", "approved": true, "by": "discord:eddie"}),
+        );
+        assert_eq!(
+            ops,
+            vec![
+                Op::InDm {
+                    user: 159471966640799744,
+                    key: "confirm:act_1".into(),
+                    content: "✅ **Approved** by discord:eddie · `proc.run` cargo test".into(),
+                    buttons: Buttons::Clear
+                },
+                Op::Upsert {
+                    key: "approval:act_1".into(),
+                    content:
+                        "🔐 ✅ **Approved** by discord:eddie · `proc.run` cargo test (in DM @eddie)"
+                            .into(),
+                    buttons: Buttons::Keep
+                }
+            ]
+        );
+        // The tool line here says who approved it, as it does for a card here.
+        let tools = upserts(&r.tick());
+        assert!(
+            tools[0].1.contains("approved by discord:eddie"),
+            "{tools:?}"
+        );
+    }
+
+    /// A budget question takes the same route as a tool call.
+    #[test]
+    fn a_budget_question_for_an_untrusted_place_goes_to_the_dm_too() {
+        let mut r = Renderer::default();
+        r.set_route(Route::Dm {
+            user: 7,
+            dm: "DM @eddie".into(),
+            place: "#general".into(),
+            why: "cannot be verified".into(),
+        });
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        let ops = r.on_notification("confirm.requested", &json!({"correlation_id": "act_b", "session_id": "s",
+            "execution_id": "e", "tool": "budget.reset", "input": {}, "by": "operator", "requested_at_ms": 1,
+            "expires_at_ms": 0, "reason": "This session has spent $99.48 of its $100 limit. Reset its spend to $0 and continue?",
+            "budget": {"spent_usd": 99.48, "limit_usd": 100.0, "needed_usd": 1.0, "lifetime_usd": 212.4}}));
+        match &ops[..] {
+            [Op::InDm {
+                user: 7,
+                key,
+                content,
+                buttons: Buttons::Confirm(c),
+            }, Op::Upsert {
+                key: note,
+                content: said,
+                ..
+            }] => {
+                assert_eq!(
+                    (key.as_str(), c.as_str(), note.as_str()),
+                    ("confirm:act_b", "act_b", "approval:act_b")
+                );
+                assert!(
+                    content.contains("\n-# For #general. Approve resets its spend"),
+                    "{content}"
+                );
+                assert!(
+                    content
+                        .ends_with("You can also answer in the web UI or with `theseus confirm`."),
+                    "{content}"
+                );
+                assert!(said.starts_with("🔐 Approval for spend reset ($99.48 of the $100 limit) was asked in DM @eddie"), "{said}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Not trusted, and no trusted DM: no card on Discord, only a note that
+    /// says where to answer (or that nowhere here can).
+    #[test]
+    fn with_no_trusted_dm_the_place_gets_only_a_note() {
+        for (elsewhere, tail) in [
+            (
+                "in the web UI or with `theseus confirm`",
+                ": answer in the web UI or with `theseus confirm`.",
+            ),
+            ("", ", and no trusted channel is bound here to answer it."),
+        ] {
+            let mut r = Renderer::default();
+            r.set_route(Route::Elsewhere {
+                why: "it is not listed in [approval] channels".into(),
+            });
+            r.set_elsewhere(elsewhere);
+            let ops = waiting_write(&mut r);
+            assert_eq!(
+                ops,
+                vec![Op::Upsert {
+                    key: "approval:act_1".into(),
+                    content: format!(
+                        "🔐 `proc.run` cargo test waits for approval, and this channel is not a \
+                         trusted channel (it is not listed in [approval] channels){tail}"
+                    ),
+                    buttons: Buttons::Keep
+                }]
+            );
+            let ops = r.on_notification(
+                "confirm.resolved",
+                &json!({"correlation_id": "act_1", "approved": false, "by": "sock#3"}),
+            );
+            assert_eq!(
+                upserts(&ops),
+                [(
+                    "approval:act_1".into(),
+                    "🔐 ❎ **Declined** by sock#3 · `proc.run` cargo test".into()
+                )]
+            );
+        }
+    }
+
+    /// With `[approval]`, a card names only the trusted local surfaces; with
+    /// none, it names none. Without `[approval]` it reads as before.
+    #[test]
+    fn a_card_names_where_else_it_can_be_answered() {
+        let text = |elsewhere: Option<&str>| {
+            let mut r = Renderer::default();
+            if let Some(e) = elsewhere {
+                r.set_elsewhere(e);
+            }
+            match &waiting_write(&mut r)[..] {
+                [Op::Upsert {
+                    content,
+                    buttons: Buttons::Confirm(_),
+                    ..
+                }] => content.lines().last().unwrap().to_string(),
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(
+            text(None),
+            "-# expires <t:1790000000:R> · you can also answer in the web UI or with `theseus confirm`"
+        );
+        assert_eq!(
+            text(Some("in the web UI")),
+            "-# expires <t:1790000000:R> · you can also answer in the web UI"
+        );
+        assert_eq!(text(Some("")), "-# expires <t:1790000000:R>");
     }
 
     #[test]

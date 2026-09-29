@@ -62,6 +62,30 @@ impl BindingBoard {
 }
 
 impl Core {
+    /// The Discord binding checked who can view a guild channel listed in
+    /// `[approval]` (theseus-sgh). An answer from there is judged against the
+    /// latest check; a change of verdict is ledgered and narrated.
+    pub fn approval_checked(&self, channel: u64, checked: crate::approval::Checked) {
+        let (trusted, detail) = (checked.trusted, checked.detail.clone());
+        if !self.approval.report(channel, checked) {
+            return;
+        }
+        tracing::info!(channel, trusted, detail = %detail, "approval: Discord channel checked");
+        self.binding_ledger(
+            "approval.channel_checked",
+            None,
+            serde_json::json!({"channel": format!("discord:{channel}"), "trusted": trusted, "detail": detail}),
+        );
+        crate::narrative::narrate!(
+            self.narrator,
+            Approval,
+            None,
+            None,
+            "Discord channel {channel} is {} for approvals: {detail}.",
+            if trusted { "trusted" } else { "not trusted" }
+        );
+    }
+
     /// A ledger row written on behalf of a binding (`discord.*`), so its traffic
     /// sits in the same readable history as everything else.
     pub fn binding_ledger(&self, kind: &str, session_id: Option<&str>, data: Value) {

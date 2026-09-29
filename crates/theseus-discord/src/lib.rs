@@ -12,6 +12,7 @@ mod files;
 pub mod render;
 mod rpc_client;
 mod runtime;
+pub mod viewers;
 
 pub use bindings::{Bindings, EXAMPLE_BINDINGS};
 pub use runtime::run;

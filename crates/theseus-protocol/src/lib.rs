@@ -151,6 +151,10 @@ pub mod error_code {
     pub const PROVIDER: i64 = -32003;
     /// The config turns this feature off (`narrative.watch` without `narrative = true`).
     pub const DISABLED: i64 = -32004;
+    /// An answer to a waiting call that does not count (theseus-sgh, spec
+    /// §3.9 "Approval"): not from a trusted user, or not through a trusted
+    /// channel. The message says why; the call keeps waiting.
+    pub const REFUSED: i64 = -32005;
 }
 
 impl Request {
@@ -241,6 +245,50 @@ pub struct HealthResult {
     /// shows its tab.
     #[serde(default)]
     pub narrative: bool,
+    /// Who may answer a waiting call, and through which channels (theseus-sgh).
+    #[serde(default)]
+    pub approval: ApprovalStatus,
+}
+
+/// `[approval]` as health reports it (spec §3.9 "Approval"): the trusted
+/// users, and each listed channel with its state now.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalStatus {
+    /// The config has an `[approval]` section. Without one, every surface
+    /// answers as before theseus-sgh: the CLI, the local web UI, and a
+    /// place's listed Discord users.
+    pub configured: bool,
+    /// Surface-qualified ids, as configured (`discord:<user id>`).
+    #[serde(default)]
+    pub trusted_users: Vec<String>,
+    #[serde(default)]
+    pub channels: Vec<ApprovalChannel>,
+}
+
+/// One entry of `[approval].channels` and whether it is trusted now.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalChannel {
+    /// As configured: `cli`, `web`, `discord:dm`, or `discord:<channel id>`.
+    pub channel: String,
+    /// `trusted` | `not_trusted`.
+    pub state: String,
+    /// Why, in words: what the channel is, or why it does not count.
+    pub detail: String,
+    /// When Discord last checked who can view it (a guild channel); 0 if never.
+    #[serde(default)]
+    pub checked_at_ms: u64,
+}
+
+/// The Discord ids behind an answer, which the Discord binding reads off the
+/// button press (theseus-sgh). The core takes them only from the binding's
+/// own connection.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscordOrigin {
+    pub user_id: String,
+    pub channel_id: String,
+    /// None in a DM.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guild_id: Option<String>,
 }
 
 /// One channel binding as health reports it (spec P5: bindings as a file).
@@ -283,6 +331,11 @@ pub struct BindingStatus {
     pub errors: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    /// The developer portal has the Server Members intent on for this bot
+    /// (the application's flags): who can view a guild channel can then be
+    /// checked. None until the binding has asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub members_intent: Option<bool>,
 }
 
 /// A place Theseus lives in: a text channel or a DM, and the session behind it.
@@ -888,8 +941,13 @@ pub struct ActionConfirmParams {
     #[serde(default)]
     pub watch: bool,
     /// Who answered, as a label (e.g. `discord:eddie`). Default: the connection.
+    /// A label names; it proves nothing. With `[approval]`, the connection's
+    /// surface and `discord` decide whether the answer counts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+    /// Set by the Discord binding: the channel and user the answer came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discord: Option<DiscordOrigin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

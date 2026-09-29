@@ -2400,3 +2400,333 @@ async fn a_six_megabyte_image_is_refused_with_the_reason() {
     );
     assert_eq!(blob_files(&r), 0);
 }
+
+// ---------------------------------------------------------------- approval (theseus-sgh)
+
+const EDDIE: &str = "159471966640799744";
+const MALLORY: &str = "222222222222222222";
+
+/// A rig whose `[approval]` trusts Eddie and lists these channels.
+fn approval_rig(script: Vec<Scripted>, channels: &[&str]) -> Rig {
+    let channels: Vec<String> = channels.iter().map(|c| c.to_string()).collect();
+    rig_with(script, move |c| {
+        c.approval = Some(crate::config::ApprovalConfig {
+            trusted_users: vec![format!("discord:{EDDIE}")],
+            channels,
+        })
+    })
+}
+
+/// One `action.confirm` over a real protocol connection, accepted as
+/// `client` (a label and the surface its listener names): the result, or
+/// the error.
+async fn answer_as(
+    core: &Arc<Core>,
+    client: crate::approval::Client,
+    corr: &str,
+    discord: Option<(&str, Option<&str>)>,
+) -> Result<Value, theseus_protocol::RpcError> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (ours, theirs) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(theirs);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, client));
+    let (cr, mut cw) = tokio::io::split(ours);
+    let params = theseus_protocol::ActionConfirmParams {
+        correlation_id: corr.into(),
+        approve: true,
+        note: None,
+        watch: false,
+        author: discord.map(|_| "discord:eddie".to_string()),
+        discord: discord.map(|(user, guild)| theseus_protocol::DiscordOrigin {
+            user_id: user.into(),
+            channel_id: "444444444444444444".into(),
+            guild_id: guild.map(str::to_string),
+        }),
+    };
+    let req = theseus_protocol::Request::new(
+        theseus_protocol::Id::Num(1),
+        theseus_protocol::method::ACTION_CONFIRM,
+        serde_json::to_value(params).unwrap(),
+    );
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = BufReader::new(cr).lines();
+    let out = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break match (r.result, r.error) {
+                (Some(v), _) => Ok(v),
+                (None, e) => Err(e.unwrap()),
+            };
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    out
+}
+
+fn surface(label: &str, s: crate::approval::Surface) -> crate::approval::Client {
+    crate::approval::Client::new(label, s)
+}
+
+fn write_script() -> Vec<Scripted> {
+    vec![
+        Scripted::tools(
+            "",
+            &[(
+                "t1",
+                "fs_write",
+                json!({"path": "out.txt", "content": "approved\n"}),
+            )],
+        ),
+        Scripted::text("Written."),
+    ]
+}
+
+/// With `[approval]`, an answer counts only from a trusted user through a
+/// trusted channel. Each that does not is refused with the reason, ledgered
+/// as `approval.refused` (who, where, why), and narrated, and the call keeps
+/// waiting: the action is still planned, the execution still waits, nothing
+/// is resolved, and nothing is written. Then Eddie approves in his DM and the
+/// write runs.
+#[tokio::test]
+async fn with_approval_only_a_trusted_user_in_a_trusted_channel_approves() {
+    use crate::approval::Surface::{Cli, Discord, Web};
+    let r = approval_rig(write_script(), &["discord:dm"]);
+    let (sid, mut rx) = watched_session(&r);
+    let res = turn(&r.core, Some(&sid), "write out.txt").await;
+    let corr = res.awaiting_confirm.clone().expect("the write waits");
+    let exec = res.execution_id.clone().unwrap();
+    let refusals = [
+        // A trusted user through an unlisted surface: the CLI, the web UI,
+        // and a guild channel the section does not list.
+        (
+            answer_as(&r.core, surface("sock#1", Cli), &corr, None).await,
+            "the CLI is not a trusted channel ([approval] channels = [\"discord:dm\"])",
+            "cli",
+        ),
+        (
+            answer_as(&r.core, surface("web#1", Web), &corr, None).await,
+            "the web UI is not a trusted channel",
+            "web",
+        ),
+        (
+            answer_as(
+                &r.core,
+                surface("discord", Discord),
+                &corr,
+                Some((EDDIE, Some("712398310421561444"))),
+            )
+            .await,
+            "Discord channel 444444444444444444 is not a trusted channel",
+            "discord:444444444444444444",
+        ),
+        // An untrusted user in a trusted channel.
+        (
+            answer_as(
+                &r.core,
+                surface("discord", Discord),
+                &corr,
+                Some((MALLORY, None)),
+            )
+            .await,
+            "discord:222222222222222222 is not a trusted user ([approval] trusted_users)",
+            "discord:dm",
+        ),
+        // Eddie's ids, claimed by a connection that is not the binding.
+        (
+            answer_as(&r.core, surface("sock#2", Cli), &corr, Some((EDDIE, None))).await,
+            "only the Discord binding can name a Discord channel and user",
+            "cli",
+        ),
+    ];
+    for (i, (got, why, via)) in refusals.iter().enumerate() {
+        let e = got.as_ref().expect_err("refused");
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{i}: {e:?}");
+        assert!(e.message.contains(why), "{i}: {}", e.message);
+        assert!(e.message.contains("It keeps waiting"), "{i}: {}", e.message);
+        assert_eq!(e.data["via"], *via, "{i}: {e:?}");
+    }
+    // Nothing moved.
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Planned);
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(e.state.as_str(), "waiting");
+    assert_eq!(r.core.pending_confirms(&sid).unwrap().len(), 1);
+    assert!(sent(&mut rx, theseus_protocol::notify::CONFIRM_RESOLVED).is_empty());
+    assert!(!r.root.join("out.txt").exists());
+    let rows = ledgered(&r, "approval.refused");
+    assert_eq!(rows.len(), refusals.len());
+    assert_eq!(rows[3]["who"], format!("discord:{MALLORY} (discord:eddie)"));
+    assert_eq!(
+        (rows[3]["via"].as_str(), rows[3]["tool"].as_str()),
+        (Some("discord:dm"), Some("fs.write"))
+    );
+    assert!(rows[0]["why"]
+        .as_str()
+        .unwrap()
+        .starts_with("the CLI is not"));
+    assert!(ledgered(&r, "action.confirm_answered").is_empty());
+    let lines = narrated(&r, &sid);
+    assert!(
+        said(
+            &lines,
+            "approval",
+            "did not count: the CLI is not a trusted channel"
+        ),
+        "{}",
+        dump(&lines)
+    );
+
+    // Eddie, in his DM.
+    let ok = answer_as(
+        &r.core,
+        surface("discord", Discord),
+        &corr,
+        Some((EDDIE, None)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(ok["approved"], true);
+    let answered = ledgered(&r, "action.confirm_answered");
+    assert_eq!(
+        (answered[0]["by"].as_str(), answered[0]["via"].as_str()),
+        (Some("discord:eddie"), Some("discord:dm"))
+    );
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.output, "Written.");
+    assert_eq!(
+        std::fs::read_to_string(r.root.join("out.txt")).unwrap(),
+        "approved\n"
+    );
+}
+
+/// The CLI counts when `[approval]` lists it, and the web UI does not when
+/// it is left out; the bare label a test passes is never trusted.
+#[tokio::test]
+async fn a_listed_cli_approves_and_an_unlisted_web_ui_is_refused() {
+    use crate::approval::Surface::{Cli, Web};
+    let r = approval_rig(write_script(), &["cli"]);
+    let res = turn(&r.core, None, "write out.txt").await;
+    let corr = res.awaiting_confirm.clone().unwrap();
+    let e = answer_as(&r.core, surface("web#1", Web), &corr, None)
+        .await
+        .unwrap_err();
+    assert!(
+        e.message
+            .contains("the web UI is not a trusted channel ([approval] channels = [\"cli\"])"),
+        "{}",
+        e.message
+    );
+    let e = r
+        .core
+        .confirm_action(&corr, true, None, "test")
+        .unwrap_err();
+    assert!(e.to_string().contains("never a trusted channel"), "{e}");
+    answer_as(&r.core, surface("sock#1", Cli), &corr, None)
+        .await
+        .unwrap();
+    let answered = ledgered(&r, "action.confirm_answered");
+    assert_eq!(answered[0]["via"], "cli");
+    assert_eq!(answered[0]["by"], "sock#1");
+    let h = r.core.health().approval;
+    assert!(h.configured);
+    assert_eq!(h.trusted_users, [format!("discord:{EDDIE}")]);
+    assert_eq!(
+        (h.channels[0].channel.as_str(), h.channels[0].state.as_str()),
+        ("cli", "trusted")
+    );
+}
+
+/// The budget question (theseus-0sg) follows the same rule: the web UI is
+/// refused when only the CLI is listed, the spend is not reset, and the
+/// session keeps waiting; the CLI's answer resets it.
+#[tokio::test]
+async fn the_budget_question_follows_the_same_rule() {
+    use crate::approval::Surface::{Cli, Web};
+    use theseus_kernel::ExecState;
+    let script = vec![
+        Scripted::tools(
+            &"word ".repeat(30_000),
+            &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
+        ),
+        Scripted::text("The diff is one line."),
+    ];
+    let r = rig_with(script, |c| {
+        c.kernel.spend_limit_usd = 1.40;
+        c.approval = Some(crate::config::ApprovalConfig {
+            trusted_users: vec![],
+            channels: vec!["cli".into()],
+        });
+    });
+    let res = turn(&r.core, None, "diff these").await;
+    assert_eq!(res.stop_reason, "budget");
+    let q = res.awaiting_confirm.clone().unwrap();
+    let exec = res.execution_id.clone().unwrap();
+    let spent = r
+        .core
+        .kernel
+        .execution(&exec)
+        .unwrap()
+        .unwrap()
+        .budget
+        .spent_micros;
+    let e = answer_as(&r.core, surface("web#1", Web), &q, None)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
+    assert!(
+        e.message.contains("the web UI is not a trusted channel"),
+        "{}",
+        e.message
+    );
+    let x = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (x.state, x.budget.spent_micros, x.budget.resets),
+        (ExecState::Waiting, spent, 0),
+        "nothing was reset"
+    );
+    assert!(ledgered(&r, "budget.reset").is_empty());
+    let refused = ledgered(&r, "approval.refused");
+    assert_eq!(refused[0]["tool"], "budget.reset");
+    assert_eq!(r.core.pending_confirms(&res.session_id).unwrap().len(), 1);
+
+    let ok = answer_as(&r.core, surface("sock#1", Cli), &q, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        (ok["approved"].as_bool(), ok["resumes"].as_bool()),
+        (Some(true), Some(true))
+    );
+    let x = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!((x.budget.spent_micros, x.budget.resets), (0, 1));
+    assert_eq!(ledgered(&r, "budget.reset")[0]["by"], "sock#1");
+}
+
+/// Without `[approval]` every surface answers as before theseus-sgh: a CLI,
+/// a web UI, a Discord, and an unnamed connection each approve a waiting
+/// call, and nothing is refused.
+#[tokio::test]
+async fn without_approval_every_surface_answers_as_before() {
+    use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
+    for (client, discord) in [
+        (surface("sock#1", Cli), None),
+        (surface("web#1", Web), None),
+        (
+            surface("discord", Discord),
+            Some((MALLORY, Some("712398310421561444"))),
+        ),
+        (surface("test", Unnamed), None),
+    ] {
+        let r = rig(write_script());
+        assert!(!r.core.health().approval.configured);
+        let res = turn(&r.core, None, "write out.txt").await;
+        let corr = res.awaiting_confirm.clone().unwrap();
+        let label = client.label.clone();
+        let ok = answer_as(&r.core, client, &corr, discord).await;
+        assert_eq!(ok.unwrap()["approved"], true, "{label}");
+        assert!(ledgered(&r, "approval.refused").is_empty());
+    }
+}

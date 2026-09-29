@@ -20,6 +20,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
+use theseus_core::approval::{Client, Surface};
 use theseus_core::Core;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -102,7 +103,11 @@ async fn bridge(socket: WebSocket, core: Arc<Core>) {
 
     let (ours, theirs) = tokio::io::duplex(256 * 1024);
     let (core_r, core_w) = tokio::io::split(theirs);
-    let server = tokio::spawn(core.serve_connection(core_r, core_w, client.clone()));
+    let server = tokio::spawn(core.serve_connection(
+        core_r,
+        core_w,
+        Client::new(client.clone(), Surface::Web),
+    ));
 
     let (from_core, mut to_core) = tokio::io::split(ours);
     let (mut ws_tx, mut ws_rx) = socket.split();

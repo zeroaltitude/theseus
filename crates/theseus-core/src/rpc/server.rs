@@ -11,28 +11,35 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::mpsc;
 
 use super::Core;
+use crate::approval::{Client, Surface};
 
-/// The connection a request came in on: who it is, and where its
-/// notifications go.
+/// The connection a request came in on: who it is, the surface its listener
+/// named, and where its notifications go.
 #[derive(Clone, Copy)]
 pub(super) struct Conn<'a> {
     pub client: &'a str,
+    pub surface: Surface,
     pub tx: &'a mpsc::UnboundedSender<Message>,
 }
 
 impl Core {
-    /// Serve one connection until EOF. `client` names the connection: its
-    /// session watches are dropped when it goes away.
+    /// Serve one connection until EOF. `client` names the connection (its
+    /// session watches are dropped when it goes away) and says which surface
+    /// accepted it; a bare label is a surface no listener named.
     pub async fn serve_connection<R, W>(
         self: Arc<Self>,
         reader: R,
         mut writer: W,
-        client: String,
+        client: Client,
     ) -> Result<()>
     where
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
+        let Client {
+            label: client,
+            surface,
+        } = client;
         // One ordered outbound queue: notifications and responses share it, so a
         // turn's events always precede its response on the wire.
         let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
@@ -79,7 +86,7 @@ impl Core {
                     let resp_tx = resp_tx.clone();
                     let client = client.clone();
                     tokio::spawn(async move {
-                        let resp = core.handle(req, tx, &client).await;
+                        let resp = core.handle(req, tx, &client, surface).await;
                         let _ = resp_tx.send(Message::Response(resp));
                     });
                 }
@@ -102,9 +109,10 @@ impl Core {
         req: Request,
         tx: mpsc::UnboundedSender<Message>,
         client: &str,
+        surface: Surface,
     ) -> Response {
         let id = req.id.clone();
-        match self.dispatch(req, tx, client).await {
+        match self.dispatch(req, tx, client, surface).await {
             Ok(v) => Response::ok(id, v),
             Err(f) => Response::err_with(id, f.code, f.message, f.data),
         }
@@ -117,8 +125,13 @@ impl Core {
         req: Request,
         tx: mpsc::UnboundedSender<Message>,
         client: &str,
+        surface: Surface,
     ) -> Result<Value, RpcFailure> {
-        let conn = Conn { client, tx: &tx };
+        let conn = Conn {
+            client,
+            surface,
+            tx: &tx,
+        };
         let params = req.params;
         match req.method.as_str() {
             method::HEALTH => reply(self.health()),

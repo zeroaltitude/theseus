@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
+use theseus_core::approval::Client;
 use theseus_core::Core;
 use theseus_protocol::{Id, Message, Notification, Request, Response};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -49,15 +50,16 @@ impl std::fmt::Display for CallError {
 impl std::error::Error for CallError {}
 
 impl RpcClient {
-    /// Open a connection labelled `label` and return the client plus the
-    /// stream of notifications (turn events for the sessions it asked about or watches).
+    /// Open a connection as `client` (its label and surface) and return the
+    /// client plus the stream of notifications (turn events for the sessions
+    /// it asked about or watches).
     pub fn connect(
         core: Arc<Core>,
-        label: &str,
+        client: Client,
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<Notification>) {
         let (ours, theirs) = tokio::io::duplex(1 << 20);
         let (core_r, core_w) = tokio::io::split(theirs);
-        tokio::spawn(core.serve_connection(core_r, core_w, label.to_string()));
+        tokio::spawn(core.serve_connection(core_r, core_w, client));
         let (from_core, mut to_core) = tokio::io::split(ours);
 
         let (out, mut out_rx) = mpsc::unbounded_channel::<String>();

@@ -597,6 +597,7 @@ async fn run(cli: Cli) -> Result<()> {
                         note,
                         watch: !no_wait,
                         author: None,
+                        discord: None,
                     })?,
                     |m, p| printer.on(m, p),
                 )
@@ -827,6 +828,7 @@ async fn run(cli: Cli) -> Result<()> {
                         }
                     );
                 }
+                print_approval(&h.approval);
             }
         }
         Cmd::Sessions { cmd } => match cmd.unwrap_or(SessionsCmd::List) {
@@ -1355,6 +1357,39 @@ fn budget_line(b: &theseus_protocol::BudgetInfo) -> String {
         ));
     }
     s
+}
+
+/// Health's `[approval]` (theseus-sgh): who may answer, and each listed
+/// channel's state, with the reason for any that is not trusted.
+fn print_approval(a: &theseus_protocol::ApprovalStatus) {
+    if !a.configured {
+        println!(
+            "approval: no [approval] section, so the CLI, the web UI, and a place's listed \
+             Discord users answer"
+        );
+        return;
+    }
+    let users = if a.trusted_users.is_empty() {
+        "nobody on Discord".to_string()
+    } else {
+        a.trusted_users.join(", ")
+    };
+    let channels: Vec<String> = a
+        .channels
+        .iter()
+        .map(|c| format!("{} {}", c.channel, c.state.replace('_', " ")))
+        .collect();
+    println!(
+        "approval: trusted users {users} · channels: {}",
+        if channels.is_empty() {
+            "none".to_string()
+        } else {
+            channels.join(", ")
+        }
+    );
+    for c in a.channels.iter().filter(|c| c.state != "trusted") {
+        println!("  {} is not trusted: {}", c.channel, c.detail);
+    }
 }
 
 fn print_confirm(c: &ConfirmRequest) {
