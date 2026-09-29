@@ -21,7 +21,9 @@
 //! is reserved past the limit; spend goes down only through an approved
 //! reset, and every reset is a `budget.reset` row; one question is open per
 //! execution, and a budget wait names its question; terminal stays terminal,
-//! and nothing new ever ends `budget_exhausted`.
+//! and nothing new ever ends `budget_exhausted`. A question carries the
+//! proposal its answer binds, and any proposal an action keeps is the one it
+//! was planned under (theseus-0g4).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -926,6 +928,23 @@ impl World {
             }
             if a.state.is_settled() && a.settled_at_ms.is_none() {
                 bail!("{at}: {} settled without settled_at", a.correlation_id);
+            }
+            // An action that waits for the operator carries the proposal its
+            // confirm binds, and a kept proposal is the one planned (theseus-0g4).
+            match &a.proposal {
+                Some(p) if digest_proposal(p) != a.args_digest => {
+                    bail!(
+                        "{at}: {} keeps a proposal it was not planned under",
+                        a.correlation_id
+                    )
+                }
+                None if a.tool == BUDGET_TOOL => {
+                    bail!(
+                        "{at}: budget question {} keeps no proposal",
+                        a.correlation_id
+                    )
+                }
+                _ => {}
             }
         }
         // Quarantine only ever holds ids we never minted.

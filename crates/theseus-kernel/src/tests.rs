@@ -640,6 +640,71 @@ fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     drop(g);
 }
 
+/// An action that waits for the operator keeps the proposal its confirm binds,
+/// and nothing else does (theseus-0g4). `pending_confirms` is the one list of
+/// what waits: a budget question first, never a provider call or a confirmed
+/// action. An action stored before theseus-0g4, with no `proposal` key,
+/// decodes and still waits.
+#[test]
+fn an_action_that_waits_keeps_its_proposal_and_one_stored_without_still_waits() {
+    let w = world();
+    let (_, _e, g) = running(&w);
+    let ask = proposal("fs.write");
+    let a = w
+        .kernel
+        .plan_confirm_with(&g, &ask, RetryClass::NonRepeatable, None, |_| Ok(vec![]))
+        .unwrap();
+    let stored = w.kernel.action(&a.correlation_id).unwrap().unwrap();
+    assert_eq!(stored.proposal.as_ref(), Some(&ask));
+    assert_eq!(stored.args_digest, crate::gate::digest_proposal(&ask));
+    assert!(stored.awaits_confirm());
+    let ran = dispatched(&w, &g, "fs.read", 0);
+    assert!(ran.proposal.is_none(), "a call that never waits keeps none");
+    let model = w
+        .kernel
+        .plan_action(
+            &g,
+            &proposal(PROVIDER_TOOL),
+            RetryClass::SafeToRepeat,
+            None,
+            0,
+        )
+        .unwrap();
+    assert!(model.proposal.is_none() && !model.awaits_confirm());
+    let ids = |v: Vec<Action>| v.into_iter().map(|a| a.correlation_id).collect::<Vec<_>>();
+    assert_eq!(
+        ids(w.kernel.pending_confirms().unwrap()),
+        vec![a.correlation_id.clone()]
+    );
+    // A budget question keeps its proposal too, and is listed first.
+    let q = w.kernel.ask_budget(&g, 1_000).unwrap();
+    let qp = q.proposal.clone().expect("the question keeps its proposal");
+    assert_eq!(crate::gate::digest_proposal(&qp), q.args_digest);
+    assert_eq!(
+        ids(w.kernel.pending_confirms().unwrap()),
+        vec![q.correlation_id.clone(), a.correlation_id.clone()]
+    );
+    // As a binary from before theseus-0g4 stored it: no proposal, still waiting.
+    let mut v = serde_json::to_value(&stored).unwrap();
+    assert!(v.as_object_mut().unwrap().remove("proposal").is_some());
+    let old: Action = serde_json::from_value(v.clone()).unwrap();
+    assert!(old.proposal.is_none() && old.awaits_confirm());
+    w.kernel
+        .store()
+        .append(&[NewRecord::json(kinds::ACTION, Some(&a.correlation_id), &v).unwrap()])
+        .unwrap();
+    assert_eq!(ids(w.kernel.pending_confirms().unwrap()).len(), 2);
+    // Answered: it waits no longer.
+    w.kernel
+        .bind_confirm(&a.correlation_id, "eddie", &ask)
+        .unwrap();
+    assert_eq!(
+        ids(w.kernel.pending_confirms().unwrap()),
+        vec![q.correlation_id]
+    );
+    drop(g);
+}
+
 /// The ledger rows of one kind in a session, oldest first.
 fn rows(w: &World, session: &str, kind: &str) -> Vec<serde_json::Value> {
     w.kernel

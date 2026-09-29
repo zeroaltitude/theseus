@@ -12,11 +12,11 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 use theseus_protocol::{
-    method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmRequest,
-    HealthResult, Id, LedgerTailParams, LedgerTailResult, Message, NodeInfo, ProfileListResult,
-    ProfileUseParams, Request, SessionHistoryParams, SessionHistoryResult, SessionInfo,
-    SessionListResult, SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult,
-    TurnSubmitParams, TurnSubmitResult,
+    method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
+    ConfirmRequest, HealthResult, Id, LedgerTailParams, LedgerTailResult, Message, NodeInfo,
+    ProfileListResult, ProfileUseParams, Request, SessionHistoryParams, SessionHistoryResult,
+    SessionInfo, SessionListResult, SessionOpenParams, SessionRecompileParams, SessionRef,
+    ToolListResult, TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
@@ -571,29 +571,11 @@ async fn run(cli: Cli) -> Result<()> {
         } => {
             let Some(corr) = correlation_id else {
                 // Everything waiting, across sessions.
-                let l: SessionListResult = serde_json::from_value(
-                    conn.call(method::SESSION_LIST, Value::Null, |_, _| {})
+                let waiting = serde_json::from_value::<ConfirmListResult>(
+                    conn.call(method::CONFIRM_LIST, Value::Null, |_, _| {})
                         .await?,
-                )?;
-                let mut waiting = Vec::new();
-                for s in l
-                    .sessions
-                    .iter()
-                    .filter(|s| s.execution_state.as_deref() == Some("waiting"))
-                {
-                    let h: SessionHistoryResult = serde_json::from_value(
-                        conn.call(
-                            method::SESSION_HISTORY,
-                            serde_json::to_value(SessionHistoryParams {
-                                session_id: s.session_id.clone(),
-                                n: Some(1),
-                            })?,
-                            |_, _| {},
-                        )
-                        .await?,
-                    )?;
-                    waiting.extend(h.pending_confirms);
-                }
+                )?
+                .confirms;
                 if json {
                     println!("{}", serde_json::to_string(&waiting)?);
                 } else if waiting.is_empty() {

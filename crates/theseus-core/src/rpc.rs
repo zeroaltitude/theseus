@@ -11,9 +11,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use theseus_protocol::{
-    error_code, method, notify, HealthResult, Id, LedgerEntry, LedgerTailParams, LedgerTailResult,
-    Message, ProfileChanged, ProfileInfo, ProfileListResult, ProfileUseParams, ProviderErrorData,
-    Request, Response, SessionKind, SessionListResult, SessionOpenParams, TurnSubmitParams, Usage,
+    error_code, method, notify, ConfirmRequest, HealthResult, Id, LedgerEntry, LedgerTailParams,
+    LedgerTailResult, Message, ProfileChanged, ProfileInfo, ProfileListResult, ProfileUseParams,
+    ProviderErrorData, Request, Response, SessionKind, SessionListResult, SessionOpenParams,
+    TurnSubmitParams, Usage,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -33,7 +34,7 @@ use crate::toolrun::{InlineLauncher, JobLauncher, ToolRuntime, WrapperLauncher};
 use crate::turn::{TurnError, TurnRequest, TurnRunner, OPERATOR};
 use crate::Config;
 use theseus_kernel::job::WrapperEvidence;
-use theseus_kernel::{Authority, Execution, Kernel, Spool};
+use theseus_kernel::{Action, Authority, Execution, Kernel, Spool, BUDGET_TOOL};
 
 pub struct Core {
     pub cfg: Arc<Config>,
@@ -800,25 +801,61 @@ impl Core {
         }
     }
 
-    /// A session's open budget question, as the confirm it is (theseus-0sg):
-    /// its execution reached the spend limit and waits for the operator.
-    fn budget_confirm(&self, session: &SessionRecord) -> Option<theseus_protocol::ConfirmRequest> {
-        use theseus_kernel::micros_to_usd as usd;
-        let e = self
-            .kernel
-            .execution(session.execution_id.as_deref()?)
-            .ok()??;
-        let q = self.kernel.action(e.budget.question.as_deref()?).ok()??;
-        if q.state != theseus_kernel::ActionState::Planned {
-            return None;
+    /// A waiting action as the question the operator sees: the one place a
+    /// pending confirm becomes a `ConfirmRequest` (theseus-0g4). A tool call
+    /// shows its node's input and the policy's reason; None if its node is not
+    /// in `nodes`.
+    fn confirm_request(
+        &self,
+        a: &Action,
+        session: &SessionRecord,
+        nodes: &[(u64, Node)],
+    ) -> Option<ConfirmRequest> {
+        if a.tool == BUDGET_TOOL {
+            return self.budget_confirm(a, session);
         }
+        let (tool, input, gate) = nodes.iter().find_map(|(_, n)| match &n.body {
+            Body::ToolCall {
+                tool,
+                input,
+                correlation_id: Some(c),
+                gate,
+                ..
+            } if *c == a.correlation_id => Some((tool, input, gate)),
+            _ => None,
+        })?;
+        Some(ConfirmRequest {
+            correlation_id: a.correlation_id.clone(),
+            session_id: session.session_id.clone(),
+            execution_id: a.execution_id.clone(),
+            tool: tool.clone(),
+            input: input.clone(),
+            resource: a.resource.clone(),
+            reason: gate["decision"]["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            by: OPERATOR.into(),
+            requested_at_ms: a.planned_at_ms,
+            expires_at_ms: a.planned_at_ms + self.kernel.config().confirm_ttl_ms,
+            floor: gate["decision"]["floor"].as_bool().unwrap_or(false),
+            budget: None,
+        })
+    }
+
+    /// An open budget question, as the confirm it is (theseus-0sg): its
+    /// execution reached the spend limit and waits for the operator. The
+    /// figures are the execution's now.
+    fn budget_confirm(&self, q: &Action, session: &SessionRecord) -> Option<ConfirmRequest> {
+        use theseus_kernel::micros_to_usd as usd;
+        let e = self.kernel.execution(&q.execution_id).ok()??;
         let b = &e.budget;
         let needed = usd(b.question_needs_micros);
-        Some(theseus_protocol::ConfirmRequest {
+        Some(ConfirmRequest {
             correlation_id: q.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: e.id.clone(),
-            tool: theseus_kernel::BUDGET_TOOL.into(),
+            tool: BUDGET_TOOL.into(),
             input: json!({"spent_usd": usd(b.spent_micros), "limit_usd": usd(b.limit_micros), "needed_usd": needed}),
             resource: None,
             reason: format!(
@@ -839,82 +876,86 @@ impl Core {
         })
     }
 
-    /// Tool calls in a session still waiting for the operator, and its open
-    /// budget question.
-    pub fn pending_confirms(
-        &self,
-        session_id: &str,
-    ) -> Result<Vec<theseus_protocol::ConfirmRequest>> {
-        let mut out = Vec::new();
-        if let Some(rec) = self.store.get_session::<SessionRecord>(session_id)? {
-            out.extend(self.budget_confirm(&rec));
-        }
+    /// A session's questions for the operator: its budget question, then its
+    /// tool calls waiting for approval.
+    pub fn pending_confirms(&self, session_id: &str) -> Result<Vec<ConfirmRequest>> {
+        let Some(rec) = self.store.get_session::<SessionRecord>(session_id)? else {
+            return Ok(vec![]);
+        };
         let nodes = self.store.session_nodes(session_id)?;
-        let ttl = self.kernel.config().confirm_ttl_ms;
-        for (_, n) in &nodes {
-            if let Body::ToolCall {
-                tool,
-                input,
-                correlation_id: Some(c),
-                gate,
-                ..
-            } = &n.body
-            {
-                if let Some(a) = self.kernel.action(c)? {
-                    if a.state == theseus_kernel::ActionState::Planned && a.confirm.is_none() {
-                        out.push(theseus_protocol::ConfirmRequest {
-                            correlation_id: c.clone(),
-                            session_id: session_id.into(),
-                            execution_id: a.execution_id.clone(),
-                            tool: tool.clone(),
-                            input: input.clone(),
-                            resource: a.resource.clone(),
-                            reason: gate["decision"]["reason"]
-                                .as_str()
-                                .unwrap_or_default()
-                                .to_string(),
-                            by: OPERATOR.into(),
-                            requested_at_ms: a.planned_at_ms,
-                            expires_at_ms: a.planned_at_ms + ttl,
-                            floor: gate["decision"]["floor"].as_bool().unwrap_or(false),
-                            budget: None,
-                        });
-                    }
-                }
+        Ok(self.confirms_of(&self.kernel.pending_confirms()?, &rec, &nodes))
+    }
+
+    /// The questions in `pending` (`Kernel::pending_confirms`) that one
+    /// session asks. `nodes` is its transcript.
+    fn confirms_of(
+        &self,
+        pending: &[Action],
+        session: &SessionRecord,
+        nodes: &[(u64, Node)],
+    ) -> Vec<ConfirmRequest> {
+        pending
+            .iter()
+            .filter(|a| a.session_id == session.session_id)
+            .filter_map(|a| self.confirm_request(a, session, nodes))
+            .collect()
+    }
+
+    /// Everything waiting for the operator (`confirm.list`, what `theseus
+    /// confirm` with no id lists): the questions of every session parked on
+    /// one, the most recently active session first. One scan of the open
+    /// actions; a transcript is read only for a session with a tool call waiting.
+    pub fn confirm_list(&self) -> Result<Vec<ConfirmRequest>> {
+        let pending = self.kernel.pending_confirms()?;
+        let mut out = Vec::new();
+        if pending.is_empty() {
+            return Ok(out);
+        }
+        for rec in self.sessions_by_activity()? {
+            let asks: Vec<&Action> = pending
+                .iter()
+                .filter(|a| a.session_id == rec.session_id)
+                .collect();
+            let parked = rec
+                .execution_id
+                .as_deref()
+                .and_then(|id| self.kernel.execution(id).ok().flatten())
+                .is_some_and(|e| e.state == theseus_kernel::ExecState::Waiting);
+            if asks.is_empty() || !parked {
+                continue;
             }
+            let nodes = if asks.iter().any(|a| a.tool != BUDGET_TOOL) {
+                self.store.session_nodes(&rec.session_id)?
+            } else {
+                vec![]
+            };
+            out.extend(
+                asks.into_iter()
+                    .filter_map(|a| self.confirm_request(a, &rec, &nodes)),
+            );
         }
         Ok(out)
     }
 
-    /// Every session, the most recently active first.
-    pub fn session_list(&self) -> Result<Vec<theseus_protocol::SessionInfo>> {
+    /// Every session record, the most recently active first.
+    fn sessions_by_activity(&self) -> Result<Vec<SessionRecord>> {
         let mut recs: Vec<SessionRecord> = self.store.list_sessions()?;
         recs.sort_by(|a, b| {
             b.last_active_ms
                 .max(b.created_at_unix_ms)
                 .cmp(&a.last_active_ms.max(a.created_at_unix_ms))
         });
-        let waiting = self.waiting_confirms();
-        Ok(recs
+        Ok(recs)
+    }
+
+    /// Every session, the most recently active first.
+    pub fn session_list(&self) -> Result<Vec<theseus_protocol::SessionInfo>> {
+        let waiting = waiting_by_execution(&self.kernel.pending_confirms().unwrap_or_default());
+        Ok(self
+            .sessions_by_activity()?
             .iter()
             .map(|r| self.session_info(r, &waiting))
             .collect())
-    }
-
-    /// Tool calls waiting for the operator, by execution: planned actions with
-    /// no bound confirmation. One scan of the open actions answers every
-    /// session of a list.
-    fn waiting_confirms(&self) -> BTreeMap<String, u32> {
-        let mut by_execution = BTreeMap::new();
-        for a in self.kernel.open_actions().unwrap_or_default() {
-            if a.state == theseus_kernel::ActionState::Planned
-                && a.confirm.is_none()
-                && a.tool != crate::turn::PROVIDER_TOOL
-            {
-                *by_execution.entry(a.execution_id).or_insert(0) += 1;
-            }
-        }
-        by_execution
     }
 
     fn session_info(
@@ -953,26 +994,11 @@ impl Core {
                 a.state.as_str()
             );
         }
-        if a.tool == theseus_kernel::BUDGET_TOOL {
+        if a.tool == BUDGET_TOOL {
             return self.answer_budget(&a, approve, note, by);
         }
         if approve {
-            let call = self
-                .store
-                .session_nodes(&a.session_id)?
-                .into_iter()
-                .find_map(|(_, n)| match n.body {
-                    Body::ToolCall {
-                        correlation_id: Some(c),
-                        gate,
-                        ..
-                    } if c == correlation_id => Some(gate),
-                    _ => None,
-                })
-                .ok_or_else(|| anyhow::anyhow!("no tool call node for {correlation_id}"))?;
-            let proposal: theseus_kernel::Proposal =
-                serde_json::from_value(call["proposal"].clone())
-                    .map_err(|e| anyhow::anyhow!("stored proposal unreadable: {e}"))?;
+            let proposal = crate::toolrun::confirm_proposal(&self.store, &a, None)?;
             self.kernel
                 .bind_confirm(correlation_id, OPERATOR, &proposal)?;
         } else {
@@ -1432,14 +1458,15 @@ impl Core {
                     })?;
                 let nodes = self.store.session_nodes(&p.session_id).map_err(bad)?;
                 let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
+                let pending = self.kernel.pending_confirms().map_err(bad)?;
                 Ok(
                     serde_json::to_value(theseus_protocol::SessionHistoryResult {
-                        session: self.session_info(&rec, &self.waiting_confirms()),
+                        session: self.session_info(&rec, &waiting_by_execution(&pending)),
                         nodes: nodes[skip..]
                             .iter()
                             .map(|(pos, n)| Self::node_info(*pos, n))
                             .collect(),
-                        pending_confirms: self.pending_confirms(&p.session_id).map_err(bad)?,
+                        pending_confirms: self.confirms_of(&pending, &rec, &nodes),
                     })
                     .unwrap(),
                 )
@@ -1591,6 +1618,10 @@ impl Core {
                     .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
                 Ok(serde_json::to_value(r).unwrap())
             }
+            method::CONFIRM_LIST => Ok(serde_json::to_value(theseus_protocol::ConfirmListResult {
+                confirms: self.confirm_list().map_err(bad)?,
+            })
+            .unwrap()),
             method::TOOL_LIST => {
                 let calls = self.tools.calls.lock().unwrap().clone();
                 let total: u64 = calls.values().sum();
@@ -1766,6 +1797,15 @@ impl RpcFailure {
             data: Value::Null,
         }
     }
+}
+
+/// How many questions each execution waits on, from `Kernel::pending_confirms`.
+fn waiting_by_execution(pending: &[Action]) -> BTreeMap<String, u32> {
+    let mut by = BTreeMap::new();
+    for a in pending {
+        *by.entry(a.execution_id.clone()).or_insert(0) += 1;
+    }
+    by
 }
 
 fn parse<T: serde::de::DeserializeOwned>(v: Value) -> Result<T, RpcFailure> {

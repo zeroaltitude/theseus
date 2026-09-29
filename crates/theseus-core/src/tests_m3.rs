@@ -356,6 +356,111 @@ async fn a_decline_recorded_under_the_old_names_still_reads_as_a_decline() {
     );
 }
 
+/// Store an action again as a binary from before theseus-0g4 wrote it, with
+/// no `proposal` on it.
+fn stored_without_its_proposal(r: &Rig, corr: &str) {
+    use theseus_store::{kinds, NewRecord};
+    let a = r.core.kernel.action(corr).unwrap().unwrap();
+    let mut v = serde_json::to_value(&a).unwrap();
+    assert!(v.as_object_mut().unwrap().remove("proposal").is_some());
+    let rec = NewRecord::json(kinds::ACTION, Some(corr), &v)
+        .unwrap()
+        .scoped(&a.session_id);
+    r.core.store.append(&[rec]).unwrap();
+    assert!(r
+        .core
+        .kernel
+        .action(corr)
+        .unwrap()
+        .unwrap()
+        .proposal
+        .is_none());
+}
+
+/// A call that waits keeps its proposal on the action (theseus-0g4). One
+/// stored before that, with only its node's gate record to go by, is still
+/// found by every reader (the history, the session list, `confirm.list`) and
+/// answered: the confirm binds the node's proposal, and the driver runs it.
+#[tokio::test]
+async fn a_confirm_pending_from_before_theseus_0g4_is_found_and_answered() {
+    let r = rig(vec![
+        Scripted::tools(
+            "",
+            &[(
+                "t1",
+                "fs_write",
+                json!({"path": "out.txt", "content": "made by theseus\n"}),
+            )],
+        ),
+        Scripted::text("Written."),
+    ]);
+    let res = turn(&r.core, None, "write out.txt").await;
+    let corr = res.awaiting_confirm.clone().unwrap();
+    let kept = r.core.kernel.action(&corr).unwrap().unwrap().proposal;
+    assert_eq!(kept.map(|p| p.tool), Some("fs.write".to_string()));
+    stored_without_its_proposal(&r, &corr);
+
+    let pending = r.core.pending_confirms(&res.session_id).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        (pending[0].correlation_id.as_str(), pending[0].tool.as_str()),
+        (corr.as_str(), "fs.write")
+    );
+    assert!(
+        pending[0].reason.contains("out.txt"),
+        "{}",
+        pending[0].reason
+    );
+    let all = r.core.confirm_list().unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].correlation_id, corr);
+    let listed = r.core.session_list().unwrap();
+    assert_eq!(listed[0].pending_confirms, 1);
+
+    r.core.confirm_action(&corr, true, None, "test").unwrap();
+    assert!(r.core.confirm_list().unwrap().is_empty());
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cont.output, "Written.");
+    assert_eq!(
+        std::fs::read_to_string(r.root.join("out.txt")).unwrap(),
+        "made by theseus\n"
+    );
+}
+
+/// Approved under the old binary and resumed by the new one: the resumed turn
+/// authorizes with the proposal on the node's gate record.
+#[tokio::test]
+async fn a_call_approved_before_theseus_0g4_resumes_from_its_node() {
+    let r = rig(vec![
+        Scripted::tools(
+            "",
+            &[("t1", "fs_write", json!({"path": "b.txt", "content": "b\n"}))],
+        ),
+        Scripted::text("Written."),
+    ]);
+    let res = turn(&r.core, None, "write b.txt").await;
+    let corr = res.awaiting_confirm.clone().unwrap();
+    r.core.confirm_action(&corr, true, None, "test").unwrap();
+    stored_without_its_proposal(&r, &corr);
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cont.output, "Written.");
+    assert_eq!(results(&r.core, &res.session_id)[0].0, ResultStatus::Ok);
+    assert_eq!(
+        std::fs::read_to_string(r.root.join("b.txt")).unwrap(),
+        "b\n"
+    );
+}
+
 #[tokio::test]
 async fn outside_the_roots_and_approve_paths_wait_with_a_clear_reason() {
     let outside = tempfile::tempdir().unwrap();

@@ -24,6 +24,10 @@ pub const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
 /// its spend may go back to $0. Answered with `action.confirm` like any other.
 pub const BUDGET_TOOL: &str = "budget.reset";
 
+/// The `tool` of a provider call's action. It is authorized in the frame after
+/// its plan and never asks the operator.
+pub const PROVIDER_TOOL: &str = "provider.messages";
+
 /// Method names. Requests (client → server).
 pub mod method {
     pub const HEALTH: &str = "health";
@@ -37,6 +41,8 @@ pub mod method {
     pub const EXECUTION_CANCEL: &str = "execution.cancel";
     pub const ACTION_LIST: &str = "action.list";
     pub const ACTION_CONFIRM: &str = "action.confirm";
+    /// Every question waiting for the operator, across sessions.
+    pub const CONFIRM_LIST: &str = "confirm.list";
     pub const SESSION_HISTORY: &str = "session.history";
     pub const SESSION_WATCH: &str = "session.watch";
     pub const SESSION_UNWATCH: &str = "session.unwatch";
@@ -862,6 +868,13 @@ pub struct BudgetAsk {
     pub needed_usd: f64,
     /// The session's lifetime cost, resets included.
     pub lifetime_usd: f64,
+}
+
+/// `confirm.list`: the questions of every session parked on one, the most
+/// recently active session first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfirmListResult {
+    pub confirms: Vec<ConfirmRequest>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

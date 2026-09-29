@@ -786,6 +786,48 @@ impl Kernel {
         reserve_micros: Micros,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
+        let (a, mut frame) = self.plan_frame(
+            guard,
+            proposal,
+            retry_class,
+            deadline_ms,
+            reserve_micros,
+            false,
+        )?;
+        frame.extend(extra(&a)?);
+        self.commit(&frame)?;
+        Ok(a)
+    }
+
+    /// `plan_action_with` for a call that waits for the operator's confirm
+    /// (the policy stopped it for approval). It reserves nothing, and the
+    /// action keeps its proposal, which the confirm binds and the resumed turn
+    /// authorizes (theseus-0g4).
+    pub fn plan_confirm_with(
+        &self,
+        guard: &TurnGuard,
+        proposal: &Proposal,
+        retry_class: RetryClass,
+        deadline_ms: Option<u64>,
+        extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
+    ) -> Result<Action> {
+        let (a, mut frame) = self.plan_frame(guard, proposal, retry_class, deadline_ms, 0, true)?;
+        frame.extend(extra(&a)?);
+        self.commit(&frame)?;
+        Ok(a)
+    }
+
+    /// The planned action and its frame so far: the execution's reservation
+    /// (if any), the action, and its `action.planned` row.
+    fn plan_frame(
+        &self,
+        guard: &TurnGuard,
+        proposal: &Proposal,
+        retry_class: RetryClass,
+        deadline_ms: Option<u64>,
+        reserve_micros: Micros,
+        keep_proposal: bool,
+    ) -> Result<(Action, Vec<NewRecord>)> {
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -824,6 +866,7 @@ impl Kernel {
             session_id: e.session_id.clone(),
             tool: proposal.tool.clone(),
             args_digest: digest_proposal(proposal),
+            proposal: keep_proposal.then(|| proposal.clone()),
             resource: proposal.resource.clone(),
             retry_class,
             state: ActionState::Planned,
@@ -847,9 +890,26 @@ impl Kernel {
             Some(&a.session_id),
             json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id, "tool": a.tool, "args_digest": a.args_digest, "retry_class": a.retry_class, "deadline_at_ms": a.deadline_at_ms, "reserved_usd": micros_to_usd(reserve_micros)}),
         )?);
-        frame.extend(extra(&a)?);
-        self.commit(&frame)?;
-        Ok(a)
+        Ok((a, frame))
+    }
+
+    /// Every action waiting for the operator's answer (`Action::awaits_confirm`):
+    /// the one derivation of pending confirms (theseus-0g4). A budget question
+    /// comes first, then the rest in the order they were planned.
+    pub fn pending_confirms(&self) -> Result<Vec<Action>> {
+        let mut v: Vec<Action> = self
+            .open_actions()?
+            .into_iter()
+            .filter(Action::awaits_confirm)
+            .collect();
+        v.sort_by_key(|a| {
+            (
+                a.tool != BUDGET_TOOL,
+                a.planned_at_ms,
+                a.correlation_id.clone(),
+            )
+        });
+        Ok(v)
     }
 
     // ------------------------------------------------------------ budget
@@ -857,7 +917,8 @@ impl Kernel {
     /// A reservation did not fit (`OverBudget`): ask the operator whether
     /// the execution's spend may go back to $0 (theseus-0sg). Requires the
     /// held turn. The question is a planned `budget.reset` action with no
-    /// reservation, answered through the confirm path: `reset_budget` on an
+    /// reservation that keeps its proposal, like every action that waits for
+    /// the operator, answered through the confirm path: `reset_budget` on an
     /// approval, `decline_action` otherwise. The turn then ends waiting on
     /// `Wake::Budget`. An earlier question still open is superseded in the
     /// same frame, so one is open at a time.
@@ -903,6 +964,7 @@ impl Kernel {
             session_id: e.session_id.clone(),
             tool: BUDGET_TOOL.into(),
             args_digest: digest_proposal(&proposal),
+            proposal: Some(proposal),
             resource: None,
             retry_class: RetryClass::NonRepeatable,
             state: ActionState::Planned,

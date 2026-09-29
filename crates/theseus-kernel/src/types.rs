@@ -15,6 +15,10 @@ pub use theseus_protocol::SessionKind;
 /// The tool name of a budget question: the planned action that asks the
 /// operator whether an execution's spend may go back to $0 (theseus-0sg).
 pub use theseus_protocol::BUDGET_TOOL;
+/// The tool name of a provider call's action, which never asks the operator.
+pub use theseus_protocol::PROVIDER_TOOL;
+
+use crate::gate::Proposal;
 
 pub type ExecutionId = String;
 pub type SessionId = String;
@@ -348,8 +352,16 @@ pub struct Action {
     pub session_id: SessionId,
     pub tool: String,
     /// sha256 of the canonical arguments; the arguments themselves are a node
-    /// (§3.16 references, not payloads) and are not duplicated here.
+    /// (§3.16 references, not payloads) and are not duplicated here, except in
+    /// `proposal` below.
     pub args_digest: String,
+    /// What an action that waits for the operator asks about: a tool call the
+    /// policy stopped for approval, or a budget question. The confirm binds it
+    /// and `authorize` re-checks it (theseus-0g4). Every other action is
+    /// authorized in the frame after its plan and keeps none. Actions stored
+    /// before theseus-0g4 have none either; theirs is on the tool-call node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposal: Option<Proposal>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource: Option<String>,
     pub retry_class: RetryClass,
@@ -386,6 +398,14 @@ pub struct Action {
 }
 
 impl Action {
+    /// Waits for the operator's answer (§3.9): planned, with no confirm bound
+    /// yet, and not a provider call. This is the one test of a pending confirm
+    /// (theseus-0g4), a tool call or a budget question, that every reader
+    /// uses through `Kernel::pending_confirms`.
+    pub fn awaits_confirm(&self) -> bool {
+        self.state == ActionState::Planned && self.confirm.is_none() && self.tool != PROVIDER_TOOL
+    }
+
     /// The note from a decline, when `Kernel::decline_action` settled this
     /// action: its resolution reads `declined by <who>: <note>`, or `denied by
     /// <who>: <note>` in rows written before theseus-8az.

@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use theseus_kernel::job::{spawn_detached, WrapperArgs};
 use theseus_kernel::{
     Action, ActionState, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
+    BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{notify, ConfirmRequest};
 use theseus_store::Store as _;
@@ -606,24 +607,27 @@ impl ToolRuntime {
             tc.ledger("tool.notified", payload.clone());
             tc.sink.send(notify::POLICY_NOTIFIED, payload);
         }
-        let a = tc.kernel.plan_action_with(
-            tc.guard,
-            &proposal,
-            map_retry(tool.retry()),
-            Some(self.deadline_ms(tool.as_ref(), &call.input)),
-            0,
-            |a| {
-                Ok(vec![Self::tool_call_node(
-                    tc,
-                    assistant_node,
-                    call,
-                    tool.name(),
-                    Some(&a.correlation_id),
-                    gate.clone(),
-                )
-                .record()?])
-            },
-        )?;
+        let retry = map_retry(tool.retry());
+        let deadline = Some(self.deadline_ms(tool.as_ref(), &call.input));
+        let node = |a: &Action| {
+            Ok(vec![Self::tool_call_node(
+                tc,
+                assistant_node,
+                call,
+                tool.name(),
+                Some(&a.correlation_id),
+                gate.clone(),
+            )
+            .record()?])
+        };
+        // A call that waits keeps its proposal on the action (theseus-0g4).
+        let a = if decision.posture == Posture::Approve {
+            tc.kernel
+                .plan_confirm_with(tc.guard, &proposal, retry, deadline, node)?
+        } else {
+            tc.kernel
+                .plan_action_with(tc.guard, &proposal, retry, deadline, 0, node)?
+        };
         if tc.narrator.on() {
             let subject = self.subject(tool.name(), &plan);
             let why = narrative::gate_why(
@@ -1113,23 +1117,37 @@ impl ToolRuntime {
                 .map(|t| t.name().to_string())
                 .unwrap_or_else(|| u.name.clone());
             match a.state {
-                ActionState::Planned if a.confirm.is_some() => {
+                _ if a.awaits_confirm() => {
+                    if has_input {
+                        narrate_turn!(
+                            tc,
+                            Approval,
+                            "{tool_name}: new input came instead of an answer, so it is \
+                             declined."
+                        );
+                        tc.kernel.decline_action(
+                            &corr,
+                            &self.policy.confirmer,
+                            "superseded: the operator sent a new message instead of confirming",
+                        )?;
+                        tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false, "superseded": true}));
+                        let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Declined, "Not run: the operator sent a new message instead of confirming this call.", Some(&corr), None, false, None, None, Value::Null);
+                        Self::write_result(tc, &node)?;
+                        out.wrote += 1;
+                    } else {
+                        out.awaiting = Some(corr);
+                        return Ok(out);
+                    }
+                }
+                ActionState::Planned => {
+                    // Confirmed, and not yet authorized.
                     let Some(tool) = tool else {
                         self.not_run(tc, &u, "the tool is no longer registered")?;
                         out.wrote += 1;
                         continue;
                     };
-                    let proposal: Proposal = call_node
-                        .and_then(|n| match &n.body {
-                            Body::ToolCall { gate, .. } => {
-                                serde_json::from_value(gate["proposal"].clone()).ok()
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or_else(|| self.proposal_for(tool.as_ref(), &u.input));
-                    match tc
-                        .kernel
-                        .authorize(&corr, &proposal, Some(&self.policy.confirmer))
+                    match confirm_proposal(tc.store, &a, call_node)
+                        .and_then(|p| tc.kernel.authorize(&corr, &p, Some(&self.policy.confirmer)))
                     {
                         Ok(_) => {
                             // `action.confirm` announced the answer; this only acts on it.
@@ -1174,28 +1192,6 @@ impl ToolRuntime {
                             Self::write_result(tc, &node)?;
                             out.wrote += 1;
                         }
-                    }
-                }
-                ActionState::Planned => {
-                    if has_input {
-                        narrate_turn!(
-                            tc,
-                            Approval,
-                            "{tool_name}: new input came instead of an answer, so it is \
-                             declined."
-                        );
-                        tc.kernel.decline_action(
-                            &corr,
-                            &self.policy.confirmer,
-                            "superseded: the operator sent a new message instead of confirming",
-                        )?;
-                        tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false, "superseded": true}));
-                        let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Declined, "Not run: the operator sent a new message instead of confirming this call.", Some(&corr), None, false, None, None, Value::Null);
-                        Self::write_result(tc, &node)?;
-                        out.wrote += 1;
-                    } else {
-                        out.awaiting = Some(corr);
-                        return Ok(out);
                     }
                 }
                 ActionState::Authorized => {
@@ -1304,9 +1300,7 @@ impl ToolRuntime {
     pub fn absorb(&self, tc: &TurnCtx<'_>, settled: &[Action]) -> Result<u32> {
         let jobs: Vec<&Action> = settled
             .iter()
-            .filter(|a| {
-                a.tool != crate::turn::PROVIDER_TOOL && a.tool != theseus_kernel::BUDGET_TOOL
-            })
+            .filter(|a| a.tool != PROVIDER_TOOL && a.tool != BUDGET_TOOL)
             .collect();
         if jobs.is_empty() {
             return Ok(0);
@@ -1505,6 +1499,38 @@ fn narrate_result(
             )
         }
     }
+}
+
+/// The proposal a confirm binds and `authorize` re-checks: the action's own,
+/// or, for an action planned before actions kept it (theseus-0g4), the one on
+/// its tool-call node's gate record. `node` saves the transcript scan when the
+/// caller has the node.
+pub fn confirm_proposal(store: &Store, a: &Action, node: Option<&Node>) -> Result<Proposal> {
+    if let Some(p) = &a.proposal {
+        return Ok(p.clone());
+    }
+    let found;
+    let node = match node {
+        Some(n) => n,
+        None => {
+            found = store
+                .session_nodes(&a.session_id)?
+                .into_iter()
+                .map(|(_, n)| n)
+                .find(|n| {
+                    matches!(&n.body, Body::ToolCall { correlation_id: Some(c), .. }
+                        if *c == a.correlation_id)
+                });
+            found
+                .as_ref()
+                .ok_or_else(|| anyhow!("no tool call node for {}", a.correlation_id))?
+        }
+    };
+    let Body::ToolCall { gate, .. } = &node.body else {
+        return Err(anyhow!("no tool call node for {}", a.correlation_id));
+    };
+    serde_json::from_value(gate["proposal"].clone())
+        .map_err(|e| anyhow!("stored proposal unreadable: {e}"))
 }
 
 fn map_retry(r: Retry) -> RetryClass {

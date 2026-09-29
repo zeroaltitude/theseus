@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use theseus_kernel::{
     micros_to_usd, Action, ActionState, Authority, Completion, ExecState, Execution, Kernel,
     KernelError, Micros, Outcome as ActionOutcome, Proposal, RetryClass, TurnEnd, TurnGuard, Wake,
-    BUDGET_TOOL,
+    BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{
     notify, BudgetAsk, ConfirmRequest, LoopEnded, LoopStarted, ModelDelta, TurnStarted,
@@ -45,9 +45,6 @@ use crate::store::Store;
 use crate::toolrun::{CallOutcome, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
-
-/// The tool name of the provider-call action (spec §3.2b).
-pub const PROVIDER_TOOL: &str = "provider.messages";
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
 /// the start of the cached prefix, so it never interpolates anything.
