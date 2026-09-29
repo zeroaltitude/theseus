@@ -563,7 +563,7 @@ fn default_store_engine() -> theseus_store::Engine {
 }
 
 fn default_model() -> String {
-    "claude-sonnet-5".into()
+    "claude-sonnet-5-5".into()
 }
 fn default_provider_name() -> String {
     "anthropic".into()

@@ -8,13 +8,15 @@
 //! cache writes are the 5-minute TTL rate) and OpenClaw's model catalog (GLM).
 //! OpenClaw lists Sonnet 5 at 3/15 and Haiku 4.5 at 0.8/4 with an 8,192-token
 //! output cap; the reference says 2/10 and 1/5 with 64K, and the reference wins.
+//! Sonnet 5.5 (released 2026-09-28) comes from the Anthropic Models API (window
+//! and output cap) and the live pricing page, read on release day.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-09-26.1";
+pub const BUILTIN_VERSION: &str = "2026-09-28.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -162,6 +164,13 @@ impl Catalog {
             claude(m, 128_000, 5.0, 25.0, 0.50, 6.25, Adaptive, false, 1024),
         );
         e.insert(
+            "claude-sonnet-5-5".into(),
+            CatalogEntry {
+                source: "Anthropic Models API and pricing page, 2026-09-28".into(),
+                ..claude(m, 128_000, 2.0, 10.0, 0.20, 2.50, Adaptive, false, 1024)
+            },
+        );
+        e.insert(
             "claude-sonnet-5".into(),
             claude(m, 128_000, 2.0, 10.0, 0.20, 2.50, Adaptive, false, 1024),
         );
@@ -238,9 +247,16 @@ mod tests {
             cache_read_input_tokens: 1_000_000,
             cache_creation_input_tokens: 1_000_000,
         };
-        // Sonnet 5: 2 + 10 + 0.20 + 2.50
-        let s = c.cost_usd("claude-sonnet-5", &u).unwrap();
-        assert!((s - 14.70).abs() < 1e-9, "{s}");
+        // Sonnet 5 and Sonnet 5.5: 2 + 10 + 0.20 + 2.50
+        for id in ["claude-sonnet-5", "claude-sonnet-5-5"] {
+            let s = c.cost_usd(id, &u).unwrap();
+            assert!((s - 14.70).abs() < 1e-9, "{id}: {s}");
+        }
+        let s55 = c.get("claude-sonnet-5-5").unwrap();
+        assert_eq!(
+            (s55.context_window, s55.max_output_tokens),
+            (1_000_000, 128_000)
+        );
         assert!(c.cost_usd("no-such-model", &u).is_none());
         assert_eq!(
             c.get("claude-opus-5-5").unwrap().thinking,

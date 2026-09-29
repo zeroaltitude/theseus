@@ -26,11 +26,11 @@
 [model]
 live = "sonnet"
 provider = "anthropic"                  # a key of [providers], or the implicit "anthropic"
-model = "claude-sonnet-5"
+model = "claude-sonnet-5-5"
 # Output cap per call (the Messages API's max_tokens). NOT an input limit: input is
 # whatever the compiler assembles, bounded by the model's context window. Omitted,
-# it defaults to the model's ceiling from the catalog (Sonnet 5, Opus 5/5.5, Fable
-# 5.1: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
+# it defaults to the model's ceiling from the catalog (Sonnet 5/5.5, Opus 5/5.5,
+# Fable 5.1: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
 # max_output_tokens = 128000            # alias: max_tokens
 # system = "You are Theseus."           # appended to the built-in persona and tools note
 # effort = "high"                       # low | medium | high | xhigh | max (models that take effort)
@@ -54,8 +54,8 @@ total_secs = 600                        # the whole call
 # live. `theseus ask -P <name>` runs one turn under another profile.
 [profiles.sonnet]
 provider = "anthropic"
-model = "claude-sonnet-5"
-# max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5)
+model = "claude-sonnet-5-5"
+# max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5.5)
 # system = ""
 # effort = "xhigh"                      # the recommended level for coding and agentic work
 thinking_display = "summarized"
@@ -179,10 +179,11 @@ approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"]
 # "some-server/dangerous-tool" = "approve"
 
 # ---------------------------------------------------------------- catalog
-# Built in (version 2026-09-26.1): claude-fable-5-1, claude-fable-5, claude-opus-5-5,
-# claude-opus-5, claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5, glm-5.3, glm-5.2,
-# glm-5.3-flash, glm-5.3-flashx. A row here replaces or adds one; `theseus catalog` lists them.
-# [catalog."claude-sonnet-5"]
+# Built in (version 2026-09-28.1): claude-fable-5-1, claude-fable-5, claude-opus-5-5,
+# claude-opus-5, claude-opus-4-8, claude-sonnet-5-5, claude-sonnet-5, claude-haiku-4-5,
+# glm-5.3, glm-5.2, glm-5.3-flash, glm-5.3-flashx. A row here replaces or adds one;
+# `theseus catalog` lists them.
+# [catalog."claude-sonnet-5-5"]
 # provider = "anthropic"
 # context_window = 1000000
 # max_output_tokens = 128000

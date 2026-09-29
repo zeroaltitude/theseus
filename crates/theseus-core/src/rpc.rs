@@ -2224,7 +2224,7 @@ mod tests {
         .unwrap();
         assert_eq!(r1.provider, "anthropic");
         assert_eq!(r1.output, "from anthropic");
-        assert_eq!(r1.model, "claude-sonnet-5");
+        assert_eq!(r1.model, "claude-sonnet-5-5");
         let r2: TurnSubmitResult = serde_json::from_value(
             rs.iter()
                 .find(|r| r.id == Id::Num(2))
