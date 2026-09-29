@@ -20,6 +20,8 @@ export interface KernelStatus {
   accepting: boolean; admission_ceiling: number; turns_held: number
   executions_by_state: Record<string, number>; actions_by_state: Record<string, number>
   quarantined_completions: number; startup: unknown
+  /// The spend limit a new session gets, in US dollars.
+  spend_limit_usd?: number
 }
 
 export interface Health {
@@ -56,7 +58,16 @@ export interface SessionInfo {
   pending_confirms?: number
 }
 
-export interface BudgetInfo { limit: number; spent: number; reserved: number; held_unknown: number; available: number }
+/// An execution's budget in US dollars (theseus-0sg). `spent_usd` counts since the last reset;
+/// the session's `cost_usd` is its lifetime total, which a reset never lowers.
+export interface BudgetInfo {
+  limit_usd: number; spent_usd: number; reserved_usd: number; held_unknown_usd: number; available_usd: number
+  resets?: number
+  /// The budget question waiting for the operator (a correlation id).
+  question?: string | null
+  /// A record stored before dollar budgets: its unit figures, as they were.
+  units_before?: { limit: number; spent: number; reserved: number; held_unknown: number } | null
+}
 
 export interface ExecutionInfo {
   execution_id: string; session_id: string; kind: string; state: string
@@ -68,7 +79,7 @@ export interface ExecutionInfo {
 export interface ActionInfo {
   correlation_id: string; execution_id: string; session_id: string; tool: string; state: string
   retry_class: string; planned_at_ms: number; authorized_at_ms?: number | null; dispatched_at_ms?: number | null
-  settled_at_ms?: number | null; deadline_at_ms: number; reserved_units: number; confirmed: boolean
+  settled_at_ms?: number | null; deadline_at_ms: number; reserved_usd?: number; confirmed: boolean
   cancel?: string | null; external_op_id?: string | null; result_ref?: string | null; resolution?: string | null
   completions_seen: number
 }
@@ -119,10 +130,16 @@ export interface NodeInfo {
   bytes: number
 }
 
+/// What a budget question asks about: the session reached its spend limit (theseus-0sg).
+export interface BudgetAsk { spent_usd: number; limit_usd: number; needed_usd: number; lifetime_usd: number }
+
 export interface ConfirmRequest {
   correlation_id: string; session_id: string; execution_id: string
   tool: string; input: unknown; resource?: string | null; reason: string; by: string
+  /// 0 for a budget question: it holds until answered or replaced.
   requested_at_ms: number; expires_at_ms: number; floor?: boolean
+  /// Set when `tool` is `budget.reset`; `reason` is the question in words.
+  budget?: BudgetAsk | null
 }
 
 export interface SessionHistory { session: SessionInfo; nodes: NodeInfo[]; pending_confirms: ConfirmRequest[] }

@@ -126,6 +126,35 @@ function ConfirmCard({ c, onConfirm, now }: { c: ConfirmRequest; onConfirm: Tran
   )
 }
 
+/// A session at its spend limit asks whether its spend may go back to $0
+/// (theseus-0sg). No tool call stands behind it: the turn stopped before its
+/// model call, so the card sits after the last turn.
+function BudgetCard({ c, onConfirm }: { c: ConfirmRequest; onConfirm: TranscriptProps['onConfirm'] }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const b = c.budget
+  const answer = async (approve: boolean) => {
+    setBusy(true); setErr(null)
+    try { await onConfirm(c.correlation_id, approve, '') } catch (e) { setErr((e as { message?: string }).message ?? String(e)); setBusy(false) }
+  }
+  return (
+    <div className="confirm budget-ask">
+      <div className="confirm-head"><b>Budget</b> this session reached its spend limit</div>
+      <div>{c.reason}</div>
+      {b && <div className="muted small">
+        Approve resets its spend to $0, and the waiting call goes on (it reserves {money(b.needed_usd)}). The session's
+        lifetime cost, {money(b.lifetime_usd)}, keeps counting. Decline, or send a new message, and it keeps waiting.
+      </div>}
+      <div className="confirm-actions">
+        <button type="button" className="approve" disabled={busy} onClick={() => void answer(true)}>Reset to $0 and continue</button>
+        <button type="button" className="decline" disabled={busy} onClick={() => void answer(false)}>Keep waiting</button>
+      </div>
+      <div className="muted small">{busy ? 'answered…' : c.correlation_id}</div>
+      {err && <div className="warn small">{err}</div>}
+    </div>
+  )
+}
+
 // A call that never ran; rows from before theseus-8az say `denied`.
 const NOT_RUN = ['declined', 'denied']
 const STATUS_CLASS: Record<string, string> = { ok: 'ok', error: 'bad', declined: 'warn', denied: 'warn', background: 'accent', unknown: 'warn', cancelled: 'muted' }
@@ -216,11 +245,13 @@ export default function Transcript(p: TranscriptProps) {
   }
   const confirmByCorr = new Map(p.pending.map((c) => [c.correlation_id, c]))
   const liveIds = Object.keys(p.live).filter((id) => !turns.some((t) => t.id === id))
+  const budgetAsks = p.pending.filter((c) => c.budget)
 
   return (
     <>
       {turns.map((t) => <TurnView key={t.id} t={t} p={p} resultsByUse={resultsByUse} callsByUse={callsByUse} confirmByCorr={confirmByCorr} />)}
       {liveIds.map((id) => <TurnView key={id} t={{ id, nodes: [] }} p={p} resultsByUse={resultsByUse} callsByUse={callsByUse} confirmByCorr={confirmByCorr} />)}
+      {budgetAsks.map((c) => <BudgetCard key={c.correlation_id} c={c} onConfirm={p.onConfirm} />)}
     </>
   )
 }

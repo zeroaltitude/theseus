@@ -358,7 +358,8 @@ export default function Observatory({ client, health, tick, currentSession, onRe
             <tbody>
               {execs.map((e) => {
                 const b = e.budget
-                const pct = (n: number) => `${Math.min(100, (n / Math.max(1, b.limit)) * 100)}%`
+                const pct = (n: number) => `${Math.min(100, (n / Math.max(1e-6, b.limit_usd)) * 100)}%`
+                const before = b.units_before ? `\nbefore dollar budgets: ${fmt(b.units_before.spent)} of ${fmt(b.units_before.limit)} units` : ''
                 const mine = e.session_id === currentSession
                 return (
                   <tr key={e.execution_id} className={`${pickedExec === e.execution_id ? 'picked' : ''} ${mine ? 'mine' : ''}`}
@@ -371,12 +372,13 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                     <td className={e.outstanding ? 'accent' : 'muted'}>{e.outstanding}</td>
                     <td className={e.queued_results ? 'accent' : 'muted'}>{e.queued_results}</td>
                     <td>
-                      <div className="budget" title={`spent ${fmt(b.spent)} · reserved ${fmt(b.reserved)} · held unknown ${fmt(b.held_unknown)} · available ${fmt(b.available)} · limit ${fmt(b.limit)}`}>
-                        <div className="bar spent" style={{ width: pct(b.spent) }} />
-                        <div className="bar reserved" style={{ left: pct(b.spent), width: pct(b.reserved) }} />
-                        <div className="bar held" style={{ left: pct(b.spent + b.reserved), width: pct(b.held_unknown) }} />
+                      <div className="budget" title={`spent ${money(b.spent_usd)} since ${(b.resets ?? 0) > 0 ? `the last of ${b.resets} reset(s)` : 'it opened'} · reserved ${money(b.reserved_usd)} · held unknown ${money(b.held_unknown_usd)} · available ${money(b.available_usd)} · limit ${money(b.limit_usd)}${before}`}>
+                        <div className="bar spent" style={{ width: pct(b.spent_usd) }} />
+                        <div className="bar reserved" style={{ left: pct(b.spent_usd), width: pct(b.reserved_usd) }} />
+                        <div className="bar held" style={{ left: pct(b.spent_usd + b.reserved_usd), width: pct(b.held_unknown_usd) }} />
                       </div>
-                      <span className="muted small">{fmt(b.spent)}{b.reserved > 0 && <> +{fmt(b.reserved)} rsv</>}{b.held_unknown > 0 && <span className="warn"> +{fmt(b.held_unknown)} held</span>} / {fmt(b.limit)}</span>
+                      <span className="muted small">{money(b.spent_usd)}{b.reserved_usd > 0 && <> +{money(b.reserved_usd)} rsv</>}{b.held_unknown_usd > 0 && <span className="warn"> +{money(b.held_unknown_usd)} held</span>} / {money(b.limit_usd)}{(b.resets ?? 0) > 0 && <> · ↺{b.resets}</>}</span>
+                      {b.question && <span className="pill warn" title={`the session reached its limit and asks you: ${b.question}`}>at its limit</span>}
                     </td>
                     <td className="muted small" title={clock(e.updated_at_ms)}>{ago(e.updated_at_ms, now)}</td>
                     <td>{!['cancelled', 'failed', 'budget_exhausted', 'complete'].includes(e.state) && (
@@ -412,7 +414,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                       {s != null && <> → <b>{fmt(s)} ms</b></>}
                       {a.state === 'dispatched' && <span className="muted"> → …</span>}
                     </td>
-                    <td className="muted small">{a.reserved_units ? fmt(a.reserved_units) : ''}</td>
+                    <td className="muted small">{a.reserved_usd ? money(a.reserved_usd) : ''}</td>
                     <td className={a.completions_seen > 1 ? 'warn' : 'muted'} title="completions received; more than one means duplicates were ignored">{a.completions_seen}</td>
                     <td className="muted small">{a.resolution ?? (a.external_op_id && a.tool === 'provider.messages' ? `req ${short(a.external_op_id)}` : '')}</td>
                   </tr>
@@ -549,15 +551,19 @@ function summarize(r: LedgerEntry): string {
   const g = (k: string) => d[k]
   const s = (k: string) => { const v = g(k); return v == null ? '' : typeof v === 'string' ? v : JSON.stringify(v) }
   switch (true) {
-    case r.kind === 'action.planned': return `${s('tool')} · reserved ${s('reserved')} · ${s('retry_class').replace(/[{}"]/g, '')}`
+    // Rows from before theseus-0sg reserve units (`reserved`); later ones dollars.
+    case r.kind === 'action.planned': return `${s('tool')} · reserved ${g('reserved_usd') != null ? money(Number(g('reserved_usd'))) : `${s('reserved')} units`} · ${s('retry_class').replace(/[{}"]/g, '')}`
     case r.kind === 'action.dispatched': return `${s('tool')}${g('external_op_id') ? ` · ext ${s('external_op_id')}` : ''}`
     // Rows from before theseus-8az say `action.denied`.
     case r.kind === 'action.declined' || r.kind === 'action.denied': return `${s('tool')} · declined by ${s('by')} · ${s('reason')}`
-    case r.kind.startsWith('action.'): return `${s('outcome') || s('cancel') || ''}${g('duration_ms') != null ? ` · ${s('duration_ms')} ms` : ''}${g('usage_units') != null ? ` · ${s('usage_units')} units` : ''}${g('execution_state') ? ` · execution ${s('execution_state')}` : ''}`
+    case r.kind.startsWith('action.'): return `${s('outcome') || s('cancel') || ''}${g('duration_ms') != null ? ` · ${s('duration_ms')} ms` : ''}${g('cost_usd') != null ? ` · ${money(Number(g('cost_usd')))}` : ''}${g('usage_units') != null ? ` · ${s('usage_units')} units` : ''}${g('execution_state') ? ` · execution ${s('execution_state')}` : ''}`
     case r.kind === 'execution.running': return `turn ${s('turn')} · ${s('queued_results')} queued result(s)`
     case r.kind === 'execution.waiting': return `wake ${s('wake')} · turn ${s('turn')} took ${s('turn_ms')} ms`
     case r.kind === 'execution.queued': return `why ${s('why')}`
     case r.kind.startsWith('execution.'): return `${s('reason') || s('why') || s('by') || ''}`
+    case r.kind === 'budget.asked': return `at its limit: spent ${money(Number(g('spent_usd')))} of ${money(Number(g('limit_usd')))}, the call needs ${money(Number(g('needed_usd')))}`
+    case r.kind === 'budget.reset': return `spend reset to $0 by ${s('by')} · it was ${money(Number(g('spent_before_usd')))} of ${money(Number(g('limit_usd')))} · reset ${s('resets')}`
+    case r.kind === 'budget.migrated': return `unit budget read in dollars · ${s('state')} · spent ${money(Number(g('spent_usd')))} of ${money(Number(g('limit_usd')))}`
     case r.kind.startsWith('budget.'): return `${s('units') ? `${s('units')} units · ` : ''}${s('purpose') || ''}${g('actual') != null ? `actual ${s('actual')}` : ''}${g('available_after') != null ? ` · ${s('available_after')} available` : ''}`
     case r.kind.startsWith('completion.'): return `${s('producer')} · ${s('outcome') || ''}${g('seen') ? ` · seen ${s('seen')}` : ''}`
     case r.kind === 'startup.step': return `${s('step')} ${s('name')}${g('requeued') ? ` · requeued ${s('requeued')}` : ''}${g('drained') != null ? ` · drained ${s('drained')}` : ''}`

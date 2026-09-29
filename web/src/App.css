@@ -119,6 +119,7 @@ button.link.danger { color: var(--bad); }
 .budget { position: relative; height: 6px; width: 110px; background: color-mix(in srgb, var(--border) 70%, transparent); border-radius: 3px; overflow: hidden; margin: 4px 0 2px; }
 .budget .bar { position: absolute; top: 0; height: 100%; }
 .budget .spent { background: var(--ok); } .budget .reserved { background: var(--accent); } .budget .held { background: var(--warn); }
+.confirm.budget-ask { border-color: var(--warn); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 12px 8px; align-items: center; }
 .chip { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font: inherit; font-size: 11px; cursor: pointer; }
 .chip.on { color: var(--text); border-color: var(--accent); }
