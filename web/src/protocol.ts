@@ -30,6 +30,8 @@ export interface Health {
   kernel: KernelStatus
   cost_usd_total?: number; catalog_version?: string
   bindings?: BindingStatus[]
+  /// `narrative = true` in the config: The Narrative tab shows.
+  narrative?: boolean
 }
 
 export interface PlaceStatus {
@@ -139,6 +141,17 @@ export interface ToolInfo {
   class: string; backend: string; policy: string; input_schema: unknown; calls: number
 }
 export interface ToolList { tools: ToolInfo[]; roots: string[]; shell_fallback_ratio: number; calls_total: number }
+
+// ---- the narrative (theseus-5fy)
+
+export type NarrativePart = 'session' | 'turn' | 'loop' | 'context' | 'model' | 'tool' | 'approval' | 'job'
+
+/// One templated sentence about one architectural step; kept only in the daemon's memory.
+export interface NarrativeLine {
+  seq: number; at_unix_ms: number; part: NarrativePart
+  session_id?: string | null; turn_id?: string | null; text: string
+}
+export interface NarrativeWatchResult { lines: NarrativeLine[]; capacity: number }
 
 export type NotifyHandler = (method: string, params: unknown) => void
 export type Status = 'connecting' | 'open' | 'closed'

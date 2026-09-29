@@ -134,7 +134,24 @@ button.link.danger { color: var(--bad); }
 .kind.action { color: var(--ok); } .kind.execution { color: var(--accent); } .kind.completion { color: #5ec8d8; }
 .kind.budget { color: var(--warn); } .kind.turn, .kind.loop { color: #b07cff; } .kind.provider { color: #d86a5e; }
 .kind.hook { color: var(--muted); } .kind.startup, .kind.reconcile { color: #8a93a6; }
-@media (max-width: 1100px) { .body.with-obs, .body.with-sessions.with-obs { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } .observatory { border-left: none; border-top: 1px solid var(--border); } .sessions { display: none; } }
+@media (max-width: 1100px) { .body.with-obs, .body.with-sessions.with-obs { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } .observatory, .side { border-left: none; border-top: 1px solid var(--border); } .sessions { display: none; } }
+
+/* the side pane's tabs, when the daemon narrates (theseus-5fy) */
+.side { min-height: 0; display: grid; grid-template-rows: auto 1fr; border-left: 1px solid var(--border); background: var(--panel); }
+.side > .observatory { border-left: none; }
+.tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--border); }
+.tab { background: none; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; color: var(--muted); padding: 4px 12px; margin-bottom: -1px; font: inherit; font-size: 12px; cursor: pointer; }
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text); background: var(--panel-2); border-color: var(--border); }
+
+/* the narrative */
+.narrative { overflow-y: auto; min-height: 0; background: var(--panel); font-size: 12px; }
+.narr-lines { padding: 2px 0 10px; }
+.narr-line { display: grid; grid-template-columns: 84px 70px minmax(70px, 130px) 1fr; gap: 8px; align-items: baseline; padding: 3px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.narr-line.mine { box-shadow: inset 3px 0 0 var(--accent); }
+.narr-time { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-variant-numeric: tabular-nums; }
+.narr-session { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px !important; }
+.narr-text { white-space: pre-wrap; word-break: break-word; }
 
 /* sessions sidebar */
 .sessions { overflow-y: auto; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); font-size: 13px; }

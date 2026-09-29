@@ -8,6 +8,7 @@ import Transcript from './Transcript'
 import type { LiveTurn, TurnError } from './Transcript'
 import Sessions from './Sessions'
 import Observatory from './Observatory'
+import Narrative from './Narrative'
 import Logo from './Logo'
 import './App.css'
 
@@ -46,6 +47,8 @@ export default function App() {
   const [input, setInput] = useState('')
   const [showObs, setShowObs] = useState(() => localStorage.getItem('theseus.obs') !== 'off')
   const [showSessions, setShowSessions] = useState(() => localStorage.getItem('theseus.sidebar') !== 'off')
+  // The side pane's tab: the Observatory, or The Narrative when the daemon narrates.
+  const [pane, setPane] = useState<'observatory' | 'narrative'>(() => localStorage.getItem('theseus.pane') === 'narrative' ? 'narrative' : 'observatory')
   const [tick, setTick] = useState(0)
   const [now, setNow] = useState(Date.now())
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -248,6 +251,14 @@ export default function App() {
   const liveHere = Object.fromEntries(Object.entries(live).filter(([, t]) => t.sessionId === current))
   const info = sessionInfo ?? sessions.find((x) => x.session_id === current) ?? null
   const busy = draft !== null && !draft.error
+  const narrative = !!health?.narrative
+  const choosePane = (p: 'observatory' | 'narrative') => { localStorage.setItem('theseus.pane', p); setPane(p) }
+  const sessionLabel = (id: string) => { const x = sessions.find((y) => y.session_id === id); return x?.title ?? x?.label ?? null }
+  const observatory = (
+    <Observatory client={client} health={health} tick={tick} currentSession={current}
+      onRefresh={refreshHealth} onPickSession={(id) => pick(id)}
+      onCancelled={() => { void refreshHealth(); setTick((t) => t + 1) }} />
+  )
 
   return (
     <div className="app">
@@ -282,9 +293,12 @@ export default function App() {
             <span className={health.provider_errors ? 'warn' : ''}>provider errors {health.provider_errors}</span>
             {health.kernel && <span title="kernel: turns held / admission ceiling">turns held {health.kernel.turns_held}/{health.kernel.admission_ceiling}</span>}
             <UsageLine u={health.usage_total} prefix="total " />
-            <button type="button" className="link" title="the Observatory: context, nodes, tools, executions, actions, ledger — live from the store"
+            <button type="button" className="link"
+              title={narrative
+                ? 'the side pane: the Observatory (context, nodes, tools, executions, actions, ledger — live from the store) and The Narrative (each step, as it happens)'
+                : 'the Observatory: context, nodes, tools, executions, actions, ledger — live from the store'}
               onClick={() => setShowObs((v) => { localStorage.setItem('theseus.obs', v ? 'off' : 'on'); return !v })}>
-              {showObs ? 'hide observatory' : 'observatory'}
+              {showObs ? (narrative ? 'hide pane' : 'hide observatory') : (narrative ? 'observatory · narrative' : 'observatory')}
             </button>
           </div>
         )}
@@ -330,11 +344,17 @@ export default function App() {
           )}
           <div ref={bottom} />
         </main>
-        {showObs && status === 'open' && (
-          <Observatory client={client} health={health} tick={tick} currentSession={current}
-            onRefresh={refreshHealth} onPickSession={(id) => pick(id)}
-            onCancelled={() => { void refreshHealth(); setTick((t) => t + 1) }} />
-        )}
+        {showObs && status === 'open' && (narrative ? (
+          <div className="side">
+            <nav className="tabs">
+              <button type="button" className={`tab ${pane === 'observatory' ? 'on' : ''}`} onClick={() => choosePane('observatory')}>Observatory</button>
+              <button type="button" className={`tab ${pane === 'narrative' ? 'on' : ''}`} onClick={() => choosePane('narrative')}>The Narrative</button>
+            </nav>
+            {pane === 'narrative'
+              ? <Narrative client={client} currentSession={current} sessionLabel={sessionLabel} onPickSession={(id) => pick(id)} />
+              : observatory}
+          </div>
+        ) : observatory)}
       </div>
 
       <form className="composer" onSubmit={(e) => { e.preventDefault(); void submit() }}>
