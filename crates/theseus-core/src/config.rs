@@ -498,6 +498,11 @@ pub struct ProfileConfig {
     pub max_output_tokens: Option<u32>,
     #[serde(default)]
     pub system: Option<String>,
+    /// Files compiled into the system block after `system`, each under a
+    /// header naming it (theseus-58a): `~/` or absolute paths. Omitted:
+    /// `[model].context_files`; `[]`: none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_files: Option<Vec<String>>,
     /// `low`, `medium`, `high`, `xhigh`, or `max`, for models that accept effort.
     /// Omitted: the model's default (Opus 5.5: medium; others: high).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -550,6 +555,9 @@ pub struct ModelConfig {
     pub max_output_tokens: Option<u32>,
     #[serde(default)]
     pub system: Option<String>,
+    /// The context files of every profile that names none (theseus-58a).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_files: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
     #[serde(default = "default_thinking_display")]
@@ -618,6 +626,7 @@ impl Default for ModelConfig {
             model: default_model(),
             max_output_tokens: None,
             system: None,
+            context_files: Vec::new(),
             effort: None,
             thinking_display: default_thinking_display(),
             max_loops: default_max_loops(),
@@ -784,6 +793,24 @@ impl Config {
                 anyhow::bail!("profiles.{name}.max_loops must be at least 1");
             }
         }
+        // Paths only: the files are read when a turn compiles, never here.
+        let files = std::iter::once(("model".to_string(), &self.model.context_files)).chain(
+            self.profiles.iter().filter_map(|(name, p)| {
+                p.context_files
+                    .as_ref()
+                    .map(|f| (format!("profiles.{name}"), f))
+            }),
+        );
+        for (key, list) in files {
+            if let Some(f) = list
+                .iter()
+                .find(|f| !(f.starts_with('/') || f.starts_with("~/")))
+            {
+                anyhow::bail!(
+                    "{key}.context_files entry {f:?} must be an absolute path or start with ~/"
+                );
+            }
+        }
         for (k, argv) in self
             .policy
             .allow_argv
@@ -872,12 +899,20 @@ impl Config {
                 model: self.model.model.clone(),
                 max_output_tokens: self.model.max_output_tokens,
                 system: self.model.system.clone(),
+                context_files: None,
                 effort: self.model.effort.clone(),
                 thinking_display: self.model.thinking_display.clone(),
                 max_loops: self.model.max_loops,
                 refusal_fallbacks: self.model.refusal_fallbacks,
             });
         all
+    }
+
+    /// A profile's context files: its own list, else `[model].context_files`.
+    pub fn context_files_for<'a>(&'a self, prof: &'a ProfileConfig) -> &'a [String] {
+        prof.context_files
+            .as_deref()
+            .unwrap_or(&self.model.context_files)
     }
 
     /// Every provider by name, with the implicit `anthropic` one synthesized
@@ -1197,6 +1232,60 @@ mod tests {
             );
             assert!(Config::parse(&doc).is_err(), "{bad}");
         }
+    }
+
+    /// Context files (theseus-58a): a profile that names none takes
+    /// `[model].context_files`, `[]` names none, and a path must be absolute
+    /// or start with `~/`. Loading checks spelling only: nothing is read. The
+    /// template sets `[]` at `[model]`, keeps the profile's line and the
+    /// `roots` example commented, and every one of those lines parses.
+    #[test]
+    fn context_files_default_from_model_and_must_be_absolute_or_home_paths() {
+        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                    [model]\ncontext_files = [\"~/w/SOUL.md\", \"/nowhere/USER.md\"]\n\n\
+                    [profiles.inherits]\nmodel = \"m\"\n\n\
+                    [profiles.own]\nmodel = \"m\"\ncontext_files = [\"/x/RULES.md\"]\n\n\
+                    [profiles.none]\nmodel = \"m\"\ncontext_files = []\n";
+        let (cfg, warnings) = Config::parse(base).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let all = cfg.all_profiles();
+        let files = |p: &str| cfg.context_files_for(&all[p]).to_vec();
+        assert_eq!(files("default"), ["~/w/SOUL.md", "/nowhere/USER.md"]);
+        assert_eq!(files("inherits"), files("default"));
+        assert_eq!(files("own"), ["/x/RULES.md"]);
+        assert!(files("none").is_empty());
+        for (bad, key) in [
+            (
+                "[model]\ncontext_files = [\"SOUL.md\"]",
+                "model.context_files",
+            ),
+            (
+                "[profiles.p]\nmodel = \"m\"\ncontext_files = [\"~other/x\"]",
+                "profiles.p.context_files",
+            ),
+            ("[model]\ncontext_files = [\"\"]", "model.context_files"),
+        ] {
+            let doc = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n{bad}\n");
+            let e = format!("{:#}", Config::parse(&doc).unwrap_err());
+            assert!(e.contains(key) && e.contains("absolute path"), "{e}");
+        }
+        // A config that never names context files has none, and says nothing new.
+        let (plain, w) = Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert!(plain
+            .all_profiles()
+            .values()
+            .all(|p| plain.context_files_for(p).is_empty()));
+        let shown = toml::to_string(&plain.model).unwrap();
+        assert!(!shown.contains("context_files"), "{shown}");
+        // The template.
+        let t = Config::example();
+        assert!(t.model.context_files.is_empty() && t.tools.roots.is_empty());
+        assert!(t.profiles.values().all(|p| p.context_files.is_none()));
+        let has = |line: &str| Config::EXAMPLE_TOML.lines().any(|l| l.starts_with(line));
+        assert!(has("context_files = []"));
+        assert!(has("# context_files = []"));
+        assert!(has("# roots = [\"/home/zeroaltitude/reports\"]"));
     }
 
     /// `narrative` is a top-level key, off unless the config says true

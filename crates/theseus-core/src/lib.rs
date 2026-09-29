@@ -11,6 +11,7 @@ pub mod bus;
 pub mod catalog;
 pub mod compiler;
 pub mod config;
+pub mod context_files;
 pub mod github;
 pub mod harness;
 pub mod ledger;

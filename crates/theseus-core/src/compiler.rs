@@ -53,6 +53,30 @@ pub struct Manifest {
     /// The prefix is rendered without thinking blocks.
     #[serde(default)]
     pub strip_thinking: bool,
+    /// The context files the system block carried, in order (theseus-58a).
+    /// Their text is in the system block, so `system_digest` covers it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_files: Vec<ContextFileRef>,
+}
+
+/// A context file as the system block carried it (theseus-58a).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextFileRef {
+    /// The file, `~` expanded.
+    pub path: String,
+    /// The first 16 hex digits of the SHA-256 of the text included; absent
+    /// when the file could not be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+    /// Bytes of the file the block carries.
+    #[serde(default)]
+    pub bytes: u64,
+    /// The file was longer than the cap, and the block carries its start.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cut: bool,
+    /// Why the file could not be read: `not found`, `permission denied`, …
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,7 +116,10 @@ pub struct RequestSpec {
     pub provider: String,
     pub model: String,
     pub max_tokens: u32,
+    /// The whole system block, context files included.
     pub system_text: String,
+    /// The context files `system_text` carries, for the manifest.
+    pub context_files: Vec<ContextFileRef>,
     /// Wire tool definitions, sorted by name.
     pub tools: Vec<Value>,
     pub effort: Option<String>,
@@ -173,6 +200,7 @@ pub fn manifest_for(
         catalog_version: catalog.version.clone(),
         context_window: window,
         strip_thinking: strip,
+        context_files: spec.context_files.clone(),
     }
 }
 
@@ -552,6 +580,7 @@ mod tests {
             model: model.into(),
             max_tokens: 1000,
             system_text: system.into(),
+            context_files: vec![],
             tools: vec![
                 json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
             ],

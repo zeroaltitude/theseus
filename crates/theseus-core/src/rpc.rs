@@ -272,6 +272,8 @@ impl Core {
             tools: tools.clone(),
             bus: bus.clone(),
             narrator: narrator.clone(),
+            // Empty: nothing is read until a turn compiles (FAST).
+            context_files: Default::default(),
         };
         // A persisted runtime switch wins over config, if it still names a profile.
         let profiles = cfg.all_profiles();

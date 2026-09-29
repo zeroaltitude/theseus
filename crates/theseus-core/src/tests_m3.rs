@@ -1519,3 +1519,246 @@ async fn a_model_with_no_price_is_not_called() {
     assert!(format!("{:#}", te.source).contains("[catalog.\"mystery-model\"]"));
     assert!(r.fake.requests().is_empty());
 }
+
+// ---------------------------------------------------------------- context files (theseus-58a)
+
+/// A path in the rig's projects directory, from a tweak (which runs before
+/// the rig exists).
+fn in_projects(cfg: &Config, name: &str) -> String {
+    format!("{}/{name}", cfg.tools.projects_dir.as_deref().unwrap())
+}
+
+/// Set a file's mtime `secs` into the past, so it is not racy.
+fn aged(path: &str, secs: u64) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(secs))
+        .unwrap();
+}
+
+/// The system block of the `i`th provider request.
+fn system_of(r: &Rig, i: usize) -> String {
+    r.fake.requests()[i].system[0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn sha16(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(s.as_bytes()))[..16].to_string()
+}
+
+/// A context file's rule reaches the model in the system block, after the
+/// persona and the tools note, under a header naming the file. The manifest
+/// and the `context.compiled` row carry its digest. The file is written after
+/// the core started: nothing reads it at startup.
+#[tokio::test]
+async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_manifest() {
+    let mut path = String::new();
+    let r = rig_with(vec![Scripted::text("Four. Theseus")], |cfg| {
+        path = in_projects(cfg, "RULES.md");
+        cfg.model.context_files = vec![path.clone()];
+    });
+    assert_eq!(
+        r.core.runner.context_files.reads(),
+        0,
+        "nothing read at startup"
+    );
+    let rule = "End every answer with the word 'Theseus'.\n";
+    std::fs::write(&path, rule).unwrap();
+    let res = turn(&r.core, None, "what is 2 + 2?").await;
+    let system = system_of(&r, 0);
+    let header = format!("# Context file: {path}");
+    let at = |needle: &str| {
+        system
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle:?} is not in:\n{system}"))
+    };
+    assert!(at(crate::turn::PERSONA) < at("Tools. You act") && at("Tools. You act") < at(&header));
+    assert!(
+        system.ends_with(&format!(
+            "{header}\n\nEnd every answer with the word 'Theseus'."
+        )),
+        "{system}"
+    );
+    let want = crate::compiler::ContextFileRef {
+        path: path.clone(),
+        digest: Some(sha16(rule)),
+        bytes: rule.len() as u64,
+        cut: false,
+        missing: None,
+    };
+    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
+    assert_eq!(comps[0].manifest.context_files, vec![want.clone()]);
+    assert_eq!(
+        ledgered(&r, "context.compiled")[0]["context_files"],
+        json!([want])
+    );
+    let lines = narrated(&r, &res.session_id);
+    assert!(
+        said(&lines, "context", "tokens, 1 context file."),
+        "{}",
+        dump(&lines)
+    );
+}
+
+/// An edit makes exactly one `system_changed` recompile, on the next turn's
+/// first loop. An unchanged file is a stat, not a read, and the turn appends.
+#[tokio::test]
+async fn an_edited_context_file_recompiles_once_and_an_unchanged_one_appends() {
+    let mut path = String::new();
+    let r = rig_with(
+        vec![
+            Scripted::text("a Theseus"),
+            Scripted::text("b Theseus"),
+            Scripted::text("c Ithaca"),
+            Scripted::text("d Ithaca"),
+        ],
+        |cfg| {
+            path = in_projects(cfg, "RULES.md");
+            cfg.model.context_files = vec![path.clone()];
+        },
+    );
+    std::fs::write(&path, "End every answer with 'Theseus'.\n").unwrap();
+    aged(&path, 60);
+    let sid = turn(&r.core, None, "one").await.session_id;
+    let reads = r.core.runner.context_files.reads();
+    turn(&r.core, Some(&sid), "two").await;
+    assert_eq!(
+        r.core.runner.context_files.reads(),
+        reads,
+        "unchanged: not read again"
+    );
+    let edited = "End every answer with 'Ithaca'.\n";
+    std::fs::write(&path, edited).unwrap();
+    aged(&path, 30);
+    turn(&r.core, Some(&sid), "three").await;
+    turn(&r.core, Some(&sid), "four").await;
+    let field = |kind: &str, key: &str| -> Vec<String> {
+        ledgered(&r, kind)
+            .iter()
+            .map(|d| d[key].as_str().unwrap_or("").to_string())
+            .collect()
+    };
+    assert_eq!(
+        field("context.recompiled", "trigger"),
+        ["new_session", "system_changed"]
+    );
+    assert_eq!(
+        field("context.compiled", "decision"),
+        ["recompile", "append", "recompile", "append"]
+    );
+    let (before, after) = (system_of(&r, 1), system_of(&r, 2));
+    assert!(before.contains("'Theseus'.") && !before.contains("'Ithaca'"));
+    assert!(after.contains("'Ithaca'.") && !after.contains("'Theseus'"));
+    assert_eq!(system_of(&r, 3), after);
+    let comps = r.core.store.session_compilations(&sid).unwrap();
+    assert_eq!(comps.len(), 2);
+    assert_eq!(comps[1].trigger, "system_changed");
+    assert_eq!(
+        comps[1].manifest.context_files[0].digest,
+        Some(sha16(edited))
+    );
+    assert_ne!(
+        comps[0].manifest.context_files[0].digest,
+        comps[1].manifest.context_files[0].digest
+    );
+}
+
+/// A missing file does not stop the turn: the block says it is missing, and
+/// the daemon warns once (a log line and a ledger row), not once a turn.
+#[tokio::test]
+async fn a_missing_context_file_warns_once_and_the_turn_runs() {
+    let mut path = String::new();
+    let r = rig_with(
+        vec![Scripted::text("fine"), Scripted::text("still fine")],
+        |cfg| {
+            path = in_projects(cfg, "GONE.md");
+            cfg.model.context_files = vec![path.clone()];
+        },
+    );
+    let first = turn(&r.core, None, "one").await;
+    let second = turn(&r.core, Some(&first.session_id), "two").await;
+    assert_eq!(
+        (first.output.as_str(), second.output.as_str()),
+        ("fine", "still fine")
+    );
+    assert!(system_of(&r, 1).ends_with(&format!(
+        "# Context file: {path}\n\n[Missing: the file could not be read (not found).]"
+    )));
+    assert_eq!(
+        ledgered(&r, "context.file_missing"),
+        vec![json!({"path": path, "error": "not found", "profile": "sonnet"})]
+    );
+    let comps = r
+        .core
+        .store
+        .session_compilations(&first.session_id)
+        .unwrap();
+    let f = &comps[0].manifest.context_files[0];
+    assert_eq!(
+        (f.missing.as_deref(), f.digest.as_deref()),
+        (Some("not found"), None)
+    );
+    let lines = narrated(&r, &first.session_id);
+    assert!(
+        said(&lines, "context", "0 context files (1 missing)"),
+        "{}",
+        dump(&lines)
+    );
+    assert!(
+        said(&lines, "context", "could not be read (not found)"),
+        "{}",
+        dump(&lines)
+    );
+}
+
+/// A file over the cap is cut, and the block and the manifest say so.
+#[tokio::test]
+async fn a_context_file_over_the_cap_is_cut_and_marked_as_cut() {
+    use crate::context_files::MAX_BYTES;
+    let mut path = String::new();
+    let r = rig_with(vec![Scripted::text("ok")], |cfg| {
+        path = in_projects(cfg, "BIG.md");
+        cfg.model.context_files = vec![path.clone()];
+    });
+    std::fs::write(&path, "y".repeat(MAX_BYTES + 1_000)).unwrap();
+    let res = turn(&r.core, None, "hi").await;
+    let system = system_of(&r, 0);
+    assert!(system.ends_with(&format!(
+        "{}\n\n[Cut: only the first 65,536 bytes of this file are included.]",
+        "y".repeat(MAX_BYTES)
+    )));
+    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
+    let f = &comps[0].manifest.context_files[0];
+    assert!(f.cut && f.bytes == MAX_BYTES as u64, "{f:?}");
+    assert_eq!(f.digest, Some(sha16(&"y".repeat(MAX_BYTES))));
+}
+
+/// A config that names no context files (Eddie's vault config names none)
+/// compiles the system block it always did: the persona and the tools note,
+/// nothing after them. Its manifest and rows carry no `context_files` key,
+/// so a manifest stored before theseus-58a compares equal and appends, and
+/// nothing is read or warned.
+#[tokio::test]
+async fn without_context_files_the_system_block_and_manifest_are_unchanged() {
+    let r = rig(vec![Scripted::text("hi")]);
+    let res = turn(&r.core, None, "hello").await;
+    assert_eq!(
+        system_of(&r, 0),
+        format!("{}\n\n{}", crate::turn::PERSONA, r.core.tools.system_note())
+    );
+    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
+    let stored = serde_json::to_value(&comps[0].manifest).unwrap();
+    assert!(stored.get("context_files").is_none(), "{stored}");
+    let back: crate::compiler::Manifest = serde_json::from_value(stored).unwrap();
+    assert_eq!(back, comps[0].manifest);
+    assert!(ledgered(&r, "context.compiled")[0]
+        .get("context_files")
+        .is_none());
+    assert!(ledgered(&r, "context.file_missing").is_empty());
+    assert_eq!(r.core.runner.context_files.reads(), 0);
+}

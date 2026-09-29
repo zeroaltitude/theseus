@@ -34,6 +34,7 @@ use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
 use crate::compiler::{compile, CompileInput, Compiled, Recompile, RequestSpec};
+use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::ledger::LedgerRow;
 use crate::narrative::{self, narrate, narrate_turn, Narrator};
 use crate::node::{Body, Node};
@@ -59,6 +60,8 @@ pub struct Target {
     pub model: String,
     pub max_tokens: u32,
     pub system: Option<String>,
+    /// The profile's context files, as configured (theseus-58a).
+    pub context_files: Vec<String>,
     pub effort: Option<String>,
     pub thinking_display: String,
     pub max_loops: u32,
@@ -79,6 +82,8 @@ pub struct TurnRunner {
     pub tools: Arc<ToolRuntime>,
     pub bus: Arc<SessionBus>,
     pub narrator: Arc<Narrator>,
+    /// What each context file held when last read (theseus-58a).
+    pub context_files: ContextFiles,
 }
 
 /// One turn to run.
@@ -322,6 +327,7 @@ impl TurnRunner {
             model,
             max_tokens,
             system: prof.system.clone(),
+            context_files: self.cfg.context_files_for(prof).to_vec(),
             effort: prof.effort.clone(),
             thinking_display: prof.thinking_display.clone(),
             max_loops: prof.max_loops,
@@ -352,9 +358,11 @@ impl TurnRunner {
             .unwrap_or(false)
     }
 
-    /// The system prompt: persona, the tools paragraph, the profile's own text.
-    /// Deterministic for a config; a change is a `system_changed` recompile.
-    pub fn system_text(&self, target: &Target) -> String {
+    /// The system prompt: persona, the tools paragraph, the profile's own
+    /// text, then each context file under its header (theseus-58a).
+    /// Deterministic for a config and the files' contents; a change is a
+    /// `system_changed` recompile.
+    pub fn system_text(&self, target: &Target, files: &[Arc<ContextFile>]) -> String {
         let mut parts = vec![PERSONA.to_string()];
         let note = self.tools.system_note();
         if !note.is_empty() {
@@ -363,22 +371,28 @@ impl TurnRunner {
         if let Some(s) = target.system.as_ref().filter(|s| !s.trim().is_empty()) {
             parts.push(s.clone());
         }
+        parts.extend(files.iter().map(|f| f.section.clone()));
         parts.join("\n\n")
     }
 
-    pub fn request_spec(&self, target: &Target) -> RequestSpec {
-        RequestSpec {
+    /// The turn's request spec, fixed for all its loops, and the context
+    /// files this daemon run finds unreadable for the first time.
+    pub fn request_spec(&self, target: &Target) -> (RequestSpec, Vec<Unreadable>) {
+        let (files, unreadable) = self.context_files.load(&target.context_files);
+        let spec = RequestSpec {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
             model: target.model.clone(),
             max_tokens: target.max_tokens,
-            system_text: self.system_text(target),
+            system_text: self.system_text(target, &files),
+            context_files: files.iter().map(|f| f.file.clone()).collect(),
             tools: self.tools.definitions(),
             effort: target.effort.clone(),
             thinking_display: target.thinking_display.clone(),
             refusal_fallbacks: target.refusal_fallbacks,
             first_party: self.first_party(&target.provider),
-        }
+        };
+        (spec, unreadable)
     }
 
     /// Make sure the session has a kernel execution (sessions written before
@@ -693,7 +707,25 @@ impl TurnRunner {
 
         // 3. The loops, while the model has something new to read.
         let mut run_model = self.has_news(&mut t, input.is_some() || caught_up > 0)?;
-        let spec = self.request_spec(&target);
+        // The spec is fixed for the turn: a context file edited during it
+        // recompiles the next turn, never between a tool call and its result.
+        let (spec, unreadable) = self.request_spec(&target);
+        for u in &unreadable {
+            tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
+                "context file unreadable: the system block says it is missing (warned once per daemon run)");
+            t.tc.ledger(
+                "context.file_missing",
+                json!({"path": u.path, "error": u.error, "profile": target.profile}),
+            );
+            narrate_turn!(
+                t.tc,
+                Context,
+                "Context: the context file {} could not be read ({}), so the system block says \
+                 it is missing.",
+                u.path,
+                u.error
+            );
+        }
         let mut force = recompile.or(session.pending_recompile.take());
         while run_model {
             let i = t.loops;
@@ -859,7 +891,7 @@ impl TurnRunner {
             self.persist_compilation(&compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();
-        let summary = json!({
+        let mut summary = json!({
             "session_id": sid,
             "turn_id": t.tc.turn_id,
             "loop": i,
@@ -876,13 +908,32 @@ impl TurnRunner {
             "tools": spec.tools.len(),
             "nodes_scanned": nodes.len(),
         });
+        if !spec.context_files.is_empty() {
+            summary["context_files"] = json!(spec.context_files);
+        }
         t.trace
             .record("compile", "compile", c0, c1, summary.clone());
         t.tc.ledger("context.compiled", summary.clone());
         t.tc.sink.send(notify::CONTEXT_COMPILED, &summary);
+        let missing = spec
+            .context_files
+            .iter()
+            .filter(|f| f.missing.is_some())
+            .count();
+        let files = match (spec.context_files.len() - missing, missing) {
+            (0, 0) => String::new(),
+            (n, 0) => format!(
+                ", {}",
+                narrative::count(n as u64, "context file", "context files")
+            ),
+            (n, m) => format!(
+                ", {} ({m} missing)",
+                narrative::count(n as u64, "context file", "context files")
+            ),
+        };
         let sizes = |c: &Compiled| {
             format!(
-                "prefix {} + tail {}, {}, about {} tokens",
+                "prefix {} + tail {}, {}, about {} tokens{files}",
                 narrative::count(c.prefix_nodes as u64, "node", "nodes"),
                 c.tail_nodes,
                 narrative::count(c.messages as u64, "message", "messages"),
