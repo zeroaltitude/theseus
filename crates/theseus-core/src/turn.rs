@@ -109,9 +109,30 @@ fn turn_error(
         session_id: session.into(),
         elapsed_ms,
         trace: None,
+        usage: Usage::default(),
+        cost_usd: Some(0.0),
+        tool_calls: 0,
         source,
     }
     .into()
+}
+
+/// Count a turn in its session. The success path and both failure exits
+/// call it, so a turn that fails in a later loop keeps what its earlier
+/// loops spent.
+fn close_books(
+    session: &mut SessionRecord,
+    turn_id: &str,
+    usage: &Usage,
+    cost: Option<f64>,
+    tool_calls: u32,
+) {
+    session.turns += 1;
+    session.last_turn_id = Some(turn_id.to_string());
+    session.last_active_ms = theseus_protocol::now_unix_ms();
+    session.tool_calls += tool_calls as u64;
+    session.cost_usd += cost.unwrap_or(0.0);
+    add_usage(&mut session.usage, usage);
 }
 
 impl TurnRunner {
@@ -614,8 +635,10 @@ impl TurnRunner {
                         "turn.failed",
                         &sid,
                         Some(&turn_id),
-                        json!({"loops": loop_index + 1, "reason": format!("{class}: {e}"), "usage_so_far": usage}),
+                        json!({"loops": loop_index + 1, "reason": format!("{class}: {e}"), "usage_so_far": usage, "cost_usd": cost, "tool_calls": tool_calls}),
                     );
+                    close_books(&mut session, &turn_id, &usage, cost, tool_calls);
+                    let _ = self.store.put_session(&sid, &session);
                     return Err(TurnError {
                         class: class.into(),
                         transient: false,
@@ -624,6 +647,9 @@ impl TurnRunner {
                         session_id: sid.clone(),
                         elapsed_ms: started.elapsed().as_millis() as u64,
                         trace: Some(failed_trace),
+                        usage,
+                        cost_usd: cost,
+                        tool_calls,
                         source: e,
                     }
                     .into());
@@ -721,12 +747,9 @@ impl TurnRunner {
                         "turn.failed",
                         &sid,
                         Some(&turn_id),
-                        json!({"loops": loop_index + 1, "reason": format!("provider:{class}"), "usage_so_far": usage}),
+                        json!({"loops": loop_index + 1, "reason": format!("provider:{class}"), "usage_so_far": usage, "cost_usd": cost, "tool_calls": tool_calls}),
                     );
-                    session.turns += 1;
-                    session.last_turn_id = Some(turn_id.clone());
-                    session.last_active_ms = theseus_protocol::now_unix_ms();
-                    add_usage(&mut session.usage, &usage);
+                    close_books(&mut session, &turn_id, &usage, cost, tool_calls);
                     let _ = self.store.put_session(&sid, &session);
                     return Err(TurnError {
                         class: class.to_string(),
@@ -736,6 +759,9 @@ impl TurnRunner {
                         session_id: sid.clone(),
                         elapsed_ms: started.elapsed().as_millis() as u64,
                         trace: Some(failed_trace),
+                        usage,
+                        cost_usd: cost,
+                        tool_calls,
                         source: e,
                     }
                     .into());
@@ -958,17 +984,12 @@ impl TurnRunner {
         let settled_late = self.kernel.take_results(guard)?;
         let late = self.tools.absorb(&ctx(None), &settled_late)?;
 
-        session.turns += 1;
-        session.last_turn_id = Some(turn_id.clone());
-        session.last_active_ms = theseus_protocol::now_unix_ms();
-        session.tool_calls += tool_calls as u64;
-        session.cost_usd += cost.unwrap_or(0.0);
+        close_books(&mut session, &turn_id, &usage, cost, tool_calls);
         session.last_target = Some(TargetRef {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
             model: target.model.clone(),
         });
-        add_usage(&mut session.usage, &usage);
         let w0 = trace.now_us();
         self.store.put_session(&sid, &session)?;
         trace.record("session.write", "store", w0, trace.now_us(), Value::Null);
@@ -1097,6 +1118,10 @@ pub struct TurnError {
     pub session_id: String,
     pub elapsed_ms: u64,
     pub trace: Option<theseus_protocol::Span>,
+    /// What the turn's finished loops spent before it failed.
+    pub usage: Usage,
+    pub cost_usd: Option<f64>,
+    pub tool_calls: u32,
     #[source]
     pub source: anyhow::Error,
 }

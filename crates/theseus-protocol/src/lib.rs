@@ -844,6 +844,13 @@ pub struct ProviderErrorData {
     /// The trace up to the failure.
     #[serde(default)]
     pub trace: Option<Span>,
+    /// What the turn's finished loops spent before it failed.
+    #[serde(default)]
+    pub usage: Usage,
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+    #[serde(default)]
+    pub tool_calls: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

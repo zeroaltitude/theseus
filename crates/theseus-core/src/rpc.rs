@@ -1104,6 +1104,9 @@ impl Core {
                                     session_id: te.session_id.clone(),
                                     elapsed_ms: te.elapsed_ms,
                                     trace: te.trace.clone(),
+                                    usage: te.usage.clone(),
+                                    cost_usd: te.cost_usd,
+                                    tool_calls: te.tool_calls,
                                 })
                                 .unwrap_or(Value::Null);
                                 RpcFailure {
@@ -1958,6 +1961,132 @@ mod tests {
             serde_json::from_value(responses(&tail)[0].result.clone().unwrap()).unwrap();
         assert_eq!(t.rows.len(), 2);
         assert!(t.rows.iter().all(|r| r.kind == "provider.call"));
+    }
+
+    /// A turn that fails after its first loop still books that loop: its usage,
+    /// cost, and tool call reach the session, the `turn.failed` row, and
+    /// `error.data`. Both failure exits: the provider fails in loop 1, or the
+    /// budget runs out planning loop 1 (loop 0's 30,000 words spend it).
+    #[tokio::test]
+    async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
+        use crate::provider::{ProviderError, Scripted};
+        let mut wrong = Vec::new();
+        for exit in ["provider", "budget"] {
+            let first = Scripted::tools(
+                &"word ".repeat(30_000),
+                &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
+            );
+            let second = match exit {
+                "provider" => Scripted::Fail(ProviderError::Overloaded {
+                    message: "busy".into(),
+                }),
+                _ => Scripted::text("never asked"),
+            };
+            let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+            let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+            let fake = FakeProvider {
+                chunk: usize::MAX,
+                ..FakeProvider::scripted(vec![first, second])
+            };
+            let core =
+                Core::with_provider(Config::example(), Arc::new(fake), store, vec![]).unwrap();
+            // The budget fits loop 0's reservation, and not loop 1's once loop 0 is spent.
+            let (live, _) = core.live_profile();
+            let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+            let limit = (exit == "budget")
+                .then(|| core.kernel.config().control_reserve + target.max_tokens as u64 + 20_000);
+            let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+            let authority = Authority {
+                principal: OPERATOR.into(),
+                ..Default::default()
+            };
+            let e = core
+                .kernel
+                .open_execution(&rec.session_id, rec.kind, authority, limit, None)
+                .unwrap();
+            rec.execution_id = Some(e.id);
+            let sid = rec.session_id.clone();
+            core.store.put_session(&sid, &rec).unwrap();
+            let msgs = roundtrip(
+                core.clone(),
+                vec![Request::new(
+                    Id::Num(1),
+                    method::TURN_SUBMIT,
+                    TurnSubmitParams {
+                        session_id: Some(sid.clone()),
+                        input: "diff these".into(),
+                        profile: None,
+                        provider: None,
+                        model: None,
+                        author: None,
+                    },
+                )],
+            )
+            .await;
+            let err = responses(&msgs)[0].error.clone().expect("the turn fails");
+            let rows: Vec<(u64, LedgerRow)> = core.store.ledger_tail(500).unwrap();
+            let row = |kind: &str| {
+                rows.iter()
+                    .find(|(_, r)| r.kind == kind)
+                    .map(|(_, r)| r.data.clone())
+                    .unwrap_or_default()
+            };
+            let (call, failed) = (row("provider.call"), row("turn.failed"));
+            let (usage, cost) = (call["usage"].clone(), call["cost_usd"].clone());
+            assert!(
+                cost.as_f64().unwrap_or(0.0) > 0.0,
+                "{exit}: loop 0 has a cost: {call}"
+            );
+            let s: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+            let class = if exit == "budget" {
+                "budget_exhausted"
+            } else {
+                "overloaded"
+            };
+            for (what, got, want) in [
+                ("error.data class", err.data["class"].clone(), json!(class)),
+                ("session turns", json!(s.turns), json!(1)),
+                ("session usage", json!(s.usage), usage.clone()),
+                ("session cost_usd", json!(s.cost_usd), cost.clone()),
+                ("session tool_calls", json!(s.tool_calls), json!(1)),
+                (
+                    "health cost_usd_total",
+                    json!(core.health().cost_usd_total),
+                    cost.clone(),
+                ),
+                (
+                    "turn.failed usage_so_far",
+                    failed["usage_so_far"].clone(),
+                    usage.clone(),
+                ),
+                (
+                    "turn.failed cost_usd",
+                    failed["cost_usd"].clone(),
+                    cost.clone(),
+                ),
+                (
+                    "turn.failed tool_calls",
+                    failed["tool_calls"].clone(),
+                    json!(1),
+                ),
+                ("error.data usage", err.data["usage"].clone(), usage),
+                ("error.data cost_usd", err.data["cost_usd"].clone(), cost),
+                (
+                    "error.data tool_calls",
+                    err.data["tool_calls"].clone(),
+                    json!(1),
+                ),
+            ] {
+                if got != want {
+                    wrong.push(format!("{exit}: {what} = {got}, want {want}"));
+                }
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "the failed turn lost:\n{}",
+            wrong.join("\n")
+        );
     }
 
     /// Rows stored before theseus-8az renamed the decline vocabulary: a tool
