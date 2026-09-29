@@ -62,6 +62,35 @@ pub mod method {
     /// Undo a tightening: the tool goes back to what the config says. It
     /// loosens, so it takes the same trusted answer as an approval.
     pub const POLICY_UNTIGHTEN: &str = "policy.untighten";
+
+    /// Every method, so a server can say which only read (theseus-2fo).
+    pub const ALL: [&str; 25] = [
+        HEALTH,
+        SESSION_OPEN,
+        SESSION_LIST,
+        TURN_SUBMIT,
+        LEDGER_TAIL,
+        PROFILE_LIST,
+        PROFILE_USE,
+        EXECUTION_LIST,
+        EXECUTION_CANCEL,
+        ACTION_LIST,
+        ACTION_CONFIRM,
+        CONFIRM_LIST,
+        SESSION_HISTORY,
+        SESSION_WATCH,
+        SESSION_UNWATCH,
+        SESSION_RECOMPILE,
+        CATALOG_LIST,
+        COMPILATION_LIST,
+        NODE_LIST,
+        TOOL_LIST,
+        SHUTDOWN,
+        NARRATIVE_WATCH,
+        NARRATIVE_UNWATCH,
+        POLICY_TIGHTEN,
+        POLICY_UNTIGHTEN,
+    ];
 }
 
 /// Notification names (server → client).
@@ -166,6 +195,10 @@ pub mod error_code {
     /// §3.9 "Approval"): not from a trusted user, or not through a trusted
     /// channel. The message says why; the call keeps waiting.
     pub const REFUSED: i64 = -32005;
+    /// A method that acts, sent while the daemon serves from its copy of the
+    /// vault's config note and the vault has not confirmed it (theseus-2fo).
+    /// The message says why; `data.class` is `config_unconfirmed`.
+    pub const CONFIG_UNCONFIRMED: i64 = -32006;
 }
 
 impl Request {
@@ -240,6 +273,10 @@ pub struct HealthResult {
     /// (theseus-qa0), and each consumer waits for its own.
     #[serde(default)]
     pub secrets: SecretsStatus,
+    /// Where the config came from, and whether the vault has confirmed the
+    /// copy this start served from (theseus-2fo).
+    #[serde(default)]
+    pub config: ConfigStatus,
     /// The last start's phases, timed from process start: those on the path
     /// to answering the socket, then those after it.
     #[serde(default)]
@@ -321,6 +358,59 @@ impl SecretsStatus {
             s => s.into(),
         }
     }
+}
+
+/// Where the config came from, and whether it may act (theseus-2fo, spec
+/// §3.19). A start whose config is an `op://` reference serves from the
+/// last-known-good copy of the note and reads the vault behind the socket;
+/// until the vault confirms the copy, the daemon answers only what reads.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ConfigStatus {
+    /// `vault` or `file`: where the config lives.
+    pub source: String,
+    /// The `op://` reference, or the file's path.
+    #[serde(default)]
+    pub reference: String,
+    /// `confirmed` (it may act), `confirming` (serving from the copy while
+    /// the vault is read), `held` (the vault answered, and the copy may not
+    /// act: `detail` says why), or `restarting` (onto the vault's changed
+    /// note).
+    pub state: String,
+    /// How this start got it: `vault` (read before serving), `copy`, or `file`.
+    #[serde(default)]
+    pub started_from: String,
+    /// Why it is held, what it is doing, or how it was confirmed, in words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// When it was confirmed, in ms after the process started: the vault's
+    /// answer, or the end of a read before serving.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_ms: Option<u64>,
+    /// The last-known-good copy's path, when the config is in the vault.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy: Option<String>,
+    /// Reads of the vault behind the socket: the first, then each retry.
+    #[serde(default)]
+    pub reads: u32,
+    /// Until the next read, when held.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_in_ms: Option<u64>,
+    /// This process began as a restart onto the vault's changed note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restarted: Option<ConfigRestart>,
+}
+
+/// A restart onto the vault's changed config note (theseus-2fo): what
+/// changed since the copy, by table name and digest, never by value.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigRestart {
+    pub reference: String,
+    /// When the process that found the change asked to restart.
+    pub at_unix_ms: u64,
+    /// The tables that differ (`kernel`, `policy.tools`, `profiles.glm`).
+    pub tables: Vec<String>,
+    pub copy_sha256: String,
+    pub vault_sha256: String,
 }
 
 /// A secret that did not resolve, and why (never a value).
@@ -1276,6 +1366,9 @@ pub enum NarrativePart {
     Tool,
     Approval,
     Job,
+    /// The daemon's config: the vault confirming the copy a start served
+    /// from, holding it, or restarting onto a changed note (theseus-2fo).
+    Config,
 }
 
 impl NarrativePart {
@@ -1289,6 +1382,7 @@ impl NarrativePart {
             Self::Tool => "tool",
             Self::Approval => "approval",
             Self::Job => "job",
+            Self::Config => "config",
         }
     }
 }

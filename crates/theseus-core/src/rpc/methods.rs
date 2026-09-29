@@ -51,6 +51,7 @@ impl Core {
             providers: self.runner.providers.keys().cloned().collect(),
             secrets_resolved: self.secrets.ready_names(),
             secrets: self.secrets.status(),
+            config: self.config_gate.status(),
             startup: self.startup_log.snapshot(),
             usage_total,
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
@@ -214,6 +215,8 @@ impl Core {
                 author: p.author.clone().unwrap_or_else(|| conn.client.to_string()),
                 recompile: None,
                 attachments: p.attachments,
+                arrived: Some(conn.arrived),
+                config_wait_us: conn.config_wait_us,
             })
             .await;
         match result {

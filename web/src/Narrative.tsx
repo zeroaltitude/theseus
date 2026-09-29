@@ -15,7 +15,7 @@ const clock = (ms: number) => {
 }
 const short = (id: string) => id.length > 14 ? `…${id.slice(-6)}` : id
 const PART_CLASS: Record<string, string> = {
-  session: 'accent', turn: 'ok', model: 'accent', approval: 'warn', job: 'warn',
+  session: 'accent', turn: 'ok', model: 'accent', approval: 'warn', job: 'warn', config: 'warn',
 }
 /// Lines the tab keeps while it stays open (the daemon's tail is shorter).
 const KEEP = 2000

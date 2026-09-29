@@ -822,6 +822,67 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
     );
 }
 
+/// Startup writes nothing a copy's word decides (theseus-2fo). An execution
+/// stored with a unit budget takes its dollar limit from the config when
+/// startup rewrites it, so under a config the vault has not confirmed a store
+/// that still holds one refuses to start and writes nothing; the daemon then
+/// reads the vault first. Under the vault's own config it migrates.
+#[tokio::test]
+async fn a_store_with_unit_budgets_waits_for_a_config_the_vault_confirmed() {
+    use theseus_store::{kinds, NewRecord};
+    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let store = Store::open(&dir.join("store")).unwrap();
+    let json = r#"{"id":"exe_old","schema":1,"session_id":"ses_old","kind":"conversation","authority":{"principal":"operator","ceilings":{}},"outstanding":[],"queued_results":[],"turns":3,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000500000,"state":"waiting","wake":{"on":"input"},"budget":{"limit":20000000,"spent":154321,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}}"#;
+    let v: Value = serde_json::from_str(json).unwrap();
+    store
+        .append(&[NewRecord::json(kinds::EXECUTION, Some("exe_old"), &v)
+            .unwrap()
+            .scoped("ses_old")])
+        .unwrap();
+    let before = store.stats().unwrap().last_position;
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    let gate = crate::config_gate::ConfigGate::from_copy(
+        "op://V/c/notesPlain",
+        dir.join("config.last-good.toml"),
+        String::new(),
+        std::time::Instant::now(),
+    );
+    let refused = Core::build(Parts {
+        config_gate: gate,
+        ..Parts::for_tests(
+            cfg.clone(),
+            Arc::new(FakeProvider::default()),
+            store.clone(),
+        )
+    })
+    .err()
+    .expect("refused");
+    assert!(
+        matches!(
+            refused.downcast_ref::<theseus_kernel::KernelError>(),
+            Some(theseus_kernel::KernelError::UnconfirmedConfig { executions: 1 })
+        ),
+        "{refused:#}"
+    );
+    assert_eq!(
+        store.stats().unwrap().last_position,
+        before,
+        "nothing written"
+    );
+    let core = Core::build(Parts::for_tests(
+        cfg,
+        Arc::new(FakeProvider::default()),
+        store,
+    ))
+    .unwrap();
+    let rows = core.store.ledger_tail::<LedgerRow>(50).unwrap();
+    assert!(
+        rows.iter().any(|(_, r)| r.kind == "budget.migrated"),
+        "migrated under the vault's config"
+    );
+}
+
 /// A store the previous binary wrote, whose executions carry unit budgets
 /// (theseus-0sg): one ended `budget_exhausted` at 877,683 of 1,000,000
 /// units, as Eddie's Discord session did on 2026-09-29 for $0.45, and one

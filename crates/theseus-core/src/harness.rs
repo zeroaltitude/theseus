@@ -17,6 +17,10 @@ pub fn notify_socket_path(core: &Core) -> std::path::PathBuf {
 }
 
 pub async fn run(core: Arc<Core>) {
+    // Nothing acts on a config copy's word (theseus-2fo).
+    if !core.config_gate.opened().await {
+        return;
+    }
     let path = notify_socket_path(&core);
     let _ = std::fs::remove_file(&path);
     let listener = match UnixListener::bind(&path) {
@@ -72,6 +76,11 @@ pub async fn run(core: Arc<Core>) {
 pub const BINDINGS_WAIT: Duration = Duration::from_secs(20);
 
 pub async fn drive(core: Arc<Core>) {
+    // A continuation runs only under a config the vault has confirmed
+    // (theseus-2fo).
+    if !core.config_gate.opened().await {
+        return;
+    }
     use std::collections::HashMap;
     use std::collections::HashSet;
     use std::sync::Mutex;

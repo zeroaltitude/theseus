@@ -268,6 +268,8 @@ impl std::fmt::Display for CallError {
                 "{} [class={c}, transient={t}, code {}]",
                 self.message, self.code
             ),
+            // `config_unconfirmed` (theseus-2fo) names its class alone.
+            (Some(c), None) => write!(f, "{} [class={c}, code {}]", self.message, self.code),
             _ => write!(f, "{} (code {})", self.message, self.code),
         }
     }
@@ -877,6 +879,9 @@ async fn run(cli: Cli) -> Result<()> {
                     h.usage_total.cache_read_input_tokens,
                     h.usage_total.cache_creation_input_tokens,
                 );
+                if let Some(line) = config_line(&h.config) {
+                    println!("{line}");
+                }
                 println!("{}", secrets_line(&h.secrets, &h.secrets_resolved));
                 if let Some(line) = startup_line(&h.startup) {
                     println!("{line}");
@@ -1200,6 +1205,57 @@ fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> String
         line.push_str(&format!("\n  fetched again in {:.0} s", ms as f64 / 1000.0));
     }
     line
+}
+
+/// `config: vault (confirmed in 1034 ms)`, `config: confirming …`, or
+/// `config: held: <why>` (theseus-2fo): where the config came from, and
+/// whether the vault has confirmed the copy this start served from. A daemon
+/// older than that says nothing.
+fn config_line(c: &theseus_protocol::ConfigStatus) -> Option<String> {
+    let ms = |v: Option<u64>| v.map(|ms| format!("{ms} ms")).unwrap_or_else(|| "?".into());
+    let mut line = match (c.source.as_str(), c.state.as_str()) {
+        ("", _) => return None,
+        ("file", _) => format!("config: file {}", c.reference),
+        (_, "confirmed") if c.started_from == "vault" => format!(
+            "config: vault (read before serving, in {}: {})",
+            ms(c.confirmed_ms),
+            c.detail.as_deref().unwrap_or("there was no copy")
+        ),
+        (_, "confirmed") => {
+            let mut l = format!("config: vault (confirmed in {})", ms(c.confirmed_ms));
+            if let Some(d) = c
+                .detail
+                .as_deref()
+                .filter(|d| d.starts_with("only comments"))
+            {
+                l.push_str(&format!(": {d}"));
+            }
+            l
+        }
+        (_, "confirming") => format!(
+            "config: confirming · serving from the copy of {}; nothing acts until the vault \
+             confirms it",
+            c.reference
+        ),
+        (_, state) => format!(
+            "config: {state}: {}",
+            c.detail.as_deref().unwrap_or("(no reason given)")
+        ),
+    };
+    if let Some(ms) = c.retry_in_ms.filter(|_| c.state == "held") {
+        line.push_str(&format!(
+            "\n  the vault is read again in {:.0} s",
+            ms as f64 / 1000.0
+        ));
+    }
+    if let Some(r) = &c.restarted {
+        line.push_str(&format!(
+            "\n  restarted at {} onto the vault's changed note; changed since the copy: {}",
+            fmt_time(r.at_unix_ms),
+            r.tables.join(", ")
+        ));
+    }
+    Some(line)
 }
 
 /// `startup: serving at 14.2 ms (config 1.0 ms · store 2.1 ms · …) · after:
@@ -2095,5 +2151,75 @@ mod tests {
              · after: secrets running"
         );
         assert!(startup_line(&[]).is_none());
+    }
+
+    /// `config:` in `theseus health` (theseus-2fo): a file, a read before
+    /// serving, confirming, confirmed from the copy, and held after a restart
+    /// onto a changed note, with the next read.
+    #[test]
+    fn health_says_where_the_config_came_from_and_whether_it_may_act() {
+        use theseus_protocol::{ConfigRestart, ConfigStatus};
+        let vault = |state: &str, from: &str| ConfigStatus {
+            source: "vault".into(),
+            reference: "op://V/c/notesPlain".into(),
+            state: state.into(),
+            started_from: from.into(),
+            ..Default::default()
+        };
+        assert!(
+            config_line(&ConfigStatus::default()).is_none(),
+            "an older daemon"
+        );
+        let file = ConfigStatus {
+            source: "file".into(),
+            reference: "/x/c.toml".into(),
+            state: "confirmed".into(),
+            started_from: "file".into(),
+            ..Default::default()
+        };
+        assert_eq!(config_line(&file).unwrap(), "config: file /x/c.toml");
+        let first = ConfigStatus {
+            detail: Some("there was no copy yet; the copy is kept for the next start".into()),
+            confirmed_ms: Some(1012),
+            ..vault("confirmed", "vault")
+        };
+        assert_eq!(
+            config_line(&first).unwrap(),
+            "config: vault (read before serving, in 1012 ms: there was no copy yet; the copy is \
+             kept for the next start)"
+        );
+        assert_eq!(
+            config_line(&vault("confirming", "copy")).unwrap(),
+            "config: confirming · serving from the copy of op://V/c/notesPlain; nothing acts \
+             until the vault confirms it"
+        );
+        let ok = ConfigStatus {
+            confirmed_ms: Some(1034),
+            detail: Some("the same text as the copy".into()),
+            ..vault("confirmed", "copy")
+        };
+        assert_eq!(
+            config_line(&ok).unwrap(),
+            "config: vault (confirmed in 1034 ms)"
+        );
+        let held = ConfigStatus {
+            detail: Some(
+                "the vault's note changed again since the restart; restart to apply".into(),
+            ),
+            retry_in_ms: Some(10_000),
+            restarted: Some(ConfigRestart {
+                reference: "op://V/c/notesPlain".into(),
+                at_unix_ms: 3_600_000,
+                tables: vec!["kernel".into()],
+                ..Default::default()
+            }),
+            ..vault("held", "copy")
+        };
+        assert_eq!(
+            config_line(&held).unwrap(),
+            "config: held: the vault's note changed again since the restart; restart to apply\n  \
+             the vault is read again in 10 s\n  restarted at 01:00:00.000Z onto the vault's \
+             changed note; changed since the copy: kernel"
+        );
     }
 }

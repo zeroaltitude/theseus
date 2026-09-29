@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, CatalogList, CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList } from './protocol'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -32,7 +32,7 @@ function State({ s }: { s: string }) {
   return <span className={`pill ${STATE_CLASS[s] ?? ''}`}>{s.replace('_', ' ')}</span>
 }
 
-const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'approval.', 'policy.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.', 'discord.', 'store.'] as const
+const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'approval.', 'policy.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'config.', 'reconcile', 'session.', 'discord.', 'store.'] as const
 const BINDING_CLASS: Record<string, string> = {
   ready: 'ok', connecting: 'accent', starting: 'accent', resuming: 'warn',
   unconfigured: 'muted', disabled: 'muted', disconnected: 'bad', failed: 'bad',
@@ -664,6 +664,7 @@ function ObsSection({ title, count, open, onToggle, children }: {
 }
 
 const SECRETS_CLASS: Record<string, string> = { ready: 'ok', resolving: 'warn', failed: 'bad' }
+const CONFIG_CLASS: Record<string, string> = { confirmed: 'ok', confirming: 'warn', held: 'bad', restarting: 'warn' }
 
 /// When the last start served, and where its secrets stand, in a few words.
 function startupCount(health: Health | null): string {
@@ -674,7 +675,32 @@ function startupCount(health: Health | null): string {
   const secrets = s === 'failed'
     ? `secrets failed: ${health!.secrets!.failed.map((f) => f.name).join(', ')}`
     : s ? `secrets ${s}` : ''
-  return [serving, secrets].filter(Boolean).join(' · ')
+  const c = health?.config
+  const config = c?.state && c.state !== 'confirmed' ? `config ${c.state}` : ''
+  return [serving, config, secrets].filter(Boolean).join(' · ')
+}
+
+/// Where the config came from, whether it may act, and what a restart onto the vault's
+/// changed note changed (theseus-2fo).
+function ConfigLine({ c }: { c: ConfigStatus }) {
+  const from = c.source === 'file' ? `file ${c.reference}`
+    : c.started_from === 'copy' ? `the copy of ${c.reference}` : c.reference
+  return (
+    <>
+      <div>
+        <span className="muted">config</span> <span className={`pill ${CONFIG_CLASS[c.state] ?? ''}`}>{c.state}</span>
+        <span className="muted small"> {from}</span>
+        {c.state === 'confirmed' && c.confirmed_ms != null && c.source === 'vault' &&
+          <span className="muted small"> · {c.started_from === 'copy' ? 'confirmed by the vault' : 'read before serving'} {fmt(c.confirmed_ms)} ms after start</span>}
+        {c.detail && <span className={c.state === 'held' ? 'bad small' : 'muted small'}> · {c.detail}</span>}
+        {c.state === 'held' && c.retry_in_ms != null && <span className="muted small"> · read again in {Math.ceil(c.retry_in_ms / 1000)} s</span>}
+      </div>
+      {c.state !== 'confirmed' && c.source === 'vault' &&
+        <div className="warn small">Nothing acts until the vault confirms the copy: reads answer, and every method that acts waits.</div>}
+      {c.restarted &&
+        <div className="warn small">Restarted {new Date(c.restarted.at_unix_ms).toLocaleTimeString()} onto the vault's note, which had changed since the copy: {c.restarted.tables.join(', ')}.</div>}
+    </>
+  )
 }
 
 /// What a phase found, from its detail.
@@ -718,6 +744,7 @@ function StartupView({ health }: { health: Health | null }) {
       <div className="kv">
         <div><span className="muted">serving</span> <b>{fmtUs(serving)}</b> <span className="muted">after the process started</span>
           {between >= 500 && <span className={between > serving / 4 ? 'warn small' : 'muted small'}> · {fmtUs(between)} between phases, which no phase names</span>}</div>
+        {health?.config?.state && <ConfigLine c={health.config} />}
         {s?.state && (
           <div>
             <span className="muted">secrets</span> <span className={`pill ${SECRETS_CLASS[s.state] ?? ''}`}>{s.state}</span>

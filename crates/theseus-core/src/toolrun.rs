@@ -1575,8 +1575,9 @@ pub fn build_runtime(
         canon_path(cfg.discord.bindings_path(&state)),
         canon("~/.config/op"),
     ];
-    // The token file the daemon was given, by flag or by environment.
-    if let Some(f) = &cfg.op_token_file {
+    // The token file the daemon was given, by flag or by environment, and
+    // the config note's last-known-good copy (theseus-2fo).
+    for f in cfg.op_token_file.iter().chain(&cfg.config_copy) {
         floor_paths.push(canon_path(f.clone()));
     }
     let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();

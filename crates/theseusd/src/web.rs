@@ -29,9 +29,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 struct Assets;
 
 pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
-    let addr: SocketAddr = format!("{bind}:{port}")
+    // `Config::validate` refuses a bind that is not a loopback address
+    // (theseus-2fo); this is the same check, where the socket is made.
+    let ip: std::net::IpAddr = bind
         .parse()
-        .with_context(|| format!("bad web bind {bind}:{port}"))?;
+        .with_context(|| format!("bad web bind {bind:?}"))?;
+    let addr = SocketAddr::new(ip, port);
     if !addr.ip().is_loopback() {
         anyhow::bail!("web.bind must be a loopback address (reachability rule); got {bind}");
     }

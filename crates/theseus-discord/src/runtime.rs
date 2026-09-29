@@ -146,6 +146,16 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
         board.state("disabled", Some("[discord].enabled = false".into()));
         return;
     }
+    // Nothing talks to Discord on a config copy's word (theseus-2fo).
+    if !core.config_gate.is_open() {
+        board.state(
+            "waiting",
+            Some("waiting for the vault to confirm the config this daemon started from".into()),
+        );
+        if !core.config_gate.opened().await {
+            return;
+        }
+    }
     board.update(|s| s.bindings_file = Some(path.display().to_string()));
     if !path.exists() {
         board.state(
@@ -333,6 +343,24 @@ async fn serve(
     tokio::spawn(route(shared.clone(), notes));
     // Every place watches its session now: turns the kernel resumes can run.
     ready.fire();
+    // After a restart onto the vault's changed config note, one line to the
+    // operator's DM, where approval cards go (theseus-2fo).
+    if let Some(r) = core.config_gate.restarted() {
+        match shared.approval_dm(None) {
+            Some((user, _)) => shared.to_dm(
+                user,
+                PlaceMsg::Notice(format!(
+                    "Restarted <t:{}:T> onto the vault's config note, which had changed since \
+                     my local copy: {}.",
+                    r.at_unix_ms / 1000,
+                    r.tables.join(", ")
+                )),
+            ),
+            None => {
+                tracing::info!("restarted onto a changed config note; no DM place to say so in")
+            }
+        }
+    }
     // Who can view each guild channel `[approval]` lists, for health and for
     // the first answer; each card and each answer checks again.
     let checks = shared.clone();
@@ -2078,6 +2106,7 @@ mod tests {
             telemetry: Some(theseus_core::telemetry::Telemetry::disabled()),
             scrubber: Arc::new(theseus_core::scrub::Scrubber::default()),
             launcher: Arc::new(theseus_core::toolrun::InlineLauncher),
+            config_gate: theseus_core::config_gate::ConfigGate::file("test"),
         })
         .unwrap()
     }

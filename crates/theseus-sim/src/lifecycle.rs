@@ -1,9 +1,12 @@
 //! `theseus-sim bench lifecycle`: the lifecycle budgets of §9, measured on a
 //! real `theseusd` over its real socket (FAST, §2; P5b; theseus-qa0).
 //!
-//! Three phases, each run `runs` times, with p50 and p95 per phase, and per
+//! Four phases, each run `runs` times, with p50 and p95 per phase, and per
 //! start-path phase and kernel step by the daemon's own clock (`health`):
 //! - `cold`: process start to the first `health` answer;
+//! - `vault`: the same, with the config an `op://` note, from its
+//!   last-known-good copy (theseus-2fo): each first answer must come before
+//!   the vault's, and say the config is `confirming`;
 //! - `shutdown`: the `shutdown` request to process exit, with executions
 //!   waiting and a job running (a real `proc.run`, started by a real turn
 //!   against a stand-in for the Messages API, `fake_model`);
@@ -27,7 +30,10 @@ use serde_json::{json, Value};
 
 use crate::fake_model::FakeModel;
 
-pub const PHASES: [&str; 3] = ["cold", "shutdown", "kill"];
+pub const PHASES: [&str; 4] = ["cold", "vault", "shutdown", "kill"];
+
+/// The bench's vault note: the fake `op` answers it with the bench config.
+pub const VAULT_REF: &str = "op://Bench/theseus-config/notesPlain";
 
 /// The job the shutdown and kill phases keep running.
 const JOB: [&str; 2] = ["sleep", "300"];
@@ -54,6 +60,9 @@ pub struct Opts {
     /// token in `op_token_file`. Cold starts only: nothing fakes a model.
     pub config: Option<PathBuf>,
     pub op_token_file: Option<PathBuf>,
+    /// After each first answer of the vault phase, wait for the vault to
+    /// confirm the copy, and time it.
+    pub confirm: bool,
 }
 
 // ------------------------------------------------------------------ arithmetic
@@ -98,7 +107,8 @@ impl Summary {
 pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
     let cold = 50.0 + 200.0 * sessions.min(10_000) as f64 / 10_000.0;
     match phase {
-        "cold" => Some(cold),
+        // A start from the config copy is a cold start (theseus-2fo).
+        "cold" | "vault" => Some(cold),
         "shutdown" => Some(100.0),
         "kill" => Some(cold + 100.0),
         _ => None,
@@ -112,7 +122,7 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
 /// one run whose redb repair after the SIGKILL took 50 ms instead of 26).
 pub fn margin_ms(phase: &str) -> f64 {
     match phase {
-        "cold" => 7.0,
+        "cold" | "vault" => 7.0,
         "shutdown" => 4.0,
         "kill" => 25.0,
         _ => 0.0,
@@ -168,6 +178,12 @@ pub struct Start {
     pub between_ms: f64,
     /// `secrets.state` in that first answer.
     pub secrets: String,
+    /// `config.state` in that first answer (theseus-2fo).
+    #[serde(default)]
+    pub config: String,
+    /// A vault start's first answer to the vault's confirmation, when timed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_ms: Option<f64>,
 }
 
 impl Start {
@@ -202,6 +218,8 @@ impl Start {
             serving_ms,
             between_ms: (serving_ms - named).max(0.0),
             secrets: h["secrets"]["state"].as_str().unwrap_or("").to_string(),
+            config: h["config"]["state"].as_str().unwrap_or("").to_string(),
+            confirmed_ms: None,
         }
     }
 }
@@ -219,6 +237,7 @@ enum Vault {
 
 struct Rig {
     theseusd: PathBuf,
+    /// A config file, or an `op://` note (the vault phase).
     config: PathBuf,
     state: PathBuf,
     sock: PathBuf,
@@ -263,6 +282,52 @@ impl Rig {
             .spawn()
             .with_context(|| format!("starting {}", self.theseusd.display()))?;
         Ok((child, t0))
+    }
+
+    /// The same rig with its config an `op://` note (the vault phase).
+    fn with_config(&self, config: PathBuf) -> Self {
+        Self {
+            theseusd: self.theseusd.clone(),
+            config,
+            state: self.state.clone(),
+            sock: self.sock.clone(),
+            vault: match &self.vault {
+                Vault::Fake(b) => Vault::Fake(b.clone()),
+                Vault::Real(t) => Vault::Real(t.clone()),
+            },
+            log: self.log.clone(),
+        }
+    }
+
+    /// Ask `health` until the vault has confirmed the config, at most 30 s:
+    /// ms from `t0`.
+    fn until_confirmed(&self, t0: Instant) -> Result<f64> {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let h = self.call("health", Value::Null)?;
+            match h["config"]["state"].as_str() {
+                Some("confirmed") => return Ok(t0.elapsed().as_secs_f64() * 1000.0),
+                Some("confirming") => {}
+                other => bail!("the config did not confirm: {other:?}: {}", h["config"]),
+            }
+            if Instant::now() > deadline {
+                bail!("the vault did not confirm the config within 30 s");
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Until the first start has kept the config copy, at most 30 s.
+    fn until_copy_kept(&self) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let copy = theseus_core::config_copy::path(Some(&self.state));
+        while !copy.exists() {
+            if Instant::now() > deadline {
+                bail!("no config copy at {} within 30 s", copy.display());
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Ok(())
     }
 
     /// Start a daemon and time it to its first `health` answer.
@@ -386,20 +451,23 @@ fn tail(log: &Path) -> String {
 
 // ------------------------------------------------------------------ setup
 
-/// The fake `op`: every reference gets the same value, after `ms`.
-fn fake_op(ms: u64) -> String {
+/// The fake `op`: every reference gets the same value, after `ms`, except
+/// the bench's vault note (`VAULT_REF`), which is the file `note`.
+fn fake_op(ms: u64, note: &Path) -> String {
     format!(
         "#!/bin/sh\n\
          # The lifecycle bench's stand-in for 1Password's op (theseus-sim):\n\
          # every reference gets one fixed value, after a delay, so a daemon\n\
-         # that waited for its secrets before serving would show it.\n\
+         # that waited for its secrets or its config note before serving\n\
+         # would show it.\n\
          sleep {}\n\
          case \"$1\" in\n\
          \x20 inject) sed -e 's/{{{{ [^}}]* }}}}/bench-secret-value-0000/g' ;;\n\
-         \x20 read) printf '%s' bench-secret-value-0000 ;;\n\
+         \x20 read) if [ \"$3\" = '{VAULT_REF}' ]; then cat '{}'; else printf '%s' bench-secret-value-0000; fi ;;\n\
          \x20 *) echo \"fake op: $1 is not supported\" >&2; exit 1 ;;\n\
          esac\n",
-        ms as f64 / 1000.0
+        ms as f64 / 1000.0,
+        note.display()
     )
 }
 
@@ -475,6 +543,15 @@ pub struct Report {
     pub verdicts: Vec<Verdict>,
     /// Whether every start answered before its secrets resolved.
     pub served_before_secrets: bool,
+    /// `config.state` at each vault start's first answer, counted.
+    pub config_at_first_answer: BTreeMap<String, usize>,
+    /// Whether every vault start answered from its copy, before the vault.
+    pub served_from_copy: bool,
+    /// Spawn to the vault's confirmation, when timed (`confirm`).
+    pub vault_confirmed: Option<Summary>,
+    /// With the operator's note: the first start, which read the vault
+    /// before serving because there was no copy yet.
+    pub vault_first_ms: Option<f64>,
     pub samples: BTreeMap<String, Vec<f64>>,
     /// The first starts, unmeasured: the first creates an empty store, or
     /// reads a copied one into the page cache.
@@ -486,7 +563,7 @@ pub struct Report {
 
 impl Report {
     pub fn ok(&self) -> bool {
-        self.verdicts.iter().all(|v| v.ok) && self.served_before_secrets
+        self.verdicts.iter().all(|v| v.ok) && self.served_before_secrets && self.served_from_copy
     }
 }
 
@@ -518,10 +595,20 @@ pub fn run(o: &Opts) -> Result<Report> {
         }
     };
     let sock = work.join("sock");
+    // With the operator's own `op://` note, only the vault phase runs.
+    let real_note = o
+        .config
+        .as_ref()
+        .filter(|c| c.to_string_lossy().starts_with("op://"))
+        .cloned();
     let (config, vault) = match &o.config {
         Some(c) => {
-            if o.phases.iter().any(|p| p != "cold") {
-                bail!("with --config only the cold phase runs: the others need the fake model");
+            let only = if real_note.is_some() { "vault" } else { "cold" };
+            if o.phases.iter().any(|p| p != only) {
+                bail!(
+                    "with this --config only the {only} phase runs: the others need the fake \
+                     model, and the vault phase an op:// note"
+                );
             }
             let token = o
                 .op_token_file
@@ -530,18 +617,24 @@ pub fn run(o: &Opts) -> Result<Report> {
             (c.clone(), Vault::Real(token))
         }
         None => {
+            let model = FakeModel::start(JOB.iter().map(|s| s.to_string()).collect())?;
+            let config = work.join("config.toml");
+            let text = bench_config(&model.base(), &state, &sock, &projects)?;
+            std::fs::write(&config, &text)?;
+            // The vault phase starts from the note's copy, as a daemon that
+            // has run before does; the fake op answers the note with the same
+            // text after `resolver_ms`.
+            theseus_core::config_copy::write(
+                &theseus_core::config_copy::path(Some(&state)),
+                VAULT_REF,
+                &text,
+            )?;
             let op = fake_bin.join("op");
-            std::fs::write(&op, fake_op(o.resolver_ms))?;
+            std::fs::write(&op, fake_op(o.resolver_ms, &config))?;
             {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755))?;
             }
-            let model = FakeModel::start(JOB.iter().map(|s| s.to_string()).collect())?;
-            let config = work.join("config.toml");
-            std::fs::write(
-                &config,
-                bench_config(&model.base(), &state, &sock, &projects)?,
-            )?;
             (config, Vault::Fake(fake_bin))
         }
     };
@@ -565,8 +658,9 @@ pub fn run(o: &Opts) -> Result<Report> {
     // the store, and on a copy it reads the files into the page cache; the
     // second pays for the disk still flushing after that (store and kernel
     // at three times their usual, measured). Neither is the cold start of an
-    // existing store that §9 budgets.
-    for _ in 0..WARM_UPS {
+    // existing store that §9 budgets. With the operator's note, the vault
+    // phase makes its own.
+    for _ in 0..if real_note.is_some() { 0 } else { WARM_UPS } {
         let (mut child, mut s) = rig.start()?;
         s.after = "warm-up".into();
         starts.push(s);
@@ -579,6 +673,39 @@ pub fn run(o: &Opts) -> Result<Report> {
             s.after = "cold".into();
             starts.push(s);
             rig.stop(&mut child)?;
+        }
+    }
+    // From the copy of an `op://` note (theseus-2fo): each first answer must
+    // come before the vault's, and say `confirming`. With the operator's
+    // note, one start first reads the vault (no copy yet) and keeps the copy,
+    // and one more pages it in; neither is measured.
+    let mut vault_first_ms = None;
+    if want("vault") {
+        let vr = rig.with_config(real_note.clone().unwrap_or_else(|| VAULT_REF.into()));
+        if real_note.is_some() {
+            let _ = std::fs::remove_file(theseus_core::config_copy::path(Some(&vr.state)));
+            let (mut child, mut s) = vr.start()?;
+            s.after = "first".into();
+            vault_first_ms = Some(s.ms);
+            starts.push(s);
+            vr.until_copy_kept()?;
+            vr.stop(&mut child)?;
+            let (mut child, mut s) = vr.start()?;
+            s.after = "warm-up".into();
+            starts.push(s);
+            vr.stop(&mut child)?;
+        }
+        for _ in 0..o.runs {
+            let (mut child, mut s) = vr.start()?;
+            samples.entry("vault".into()).or_default().push(s.ms);
+            s.after = "vault".into();
+            if o.confirm {
+                let t = Instant::now();
+                let waited = vr.until_confirmed(t)?;
+                s.confirmed_ms = Some(s.ms + waited);
+            }
+            starts.push(s);
+            vr.stop(&mut child)?;
         }
     }
     let mut sessions = generated.as_ref().map_or(0, |g| g.sessions);
@@ -637,7 +764,10 @@ pub fn run(o: &Opts) -> Result<Report> {
     let mut step_by: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     let mut step_order: Vec<String> = Vec::new();
     let mut secrets: BTreeMap<String, usize> = BTreeMap::new();
-    for s in starts.iter().filter(|s| s.after != "warm-up") {
+    for s in starts
+        .iter()
+        .filter(|s| s.after != "warm-up" && s.after != "first")
+    {
         let totals = [
             ("between".to_string(), s.between_ms),
             ("serving".to_string(), s.serving_ms),
@@ -666,7 +796,17 @@ pub fn run(o: &Opts) -> Result<Report> {
     // must say `resolving`: `ready` there means the socket waited.
     let served_before_secrets = starts
         .iter()
+        .filter(|s| s.after != "first")
         .all(|s| s.secrets == "resolving" || s.ms >= resolver_ms as f64);
+    // A vault start that answered from its copy says `confirming`:
+    // `confirmed` there means the socket waited for the vault.
+    let vault_starts: Vec<&Start> = starts.iter().filter(|s| s.after == "vault").collect();
+    let served_from_copy = vault_starts.iter().all(|s| s.config == "confirming");
+    let mut config_at_first_answer: BTreeMap<String, usize> = BTreeMap::new();
+    for s in &vault_starts {
+        *config_at_first_answer.entry(s.config.clone()).or_default() += 1;
+    }
+    let confirmed: Vec<f64> = vault_starts.iter().filter_map(|s| s.confirmed_ms).collect();
     let warm_up_ms: Vec<f64> = starts
         .iter()
         .filter(|s| s.after == "warm-up")
@@ -687,6 +827,10 @@ pub fn run(o: &Opts) -> Result<Report> {
         secrets_at_first_answer: secrets,
         verdicts,
         served_before_secrets,
+        config_at_first_answer,
+        served_from_copy,
+        vault_confirmed: Summary::of(&confirmed),
+        vault_first_ms,
         samples,
         warm_up_ms,
         starts,
@@ -694,8 +838,12 @@ pub fn run(o: &Opts) -> Result<Report> {
     })
 }
 
-const TITLES: [(&str, &str); 3] = [
+const TITLES: [(&str, &str); 4] = [
     ("cold", "cold start to the first health answer"),
+    (
+        "vault",
+        "cold start from the config copy to the first answer",
+    ),
     (
         "shutdown",
         "clean shutdown, executions waiting and a job running",
@@ -765,6 +913,31 @@ pub fn print(r: &Report) {
             "a start WAITED for its secrets"
         }
     );
+    if !r.config_at_first_answer.is_empty() {
+        let answers: Vec<String> = r
+            .config_at_first_answer
+            .iter()
+            .map(|(s, n)| format!("{s} {n}"))
+            .collect();
+        println!(
+            "  config at each vault start's first answer: {} ({})",
+            answers.join(", "),
+            if r.served_from_copy {
+                "served from the copy before the vault answered"
+            } else {
+                "a start WAITED for the vault"
+            }
+        );
+    }
+    if let Some(ms) = r.vault_first_ms {
+        println!("  the first vault start, with no copy yet (it read the vault first): {ms:.1} ms");
+    }
+    if let Some(c) = &r.vault_confirmed {
+        println!(
+            "  spawn to the vault's confirmation: p50 {:.1} ms  p95 {:.1} ms  (min {:.1}, max {:.1})",
+            c.p50, c.p95, c.min, c.max
+        );
+    }
     let line = |v: &[(String, Summary)]| {
         v.iter()
             .map(|(n, s)| format!("{n} {:.2}/{:.2}", s.p50, s.p95))
@@ -921,7 +1094,15 @@ mod tests {
     fn the_fake_op_answers_every_reference_after_its_delay() {
         let d = tempfile::tempdir().unwrap();
         let op = d.path().join("op");
-        std::fs::write(&op, fake_op(10)).unwrap();
+        let note = d.path().join("note.toml");
+        std::fs::write(&note, "[secrets]\n").unwrap();
+        std::fs::write(&op, fake_op(10, &note)).unwrap();
+        let read = Command::new("sh")
+            .arg(&op)
+            .args(["read", "--no-newline", VAULT_REF])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(read.stdout).unwrap(), "[secrets]\n");
         let out = Command::new("sh")
             .arg(&op)
             .arg("inject")

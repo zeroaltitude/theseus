@@ -63,6 +63,11 @@ pub struct Config {
     /// The floor keeps it, whichever way it was named (theseus-8az).
     #[serde(skip)]
     pub op_token_file: Option<PathBuf>,
+    /// The last-known-good copy of the vault's config note (theseus-2fo):
+    /// set at startup when the config is `op://`, never read from the TOML.
+    /// The floor keeps it, as it keeps the token file.
+    #[serde(skip)]
+    pub config_copy: Option<PathBuf>,
     /// Every profile and provider, the implicit `default` and `anthropic`
     /// that `[model]` names included: resolved once, when the document is read.
     #[serde(skip)]
@@ -407,6 +412,7 @@ impl KernelSection {
             confirm_ttl_ms: self.confirm_ttl_secs * 1000,
             heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
             fault_after_startup_step: None,
+            unconfirmed_config: false,
         }
     }
 }
@@ -417,6 +423,8 @@ impl KernelSection {
 pub struct WebConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// A loopback address (`127.0.0.1` or `::1`): anything else fails to
+    /// load until the web UI has auth (theseus-2fo).
     #[serde(default = "default_web_bind")]
     pub bind: String,
     #[serde(default = "default_web_port")]
@@ -629,8 +637,12 @@ fn default_api_base() -> String {
 fn default_key_name() -> String {
     "anthropic_api_key".into()
 }
+/// Where state lives unless `[server].state_dir` or `--state-dir` says
+/// otherwise; the config copy is found here before any config is read.
+pub const DEFAULT_STATE_DIR: &str = "~/.theseus";
+
 fn default_state_dir() -> String {
-    "~/.theseus".into()
+    DEFAULT_STATE_DIR.into()
 }
 fn default_socket() -> String {
     "~/.theseus/theseus.sock".into()
@@ -669,6 +681,12 @@ impl Default for ServerConfig {
 impl Config {
     /// `source` is either an `op://` reference or a filesystem path.
     pub async fn load(source: &str, op: &OpReader) -> Result<Self> {
+        Ok(Self::load_text(source, op).await?.0)
+    }
+
+    /// `load`, and the document's text as it was read: the vault's note is
+    /// kept as the last-known-good copy (theseus-2fo).
+    pub async fn load_text(source: &str, op: &OpReader) -> Result<(Self, String)> {
         let text = if source.starts_with("op://") {
             let r = SecretRef::parse(source)?;
             let secret = op
@@ -685,7 +703,28 @@ impl Config {
         for w in &warnings {
             tracing::warn!("{w}");
         }
-        Ok(cfg)
+        Ok((cfg, text))
+    }
+
+    /// A field set in this config that could carry a credential, by name
+    /// (theseus-2fo): a URL with a user, a password, or a query. The loader
+    /// refuses a value in `[secrets]`; every other field is a reference, a
+    /// name, an id, a number, a path, a posture, an argv prefix, or prose for
+    /// the model. A note with such a URL is never kept as a copy.
+    pub fn credential_in_url(&self) -> Option<String> {
+        let mut urls = vec![("model.api_base".to_string(), self.model.api_base.as_str())];
+        for (name, p) in &self.providers {
+            urls.push((format!("providers.{name}.api_base"), p.api_base.as_str()));
+        }
+        if let Some(e) = self.telemetry.endpoint() {
+            urls.push(("telemetry.otlp_endpoint".to_string(), e));
+        }
+        urls.into_iter()
+            .find(|(_, u)| match reqwest::Url::parse(u) {
+                Ok(u) => !u.username().is_empty() || u.password().is_some() || u.query().is_some(),
+                Err(_) => u.contains('@') || u.contains('?'),
+            })
+            .map(|(key, _)| key)
     }
 
     /// Parse and validate a config document. The warnings name the retired
@@ -871,6 +910,18 @@ impl Config {
             for c in &a.channels {
                 crate::approval::Channel::parse(c).map_err(anyhow::Error::msg)?;
             }
+        }
+        // The web UI has no auth yet (§3.14): whoever reaches it is the
+        // operator, so it listens on loopback only (theseus-2fo).
+        let bind = &self.web.bind;
+        if !bind
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+        {
+            anyhow::bail!(
+                "web.bind = {bind:?} is not a loopback address: the web UI has no auth yet \
+                 (spec §3.14), so it listens only on 127.0.0.1 or ::1"
+            );
         }
         Ok(())
     }
@@ -1575,6 +1626,70 @@ mod tests {
                 && w[0]
                     .contains("approval.trusted_users names nobody, so no Discord answer counts"),
             "{w:?}"
+        );
+    }
+
+    /// `[web] bind` is a loopback address or the config fails to load, since
+    /// the web UI has no auth yet (theseus-2fo). Eddie's `127.0.0.1` and the
+    /// template's load unchanged.
+    #[test]
+    fn a_web_bind_off_loopback_fails_to_load() {
+        let doc = |bind: &str| {
+            format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[web]\nenabled = false\n\
+                 bind = \"{bind}\"\nport = 7433\n"
+            )
+        };
+        for ok in ["127.0.0.1", "127.0.0.2", "::1"] {
+            Config::parse(&doc(ok)).unwrap_or_else(|e| panic!("{ok}: {e:#}"));
+        }
+        for bad in [
+            "0.0.0.0",
+            "192.168.1.20",
+            "::",
+            "localhost",
+            "example.com",
+            "",
+        ] {
+            let e = format!("{:#}", Config::parse(&doc(bad)).unwrap_err());
+            assert!(
+                e.contains(&format!("web.bind = {bad:?} is not a loopback address"))
+                    && e.contains("the web UI has no auth yet"),
+                "{bad}: {e}"
+            );
+        }
+        assert_eq!(Config::example().web.bind, "127.0.0.1");
+    }
+
+    /// The fields that could carry a credential are the URLs: a user, a
+    /// password, or a query in one names its field, and such a note is never
+    /// kept as a copy (theseus-2fo). The template has none.
+    #[test]
+    fn a_url_that_could_carry_a_credential_is_named() {
+        assert_eq!(Config::example().credential_in_url(), None);
+        let with = |f: &dyn Fn(&mut Config)| {
+            let mut c = Config::example();
+            f(&mut c);
+            c.credential_in_url()
+        };
+        assert_eq!(
+            with(&|c| c.model.api_base = "https://user:pw@api.example.com".into()),
+            Some("model.api_base".into())
+        );
+        assert_eq!(
+            with(&|c| {
+                c.providers.get_mut("zai").unwrap().api_base =
+                    "https://api.z.ai/api/anthropic?key=x".into()
+            }),
+            Some("providers.zai.api_base".into())
+        );
+        assert_eq!(
+            with(&|c| c.telemetry.otlp_endpoint = Some("http://tok@127.0.0.1:4318".into())),
+            Some("telemetry.otlp_endpoint".into())
+        );
+        assert_eq!(
+            with(&|c| c.model.api_base = "https://api.anthropic.com/v1".into()),
+            None
         );
     }
 

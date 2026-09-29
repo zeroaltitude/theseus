@@ -191,6 +191,7 @@ fn cfg(p: &SimParams) -> KernelConfig {
         confirm_ttl_ms: 60_000,
         heartbeat_ms: 60_000,
         fault_after_startup_step: None,
+        unconfirmed_config: false,
     }
 }
 

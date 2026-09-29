@@ -86,6 +86,8 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             author: "test".into(),
             recompile: None,
             attachments: vec![],
+            arrived: None,
+            config_wait_us: 0,
         })
         .await
         .unwrap()
@@ -1327,6 +1329,8 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             author: "test".into(),
             recompile: None,
             attachments: vec![],
+            arrived: None,
+            config_wait_us: 0,
         })
         .await
         .expect_err("the second call fails");
@@ -1766,6 +1770,8 @@ async fn a_model_with_no_price_is_not_called() {
             author: "test".into(),
             recompile: None,
             attachments: vec![],
+            arrived: None,
+            config_wait_us: 0,
         })
         .await
         .unwrap_err();

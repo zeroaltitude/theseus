@@ -3320,6 +3320,7 @@ dependencies = [
  "mime_guess",
  "rust-embed",
  "serde_json",
+ "tempfile",
  "theseus-core",
  "theseus-discord",
  "theseus-kernel",

@@ -28,6 +28,9 @@ rust-embed = { version = "8", features = ["include-exclude"] }
 mime_guess = "2"
 futures-util.workspace = true
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 # OTLP export (spec §3.20): `cargo build --release -p theseusd --features otel`.
 otel = ["theseus-core/otel"]

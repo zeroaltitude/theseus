@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_protocol::{error_code, method, Id, Message, Request, Response};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -20,6 +20,10 @@ pub(super) struct Conn<'a> {
     pub client: &'a str,
     pub surface: Surface,
     pub tx: &'a mpsc::UnboundedSender<Message>,
+    /// When the request arrived, and how long it waited at the config gate
+    /// (theseus-2fo): a turn's trace starts at the arrival.
+    pub arrived: std::time::Instant,
+    pub config_wait_us: u64,
 }
 
 impl Conn<'_> {
@@ -138,7 +142,8 @@ impl Core {
     }
 
     /// Every method, by name: each parses its params, runs, and serializes
-    /// its result (`route`, `reply`).
+    /// its result (`route`, `reply`). A method that acts waits first for the
+    /// vault to confirm the config this start served from (`ACTS`).
     async fn dispatch(
         self: Arc<Self>,
         req: Request,
@@ -146,10 +151,22 @@ impl Core {
         client: &str,
         surface: Surface,
     ) -> Result<Value, RpcFailure> {
+        let arrived = std::time::Instant::now();
+        let mut config_wait_us = 0;
+        if ACTS.contains(&req.method.as_str()) {
+            let waited = self.config_gate.wait().await.map_err(|why| RpcFailure {
+                code: error_code::CONFIG_UNCONFIRMED,
+                message: why,
+                data: json!({"class": "config_unconfirmed", "state": self.config_gate.status().state}),
+            })?;
+            config_wait_us = waited.as_micros() as u64;
+        }
         let conn = Conn {
             client,
             surface,
             tx: &tx,
+            arrived,
+            config_wait_us,
         };
         let params = req.params;
         match req.method.as_str() {
@@ -196,6 +213,21 @@ impl Core {
         }
     }
 }
+
+/// The methods that change anything or start work (theseus-2fo). Until the
+/// vault confirms the config a start served from, each waits at the gate,
+/// bounded like the secrets, then fails with `config_unconfirmed`. Every
+/// other method only reads, and answers at once; `shutdown` works too.
+pub const ACTS: [&str; 8] = [
+    method::TURN_SUBMIT,
+    method::SESSION_OPEN,
+    method::PROFILE_USE,
+    method::SESSION_RECOMPILE,
+    method::ACTION_CONFIRM,
+    method::POLICY_TIGHTEN,
+    method::POLICY_UNTIGHTEN,
+    method::EXECUTION_CANCEL,
+];
 
 /// A failed request: JSON-RPC code, human message, structured data.
 #[derive(Debug)]

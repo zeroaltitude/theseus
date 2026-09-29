@@ -97,6 +97,9 @@ pub const SECRET_WAIT: Duration = Duration::from_secs(30);
 
 /// What a turn waited for before it ran, in microseconds from its arrival.
 struct Waits {
+    /// The vault's confirmation of the config this start served from
+    /// (theseus-2fo), at the dispatcher's gate.
+    config_us: u64,
     /// Its secrets (theseus-qa0), before admission.
     secrets_us: u64,
     /// Arrival to admission, the secrets included.
@@ -133,6 +136,11 @@ pub struct TurnRequest {
     pub recompile: Option<Recompile>,
     /// Files that came with the input (theseus-9g2); kept on its node.
     pub attachments: Vec<theseus_protocol::Attachment>,
+    /// When the request reached the daemon, before the config gate
+    /// (theseus-2fo); `None`: now.
+    pub arrived: Option<Instant>,
+    /// How long it waited there for the vault to confirm the config.
+    pub config_wait_us: u64,
 }
 
 /// How long a turn may wait for admission before the client gets an error.
@@ -245,12 +253,29 @@ impl<'a> Turn<'a> {
     fn announce(&mut self, input: Option<&str>, files: usize, author: &str, waits: &Waits) {
         let (guard, target) = (self.tc.guard, self.target);
         let (lock_wait_us, admit_us) = (waits.lock_us, waits.admit_us);
+        let config_us = waits.config_us;
+        if config_us > 0 {
+            self.trace.record(
+                "config.wait",
+                "lock",
+                0,
+                config_us,
+                json!({"note": "the vault's confirmation of the config this start served from (theseus-2fo)"}),
+            );
+            narrate_turn!(
+                self.tc,
+                Turn,
+                "Waited {} for the vault to confirm the config this daemon started from:                  nothing acts on its copy's word.",
+                narrative::duration(config_us / 1000)
+            );
+        }
+        let secrets_end = config_us + waits.secrets_us;
         if waits.secrets_us > 0 {
             self.trace.record(
                 "secrets.wait",
                 "lock",
-                0,
-                waits.secrets_us,
+                config_us,
+                secrets_end,
                 json!({"provider": target.provider, "note": "the provider's key and the first round of secrets (theseus-qa0)"}),
             );
             narrate_turn!(
@@ -265,7 +290,7 @@ impl<'a> Turn<'a> {
         self.trace.record(
             "admission.wait",
             "lock",
-            waits.secrets_us,
+            secrets_end,
             lock_wait_us,
             json!({"execution_id": guard.execution_id, "turn": guard.turn, "note": "kernel admission + per-execution turn lock"}),
         );
@@ -669,7 +694,7 @@ impl TurnRunner {
     }
 
     pub async fn run(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
-        let arrived = Instant::now();
+        let arrived = req.arrived.unwrap_or_else(Instant::now);
         let continuation = req.input.is_none();
         let secret_wait_us = match self.await_secrets(&req.target).await {
             Ok(us) => us,
@@ -721,6 +746,7 @@ impl TurnRunner {
         let admission_wait_us = arrived.elapsed().as_micros() as u64;
         let failure_sink = req.sink.clone();
         let waits = Waits {
+            config_us: req.config_wait_us,
             secrets_us: secret_wait_us,
             lock_us: admission_wait_us,
             admit_us,
@@ -821,6 +847,7 @@ impl TurnRunner {
             author,
             recompile,
             attachments,
+            ..
         } = req;
         let provider = self
             .providers

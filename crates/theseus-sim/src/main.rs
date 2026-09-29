@@ -127,9 +127,10 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum BenchCmd {
-    /// The §9 lifecycle budgets: cold start to the first health answer,
-    /// clean shutdown with executions waiting and a job running, and SIGKILL
-    /// then restart, each run N times with p50 and p95.
+    /// The §9 lifecycle budgets: cold start to the first health answer, the
+    /// same from the copy of an `op://` config note (vault), clean shutdown
+    /// with executions waiting and a job running, and SIGKILL then restart,
+    /// each run N times with p50 and p95.
     Lifecycle {
         /// The daemon to measure (default: the `theseusd` beside this binary).
         #[arg(long)]
@@ -146,7 +147,11 @@ enum BenchCmd {
         #[arg(long, default_value_t = 1000)]
         resolver_ms: u64,
         /// Which phases, comma-separated.
-        #[arg(long, value_delimiter = ',', default_value = "cold,shutdown,kill")]
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_value = "cold,vault,shutdown,kill"
+        )]
         phases: Vec<String>,
         /// Compare each p95 with §9 plus the margin, and exit 1 on a miss.
         #[arg(long)]
@@ -168,6 +173,9 @@ enum BenchCmd {
         /// The service-account token file for the real op (with --config).
         #[arg(long)]
         op_token_file: Option<PathBuf>,
+        /// Wait for the vault to confirm each vault start's copy, and time it.
+        #[arg(long)]
+        confirm: bool,
     },
 }
 
@@ -201,6 +209,7 @@ fn main() -> Result<()> {
                     dir,
                     config,
                     op_token_file,
+                    confirm,
                 },
         } => {
             let theseusd = match theseusd {
@@ -227,6 +236,7 @@ fn main() -> Result<()> {
                 dir,
                 config,
                 op_token_file,
+                confirm,
             })?;
             lifecycle::print(&report);
             if let Some(path) = json {

@@ -14,6 +14,8 @@ pub mod bus;
 pub mod catalog;
 pub mod compiler;
 pub mod config;
+pub mod config_copy;
+pub mod config_gate;
 pub mod context_files;
 pub mod github;
 pub mod harness;
@@ -45,5 +47,7 @@ pub fn new_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::now_v7().simple())
 }
 
+#[cfg(test)]
+mod tests_config;
 #[cfg(test)]
 mod tests_m3;

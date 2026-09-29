@@ -220,6 +220,8 @@ impl Core {
                 author: "harness".into(),
                 recompile: None,
                 attachments: vec![],
+                arrived: None,
+                config_wait_us: 0,
             })
             .await?;
         self.telemetry().record_turn(&res);

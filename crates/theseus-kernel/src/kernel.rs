@@ -38,6 +38,13 @@ pub struct KernelConfig {
     /// died there. Never set outside the simulator.
     #[serde(skip)]
     pub fault_after_startup_step: Option<u8>,
+    /// The config this kernel runs under came from a copy the vault has not
+    /// confirmed yet (theseus-2fo). Startup then writes nothing that config
+    /// decides: an execution stored with a unit budget takes its dollar
+    /// limit from `spend_limit_micros` when startup rewrites it, so a store
+    /// that still holds one refuses to start (`KernelError::UnconfirmedConfig`).
+    #[serde(skip)]
+    pub unconfirmed_config: bool,
 }
 
 impl Default for KernelConfig {
@@ -49,6 +56,7 @@ impl Default for KernelConfig {
             confirm_ttl_ms: 15 * 60 * 1000,
             heartbeat_ms: 60_000,
             fault_after_startup_step: None,
+            unconfirmed_config: false,
         }
     }
 }
@@ -100,6 +108,13 @@ pub enum KernelError {
     UnknownAction(CorrelationId),
     #[error("kernel is not accepting events yet (startup step {step})")]
     NotAccepting { step: u8 },
+    /// Startup found executions stored with unit budgets under a config the
+    /// vault has not confirmed; nothing was written (theseus-2fo).
+    #[error(
+        "{executions} execution(s) still have unit budgets (from before theseus-0sg), and their \
+         dollar limit comes from the config, which the vault has not confirmed; nothing was written"
+    )]
+    UnconfirmedConfig { executions: usize },
 }
 
 /// What accepting a completion did (§3.16: idempotent, quarantines strays).
@@ -1777,7 +1792,12 @@ impl Kernel {
         let mut rewritten = 0u32;
         // Every execution as this step leaves it, for step 4.
         let mut loaded = Vec::new();
-        for mut e in self.executions()? {
+        let all = self.executions()?;
+        let legacy = all.iter().filter(|e| e.schema < SCHEMA).count();
+        if legacy > 0 && self.cfg.unconfirmed_config {
+            return Err(KernelError::UnconfirmedConfig { executions: legacy }.into());
+        }
+        for mut e in all {
             let mut rows = Vec::new();
             if e.schema < SCHEMA {
                 e.budget.spent_micros = self.legacy_spend.as_ref().map_or(0, |f| f(&e.session_id));

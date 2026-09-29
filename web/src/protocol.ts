@@ -40,8 +40,37 @@ export interface Health {
   tightenings?: Tightening[]
   /// Where the vault's secrets stand: the daemon serves before they resolve (theseus-qa0).
   secrets?: SecretsStatus
+  /// Where the config came from, and whether the vault has confirmed the copy this start
+  /// served from (theseus-2fo).
+  config?: ConfigStatus
   /// The last start's phases, timed from process start (theseus-qa0).
   startup?: StartupPhase[]
+}
+
+/// The config (theseus-2fo): a file, or the vault's note. A start from its last-known-good
+/// copy answers reads until the vault confirms it; nothing acts on the copy's word.
+export interface ConfigStatus {
+  /// `vault` or `file`.
+  source: string
+  reference: string
+  /// `confirmed`, `confirming`, `held` (see `detail`), or `restarting`.
+  state: string
+  /// `vault` (read before serving), `copy`, or `file`.
+  started_from: string
+  detail?: string | null
+  /// Milliseconds after process start.
+  confirmed_ms?: number | null
+  copy?: string | null
+  reads: number
+  retry_in_ms?: number | null
+  /// This process began as a restart onto the vault's changed note.
+  restarted?: ConfigRestart | null
+}
+
+/// What changed since the copy, by table and digest, never by value.
+export interface ConfigRestart {
+  reference: string; at_unix_ms: number; tables: string[]
+  copy_sha256: string; vault_sha256: string
 }
 
 /// `resolving` until every secret has settled, then `ready`, or `failed` naming each
@@ -229,7 +258,7 @@ export interface ToolList { tools: ToolInfo[]; roots: string[]; shell_fallback_r
 
 // ---- the narrative (theseus-5fy)
 
-export type NarrativePart = 'session' | 'turn' | 'loop' | 'context' | 'model' | 'tool' | 'approval' | 'job'
+export type NarrativePart = 'session' | 'turn' | 'loop' | 'context' | 'model' | 'tool' | 'approval' | 'job' | 'config'
 
 /// One templated sentence about one architectural step; kept only in the daemon's memory.
 export interface NarrativeLine {
