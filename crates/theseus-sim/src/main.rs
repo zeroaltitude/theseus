@@ -22,7 +22,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
-use theseus_store::{kinds, Engine, NewRecord, Store, WalConfig, WalStore};
+use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
 
 mod kernel_sim;
 
@@ -43,8 +43,6 @@ enum Cmd {
     Worker {
         #[arg(long)]
         dir: PathBuf,
-        #[arg(long, default_value = "redb")]
-        engine: Engine,
         #[arg(long, default_value_t = 1)]
         seed: u64,
         /// Checkpoint every N records (0 = never), to exercise index rebuild.
@@ -57,8 +55,6 @@ enum Cmd {
         iterations: u32,
         #[arg(long, default_value_t = 1)]
         seed: u64,
-        #[arg(long, default_value = "redb")]
-        engine: Engine,
         /// Restart the same store this many times per iteration.
         #[arg(long, default_value_t = 3)]
         restarts: u32,
@@ -103,8 +99,6 @@ enum Cmd {
         /// fdatasync every frame (slow; durability is the store crash-test's job).
         #[arg(long)]
         fsync: bool,
-        #[arg(long, default_value = "redb")]
-        engine: Engine,
         #[arg(long)]
         verbose: bool,
     },
@@ -114,18 +108,16 @@ fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Worker {
             dir,
-            engine,
             seed,
             checkpoint_every,
-        } => worker(&dir, engine, seed, checkpoint_every),
+        } => worker(&dir, seed, checkpoint_every),
         Cmd::CrashTest {
             iterations,
             seed,
-            engine,
             restarts,
             tear,
             worker_bin,
-        } => crash_test(iterations, seed, engine, restarts, tear, worker_bin),
+        } => crash_test(iterations, seed, restarts, tear, worker_bin),
         Cmd::KernelSim {
             seed,
             seeds,
@@ -138,7 +130,6 @@ fn main() -> Result<()> {
             p_lost_job,
             p_cancel,
             fsync,
-            engine,
             verbose,
         } => {
             let mut totals = kernel_sim::SimReport::default();
@@ -154,7 +145,6 @@ fn main() -> Result<()> {
                     p_lost_job,
                     p_cancel,
                     fsync,
-                    engine,
                     verbose,
                 })
                 .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
@@ -232,9 +222,8 @@ fn random_batch(rng: &mut StdRng) -> Vec<NewRecord> {
         .collect()
 }
 
-fn worker(dir: &Path, engine: Engine, seed: u64, checkpoint_every: u64) -> Result<()> {
-    let store =
-        WalStore::open(dir, engine, WalConfig::default())?.with_checkpoint_every(checkpoint_every);
+fn worker(dir: &Path, seed: u64, checkpoint_every: u64) -> Result<()> {
+    let store = WalStore::open(dir, WalConfig::default())?.with_checkpoint_every(checkpoint_every);
     let mut rng = StdRng::seed_from_u64(seed ^ store.last_position());
     let out = std::io::stdout();
     let mut out = out.lock();
@@ -275,7 +264,6 @@ struct Committed {
 fn run_and_kill(
     bin: &Path,
     dir: &Path,
-    engine: Engine,
     seed: u64,
     live_ms: u64,
     first_open: bool,
@@ -286,8 +274,6 @@ fn run_and_kill(
             "worker",
             "--dir",
             &dir.to_string_lossy(),
-            "--engine",
-            engine.as_str(),
             "--seed",
             &seed.to_string(),
         ])
@@ -407,8 +393,8 @@ fn tear_tail(dir: &Path, durable: u64, rng: &mut StdRng) -> Result<String> {
     }
 }
 
-fn verify(dir: &Path, engine: Engine, committed: &Committed) -> Result<(u64, u64)> {
-    let store = WalStore::open(dir, engine, WalConfig::default())?.with_checkpoint_every(0);
+fn verify(dir: &Path, committed: &Committed) -> Result<(u64, u64)> {
+    let store = WalStore::open(dir, WalConfig::default())?.with_checkpoint_every(0);
     let last = store.last_position();
     // Every reported-committed record must exist with identical payload.
     for (&p, &(crc, kind)) in &committed.map {
@@ -440,7 +426,6 @@ fn verify(dir: &Path, engine: Engine, committed: &Committed) -> Result<(u64, u64
 fn crash_test(
     iterations: u32,
     seed: u64,
-    engine: Engine,
     restarts: u32,
     tear: bool,
     worker_bin: Option<PathBuf>,
@@ -461,7 +446,6 @@ fn crash_test(
             run_and_kill(
                 &bin,
                 &dir,
-                engine,
                 seed + it as u64 * 1000 + r as u64,
                 live_ms,
                 r == 0,
@@ -477,7 +461,7 @@ fn crash_test(
             } else {
                 "no tear".into()
             };
-            let (last, truncated) = verify(&dir, engine, &committed).with_context(|| {
+            let (last, truncated) = verify(&dir, &committed).with_context(|| {
                 format!("iteration {it} restart {r} (after kill at {live_ms} ms; {tore})")
             })?;
             let hi = committed.map.keys().next_back().copied().unwrap_or(0);
@@ -492,8 +476,7 @@ fn crash_test(
         }
     }
     println!(
-        "CRASH TEST OK: {iterations} iterations × {restarts} restarts, engine {}, seed {seed}, {:.1}s; torn bytes removed {total_torn}; durable-but-unreported records {unreported} (allowed); zero committed records lost",
-        engine.as_str(),
+        "CRASH TEST OK: {iterations} iterations × {restarts} restarts, seed {seed}, {:.1}s; torn bytes removed {total_torn}; durable-but-unreported records {unreported} (allowed); zero committed records lost",
         started.elapsed().as_secs_f64()
     );
     Ok(())

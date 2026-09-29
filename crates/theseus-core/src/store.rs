@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Serialize};
-use theseus_store::{kinds, Engine, NewRecord, Store as _, StoreStats, WalConfig, WalStore};
+use theseus_store::{kinds, NewRecord, Store as _, StoreStats, WalConfig, WalStore};
 
 #[derive(Clone)]
 pub struct Store {
@@ -22,10 +22,10 @@ pub struct Store {
 }
 
 impl Store {
-    /// Open the store directory with the configured engine (default redb; the
-    /// M1 benchmark's choice). A directory created with another engine refuses.
-    pub fn open(dir: &Path, engine: Engine) -> Result<Self> {
-        let inner = WalStore::open(dir, engine, WalConfig::default())
+    /// Open the store directory. A store whose manifest names another format
+    /// or engine is refused.
+    pub fn open(dir: &Path) -> Result<Self> {
+        let inner = WalStore::open(dir, WalConfig::default())
             .with_context(|| format!("opening store {}", dir.display()))?;
         let st = inner.stats()?;
         if st.truncated_bytes > 0 || st.replayed_into_index > 0 {

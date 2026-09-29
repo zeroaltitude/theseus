@@ -33,7 +33,7 @@ use rand::{Rng, SeedableRng};
 use serde_json::json;
 use theseus_kernel::job::WrapperEvidence;
 use theseus_kernel::*;
-use theseus_store::{Engine, Store, WalConfig, WalStore};
+use theseus_store::{Store, WalConfig, WalStore};
 
 #[derive(Debug, Clone)]
 pub struct SimParams {
@@ -47,7 +47,6 @@ pub struct SimParams {
     pub p_lost_job: f64,
     pub p_cancel: f64,
     pub fsync: bool,
-    pub engine: Engine,
     pub verbose: bool,
 }
 
@@ -166,7 +165,6 @@ fn open_store(dir: &Path, p: &SimParams) -> Result<Arc<dyn Store>> {
     Ok(Arc::new(
         WalStore::open(
             &dir.join("store"),
-            p.engine,
             WalConfig {
                 fsync: p.fsync,
                 ..Default::default()

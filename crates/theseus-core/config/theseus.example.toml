@@ -108,7 +108,7 @@ discord_bot_token = "op://Eddie-Tabitha/Theseus discord bot/notesPlain#bot_token
 [server]
 state_dir = "~/.theseus"                # store (redb) and spool; flag: --state-dir / THESEUS_STATE_DIR
 socket = "~/.theseus/theseus.sock"      # protocol socket, mode 0600; flag: --socket / THESEUS_SOCKET
-store_engine = "redb"                   # index engine behind the WAL: redb | fjall; fixed once a store exists
+store_engine = "redb"                   # index engine behind the WAL; redb is the only one
 
 # ---------------------------------------------------------------- kernel
 # The durable kernel (M2): one execution per session, actions with correlation

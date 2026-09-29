@@ -8,7 +8,7 @@
 //!   exist after a crash or neither does. Recovery scans segments, verifies
 //!   every frame, and truncates a torn tail. Positions are monotonic u64s.
 //! - **Index**: a rebuildable projection of the WAL in an embedded store
-//!   (redb or fjall, behind one trait): position → location, (kind, key) →
+//!   (redb): position → location, (kind, key) →
 //!   latest position, (kind, position) for per-kind scans, and the checkpoint.
 //!   Index writes are non-durable; a **checkpoint** flushes them and records
 //!   the position they are good to. Startup replays the WAL from the last
@@ -23,7 +23,7 @@ pub mod record;
 pub mod store;
 pub mod wal;
 
-pub use index::{Engine, Index, Location};
+pub use index::{Engine, Location};
 pub use record::{kinds, NewRecord, Record, RecordKind};
 pub use store::{Store, StoreStats, WalStore};
 pub use wal::{Wal, WalConfig, WalError};

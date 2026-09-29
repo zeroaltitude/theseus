@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use tempfile::TempDir;
-use theseus_store::{kinds, Engine, NewRecord, Store, WalConfig, WalStore};
+use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
 
 use crate::clock::{Clock, VirtualClock};
 use crate::gate::Proposal;
@@ -24,7 +24,7 @@ struct World {
 
 fn open_store(dir: &std::path::Path) -> Arc<dyn Store> {
     Arc::new(
-        WalStore::open(&dir.join("store"), Engine::Redb, WalConfig::default())
+        WalStore::open(&dir.join("store"), WalConfig::default())
             .unwrap()
             .with_checkpoint_every(0),
     )

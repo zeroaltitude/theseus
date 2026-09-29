@@ -8,13 +8,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::index::{self, Engine, Index, IndexEntry};
+use crate::index::{Engine, IndexEntry, RedbIndex};
 use crate::record::{NewRecord, Record, RecordKind};
 use crate::wal::{Recovery, Wal, WalConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreStats {
-    pub engine: Engine,
     pub last_position: u64,
     pub checkpoint: Option<u64>,
     pub wal_bytes: u64,
@@ -58,7 +57,7 @@ pub trait Store: Send + Sync {
 
 pub struct WalStore {
     wal: Wal,
-    index: Box<dyn Index>,
+    index: RedbIndex,
     dir: PathBuf,
     replayed: AtomicU64,
     /// Checkpoint every N appended records (0 = manual only).
@@ -76,40 +75,15 @@ struct Manifest {
 }
 
 impl WalStore {
-    /// Open or create a store in `dir` with the given engine. If the directory
-    /// already holds a store, its manifest's engine wins and a mismatch is an
-    /// error (you do not silently switch engines under live data).
-    pub fn open(dir: &Path, engine: Engine, wal_cfg: WalConfig) -> Result<Self> {
+    /// Open or create a store in `dir`. A manifest naming another format or
+    /// another engine is refused (its `Engine` has only redb), never converted.
+    pub fn open(dir: &Path, wal_cfg: WalConfig) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let manifest_path = dir.join("MANIFEST.json");
         if manifest_path.exists() {
             let m: Manifest = serde_json::from_slice(&std::fs::read(&manifest_path)?)
-                .context("reading store manifest")?;
-            if m.format == 1 && MANIFEST_FORMAT == 2 {
-                // Format 1 existed for one day (M1, 2026-09-26) before the record
-                // layout gained a scope field; nothing in it outlives that day.
-                // Move it aside rather than refuse, and say so loudly.
-                let aside = dir.with_file_name(format!(
-                    "{}.format1-{}",
-                    dir.file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "store".into()),
-                    crate::record::now_unix_ms()
-                ));
-                std::fs::rename(dir, &aside).with_context(|| {
-                    format!(
-                        "moving format-1 store {} aside to {}",
-                        dir.display(),
-                        aside.display()
-                    )
-                })?;
-                tracing::warn!(
-                    from = %dir.display(),
-                    to = %aside.display(),
-                    "store was format 1 (pre-M2 record layout); moved aside and starting a fresh store. Delete the old directory when convenient."
-                );
-                std::fs::create_dir_all(dir)?;
-            } else if m.format != MANIFEST_FORMAT {
+                .with_context(|| format!("reading store manifest {}", manifest_path.display()))?;
+            if m.format != MANIFEST_FORMAT {
                 anyhow::bail!(
                     "store at {} is format {} but this build reads format {}; refusing to open",
                     dir.display(),
@@ -117,32 +91,18 @@ impl WalStore {
                     MANIFEST_FORMAT
                 );
             }
-        }
-        let engine = if manifest_path.exists() {
-            let m: Manifest = serde_json::from_slice(&std::fs::read(&manifest_path)?)
-                .context("reading store manifest")?;
-            if m.engine != engine {
-                anyhow::bail!(
-                    "store at {} was created with engine {} but {} was requested",
-                    dir.display(),
-                    m.engine.as_str(),
-                    engine.as_str()
-                );
-            }
-            m.engine
         } else {
             let m = Manifest {
                 format: MANIFEST_FORMAT,
-                engine,
+                engine: Engine::Redb,
             };
             let tmp = dir.join("MANIFEST.json.tmp");
             std::fs::write(&tmp, serde_json::to_vec_pretty(&m)?)?;
             std::fs::rename(&tmp, &manifest_path)?;
-            engine
-        };
+        }
 
         let wal = Wal::open(&dir.join("wal"), wal_cfg).context("opening WAL")?;
-        let index = index::open(engine, dir).context("opening index")?;
+        let index = RedbIndex::open(&dir.join("index.redb")).context("opening index")?;
 
         // Rebuild whatever the index lost since its checkpoint.
         let cp = index.checkpoint()?.unwrap_or(0);
@@ -201,10 +161,6 @@ impl WalStore {
 
     pub fn dir(&self) -> &Path {
         &self.dir
-    }
-
-    pub fn engine(&self) -> Engine {
-        self.index.engine()
     }
 
     fn read(&self, position: u64) -> Result<Option<Record>> {
@@ -320,7 +276,6 @@ impl Store for WalStore {
     fn stats(&self) -> Result<StoreStats> {
         let r = self.wal.recovery();
         Ok(StoreStats {
-            engine: self.index.engine(),
             last_position: self.wal.last_position(),
             checkpoint: self.index.checkpoint()?,
             wal_bytes: self.wal.total_bytes(),
@@ -339,15 +294,16 @@ mod tests {
     use super::*;
     use crate::record::kinds;
 
-    fn open(dir: &Path, engine: Engine) -> WalStore {
-        WalStore::open(dir, engine, WalConfig::default())
+    fn open(dir: &Path) -> WalStore {
+        WalStore::open(dir, WalConfig::default())
             .unwrap()
             .with_checkpoint_every(0)
     }
 
-    fn exercise(engine: Engine) {
+    #[test]
+    fn redb_store() {
         let dir = tempfile::tempdir().unwrap();
-        let s = open(dir.path(), engine);
+        let s = open(dir.path());
         let p = s
             .append(&[NewRecord::json(
                 kinds::SESSION,
@@ -410,7 +366,7 @@ mod tests {
         s.append(&[NewRecord::json(kinds::META, Some("live"), &"glm").unwrap()])
             .unwrap();
         drop(s);
-        let s = open(dir.path(), engine);
+        let s = open(dir.path());
         assert_eq!(s.last_position(), 9);
         assert_eq!(s.count_in_scope("ses_x").unwrap(), 2);
         let st = s.stats().unwrap();
@@ -423,74 +379,33 @@ mod tests {
                 .unwrap(),
             "glm"
         );
-        // Engine mismatch is refused.
-        let other = if engine == Engine::Redb {
-            Engine::Fjall
-        } else {
-            Engine::Redb
-        };
-        assert!(WalStore::open(dir.path(), other, WalConfig::default()).is_err());
     }
 
+    /// A store this build did not write is refused and left as it was: another
+    /// format (format 1 is the pre-M2 record layout) or another engine.
     #[test]
-    fn redb_store() {
-        exercise(Engine::Redb);
-    }
-
-    #[test]
-    fn fjall_store() {
-        exercise(Engine::Fjall);
-    }
-
-    #[test]
-    fn format_one_store_is_moved_aside_and_unknown_format_refused() {
+    fn another_format_or_engine_is_refused() {
         let dir = tempfile::tempdir().unwrap();
-        let store_dir = dir.path().join("store");
-        std::fs::create_dir_all(&store_dir).unwrap();
-        std::fs::write(
-            store_dir.join("MANIFEST.json"),
-            serde_json::to_vec(&Manifest {
-                format: 1,
-                engine: Engine::Redb,
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        std::fs::write(store_dir.join("marker"), b"old").unwrap();
-        let s = open(&store_dir, Engine::Redb);
-        assert_eq!(s.last_position(), 0);
-        assert!(!store_dir.join("marker").exists());
-        let aside: Vec<_> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .starts_with("store.format1-")
-            })
-            .collect();
-        assert_eq!(aside.len(), 1);
-        assert!(aside[0].path().join("marker").exists());
-        drop(s);
-        // Any other format is refused.
-        let other = dir.path().join("store9");
-        std::fs::create_dir_all(&other).unwrap();
-        std::fs::write(
-            other.join("MANIFEST.json"),
-            serde_json::to_vec(&Manifest {
-                format: 9,
-                engine: Engine::Redb,
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        assert!(WalStore::open(&other, Engine::Redb, WalConfig::default()).is_err());
+        for (name, manifest, says) in [
+            ("format1", r#"{"format": 1, "engine": "redb"}"#, "format 1"),
+            ("format9", r#"{"format": 9, "engine": "redb"}"#, "format 9"),
+            ("fjall", r#"{"format": 2, "engine": "fjall"}"#, "fjall"),
+        ] {
+            let store_dir = dir.path().join(name);
+            std::fs::create_dir_all(&store_dir).unwrap();
+            std::fs::write(store_dir.join("MANIFEST.json"), manifest).unwrap();
+            let e = WalStore::open(&store_dir, WalConfig::default())
+                .err()
+                .unwrap_or_else(|| panic!("{name} opened"));
+            assert!(format!("{e:#}").contains(says), "{name}: {e:#}");
+            assert!(!store_dir.join("wal").exists(), "{name} was written to");
+        }
     }
 
     #[test]
     fn index_loss_is_rebuilt_from_wal() {
         let dir = tempfile::tempdir().unwrap();
-        let s = open(dir.path(), Engine::Redb);
+        let s = open(dir.path());
         for i in 0..50u32 {
             s.append(&[NewRecord::json(kinds::LEDGER, None, &i).unwrap()])
                 .unwrap();
@@ -500,7 +415,7 @@ mod tests {
         drop(s);
         // Destroy the index entirely; the WAL is the truth.
         std::fs::remove_file(dir.path().join("index.redb")).unwrap();
-        let s = open(dir.path(), Engine::Redb);
+        let s = open(dir.path());
         assert_eq!(s.last_position(), 51);
         assert_eq!(s.stats().unwrap().replayed_into_index, 51);
         assert_eq!(s.count_of_kind(kinds::LEDGER).unwrap(), 50);

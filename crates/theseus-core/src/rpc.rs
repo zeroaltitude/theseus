@@ -1783,7 +1783,7 @@ mod tests {
 
     fn test_core(reply: &str) -> Arc<Core> {
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+        let store = Store::open(&dir.join("store")).unwrap();
         let mut cfg = Config::example();
         cfg.server.state_dir = dir.to_string_lossy().into_owned();
         Core::with_provider(
@@ -2145,7 +2145,7 @@ mod tests {
     #[tokio::test]
     async fn provider_failure_is_classified_and_ledgered() {
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+        let store = Store::open(&dir.join("store")).unwrap();
         let core = Core::with_provider(
             Config::example(),
             Arc::new(FakeProvider {
@@ -2291,7 +2291,7 @@ mod tests {
                 _ => Scripted::text("never asked"),
             };
             let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-            let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+            let store = Store::open(&dir.join("store")).unwrap();
             let fake = FakeProvider {
                 chunk: usize::MAX,
                 ..FakeProvider::scripted(vec![first, second])
@@ -2417,7 +2417,7 @@ mod tests {
     async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
         use theseus_store::{kinds, NewRecord};
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+        let store = Store::open(&dir.join("store")).unwrap();
         let mut ended = SessionRecord::new(SessionKind::Conversation, None);
         ended.cost_usd = 0.45;
         ended.turns = 15;
@@ -2669,7 +2669,7 @@ mod tests {
     #[tokio::test]
     async fn per_turn_provider_and_model_selection() {
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+        let store = Store::open(&dir.join("store")).unwrap();
         let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
         providers.insert(
             "anthropic".into(),
@@ -2770,7 +2770,7 @@ mod tests {
     #[tokio::test]
     async fn live_profile_switch_persists_and_routes() {
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+        let store = Store::open(&dir.join("store")).unwrap();
         let mk = |store: Store| {
             let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
             providers.insert(
@@ -3017,7 +3017,7 @@ mod tests {
 
         // Off: the methods refuse and health says so.
         let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
-        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+        let store = Store::open(&dir.join("store")).unwrap();
         let mut cfg = Config::example();
         cfg.server.state_dir = dir.to_string_lossy().into_owned();
         cfg.narrative = false;

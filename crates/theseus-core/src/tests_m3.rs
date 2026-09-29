@@ -46,7 +46,7 @@ fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     let root = root.canonicalize().unwrap();
     let mut cfg = config(&root, dir.path());
     tweak(&mut cfg);
-    let store = Store::open(&dir.path().join("store"), theseus_store::Engine::Redb).unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));
     let core = Core::with_provider(cfg, fake.clone(), store, vec![]).unwrap();
     Rig {
@@ -619,14 +619,14 @@ async fn a_session_keeps_its_memory_across_a_restart() {
     std::fs::create_dir_all(&root).unwrap();
     let cfg = config(&root.canonicalize().unwrap(), dir.path());
     let sid = {
-        let store = Store::open(&dir.path().join("store"), theseus_store::Engine::Redb).unwrap();
+        let store = Store::open(&dir.path().join("store")).unwrap();
         let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text(
             "My name is Theseus.",
         )]));
         let core = Core::with_provider(cfg.clone(), fake, store, vec![]).unwrap();
         turn(&core, None, "who are you?").await.session_id
     };
-    let store = Store::open(&dir.path().join("store"), theseus_store::Engine::Redb).unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text(
         "You asked who I am.",
     )]));

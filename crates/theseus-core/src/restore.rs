@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::json;
-use theseus_store::Engine;
 
 use crate::ledger::LedgerRow;
 use crate::store::Store;
@@ -22,7 +21,6 @@ pub struct RestoreReport {
     pub into: String,
     /// Where the store that was there went (only with `force`).
     pub moved_aside: Option<String>,
-    pub engine: String,
     pub segments: u32,
     pub frames: u64,
     pub records: u64,
@@ -37,18 +35,12 @@ pub struct RestoreReport {
 }
 
 /// `from` may be a WAL directory (holding `*.seg`) or a store directory
-/// (holding `wal/` and `MANIFEST.json`, whose engine then wins).
-pub fn restore(
-    from: &Path,
-    state_dir: &Path,
-    default_engine: Engine,
-    force: bool,
-) -> Result<RestoreReport> {
-    let (wal_src, engine) = if from.join("wal").is_dir() {
-        let engine = manifest_engine(&from.join("MANIFEST.json")).unwrap_or(default_engine);
-        (from.join("wal"), engine)
+/// (holding `wal/`). Only the segments are read: the index is rebuilt.
+pub fn restore(from: &Path, state_dir: &Path, force: bool) -> Result<RestoreReport> {
+    let wal_src = if from.join("wal").is_dir() {
+        from.join("wal")
     } else {
-        (from.to_path_buf(), default_engine)
+        from.to_path_buf()
     };
     let mut segments: Vec<PathBuf> = std::fs::read_dir(&wal_src)
         .with_context(|| format!("reading {}", wal_src.display()))?
@@ -107,7 +99,6 @@ pub fn restore(
         from: wal_src.display().to_string(),
         into: target.display().to_string(),
         moved_aside: None,
-        engine: engine.as_str().into(),
         segments: segments.len() as u32,
         frames: 0,
         records: 0,
@@ -119,7 +110,7 @@ pub fn restore(
         blobs,
     };
     {
-        let store = Store::open(&staging, engine)
+        let store = Store::open(&staging)
             .with_context(|| format!("opening the restored WAL in {}", staging.display()))?;
         let rec = store.inner().recovery().clone();
         let st = store.stats()?;
@@ -153,11 +144,6 @@ pub fn restore(
     Ok(report)
 }
 
-fn manifest_engine(path: &Path) -> Option<Engine> {
-    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    serde_json::from_value(v.get("engine")?.clone()).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,7 +151,7 @@ mod tests {
 
     /// A store with `n` sessions; returns its last position and the last session id.
     fn store_with_sessions(dir: &Path, n: usize) -> (u64, String) {
-        let store = Store::open(&dir.join("store"), Engine::Redb).unwrap();
+        let store = Store::open(&dir.join("store")).unwrap();
         let mut last = String::new();
         for i in 0..n {
             let rec = SessionRecord::new(
@@ -189,7 +175,7 @@ mod tests {
         let before: Vec<_> = std::fs::read(wal.join("000000001.seg")).unwrap();
 
         let fresh = tempfile::tempdir().unwrap();
-        let r = restore(&wal, fresh.path(), Engine::Redb, false).unwrap();
+        let r = restore(&wal, fresh.path(), false).unwrap();
         assert_eq!(r.sessions, 3);
         assert_eq!(r.last_position, last);
         assert_eq!(r.truncated_bytes, 0);
@@ -200,7 +186,7 @@ mod tests {
             "source untouched"
         );
 
-        let reopened = Store::open(&fresh.path().join("store"), Engine::Redb).unwrap();
+        let reopened = Store::open(&fresh.path().join("store")).unwrap();
         assert_eq!(reopened.session_count().unwrap(), 3);
         let rows: Vec<(u64, LedgerRow)> = reopened.ledger_tail(1).unwrap();
         assert_eq!(rows[0].1.kind, "store.restored");
@@ -217,13 +203,13 @@ mod tests {
         let dst = tempfile::tempdir().unwrap();
         store_with_sessions(dst.path(), 5);
 
-        let e = restore(&src.path().join("store"), dst.path(), Engine::Redb, false).unwrap_err();
+        let e = restore(&src.path().join("store"), dst.path(), false).unwrap_err();
         assert!(e.to_string().contains("--force"), "{e}");
 
-        let r = restore(&src.path().join("store"), dst.path(), Engine::Redb, true).unwrap();
+        let r = restore(&src.path().join("store"), dst.path(), true).unwrap();
         assert_eq!(r.sessions, 2);
         let aside = PathBuf::from(r.moved_aside.unwrap());
-        let old = Store::open(&aside, Engine::Redb).unwrap();
+        let old = Store::open(&aside).unwrap();
         assert_eq!(
             old.session_count().unwrap(),
             5,
@@ -242,7 +228,7 @@ mod tests {
         std::fs::write(wal_copy.path().join("000000001.seg"), &bytes).unwrap();
 
         let dst = tempfile::tempdir().unwrap();
-        let r = restore(wal_copy.path(), dst.path(), Engine::Redb, false).unwrap();
+        let r = restore(wal_copy.path(), dst.path(), false).unwrap();
         assert_eq!(r.truncated_bytes, 37);
         assert_eq!(r.sessions, 2);
     }
@@ -251,7 +237,7 @@ mod tests {
     fn nothing_to_restore_is_an_error() {
         let empty = tempfile::tempdir().unwrap();
         let dst = tempfile::tempdir().unwrap();
-        let e = restore(empty.path(), dst.path(), Engine::Redb, false).unwrap_err();
+        let e = restore(empty.path(), dst.path(), false).unwrap_err();
         assert!(e.to_string().contains("no WAL segments"), "{e}");
     }
 
@@ -262,19 +248,13 @@ mod tests {
         let live = tempfile::tempdir().unwrap();
         store_with_sessions(live.path(), 1);
         let digest = {
-            let store = Store::open(&live.path().join("store"), Engine::Redb).unwrap();
+            let store = Store::open(&live.path().join("store")).unwrap();
             store.blobs().put(b"\x89PNG image bytes").unwrap()
         };
         let fresh = tempfile::tempdir().unwrap();
-        let r = restore(
-            &live.path().join("store"),
-            fresh.path(),
-            Engine::Redb,
-            false,
-        )
-        .unwrap();
+        let r = restore(&live.path().join("store"), fresh.path(), false).unwrap();
         assert_eq!(r.blobs, 1);
-        let back = Store::open(&fresh.path().join("store"), Engine::Redb).unwrap();
+        let back = Store::open(&fresh.path().join("store")).unwrap();
         let b64 = back.blobs().base64(&digest).unwrap();
         assert_eq!(
             crate::blobs::decode(&b64).unwrap(),

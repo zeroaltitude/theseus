@@ -164,7 +164,7 @@ async fn main() -> Result<()> {
     // The store is single-process. A spawned stdio server must not fight a
     // running daemon for the same directory, so stdio mode uses its own.
     let store_name = if cli.stdio { "store-stdio" } else { "store" };
-    let store = Store::open(&state_dir.join(store_name), cfg.server.store_engine)?;
+    let store = Store::open(&state_dir.join(store_name))?;
     let socket_path = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
     let discord_token = secrets
         .get(&cfg.discord.token_secret)
@@ -173,7 +173,6 @@ async fn main() -> Result<()> {
     let core = Core::new(cfg, secrets, store)?;
     if let Ok(st) = core.store.stats() {
         tracing::info!(
-            engine = st.engine.as_str(),
             last_position = st.last_position,
             wal_bytes = st.wal_bytes,
             segments = st.wal_segments,
@@ -307,7 +306,7 @@ async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -
         );
     }
     std::fs::create_dir_all(&state_dir)?;
-    let r = theseus_core::restore::restore(from, &state_dir, cfg.server.store_engine, force)?;
+    let r = theseus_core::restore::restore(from, &state_dir, force)?;
     println!(
         "restored {} segment(s): {} frames, {} records, last position {}",
         r.segments, r.frames, r.records, r.last_position
@@ -319,8 +318,8 @@ async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -
         );
     }
     println!(
-        "{} session(s), {} node(s), {} ledger row(s); engine {}",
-        r.sessions, r.nodes, r.ledger_rows, r.engine
+        "{} session(s), {} node(s), {} ledger row(s)",
+        r.sessions, r.nodes, r.ledger_rows
     );
     println!(
         "from {}
