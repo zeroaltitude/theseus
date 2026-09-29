@@ -38,7 +38,8 @@ fn a_killed_store_keeps_every_committed_record() {
 }
 
 /// The kernel under seeded crashes and lost, duplicate, and late completions,
-/// opening executions the way the product does (`open_execution`): every
+/// opening executions the way the product does (`open_execution`), with a
+/// share of its turns raced by a second OS thread (theseus-id9): every
 /// invariant holds after every step.
 #[test]
 fn the_kernel_holds_its_invariants_under_seeded_faults() {
@@ -52,4 +53,11 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         "300",
     ]);
     assert!(out.contains("all invariants held"), "{out}");
+    let raced: u64 = out
+        .split(" raced turns")
+        .next()
+        .and_then(|s| s.rsplit(' ').next())
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
+    assert!(raced > 0, "no turn was raced: {out}");
 }

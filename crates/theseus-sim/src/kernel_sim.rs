@@ -35,10 +35,23 @@
 //! dispatched or between two of its completions; an in-process call it
 //! interrupts has no evidence, so it must end unknown or cancelled, never
 //! lost or left dispatched, and every other invariant holds for each action.
+//!
+//! A share of the turns is raced (theseus-id9): a second OS thread drives the
+//! same execution while the turn commits, with a cancel, a job's completion
+//! arriving, the turn's own calls finishing on that thread, a wake, input, and
+//! the heartbeat's reconcile, in an order the seed picks and a timing the OS
+//! picks. A crash may stop the turn anywhere in it. Every invariant holds
+//! after each race, and one more, read from the ledger in WAL order: an
+//! execution that was cancelled never runs again. After its
+//! `execution.cancelled` row, no turn of it starts and no action of it is
+//! planned, and it is `cancelled` from then on. The seed fixes what each
+//! thread does, not how they interleave, so a run with races reproduces from
+//! its seed only up to its first race; `--p-race 0` is the sim as it was, one
+//! thread, reproducible throughout.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Barrier};
 
 use anyhow::{bail, Result};
 use rand::rngs::StdRng;
@@ -60,6 +73,8 @@ pub struct SimParams {
     pub p_dup: f64,
     pub p_lost_job: f64,
     pub p_cancel: f64,
+    /// Share of the turns raced by a second OS thread on the same execution.
+    pub p_race: f64,
     pub fsync: bool,
     pub verbose: bool,
 }
@@ -92,6 +107,11 @@ pub struct SimReport {
     pub batches: u64,
     pub batch_actions: u64,
     pub batch_crashes: u64,
+    /// Turns raced by a second OS thread (theseus-id9), the operations that
+    /// thread ran, and the crashes that stopped a raced turn.
+    pub races: u64,
+    pub race_ops: u64,
+    pub race_crashes: u64,
     pub legacy_migrated: u64,
     pub reconciles: u64,
     pub invariant_checks: u64,
@@ -134,6 +154,10 @@ struct World {
     terminal: HashMap<String, ExecState>,
     /// Actions `plan_and_dispatch` returned: each was committed in one frame.
     one_frame: HashSet<String>,
+    /// Executions with an `execution.cancelled` row, and the last position
+    /// the invariant check has read the ledger to.
+    cancelled: HashSet<String>,
+    ledger_read_to: u64,
 }
 
 /// Executions stored with unit budgets before theseus-0sg, seeded into the
@@ -251,6 +275,8 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         resets_done: HashMap::new(),
         terminal: HashMap::new(),
         one_frame: HashSet::new(),
+        cancelled: HashSet::new(),
+        ledger_read_to: 0,
     };
     w.rep.legacy_migrated = w
         .kernel
@@ -488,6 +514,10 @@ impl World {
             return Ok(());
         }
         let e = &queued[self.rng.random_range(0..queued.len())];
+        if self.chance(self.p.p_race) {
+            let id = e.id.clone();
+            return self.race_a_turn(&id);
+        }
         let g = match self.kernel.admit(&e.id) {
             Ok(g) => g,
             Err(err) => {
@@ -773,6 +803,329 @@ impl World {
         Ok(())
     }
 
+    /// A turn raced by a second OS thread on the same execution (theseus-id9).
+    /// The seed picks what that thread does and what the turn does; the OS
+    /// picks how they interleave. The turn's calls reserve nothing, and each
+    /// finishes as a job, in the turn, or on the racing thread as it arrives.
+    /// A crash may stop the turn after any of its frames: the racing thread
+    /// runs to its end, and then the process dies.
+    fn race_a_turn(&mut self, exec_id: &str) -> Result<()> {
+        self.rep.races += 1;
+        let mut ops = Vec::new();
+        for _ in 0..self.rng.random_range(1..=3) {
+            let op = match self.rng.random_range(0..10) {
+                0..=2 => RaceOp::Cancel,
+                3..=4 => match self.finish_a_job_of(exec_id)? {
+                    Some(c) => RaceOp::Complete(c),
+                    None => RaceOp::Wake,
+                },
+                5..=6 => RaceOp::Wake,
+                7 => RaceOp::Input,
+                _ => RaceOp::Reconcile,
+            };
+            ops.push(op);
+        }
+        self.rep.cancels += ops.iter().filter(|o| matches!(o, RaceOp::Cancel)).count() as u64;
+        let mut calls = Vec::new();
+        for _ in 0..self.rng.random_range(0..=4) {
+            let finish = match self.rng.random_range(0..3) {
+                0 => Finish::Job(if self.chance(self.p.p_lost_job) {
+                    None
+                } else {
+                    Some(self.rng.random_range(0..40_000))
+                }),
+                1 => Finish::InTurn,
+                _ => Finish::Beside,
+            };
+            let outcome = if self.rng.random_bool(0.8) {
+                Outcome::Succeeded
+            } else {
+                Outcome::Failed
+            };
+            calls.push((finish, self.rng.random_bool(0.5), outcome));
+        }
+        let plan = RacedPlan {
+            crash_after: self
+                .chance(self.p.p_crash * 5.0)
+                .then(|| self.rng.random_range(1..=calls.len() as u32 * 3 + 3)),
+            end_pick: self.rng.random_range(0..10),
+            due_in: self.rng.random_range(1_000..120_000),
+            calls,
+        };
+        let racer = self.kernel.view(self.kernel.store().clone());
+        let spool = self.spool.clone();
+        let (beside, handed) = mpsc::channel();
+        let start = Barrier::new(2);
+        let (turn, raced) = std::thread::scope(|s| {
+            let h = {
+                let (racer, spool, start) = (&racer, &spool, &start);
+                s.spawn(move || {
+                    start.wait();
+                    run_racer(racer, spool, exec_id, ops, handed)
+                })
+            };
+            start.wait();
+            let turn = self.raced_turn(exec_id, &plan, beside);
+            (turn, h.join().expect("the racing thread panicked"))
+        });
+        drop(racer);
+        let turn = turn?;
+        let raced = raced?;
+        self.rep.race_ops += raced.ops;
+        self.rep.unknowns += raced.unknowns;
+        self.rep.resolved_unknowns += raced.resolved;
+        for (corr, acc) in &raced.accepted {
+            self.rep.completions_delivered += 1;
+            match acc {
+                Accepted::LateAfterCancel { .. } => self.rep.late_after_cancel += 1,
+                Accepted::ResolvedUnknown { .. } => self.rep.resolved_unknowns += 1,
+                _ => {}
+            }
+            // Committed: it must stay settled.
+            if let Some(j) = self.jobs.iter_mut().find(|j| &j.corr == corr) {
+                j.spooled = true;
+                j.settled = true;
+            }
+        }
+        self.mark_settled_from_spool();
+        let mut to_kill = raced.to_kill;
+        if let Some(e) = turn.ended.as_ref().filter(|e| e.state.is_terminal()) {
+            to_kill.extend(e.outstanding.iter().cloned());
+        }
+        to_kill.sort();
+        to_kill.dedup();
+        if turn.crashed {
+            self.rep.race_crashes += 1;
+            self.crash("inside a raced turn")?;
+        }
+        self.kill_jobs(&to_kill)
+    }
+
+    /// The raced turn's own commits, on this thread.
+    fn raced_turn(
+        &mut self,
+        exec_id: &str,
+        plan: &RacedPlan,
+        beside: mpsc::Sender<(String, Outcome)>,
+    ) -> Result<RacedTurn> {
+        let mut out = RacedTurn::default();
+        let mut frames = 0;
+        let mut stop = || {
+            frames += 1;
+            plan.crash_after == Some(frames)
+        };
+        let g = match self.kernel.admit(exec_id) {
+            Ok(g) => g,
+            // Cancelled beside it, or no room: no turn.
+            Err(e)
+                if matches!(
+                    e.downcast_ref::<KernelError>(),
+                    Some(
+                        KernelError::NotRunnable { .. }
+                            | KernelError::AdmissionFull { .. }
+                            | KernelError::TurnHeld { .. }
+                    )
+                ) =>
+            {
+                return Ok(out)
+            }
+            Err(e) => return Err(e),
+        };
+        self.rep.turns += 1;
+        if stop() {
+            std::mem::forget(g);
+            out.crashed = true;
+            return Ok(out);
+        }
+        self.kernel.take_results(&g)?;
+        if stop() {
+            std::mem::forget(g);
+            out.crashed = true;
+            return Ok(out);
+        }
+        let now = self.now();
+        let mut waits_on = Vec::new();
+        for (i, &(finish, one_frame, outcome)) in plan.calls.iter().enumerate() {
+            let prop = Proposal {
+                tool: "fake.race".into(),
+                args: json!({"i": i}),
+                resource: None,
+                policy_context: json!({}),
+            };
+            let planned = if one_frame {
+                self.kernel.plan_and_dispatch(
+                    &g,
+                    &prop,
+                    RetryClass::SafeToRepeat,
+                    Some(20_000),
+                    0,
+                    |_| Ok(vec![]),
+                )
+            } else {
+                self.kernel
+                    .plan_action(&g, &prop, RetryClass::SafeToRepeat, Some(20_000), 0)
+            };
+            let a = match planned {
+                Ok(a) => a,
+                // Cancelled beside the turn: nothing more is planned.
+                Err(e)
+                    if matches!(
+                        e.downcast_ref::<KernelError>(),
+                        Some(KernelError::NoTurn {
+                            state: "cancelled",
+                            ..
+                        })
+                    ) =>
+                {
+                    break
+                }
+                Err(e) => return Err(e),
+            };
+            self.rep.actions += 1;
+            if one_frame {
+                self.rep.one_frame_dispatches += 1;
+                self.one_frame.insert(a.correlation_id.clone());
+            } else {
+                if stop() {
+                    std::mem::forget(g);
+                    out.crashed = true;
+                    return Ok(out);
+                }
+                self.kernel.authorize(&a.correlation_id, &prop, None)?;
+                if stop() {
+                    std::mem::forget(g);
+                    out.crashed = true;
+                    return Ok(out);
+                }
+                match self.kernel.dispatch(&a.correlation_id, None) {
+                    Ok(_) => {}
+                    // Cancelled between the plan and the dispatch: it never leaves.
+                    Err(e)
+                        if matches!(
+                            e.downcast_ref::<KernelError>(),
+                            Some(KernelError::NotRunnable { .. })
+                        ) =>
+                    {
+                        break
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            if let Finish::Job(None) = finish {
+                self.rep.lost_jobs += 1;
+            }
+            self.jobs.push(Job {
+                corr: a.correlation_id.clone(),
+                finish_at: match finish {
+                    Finish::Job(delay) => delay.map(|d| now + d),
+                    // In process: it finishes in the turn or beside it, or never.
+                    Finish::InTurn | Finish::Beside => None,
+                },
+                outcome,
+                spooled: false,
+                settled: false,
+                cancelled: false,
+                reserved: 0,
+            });
+            if stop() {
+                std::mem::forget(g);
+                out.crashed = true;
+                return Ok(out);
+            }
+            match finish {
+                Finish::Job(_) => waits_on.push(a.correlation_id),
+                Finish::InTurn => {
+                    self.kernel.accept_completion(&Completion {
+                        correlation_id: a.correlation_id.clone(),
+                        outcome,
+                        result_ref: Some(format!("node_{}", a.correlation_id)),
+                        external_op_id: None,
+                        started_at_ms: now,
+                        finished_at_ms: self.now(),
+                        producer: "inproc:fake.race".into(),
+                        signature: None,
+                        cost_micros: None,
+                        detail: None,
+                    })?;
+                    let j = self.jobs.last_mut().unwrap();
+                    j.spooled = true;
+                    j.settled = true;
+                    self.rep.completions_delivered += 1;
+                    if stop() {
+                        std::mem::forget(g);
+                        out.crashed = true;
+                        return Ok(out);
+                    }
+                }
+                Finish::Beside => {
+                    let _ = beside.send((a.correlation_id, outcome));
+                }
+            }
+        }
+        drop(beside);
+        let end = if !waits_on.is_empty() {
+            TurnEnd::Wait {
+                wake: Wake::Actions {
+                    correlation_ids: waits_on,
+                },
+            }
+        } else {
+            match plan.end_pick {
+                0 => TurnEnd::Complete {
+                    reason: "sim done".into(),
+                },
+                1..=3 => TurnEnd::Wait {
+                    wake: Wake::DueAt {
+                        at_ms: now + plan.due_in,
+                    },
+                },
+                4..=6 => TurnEnd::Wait { wake: Wake::Input },
+                _ => TurnEnd::Requeue,
+            }
+        };
+        out.ended = Some(self.kernel.end_turn(g, end)?);
+        Ok(out)
+    }
+
+    /// A job of this execution finishes now: its completion is spooled, as
+    /// its wrapper would, for the racing thread to accept.
+    fn finish_a_job_of(&mut self, exec_id: &str) -> Result<Option<Completion>> {
+        let mut mine = Vec::new();
+        for (i, j) in self.jobs.iter().enumerate() {
+            if j.spooled || j.finish_at.is_none() {
+                continue;
+            }
+            if self
+                .kernel
+                .action(&j.corr)?
+                .is_some_and(|a| a.execution_id == exec_id)
+            {
+                mine.push(i);
+            }
+        }
+        if mine.is_empty() {
+            return Ok(None);
+        }
+        let i = mine[self.rng.random_range(0..mine.len())];
+        let j = self.jobs[i].clone();
+        let now = self.now();
+        let c = Completion {
+            correlation_id: j.corr.clone(),
+            outcome: j.outcome,
+            result_ref: Some(format!("node_{}", j.corr)),
+            external_op_id: None,
+            started_at_ms: now.saturating_sub(100),
+            finished_at_ms: now,
+            producer: "sim-wrapper".into(),
+            signature: None,
+            cost_micros: Some(self.rng.random_range(0..=j.reserved)),
+            detail: None,
+        };
+        self.spool.write(&c)?;
+        self.jobs[i].spooled = true;
+        Ok(Some(c))
+    }
+
     /// Terminate the backends of cancelled actions: 70% die now (verified),
     /// 30% cannot be reached (unsupported) and may still finish late.
     fn kill_jobs(&mut self, corrs: &[String]) -> Result<()> {
@@ -927,6 +1280,47 @@ impl World {
         }
         if running > self.p.ceiling {
             bail!("{at}: {running} running > ceiling {}", self.p.ceiling);
+        }
+        // An execution that was cancelled never runs again (theseus-id9). Read
+        // in WAL order, as far as the store has gone: after an execution's
+        // `execution.cancelled` row, no turn of it starts and no action of it
+        // is planned, and it is `cancelled` from then on. Its rows are
+        // evidence a later write cannot take back, so a cancel another thread
+        // overwrote between two checks is caught too.
+        let last = self.kernel.store().last_position();
+        if last > self.ledger_read_to {
+            for r in self
+                .kernel
+                .store()
+                .scan(self.ledger_read_to + 1, Some(last), usize::MAX)?
+            {
+                if r.kind != theseus_store::kinds::LEDGER {
+                    continue;
+                }
+                let row: LedgerRow = r.decode()?;
+                let Some(id) = row.data["execution_id"].as_str() else {
+                    continue;
+                };
+                match row.kind.as_str() {
+                    "execution.cancelled" => {
+                        self.cancelled.insert(id.to_string());
+                    }
+                    "execution.running" | "action.planned" if self.cancelled.contains(id) => {
+                        bail!(
+                            "{at}: {id} was cancelled, and then wrote {} at {}",
+                            row.kind,
+                            r.position
+                        )
+                    }
+                    _ => {}
+                }
+            }
+            self.ledger_read_to = last;
+        }
+        for e in execs.iter().filter(|e| self.cancelled.contains(&e.id)) {
+            if e.state != ExecState::Cancelled {
+                bail!("{at}: {} was cancelled and is now {:?}", e.id, e.state);
+            }
         }
         for e in &execs {
             match e.state {
@@ -1211,6 +1605,125 @@ impl World {
         }
         Ok(())
     }
+}
+
+/// What the racing thread does to a raced turn's execution (theseus-id9).
+enum RaceOp {
+    Cancel,
+    /// A job of the execution finished: its completion is spooled, and the
+    /// racing thread accepts it and removes the file, as the driver's drain does.
+    Complete(Completion),
+    Wake,
+    Input,
+    /// The heartbeat's reconcile, over every execution.
+    Reconcile,
+}
+
+/// Where a raced turn's call finishes.
+#[derive(Debug, Clone, Copy)]
+enum Finish {
+    /// A job, after this many virtual ms, or never.
+    Job(Option<u64>),
+    /// In process, in the turn.
+    InTurn,
+    /// In process, on the racing thread, as soon as it is dispatched.
+    Beside,
+}
+
+/// A raced turn, as the seed chose it: its calls (where each finishes, whether
+/// it is planned in one frame, its outcome), the frame after which a crash
+/// stops it, and how it ends.
+struct RacedPlan {
+    calls: Vec<(Finish, bool, Outcome)>,
+    crash_after: Option<u32>,
+    end_pick: u32,
+    due_in: u64,
+}
+
+#[derive(Default)]
+struct RacedTurn {
+    crashed: bool,
+    /// The execution as `end_turn` left it.
+    ended: Option<Execution>,
+}
+
+/// What the racing thread did.
+#[derive(Default)]
+struct Raced {
+    ops: u64,
+    /// The calls each cancel said to stop.
+    to_kill: Vec<String>,
+    /// Each completion it delivered, and what accepting it did.
+    accepted: Vec<(String, Accepted)>,
+    unknowns: u64,
+    resolved: u64,
+}
+
+/// The racing thread: its operations in order, and each call the turn hands
+/// it completed as it arrives, until the turn is done.
+fn run_racer(
+    k: &Kernel,
+    spool: &Spool,
+    exec_id: &str,
+    ops: Vec<RaceOp>,
+    handed: mpsc::Receiver<(String, Outcome)>,
+) -> Result<Raced> {
+    let mut out = Raced::default();
+    let finish = |corr: String, outcome: Outcome, out: &mut Raced| -> Result<()> {
+        let acc = k.accept_completion(&Completion {
+            correlation_id: corr.clone(),
+            outcome,
+            result_ref: Some(format!("node_{corr}")),
+            external_op_id: None,
+            started_at_ms: k.now_ms(),
+            finished_at_ms: k.now_ms(),
+            producer: "inproc:beside".into(),
+            signature: None,
+            cost_micros: None,
+            detail: None,
+        })?;
+        out.accepted.push((corr, acc));
+        Ok(())
+    };
+    // A wake of an execution that ended meanwhile is refused, which is right.
+    let ended = |r: Result<Execution>| match r {
+        Err(e)
+            if !matches!(
+                e.downcast_ref::<KernelError>(),
+                Some(KernelError::NotRunnable { .. })
+            ) =>
+        {
+            Err(e)
+        }
+        _ => Ok(()),
+    };
+    for op in ops {
+        out.ops += 1;
+        match op {
+            RaceOp::Cancel => out.to_kill.extend(k.cancel_execution(exec_id, "sim-race")?),
+            RaceOp::Complete(c) => {
+                let acc = k.accept_completion(&c)?;
+                spool.remove(&spool.completion_path(&c.correlation_id))?;
+                out.accepted.push((c.correlation_id, acc));
+            }
+            RaceOp::Wake => ended(k.wake(exec_id, "sim-race"))?,
+            RaceOp::Input => ended(k.wake_input(exec_id))?,
+            RaceOp::Reconcile => {
+                let rep = k.reconcile(&WrapperEvidence {
+                    spool: spool.clone(),
+                })?;
+                out.unknowns += rep.marked_unknown.len() as u64;
+                out.resolved += rep.resolved_unknown.len() as u64;
+            }
+        }
+        while let Ok((corr, outcome)) = handed.try_recv() {
+            finish(corr, outcome, &mut out)?;
+        }
+    }
+    for (corr, outcome) in handed {
+        finish(corr, outcome, &mut out)?;
+    }
+    Ok(out)
 }
 
 /// A store that refuses everything; placeholder while the world is "down".
