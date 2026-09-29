@@ -155,6 +155,7 @@ fn main() -> Result<()> {
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
         return theseus_kernel::job::run_wrapper(&wa);
     }
+    keep_name();
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -419,6 +420,32 @@ fn exec_self(var: &str, value: &str) -> Result<()> {
         .env(var, value)
         .exec();
     Err(anyhow::Error::new(err).context("restarting: exec of /proc/self/exe failed"))
+}
+
+/// A daemon that restarted itself is the image `/proc/self/exe`, which the
+/// kernel names `exe` (theseus-2fo). Give it back its own name, before any
+/// thread starts, so `ps`, `pgrep theseusd`, and `pkill theseusd` still find
+/// it. A job wrapper, exec'd the same way, keeps `exe`.
+fn keep_name() {
+    if !std::fs::read_to_string("/proc/self/comm").is_ok_and(|c| c.trim_end() == "exe") {
+        return;
+    }
+    let arg0 = std::env::args_os().next();
+    let Some(name) = arg0
+        .as_deref()
+        .map(std::path::Path::new)
+        .and_then(|p| p.file_name())
+    else {
+        return;
+    };
+    // The kernel keeps 15 bytes of a name.
+    let mut name = name.to_string_lossy().into_owned();
+    while name.len() > 15 {
+        name.pop();
+    }
+    if let Err(e) = std::fs::write("/proc/self/comm", &name) {
+        tracing::warn!(error = %e, "could not restore the process name after the restart");
+    }
 }
 
 /// What `theseusd config` says of the copy: whether it matches the vault's note.

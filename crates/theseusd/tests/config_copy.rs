@@ -309,6 +309,9 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
         String::from_utf8_lossy(&cmdline).contains(NOTE_REF),
         "the same arguments"
     );
+    // Exec'd as /proc/self/exe, it keeps its own name for ps and pgrep.
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap();
+    assert_eq!(comm.trim_end(), "theseusd");
     let c = r.ledger("config.changed");
     assert_eq!(c.len(), 1);
     assert_eq!(c[0]["tables"], json!(["kernel"]));
