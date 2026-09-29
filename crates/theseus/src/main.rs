@@ -277,7 +277,7 @@ impl Conn {
         })
     }
 
-    async fn spawn(bin: &str) -> Result<Self> {
+    fn spawn(bin: &str) -> Result<Self> {
         let mut child = tokio::process::Command::new(bin)
             .arg("--stdio")
             .stdin(Stdio::piped())
@@ -437,7 +437,7 @@ async fn main() {
 
 async fn run(cli: Cli) -> Result<()> {
     let mut conn = match &cli.spawn {
-        Some(bin) => Conn::spawn(bin).await?,
+        Some(bin) => Conn::spawn(bin)?,
         None => Conn::socket(&cli.socket).await?,
     };
     let json = cli.json;
@@ -675,7 +675,7 @@ async fn run(cli: Cli) -> Result<()> {
                 printer.on(&n.method, &n.params);
                 if n.method == notify::TURN_ENDED {
                     printer.settle();
-                    if let Ok(t) = serde_json::from_value::<TurnSubmitResult>(n.params.clone()) {
+                    if let Ok(t) = serde_json::from_value::<TurnSubmitResult>(n.params) {
                         if json {
                             println!("{}", serde_json::to_string(&t)?);
                         } else {

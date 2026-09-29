@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 
 use crate::attach::Media;
 use crate::catalog::{Catalog, ThinkingMode};
-use crate::node::{Body, Node, ResultStatus};
+use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, ProviderRequest};
 
 pub const COMPILER_VERSION: u32 = 1;
@@ -131,6 +131,7 @@ pub struct RequestSpec {
     pub first_party: bool,
 }
 
+#[derive(Clone, Copy)]
 pub struct CompileInput<'a> {
     pub session_id: &'a str,
     pub current: Option<&'a Compilation>,
@@ -588,22 +589,10 @@ pub fn render_messages(
     (msgs, repairs, image_tokens)
 }
 
-/// The result status a background placeholder carries.
-pub fn is_placeholder(n: &Node) -> bool {
-    matches!(
-        n.body,
-        Body::ToolResult {
-            status: ResultStatus::Background,
-            late: false,
-            ..
-        }
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::Body;
+    use crate::node::{Body, ResultStatus};
     use theseus_protocol::Usage;
 
     fn spec(model: &str, system: &str) -> RequestSpec {

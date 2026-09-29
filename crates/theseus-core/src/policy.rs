@@ -646,7 +646,7 @@ mod tests {
         );
         let out = p.decide(
             &T("proc.run"),
-            &plan(root.clone(), Access::Exec, Some(vec!["cat", &store_arg])),
+            &plan(root, Access::Exec, Some(vec!["cat", &store_arg])),
         );
         assert!(out.floor, "{}", out.reason);
         assert_eq!(

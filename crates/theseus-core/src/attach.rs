@@ -387,7 +387,7 @@ pub(crate) mod tests {
         assert_eq!(
             got[0].content,
             AttachmentContent::Image {
-                digest: digest.clone(),
+                digest,
                 width: 1280,
                 height: 720
             }

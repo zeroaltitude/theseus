@@ -89,7 +89,7 @@ pub fn spawn_detached(
 }
 
 /// The wrapper's body. Runs in the detached process.
-pub fn run_wrapper(args: WrapperArgs) -> Result<()> {
+pub fn run_wrapper(args: &WrapperArgs) -> Result<()> {
     let spool = Spool::open(&args.spool_dir)?;
     let started = now_ms();
     let t0 = Instant::now();
@@ -148,7 +148,7 @@ pub fn run_wrapper(args: WrapperArgs) -> Result<()> {
     };
     detail["duration_ms"] = serde_json::json!(t0.elapsed().as_millis() as u64);
     detail["bytes"] = serde_json::json!(std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0));
-    detail["note"] = serde_json::Value::String(note.clone());
+    detail["note"] = serde_json::Value::String(note);
     let c = Completion {
         correlation_id: args.correlation_id.clone(),
         outcome,

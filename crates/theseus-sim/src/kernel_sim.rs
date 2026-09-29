@@ -612,8 +612,7 @@ impl World {
         };
         let e = self.kernel.end_turn(g, end)?;
         if e.state.is_terminal() {
-            let leftover = e.outstanding.clone();
-            self.kill_jobs(&leftover)?;
+            self.kill_jobs(&e.outstanding)?;
         }
         Ok(())
     }

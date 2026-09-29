@@ -34,3 +34,6 @@ opentelemetry-otlp.workspace = true
 [dev-dependencies]
 tempfile = "3"
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

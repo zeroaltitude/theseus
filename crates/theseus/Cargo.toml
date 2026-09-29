@@ -21,3 +21,6 @@ tokio.workspace = true
 shellexpand.workspace = true
 # SIGPIPE back to its default so `theseus history | head` ends quietly.
 libc = "0.2"
+
+[lints]
+workspace = true

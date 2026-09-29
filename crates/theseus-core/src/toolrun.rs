@@ -59,7 +59,7 @@ impl JobLauncher for InlineLauncher {
     fn launch(&self, _spool: &Spool, args: &WrapperArgs) -> Result<u32> {
         let a = args.clone();
         std::thread::spawn(move || {
-            let _ = theseus_kernel::job::run_wrapper(a);
+            let _ = theseus_kernel::job::run_wrapper(&a);
         });
         Ok(std::process::id())
     }
@@ -330,7 +330,7 @@ impl ToolRuntime {
         )
     }
 
-    fn announce_end(&self, tc: &TurnCtx<'_>, node: &Node) {
+    fn announce_end(tc: &TurnCtx<'_>, node: &Node) {
         if let Body::ToolResult {
             tool_use_id,
             tool,
@@ -392,13 +392,13 @@ impl ToolRuntime {
     }
 
     /// Write a result node on its own frame and announce it.
-    fn write_result(&self, tc: &TurnCtx<'_>, node: Node) -> Result<ResultStatus> {
+    fn write_result(tc: &TurnCtx<'_>, node: &Node) -> Result<ResultStatus> {
         let status = match &node.body {
             Body::ToolResult { status, .. } => *status,
             _ => ResultStatus::Error,
         };
-        tc.store.append(vec![node.record()?])?;
-        self.announce_end(tc, &node);
+        tc.store.append(&[node.record()?])?;
+        Self::announce_end(tc, node);
         Ok(status)
     }
 
@@ -423,7 +423,7 @@ impl ToolRuntime {
             None,
             json!({"not_run": reason}),
         );
-        self.write_result(tc, node)?;
+        Self::write_result(tc, &node)?;
         Ok(())
     }
 
@@ -437,7 +437,6 @@ impl ToolRuntime {
     }
 
     fn tool_call_node(
-        &self,
         tc: &TurnCtx<'_>,
         assistant_node: &str,
         call: &ToolUse,
@@ -498,7 +497,7 @@ impl ToolRuntime {
                 Value::Null,
             );
             return Ok(CallOutcome::Done {
-                status: self.write_result(tc, node)?,
+                status: Self::write_result(tc, &node)?,
             });
         };
         self.count(tool.name());
@@ -528,7 +527,7 @@ impl ToolRuntime {
                 tool.name()
             );
             return Ok(CallOutcome::Done {
-                status: self.write_result(tc, node)?,
+                status: Self::write_result(tc, &node)?,
             });
         }
 
@@ -568,7 +567,7 @@ impl ToolRuntime {
             Err(e) => {
                 let reason = format!("validation: {e}");
                 let call_node =
-                    self.tool_call_node(tc, assistant_node, call, tool.name(), None, gate);
+                    Self::tool_call_node(tc, assistant_node, call, tool.name(), None, gate);
                 let node = self.result_node(
                     tc,
                     &call.id,
@@ -582,7 +581,7 @@ impl ToolRuntime {
                     None,
                     json!({"reason": reason}),
                 );
-                tc.store.append(vec![call_node.record()?, node.record()?])?;
+                tc.store.append(&[call_node.record()?, node.record()?])?;
                 tc.ledger(
                     "tool.invalid_input",
                     json!({"tool": tool.name(), "tool_use_id": call.id, "reason": reason, "input": call.input}),
@@ -593,7 +592,7 @@ impl ToolRuntime {
                     "{}: the input is invalid, so it does not run.",
                     tool.name()
                 );
-                self.announce_end(tc, &node);
+                Self::announce_end(tc, &node);
                 return Ok(CallOutcome::Done {
                     status: ResultStatus::Error,
                 });
@@ -614,16 +613,15 @@ impl ToolRuntime {
             Some(self.deadline_ms(tool.as_ref(), &call.input)),
             0,
             |a| {
-                Ok(vec![self
-                    .tool_call_node(
-                        tc,
-                        assistant_node,
-                        call,
-                        tool.name(),
-                        Some(&a.correlation_id),
-                        gate.clone(),
-                    )
-                    .record()?])
+                Ok(vec![Self::tool_call_node(
+                    tc,
+                    assistant_node,
+                    call,
+                    tool.name(),
+                    Some(&a.correlation_id),
+                    gate.clone(),
+                )
+                .record()?])
             },
         )?;
         if tc.narrator.on() {
@@ -786,7 +784,7 @@ impl ToolRuntime {
                     detail: Some(json!({"duration_ms": dur, "meta": meta})),
                 };
                 tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
-                self.announce_end(tc, &node);
+                Self::announce_end(tc, &node);
                 Ok(CallOutcome::Done { status })
             }
             Backend::Job => {
@@ -794,36 +792,30 @@ impl ToolRuntime {
                     Ok(s) => s,
                     Err(e) => {
                         tc.kernel.dispatch(correlation_id, None)?;
-                        return self
-                            .settle_job_failure(tc, correlation_id, tool.name(), call, &e)
-                            .await;
+                        return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e);
                     }
                 };
                 let Some(spool) = self.spool.clone() else {
                     tc.kernel.dispatch(correlation_id, None)?;
-                    return self
-                        .settle_job_failure(
-                            tc,
-                            correlation_id,
-                            tool.name(),
-                            call,
-                            "no completion spool is configured",
-                        )
-                        .await;
+                    return self.settle_job_failure(
+                        tc,
+                        correlation_id,
+                        tool.name(),
+                        call,
+                        "no completion spool is configured",
+                    );
                 };
                 let mut env = self.proc_env.clone();
                 for (k, v) in &spec.env {
                     if forbidden_env(k) {
                         tc.kernel.dispatch(correlation_id, None)?;
-                        return self
-                            .settle_job_failure(
-                                tc,
-                                correlation_id,
-                                tool.name(),
-                                call,
-                                &format!("environment variable {k} may not be set by a tool call"),
-                            )
-                            .await;
+                        return self.settle_job_failure(
+                            tc,
+                            correlation_id,
+                            tool.name(),
+                            call,
+                            &format!("environment variable {k} may not be set by a tool call"),
+                        );
                     }
                     env.retain(|(ek, _)| ek != k);
                     env.push((k.clone(), v.clone()));
@@ -842,15 +834,13 @@ impl ToolRuntime {
                 let pid = match self.launcher.launch(&spool, &args) {
                     Ok(p) => p,
                     Err(e) => {
-                        return self
-                            .settle_job_failure(
-                                tc,
-                                correlation_id,
-                                tool.name(),
-                                call,
-                                &format!("could not start the job: {e}"),
-                            )
-                            .await;
+                        return self.settle_job_failure(
+                            tc,
+                            correlation_id,
+                            tool.name(),
+                            call,
+                            &format!("could not start the job: {e}"),
+                        );
                     }
                 };
                 tc.sink.send(
@@ -877,7 +867,7 @@ impl ToolRuntime {
                     narrative::duration(bound.as_millis() as u64)
                 );
                 loop {
-                    if let Some(done) = self.job_settled(tc.kernel, &spool, correlation_id)? {
+                    if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
                         let node = self.job_result_node(
                             tc,
                             &call.id,
@@ -886,7 +876,7 @@ impl ToolRuntime {
                             Some(t0.elapsed().as_millis() as u64),
                             false,
                         );
-                        let status = self.write_result(tc, node)?;
+                        let status = Self::write_result(tc, &node)?;
                         return Ok(CallOutcome::Done { status });
                     }
                     if t0.elapsed() >= bound {
@@ -911,7 +901,7 @@ impl ToolRuntime {
                     None,
                     json!({"pid": pid}),
                 );
-                self.write_result(tc, node)?;
+                Self::write_result(tc, &node)?;
                 Ok(CallOutcome::Background {
                     correlation_id: correlation_id.into(),
                 })
@@ -919,7 +909,7 @@ impl ToolRuntime {
         }
     }
 
-    async fn settle_job_failure(
+    fn settle_job_failure(
         &self,
         tc: &TurnCtx<'_>,
         correlation_id: &str,
@@ -954,7 +944,7 @@ impl ToolRuntime {
             detail: Some(json!({"error": msg})),
         };
         tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
-        self.announce_end(tc, &node);
+        Self::announce_end(tc, &node);
         Ok(CallOutcome::Done {
             status: ResultStatus::Error,
         })
@@ -962,12 +952,7 @@ impl ToolRuntime {
 
     /// Has the job settled? Accepts a spooled completion if it is there
     /// (idempotent with the harness's own drain) and returns the settled action.
-    fn job_settled(
-        &self,
-        kernel: &Kernel,
-        spool: &Spool,
-        correlation_id: &str,
-    ) -> Result<Option<Action>> {
+    fn job_settled(kernel: &Kernel, spool: &Spool, correlation_id: &str) -> Result<Option<Action>> {
         if let Some(c) = spool.read_completion(correlation_id)? {
             kernel.accept_completion(&c)?;
             spool.remove(&spool.completion_path(correlation_id))?;
@@ -1186,7 +1171,7 @@ impl ToolRuntime {
                                 None,
                                 Value::Null,
                             );
-                            self.write_result(tc, node)?;
+                            Self::write_result(tc, &node)?;
                             out.wrote += 1;
                         }
                     }
@@ -1206,7 +1191,7 @@ impl ToolRuntime {
                         )?;
                         tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false, "superseded": true}));
                         let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Declined, "Not run: the operator sent a new message instead of confirming this call.", Some(&corr), None, false, None, None, Value::Null);
-                        self.write_result(tc, node)?;
+                        Self::write_result(tc, &node)?;
                         out.wrote += 1;
                     } else {
                         out.awaiting = Some(corr);
@@ -1237,12 +1222,12 @@ impl ToolRuntime {
                         .map(|t| t.backend() == Backend::Job)
                         .unwrap_or(false);
                     let settled = match &self.spool {
-                        Some(sp) if is_job => self.job_settled(tc.kernel, sp, &corr)?,
+                        Some(sp) if is_job => Self::job_settled(tc.kernel, sp, &corr)?,
                         _ => None,
                     };
                     if let Some(done) = settled {
                         let node = self.job_result_node(tc, &u.id, &tool_name, &done, None, false);
-                        self.write_result(tc, node)?;
+                        Self::write_result(tc, &node)?;
                         out.wrote += 1;
                         continue;
                     }
@@ -1255,13 +1240,13 @@ impl ToolRuntime {
                             .unwrap_or(false);
                     if alive {
                         let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Background, &format!("Still running as background job {corr} (the harness restarted meanwhile). Its result will arrive in a later message."), Some(&corr), None, false, None, None, Value::Null);
-                        self.write_result(tc, node)?;
+                        Self::write_result(tc, &node)?;
                         out.background.push(corr);
                         out.wrote += 1;
                     } else {
                         let _ = tc.kernel.mark_unknown(&corr, "interrupted_by_restart");
                         let node = self.result_node(tc, &u.id, &tool_name, ResultStatus::Unknown, "The harness restarted while this call was running, and whether it completed cannot be established. Check the current state before retrying.", Some(&corr), None, false, None, None, Value::Null);
-                        self.write_result(tc, node)?;
+                        Self::write_result(tc, &node)?;
                         out.wrote += 1;
                     }
                 }
@@ -1275,7 +1260,7 @@ impl ToolRuntime {
                     } else {
                         self.result_node(tc, &u.id, &tool_name, if a.state == ActionState::Succeeded { ResultStatus::Ok } else { ResultStatus::Unknown }, "The call settled but its output was lost in a restart. Check the current state before relying on it.", Some(&corr), None, false, None, None, Value::Null)
                     };
-                    self.write_result(tc, node)?;
+                    Self::write_result(tc, &node)?;
                     out.wrote += 1;
                 }
                 ActionState::Cancelled => {
@@ -1306,7 +1291,7 @@ impl ToolRuntime {
                         None,
                         Value::Null,
                     );
-                    self.write_result(tc, node)?;
+                    Self::write_result(tc, &node)?;
                     out.wrote += 1;
                 }
             }
@@ -1348,7 +1333,7 @@ impl ToolRuntime {
                 continue;
             }
             let node = self.job_result_node(tc, &tool_use_id, &tool, a, None, true);
-            self.write_result(tc, node)?;
+            Self::write_result(tc, &node)?;
             tc.ledger(
                 "tool.late_result",
                 json!({"correlation_id": a.correlation_id, "tool": tool, "state": a.state}),

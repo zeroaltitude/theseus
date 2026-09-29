@@ -333,7 +333,7 @@ impl Kernel {
             .collect())
     }
     pub fn actions(&self) -> Result<Vec<Action>> {
-        decode_all(self.store.latest_of_kind(kinds::ACTION)?)
+        decode_all(&self.store.latest_of_kind(kinds::ACTION)?)
     }
     pub fn open_actions(&self) -> Result<Vec<Action>> {
         Ok(self
@@ -394,15 +394,8 @@ impl Kernel {
         })
     }
 
-    fn exec_record(&self, e: &Execution) -> Result<NewRecord> {
-        Ok(NewRecord::json(kinds::EXECUTION, Some(&e.id), e)?.scoped(&e.session_id))
-    }
-    fn action_record(&self, a: &Action) -> Result<NewRecord> {
-        Ok(NewRecord::json(kinds::ACTION, Some(&a.correlation_id), a)?.scoped(&a.session_id))
-    }
-
-    fn commit(&self, frame: Vec<NewRecord>) -> Result<Vec<u64>> {
-        self.store.append(&frame).context("kernel frame")
+    fn commit(&self, frame: &[NewRecord]) -> Result<Vec<u64>> {
+        self.store.append(frame).context("kernel frame")
     }
 
     // ------------------------------------------------------------ sessions
@@ -441,8 +434,8 @@ impl Kernel {
             created_at_ms: now,
             updated_at_ms: now,
         };
-        self.commit(vec![
-            self.exec_record(&exec)?,
+        self.commit(&[
+            exec_record(&exec)?,
             self.ledger(
                 "execution.opened",
                 Some(session_id),
@@ -471,8 +464,8 @@ impl Kernel {
             e.state = ExecState::Queued;
             e.wake = None;
             e.updated_at_ms = self.now_ms();
-            self.commit(vec![
-                self.exec_record(&e)?,
+            self.commit(&[
+                exec_record(&e)?,
                 self.ledger(
                     "execution.queued",
                     Some(&e.session_id),
@@ -506,8 +499,8 @@ impl Kernel {
             e.wake = None;
             e.resume_pending = true;
             e.updated_at_ms = self.now_ms();
-            self.commit(vec![
-                self.exec_record(&e)?,
+            self.commit(&[
+                exec_record(&e)?,
                 self.ledger(
                     "execution.queued",
                     Some(&e.session_id),
@@ -539,7 +532,7 @@ impl Kernel {
         a.state = ActionState::Cancelled;
         a.settled_at_ms = Some(now);
         a.resolution = Some(format!("declined by {by}: {reason}"));
-        let mut frame = vec![self.action_record(&a)?];
+        let mut frame = vec![action_record(&a)?];
         if let Some(mut e) = self.execution(&a.execution_id)? {
             if let Some(r) = &a.reservation_id {
                 settle_reservation_in(&mut e.budget, r, Some(0));
@@ -549,14 +542,14 @@ impl Kernel {
                 e.budget.question_needs_micros = 0;
             }
             e.updated_at_ms = now;
-            frame.push(self.exec_record(&e)?);
+            frame.push(exec_record(&e)?);
         }
         frame.push(self.ledger(
             "action.declined",
             Some(&a.session_id),
             json!({"correlation_id": a.correlation_id, "tool": a.tool, "by": by, "reason": reason}),
         )?);
-        self.commit(frame)?;
+        self.commit(&frame)?;
         Ok(a)
     }
 
@@ -593,8 +586,8 @@ impl Kernel {
         e.wake = None;
         let resumed = std::mem::take(&mut e.resume_pending);
         e.updated_at_ms = now;
-        let res = self.commit(vec![
-            self.exec_record(&e)?,
+        let res = self.commit(&[
+            exec_record(&e)?,
             self.ledger(
                 "execution.running",
                 Some(&e.session_id),
@@ -631,8 +624,8 @@ impl Kernel {
         let n = e.queued_results.len();
         e.queued_results.clear();
         e.updated_at_ms = self.now_ms();
-        self.commit(vec![
-            self.exec_record(&e)?,
+        self.commit(&[
+            exec_record(&e)?,
             self.ledger(
                 "execution.results_consumed",
                 Some(&e.session_id),
@@ -679,14 +672,14 @@ impl Kernel {
                             e.wake = None;
                             e.updated_at_ms = now;
                             let frame = vec![
-                                self.exec_record(&e)?,
+                                exec_record(&e)?,
                                 self.ledger(
                                     "execution.queued",
                                     Some(&e.session_id),
                                     json!({"execution_id": e.id, "why": "wake_actions_already_settled"}),
                                 )?,
                             ];
-                            self.commit(frame)?;
+                            self.commit(&frame)?;
                             drop(guard);
                             return Ok(e);
                         }
@@ -714,7 +707,7 @@ impl Kernel {
         }
         e.updated_at_ms = now;
         let mut frame = vec![
-            self.exec_record(&e)?,
+            exec_record(&e)?,
             self.ledger(
                 kind,
                 Some(&e.session_id),
@@ -733,16 +726,16 @@ impl Kernel {
                         q.state = ActionState::Cancelled;
                         q.settled_at_ms = Some(now);
                         q.resolution = Some(format!("the execution ended ({})", e.state.as_str()));
-                        frame.push(self.action_record(&q)?);
+                        frame.push(action_record(&q)?);
                     }
                 }
-                frame[0] = self.exec_record(&e)?;
+                frame[0] = exec_record(&e)?;
             }
             for c in &e.outstanding {
                 if let Some(mut a) = self.action(c)? {
                     if a.state == ActionState::Dispatched && a.cancel.is_none() {
                         a.cancel = Some(CancelState::Requested);
-                        frame.push(self.action_record(&a)?);
+                        frame.push(action_record(&a)?);
                         frame.push(self.ledger(
                             "action.cancel",
                             Some(&a.session_id),
@@ -752,7 +745,7 @@ impl Kernel {
                 }
             }
         }
-        self.commit(frame)?;
+        self.commit(&frame)?;
         drop(guard);
         Ok(e)
     }
@@ -822,7 +815,7 @@ impl Kernel {
             e.budget.reservations.insert(id.clone(), reserve_micros);
             reservation_id = Some(id);
             e.updated_at_ms = now;
-            frame.push(self.exec_record(&e)?);
+            frame.push(exec_record(&e)?);
         }
         let a = Action {
             correlation_id: new_id("act"),
@@ -848,14 +841,14 @@ impl Kernel {
             resolution: None,
             completions_seen: 0,
         };
-        frame.push(self.action_record(&a)?);
+        frame.push(action_record(&a)?);
         frame.push(self.ledger(
             "action.planned",
             Some(&a.session_id),
             json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id, "tool": a.tool, "args_digest": a.args_digest, "retry_class": a.retry_class, "deadline_at_ms": a.deadline_at_ms, "reserved_usd": micros_to_usd(reserve_micros)}),
         )?);
         frame.extend(extra(&a)?);
-        self.commit(frame)?;
+        self.commit(&frame)?;
         Ok(a)
     }
 
@@ -887,7 +880,7 @@ impl Kernel {
                     q.state = ActionState::Cancelled;
                     q.settled_at_ms = Some(now);
                     q.resolution = Some("superseded by a newer budget question".into());
-                    frame.push(self.action_record(&q)?);
+                    frame.push(action_record(&q)?);
                     frame.push(self.ledger(
                         "action.declined",
                         Some(&q.session_id),
@@ -939,15 +932,15 @@ impl Kernel {
         e.budget.question = Some(q.correlation_id.clone());
         e.budget.question_needs_micros = needed_micros;
         e.updated_at_ms = now;
-        frame.push(self.exec_record(&e)?);
-        frame.push(self.action_record(&q)?);
+        frame.push(exec_record(&e)?);
+        frame.push(action_record(&q)?);
         frame.push(self.ledger(
             "action.planned",
             Some(&q.session_id),
             json!({"execution_id": q.execution_id, "correlation_id": q.correlation_id, "tool": q.tool, "args_digest": q.args_digest, "retry_class": q.retry_class, "deadline_at_ms": q.deadline_at_ms, "reserved_usd": 0.0}),
         )?);
         frame.push(self.ledger("budget.asked", Some(&e.session_id), asked)?);
-        self.commit(frame)?;
+        self.commit(&frame)?;
         Ok(q)
     }
 
@@ -1008,8 +1001,8 @@ impl Kernel {
         }
         e.updated_at_ms = now;
         let mut frame = vec![
-            self.action_record(&q)?,
-            self.exec_record(&e)?,
+            action_record(&q)?,
+            exec_record(&e)?,
             self.ledger(
                 "budget.reset",
                 Some(&e.session_id),
@@ -1032,7 +1025,7 @@ impl Kernel {
                 json!({"execution_id": e.id, "why": "budget_reset"}),
             )?);
         }
-        self.commit(frame)?;
+        self.commit(&frame)?;
         Ok((e, before))
     }
 
@@ -1068,8 +1061,8 @@ impl Kernel {
             bound_digest: d,
             expires_at_ms: now + self.cfg.confirm_ttl_ms,
         });
-        self.commit(vec![
-            self.action_record(&a)?,
+        self.commit(&[
+            action_record(&a)?,
             self.ledger(
                 "action.confirmed",
                 Some(&a.session_id),
@@ -1134,8 +1127,8 @@ impl Kernel {
         let now = self.now_ms();
         a.state = ActionState::Authorized;
         a.authorized_at_ms = Some(now);
-        self.commit(vec![
-            self.action_record(&a)?,
+        self.commit(&[
+            action_record(&a)?,
             self.ledger(
                 "action.authorized",
                 Some(&a.session_id),
@@ -1167,8 +1160,8 @@ impl Kernel {
             a.state = ActionState::Cancelled;
             a.cancel = Some(CancelState::TerminationVerified);
             a.settled_at_ms = Some(self.now_ms());
-            self.commit(vec![
-                self.action_record(&a)?,
+            self.commit(&[
+                action_record(&a)?,
                 self.ledger(
                     "action.cancelled",
                     Some(&a.session_id),
@@ -1189,9 +1182,9 @@ impl Kernel {
             e.outstanding.push(a.correlation_id.clone());
         }
         e.updated_at_ms = now;
-        self.commit(vec![
-            self.action_record(&a)?,
-            self.exec_record(&e)?,
+        self.commit(&[
+            action_record(&a)?,
+            exec_record(&e)?,
             self.ledger(
                 "action.dispatched",
                 Some(&a.session_id),
@@ -1219,7 +1212,7 @@ impl Kernel {
         let now = self.now_ms();
         let Some(mut a) = self.action(&c.correlation_id)? else {
             let key = format!("{QUARANTINE_PREFIX}{}", c.correlation_id);
-            self.commit(vec![
+            self.commit(&[
                 NewRecord::json(kinds::COMPLETION, Some(&key), c)?,
                 self.ledger(
                     "completion.quarantined",
@@ -1236,8 +1229,8 @@ impl Kernel {
             NewRecord::json(kinds::COMPLETION, Some(&c.correlation_id), c)?.scoped(&a.session_id);
         match a.state {
             ActionState::Succeeded | ActionState::Failed => {
-                self.commit(vec![
-                    self.action_record(&a)?,
+                self.commit(&[
+                    action_record(&a)?,
                     self.ledger(
                         "completion.duplicate",
                         Some(&a.session_id),
@@ -1253,9 +1246,9 @@ impl Kernel {
                     "late completion after cancel: {:?} from {}",
                     c.outcome, c.producer
                 ));
-                self.commit(vec![
+                self.commit(&[
                     completion_rec,
-                    self.action_record(&a)?,
+                    action_record(&a)?,
                     self.ledger(
                         "completion.late_after_cancel",
                         Some(&a.session_id),
@@ -1266,12 +1259,13 @@ impl Kernel {
                     correlation_id: a.correlation_id,
                 });
             }
-            ActionState::Planned | ActionState::Authorized => {
-                // A result for something never dispatched: only the in-process
-                // transport can do this legitimately (dispatch and completion in
-                // one call). Treat as dispatched-then-settled.
-            }
-            ActionState::Dispatched | ActionState::OutcomeUnknown => {}
+            // `Planned` and `Authorized` are a result for something never
+            // dispatched: only the in-process transport can do this legitimately
+            // (dispatch and completion in one call). Treat as dispatched-then-settled.
+            ActionState::Planned
+            | ActionState::Authorized
+            | ActionState::Dispatched
+            | ActionState::OutcomeUnknown => {}
         }
         let was_unknown = a.state == ActionState::OutcomeUnknown;
         let mut e = self
@@ -1296,14 +1290,14 @@ impl Kernel {
         // Continue the execution, in the same frame. A terminal execution
         // still drops the action from `outstanding` and settles its budget;
         // it just does not wake or queue a result (nothing will consume it).
-        let mut frame = vec![completion_rec, self.action_record(&a)?];
+        let mut frame = vec![completion_rec, action_record(&a)?];
         e.outstanding.retain(|x| x != &a.correlation_id);
         if a.cancel.is_some() && a.resolution.is_none() {
             a.resolution = Some(format!(
                 "completed as {:?} after cancel was requested",
                 c.outcome
             ));
-            frame[1] = self.action_record(&a)?;
+            frame[1] = action_record(&a)?;
         }
         if let Some(r) = &a.reservation_id {
             if was_unknown {
@@ -1342,7 +1336,7 @@ impl Kernel {
         }
         e.updated_at_ms = now;
         let exec_state = e.state;
-        frame.push(self.exec_record(&e)?);
+        frame.push(exec_record(&e)?);
         let kind = match (was_unknown, c.outcome) {
             (true, _) => "action.resolved",
             (false, Outcome::Unknown) => "action.outcome_unknown",
@@ -1355,7 +1349,7 @@ impl Kernel {
             json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "cost_usd": c.cost_micros.map(micros_to_usd)}),
         )?);
         frame.extend(extra);
-        self.commit(frame)?;
+        self.commit(&frame)?;
         if was_unknown {
             Ok(Accepted::ResolvedUnknown {
                 correlation_id: a.correlation_id,
@@ -1430,17 +1424,17 @@ impl Kernel {
                     q.state = ActionState::Cancelled;
                     q.settled_at_ms = Some(now);
                     q.resolution = Some(format!("the execution was cancelled by {by}"));
-                    frame.push(self.action_record(&q)?);
+                    frame.push(action_record(&q)?);
                 }
             }
         }
-        frame.insert(0, self.exec_record(&e)?);
+        frame.insert(0, exec_record(&e)?);
         let mut to_kill = Vec::new();
         for c in &e.outstanding {
             if let Some(mut a) = self.action(c)? {
                 if a.state == ActionState::Dispatched {
                     a.cancel = Some(CancelState::Requested);
-                    frame.push(self.action_record(&a)?);
+                    frame.push(action_record(&a)?);
                     to_kill.push(a.correlation_id.clone());
                 }
             }
@@ -1451,7 +1445,7 @@ impl Kernel {
             Some(&e.session_id),
             json!({"execution_id": e.id, "by": by, "outstanding": to_kill}),
         )?);
-        self.commit(frame)?;
+        self.commit(&frame)?;
         Ok(to_kill)
     }
 
@@ -1495,16 +1489,16 @@ impl Kernel {
                     }
                 }
                 e.updated_at_ms = now;
-                frame.push(self.exec_record(&e)?);
+                frame.push(exec_record(&e)?);
             }
         }
-        frame.push(self.action_record(&a)?);
+        frame.push(action_record(&a)?);
         frame.push(self.ledger(
             "action.cancel",
             Some(&a.session_id),
             json!({"correlation_id": a.correlation_id, "cancel": st, "settled": settle}),
         )?);
-        self.commit(frame)?;
+        self.commit(&frame)?;
         Ok(a)
     }
 
@@ -1525,8 +1519,8 @@ impl Kernel {
                     e.state = ExecState::Queued;
                     e.wake = None;
                     e.updated_at_ms = now;
-                    self.commit(vec![
-                        self.exec_record(&e)?,
+                    self.commit(&[
+                        exec_record(&e)?,
                         self.ledger(
                             "execution.queued",
                             Some(&e.session_id),
@@ -1574,11 +1568,7 @@ impl Kernel {
             && rep.marked_unknown.is_empty()
             && rep.resolved_unknown.is_empty())
         {
-            self.commit(vec![self.ledger(
-                "reconcile",
-                None,
-                serde_json::to_value(&rep)?,
-            )?])?;
+            self.commit(&[self.ledger("reconcile", None, serde_json::to_value(&rep)?)?])?;
         }
         Ok(rep)
     }
@@ -1617,7 +1607,7 @@ impl Kernel {
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 1;
         let st = self.store.stats()?;
-        self.commit(vec![self.ledger(
+        self.commit(&[self.ledger(
             "startup.step",
             None,
             json!({"step": 1, "name": "store", "last_position": st.last_position, "truncated_bytes": st.truncated_bytes, "replayed_into_index": st.replayed_into_index}),
@@ -1651,7 +1641,7 @@ impl Kernel {
                 e.resume_pending = true;
                 e.updated_at_ms = now;
                 let mut frame = vec![
-                    self.exec_record(&e)?,
+                    exec_record(&e)?,
                     self.ledger(
                         "execution.interrupted",
                         Some(&e.session_id),
@@ -1659,17 +1649,17 @@ impl Kernel {
                     )?,
                 ];
                 frame.extend(rows);
-                self.commit(frame)?;
+                self.commit(&frame)?;
                 rep.requeued_interrupted.push(e.id.clone());
             } else if !rows.is_empty() {
-                migrated.push(self.exec_record(&e)?);
+                migrated.push(exec_record(&e)?);
                 migrated.extend(rows);
             }
         }
         if !migrated.is_empty() {
-            self.commit(migrated)?;
+            self.commit(&migrated)?;
         }
-        self.commit(vec![self.ledger(
+        self.commit(&[self.ledger(
             "startup.step",
             None,
             json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten}),
@@ -1688,7 +1678,7 @@ impl Kernel {
             }
             rep.spool_quarantined = drained.malformed as u32;
         }
-        self.commit(vec![self.ledger(
+        self.commit(&[self.ledger(
             "startup.step",
             None,
             json!({"step": 3, "name": "spool", "drained": rep.spool_drained, "malformed": rep.spool_quarantined}),
@@ -1699,7 +1689,7 @@ impl Kernel {
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 4;
         rep.reconcile = self.reconcile(evidence)?;
-        self.commit(vec![self.ledger(
+        self.commit(&[self.ledger(
             "startup.step",
             None,
             json!({"step": 4, "name": "reconcile", "report": rep.reconcile}),
@@ -1709,7 +1699,7 @@ impl Kernel {
         // 5. accept
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 5;
-        self.commit(vec![self.ledger(
+        self.commit(&[self.ledger(
             "startup.step",
             None,
             json!({"step": 5, "name": "accepting"}),
@@ -1744,6 +1734,13 @@ fn decode_opt<T: serde::de::DeserializeOwned>(r: Option<Record>) -> Result<Optio
         None => Ok(None),
     }
 }
-fn decode_all<T: serde::de::DeserializeOwned>(rs: Vec<Record>) -> Result<Vec<T>> {
+fn decode_all<T: serde::de::DeserializeOwned>(rs: &[Record]) -> Result<Vec<T>> {
     rs.iter().map(|r| r.decode()).collect()
+}
+
+fn exec_record(e: &Execution) -> Result<NewRecord> {
+    Ok(NewRecord::json(kinds::EXECUTION, Some(&e.id), e)?.scoped(&e.session_id))
+}
+fn action_record(a: &Action) -> Result<NewRecord> {
+    Ok(NewRecord::json(kinds::ACTION, Some(&a.correlation_id), a)?.scoped(&a.session_id))
 }

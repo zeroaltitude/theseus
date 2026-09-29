@@ -339,7 +339,7 @@ async fn a_decline_recorded_under_the_old_names_still_reads_as_a_decline() {
     let rec = NewRecord::json(kinds::ACTION, Some(&corr), &a)
         .unwrap()
         .scoped(&a.session_id);
-    r.core.store.append(vec![rec]).unwrap();
+    r.core.store.append(&[rec]).unwrap();
     let cont = r
         .core
         .continue_execution(res.execution_id.as_deref().unwrap())
@@ -1458,7 +1458,7 @@ async fn a_declined_reset_keeps_waiting_and_the_next_message_asks_again() {
     assert_ne!(q2, q1, "a new question");
     assert_eq!(r.fake.requests().len(), 1, "no call ran over the limit");
     let res3 = turn(&r.core, Some(&sid), "still there?").await;
-    let q3 = res3.awaiting_confirm.clone().unwrap();
+    let q3 = res3.awaiting_confirm.unwrap();
     let a2 = r.core.kernel.action(&q2).unwrap().unwrap();
     assert_eq!(a2.state, ActionState::Cancelled);
     assert!(

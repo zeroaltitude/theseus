@@ -129,8 +129,8 @@ impl Store {
     }
 
     /// Append records as one atomic frame.
-    pub fn append(&self, records: Vec<NewRecord>) -> Result<Vec<u64>> {
-        self.inner.append(&records)
+    pub fn append(&self, records: &[NewRecord]) -> Result<Vec<u64>> {
+        self.inner.append(records)
     }
 
     /// Every node of a session with its WAL position, in order (§4.1: order is positional).
@@ -142,13 +142,6 @@ impl Store {
             }
         }
         Ok(out)
-    }
-
-    pub fn get_node(&self, id: &str) -> Result<Option<(u64, crate::node::Node)>> {
-        match self.inner.latest_by_key(kinds::NODE, id)? {
-            Some(r) => Ok(Some((r.position, r.decode()?))),
-            None => Ok(None),
-        }
     }
 
     /// Newest `n` nodes across every session, oldest first.

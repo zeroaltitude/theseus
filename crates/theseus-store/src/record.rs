@@ -19,8 +19,7 @@ pub mod kinds {
     /// which nothing reads (the compilation carries `derived_from` itself).
     pub const EDGE: RecordKind = 8;
     pub const COMPILATION: RecordKind = 9;
-    // 10 was `JUDGMENT`, reserved and never written.
-    pub const CHECKPOINT: RecordKind = 255;
+    // 10 was `JUDGMENT` and 255 `CHECKPOINT`, reserved and never written.
 
     pub fn name(k: RecordKind) -> &'static str {
         match k {
@@ -33,7 +32,6 @@ pub mod kinds {
             NODE => "node",
             EDGE => "edge",
             COMPILATION => "compilation",
-            CHECKPOINT => "checkpoint",
             _ => "unknown",
         }
     }

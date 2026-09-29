@@ -122,6 +122,7 @@ impl Core {
 
     /// Build a core around one provider registered under the config's default
     /// provider name (tests use `FakeProvider`).
+    #[cfg(test)]
     pub fn with_provider(
         cfg: Config,
         provider: Arc<dyn Provider>,
@@ -1131,7 +1132,7 @@ impl Core {
         let (live, _) = self.live_profile();
         let target = self.runner.target_for_session(&session, &live)?;
         let sink = EventSink::new(self.bus.clone(), &session.session_id, None);
-        let r = self
+        let res = self
             .runner
             .run(TurnRequest {
                 session,
@@ -1142,14 +1143,9 @@ impl Core {
                 recompile: None,
                 attachments: vec![],
             })
-            .await;
-        match r {
-            Ok(res) => {
-                self.telemetry.record_turn(&res);
-                Ok(Some(res))
-            }
-            Err(e) => Err(e),
-        }
+            .await?;
+        self.telemetry.record_turn(&res);
+        Ok(Some(res))
     }
 
     fn usage_total(&self) -> Usage {
@@ -1162,7 +1158,7 @@ impl Core {
         total
     }
 
-    fn open_session(&self, p: SessionOpenParams, by: &str) -> Result<SessionRecord> {
+    fn open_session(&self, p: SessionOpenParams) -> Result<SessionRecord> {
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
         let exec = self.kernel.open_execution(
             &rec.session_id,
@@ -1174,7 +1170,6 @@ impl Core {
             None,
             None,
         )?;
-        let _ = by;
         if self.narrator.on() {
             self.narrator.first_sight(&rec.session_id);
             narrate!(
@@ -1300,7 +1295,7 @@ impl Core {
             method::HEALTH => Ok(serde_json::to_value(self.health()).unwrap()),
             method::SESSION_OPEN => {
                 let p: SessionOpenParams = parse(req.params)?;
-                let rec = self.open_session(p, client).map_err(bad)?;
+                let rec = self.open_session(p).map_err(bad)?;
                 let mut info = rec.info();
                 info.execution_state = Some("waiting".into());
                 Ok(serde_json::to_value(info).unwrap())
@@ -1326,7 +1321,7 @@ impl Core {
                             RpcFailure::new(error_code::NOT_FOUND, format!("no session {id}"))
                         })?,
                     None => self
-                        .open_session(SessionOpenParams::default(), client)
+                        .open_session(SessionOpenParams::default())
                         .map_err(bad)?,
                 };
                 let (live, _) = self.live_profile();
@@ -2443,7 +2438,7 @@ mod tests {
                 .scoped(session)
         };
         store
-            .append(vec![
+            .append(&[
                 exec(
                     "exe_old_exhausted",
                     &ended.session_id,
@@ -2607,7 +2602,7 @@ mod tests {
             .unwrap()
             .scoped(&sid);
         assert!(String::from_utf8_lossy(&r.payload).contains(r#""status":"denied""#));
-        core.store.append(vec![r]).unwrap();
+        core.store.append(&[r]).unwrap();
         let old_row = json!({"correlation_id": "act_1", "tool": "fs.write", "by": "operator", "reason": "not now"});
         for kind in ["action.denied", "action.declined"] {
             core.store

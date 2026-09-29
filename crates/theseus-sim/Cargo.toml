@@ -21,3 +21,6 @@ serde_json.workspace = true
 rand = "0.9"
 tempfile = "3"
 crc32fast = "1"
+
+[lints]
+workspace = true

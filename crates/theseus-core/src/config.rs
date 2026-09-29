@@ -607,10 +607,6 @@ fn default_provider_name() -> String {
 fn default_profile_name() -> String {
     "default".into()
 }
-#[allow(dead_code)]
-fn default_max_tokens() -> u32 {
-    16_384
-}
 fn default_api_base() -> String {
     "https://api.anthropic.com".into()
 }

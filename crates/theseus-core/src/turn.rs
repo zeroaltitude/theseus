@@ -735,7 +735,7 @@ impl TurnRunner {
                     _ => title,
                 });
             }
-            self.store.append(vec![node.record()?])?;
+            self.store.append(&[node.record()?])?;
             t.tc.node_written(&node);
         }
 
@@ -793,7 +793,7 @@ impl TurnRunner {
             };
             let uses = resp.tool_uses();
             let answered = self.run_tools(&mut t, &resp, &uses, &node, i).await?;
-            run_model = self.advance(&mut t, &resp, uses.len(), answered, i);
+            run_model = Self::advance(&mut t, &resp, uses.len(), answered, i);
             t.last = Some(resp);
         }
 
@@ -1527,14 +1527,7 @@ impl TurnRunner {
 
     /// The Advancer decides whether the turn continues; the loop's end is
     /// recorded either way.
-    fn advance(
-        &self,
-        t: &mut Turn<'_>,
-        resp: &ModelResponse,
-        uses: usize,
-        answered: u32,
-        i: u32,
-    ) -> bool {
+    fn advance(t: &mut Turn<'_>, resp: &ModelResponse, uses: usize, answered: u32, i: u32) -> bool {
         let advancer = UntilNoToolCalls {
             max_loops: t.target.max_loops,
         };
@@ -1853,7 +1846,7 @@ impl TurnRunner {
                 json!({"compilation_id": c.id, "trigger": c.trigger, "strategy": c.strategy, "as_of": c.as_of, "includes": c.includes.len(), "derived_from": c.derived_from, "strip_thinking": c.manifest.strip_thinking, "model": c.manifest.model}),
             ),
         )?);
-        self.store.append(records)?;
+        self.store.append(&records)?;
         Ok(())
     }
 }

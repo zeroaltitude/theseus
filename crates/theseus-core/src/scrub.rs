@@ -37,6 +37,7 @@ impl Scrubber {
         Self { exact }
     }
 
+    #[cfg(test)]
     pub fn with_values(values: Vec<(String, String)>) -> Self {
         Self { exact: values }
     }

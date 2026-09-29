@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
     if let Some(Cmd::JobWrapper { args }) = cli.cmd {
         // No config, no secrets: the wrapper only runs a command and spools.
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
-        return theseus_kernel::job::run_wrapper(wa);
+        return theseus_kernel::job::run_wrapper(&wa);
     }
 
     let op = OpReader::from_env(cli.op_token_file.as_deref())?;

@@ -189,7 +189,7 @@ fn full_lifecycle_one_action_one_turn() {
     );
     let e4 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert!(e4.outstanding.is_empty());
-    assert_eq!(e4.queued_results, vec![a.correlation_id.clone()]);
+    assert_eq!(e4.queued_results, vec![a.correlation_id]);
     assert_eq!(e4.budget.spent_micros, 40);
     assert_eq!(e4.budget.reserved_micros, 0);
 

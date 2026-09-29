@@ -13,7 +13,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use theseus_protocol::Usage;
-use theseus_store::{kinds, NewRecord, Record};
+use theseus_store::{kinds, NewRecord};
 
 pub const SCHEMA: u16 = 1;
 
@@ -269,10 +269,6 @@ impl Node {
 
     pub fn record(&self) -> Result<NewRecord> {
         Ok(NewRecord::json(kinds::NODE, Some(&self.id), self)?.scoped(&self.session_id))
-    }
-
-    pub fn from_record(r: &Record) -> Result<Self> {
-        r.decode()
     }
 
     pub fn kind_str(&self) -> &'static str {

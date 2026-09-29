@@ -1143,7 +1143,7 @@ mod tests {
         let b = r.body();
         assert!(b.get("betas").is_none());
         assert_eq!(b["cache_control"]["type"], "ephemeral");
-        assert_eq!(r.digest(), r.clone().digest());
+        assert_eq!(r.clone().digest(), r.digest());
         // The digest the replaced sorted-key serializer gave (at 8a1e41d): a
         // stored `request_digest` must still match its reconstruction.
         assert_eq!(

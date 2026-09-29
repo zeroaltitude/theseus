@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{self, Engine, Index, IndexEntry};
-use crate::record::{kinds, NewRecord, Record, RecordKind};
+use crate::record::{NewRecord, Record, RecordKind};
 use crate::wal::{Recovery, Wal, WalConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -334,14 +334,10 @@ impl Store for WalStore {
     }
 }
 
-/// A checkpoint marker is also a record, so the log itself says when the index was good.
-pub fn checkpoint_record(position: u64) -> NewRecord {
-    NewRecord::bytes(kinds::CHECKPOINT, None, position.to_le_bytes().to_vec())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::record::kinds;
 
     fn open(dir: &Path, engine: Engine) -> WalStore {
         WalStore::open(dir, engine, WalConfig::default())

@@ -317,7 +317,7 @@ async fn serve(
                 core.binding_ledger("discord.disconnected", None, json!({"why": why}));
                 board.state("resuming", Some(why));
             }
-            Event::MessageCreate(m) => shared.clone().on_message(&m.0).await,
+            Event::MessageCreate(m) => shared.clone().on_message(&m.0),
             Event::InteractionCreate(i) => {
                 let s = shared.clone();
                 let i = i.0;
@@ -586,7 +586,7 @@ impl Shared {
         self.routes.lock().unwrap().bot_roles = roles;
     }
 
-    async fn on_message(self: Arc<Self>, m: &twilight_model::channel::Message) {
+    fn on_message(self: Arc<Self>, m: &twilight_model::channel::Message) {
         if m.author.bot || m.author.id.get() == self.bot_id {
             return;
         }

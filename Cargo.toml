@@ -12,6 +12,12 @@ members = [
     "crates/theseus",
 ]
 
+# Beyond clippy's defaults, held by the gate's `-D warnings` (theseus-0g4).
+[workspace.lints.clippy]
+unused_async = "warn"
+unused_self = "warn"
+redundant_clone = "warn"
+
 [workspace.package]
 version = "0.0.1"
 edition = "2021"

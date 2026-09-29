@@ -137,12 +137,10 @@ pub enum Message {
 
 pub mod error_code {
     pub const PARSE: i64 = -32700;
-    pub const INVALID_REQUEST: i64 = -32600;
     pub const METHOD_NOT_FOUND: i64 = -32601;
     pub const INVALID_PARAMS: i64 = -32602;
     pub const INTERNAL: i64 = -32603;
-    /// Theseus-specific: blocked (fail closed).
-    pub const BLOCKED: i64 = -32001;
+    // Theseus-specific codes. -32001 was `BLOCKED`, never sent.
     pub const NOT_FOUND: i64 = -32002;
     pub const PROVIDER: i64 = -32003;
     /// The config turns this feature off (`narrative.watch` without `narrative = true`).
