@@ -888,7 +888,7 @@ impl TurnRunner {
         }
 
         // 3. The loops, while the model has something new to read.
-        let mut run_model = self.has_news(&mut t, input.is_some() || caught_up > 0)?;
+        let mut run_model = Self::has_news(&mut t, input.is_some() || caught_up > 0)?;
         // The spec is fixed for the turn: a context file edited during it
         // recompiles the next turn, never between a tool call and its result.
         let (spec, unreadable) = self.request_spec(&target);
@@ -1011,7 +1011,7 @@ impl TurnRunner {
     /// Does the model have anything new to read: input or results it has not
     /// seen, or a user message still waiting for a reply? If not, the turn's
     /// stop reason says why.
-    fn has_news(&self, t: &mut Turn<'_>, wrote: bool) -> Result<bool> {
+    fn has_news(t: &mut Turn<'_>, wrote: bool) -> Result<bool> {
         if t.awaiting.is_some() {
             t.stop_reason = "awaiting_confirm".into();
             narrate_turn!(
@@ -1025,7 +1025,7 @@ impl TurnRunner {
         if wrote {
             return Ok(true);
         }
-        let nodes = self.store.session_nodes(t.tc.session_id)?;
+        let nodes = t.tc.store.transcript(t.tc.session_id)?;
         let last = nodes
             .iter()
             .rev()
@@ -1054,7 +1054,7 @@ impl TurnRunner {
     ) -> Result<Compiled> {
         let sid = t.tc.session_id;
         let c0 = t.trace.now_us();
-        let nodes = self.store.session_nodes(sid)?;
+        let nodes = t.tc.store.transcript(sid)?;
         let current = match session.compilation_id.as_deref() {
             Some(id) => self.store.get_compilation(id)?,
             None => None,

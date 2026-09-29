@@ -1098,14 +1098,14 @@ impl ToolRuntime {
     /// acted on.
     pub async fn resume(&self, tc: &TurnCtx<'_>, has_input: bool) -> Result<ResumeOutcome> {
         let mut out = ResumeOutcome::default();
-        let nodes = tc.store.session_nodes(tc.session_id)?;
+        let nodes = tc.store.transcript(tc.session_id)?;
         let Some((assistant, pending)) = unanswered(&nodes) else {
             return Ok(out);
         };
         let calls: HashMap<&str, &Node> = nodes
             .iter()
             .filter_map(|(_, n)| match &n.body {
-                Body::ToolCall { tool_use_id, .. } => Some((tool_use_id.as_str(), n)),
+                Body::ToolCall { tool_use_id, .. } => Some((tool_use_id.as_str(), &**n)),
                 _ => None,
             })
             .collect();
@@ -1388,7 +1388,7 @@ impl ToolRuntime {
         if jobs.is_empty() {
             return Ok(0);
         }
-        let nodes = tc.store.session_nodes(tc.session_id)?;
+        let nodes = tc.store.transcript(tc.session_id)?;
         let mut n = 0;
         for a in jobs {
             let placeholder = nodes.iter().find_map(|(_, node)| match &node.body {
@@ -1507,7 +1507,7 @@ enum Pending {
 }
 
 /// The last assistant message, and its `tool_use`s with no result yet.
-fn unanswered(nodes: &[(u64, Node)]) -> Option<(&Node, Vec<ToolUse>)> {
+fn unanswered(nodes: &[(u64, Arc<Node>)]) -> Option<(&Node, Vec<ToolUse>)> {
     let answered: HashSet<&str> = nodes
         .iter()
         .filter_map(|(_, n)| match &n.body {
@@ -1530,7 +1530,7 @@ fn unanswered(nodes: &[(u64, Node)]) -> Option<(&Node, Vec<ToolUse>)> {
         .into_iter()
         .filter(|u| !answered.contains(u.id.as_str()))
         .collect();
-    Some((last, pending))
+    Some((&**last, pending))
 }
 
 /// The tool runtime from config: registry, canonical roots, policy, limits,

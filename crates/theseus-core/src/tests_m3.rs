@@ -1143,6 +1143,32 @@ async fn a_loop_with_one_tool_call_costs_four_frames() {
     assert_eq!(planned, 3, "{rows:?}");
 }
 
+/// A turn reads its session's transcript once, however many loops it runs
+/// (theseus-qa0): resume, absorb, the "anything new?" check, and each loop's
+/// compile share it, and every node the turn writes joins it, so each loop's
+/// request still carries every result so far. It read it 5 times before.
+#[tokio::test]
+async fn a_turn_reads_its_transcript_once() {
+    let read =
+        |id: &str, path: &str| Scripted::tools("", &[(id, "fs_read", json!({ "path": path }))]);
+    let r = rig(vec![
+        Scripted::text("first"),
+        read("t1", "a.txt"),
+        read("t2", "b.txt"),
+        Scripted::text("Both read."),
+    ]);
+    std::fs::write(r.root.join("a.txt"), "alpha\n").unwrap();
+    std::fs::write(r.root.join("b.txt"), "beta\n").unwrap();
+    let sid = turn(&r.core, None, "warm up").await.session_id;
+    let reads = r.core.store.transcript_reads();
+    let res = turn(&r.core, Some(&sid), "read a.txt, then b.txt").await;
+    assert_eq!((res.loops, res.tool_calls), (3, 2));
+    assert_eq!(r.core.store.transcript_reads() - reads, 1);
+    let last = r.fake.requests().pop().unwrap();
+    let text = serde_json::to_string(&last.messages).unwrap();
+    assert!(text.contains("alpha") && text.contains("beta"), "{text}");
+}
+
 // ---------------------------------------------------------------- narrative (theseus-5fy)
 
 /// The lines narrated about one session, oldest first.

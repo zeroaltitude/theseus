@@ -12,6 +12,12 @@
 //! it commits, whoever commits it (theseus-qa0: every frame is an fdatasync).
 //! A state transition or a node is never deferred: it is durable when the
 //! call that wrote it returns. A crash can lose only rows still waiting.
+//!
+//! The handle also keeps the turn's view of its session's transcript
+//! (`transcript`): read once, at the turn's first reader, then extended with
+//! every node the turn's frames write, so a turn decodes it once, not once
+//! per reader and per loop (theseus-qa0). Nodes never change, so the view
+//! stays exact.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -20,58 +26,97 @@ use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Serialize};
 use theseus_store::{kinds, NewRecord, Record, Store as _, StoreStats, WalConfig, WalStore};
 
+use crate::node::Node;
+
 #[derive(Clone)]
 pub struct Store {
     inner: Arc<WalStore>,
     dir: std::path::PathBuf,
     /// Image bytes beside the WAL, by digest (theseus-9g2).
     blobs: Arc<crate::blobs::Blobs>,
-    /// A turn's handle: the rows waiting for its next frame.
-    turn: Option<Arc<Waiting>>,
+    /// A turn's handle: its waiting rows and its transcript.
+    turn: Option<Arc<TurnState>>,
+    /// Full transcript reads, by this store and its turn handles.
+    #[cfg(test)]
+    reads: Arc<std::sync::atomic::AtomicU64>,
 }
 
-/// Rows a turn has written that wait for its next frame (theseus-qa0).
-#[derive(Default)]
-struct Waiting(Mutex<Vec<NewRecord>>);
+/// A session's nodes with their WAL positions, in order (§4.1).
+pub type Transcript = Vec<(u64, Arc<Node>)>;
 
-impl Waiting {
+/// What a turn's handle keeps (theseus-qa0).
+#[derive(Default)]
+struct TurnState {
+    /// Rows that are no state transition, waiting for the turn's next frame.
+    waiting: Mutex<Vec<NewRecord>>,
+    /// The session's transcript as the turn knows it, once a reader asked.
+    transcript: Mutex<Option<(String, Transcript)>>,
+}
+
+impl TurnState {
     /// Commit `records` with the waiting rows in front, as one frame, and
     /// return the positions of `records`. A frame that fails is not written,
     /// so its rows wait again for the next.
     fn commit(&self, inner: &WalStore, records: &[NewRecord]) -> Result<Vec<u64>> {
-        let rows = std::mem::take(&mut *self.0.lock().unwrap());
-        if rows.is_empty() {
-            if records.is_empty() {
-                return Ok(vec![]);
-            }
-            return inner.append(records);
+        let rows = std::mem::take(&mut *self.waiting.lock().unwrap());
+        if rows.is_empty() && records.is_empty() {
+            return Ok(vec![]);
         }
         let n = rows.len();
         let mut frame = rows;
         frame.extend_from_slice(records);
         match inner.append(&frame) {
-            Ok(mut positions) => Ok(positions.split_off(n)),
+            Ok(mut positions) => {
+                let positions = positions.split_off(n);
+                self.wrote(records, &positions);
+                Ok(positions)
+            }
             Err(e) => {
                 frame.truncate(n);
-                let mut waiting = self.0.lock().unwrap();
+                let mut waiting = self.waiting.lock().unwrap();
                 frame.append(&mut waiting);
                 *waiting = frame;
                 Err(e)
             }
         }
     }
+
+    /// The nodes a committed frame wrote join the turn's transcript, from
+    /// the bytes just written. A node that does not decode drops the
+    /// transcript, so the next reader reads it again from the store.
+    fn wrote(&self, records: &[NewRecord], positions: &[u64]) {
+        let mut t = self.transcript.lock().unwrap();
+        let Some((session, _)) = t.as_ref() else {
+            return;
+        };
+        let new: Result<Transcript, _> = records
+            .iter()
+            .zip(positions)
+            .filter(|(r, _)| r.kind == kinds::NODE && r.scope.as_deref() == Some(session))
+            .map(|(r, p)| serde_json::from_slice::<Node>(&r.payload).map(|n| (*p, Arc::new(n))))
+            .collect();
+        match (new, t.as_mut()) {
+            (Ok(new), Some((_, nodes))) => nodes.extend(new),
+            (Err(e), _) => {
+                tracing::warn!(error = %e, "a node the turn wrote did not decode; its transcript is read again");
+                *t = None;
+            }
+            (Ok(_), None) => {}
+        }
+    }
 }
 
 /// The kernel's handle on a turn's store: every frame it commits carries the
-/// turn's waiting rows (`Kernel::view`).
+/// turn's waiting rows, and its nodes join the turn's transcript
+/// (`Kernel::view`).
 struct TurnFrames {
     inner: Arc<WalStore>,
-    waiting: Arc<Waiting>,
+    turn: Arc<TurnState>,
 }
 
 impl theseus_store::Store for TurnFrames {
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>> {
-        self.waiting.commit(&self.inner, batch)
+        self.turn.commit(&self.inner, batch)
     }
     fn get(&self, position: u64) -> Result<Option<Record>> {
         self.inner.get(position)
@@ -127,11 +172,13 @@ impl Store {
             dir: dir.to_path_buf(),
             blobs: Arc::new(crate::blobs::Blobs::new(dir)),
             turn: None,
+            #[cfg(test)]
+            reads: Default::default(),
         })
     }
 
     /// A handle for one turn: the same store, with the turn's own waiting
-    /// rows (theseus-qa0).
+    /// rows and transcript (theseus-qa0).
     pub fn for_turn(&self) -> Store {
         Store {
             turn: Some(Arc::default()),
@@ -143,8 +190,8 @@ impl Store {
     /// it waits for the turn's next frame; otherwise it is written now.
     pub fn defer(&self, record: NewRecord) -> Result<()> {
         match &self.turn {
-            Some(w) => {
-                w.0.lock().unwrap().push(record);
+            Some(t) => {
+                t.waiting.lock().unwrap().push(record);
                 Ok(())
             }
             None => self.inner.append(&[record]).map(|_| ()),
@@ -160,7 +207,7 @@ impl Store {
     /// Every write: one frame, with a turn's waiting rows in front.
     fn commit(&self, records: &[NewRecord]) -> Result<Vec<u64>> {
         match &self.turn {
-            Some(w) => w.commit(&self.inner, records),
+            Some(t) => t.commit(&self.inner, records),
             None if records.is_empty() => Ok(vec![]),
             None => self.inner.append(records),
         }
@@ -176,9 +223,9 @@ impl Store {
     /// waiting rows.
     pub fn shared(&self) -> Arc<dyn theseus_store::Store> {
         match &self.turn {
-            Some(w) => Arc::new(TurnFrames {
+            Some(t) => Arc::new(TurnFrames {
                 inner: self.inner.clone(),
-                waiting: w.clone(),
+                turn: t.clone(),
             }),
             None => self.inner.clone(),
         }
@@ -261,8 +308,66 @@ impl Store {
         self.commit(records)
     }
 
+    /// A session's transcript. On a turn's handle it is read at the first
+    /// call and kept: every node the turn's frames write joins it, so the
+    /// turn reads it once (theseus-qa0). Elsewhere it is read now.
+    pub fn transcript(&self, session_id: &str) -> Result<Transcript> {
+        let read = || -> Result<Transcript> {
+            Ok(self
+                .session_nodes(session_id)?
+                .into_iter()
+                .map(|(p, n)| (p, Arc::new(n)))
+                .collect())
+        };
+        let Some(turn) = &self.turn else {
+            return read();
+        };
+        let mut t = turn.transcript.lock().unwrap();
+        let kept = t
+            .as_ref()
+            .filter(|(s, _)| s == session_id)
+            .map(|(_, nodes)| nodes.clone());
+        let nodes = match kept {
+            Some(nodes) => nodes,
+            None => {
+                let nodes = read()?;
+                *t = Some((session_id.to_string(), nodes.clone()));
+                nodes
+            }
+        };
+        drop(t);
+        // Tests hold the kept transcript to the store's: a node the turn
+        // wrote past its handle would be missing here, and the model would
+        // never read it.
+        #[cfg(debug_assertions)]
+        {
+            let stored = self.scan_nodes(session_id)?;
+            let kept: Vec<(u64, &str)> = nodes.iter().map(|(p, n)| (*p, n.id.as_str())).collect();
+            let stored: Vec<(u64, &str)> =
+                stored.iter().map(|(p, n)| (*p, n.id.as_str())).collect();
+            assert_eq!(
+                kept, stored,
+                "the turn's transcript differs from the store's"
+            );
+        }
+        Ok(nodes)
+    }
+
     /// Every node of a session with its WAL position, in order (§4.1: order is positional).
     pub fn session_nodes(&self, session_id: &str) -> Result<Vec<(u64, crate::node::Node)>> {
+        #[cfg(test)]
+        self.reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.scan_nodes(session_id)
+    }
+
+    /// How many times the transcript was read in full (tests).
+    #[cfg(test)]
+    pub fn transcript_reads(&self) -> u64 {
+        self.reads.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn scan_nodes(&self, session_id: &str) -> Result<Vec<(u64, crate::node::Node)>> {
         let mut out = Vec::new();
         for r in self.inner.scan_scope(session_id, 0, usize::MAX)? {
             if r.kind == kinds::NODE {
@@ -387,6 +492,48 @@ mod tests {
         assert!(!labels(&reopened, p0).contains(&"loop.ended".to_string()));
     }
 
+    /// A turn's transcript is read at its first reader and kept (theseus-qa0):
+    /// the nodes its frames write join it with their positions, the kernel's
+    /// frames included, and no later reader reads it again. Another session's
+    /// node does not join, and a node written past the handle is not in it
+    /// (in a test build, `transcript` would then panic naming the gap).
+    #[test]
+    fn a_turns_transcript_is_read_once_and_keeps_what_the_turn_writes() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        let node = |sid: &str, text: &str| Node::user(sid, None, "op", text);
+        let ids = |v: &Transcript| -> Vec<(u64, String)> {
+            v.iter().map(|(p, n)| (*p, n.id.clone())).collect()
+        };
+        let n1 = node("ses_t", "one");
+        let p1 = store.append(&[n1.record().unwrap()]).unwrap()[0];
+        let t = store.for_turn();
+        let r0 = store.transcript_reads();
+        assert_eq!(ids(&t.transcript("ses_t").unwrap()), [(p1, n1.id.clone())]);
+        let (n2, n3, other) = (
+            node("ses_t", "two"),
+            node("ses_t", "three"),
+            node("ses_o", "x"),
+        );
+        t.defer(row("loop.started")).unwrap();
+        let p2 = t.append(&[n2.record().unwrap()]).unwrap()[0];
+        let p3 = t.shared().append(&[n3.record().unwrap()]).unwrap()[0];
+        t.append(&[other.record().unwrap()]).unwrap();
+        let kept = t.transcript("ses_t").unwrap();
+        assert_eq!(ids(&kept), [(p1, n1.id), (p2, n2.id), (p3, n3.id.clone())]);
+        assert_eq!(kept[2].1.body, n3.body, "decoded from the bytes written");
+        assert_eq!(store.transcript_reads() - r0, 1, "read once");
+        // Another turn reads its own.
+        assert_eq!(store.for_turn().transcript("ses_t").unwrap().len(), 3);
+        assert_eq!(store.transcript_reads() - r0, 2);
+        // A node written through another handle does not join the kept one.
+        store
+            .append(&[node("ses_t", "four").record().unwrap()])
+            .unwrap();
+        let held = t.turn.as_ref().unwrap().transcript.lock().unwrap();
+        assert_eq!(held.as_ref().unwrap().1.len(), 3);
+    }
+
     /// `flush` writes what still waits in one frame, and nothing when
     /// nothing waits; a frame that fails leaves its rows waiting.
     #[test]
@@ -419,13 +566,14 @@ mod tests {
             dir: full.path().to_path_buf(),
             blobs: Arc::new(crate::blobs::Blobs::new(full.path())),
             turn: None,
+            reads: Default::default(),
         }
         .for_turn();
         small.put_meta("a", &1).unwrap();
         small.defer(row("loop.ended")).unwrap();
         let big = "x".repeat(1000);
         assert!(small.put_meta("b", &big).is_err(), "the WAL is full");
-        let waiting = small.turn.as_ref().unwrap().0.lock().unwrap().len();
+        let waiting = small.turn.as_ref().unwrap().waiting.lock().unwrap().len();
         assert_eq!(waiting, 1, "the row waits for the next frame");
     }
 }

@@ -18,6 +18,7 @@
 //! what the new model cannot read, unbilled).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -136,7 +137,7 @@ pub struct CompileInput<'a> {
     pub session_id: &'a str,
     pub current: Option<&'a Compilation>,
     /// Every node of the session with its WAL position, in position order.
-    pub nodes: &'a [(u64, Node)],
+    pub nodes: &'a [(u64, Arc<Node>)],
     /// The store's last position (the as-of for a new compilation).
     pub last_position: u64,
     pub spec: &'a RequestSpec,
@@ -250,7 +251,7 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         }
     };
 
-    let all_renderable: Vec<&(u64, Node)> =
+    let all_renderable: Vec<&(u64, Arc<Node>)> =
         input.nodes.iter().filter(|(_, n)| renderable(n)).collect();
     let make = |trigger: String, strategy: &str, strip: bool, includes: Vec<String>| Compilation {
         id: crate::new_id("cmp"),
@@ -308,7 +309,7 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
             .saturating_sub(4_096);
         if est > budget {
             let target = budget * 6 / 10;
-            let seq: Vec<&Node> = all_renderable.iter().map(|(_, n)| n).collect();
+            let seq: Vec<&Node> = all_renderable.iter().map(|(_, n)| &**n).collect();
             let starts: Vec<usize> = seq
                 .iter()
                 .enumerate()
@@ -358,19 +359,19 @@ pub fn render_request(
     spec: &RequestSpec,
     catalog: &Catalog,
     c: &Compilation,
-    nodes: &[(u64, Node)],
+    nodes: &[(u64, Arc<Node>)],
     blobs: Option<&crate::blobs::Blobs>,
 ) -> (ProviderRequest, usize, usize, Vec<String>) {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
     let prefix: Vec<&Node> = nodes
         .iter()
         .filter(|(pos, n)| *pos <= c.as_of && included.contains(n.id.as_str()) && renderable(n))
-        .map(|(_, n)| n)
+        .map(|(_, n)| &**n)
         .collect();
     let tail: Vec<&Node> = nodes
         .iter()
         .filter(|(pos, n)| *pos > c.as_of && renderable(n))
-        .map(|(_, n)| n)
+        .map(|(_, n)| &**n)
         .collect();
     let entry = catalog.get(&spec.model);
     // The compilation's model decides how its images show (theseus-9g2).
@@ -681,10 +682,14 @@ mod tests {
         spec: &RequestSpec,
         last: u64,
     ) -> Compiled {
+        let nodes: Vec<(u64, Arc<Node>)> = nodes
+            .iter()
+            .map(|(p, n)| (*p, Arc::new(n.clone())))
+            .collect();
         compile(CompileInput {
             session_id: "s",
             current,
-            nodes,
+            nodes: &nodes,
             last_position: last,
             spec,
             catalog: &Catalog::builtin(),
@@ -839,6 +844,8 @@ mod tests {
                 ]),
             ));
         }
+        let nodes: Vec<(u64, Arc<Node>)> =
+            nodes.into_iter().map(|(p, n)| (p, Arc::new(n))).collect();
         let c = compile(CompileInput {
             session_id: "s",
             current: None,
