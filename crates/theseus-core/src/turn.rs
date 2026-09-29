@@ -21,7 +21,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::{
     Authority, Completion, Execution, Kernel, KernelError, Outcome as ActionOutcome, Proposal,
-    RetryClass, SessionKind as KSessionKind, TurnEnd, TurnGuard, Wake,
+    RetryClass, TurnEnd, TurnGuard, Wake,
 };
 use theseus_protocol::{
     notify, LoopEnded, LoopStarted, ModelDelta, TurnStarted, TurnSubmitResult, Usage,
@@ -95,13 +95,6 @@ pub struct TurnRequest {
 const ADMISSION_WAIT_MAX: Duration = Duration::from_secs(600);
 /// The principal of every local protocol client (file permissions are the auth).
 pub const OPERATOR: &str = "operator";
-
-fn kernel_kind(k: theseus_protocol::SessionKind) -> KSessionKind {
-    match k {
-        theseus_protocol::SessionKind::Conversation => KSessionKind::Conversation,
-        theseus_protocol::SessionKind::Task => KSessionKind::Task,
-    }
-}
 
 fn turn_error(
     class: &str,
@@ -271,7 +264,7 @@ impl TurnRunner {
         }
         let e = self.kernel.open_execution(
             &session.session_id,
-            kernel_kind(session.kind),
+            session.kind,
             Authority {
                 principal: OPERATOR.to_string(),
                 ..Default::default()
@@ -1187,7 +1180,7 @@ impl TurnRunner {
         Ok((result, end, late > 0))
     }
 
-    /// A new compilation: its record, the `derived_from` edge, and the
+    /// A new compilation (it carries its own `derived_from`) and the
     /// session's pointer, in one frame.
     fn persist_compilation(
         &self,
@@ -1200,18 +1193,6 @@ impl TurnRunner {
             NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
                 .scoped(&c.session_id),
         ];
-        if let Some(prev) = &c.derived_from {
-            let edge =
-                json!({"type": "derived_from", "from": c.id, "to": prev, "at_ms": c.created_at_ms});
-            records.push(
-                NewRecord::json(
-                    theseus_store::kinds::EDGE,
-                    Some(&format!("derived_from|{}|{}", c.id, prev)),
-                    &edge,
-                )?
-                .scoped(&c.session_id),
-            );
-        }
         session.compilation_id = Some(c.id.clone());
         records.push(NewRecord::json(
             theseus_store::kinds::SESSION,

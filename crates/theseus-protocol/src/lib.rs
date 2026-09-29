@@ -409,11 +409,21 @@ pub struct ExecutionCancelResult {
     pub cancelled_actions: Vec<String>,
 }
 
+/// Also the kernel's: an execution stores it (`theseus_kernel::SessionKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionKind {
     Conversation,
     Task,
+}
+
+impl SessionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SessionKind::Conversation => "conversation",
+            SessionKind::Task => "task",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

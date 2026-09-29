@@ -1,6 +1,6 @@
 [package]
 name = "theseus-sim"
-description = "The simulator: a crash-and-recover harness for the store (real SIGKILL against a worker process, torn-tail injection, full-disk), the redb-vs-fjall benchmark, and the deterministic kernel simulator (virtual clock, seeded fault injection, crash inside every startup step)."
+description = "The simulator: a crash-and-recover harness for the store (real SIGKILL against a worker process, torn-tail injection, full-disk) and the deterministic kernel simulator (virtual clock, seeded fault injection, crash inside every startup step)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

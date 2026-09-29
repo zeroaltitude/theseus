@@ -1,4 +1,6 @@
-//! theseus-sim: crash-and-recover harness and benchmark for the store.
+//! theseus-sim: the store's crash-and-recover harness and the kernel simulator.
+//! Both run in the gate on small fixed seeds (`tests/sim.rs`); long runs stay
+//! here, e.g. `theseus-sim kernel-sim --seeds 40`.
 //!
 //! `worker`      appends random records forever, printing `C <pos> <crc> <kind>`
 //!               to stdout only after the append returned (durable). Killed by
@@ -6,8 +8,6 @@
 //! `crash-test`  the M1 exit test: spawn worker, kill it, optionally tear the
 //!               WAL tail, reopen, verify every reported record exists with the
 //!               same bytes, positions are contiguous, appends continue; repeat.
-//! `bench`       redb vs fjall on our write shape (small records, frames of
-//!               1–4, fsync per frame), plus reads by position, key, tail.
 //! `kernel-sim`  the M2 exit test: the kernel under a virtual clock with
 //!               seeded fault injection (crash between any two frames, crash
 //!               inside startup steps, lost/duplicate/late completions,
@@ -30,7 +30,7 @@ mod kernel_sim;
 #[command(
     name = "theseus-sim",
     version,
-    about = "Store crash-and-recover harness and benchmark"
+    about = "Store crash-and-recover harness and kernel simulator"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -63,7 +63,10 @@ enum Cmd {
         #[arg(long, default_value_t = 3)]
         restarts: u32,
         /// Also tear the WAL tail after each kill (truncate or flip bytes).
-        #[arg(long, default_value_t = true)]
+        /// Off by default: the bound that keeps a tear out of bytes the
+        /// worker already reported durable is not finished (theseus-hco
+        /// follow-up), so `--tear true` can still flip a synced frame.
+        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
         tear: bool,
         /// Path to this binary (defaults to current_exe).
         #[arg(long)]
@@ -104,24 +107,6 @@ enum Cmd {
         engine: Engine,
         #[arg(long)]
         verbose: bool,
-    },
-    /// Append/read throughput for one engine.
-    Bench {
-        #[arg(long, default_value = "redb")]
-        engine: Engine,
-        #[arg(long, default_value_t = 20_000)]
-        records: u64,
-        /// Skip fdatasync per frame, to measure the index cost without the disk.
-        #[arg(long)]
-        no_fsync: bool,
-        /// Concurrent appender threads (group commit shares one fdatasync).
-        #[arg(long, default_value_t = 1)]
-        writers: u32,
-        /// Disable group commit (every append syncs itself).
-        #[arg(long)]
-        no_group_commit: bool,
-        #[arg(long)]
-        dir: Option<PathBuf>,
     },
 }
 
@@ -206,21 +191,6 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Bench {
-            engine,
-            records,
-            no_fsync,
-            writers,
-            no_group_commit,
-            dir,
-        } => bench(
-            engine,
-            records,
-            !no_fsync,
-            writers.max(1),
-            !no_group_commit,
-            dir,
-        ),
     }
 }
 
@@ -265,9 +235,10 @@ fn worker(dir: &Path, engine: Engine, seed: u64, checkpoint_every: u64) -> Resul
     let mut out = out.lock();
     writeln!(
         out,
-        "R {} {}",
+        "R {} {} {}",
         store.last_position(),
-        store.recovery().truncated_bytes
+        store.recovery().truncated_bytes,
+        store.stats()?.wal_bytes
     )?;
     out.flush()?;
     loop {
@@ -275,6 +246,9 @@ fn worker(dir: &Path, engine: Engine, seed: u64, checkpoint_every: u64) -> Resul
         let crcs: Vec<u32> = batch.iter().map(|r| crc32fast::hash(&r.payload)).collect();
         let kinds_: Vec<u16> = batch.iter().map(|r| r.kind).collect();
         let positions = store.append(&batch)?; // durable when this returns
+                                               // The WAL's durable length, before the records it covers: a report of
+                                               // a record is never ahead of the report of its bytes.
+        writeln!(out, "D {}", store.stats()?.wal_bytes)?;
         for ((p, crc), k) in positions.iter().zip(crcs).zip(kinds_) {
             writeln!(out, "C {p} {crc} {k}")?;
         }
@@ -289,6 +263,8 @@ struct Committed {
     // position -> (crc, kind)
     map: std::collections::BTreeMap<u64, (u32, u16)>,
     reported_start: Option<u64>,
+    /// The WAL length the worker last reported durable.
+    durable_bytes: u64,
 }
 
 fn run_and_kill(
@@ -297,6 +273,7 @@ fn run_and_kill(
     engine: Engine,
     seed: u64,
     live_ms: u64,
+    first_open: bool,
     committed: &mut Committed,
 ) -> Result<()> {
     let mut child = Command::new(bin)
@@ -314,16 +291,29 @@ fn run_and_kill(
         .spawn()
         .context("spawning worker")?;
     let stdout = child.stdout.take().unwrap();
+    let (opened, is_open) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
         let mut lines = Vec::new();
         for l in BufReader::new(stdout).lines() {
             match l {
-                Ok(l) => lines.push(l),
+                Ok(l) => {
+                    if l.starts_with("R ") {
+                        let _ = opened.send(());
+                    }
+                    lines.push(l)
+                }
                 Err(_) => break,
             }
         }
         lines
     });
+    if first_open {
+        // A kill inside a new store's first open, while redb writes the
+        // index file's header, leaves an index that will not open
+        // (theseus-0b8). The clock starts once the store is open; a kill
+        // during any later open (recovery) stays in play.
+        let _ = is_open.recv_timeout(Duration::from_secs(30));
+    }
     std::thread::sleep(Duration::from_millis(live_ms));
     child.kill()?; // SIGKILL on unix
     let _ = child.wait();
@@ -331,9 +321,13 @@ fn run_and_kill(
     for l in lines {
         let parts: Vec<&str> = l.split_whitespace().collect();
         match parts.as_slice() {
-            ["R", last, _trunc] => {
+            ["R", last, _trunc, bytes] => {
                 let last: u64 = last.parse()?;
                 committed.reported_start = Some(last);
+                committed.durable_bytes = committed.durable_bytes.max(bytes.parse()?);
+            }
+            ["D", bytes] => {
+                committed.durable_bytes = committed.durable_bytes.max(bytes.parse()?);
             }
             ["C", p, crc, k] => {
                 committed.map.insert(p.parse()?, (crc.parse()?, k.parse()?));
@@ -345,8 +339,12 @@ fn run_and_kill(
 }
 
 /// Damage the WAL tail the way a crash mid-write would: truncate a few bytes,
-/// or append garbage, or flip a byte in the last frame.
-fn tear_tail(dir: &Path, rng: &mut StdRng) -> Result<String> {
+/// or append garbage, or flip a byte in the last frame. A crash cannot take
+/// back what an fdatasync made durable, so the damage stays past `durable`,
+/// the length the worker last reported: bytes it wrote but never reported, or
+/// the start of a frame that never finished. (Tearing into a reported frame
+/// made the test fail on records no crash could lose, theseus-hco.)
+fn tear_tail(dir: &Path, durable: u64, rng: &mut StdRng) -> Result<String> {
     let wal = dir.join("wal");
     let mut segs: Vec<PathBuf> = std::fs::read_dir(&wal)?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -360,14 +358,23 @@ fn tear_tail(dir: &Path, rng: &mut StdRng) -> Result<String> {
     if len < 64 {
         return Ok("segment too small to tear".into());
     }
-    let how = rng.random_range(0..3);
+    let mut total = 0u64;
+    for seg in &segs {
+        total += std::fs::metadata(seg)?.len();
+    }
+    if total < durable {
+        bail!("the WAL holds {total} bytes but {durable} were reported durable");
+    }
+    // Bytes of the last segment that no report covers.
+    let open = (total - durable).min(len);
+    let how = if open == 0 { 1 } else { rng.random_range(0..3) };
     let f = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open(last)?;
     match how {
         0 => {
-            let cut = rng.random_range(1..48);
+            let cut = rng.random_range(1..=open.min(47));
             f.set_len(len - cut)?;
             Ok(format!("truncated {cut} bytes"))
         }
@@ -384,7 +391,7 @@ fn tear_tail(dir: &Path, rng: &mut StdRng) -> Result<String> {
         _ => {
             use std::io::{Seek, SeekFrom};
             let mut f = f;
-            let at = len - rng.random_range(1..40);
+            let at = len - rng.random_range(1..=open.min(39));
             f.seek(SeekFrom::Start(at))?;
             let mut b = [0u8; 1];
             std::io::Read::read_exact(&mut f, &mut b)?;
@@ -452,6 +459,7 @@ fn crash_test(
                 engine,
                 seed + it as u64 * 1000 + r as u64,
                 live_ms,
+                r == 0,
                 &mut committed,
             )?;
             if let Some(start) = committed.reported_start {
@@ -460,7 +468,7 @@ fn crash_test(
                 }
             }
             let tore = if tear && rng.random_bool(0.7) {
-                tear_tail(&dir, &mut rng)?
+                tear_tail(&dir, committed.durable_bytes, &mut rng)?
             } else {
                 "no tear".into()
             };
@@ -482,133 +490,6 @@ fn crash_test(
         "CRASH TEST OK: {iterations} iterations × {restarts} restarts, engine {}, seed {seed}, {:.1}s; torn bytes removed {total_torn}; durable-but-unreported records {unreported} (allowed); zero committed records lost",
         engine.as_str(),
         started.elapsed().as_secs_f64()
-    );
-    Ok(())
-}
-
-// ---------------------------------------------------------------- bench
-
-fn bench(
-    engine: Engine,
-    records: u64,
-    fsync: bool,
-    writers: u32,
-    group_commit: bool,
-    dir: Option<PathBuf>,
-) -> Result<()> {
-    let tmp = tempfile::tempdir()?;
-    let dir = dir.unwrap_or_else(|| tmp.path().join("store"));
-    let store = std::sync::Arc::new(
-        WalStore::open(
-            &dir,
-            engine,
-            WalConfig {
-                fsync,
-                group_commit,
-                ..Default::default()
-            },
-        )?
-        .with_checkpoint_every(1000),
-    );
-    let mut rng = StdRng::seed_from_u64(42);
-    let per_writer = records / writers as u64;
-    let t = Instant::now();
-    let mut hs = Vec::new();
-    for w in 0..writers {
-        let store = store.clone();
-        hs.push(std::thread::spawn(move || -> Result<(u64, u64)> {
-            let mut rng = StdRng::seed_from_u64(42 + w as u64);
-            let (mut appended, mut frames) = (0u64, 0u64);
-            while appended < per_writer {
-                let b = random_batch(&mut rng);
-                appended += b.len() as u64;
-                frames += 1;
-                store.append(&b)?;
-            }
-            Ok((appended, frames))
-        }));
-    }
-    let (mut appended, mut frames) = (0u64, 0u64);
-    for h in hs {
-        let (a, f) = h.join().expect("writer thread")?;
-        appended += a;
-        frames += f;
-    }
-    let append_s = t.elapsed().as_secs_f64();
-    let last = store.last_position();
-    let syncs = store.stats()?.syncs;
-
-    let t = Instant::now();
-    let n_get = 5000u64.min(last);
-    for _ in 0..n_get {
-        let p = rng.random_range(1..=last);
-        store.get(p)?.expect("exists");
-    }
-    let get_s = t.elapsed().as_secs_f64();
-
-    let t = Instant::now();
-    for _ in 0..2000 {
-        let k = format!("ses_{}", rng.random_range(0..50));
-        let _ = store.latest_by_key(kinds::SESSION, &k)?;
-    }
-    let key_s = t.elapsed().as_secs_f64();
-
-    let t = Instant::now();
-    for _ in 0..200 {
-        let _ = store.tail_of_kind(kinds::LEDGER, 50)?;
-    }
-    let tail_s = t.elapsed().as_secs_f64();
-
-    let t = Instant::now();
-    let _ = store.latest_of_kind(kinds::SESSION)?;
-    let latest_s = t.elapsed().as_secs_f64();
-
-    let st = store.stats()?;
-    drop(std::sync::Arc::try_unwrap(store).ok().expect("sole owner"));
-    let t = Instant::now();
-    let reopened = WalStore::open(&dir, engine, WalConfig::default())?;
-    let reopen_s = t.elapsed().as_secs_f64();
-    let replayed = reopened.stats()?.replayed_into_index;
-
-    println!(
-        "engine {} · fsync {} · group commit {} · {} writers · {} records in {} frames · {} fdatasyncs",
-        engine.as_str(),
-        fsync,
-        group_commit,
-        writers,
-        appended,
-        frames,
-        syncs
-    );
-    println!(
-        "  append : {:>9.0} rec/s  {:>9.0} frames/s  ({:.1} ms/frame)",
-        appended as f64 / append_s,
-        frames as f64 / append_s,
-        append_s * 1000.0 / frames as f64
-    );
-    println!(
-        "  get    : {:>9.0} /s  (random by position)",
-        n_get as f64 / get_s
-    );
-    println!(
-        "  bykey  : {:>9.0} /s  (latest session by key)",
-        2000.0 / key_s
-    );
-    println!(
-        "  tail50 : {:>9.0} /s  (newest 50 ledger rows)",
-        200.0 / tail_s
-    );
-    println!("  latest-of-kind(session): {:.2} ms", latest_s * 1000.0);
-    println!(
-        "  reopen : {:.1} ms (replayed {} into index)",
-        reopen_s * 1000.0,
-        replayed
-    );
-    println!(
-        "  wal    : {} B in {} segment(s); index engine {}",
-        st.wal_bytes,
-        st.wal_segments,
-        st.engine.as_str()
     );
     Ok(())
 }

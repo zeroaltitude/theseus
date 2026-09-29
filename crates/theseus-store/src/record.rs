@@ -15,9 +15,11 @@ pub mod kinds {
     pub const ACTION: RecordKind = 5;
     pub const COMPLETION: RecordKind = 6;
     pub const NODE: RecordKind = 7;
+    /// No longer written (theseus-hco); stores keep old `derived_from` rows,
+    /// which nothing reads (the compilation carries `derived_from` itself).
     pub const EDGE: RecordKind = 8;
     pub const COMPILATION: RecordKind = 9;
-    pub const JUDGMENT: RecordKind = 10;
+    // 10 was `JUDGMENT`, reserved and never written.
     pub const CHECKPOINT: RecordKind = 255;
 
     pub fn name(k: RecordKind) -> &'static str {
@@ -31,7 +33,6 @@ pub mod kinds {
             NODE => "node",
             EDGE => "edge",
             COMPILATION => "compilation",
-            JUDGMENT => "judgment",
             CHECKPOINT => "checkpoint",
             _ => "unknown",
         }

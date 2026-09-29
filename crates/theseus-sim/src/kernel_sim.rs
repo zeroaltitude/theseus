@@ -297,15 +297,17 @@ impl World {
                 SessionKind::Task
             };
             let budget = self.rng.random_range(5_000..200_000);
-            let (_, e) = self.kernel.open_session(
+            // The product's path: the core keeps the session's own record,
+            // and the kernel opens the session's one execution.
+            let e = self.kernel.open_execution(
+                &format!("ses_{step}"),
                 kind,
-                vec![format!("root_{step}")],
                 auth(),
                 Some(budget),
                 None,
             )?;
             self.execs.push(e.id.clone());
-            if self.maybe_crash("after open_session")? {
+            if self.maybe_crash("after open_execution")? {
                 return Ok(());
             }
             self.kernel.wake_input(&e.id)?;

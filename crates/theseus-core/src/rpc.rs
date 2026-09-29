@@ -315,10 +315,7 @@ impl Core {
         theseus_protocol::ExecutionInfo {
             execution_id: e.id.clone(),
             session_id: e.session_id.clone(),
-            kind: match e.kind {
-                theseus_kernel::SessionKind::Conversation => "conversation".into(),
-                theseus_kernel::SessionKind::Task => "task".into(),
-            },
+            kind: e.kind.as_str().into(),
             state: e.state.as_str().into(),
             turns: e.turns,
             interrupted: e.interrupted,
@@ -348,12 +345,6 @@ impl Core {
             state: a.state.as_str().into(),
             retry_class: match &a.retry_class {
                 theseus_kernel::RetryClass::SafeToRepeat => "safe_to_repeat".into(),
-                theseus_kernel::RetryClass::IdempotentWithKey { key } => {
-                    format!("idempotent_with_key:{key}")
-                }
-                theseus_kernel::RetryClass::RecoverableByExternalId => {
-                    "recoverable_by_external_id".into()
-                }
                 theseus_kernel::RetryClass::NonRepeatable => "non_repeatable".into(),
             },
             planned_at_ms: a.planned_at_ms,
@@ -915,10 +906,7 @@ impl Core {
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
         let exec = self.kernel.open_execution(
             &rec.session_id,
-            match rec.kind {
-                SessionKind::Conversation => theseus_kernel::SessionKind::Conversation,
-                SessionKind::Task => theseus_kernel::SessionKind::Task,
-            },
+            rec.kind,
             Authority {
                 principal: OPERATOR.to_string(),
                 ..Default::default()

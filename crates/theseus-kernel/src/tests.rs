@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use tempfile::TempDir;
-use theseus_store::{Engine, Store, WalConfig, WalStore};
+use theseus_store::{kinds, Engine, NewRecord, Store, WalConfig, WalStore};
 
 use crate::clock::{Clock, VirtualClock};
 use crate::gate::Proposal;
@@ -108,13 +108,14 @@ fn completion(id: &str, outcome: Outcome, usage: Option<u64>) -> Completion {
     }
 }
 
-/// Open a conversation, wake it with input, take a turn: the common prelude.
-fn running(w: &World) -> (Session, Execution, TurnGuard) {
-    let (s, e) = w
+/// Open a conversation's execution, wake it with input, take a turn: the
+/// common prelude. Returns the session id with the execution and its guard.
+fn running(w: &World) -> (SessionId, Execution, TurnGuard) {
+    let e = w
         .kernel
-        .open_session(
+        .open_execution(
+            &new_id("ses"),
             SessionKind::Conversation,
-            vec!["chan_1".into()],
             auth(),
             Some(100_000),
             None,
@@ -127,7 +128,7 @@ fn running(w: &World) -> (Session, Execution, TurnGuard) {
     let g = w.kernel.admit(&e.id).unwrap();
     let e = w.kernel.execution(&e.id).unwrap().unwrap();
     assert_eq!(e.state, ExecState::Running);
-    (s, e, g)
+    (e.session_id.clone(), e, g)
 }
 
 /// plan → authorize → dispatch, returning the dispatched action.
@@ -211,7 +212,7 @@ fn full_lifecycle_one_action_one_turn() {
     assert_eq!(e5.turns, 2);
 
     // The session tail holds every record in scope, in order.
-    let tail = w.kernel.session_tail(&s.id, 0, 100).unwrap();
+    let tail = w.kernel.store().scan_scope(&s, 0, 100).unwrap();
     assert!(tail.len() >= 12, "{}", tail.len());
     assert!(tail.windows(2).all(|p| p[0].position < p[1].position));
     let stats = w.kernel.stats().unwrap();
@@ -685,9 +686,9 @@ fn admission_ceiling_holds_and_cancel_is_honored_immediately() {
     });
     let mut execs = Vec::new();
     for _ in 0..3 {
-        let (_, e) = w
+        let e = w
             .kernel
-            .open_session(SessionKind::Task, vec!["task".into()], auth(), None, None)
+            .open_execution(&new_id("ses"), SessionKind::Task, auth(), None, None)
             .unwrap();
         w.kernel.wake_input(&e.id).unwrap();
         execs.push(e.id);
@@ -741,80 +742,6 @@ fn admission_ceiling_holds_and_cancel_is_honored_immediately() {
 }
 
 #[test]
-fn promotion_forks_with_derived_authority_and_carved_budget_and_parent_wakes_on_child_end() {
-    let w = world();
-    let (s, e, g) = running(&w);
-    // Widening is refused.
-    let widen = BTreeMap::from([("shell".into(), "l0".into())]);
-    assert!(w
-        .kernel
-        .promote(&e.id, vec!["task_1".into()], &widen, 1000, None)
-        .is_err());
-    let unknown = BTreeMap::from([("network".into(), "all".into())]);
-    assert!(w
-        .kernel
-        .promote(&e.id, vec!["task_1".into()], &unknown, 1000, None)
-        .is_err());
-    // Same-or-tighter is fine.
-    let same = BTreeMap::from([("shell".into(), "l1".into())]);
-    let (cs, child) = w
-        .kernel
-        .promote(
-            &e.id,
-            vec!["task_1".into()],
-            &same,
-            20_000,
-            Some("child".into()),
-        )
-        .unwrap();
-    assert_eq!(child.kind, SessionKind::Task);
-    assert_eq!(child.state, ExecState::Queued);
-    assert_eq!(child.parent.as_deref(), Some(e.id.as_str()));
-    assert_eq!(child.reports_to.as_deref(), Some(e.id.as_str()));
-    assert_eq!(child.authority.delegated_by.as_deref(), Some("eddie"));
-    assert_eq!(child.authority.ceilings, auth().ceilings);
-    assert_eq!(child.budget.limit, 30_000);
-    let parent = w.kernel.execution(&e.id).unwrap().unwrap();
-    assert_eq!(parent.budget.limit, 70_000);
-    // derived_from edge lives in the child session's scope.
-    let tail = w.kernel.session_tail(&cs.id, 0, 100).unwrap();
-    let edge = tail
-        .iter()
-        .find(|r| r.kind == theseus_store::kinds::EDGE)
-        .expect("edge");
-    let v: serde_json::Value = edge.decode().unwrap();
-    assert_eq!(v["type"], "derived_from");
-    assert_eq!(v["to"], json!(s.id));
-    // The conversation continues concurrently and parks waiting on the child.
-    w.kernel
-        .end_turn(
-            g,
-            TurnEnd::Wait {
-                wake: Wake::Execution {
-                    execution_id: child.id.clone(),
-                },
-            },
-        )
-        .unwrap();
-    let cg = w.kernel.admit(&child.id).unwrap();
-    assert_eq!(w.kernel.stats().unwrap().turns_held, 1);
-    w.kernel
-        .end_turn(
-            cg,
-            TurnEnd::Complete {
-                reason: "child done".into(),
-            },
-        )
-        .unwrap();
-    let parent = w.kernel.execution(&e.id).unwrap().unwrap();
-    assert_eq!(
-        parent.state,
-        ExecState::Queued,
-        "parent woke on child terminal"
-    );
-}
-
-#[test]
 fn wait_on_actions_already_settled_does_not_park_forever() {
     let w = world();
     let (_, e, g) = running(&w);
@@ -849,7 +776,7 @@ fn kernel_refuses_events_before_startup_and_hundred_sessions_survive_upgrade_mid
         KernelConfig::default(),
     );
     let err = k
-        .open_session(SessionKind::Task, vec![], auth(), None, None)
+        .open_execution("ses_0", SessionKind::Task, auth(), None, None)
         .unwrap_err();
     assert!(matches!(
         err.downcast_ref::<KernelError>(),
@@ -871,9 +798,9 @@ fn kernel_refuses_events_before_startup_and_hundred_sessions_survive_upgrade_mid
     let mut ids = Vec::new();
     let mut guards = Vec::new();
     for i in 0..100 {
-        let (_, e) = w
+        let e = w
             .kernel
-            .open_session(SessionKind::Task, vec![format!("t{i}")], auth(), None, None)
+            .open_execution(&format!("ses_t{i}"), SessionKind::Task, auth(), None, None)
             .unwrap();
         w.kernel.wake_input(&e.id).unwrap();
         let g = w.kernel.admit(&e.id).unwrap();
@@ -910,4 +837,50 @@ fn kernel_refuses_events_before_startup_and_hundred_sessions_survive_upgrade_mid
         n += 1;
     }
     assert_eq!(n, 100);
+}
+
+/// Rows stored before theseus-hco still read. The execution and the actions
+/// are verbatim from a store an earlier `theseusd` wrote (a scratch daemon,
+/// 2026-09-28). The execution's `kind` was the kernel's own `SessionKind`,
+/// now the protocol's; the actions carry the only two retry classes any code
+/// ever built; and old stores keep `derived_from` edges nothing reads.
+#[test]
+fn rows_stored_before_the_session_model_cut_still_read() {
+    let exec = r#"{"id":"exe_01a0e754c794744aa0f3c8cef99e690b","schema":1,"session_id":"ses_01a0e754c794744aa0f3c8cd0a26857d","kind":"conversation","state":"waiting","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":20000000,"spent":0,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}},"wake":{"on":"input"},"outstanding":[],"queued_results":[],"turns":0,"interrupted":0,"resume_pending":false,"created_at_ms":1790587488148,"updated_at_ms":1790587488148}"#;
+    let safe = r#"{"correlation_id":"act_01a0e754c7ee733bb97884fe2629cac7","schema":1,"execution_id":"exe_01a0e754c794744aa0f3c8cef99e690b","session_id":"ses_01a0e754c794744aa0f3c8cd0a26857d","tool":"provider.messages","args_digest":"d29b78a3f83cb59acf23e90bebd287435a94c213061bca8447156b65d31f72ee","resource":"zai","retry_class":{"class":"safe_to_repeat"},"state":"planned","deadline_at_ms":1790588088238,"planned_at_ms":1790587488238,"reservation_id":"rsv_01a0e754c7ee733bb97884fd65b5d52e","reserved_units":133351,"completions_seen":0}"#;
+    let once = r#"{"correlation_id":"act_01a0e7568c0577d7a4a2c9d58fb052dd","schema":1,"execution_id":"exe_01a0e755c3c475aab628168f14e0d0f0","session_id":"ses_01a0e755c3c475aab628168e7d9a2424","tool":"proc.run","args_digest":"8adceac28fe004b3c3980e81c17840a7fdfc7315fba1bd907234bd2f20591aff","resource":"/tmp/theseus-2app/work/scratch","retry_class":{"class":"non_repeatable"},"state":"planned","deadline_at_ms":1790588233973,"planned_at_ms":1790587603973,"reserved_units":0,"completions_seen":0}"#;
+    let e: Execution = serde_json::from_str(exec).unwrap();
+    assert_eq!(e.kind, SessionKind::Conversation);
+    let a: Action = serde_json::from_str(safe).unwrap();
+    assert_eq!(a.retry_class, RetryClass::SafeToRepeat);
+    let b: Action = serde_json::from_str(once).unwrap();
+    assert_eq!(b.retry_class, RetryClass::NonRepeatable);
+    for (kind, stored) in [
+        (SessionKind::Conversation, r#""conversation""#),
+        (SessionKind::Task, r#""task""#),
+    ] {
+        assert_eq!(serde_json::to_string(&kind).unwrap(), stored);
+        assert_eq!(serde_json::from_str::<SessionKind>(stored).unwrap(), kind);
+    }
+
+    // A store holding them, and an old edge, starts and reads them back.
+    let w = world();
+    let raw = |kind, key: &str, json: &str| {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        NewRecord::json(kind, Some(key), &v)
+            .unwrap()
+            .scoped(&e.session_id)
+    };
+    let edge = r#"{"type":"derived_from","from":"cmp_2","to":"cmp_1","at_ms":1}"#;
+    w.kernel
+        .store()
+        .append(&[
+            raw(kinds::EXECUTION, &e.id, exec),
+            raw(kinds::ACTION, &a.correlation_id, safe),
+            raw(kinds::EDGE, "derived_from|cmp_2|cmp_1", edge),
+        ])
+        .unwrap();
+    let (w, _) = crash(w, KernelConfig::default());
+    assert_eq!(w.kernel.execution(&e.id).unwrap().unwrap(), e);
+    assert_eq!(w.kernel.action(&a.correlation_id).unwrap().unwrap(), a);
 }

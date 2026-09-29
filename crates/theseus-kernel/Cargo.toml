@@ -1,6 +1,6 @@
 [package]
 name = "theseus-kernel"
-description = "The durable kernel (M2): executions, actions with correlation ids and retry classes, the Completion envelope and spool, budgets as hard limits, the admission scheduler, the deterministic gate, the reconciler, and the five-step startup. Synchronous and deterministic under an injected clock so the simulator can drive it."
+description = "The durable kernel (M2): executions, actions with correlation ids and retry classes, the Completion envelope and spool, budgets as hard limits, the admission scheduler, the confirm binding (a proposal's digest), the reconciler, and the five-step startup. Synchronous and deterministic under an injected clock so the simulator can drive it."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 theseus-store.workspace = true
+theseus-protocol.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true

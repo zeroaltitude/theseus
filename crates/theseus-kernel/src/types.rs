@@ -1,13 +1,17 @@
 //! The kernel's durable objects (spec §3.15, §3.16, §3.2a). Every one of
 //! these is a WAL record: `Execution` keyed by id, `Action` keyed by
-//! correlation id, `Session` keyed by id, `Completion` keyed by correlation
-//! id (only quarantined or duplicate ones are stored on their own; a matched
-//! completion is folded into the action it settles). State lives here, not
-//! in process memory; the process holds locks and caches only.
+//! correlation id, `Completion` keyed by correlation id (only quarantined or
+//! duplicate ones are stored on their own; a matched completion is folded
+//! into the action it settles). A session's own record is the core's; the
+//! kernel knows a session only by the id its execution carries. State lives
+//! here, not in process memory; the process holds locks and caches only.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+/// One enum on the wire and in the store: stored executions carry
+/// `"conversation"` or `"task"` either way.
+pub use theseus_protocol::SessionKind;
 
 pub type ExecutionId = String;
 pub type SessionId = String;
@@ -16,13 +20,6 @@ pub type CorrelationId = String;
 /// Schema versions stamped into every record's payload so forward-only
 /// migrations can read old rows.
 pub const SCHEMA: u16 = 1;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionKind {
-    Conversation,
-    Task,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -90,45 +87,6 @@ pub struct Authority {
     /// Ceilings by name (e.g. `shell: l1`, `tools: fs,text`), intersected on fork.
     #[serde(default)]
     pub ceilings: BTreeMap<String, String>,
-}
-
-impl Authority {
-    /// Derive a child authority: same principal, delegation recorded, ceilings
-    /// intersected (the child may only carry what the parent had, and only
-    /// tighten). A key the parent lacks is dropped; a value the parent has is kept
-    /// unless the child asks for the same key, in which case the child's value is
-    /// used only if it equals the parent's (there is no partial order on strings
-    /// here; anything else is a widening and refused).
-    pub fn derive(&self, requested: &BTreeMap<String, String>) -> Result<Authority, String> {
-        let mut ceilings = BTreeMap::new();
-        for (k, v) in &self.ceilings {
-            match requested.get(k) {
-                None => {
-                    ceilings.insert(k.clone(), v.clone());
-                }
-                Some(rv) if rv == v => {
-                    ceilings.insert(k.clone(), v.clone());
-                }
-                Some(rv) => {
-                    return Err(format!(
-                        "ceiling {k}: child requested {rv:?}, parent holds {v:?}"
-                    ));
-                }
-            }
-        }
-        for k in requested.keys() {
-            if !self.ceilings.contains_key(k) {
-                return Err(format!(
-                    "ceiling {k}: parent holds no such ceiling; refusing to widen"
-                ));
-            }
-        }
-        Ok(Authority {
-            principal: self.principal.clone(),
-            delegated_by: Some(self.principal.clone()),
-            ceilings,
-        })
-    }
 }
 
 /// Budget as a hard limit with reservations (§3.15, Part II M2). Units are
@@ -207,31 +165,13 @@ pub struct Execution {
     pub updated_at_ms: u64,
 }
 
-/// A session is a compiler scope (§3.2a); its record is small and durable by
-/// reference (§4.4b). The per-session position table is the store's scope index.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Session {
-    pub id: SessionId,
-    pub schema: u16,
-    pub kind: SessionKind,
-    /// Channel id or task id roots, in priority order.
-    pub roots: Vec<String>,
-    pub execution_id: ExecutionId,
-    /// Append tail: records in this session's scope after `tail_from` are the
-    /// uncompiled tail (§4.4b). M2 keeps the field; the compiler arrives in M3.
-    pub tail_from: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    pub created_at_ms: u64,
-}
-
-/// Per-operation declaration of what a repeat would do (§3.16).
+/// Per-operation declaration of what a repeat would do (§3.16). Every tool
+/// declares one of these two; the others §3.16 names wait for a tool that
+/// needs them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "class")]
 pub enum RetryClass {
     SafeToRepeat,
-    IdempotentWithKey { key: String },
-    RecoverableByExternalId,
     NonRepeatable,
 }
 

@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use theseus_store::{kinds, NewRecord, Record, Store};
@@ -87,14 +87,10 @@ pub enum KernelError {
     ConfirmInvalidated { reason: String },
     #[error("confirmation required from {by} and none bound")]
     ConfirmRequired { by: String },
-    #[error("policy denied: {reason}")]
-    PolicyDenied { reason: String },
     #[error("unknown execution {0}")]
     UnknownExecution(ExecutionId),
     #[error("unknown action {0}")]
     UnknownAction(CorrelationId),
-    #[error("unknown session {0}")]
-    UnknownSession(SessionId),
     #[error("kernel is not accepting events yet (startup step {step})")]
     NotAccepting { step: u8 },
 }
@@ -260,9 +256,6 @@ impl Kernel {
     pub fn store(&self) -> &Arc<dyn Store> {
         &self.store
     }
-    pub fn clock(&self) -> &Arc<dyn Clock> {
-        &self.clock
-    }
     pub fn config(&self) -> &KernelConfig {
         &self.cfg
     }
@@ -294,9 +287,6 @@ impl Kernel {
     pub fn action(&self, correlation_id: &str) -> Result<Option<Action>> {
         decode_opt(self.store.latest_by_key(kinds::ACTION, correlation_id)?)
     }
-    pub fn session(&self, id: &str) -> Result<Option<Session>> {
-        decode_opt(self.store.latest_by_key(kinds::SESSION, id)?)
-    }
     pub fn executions(&self) -> Result<Vec<Execution>> {
         decode_all(self.store.latest_of_kind(kinds::EXECUTION)?)
     }
@@ -317,9 +307,6 @@ impl Kernel {
             .filter(|a| !a.state.is_settled())
             .collect())
     }
-    pub fn sessions(&self) -> Result<Vec<Session>> {
-        decode_all(self.store.latest_of_kind(kinds::SESSION)?)
-    }
     /// Completions that matched no action, newest last.
     pub fn quarantined(&self) -> Result<Vec<Completion>> {
         let mut out = Vec::new();
@@ -332,10 +319,6 @@ impl Kernel {
             }
         }
         Ok(out)
-    }
-    /// Records in a session's scope after `after`, oldest first: the tail walk.
-    pub fn session_tail(&self, session_id: &str, after: u64, limit: usize) -> Result<Vec<Record>> {
-        self.store.scan_scope(session_id, after, limit)
     }
 
     pub fn stats(&self) -> Result<KernelStats> {
@@ -434,154 +417,6 @@ impl Kernel {
             )?,
         ])?;
         Ok(exec)
-    }
-
-    /// Create a session and its one execution in one frame (§3.2a).
-    pub fn open_session(
-        &self,
-        kind: SessionKind,
-        roots: Vec<String>,
-        authority: Authority,
-        budget_limit: Option<u64>,
-        label: Option<String>,
-    ) -> Result<(Session, Execution)> {
-        self.require_accepting()?;
-        let now = self.now_ms();
-        let exec = Execution {
-            id: new_id("exe"),
-            schema: SCHEMA,
-            session_id: new_id("ses"),
-            kind,
-            state: ExecState::Waiting,
-            authority,
-            budget: Budget::new(
-                budget_limit.unwrap_or(self.cfg.default_budget),
-                self.cfg.control_reserve,
-            ),
-            wake: Some(Wake::Input),
-            outstanding: vec![],
-            queued_results: vec![],
-            parent: None,
-            reports_to: roots.first().cloned(),
-            turns: 0,
-            interrupted: 0,
-            resume_pending: false,
-            cancel: None,
-            ended_reason: None,
-            created_at_ms: now,
-            updated_at_ms: now,
-        };
-        let session = Session {
-            id: exec.session_id.clone(),
-            schema: SCHEMA,
-            kind,
-            roots,
-            execution_id: exec.id.clone(),
-            tail_from: self.store.last_position(),
-            label,
-            created_at_ms: now,
-        };
-        self.commit(vec![
-            NewRecord::json(kinds::SESSION, Some(&session.id), &session)?.scoped(&session.id),
-            self.exec_record(&exec)?,
-            self.ledger(
-                "session.opened",
-                Some(&session.id),
-                json!({"execution_id": exec.id, "kind": kind, "roots": session.roots}),
-            )?,
-        ])?;
-        Ok((session, exec))
-    }
-
-    /// Promotion (§3.2a): fork a task execution from a running one. Authority
-    /// is derived (never widened), budget is carved from the parent's
-    /// available units, `reports_to` is the parent, and the `derived_from`
-    /// edge is written in the same frame.
-    pub fn promote(
-        &self,
-        parent_id: &str,
-        roots: Vec<String>,
-        requested_ceilings: &BTreeMap<String, String>,
-        budget_units: u64,
-        label: Option<String>,
-    ) -> Result<(Session, Execution)> {
-        self.require_accepting()?;
-        let mut parent = self
-            .execution(parent_id)?
-            .ok_or_else(|| KernelError::UnknownExecution(parent_id.into()))?;
-        if parent.state.is_terminal() {
-            return Err(KernelError::NotRunnable {
-                id: parent.id.clone(),
-                state: parent.state.as_str(),
-            }
-            .into());
-        }
-        let authority = parent
-            .authority
-            .derive(requested_ceilings)
-            .map_err(|e| anyhow!("authority: {e}"))?;
-        let carve = budget_units.saturating_add(self.cfg.control_reserve);
-        if parent.budget.available() < carve {
-            return Err(KernelError::BudgetExhausted {
-                needed: carve,
-                available: parent.budget.available(),
-                limit: parent.budget.limit,
-            }
-            .into());
-        }
-        parent.budget.limit -= carve;
-        let now = self.now_ms();
-        parent.updated_at_ms = now;
-        let child = Execution {
-            id: new_id("exe"),
-            schema: SCHEMA,
-            session_id: new_id("ses"),
-            kind: SessionKind::Task,
-            state: ExecState::Queued,
-            authority,
-            budget: Budget::new(carve, self.cfg.control_reserve),
-            wake: None,
-            outstanding: vec![],
-            queued_results: vec![],
-            parent: Some(parent.id.clone()),
-            reports_to: Some(parent.id.clone()),
-            turns: 0,
-            interrupted: 0,
-            resume_pending: false,
-            cancel: None,
-            ended_reason: None,
-            created_at_ms: now,
-            updated_at_ms: now,
-        };
-        let session = Session {
-            id: child.session_id.clone(),
-            schema: SCHEMA,
-            kind: SessionKind::Task,
-            roots,
-            execution_id: child.id.clone(),
-            tail_from: self.store.last_position(),
-            label,
-            created_at_ms: now,
-        };
-        let edge = json!({
-            "type": "derived_from",
-            "from": session.id,
-            "to": parent.session_id,
-            "at_ms": now,
-        });
-        let edge_key = format!("derived_from|{}|{}", session.id, parent.session_id);
-        self.commit(vec![
-            NewRecord::json(kinds::SESSION, Some(&session.id), &session)?.scoped(&session.id),
-            self.exec_record(&child)?,
-            self.exec_record(&parent)?,
-            NewRecord::json(kinds::EDGE, Some(&edge_key), &edge)?.scoped(&session.id),
-            self.ledger(
-                "execution.promoted",
-                Some(&parent.session_id),
-                json!({"parent": parent.id, "child": child.id, "child_session": session.id, "budget_carved": carve}),
-            )?,
-        ])?;
-        Ok((session, child))
     }
 
     // ------------------------------------------------------------ turns
@@ -866,98 +701,8 @@ impl Kernel {
                 }
             }
         }
-        // A child reaching a terminal state wakes a parent waiting on it.
-        if e.state.is_terminal() {
-            if let Some(pid) = &e.parent {
-                if let Some(mut p) = self.execution(pid)? {
-                    if let Some(Wake::Execution { execution_id }) = &p.wake {
-                        if execution_id == &e.id && p.state == ExecState::Waiting {
-                            p.state = ExecState::Queued;
-                            p.wake = None;
-                            p.updated_at_ms = now;
-                            frame.push(self.exec_record(&p)?);
-                            frame.push(self.ledger(
-                                "execution.queued",
-                                Some(&p.session_id),
-                                json!({"execution_id": p.id, "why": "child_terminal", "child": e.id}),
-                            )?);
-                        }
-                    }
-                }
-            }
-        }
         self.commit(frame)?;
         drop(guard);
-        Ok(e)
-    }
-
-    // ------------------------------------------------------------ budget
-
-    /// Reserve units against an execution's budget. Hard limit: refusal is
-    /// `BudgetExhausted`, and the execution is moved to that terminal state in
-    /// the same call so nothing keeps spending against a dry budget.
-    pub fn reserve(&self, execution_id: &str, units: u64, purpose: &str) -> Result<String> {
-        let mut e = self
-            .execution(execution_id)?
-            .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
-        let available = e.budget.available();
-        if units > available {
-            e.state = ExecState::BudgetExhausted;
-            e.ended_reason = Some(format!(
-                "reservation of {units} for {purpose} exceeds {available} available"
-            ));
-            e.updated_at_ms = self.now_ms();
-            self.commit(vec![
-                self.exec_record(&e)?,
-                self.ledger(
-                    "execution.budget_exhausted",
-                    Some(&e.session_id),
-                    json!({"execution_id": e.id, "needed": units, "available": available, "budget": e.budget}),
-                )?,
-            ])?;
-            return Err(KernelError::BudgetExhausted {
-                needed: units,
-                available,
-                limit: e.budget.limit,
-            }
-            .into());
-        }
-        let id = new_id("rsv");
-        e.budget.reserved += units;
-        e.budget.reservations.insert(id.clone(), units);
-        e.updated_at_ms = self.now_ms();
-        self.commit(vec![
-            self.exec_record(&e)?,
-            self.ledger(
-                "budget.reserved",
-                Some(&e.session_id),
-                json!({"execution_id": e.id, "reservation": id, "units": units, "purpose": purpose, "available_after": e.budget.available()}),
-            )?,
-        ])?;
-        Ok(id)
-    }
-
-    /// Settle a reservation: known usage converts to spent (and the remainder
-    /// releases); `None` means usage is unknown and the reservation is held.
-    pub fn settle_reservation(
-        &self,
-        execution_id: &str,
-        reservation_id: &str,
-        actual: Option<u64>,
-    ) -> Result<Execution> {
-        let mut e = self
-            .execution(execution_id)?
-            .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
-        settle_reservation_in(&mut e.budget, reservation_id, actual);
-        e.updated_at_ms = self.now_ms();
-        self.commit(vec![
-            self.exec_record(&e)?,
-            self.ledger(
-                "budget.settled",
-                Some(&e.session_id),
-                json!({"execution_id": e.id, "reservation": reservation_id, "actual": actual, "budget": e.budget}),
-            )?,
-        ])?;
         Ok(e)
     }
 
