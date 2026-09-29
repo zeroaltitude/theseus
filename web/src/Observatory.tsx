@@ -710,10 +710,14 @@ function StartupView({ health }: { health: Health | null }) {
   const ends = phases.filter((p) => !p.background && p.end_us != null).map((p) => p.end_us!)
   const serving = ends.length ? Math.max(...ends) : 0
   const span = Math.max(1, serving, ...phases.map((p) => p.end_us ?? p.start_us))
+  // The part of the start path no phase names: a slow start that shows here has an unnamed cause.
+  const named = phases.filter((p) => !p.background && p.end_us != null).reduce((t, p) => t + (p.end_us! - p.start_us), 0)
+  const between = Math.max(0, serving - named)
   return (
     <>
       <div className="kv">
-        <div><span className="muted">serving</span> <b>{fmtUs(serving)}</b> <span className="muted">after the process started</span></div>
+        <div><span className="muted">serving</span> <b>{fmtUs(serving)}</b> <span className="muted">after the process started</span>
+          {between >= 500 && <span className={between > serving / 4 ? 'warn small' : 'muted small'}> · {fmtUs(between)} between phases, which no phase names</span>}</div>
         {s?.state && (
           <div>
             <span className="muted">secrets</span> <span className={`pill ${SECRETS_CLASS[s.state] ?? ''}`}>{s.state}</span>

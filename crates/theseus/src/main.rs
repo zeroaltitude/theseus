@@ -1203,7 +1203,8 @@ fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> String
 }
 
 /// `startup: serving at 14.2 ms (config 1.0 ms · store 2.1 ms · …) · after:
-/// secrets 1.03 s · …`: the last start's phases (theseus-qa0).
+/// secrets 1.03 s · …`: the last start's phases (theseus-qa0), and the time
+/// no phase names, when there is some.
 fn startup_line(phases: &[theseus_protocol::StartupPhase]) -> Option<String> {
     let serving = phases
         .iter()
@@ -1214,7 +1215,17 @@ fn startup_line(phases: &[theseus_protocol::StartupPhase]) -> Option<String> {
         Some(end) => format!("{} {}", p.name, fmt_us(end.saturating_sub(p.start_us))),
         None => format!("{} running", p.name),
     };
-    let on: Vec<String> = phases.iter().filter(|p| !p.background).map(span).collect();
+    let mut on: Vec<String> = phases.iter().filter(|p| !p.background).map(span).collect();
+    // A slow start whose time shows here has a cause no phase names.
+    let named: u64 = phases
+        .iter()
+        .filter(|p| !p.background)
+        .filter_map(|p| p.end_us.map(|e| e.saturating_sub(p.start_us)))
+        .sum();
+    let between = serving.saturating_sub(named);
+    if between >= 500 {
+        on.push(format!("{} between phases", fmt_us(between)));
+    }
     let after: Vec<String> = phases.iter().filter(|p| p.background).map(span).collect();
     let mut line = format!(
         "startup: serving at {} ({})",
@@ -2076,9 +2087,12 @@ mod tests {
             phase("secrets", true, 1000, None),
         ])
         .unwrap();
+        // No phase names the 10.1 ms from config's end to the socket's
+        // start, nor the 0.1 ms before config: 10.2 ms in all.
         assert_eq!(
             line,
-            "startup: serving at 11.4 ms (config 800 µs · socket 400 µs) · after: secrets running"
+            "startup: serving at 11.4 ms (config 800 µs · socket 400 µs · 10.2 ms between phases) \
+             · after: secrets running"
         );
         assert!(startup_line(&[]).is_none());
     }

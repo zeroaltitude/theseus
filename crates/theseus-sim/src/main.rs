@@ -161,6 +161,13 @@ enum BenchCmd {
         /// Work in this directory and keep it (default: a temporary one).
         #[arg(long)]
         dir: Option<PathBuf>,
+        /// A real config instead of the bench's, with the real op: the live
+        /// check (cold starts only). Turn Discord and the web UI off in it.
+        #[arg(long, requires = "op_token_file")]
+        config: Option<PathBuf>,
+        /// The service-account token file for the real op (with --config).
+        #[arg(long)]
+        op_token_file: Option<PathBuf>,
     },
 }
 
@@ -192,6 +199,8 @@ fn main() -> Result<()> {
                     margin_ms,
                     json,
                     dir,
+                    config,
+                    op_token_file,
                 },
         } => {
             let theseusd = match theseusd {
@@ -216,6 +225,8 @@ fn main() -> Result<()> {
                 phases,
                 margin_ms,
                 dir,
+                config,
+                op_token_file,
             })?;
             lifecycle::print(&report);
             if let Some(path) = json {

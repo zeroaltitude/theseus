@@ -49,6 +49,11 @@ pub struct Opts {
     pub margin_ms: Option<f64>,
     /// Work here and keep it; otherwise in a temporary directory.
     pub dir: Option<PathBuf>,
+    /// A real config instead of the bench's (the live check: the operator's
+    /// own, with Discord and the web UI off), with the real `op` under the
+    /// token in `op_token_file`. Cold starts only: nothing fakes a model.
+    pub config: Option<PathBuf>,
+    pub op_token_file: Option<PathBuf>,
 }
 
 // ------------------------------------------------------------------ arithmetic
@@ -158,6 +163,9 @@ pub struct Start {
     pub steps: Vec<(String, f64)>,
     /// When the last start-path phase ended, in ms after the process began.
     pub serving_ms: f64,
+    /// The part of `serving_ms` no phase names: between phases, and before
+    /// the first. A slow start that shows here has an unnamed cause.
+    pub between_ms: f64,
     /// `secrets.state` in that first answer.
     pub secrets: String,
 }
@@ -184,12 +192,15 @@ impl Start {
             }
             phases.push((name, e.saturating_sub(s) as f64 / 1000.0));
         }
+        let named: f64 = phases.iter().map(|(_, ms)| ms).sum();
+        let serving_ms = serving_us as f64 / 1000.0;
         Self {
             after: String::new(),
             ms,
             phases,
             steps,
-            serving_ms: serving_us as f64 / 1000.0,
+            serving_ms,
+            between_ms: (serving_ms - named).max(0.0),
             secrets: h["secrets"]["state"].as_str().unwrap_or("").to_string(),
         }
     }
@@ -197,12 +208,21 @@ impl Start {
 
 // ------------------------------------------------------------------ the rig
 
+/// Where the daemon's secrets come from.
+enum Vault {
+    /// The fake `op` in this directory, first on the daemon's PATH, and a
+    /// token that is not one.
+    Fake(PathBuf),
+    /// The real `op`, under the service-account token in this file.
+    Real(PathBuf),
+}
+
 struct Rig {
     theseusd: PathBuf,
     config: PathBuf,
     state: PathBuf,
     sock: PathBuf,
-    fake_bin: PathBuf,
+    vault: Vault,
     log: PathBuf,
 }
 
@@ -212,25 +232,34 @@ impl Rig {
             .create(true)
             .append(true)
             .open(&self.log)?;
-        let path = format!(
-            "{}:{}",
-            self.fake_bin.display(),
-            std::env::var("PATH").unwrap_or_default()
-        );
-        let t0 = Instant::now();
-        let child = Command::new(&self.theseusd)
-            .arg("--config")
+        let mut cmd = Command::new(&self.theseusd);
+        cmd.arg("--config")
             .arg(&self.config)
             .arg("--socket")
             .arg(&self.sock)
             .arg("--state-dir")
             .arg(&self.state)
-            .env("PATH", path)
-            .env("OP_SERVICE_ACCOUNT_TOKEN", "bench-not-a-token")
-            .env_remove("THESEUS_OP_TOKEN_FILE")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(log)
+            .stderr(log);
+        match &self.vault {
+            Vault::Fake(bin) => {
+                let path = format!(
+                    "{}:{}",
+                    bin.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                );
+                cmd.env("PATH", path)
+                    .env("OP_SERVICE_ACCOUNT_TOKEN", "bench-not-a-token")
+                    .env_remove("THESEUS_OP_TOKEN_FILE");
+            }
+            Vault::Real(token_file) => {
+                cmd.env_remove("OP_SERVICE_ACCOUNT_TOKEN")
+                    .env("THESEUS_OP_TOKEN_FILE", token_file);
+            }
+        }
+        let t0 = Instant::now();
+        let child = cmd
             .spawn()
             .with_context(|| format!("starting {}", self.theseusd.display()))?;
         Ok((child, t0))
@@ -488,25 +517,44 @@ pub fn run(o: &Opts) -> Result<Report> {
             (format!("synthetic, {n} parked sessions"), Some(g))
         }
     };
-    let op = fake_bin.join("op");
-    std::fs::write(&op, fake_op(o.resolver_ms))?;
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755))?;
-    }
-    let model = FakeModel::start(JOB.iter().map(|s| s.to_string()).collect())?;
     let sock = work.join("sock");
-    let config = work.join("config.toml");
-    std::fs::write(
-        &config,
-        bench_config(&model.base(), &state, &sock, &projects)?,
-    )?;
+    let (config, vault) = match &o.config {
+        Some(c) => {
+            if o.phases.iter().any(|p| p != "cold") {
+                bail!("with --config only the cold phase runs: the others need the fake model");
+            }
+            let token = o
+                .op_token_file
+                .clone()
+                .context("--config needs --op-token-file: it runs the real op")?;
+            (c.clone(), Vault::Real(token))
+        }
+        None => {
+            let op = fake_bin.join("op");
+            std::fs::write(&op, fake_op(o.resolver_ms))?;
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755))?;
+            }
+            let model = FakeModel::start(JOB.iter().map(|s| s.to_string()).collect())?;
+            let config = work.join("config.toml");
+            std::fs::write(
+                &config,
+                bench_config(&model.base(), &state, &sock, &projects)?,
+            )?;
+            (config, Vault::Fake(fake_bin))
+        }
+    };
+    let resolver_ms = match vault {
+        Vault::Fake(_) => o.resolver_ms,
+        Vault::Real(_) => 0,
+    };
     let rig = Rig {
         theseusd: o.theseusd.clone(),
         config,
         state,
         sock,
-        fake_bin,
+        vault,
         log: work.join("theseusd.log"),
     };
     let want = |p: &str| o.phases.iter().any(|x| x == p);
@@ -590,11 +638,11 @@ pub fn run(o: &Opts) -> Result<Report> {
     let mut step_order: Vec<String> = Vec::new();
     let mut secrets: BTreeMap<String, usize> = BTreeMap::new();
     for s in starts.iter().filter(|s| s.after != "warm-up") {
-        for (n, ms) in s
-            .phases
-            .iter()
-            .chain([&("serving".to_string(), s.serving_ms)])
-        {
+        let totals = [
+            ("between".to_string(), s.between_ms),
+            ("serving".to_string(), s.serving_ms),
+        ];
+        for (n, ms) in s.phases.iter().chain(totals.iter()) {
             if !order.contains(n) {
                 order.push(n.clone());
             }
@@ -618,7 +666,7 @@ pub fn run(o: &Opts) -> Result<Report> {
     // must say `resolving`: `ready` there means the socket waited.
     let served_before_secrets = starts
         .iter()
-        .all(|s| s.secrets == "resolving" || s.ms >= o.resolver_ms as f64);
+        .all(|s| s.secrets == "resolving" || s.ms >= resolver_ms as f64);
     let warm_up_ms: Vec<f64> = starts
         .iter()
         .filter(|s| s.after == "warm-up")
@@ -632,7 +680,7 @@ pub fn run(o: &Opts) -> Result<Report> {
         sessions,
         generated,
         runs: o.runs,
-        resolver_ms: o.resolver_ms,
+        resolver_ms,
         phases,
         daemon: summarize(&order, &by_name),
         kernel_steps: summarize(&step_order, &step_by),
@@ -656,9 +704,13 @@ const TITLES: [(&str, &str); 3] = [
 ];
 
 pub fn print(r: &Report) {
+    let vault = match r.resolver_ms {
+        0 => "the real op".to_string(),
+        ms => format!("op answers after {ms} ms"),
+    };
     println!(
-        "lifecycle bench · {} · store: {} · {} runs per phase · op answers after {} ms",
-        r.theseusd, r.store, r.runs, r.resolver_ms
+        "lifecycle bench · {} · store: {} · {} runs per phase · {vault}",
+        r.theseusd, r.store, r.runs
     );
     if let Some(g) = &r.generated {
         println!(
@@ -838,6 +890,7 @@ mod tests {
             vec![("store".to_string(), 7.0), ("load".to_string(), 6.5)]
         );
         assert_eq!(s.serving_ms, 37.1);
+        assert!((s.between_ms - 1.7).abs() < 1e-9, "{}", s.between_ms);
     }
 
     /// The bench config loads as the daemon loads it, with nothing that
