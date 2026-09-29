@@ -318,9 +318,11 @@ token_secret = "github_token"           # name of the [secrets] entry
 warn_days = 30                          # warn when the token expires within this many days
 
 # ---------------------------------------------------------------- telemetry
-# OpenTelemetry is always compiled in and running; nothing leaves the process
-# until otlp_endpoint is set. Each turn's trace becomes one OTel trace with the
-# recorded timestamps; metrics: theseus.turns, theseus.tokens,
+# OpenTelemetry export is a build option, off by default: build theseusd with
+# `--features otel`. Without it this section still parses, nothing is exported,
+# and a set otlp_endpoint gets one warning at startup. With it, nothing leaves
+# the process until otlp_endpoint is set. Each turn's trace becomes one OTel
+# trace with the recorded timestamps; metrics: theseus.turns, theseus.tokens,
 # theseus.provider.errors, theseus.turn.duration_ms,
 # theseus.provider.call.duration_ms, theseus.provider.first_token_ms.
 [telemetry]

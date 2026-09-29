@@ -98,10 +98,6 @@ impl Core {
             .as_deref()
             .and_then(|n| secrets.get(n));
         let telemetry = crate::telemetry::Telemetry::from_config(&cfg.telemetry, headers)?;
-        match &telemetry.endpoint {
-            Some(e) => tracing::info!(endpoint = %e, "telemetry: OTLP/HTTP export on"),
-            None => tracing::info!("telemetry: no otlp_endpoint configured; nothing is exported"),
-        }
         let scrubber = Arc::new(Scrubber::from_secrets(&secrets));
         // Wrappers run this very image: after an in-place upgrade (copy, then
         // rename over the old file) the path on disk is a newer binary, or

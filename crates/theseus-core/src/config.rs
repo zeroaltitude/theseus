@@ -666,6 +666,13 @@ impl Config {
         let cfg = Self::from_toml(text).context("parsing config TOML")?;
         cfg.validate()?;
         let mut warnings = Vec::new();
+        if !cfg!(feature = "otel") && cfg.telemetry.endpoint().is_some() {
+            warnings.push(
+                "telemetry.otlp_endpoint is set, but this build has no OTLP export (theseus-0g4: \
+                 build with the `otel` cargo feature); nothing is exported"
+                    .into(),
+            );
+        }
         // One warning for the unit budget however many of its keys remain:
         // they retire together, and the fix is one edit.
         let units = cfg.kernel.retired();
@@ -1105,6 +1112,36 @@ mod tests {
             (d.effort, d.thinking_display),
             (Some(Effort::Xhigh), ThinkingDisplay::Omitted)
         );
+    }
+
+    /// `[telemetry]` parses the same with or without the `otel` feature. A
+    /// build without it warns once if an endpoint is set, since nothing is
+    /// exported (theseus-0g4); a blank endpoint counts as unset. Eddie's note
+    /// sets none, so it gets no new warning.
+    #[test]
+    fn an_otlp_endpoint_warns_once_in_a_build_without_otel() {
+        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[telemetry]\n";
+        let (cfg, warnings) = Config::parse(&format!(
+            "{base}otlp_endpoint = \"http://127.0.0.1:4318\"\n"
+        ))
+        .unwrap();
+        assert_eq!(cfg.telemetry.endpoint(), Some("http://127.0.0.1:4318"));
+        if cfg!(feature = "otel") {
+            assert!(warnings.is_empty(), "{warnings:?}");
+        } else {
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(
+                warnings[0].starts_with(
+                    "telemetry.otlp_endpoint is set, but this build has no OTLP export"
+                ),
+                "{warnings:?}"
+            );
+        }
+        for quiet in ["", "otlp_endpoint = \"  \"\n"] {
+            let (_, w) =
+                Config::parse(&format!("{base}service_name = \"theseus\"\n{quiet}")).unwrap();
+            assert!(w.is_empty(), "{w:?}");
+        }
     }
 
     /// Eddie's vault config (its [kernel] keys checked 2026-09-29, by name
