@@ -1435,3 +1435,449 @@ fn executions_stored_with_unit_budgets_serve_in_dollars() {
     let e = w.kernel.execution("exe_old_waiting").unwrap().unwrap();
     assert_eq!(e.budget.available(), 100 * MICROS_PER_USD - 12_000);
 }
+
+// ------------------------------------------------------------ one writer per execution (theseus-id9)
+
+/// A store that stops one thread at one read, so that a second writer runs
+/// between a transition's read and its write.
+struct Pausing {
+    inner: Arc<dyn Store>,
+    at: std::sync::Mutex<Option<PauseAt>>,
+}
+
+struct PauseAt {
+    thread: std::thread::ThreadId,
+    kind: theseus_store::RecordKind,
+    key: String,
+    /// Stop at this read of the record by that thread; 1 is the first.
+    nth: usize,
+    paused: std::sync::mpsc::Sender<()>,
+    resume: std::sync::mpsc::Receiver<()>,
+}
+
+impl Store for Pausing {
+    fn append(&self, batch: &[NewRecord]) -> anyhow::Result<Vec<u64>> {
+        self.inner.append(batch)
+    }
+    fn get(&self, position: u64) -> anyhow::Result<Option<theseus_store::Record>> {
+        self.inner.get(position)
+    }
+    fn scan(
+        &self,
+        from: u64,
+        to: Option<u64>,
+        limit: usize,
+    ) -> anyhow::Result<Vec<theseus_store::Record>> {
+        self.inner.scan(from, to, limit)
+    }
+    fn latest_by_key(
+        &self,
+        kind: theseus_store::RecordKind,
+        key: &str,
+    ) -> anyhow::Result<Option<theseus_store::Record>> {
+        let r = self.inner.latest_by_key(kind, key)?;
+        let stop = {
+            let mut at = self.at.lock().unwrap();
+            let hit = at.as_mut().is_some_and(|p| {
+                if p.thread != std::thread::current().id() || p.kind != kind || p.key != key {
+                    return false;
+                }
+                p.nth -= 1;
+                p.nth == 0
+            });
+            if hit {
+                at.take()
+            } else {
+                None
+            }
+        };
+        if let Some(p) = stop {
+            p.paused.send(()).unwrap();
+            p.resume.recv().unwrap();
+        }
+        Ok(r)
+    }
+    fn latest_of_kind(
+        &self,
+        kind: theseus_store::RecordKind,
+    ) -> anyhow::Result<Vec<theseus_store::Record>> {
+        self.inner.latest_of_kind(kind)
+    }
+    fn tail_of_kind(
+        &self,
+        kind: theseus_store::RecordKind,
+        n: usize,
+    ) -> anyhow::Result<Vec<theseus_store::Record>> {
+        self.inner.tail_of_kind(kind, n)
+    }
+    fn count_of_kind(&self, kind: theseus_store::RecordKind) -> anyhow::Result<u64> {
+        self.inner.count_of_kind(kind)
+    }
+    fn scan_scope(
+        &self,
+        scope: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<theseus_store::Record>> {
+        self.inner.scan_scope(scope, after, limit)
+    }
+    fn count_in_scope(&self, scope: &str) -> anyhow::Result<u64> {
+        self.inner.count_in_scope(scope)
+    }
+    fn last_position(&self) -> u64 {
+        self.inner.last_position()
+    }
+    fn checkpoint(&self) -> anyhow::Result<u64> {
+        self.inner.checkpoint()
+    }
+    fn stats(&self) -> anyhow::Result<theseus_store::StoreStats> {
+        self.inner.stats()
+    }
+}
+
+fn pausing_world() -> (World, Arc<Pausing>) {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = VirtualClock::new(1_000_000);
+    let spool = Spool::open(&dir.path().join("spool")).unwrap();
+    let p = Arc::new(Pausing {
+        inner: open_store(dir.path()),
+        at: Default::default(),
+    });
+    let kernel = Kernel::new(p.clone(), clock.clone(), KernelConfig::default());
+    kernel.startup(Some(&spool), &NoEvidence).unwrap();
+    (
+        World {
+            dir,
+            clock,
+            kernel,
+            spool,
+        },
+        p,
+    )
+}
+
+/// How a race went: what each writer returned, and whether the second one
+/// was waiting for an execution's lock when the first went on.
+struct Raced<R1, R2> {
+    first: R1,
+    second: R2,
+    second_waited: bool,
+}
+
+/// Run `first` on a thread stopped at its `nth` read of (`kind`, `key`), and
+/// `second` on another thread while it is stopped. The first goes on once
+/// the second has returned, or waits for an execution's lock: so with the
+/// locks the second writes after the first, and without them, in between.
+fn race<R1: Send, R2: Send>(
+    k: &Kernel,
+    p: &Pausing,
+    (kind, key, nth): (theseus_store::RecordKind, &str, usize),
+    first: impl FnOnce(&Kernel) -> R1 + Send,
+    second: impl FnOnce(&Kernel) -> R2 + Send,
+) -> Raced<R1, R2> {
+    use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+    use std::time::{Duration, Instant};
+    let (paused_tx, paused_rx) = std::sync::mpsc::channel();
+    let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+    let done = AtomicBool::new(false);
+    std::thread::scope(|s| {
+        let a = s.spawn(|| {
+            *p.at.lock().unwrap() = Some(PauseAt {
+                thread: std::thread::current().id(),
+                kind,
+                key: key.to_string(),
+                nth,
+                paused: paused_tx,
+                resume: resume_rx,
+            });
+            first(k)
+        });
+        paused_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the first writer never made its read");
+        let b = s.spawn(|| {
+            let r = second(k);
+            done.store(true, SeqCst);
+            r
+        });
+        let t0 = Instant::now();
+        let second_waited = loop {
+            if done.load(SeqCst) {
+                break false;
+            }
+            if k.exec_locks().waiting() > 0 {
+                break true;
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "the second writer neither returned nor waited"
+            );
+            std::thread::yield_now();
+        };
+        resume_tx.send(()).unwrap();
+        Raced {
+            first: a.join().unwrap(),
+            second: b.join().unwrap(),
+            second_waited,
+        }
+    })
+}
+
+/// No dispatched action of a cancelled execution is left without a cancel
+/// request, or out of its `outstanding`: nothing would stop it or wait for it.
+fn assert_nothing_runs_unasked(w: &World, e: &Execution) {
+    for a in w.kernel.actions().unwrap() {
+        if a.execution_id == e.id && a.state == ActionState::Dispatched {
+            assert!(
+                a.cancel.is_some() && e.outstanding.contains(&a.correlation_id),
+                "{} is dispatched for cancelled {} with no cancel request ({:?}) or not \
+                 outstanding ({:?}): nothing will stop it",
+                a.correlation_id,
+                e.id,
+                a.cancel,
+                e.outstanding
+            );
+        }
+    }
+}
+
+/// The lost update theseus-id9 was filed for: a turn's commit, read before a
+/// cancel's frame was indexed, put `running` back over `cancelled`. Now the
+/// cancel waits for the plan's frame, and then cancels the call it dispatched,
+/// and the execution stays cancelled across a restart.
+#[test]
+fn a_turns_commit_never_puts_running_back_over_a_cancel() {
+    let (w, p) = pausing_world();
+    let (_, e, g) = running(&w);
+    let r = race(
+        &w.kernel,
+        &p,
+        (kinds::EXECUTION, &e.id, 1),
+        |k| {
+            k.plan_and_dispatch(
+                &g,
+                &proposal("fs.read"),
+                RetryClass::SafeToRepeat,
+                None,
+                100,
+                |_| Ok(vec![]),
+            )
+        },
+        |k| k.cancel_execution(&e.id, "operator"),
+    );
+    let x = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(x.state, ExecState::Cancelled, "the cancel was lost");
+    assert_nothing_runs_unasked(&w, &x);
+    assert!(r.second_waited, "the cancel waited for the plan's frame");
+    let a = r.first.unwrap();
+    assert_eq!(r.second.unwrap(), vec![a.correlation_id]);
+    drop((g, p));
+    let (w, _) = crash(w, KernelConfig::default());
+    let x = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        x.state,
+        ExecState::Cancelled,
+        "the index and the WAL's order agree"
+    );
+}
+
+/// The same race the other way: a cancel, read before a turn's plan was
+/// indexed, must not write back an `outstanding` without the call. Now the
+/// plan waits, finds the execution cancelled, and plans nothing.
+#[test]
+fn a_cancel_never_drops_a_call_the_turn_dispatched() {
+    let (w, p) = pausing_world();
+    let (_, e, g) = running(&w);
+    let r = race(
+        &w.kernel,
+        &p,
+        (kinds::EXECUTION, &e.id, 1),
+        |k| k.cancel_execution(&e.id, "operator"),
+        |k| {
+            k.plan_and_dispatch(
+                &g,
+                &proposal("fs.read"),
+                RetryClass::SafeToRepeat,
+                None,
+                100,
+                |_| Ok(vec![]),
+            )
+        },
+    );
+    let x = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(x.state, ExecState::Cancelled);
+    assert_nothing_runs_unasked(&w, &x);
+    assert!(r.second_waited);
+    let err = r.second.unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<KernelError>(),
+            Some(KernelError::NoTurn {
+                state: "cancelled",
+                ..
+            })
+        ),
+        "{err}"
+    );
+    assert!(r.first.unwrap().is_empty());
+    assert!(w.kernel.actions().unwrap().is_empty());
+}
+
+/// A completion arriving for a waiting execution, and a cancel: the
+/// completion's continuation never puts the execution back in the queue over
+/// the cancel.
+#[test]
+fn a_completion_never_revives_a_cancelled_execution() {
+    let (w, p) = pausing_world();
+    let (_, e, g) = running(&w);
+    let a = dispatched(&w, &g, "proc.run", 100);
+    w.kernel
+        .end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::Actions {
+                    correlation_ids: vec![a.correlation_id.clone()],
+                },
+            },
+        )
+        .unwrap();
+    let c = completion(&a.correlation_id, Outcome::Succeeded, Some(40));
+    let r = race(
+        &w.kernel,
+        &p,
+        (kinds::EXECUTION, &e.id, 1),
+        |k| k.accept_completion(&c),
+        |k| k.cancel_execution(&e.id, "operator"),
+    );
+    let x = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(x.state, ExecState::Cancelled, "the cancel was lost");
+    assert!(x.outstanding.is_empty());
+    assert!(r.second_waited);
+    assert!(matches!(r.first.unwrap(), Accepted::Settled { .. }));
+    assert!(r.second.unwrap().is_empty(), "the call had settled");
+    assert_eq!(x.budget.spent_micros, 40, "the settlement was kept too");
+}
+
+/// `end_turn` never overwrites a terminal state (A2): the check itself is
+/// now inside the lock, so a cancel lands before it or after the frame.
+#[test]
+fn a_turns_end_never_overwrites_a_cancel_that_landed_during_it() {
+    let (w, p) = pausing_world();
+    let (_, e, g) = running(&w);
+    let r = race(
+        &w.kernel,
+        &p,
+        (kinds::EXECUTION, &e.id, 1),
+        move |k| k.end_turn(g, TurnEnd::Wait { wake: Wake::Input }),
+        |k| k.cancel_execution(&e.id, "operator"),
+    );
+    let x = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(x.state, ExecState::Cancelled, "the cancel was lost");
+    assert_eq!(x.wake, None);
+    assert!(r.second_waited);
+    assert_eq!(r.first.unwrap().state, ExecState::Waiting);
+    r.second.unwrap();
+}
+
+/// The reconciler's scan finds a due wake, and may be a frame stale: it
+/// decides again under the lock, so a cancel since then stands.
+#[test]
+fn a_due_wake_never_requeues_a_cancelled_execution() {
+    let (w, p) = pausing_world();
+    let (_, e, g) = running(&w);
+    let at_ms = w.clock.now_ms() + 1_000;
+    w.kernel
+        .end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::DueAt { at_ms },
+            },
+        )
+        .unwrap();
+    w.clock.advance(2_000);
+    let r = race(
+        &w.kernel,
+        &p,
+        (kinds::EXECUTION, &e.id, 1),
+        |k| k.reconcile(&NoEvidence),
+        |k| k.cancel_execution(&e.id, "operator"),
+    );
+    let x = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(x.state, ExecState::Cancelled, "the cancel was lost");
+    assert!(r.second_waited);
+    assert_eq!(r.first.unwrap().woke_due, vec![e.id]);
+    r.second.unwrap();
+}
+
+/// Actions belong to their execution, and its lock covers them: a confirm
+/// bound while the operator declines the same call never brings it back.
+#[test]
+fn a_confirm_never_revives_a_declined_action() {
+    let (w, p) = pausing_world();
+    let (_, e, g) = running(&w);
+    let prop = proposal("fs.write");
+    let a = w
+        .kernel
+        .plan_confirm_with(&g, &prop, RetryClass::NonRepeatable, None, |_| Ok(vec![]))
+        .unwrap();
+    let corr = a.correlation_id;
+    // The action's second read: the first only finds its execution's lock.
+    let r = race(
+        &w.kernel,
+        &p,
+        (kinds::ACTION, &corr, 2),
+        |k| k.bind_confirm(&corr, "eddie", &prop),
+        |k| k.decline_action(&corr, "eddie", "no"),
+    );
+    let a = w.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, ActionState::Cancelled, "the decline was lost");
+    assert!(r.second_waited);
+    assert!(r.first.unwrap().confirm.is_some());
+    r.second.unwrap();
+    drop(g);
+    assert_eq!(
+        w.kernel.execution(&e.id).unwrap().unwrap().state,
+        ExecState::Running
+    );
+}
+
+/// Writers of different executions never wait for each other: a turn's
+/// cancel goes through while another execution's plan holds its lock.
+#[test]
+fn writers_of_different_executions_never_wait_for_each_other() {
+    let (w, p) = pausing_world();
+    let (_, e1, g1) = running(&w);
+    let (_, e2, _g2) = running(&w);
+    let r = race(
+        &w.kernel,
+        &p,
+        (kinds::EXECUTION, &e1.id, 1),
+        |k| {
+            k.plan_and_dispatch(
+                &g1,
+                &proposal("fs.read"),
+                RetryClass::SafeToRepeat,
+                None,
+                100,
+                |_| Ok(vec![]),
+            )
+        },
+        |k| k.cancel_execution(&e2.id, "operator"),
+    );
+    assert!(
+        !r.second_waited,
+        "the cancel of {} waited for {}'s plan",
+        e2.id, e1.id
+    );
+    r.first.unwrap();
+    r.second.unwrap();
+    assert_eq!(
+        w.kernel.execution(&e1.id).unwrap().unwrap().state,
+        ExecState::Running
+    );
+    assert_eq!(
+        w.kernel.execution(&e2.id).unwrap().unwrap().state,
+        ExecState::Cancelled
+    );
+    assert_eq!(w.kernel.exec_locks().held(), 0);
+}

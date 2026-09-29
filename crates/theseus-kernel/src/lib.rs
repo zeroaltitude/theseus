@@ -12,6 +12,7 @@ pub mod clock;
 pub mod gate;
 pub mod job;
 pub mod kernel;
+mod locks;
 pub mod spool;
 pub mod types;
 

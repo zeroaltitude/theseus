@@ -1,13 +1,17 @@
 //! The kernel: every state transition of executions and actions, written as
 //! WAL frames through the `Store` contract. Synchronous and deterministic:
 //! time comes from an injected `Clock`, randomness from nowhere, and the only
-//! process state is the set of turn locks currently held. Drop the `Kernel`
-//! and reopen the store and nothing is lost but the locks, which is the point.
+//! process state is the set of turn locks currently held and the executions
+//! being written right now. Drop the `Kernel` and reopen the store and nothing
+//! is lost but the locks, which is the point.
 //!
 //! Every mutating method writes exactly one frame: the records that change
 //! plus the ledger rows that describe the change. A crash between two frames
 //! leaves the store in a state some earlier method call produced, never in a
-//! state no method produces.
+//! state no method produces. A method that reads an execution or one of its
+//! actions and writes it back holds the execution's lock from the read until
+//! its frame is indexed, so no two of them lose each other's update
+//! (theseus-id9, `locks.rs`).
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -19,6 +23,7 @@ use theseus_store::{kinds, NewRecord, Record, Store};
 
 use crate::clock::Clock;
 use crate::gate::{digest_proposal, Proposal};
+use crate::locks::{ExecLock, ExecLocks};
 use crate::types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -260,6 +265,8 @@ pub struct Kernel {
     clock: Arc<dyn Clock>,
     cfg: KernelConfig,
     held: Arc<Mutex<HashSet<ExecutionId>>>,
+    /// One writer at a time per execution. Shared with every view.
+    locks: Arc<ExecLocks>,
     /// 0..=4 while starting; 5 once accepting events. Shared with every view.
     phase: Arc<Mutex<u8>>,
     legacy_spend: Option<LegacySpend>,
@@ -276,6 +283,7 @@ impl Kernel {
             clock,
             cfg,
             held: Arc::new(Mutex::new(HashSet::new())),
+            locks: Arc::default(),
             phase: Arc::new(Mutex::new(0)),
             legacy_spend: None,
         }
@@ -283,14 +291,16 @@ impl Kernel {
 
     /// This kernel, committing its frames through `store`, another handle on
     /// the same store: a turn's, whose frames also carry the ledger rows the
-    /// turn has waiting (theseus-qa0). The turn locks, the startup phase, the
-    /// clock, and the config are shared, so the view and the kernel are one.
+    /// turn has waiting (theseus-qa0). The turn locks, the execution locks,
+    /// the startup phase, the clock, and the config are shared, so the view
+    /// and the kernel are one.
     pub fn view(&self, store: Arc<dyn Store>) -> Kernel {
         Kernel {
             store,
             clock: self.clock.clone(),
             cfg: self.cfg.clone(),
             held: self.held.clone(),
+            locks: self.locks.clone(),
             phase: self.phase.clone(),
             legacy_spend: self.legacy_spend.clone(),
         }
@@ -347,6 +357,31 @@ impl Kernel {
     }
     pub fn action(&self, correlation_id: &str) -> Result<Option<Action>> {
         decode_opt(self.store.latest_by_key(kinds::ACTION, correlation_id)?)
+    }
+
+    /// An action, read under its execution's lock: read once to learn its
+    /// execution, which never changes, then lock that and read it again, so
+    /// that what the caller decides comes from the read inside the lock.
+    fn locked_action(&self, correlation_id: &str) -> Result<Option<(ExecLock<'_>, Action)>> {
+        let Some(a) = self.action(correlation_id)? else {
+            return Ok(None);
+        };
+        let lock = self.locks.lock(&a.execution_id);
+        let a = self
+            .action(correlation_id)?
+            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        Ok(Some((lock, a)))
+    }
+
+    /// `locked_action`, for a transition that needs the action to exist.
+    fn locked_known_action(&self, correlation_id: &str) -> Result<(ExecLock<'_>, Action)> {
+        self.locked_action(correlation_id)?
+            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()).into())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn exec_locks(&self) -> &ExecLocks {
+        &self.locks
     }
     pub fn executions(&self) -> Result<Vec<Execution>> {
         self.store
@@ -480,6 +515,7 @@ impl Kernel {
     /// Human input arrived on a session: its execution becomes runnable.
     pub fn wake_input(&self, execution_id: &str) -> Result<Execution> {
         self.require_accepting()?;
+        let _w = self.locks.lock(execution_id);
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -511,6 +547,7 @@ impl Kernel {
     /// the harness's driver takes a turn for it without waiting for input.
     pub fn wake(&self, execution_id: &str, why: &str) -> Result<Execution> {
         self.require_accepting()?;
+        let _w = self.locks.lock(execution_id);
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -547,9 +584,7 @@ impl Kernel {
     /// A declined budget question leaves its execution waiting on the budget.
     /// Rows written before theseus-8az say `action.denied` and `denied by`.
     pub fn decline_action(&self, correlation_id: &str, by: &str, reason: &str) -> Result<Action> {
-        let mut a = self
-            .action(correlation_id)?
-            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if !matches!(a.state, ActionState::Planned | ActionState::Authorized) {
             return Err(KernelError::ActionState {
                 correlation_id: a.correlation_id.clone(),
@@ -587,6 +622,7 @@ impl Kernel {
     /// room, and no turn may be held on it in this process. Writes `Running`.
     pub fn admit(&self, execution_id: &str) -> Result<TurnGuard> {
         self.require_accepting()?;
+        let _w = self.locks.lock(execution_id);
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -639,6 +675,7 @@ impl Kernel {
     /// The results queued for this execution (settled since its last turn),
     /// and clear them in the store as consumed. Call inside a held turn.
     pub fn take_results(&self, guard: &TurnGuard) -> Result<Vec<Action>> {
+        let _w = self.locks.lock(&guard.execution_id);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -667,12 +704,15 @@ impl Kernel {
 
     /// End the held turn with the Advancer's decision. Consumes the guard.
     pub fn end_turn(&self, guard: TurnGuard, end: TurnEnd) -> Result<Execution> {
+        let _w = self.locks.lock(&guard.execution_id);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
         let now = self.now_ms();
         // A cancel or budget exhaustion that landed during the turn wins over
-        // the Advancer: terminal states are never overwritten.
+        // the Advancer: terminal states are never overwritten. The lock makes
+        // this read the last word: a cancel lands before it, or after the
+        // frame below.
         if e.state.is_terminal() {
             drop(guard);
             return Ok(e);
@@ -816,6 +856,7 @@ impl Kernel {
         reserve_micros: Micros,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
+        let _w = self.locks.lock(&guard.execution_id);
         let (a, _, mut frame) = self.plan_frame(
             guard,
             proposal,
@@ -843,6 +884,7 @@ impl Kernel {
         reserve_micros: Micros,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
+        let _w = self.locks.lock(&guard.execution_id);
         let (mut a, mut e, mut frame) = self.plan_frame(
             guard,
             proposal,
@@ -870,6 +912,7 @@ impl Kernel {
         deadline_ms: Option<u64>,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
+        let _w = self.locks.lock(&guard.execution_id);
         let (a, _, mut frame) =
             self.plan_frame(guard, proposal, retry_class, deadline_ms, 0, true)?;
         frame.extend(extra(&a)?);
@@ -879,7 +922,8 @@ impl Kernel {
 
     /// The planned action, its execution (with the reservation, if any), and
     /// the frame so far: the execution's record when it reserved, the
-    /// action, and its `action.planned` row.
+    /// action, and its `action.planned` row. The caller holds the execution's
+    /// lock until the frame commits.
     fn plan_frame(
         &self,
         guard: &TurnGuard,
@@ -984,6 +1028,7 @@ impl Kernel {
     /// `Wake::Budget`. An earlier question still open is superseded in the
     /// same frame, so one is open at a time.
     pub fn ask_budget(&self, guard: &TurnGuard, needed_micros: Micros) -> Result<Action> {
+        let _w = self.locks.lock(&guard.execution_id);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -1077,9 +1122,7 @@ impl Kernel {
     /// it, the spend before, and the limit. This is the only transition that
     /// lowers spend. Returns the execution and the spend before.
     pub fn reset_budget(&self, correlation_id: &str, by: &str) -> Result<(Execution, Micros)> {
-        let mut q = self
-            .action(correlation_id)?
-            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        let (_w, mut q) = self.locked_known_action(correlation_id)?;
         if q.tool != BUDGET_TOOL || q.state != ActionState::Planned {
             return Err(KernelError::ActionState {
                 correlation_id: q.correlation_id.clone(),
@@ -1159,9 +1202,7 @@ impl Kernel {
         by: &str,
         proposal: &Proposal,
     ) -> Result<Action> {
-        let mut a = self
-            .action(correlation_id)?
-            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if a.state != ActionState::Planned {
             return Err(KernelError::ActionState {
                 correlation_id: a.correlation_id.clone(),
@@ -1205,9 +1246,7 @@ impl Kernel {
         proposal: &Proposal,
         confirm_required_from: Option<&str>,
     ) -> Result<Action> {
-        let mut a = self
-            .action(correlation_id)?
-            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
         let frame = self.authorize_frame(&mut a, proposal, confirm_required_from)?;
         self.commit(&frame)?;
         Ok(a)
@@ -1276,9 +1315,7 @@ impl Kernel {
     /// `dispatched`: committed before the call is made (transactional
     /// outbox). The execution records the action as outstanding.
     pub fn dispatch(&self, correlation_id: &str, external_op_id: Option<&str>) -> Result<Action> {
-        let mut a = self
-            .action(correlation_id)?
-            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if a.state != ActionState::Authorized {
             return Err(KernelError::ActionState {
                 correlation_id: a.correlation_id.clone(),
@@ -1357,8 +1394,8 @@ impl Kernel {
         c: &Completion,
         extra: Vec<NewRecord>,
     ) -> Result<Accepted> {
-        let now = self.now_ms();
-        let Some(mut a) = self.action(&c.correlation_id)? else {
+        let Some((_w, a)) = self.locked_action(&c.correlation_id)? else {
+            // No action, so no execution to lock.
             let key = format!("{QUARANTINE_PREFIX}{}", c.correlation_id);
             self.commit(&[
                 NewRecord::json(kinds::COMPLETION, Some(&key), c)?,
@@ -1372,6 +1409,18 @@ impl Kernel {
                 correlation_id: c.correlation_id.clone(),
             });
         };
+        self.accept_locked(c, extra, a)
+    }
+
+    /// `accept_completion_with` for an action read under its execution's
+    /// lock, which the caller holds until this returns.
+    fn accept_locked(
+        &self,
+        c: &Completion,
+        extra: Vec<NewRecord>,
+        mut a: Action,
+    ) -> Result<Accepted> {
+        let now = self.now_ms();
         a.completions_seen += 1;
         let completion_rec =
             NewRecord::json(kinds::COMPLETION, Some(&c.correlation_id), c)?.scoped(&a.session_id);
@@ -1516,6 +1565,17 @@ impl Kernel {
     /// `OutcomeUnknown` is knowledge: the execution gets it as a result and the
     /// reservation is held, never released (§3.16).
     pub fn mark_unknown(&self, correlation_id: &str, reason: &str) -> Result<Action> {
+        // The check and the settlement are one transition, under one lock:
+        // nothing can settle the action between them.
+        let (_w, a) = self.locked_known_action(correlation_id)?;
+        if a.state != ActionState::Dispatched {
+            return Err(KernelError::ActionState {
+                correlation_id: a.correlation_id,
+                state: a.state.as_str(),
+                expected: "dispatched",
+            }
+            .into());
+        }
         let c = Completion {
             correlation_id: correlation_id.into(),
             outcome: Outcome::Unknown,
@@ -1528,18 +1588,7 @@ impl Kernel {
             cost_micros: None,
             detail: None,
         };
-        let a = self
-            .action(correlation_id)?
-            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
-        if a.state != ActionState::Dispatched {
-            return Err(KernelError::ActionState {
-                correlation_id: a.correlation_id,
-                state: a.state.as_str(),
-                expected: "dispatched",
-            }
-            .into());
-        }
-        self.accept_completion(&c)?;
+        self.accept_locked(&c, vec![], a)?;
         self.action(correlation_id)?
             .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))
             .map_err(Into::into)
@@ -1551,6 +1600,7 @@ impl Kernel {
     /// through admission or Jev. Returns the correlation ids whose backends
     /// must now be terminated.
     pub fn cancel_execution(&self, execution_id: &str, by: &str) -> Result<Vec<CorrelationId>> {
+        let _w = self.locks.lock(execution_id);
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -1615,9 +1665,7 @@ impl Kernel {
     }
 
     fn cancel_step(&self, correlation_id: &str, st: CancelState, settle: bool) -> Result<Action> {
-        let mut a = self
-            .action(correlation_id)?
-            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if a.state.is_settled() {
             return Ok(a);
         }
@@ -1675,23 +1723,32 @@ impl Kernel {
             None => self.open_executions()?,
         };
         rep.open_executions = execs.len() as u64;
-        for mut e in execs {
-            if let (ExecState::Waiting, Some(Wake::DueAt { at_ms })) = (e.state, &e.wake) {
-                if *at_ms <= now {
-                    e.state = ExecState::Queued;
-                    e.wake = None;
-                    e.updated_at_ms = now;
-                    self.commit(&[
-                        exec_record(&e)?,
-                        self.ledger(
-                            "execution.queued",
-                            Some(&e.session_id),
-                            json!({"execution_id": e.id, "why": "due"}),
-                        )?,
-                    ])?;
-                    rep.woke_due.push(e.id.clone());
-                }
+        let due = |e: &Execution| matches!((e.state, &e.wake), (ExecState::Waiting, Some(Wake::DueAt { at_ms })) if *at_ms <= now);
+        for e in execs {
+            if !due(&e) {
+                continue;
             }
+            // The scan found it due, and may be a frame stale: decide again
+            // from a read under the lock (a cancel may have landed since).
+            let _w = self.locks.lock(&e.id);
+            let Some(mut e) = self.execution(&e.id)? else {
+                continue;
+            };
+            if !due(&e) {
+                continue;
+            }
+            e.state = ExecState::Queued;
+            e.wake = None;
+            e.updated_at_ms = now;
+            self.commit(&[
+                exec_record(&e)?,
+                self.ledger(
+                    "execution.queued",
+                    Some(&e.session_id),
+                    json!({"execution_id": e.id, "why": "due"}),
+                )?,
+            ])?;
+            rep.woke_due.push(e.id.clone());
         }
         let actions = self.open_actions()?;
         rep.open_actions = actions.len() as u64;
@@ -1710,8 +1767,17 @@ impl Kernel {
                             rep.still_running_past_deadline.push(a.correlation_id);
                         }
                         Probe::Gone => {
-                            self.mark_unknown(&a.correlation_id, "overdue_no_evidence")?;
-                            rep.marked_unknown.push(a.correlation_id);
+                            // Decided from the scan; `mark_unknown` checks again under
+                            // the lock, and an action settled since is left as it is.
+                            match self.mark_unknown(&a.correlation_id, "overdue_no_evidence") {
+                                Ok(_) => rep.marked_unknown.push(a.correlation_id),
+                                Err(e)
+                                    if matches!(
+                                        e.downcast_ref::<KernelError>(),
+                                        Some(KernelError::ActionState { .. })
+                                    ) => {}
+                                Err(e) => return Err(e),
+                            }
                         }
                     }
                 }
@@ -1797,7 +1863,23 @@ impl Kernel {
         if legacy > 0 && self.cfg.unconfirmed_config {
             return Err(KernelError::UnconfirmedConfig { executions: legacy }.into());
         }
-        for mut e in all {
+        // The executions this step rewrites are read again under their locks,
+        // taken together in id order and held to the step's end, so the scan
+        // decides nothing it writes. A clean start rewrites none, and reads
+        // each execution once.
+        let rewrites = |e: &Execution| e.state == ExecState::Running || e.schema < SCHEMA;
+        let ids: Vec<&str> = all
+            .iter()
+            .filter(|e| rewrites(e))
+            .map(|e| e.id.as_str())
+            .collect();
+        let rewriting = self.locks.lock_all(&ids);
+        for e in all {
+            let mut e = if rewrites(&e) {
+                self.execution(&e.id)?.unwrap_or(e)
+            } else {
+                e
+            };
             let mut rows = Vec::new();
             if e.schema < SCHEMA {
                 e.budget.spent_micros = self.legacy_spend.as_ref().map_or(0, |f| f(&e.session_id));
@@ -1834,6 +1916,7 @@ impl Kernel {
         if !migrated.is_empty() {
             self.commit(&migrated)?;
         }
+        drop(rewriting);
         step_rows.push(self.ledger(
             "startup.step",
             None,
