@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.44
+# The Ship of Theseus — v0.45
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -46,7 +46,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Memory | Not a separate store. The graph is **append-only, always**: compaction *adds* summary nodes and later views may not include what was trimmed, but no node is ever lost. "Memory" is any node that retains enough strength to be selected into a prompt; decay lowers selection weight and moves payload to cold storage, it never removes anything. Implemented natively behind a `MemoryScience` trait; Vestige not used. |
 | MCP | Full mode: Theseus is both client and server. Prompts and elicitation in; sampling in, budgeted and Jev-judged. |
 | Proactivity | The agent may open a conversation with a human unprompted. Safety rests on the Jev security classifier plus a default-safe operator environment. |
-| Destructive confirm | Goes to the person who issued the request, as an **approval dialogue in a trusted channel**. A trusted channel is any surface the static config lists as trusted (a Discord channel or DM, the web UI, the CLI), provided every member is a trusted user, also listed in static config (Eddie, 2026-09-27; §3.9). When there is no requester (proactive or scheduled work), it goes to the **owner**. Timeout means no action. |
+| Destructive confirm | Goes to the person who issued the request, as an **approval dialogue in a trusted channel**. A trusted channel is any surface the static config lists as trusted (a Discord channel or DM, the web UI, the CLI), provided every member is a trusted user, also listed in static config (Eddie, 2026-09-27; §3.9). When there is no requester (proactive or scheduled work), it goes to the **owner**. Timeout means no action. _As built (2026-09-29, theseus-sgh; §3.9 "Approval"): without an `[approval]` section any surface answers, as before. With one, the CLI and the web UI are trusted channels when listed, since their member is this machine's operator. A Discord card for a place that is not a trusted channel goes to the requester's DM when that DM is trusted, else to another trusted user's DM, and the place gets a note. When nothing qualifies, the place gets the note alone._ |
 | Owner vs operators | One **owner** per deployment: whoever runs the Theseus runtime, whether that is Eddie, a company's CTO, or a single person on their own laptop. The owner holds final authority over policy, budgets, and unrequested destructive actions. Many **operators** may converse with and configure the system within what the owner allows. |
 | Owner's property | There is never a proposed action the owner cannot give an overriding approval for when it concerns the owner's own property (a repository, computer, or instance the owner owns), so long as it is in concordance with the model's terms of use and safety policy (Eddie, 2026-09-27). Property is declared statically in config. The override is owner-only and given in a trusted channel, and the floor takes a stronger ceremony (§3.9). _Since 2026-09-28 the gate refuses nothing, so the principle holds by construction: the owner can approve anything that waits, and the floor's ceremony is moot (§3.9; Part III A3b)._ |
 | Gate | **Notify over block** (Eddie, 2026-09-28). Every tool and every MCP inherits one posture, `open`, `notify`, or `approve`, with per-tool and per-MCP overrides. The gate never refuses a call, and the floor always asks (§3.9). |
@@ -344,13 +344,38 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
 
 **Jev** (M5; not built). Eddie's direction is one classifier (`security.v1`) that says "this is risky: 0-100%" and, based on the posture, lets the operator know. As everywhere, Jev may make a call's treatment stricter, never looser, and it is never the sole gate (§3.7), because adversarial content can move its score.
 
-**Approval** (Eddie, 2026-09-27). An approval is a dialogue in a **trusted channel**: a surface listed in static config (`[approval].channels`) whose members are all **trusted users** (`[approval].trusted_users`). Any surface can be listed: a Discord channel or DM, the web UI, the CLI.
-- Theseus checks who can see a Discord channel when it posts the dialogue, and again when an answer arrives. If anyone outside the trusted list can see it, the dialogue is not posted there, and an answer from there does not count. The call keeps waiting, and health says why.
-- A DM between the bot and a trusted user qualifies.
-- The approver must be a trusted user and must hold the capability (confirmation is not authorization, below).
-- Both lists live in the vault-held config, which agents cannot write.
+**Approval** (Eddie, 2026-09-27; built 2026-09-29, theseus-sgh). An approval is a dialogue in a **trusted channel**: a surface listed in `[approval].channels` whose members are all **trusted users** (`[approval].trusted_users`). Both lists live in the vault-held config, which agents cannot write. The rule covers every answer: a tool call that waits (posture `approve`, the approve lists, a path outside the roots, the floor) and the budget question.
+- **Where it is judged.** In one place, where an answer becomes a decision (`Core::confirm_action`), which every surface reaches through `action.confirm`. An answer counts only from a trusted user through a trusted channel. One that does not is refused with the reason, ledgered as `approval.refused` (who, through what, and why), and narrated; the call keeps waiting, and nothing is lost.
+- **Who answered is known from the connection, never from what a client says.** The listener that accepts a connection names its surface: the Unix socket and `--stdio` are `cli`, the loopback bridge is `web`, and the in-process Discord binding is `discord`. Only the binding may name a Discord channel and user. An answer's `author` is a label; it names and proves nothing.
+- **The channels.**
+  - `cli` and `web` are the operator's own machine: the socket is mode 0600, and the web UI is loopback-only, so anyone with an account on the machine can reach it. Their only member is this machine's operator, so listing one is the whole rule for it, with no trusted-user entry.
+  - `discord:dm` is a DM between the bot and a trusted user.
+  - `discord:<channel id>` is a guild channel. It is trusted only while nobody outside the trusted users can view it; another bot counts like anyone else, and Theseus itself does not.
+- **Who can view a guild channel** is worked out with Discord's permission rules (roles, the channel's overwrites, the owner). It is checked when the binding starts, when a card is about to post, and again when an answer arrives. The check needs the member list, which Discord gives only when the bot's Server Members intent is on in the developer portal. The binding reads that setting from the application's flags and leaves the gateway intents as they are. Without it, a listed guild channel cannot be verified, so it is not trusted, and health says why. DMs, the web UI, and the CLI need no check.
+- **Where the dialogue is posted.** On Discord a card goes only to a trusted channel.
+  - If the session's place is not a trusted channel, the card goes to a trusted user's DM (the requester's, when theirs is bound), and the place gets a one-line note that approval was asked there.
+  - With no trusted DM, the place gets only the note, which says where to answer.
+  - A card names only the trusted local surfaces as other places to answer.
+- **Without an `[approval]` section there is no rule**: the CLI, the local web UI, and a place's listed Discord users answer, as before. Once the section exists, `channels` defaults to the CLI and the web UI, and `trusted_users` to nobody.
+- Health, `theseus health`, and the Observatory list the trusted users and each listed channel's state (trusted, or not trusted and why).
+- The approver must also hold the capability (confirmation is not authorization, below). _Not built: until roles and delegation land (M4), every execution's principal is the operator, and a trusted user answers with the operator's authority._
 
-Not built yet; it is step 2b of P5c item 1 (theseus-sgh), and it still stands. Until it lands, an approval comes from the CLI (`theseus confirm`), the local web UI, or a user listed on a Discord place.
+**Should have asked** (theseus-sgh, 2026-09-29). A notice can be answered with one press: "should
+have asked". That tool then asks first, on every surface, until the press is undone.
+- **Where it lives.** A tightening lives in the store (a `meta` record written in the same frame as
+  its `policy.tightened` row), never in the vault config, and survives a restart.
+- **Stricter wins.** The gate applies the config's posture, then the tightening, and the stricter
+  of the two wins. A press can therefore never loosen anything, and one on a tool the config
+  already asks for changes nothing.
+- **Undo.** Undo returns the tool to the config's posture. It loosens, so it needs the same trusted
+  answer as an approval (§3.9 "Approval"; `approval.refused` with `act: policy.untighten`). A press
+  only adds asking, so it is accepted from any surface that can answer an approval.
+- **Surfaces.** On Discord, one select menu on the loop's tool message lists its distinct notified
+  tools; with `notice_embeds`, each card has a button instead. The web UI has a button by each notice
+  and an Undo in the Tools view. The CLI has `theseus policy tighten|untighten|list`.
+- **Records.** The `policy.tightened` row keeps the call's correlation id and proposal digest, a
+  labeled example for later judgment work (M5).
+- **The allow list** still runs its entries outright, as it does under a config `approve`.
 
 **Owner override** (Eddie, 2026-09-27; §1 "Owner's property"). _Moot in the gate since 2026-09-28: the gate refuses nothing, so there is no refusal for an override to lift, and the owner can approve anything that waits. Held for Eddie: close theseus-qc4, or keep these rules for a later layer that refuses (Part III A3b)._ The rules as decided:
 - An override is possible only when every target the call touches is the owner's declared property. That property is `[owner]` in static config: repository patterns, hosts, cloud accounts. A call that touches anyone else's property keeps its refusal.
@@ -521,7 +546,7 @@ The core is a **server**. Nothing else in the system, not the CLI, not Discord, 
 2. **Unix domain socket**, the daemon mode and the real deployment: `theseus serve` listens on a socket in the state directory; many clients attach and detach while the core runs forever. Localhost only, by the settled reachability rule; file permissions are the authentication.
 3. **In-process**, for adapters compiled into the binary (Discord, the web UI, tenders): the identical message types over a `tokio` channel. An in-binary adapter is still a client; it has no privileged path into the kernel.
 
-**Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session.)_
+**Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session. `policy.tighten` and `policy.untighten`, with the `policy.tightened` and `policy.untightened` notifications, arrived with "should have asked" (theseus-sgh).)_
 
 **Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. Both are static musl binaries.
 
@@ -2205,6 +2230,69 @@ _Neither a P5c item nor a plan item. It is a request of Eddie's (2026-09-28, 20:
 - Two sentences print a kernel error's text. They are the only free text in the narrative that is not a fixed template.
 - A `proc.run` subject may include `argv[1]`, so a secret that is a plain lowercase word, and is not in the vault, could show there.
 - Eddie's daemon stays off until his vault note has `narrative = true` at its very top, before `[model]`, and the daemon restarts.
+
+### Step 2b, part 1. Approval from trusted channels and trusted users (theseus-sgh; 2026-09-29, 06:52–07:25; 8fe368f, 795356f)
+
+**What exists.**
+- `[approval]` with `trusted_users` (`discord:<user id>`) and `channels` (`cli`, `web`, `discord:dm`, `discord:<channel id>`). It is optional; the template has it commented, with Eddie's DM as the example. A bad entry fails to load and names the forms. There are two warnings, both only when the section exists: an empty `channels`, and Discord listed with nobody trusted.
+- One judgment, in `Core::confirm_action`, before the budget branch, so tool calls and the budget question pass the same rule. A refusal is error `REFUSED` (-32005) with `{who, via, why}`, an `approval.refused` row, and a narrative line; the action and its execution do not move. `action.confirm_answered` rows gain `via`.
+- A typed surface per connection: `serve_connection` takes a `Client {label, surface}`, and the socket, `--stdio`, the web bridge, and the binding each name theirs. `action.confirm` gains `discord: {user_id, channel_id, guild_id}`, taken only from the binding's connection.
+- Discord:
+  - The binding sends the ids with each button press.
+  - A refused press keeps the card's buttons and gets an ephemeral reason.
+  - Cards for an untrusted place go to a trusted DM (`Op::InDm`) with a one-line note in the place.
+  - Listed guild channels are checked with twilight's `PermissionCalculator`. The Server Members intent is read from the application's flags, and health reports it as `bindings[].members_intent`.
+- Health's `approval {configured, trusted_users, channels[]}`, a `theseus health` line, and the Observatory's Approval section and ledger summaries.
+
+**How it is proven.**
+- **Review** (07:48–07:52). The gate reran at 222 tests. Tabitha's own check on the release build over a store copy: with `channels = ["web"]` a CLI answer was refused with the reason and ledgered, and after a restart with `channels = ["cli"]` the same answer approved and the call ran. Installed at 07:52. The review found theseus-6qy: a `proc.run` job runs as the operator and can reach the CLI socket and the web UI, so with `cli` or `web` trusted it can answer its own session's approvals until M4's boundary; mitigations are held for Eddie.
+- **Tests.** 222. They include:
+  - Without `[approval]`, the existing confirm, decline, supersede, and budget-reset tests pass unchanged, and every surface approves over the protocol.
+  - With it, a trusted user in a trusted channel approves. An untrusted user, a trusted user through an unlisted surface (the CLI, the web UI, an unlisted guild channel), and a forged Discord claim are each refused with the reason, and the call keeps waiting. The budget question follows the same rule.
+  - The renderer routes an untrusted place's card to the DM with a note.
+  - A guild channel without the intent is not trusted.
+  - Eddie's config shape loads with no rule and no new warning.
+  - The frame budget still holds (a plain turn is at most 17 frames).
+- **Live**, on a scratch daemon over a copy of Eddie's store, with Discord and the web UI off. Eddie's note loads under this build with only the known budget-units warning. With `channels = ["web"]`, `theseus confirm` on a waiting `fs.read` of `/etc/hostname` was refused with the reason (exit 1, `approval.refused` ledgered), and the call kept waiting. After a restart with `channels = ["cli"]`, the same answer approved and the read ran. Discord was not exercised, because one bot token means one daemon.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| Theseus checks who can see a guild channel when it posts, and again when an answer arrives (§3.9) | Checked at startup, before each card, and at each answer, for listed guild channels only, and only when the portal has the Server Members intent on. The bot's gateway intents lack `GUILD_MEMBERS`, so today a listed guild channel is not trusted | The member list needs the privileged intent. Asking for it on the gateway while the portal has it off closes the gateway (4014), so the binding reads the portal setting from the application's flags and fetches members over HTTP | Kept. Eddie decides whether to turn the intent on |
+| Every trusted channel's members are all trusted users | `cli` and `web` need no trusted-user entry | Their member is the operator of this machine: the socket is 0600; the web UI is loopback-only, so any account on the machine can reach it, which makes listing it a choice | Proposed as the spec's reading (5a) |
+| The approver must be a trusted user and hold the capability | A trusted user only | There is no capability model yet; every execution's principal is the operator | Open until M4 |
+| The confirm goes to the person who issued the request (§1) | A card for an untrusted place goes to the DM of the place's latest author when trusted and bound, else to the first trusted DM | A Discord place knows message authors, not a principal | Kept |
+| — | `channels` defaults to `["cli", "web"]` and `trusted_users` to none once the section exists | Safe defaults: the section alone takes Discord out until Discord is listed, and leaves the local surfaces as they are | Held for Eddie (6) |
+
+**Known gaps.**
+- Discord has not run live; the first run is Eddie's daemon on this build.
+- The web UI still shows Approve and Decline when `web` is not trusted; pressing one shows the refusal on the card.
+- Each check with the intent is at least three HTTP requests, which is fine for one guild.
+- A thread under a listed channel has its own id, so it is not trusted unless that id is listed.
+
+### Step 2b, part 2. Should have asked (theseus-sgh; 2026-09-29, 07:52–08:53; 814ec6d)
+
+**What exists.** One press on a notice makes that tool ask first until it is undone (§3.9 "Should have asked"):
+- `tighten.rs`: the tightenings are one `meta` record, `policy.tightenings`, written in the same frame as each `policy.tightened` or `policy.untightened` row, and read once at startup.
+- The gate's `posture_now` takes the stricter of the config's posture and the tightening. A tightened call's reason names who tightened it and what the config says.
+- `Core::judge_act` is the one judgment for every approval-like act: an answer, a press, and an undo. An undo needs a trusted answer; a press only needs a surface that can answer an approval.
+- `policy.tighten` and `policy.untighten`, with notifications to every watching connection. The notice (`tool.notified`, `policy.notified`) now carries its call's correlation id, since it is written after the plan.
+- Discord: one "Should have asked…" select menu on each loop's tool message, or a button per card with `notice_embeds`. The web UI has a button by each notice and an Undo in the Tools view. The CLI has `theseus policy tighten|untighten|list`, and the notice line ends with the exact tighten command.
+
+**How it is proven.**
+- **Tests.** 236, 14 of them new. They cover: a press makes the next call wait and an undo notifies again; a tightening never loosens and its undo stops at the config; it survives a restart; only a trusted answer undoes it; without `[approval]` every surface can press and undo; the Discord menu and button; and the CLI lines. The frame budget holds (a plain turn is at most 17 frames).
+- **Live** (the step's own check, 08:26–08:29, and Tabitha's, 08:51–08:52, on the release build over a store copy): a notified `proc.run` offered the tighten command; the press made the next `proc.run` wait with the tightened reason; the tightening survived a restart; the undo put it back to `notify`. With `[approval] channels = ["discord:dm"]`, a CLI undo was refused with the reason and ledgered.
+- **The run.** The subagent's run was aborted at 08:31, after its commit and live check. Tabitha finished the report, reran the gate, checked the release build, and installed it at 08:52.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The "should have asked" button turns a call into a labeled example and a *proposed rule* (theseus-770, the consequence gate) | It tightens the tool's posture to approve, stored and undoable; the call is kept as a labeled example | There are no rules left to propose since the reversal (2026-09-28); the posture is the one control surface | Kept |
+| A button on every amber notice | One select menu per loop's tool message on Discord (quiet notices), a button per card with `notice_embeds`, and buttons in the web UI | Quiet notices put a loop's notices on one message | Kept |
+
+**Known gaps.** Discord was not exercised live, because one bot token means one daemon. The allow list still runs its entries outright under a tightening, as it does under a config `approve`. An undo from a job through the CLI or the web UI counts wherever those channels are trusted (theseus-6qy).
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
