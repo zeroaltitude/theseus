@@ -24,6 +24,7 @@ use serde_json::{json, Value};
 
 use crate::attach::Media;
 use crate::catalog::{Catalog, ThinkingMode};
+use crate::config::{Effort, ThinkingDisplay};
 use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, ProviderRequest};
 
@@ -123,9 +124,8 @@ pub struct RequestSpec {
     pub context_files: Vec<ContextFileRef>,
     /// Wire tool definitions, sorted by name.
     pub tools: Vec<Value>,
-    pub effort: Option<String>,
-    /// `summarized`, `omitted`, or `updates`.
-    pub thinking_display: String,
+    pub effort: Option<Effort>,
+    pub thinking_display: ThinkingDisplay,
     pub refusal_fallbacks: bool,
     /// The provider is Anthropic's own API (server-side fallbacks exist only there).
     pub first_party: bool,
@@ -387,12 +387,12 @@ pub fn render_request(
     let thinking = match entry.map(|e| e.thinking) {
         Some(ThinkingMode::Always) | Some(ThinkingMode::Adaptive) => {
             let always = entry.map(|e| e.thinking) == Some(ThinkingMode::Always);
-            let display = match spec.thinking_display.as_str() {
-                "updates" if always => {
+            let display = match spec.thinking_display {
+                ThinkingDisplay::Updates if always => {
                     betas.push(BETA_THINKING_UPDATES.to_string());
                     "updates"
                 }
-                "omitted" => "omitted",
+                ThinkingDisplay::Omitted => "omitted",
                 _ => "summarized",
             };
             Some(json!({"type": "adaptive", "display": display}))
@@ -606,8 +606,8 @@ mod tests {
             tools: vec![
                 json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
             ],
-            effort: Some("high".into()),
-            thinking_display: "summarized".into(),
+            effort: Some(Effort::High),
+            thinking_display: ThinkingDisplay::Summarized,
             refusal_fallbacks: true,
             first_party: true,
         }

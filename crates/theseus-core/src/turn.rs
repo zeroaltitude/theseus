@@ -34,6 +34,7 @@ use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
 use crate::compiler::{compile, CompileInput, Compiled, Recompile, RequestSpec};
+use crate::config::{Effort, ThinkingDisplay};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::ledger::LedgerRow;
 use crate::narrative::{self, narrate, narrate_turn, Narrator};
@@ -62,8 +63,8 @@ pub struct Target {
     pub system: Option<String>,
     /// The profile's context files, as configured (theseus-58a).
     pub context_files: Vec<String>,
-    pub effort: Option<String>,
-    pub thinking_display: String,
+    pub effort: Option<Effort>,
+    pub thinking_display: ThinkingDisplay,
     pub max_loops: u32,
     pub refusal_fallbacks: bool,
 }
@@ -345,8 +346,8 @@ impl TurnRunner {
             max_tokens,
             system: prof.system.clone(),
             context_files: self.cfg.context_files_for(prof).to_vec(),
-            effort: prof.effort.clone(),
-            thinking_display: prof.thinking_display.clone(),
+            effort: prof.effort,
+            thinking_display: prof.thinking_display,
             max_loops: prof.max_loops,
             refusal_fallbacks: prof.refusal_fallbacks,
         })
@@ -404,8 +405,8 @@ impl TurnRunner {
             system_text: self.system_text(target, &files),
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             tools: self.tools.definitions(),
-            effort: target.effort.clone(),
-            thinking_display: target.thinking_display.clone(),
+            effort: target.effort,
+            thinking_display: target.thinking_display,
             refusal_fallbacks: target.refusal_fallbacks,
             first_party: self.first_party(&target.provider),
         };

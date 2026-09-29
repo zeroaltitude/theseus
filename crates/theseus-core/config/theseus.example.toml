@@ -34,7 +34,7 @@ model = "claude-sonnet-5-5"
 # whatever the compiler assembles, bounded by the model's context window. Omitted,
 # it defaults to the model's ceiling from the catalog (Sonnet 5/5.5, Opus 5/5.5,
 # Fable 5.1: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
-# max_output_tokens = 128000            # alias: max_tokens
+# max_output_tokens = 128000
 # system = "You are Theseus."           # appended to the built-in persona and tools note
 # Context files (~/ or absolute paths), for every profile that names none: each is compiled
 # into the system block after system, under a header that names it. A turn stats each file

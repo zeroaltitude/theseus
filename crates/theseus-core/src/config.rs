@@ -59,14 +59,17 @@ pub struct Config {
     /// The floor keeps it, whichever way it was named (theseus-8az).
     #[serde(skip)]
     pub op_token_file: Option<PathBuf>,
+    /// Every profile and provider, the implicit `default` and `anthropic`
+    /// that `[model]` names included: resolved once, when the document is read.
+    #[serde(skip)]
+    resolved: Resolved,
 }
 
-/// Keys renamed by theseus-8az, as (section, old, new): the old name still
-/// loads (a serde alias), with a warning to rename it.
-const RENAMED: &[(&str, &str, &str)] = &[
-    ("tools", "deny_paths", "approve_paths"),
-    ("policy", "deny_argv", "approve_argv"),
-];
+#[derive(Debug, Clone, Default)]
+struct Resolved {
+    profiles: BTreeMap<String, ProfileConfig>,
+    providers: BTreeMap<String, ProviderConfig>,
+}
 
 /// `[discord]`: the Discord binding (M3). It connects only when the token
 /// secret resolves and the bindings file exists; otherwise health reports it
@@ -144,8 +147,8 @@ pub struct ToolsConfig {
     /// Where relative paths resolve and programs run by default (default: `projects_dir`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
-    /// Paths that wait for approval, even under a root (old name `deny_paths`).
-    #[serde(default = "default_approve_paths", alias = "deny_paths")]
+    /// Paths that wait for approval, even under a root.
+    #[serde(default = "default_approve_paths")]
     pub approve_paths: Vec<String>,
     /// Characters of a tool result the model sees (head and tail kept).
     #[serde(default = "default_result_max_chars")]
@@ -247,8 +250,8 @@ pub struct PolicyConfig {
     /// inside the roots.
     #[serde(default = "default_allow_argv")]
     pub allow_argv: Vec<Vec<String>>,
-    /// `proc.run` argv prefixes that wait for approval (old name `deny_argv`).
-    #[serde(default = "default_approve_argv", alias = "deny_argv")]
+    /// `proc.run` argv prefixes that wait for approval.
+    #[serde(default = "default_approve_argv")]
     pub approve_argv: Vec<Vec<String>>,
     /// Per-tool postures by canonical name, e.g. `"proc.run" = "approve"`.
     #[serde(default)]
@@ -257,30 +260,6 @@ pub struct PolicyConfig {
     /// `"server/tool"` (one tool), for tools named `mcp:<server>/<tool>`.
     #[serde(default)]
     pub mcp: BTreeMap<String, crate::policy::Posture>,
-    /// The retired class keys (`read`, `write`, `run`; theseus-8az), still
-    /// accepted so an older config loads, and never honored. Only the old
-    /// template's words (`allow`, `confirm`) load: `validate` fails any other
-    /// value, since dropping it silently could loosen a stated boundary.
-    #[serde(default, skip_serializing)]
-    pub read: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub write: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub run: Option<String>,
-}
-
-impl PolicyConfig {
-    /// The retired class keys this config still sets, with their values.
-    pub fn retired(&self) -> Vec<(&'static str, &str)> {
-        [
-            ("read", &self.read),
-            ("write", &self.write),
-            ("run", &self.run),
-        ]
-        .into_iter()
-        .filter_map(|(k, v)| v.as_deref().map(|v| (k, v)))
-        .collect()
-    }
 }
 
 fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
@@ -316,9 +295,6 @@ impl Default for PolicyConfig {
             approve_argv: default_approve_argv(),
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
-            read: None,
-            write: None,
-            run: None,
         }
     }
 }
@@ -475,15 +451,18 @@ pub struct ProviderConfig {
     pub api_base: String,
     /// Name of the entry in `[secrets]` holding this provider's key.
     pub api_key_secret: String,
-    /// Wire protocol. Only `anthropic_messages` exists today.
-    #[serde(default = "default_provider_kind")]
-    pub kind: String,
+    #[serde(default)]
+    pub kind: ProviderKind,
     #[serde(default)]
     pub timeouts: Option<crate::provider::Timeouts>,
 }
 
-fn default_provider_kind() -> String {
-    "anthropic_messages".into()
+/// A provider's wire protocol. Only the Anthropic Messages API exists today.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKind {
+    #[default]
+    AnthropicMessages,
 }
 
 /// A named way of running turns: which provider, which model, how long an
@@ -500,7 +479,7 @@ pub struct ProfileConfig {
     /// Cap on tokens the model may *generate* per call (the Messages API's
     /// `max_tokens`). Not an input limit; input is whatever the compiler
     /// assembles. Omitted: the model's ceiling from the catalog.
-    #[serde(default, alias = "max_tokens", skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
     #[serde(default)]
     pub system: Option<String>,
@@ -509,13 +488,12 @@ pub struct ProfileConfig {
     /// `[model].context_files`; `[]`: none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_files: Option<Vec<String>>,
-    /// `low`, `medium`, `high`, `xhigh`, or `max`, for models that accept effort.
-    /// Omitted: the model's default (Opus 5.5: medium; others: high).
+    /// For models that accept effort. Omitted: the model's default (Opus 5.5:
+    /// medium; others: high).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    /// What thinking blocks carry: `summarized`, `omitted`, or `updates`.
-    #[serde(default = "default_thinking_display")]
-    pub thinking_display: String,
+    pub effort: Option<Effort>,
+    #[serde(default)]
+    pub thinking_display: ThinkingDisplay,
     /// Tool loops per turn before the Advancer ends it.
     #[serde(default = "default_max_loops")]
     pub max_loops: u32,
@@ -524,12 +502,26 @@ pub struct ProfileConfig {
     pub refusal_fallbacks: bool,
 }
 
-pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
-pub const THINKING_DISPLAYS: &[&str] = &["summarized", "omitted", "updates"];
-
-fn default_thinking_display() -> String {
-    "summarized".into()
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
 }
+
+/// What thinking blocks carry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingDisplay {
+    #[default]
+    Summarized,
+    Omitted,
+    Updates,
+}
+
 fn default_max_loops() -> u32 {
     40
 }
@@ -557,7 +549,7 @@ pub struct ModelConfig {
     #[serde(default = "default_model")]
     pub model: String,
     /// Output cap per call for the implicit default profile; see `ProfileConfig`.
-    #[serde(default, alias = "max_tokens", skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
     #[serde(default)]
     pub system: Option<String>,
@@ -565,9 +557,9 @@ pub struct ModelConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_files: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    #[serde(default = "default_thinking_display")]
-    pub thinking_display: String,
+    pub effort: Option<Effort>,
+    #[serde(default)]
+    pub thinking_display: ThinkingDisplay,
     #[serde(default = "default_max_loops")]
     pub max_loops: u32,
     #[serde(default = "default_true")]
@@ -626,7 +618,7 @@ impl Default for ModelConfig {
             system: None,
             context_files: Vec::new(),
             effort: None,
-            thinking_display: default_thinking_display(),
+            thinking_display: ThinkingDisplay::Summarized,
             max_loops: default_max_loops(),
             refusal_fallbacks: true,
             api_base: default_api_base(),
@@ -668,42 +660,12 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Parse and validate a config document. The warnings name the renamed
-    /// and retired keys it still uses; the caller logs them at startup.
+    /// Parse and validate a config document. The warnings name the retired
+    /// keys it still uses; the caller logs them at startup.
     pub fn parse(text: &str) -> Result<(Self, Vec<String>)> {
-        let cfg: Config = toml::from_str(text).context("parsing config TOML")?;
+        let cfg = Self::from_toml(text).context("parsing config TOML")?;
         cfg.validate()?;
-        // Serde's alias does not say which name a key came in under, so the
-        // old names are looked up in the document itself; a document that
-        // never spells one skips the second parse (startup stays FAST).
-        let table: toml::Table = if RENAMED.iter().any(|(_, old, _)| text.contains(old)) {
-            toml::from_str(text).unwrap_or_default()
-        } else {
-            toml::Table::new()
-        };
-        let mut warnings: Vec<String> = RENAMED
-            .iter()
-            .filter(|(section, old, _)| table.get(*section).and_then(|t| t.get(*old)).is_some())
-            .map(|(section, old, new)| {
-                format!(
-                    "{section}.{old} is renamed {section}.{new} (theseus-8az): a match waits for \
-                     your approval; rename the key"
-                )
-            })
-            .collect();
-        warnings.extend(cfg.policy.retired().into_iter().map(|(key, _)| {
-            format!(
-                "policy.{key} is retired and ignored (theseus-8az): every tool inherits \
-                 [policy].enforcement unless [policy.tools] names it"
-            )
-        }));
-        if cfg.telemetry.hook_spans.is_some() {
-            warnings.push(
-                "telemetry.hook_spans is retired and ignored (theseus-hco): the hook system \
-                 is gone; remove the key"
-                    .into(),
-            );
-        }
+        let mut warnings = Vec::new();
         // One warning for the unit budget however many of its keys remain:
         // they retire together, and the fix is one edit.
         let units = cfg.kernel.retired();
@@ -742,12 +704,6 @@ impl Config {
                     p.api_key_secret
                 );
             }
-            if p.kind != "anthropic_messages" {
-                anyhow::bail!(
-                    "providers.{name}.kind = {:?} is not supported (only anthropic_messages)",
-                    p.kind
-                );
-            }
         }
         if !self.all_providers().contains_key(&self.model.provider) {
             anyhow::bail!(
@@ -772,21 +728,6 @@ impl Config {
             }
         }
         for (name, prof) in self.all_profiles() {
-            if let Some(e) = &prof.effort {
-                if !EFFORTS.contains(&e.as_str()) {
-                    anyhow::bail!(
-                        "profiles.{name}.effort = {e:?} is not one of {}",
-                        EFFORTS.join(", ")
-                    );
-                }
-            }
-            if !THINKING_DISPLAYS.contains(&prof.thinking_display.as_str()) {
-                anyhow::bail!(
-                    "profiles.{name}.thinking_display = {:?} is not one of {}",
-                    prof.thinking_display,
-                    THINKING_DISPLAYS.join(", ")
-                );
-            }
             if prof.max_loops == 0 {
                 anyhow::bail!("profiles.{name}.max_loops must be at least 1");
             }
@@ -821,20 +762,6 @@ impl Config {
             }
         }
         let registry = theseus_tools::default_registry();
-        for (key, value) in self.policy.retired() {
-            if !matches!(value, "allow" | "confirm") {
-                let lines: Vec<String> = registry
-                    .all()
-                    .filter(|t| t.class().as_str() == key)
-                    .map(|t| format!("\"{}\" = \"approve\"", t.name()))
-                    .collect();
-                anyhow::bail!(
-                    "policy.{key} = {value:?} is retired (theseus-8az); a tool's posture is \
-                     open | notify | approve, set under [policy.tools] (to make these wait: {})",
-                    lines.join(", ")
-                );
-            }
-        }
         let mcp_key = |k: &str| {
             let parts: Vec<&str> = k.split('/').collect();
             parts.len() <= 2 && parts.iter().all(|p| !p.is_empty())
@@ -887,23 +814,44 @@ impl Config {
         Ok(())
     }
 
+    /// Deserialize a document and resolve its implicit profile and provider.
+    fn from_toml(text: &str) -> Result<Self, toml::de::Error> {
+        let mut cfg: Config = toml::from_str(text)?;
+        let m = &cfg.model;
+        let mut profiles = cfg.profiles.clone();
+        profiles
+            .entry("default".into())
+            .or_insert_with(|| ProfileConfig {
+                provider: m.provider.clone(),
+                model: m.model.clone(),
+                max_output_tokens: m.max_output_tokens,
+                system: m.system.clone(),
+                context_files: None,
+                effort: m.effort,
+                thinking_display: m.thinking_display,
+                max_loops: m.max_loops,
+                refusal_fallbacks: m.refusal_fallbacks,
+            });
+        let mut providers = cfg.providers.clone();
+        providers
+            .entry("anthropic".into())
+            .or_insert_with(|| ProviderConfig {
+                api_base: m.api_base.clone(),
+                api_key_secret: m.api_key_secret.clone(),
+                kind: ProviderKind::AnthropicMessages,
+                timeouts: None,
+            });
+        cfg.resolved = Resolved {
+            profiles,
+            providers,
+        };
+        Ok(cfg)
+    }
+
     /// Every profile by name, with the implicit `default` synthesized from
     /// `[model]` unless `[profiles.default]` overrides it.
-    pub fn all_profiles(&self) -> BTreeMap<String, ProfileConfig> {
-        let mut all = self.profiles.clone();
-        all.entry("default".into())
-            .or_insert_with(|| ProfileConfig {
-                provider: self.model.provider.clone(),
-                model: self.model.model.clone(),
-                max_output_tokens: self.model.max_output_tokens,
-                system: self.model.system.clone(),
-                context_files: None,
-                effort: self.model.effort.clone(),
-                thinking_display: self.model.thinking_display.clone(),
-                max_loops: self.model.max_loops,
-                refusal_fallbacks: self.model.refusal_fallbacks,
-            });
-        all
+    pub fn all_profiles(&self) -> &BTreeMap<String, ProfileConfig> {
+        &self.resolved.profiles
     }
 
     /// A profile's context files: its own list, else `[model].context_files`.
@@ -915,16 +863,8 @@ impl Config {
 
     /// Every provider by name, with the implicit `anthropic` one synthesized
     /// from `[model]` unless `[providers.anthropic]` overrides it.
-    pub fn all_providers(&self) -> BTreeMap<String, ProviderConfig> {
-        let mut all = self.providers.clone();
-        all.entry("anthropic".into())
-            .or_insert_with(|| ProviderConfig {
-                api_base: self.model.api_base.clone(),
-                api_key_secret: self.model.api_key_secret.clone(),
-                kind: default_provider_kind(),
-                timeouts: None,
-            });
-        all
+    pub fn all_providers(&self) -> &BTreeMap<String, ProviderConfig> {
+        &self.resolved.providers
     }
 
     pub fn state_dir(&self) -> PathBuf {
@@ -941,7 +881,7 @@ impl Config {
     /// The template, parsed. `example-config` prints `EXAMPLE_TOML` itself so
     /// the comments survive.
     pub fn example() -> Self {
-        toml::from_str(Self::EXAMPLE_TOML).expect("the bundled example config parses")
+        Self::from_toml(Self::EXAMPLE_TOML).expect("the bundled example config parses")
     }
 }
 
@@ -998,7 +938,7 @@ mod tests {
             out.push_str(line);
             out.push('\n');
         }
-        let cfg: Config = toml::from_str(&out).unwrap_or_else(|e| {
+        let cfg = Config::from_toml(&out).unwrap_or_else(|e| {
             panic!("un-commented template must parse (a documented key is stale or its value invalid): {e}\n{out}")
         });
         assert_eq!(
@@ -1073,7 +1013,6 @@ mod tests {
         let (cfg, warnings) = Config::parse(Config::EXAMPLE_TOML).unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(cfg.policy.enforcement, Posture::Notify);
-        assert!(cfg.policy.retired().is_empty());
         assert_eq!(cfg.policy.allow_argv, default_allow_argv());
         assert_eq!(cfg.policy.approve_argv, default_approve_argv());
         assert_eq!(cfg.tools.approve_paths, default_approve_paths());
@@ -1085,8 +1024,6 @@ mod tests {
             .collect();
         assert!(section.contains(&"[policy]") && section.contains(&"# [policy.mcp]"));
         for l in &section {
-            let key = l.trim_start_matches("# ").split('=').next().unwrap().trim();
-            assert!(!["read", "write", "run"].contains(&key), "retired key: {l}");
             assert!(!l.to_lowercase().contains("refuse"), "{l}");
         }
         assert!(
@@ -1110,77 +1047,64 @@ mod tests {
         let (cfg, warnings) = parse_policy("enforcement = \"notify\"").unwrap();
         assert_eq!(cfg.policy.enforcement, Posture::Notify);
         assert!(cfg.policy.tools.is_empty() && cfg.policy.mcp.is_empty());
-        assert!(cfg.policy.retired().is_empty() && warnings.is_empty());
+        assert!(warnings.is_empty());
         assert_eq!(policy_only("").unwrap().policy.enforcement, Posture::Open);
     }
 
-    /// The live vault config's shape as of 2026-09-28 (checked by key name
-    /// only): the old list names, the retired class keys at the old
-    /// template's values, and no [policy.tools]. It loads, the lists keep
-    /// their entries under the new names, and each old key gets a warning.
+    /// The spellings the loader once accepted with a warning, which no
+    /// deployment still uses (Eddie's note checked by key name, 2026-09-29),
+    /// now fail to load like any unknown key (theseus-0g4): the renamed lists,
+    /// the policy class keys, the hook spans, and the old output-cap name.
     #[test]
-    fn the_live_config_shape_still_loads_with_a_warning_per_old_key() {
-        let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
-                    [tools]\nprojects_dir = \"/w\"\ndeny_paths = [\"~/.ssh\", \"~/.theseus\"]\n\n\
-                    [policy]\nenforcement = \"notify\"\nread = \"allow\"\nwrite = \"confirm\"\nrun = \"confirm\"\n\
-                    allow_argv = [[\"ls\"], [\"pwd\"]]\ndeny_argv = [[\"sudo\"], [\"op\"], [\"theseusd\"]]\n";
-        let (cfg, warnings) = Config::parse(text).unwrap();
-        assert_eq!(cfg.policy.enforcement, Posture::Notify);
-        assert_eq!(cfg.tools.approve_paths, ["~/.ssh", "~/.theseus"]);
-        assert_eq!(
-            cfg.policy.approve_argv,
-            argvs(&[&["sudo"], &["op"], &["theseusd"]])
-        );
-        let keys: Vec<&str> = cfg.policy.retired().iter().map(|(k, _)| *k).collect();
-        assert_eq!(keys, ["read", "write", "run"]);
-        assert_eq!(warnings.len(), 5, "{warnings:?}");
-        for (w, start) in warnings.iter().zip([
-            "tools.deny_paths is renamed tools.approve_paths (theseus-8az)",
-            "policy.deny_argv is renamed policy.approve_argv (theseus-8az)",
-            "policy.read is retired and ignored",
-            "policy.write is retired and ignored",
-            "policy.run is retired and ignored",
-        ]) {
-            assert!(w.starts_with(start), "{w}");
+    fn the_retired_spellings_fail_to_load() {
+        for (section, key) in [
+            ("tools", "deny_paths = [\"~/.ssh\"]"),
+            ("policy", "deny_argv = [[\"sudo\"]]"),
+            ("policy", "read = \"allow\""),
+            ("policy", "run = \"confirm\""),
+            ("telemetry", "hook_spans = false"),
+            ("model", "max_tokens = 1000"),
+        ] {
+            let doc =
+                format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[{section}]\n{key}\n");
+            let e = format!("{:#}", Config::parse(&doc).unwrap_err());
+            assert!(e.contains("unknown field"), "{section}.{key}: {e}");
         }
-        // `theseusd config` shows the new names and nothing retired.
-        let shown = toml::to_string(&cfg.policy).unwrap() + &toml::to_string(&cfg.tools).unwrap();
-        assert!(shown.contains("approve_argv = ") && shown.contains("approve_paths = "));
-        assert!(
-            !shown.contains("deny") && !shown.contains("read =") && !shown.contains("confirm"),
-            "{shown}"
-        );
-        // An old and a new name together set one key twice.
-        let both = text.replace("[policy]\n", "[policy]\napprove_argv = [[\"x\"]]\n");
-        let e = format!("{:#}", Config::parse(&both).unwrap_err());
-        assert!(e.contains("duplicate"), "{e}");
     }
 
-    /// The live vault config sets `[telemetry] hook_spans = false` (checked
-    /// 2026-09-28). The key outlived the hook system (theseus-hco): either
-    /// value loads and is ignored with one warning, and `theseusd config`
-    /// no longer shows it.
+    /// `effort`, `thinking_display`, and a provider's `kind` are enums: a
+    /// value outside them fails to load and the error lists the ones there are.
     #[test]
-    fn the_retired_hook_spans_key_loads_with_a_warning() {
-        for value in ["false", "true"] {
-            let text = format!(
-                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
-                 [telemetry]\nservice_name = \"theseus\"\nhook_spans = {value}\n\
-                 metrics_interval_secs = 15\n"
-            );
-            let (cfg, warnings) = Config::parse(&text).unwrap();
-            assert_eq!(warnings.len(), 1, "{warnings:?}");
-            assert!(
-                warnings[0]
-                    .starts_with("telemetry.hook_spans is retired and ignored (theseus-hco)"),
-                "{warnings:?}"
-            );
-            let shown = toml::to_string(&cfg.telemetry).unwrap();
-            assert!(!shown.contains("hook"), "{shown}");
+    fn enum_keys_name_their_values_when_one_is_wrong() {
+        for (doc, values) in [
+            (
+                "[model]\neffort = \"huge\"",
+                "`low`, `medium`, `high`, `xhigh`, `max`",
+            ),
+            (
+                "[profiles.p]\nmodel = \"m\"\nthinking_display = \"full\"",
+                "`summarized`, `omitted`, `updates`",
+            ),
+            (
+                "[providers.p]\napi_base = \"https://x\"\napi_key_secret = \"anthropic_api_key\"\n\
+                 kind = \"openai\"",
+                "`anthropic_messages`",
+            ),
+        ] {
+            let text = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n{doc}\n");
+            let e = format!("{:#}", Config::parse(&text).unwrap_err());
+            assert!(e.contains("unknown variant") && e.contains(values), "{e}");
         }
-        let (_, warnings) =
-            Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
-        assert!(warnings.is_empty(), "{warnings:?}");
+        let (cfg, _) = Config::parse(
+            "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[model]\neffort = \"xhigh\"\n\
+             thinking_display = \"omitted\"\n",
+        )
+        .unwrap();
+        let d = &cfg.all_profiles()["default"];
+        assert_eq!(
+            (d.effort, d.thinking_display),
+            (Some(Effort::Xhigh), ThinkingDisplay::Omitted)
+        );
     }
 
     /// Eddie's vault config (its [kernel] keys checked 2026-09-29, by name
@@ -1349,18 +1273,6 @@ mod tests {
                 "{doc}: {e}"
             );
         }
-        let e = format!("{:#}", policy_only("run = \"deny\"").unwrap_err());
-        assert!(
-            e.contains("policy.run = \"deny\" is retired")
-                && e.contains("open | notify | approve")
-                && e.contains("\"proc.run\" = \"approve\""),
-            "{e}"
-        );
-        let e = format!("{:#}", policy_only("write = \"deny\"").unwrap_err());
-        for w in ["fs.edit", "fs.write", "fs.patch"] {
-            assert!(e.contains(&format!("\"{w}\" = \"approve\"")), "{e}");
-        }
-        assert!(policy_only("read = \"bogus\"").is_err());
         for old in ["strict", "ask", "allow", "confirm"] {
             let e = format!(
                 "{:#}",

@@ -53,11 +53,6 @@ pub struct TelemetryConfig {
     pub headers_secret: Option<String>,
     #[serde(default = "default_service_name")]
     pub service_name: String,
-    /// Retired with the hook system (theseus-hco): still accepted so an older
-    /// config loads, and ignored. Marks, compile, store, lock, and advancer
-    /// are always events on their parent span.
-    #[serde(default, skip_serializing)]
-    pub hook_spans: Option<bool>,
     /// Metrics export interval.
     #[serde(default = "default_metrics_interval")]
     pub metrics_interval_secs: u64,
@@ -81,7 +76,6 @@ impl Default for TelemetryConfig {
             otlp_endpoint: None,
             headers_secret: None,
             service_name: default_service_name(),
-            hook_spans: None,
             metrics_interval_secs: default_metrics_interval(),
             export_timeout_secs: default_export_timeout(),
         }

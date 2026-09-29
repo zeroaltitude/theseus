@@ -87,7 +87,10 @@ impl Core {
                 .timeouts
                 .clone()
                 .unwrap_or_else(|| cfg.model.timeouts.clone());
-            providers.insert(name, Arc::new(Anthropic::new(&pc.api_base, key, timeouts)?));
+            providers.insert(
+                name.clone(),
+                Arc::new(Anthropic::new(&pc.api_base, key, timeouts)?),
+            );
         }
         let headers = cfg
             .telemetry
@@ -567,14 +570,14 @@ impl Core {
         let profiles = self
             .cfg
             .all_profiles()
-            .into_iter()
+            .iter()
             .map(|(name, p)| ProfileInfo {
-                live: name == live,
-                name,
+                live: *name == live,
+                name: name.clone(),
                 max_output_tokens: p.effective_max_tokens(&self.catalog),
                 has_system: p.system.is_some(),
-                provider: p.provider,
-                model: p.model,
+                provider: p.provider.clone(),
+                model: p.model.clone(),
             })
             .collect();
         ProfileListResult {
