@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.43
+# The Ship of Theseus — v0.44
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -28,7 +28,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Execution model | **Event-driven.** No in-flight state lives only in harness memory; every dispatched thing is a WAL record with a harness-minted correlation id; completion arrives as an event (in-process, Unix socket spool, SQS pull, loopback HTTP as the off-by-default exception); the harness is quiescent between events; the one-minute heartbeat is the level-triggered reconciler. Adopted 2026-09-24 from Eddie's all-webhook proposal, with "webhook" generalized to "completion event" and "unkillable" replaced by "detached, durable, cancellable" (§3.3, §3.16). |
 | Deployment | One large node: Theseus, source trees, and sandboxes together. Must also run on a home desktop with every AWS dependency optional at runtime. |
 | Durability | Local fsync to a persistent SSD is the floor, before any action is dispatched. Off-node durability is **eventual, 5–60 s** (measured, not asserted), produced by asynchronous durability work the core performs in the time a turn has surrendered to a remote (model call, shell, judge, human). Single node; no replication. |
-| Storage kernel | **Decided by measurement (M1, 2026-09-26): the WAL is the truth; a pure-Rust embedded store is a rebuildable index over it, and that store is `redb`.** On identical fsync-bound workloads the two candidates append at the same rate (the disk decides); with fsync removed `fjall` appends 1.7× faster but `redb` reopens 2× faster and answers "latest of every key" 10–17× faster, is one file, and has no background compaction. `fjall` remains behind the `Index` trait, selectable by config; a store keeps the engine it was created with. |
+| Storage kernel | **Decided by measurement (M1, 2026-09-26): the WAL is the truth; a pure-Rust embedded store is a rebuildable index over it, and that store is `redb`.** On identical fsync-bound workloads the two candidates append at the same rate (the disk decides); with fsync removed `fjall` appends 1.7× faster but `redb` reopens 2× faster and answers "latest of every key" 10–17× faster, is one file, and has no background compaction. _(Amended 2026-09-29, theseus-0g4: `fjall` and the `Index` trait were removed in batch C. The index is `redb`, and a store manifest or a config naming any other engine is refused.)_ |
 | Unit of concurrency | **One turn per session.** A session is a task or a conversation; each has exactly one execution and one turn lock. Thousands of sessions exist durably; those with runnable work run concurrently, bounded by an admission scheduler; the rest are parked at zero cost. Channels order deliveries, not work. (Eddie, 2026-09-25.) |
 | Graph shape | The context graph is a **DAG with multiple parents**, not a tree. A node belongs to a channel, to a session, to any number of compilations, and to derived nodes at once, each by its own typed edge. Order within any lineage comes from the node's WAL position, never from a single `next` chain. |
 | Session persistence | A session persists as a small record pointing at its current `Compilation` and its tail range; it is durable by reference and resolves to a lineage of compilations linked by `derived_from`. Nothing is copied per session; rendered prefixes are a rebuildable cache. |
@@ -521,7 +521,7 @@ The core is a **server**. Nothing else in the system, not the CLI, not Discord, 
 2. **Unix domain socket**, the daemon mode and the real deployment: `theseus serve` listens on a socket in the state directory; many clients attach and detach while the core runs forever. Localhost only, by the settled reachability rule; file permissions are the authentication.
 3. **In-process**, for adapters compiled into the binary (Discord, the web UI, tenders): the identical message types over a `tokio` channel. An in-binary adapter is still a client; it has no privileged path into the kernel.
 
-**Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_
+**Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session.)_
 
 **Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. Both are static musl binaries.
 
@@ -538,7 +538,7 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
 
 ### 3.20 Telemetry
 
-OpenTelemetry is on by default and is a **projection of the record**, never a second instrumentation. The turn trace (§3.3a) is already a span tree with absolute start and end times; when a turn ends, Theseus walks the finished tree and emits it as OTel spans with those exact timestamps, so the hot path pays nothing beyond the trace it already records and the exported picture is byte-for-byte the ledger's. The mapping:
+OpenTelemetry is a **projection of the record**, never a second instrumentation, and an opt-in build feature (below; amended 2026-09-29, theseus-0g4). The turn trace (§3.3a) is already a span tree with absolute start and end times; when a turn ends, Theseus walks the finished tree and emits it as OTel spans with those exact timestamps, so the hot path pays nothing beyond the trace it already records and the exported picture is byte-for-byte the ledger's. The mapping:
 
 | Theseus | OpenTelemetry |
 |---|---|
@@ -546,11 +546,11 @@ OpenTelemetry is on by default and is a **projection of the record**, never a se
 | loop *n* | child span |
 | provider.call | child span with the GenAI semantic conventions: `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.id`, `gen_ai.response.finish_reasons` |
 | first_byte, first_token | events on the provider span |
-| compile, advancer, store, lock, marks | events on their parent span. _(Since 2026-09-28 always: hook sites are gone, and `telemetry.hook_spans`, which made these spans, is retired and ignored with a warning; 11d2f43.)_ |
+| compile, advancer, store, lock, marks | events on their parent span. _(Since 2026-09-28 always: hook sites are gone, and `telemetry.hook_spans`, which made these spans, was retired in 11d2f43 and since theseus-0g4 no longer loads.)_ |
 | provider.error, turn.failed | span status error with the class, transient, and usage_unknown as attributes |
 | turns, tokens, provider errors, durations | metrics: `theseus.turns` (profile, provider, model, outcome), `theseus.tokens` (direction), `theseus.provider.errors` (class, transient), histograms `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`, `theseus.provider.first_token_ms`; `theseus.tool.calls` (family, tool, backend, outcome) and `theseus.tool.duration_ms`, from which the shell-fallback ratio (§3.23) is read |
 
-Transport is OTLP over HTTP/protobuf through the same `reqwest` + rustls stack as the provider client; no gRPC, no C. Headers (a Honeycomb key, a Datadog key) come from the vault like every other secret. Resource attributes carry `service.name`, `service.version`, and `service.instance.id`. **Nothing leaves the process until `[telemetry].otlp_endpoint` is set**; the pipeline is always compiled in and running so enabling it is a config change, not a build. Point it at a local Collector, Grafana Tempo, Honeycomb, Datadog, or the AWS Distro for OpenTelemetry, which is how "CloudWatch for historical search" (§1) is satisfied with no CloudWatch-specific code. The web UI and CLI keep reading the trace directly; OTel is for the fleet view.
+Transport is OTLP over HTTP/protobuf through `reqwest` and rustls, with no gRPC. Headers (a Honeycomb key, a Datadog key) come from the vault like every other secret, and resource attributes carry `service.name`, `service.version`, and `service.instance.id`. **The exporter is a build option, off by default** (theseus-0g4): it is compiled in only with the `otel` cargo feature (`cargo build --release -p theseusd --features otel`), because it brought 19 crates, aws-lc among them, into every build while no deployment set an endpoint. A build without it parses `[telemetry]` the same way, exports nothing, and warns once when the config loads if `otlp_endpoint` is set; the gate lints the feature's code on every commit, so turning export on stays a build flag and a config line. In an `otel` build, **nothing leaves the process until `[telemetry].otlp_endpoint` is set**. Point it at a local Collector, Grafana Tempo, Honeycomb, Datadog, or the AWS Distro for OpenTelemetry, which is how "CloudWatch for historical search" (§1) is satisfied with no CloudWatch-specific code. In every build the trace, the ledger, and `turn.trace` are the record; the web UI and CLI read the trace directly, and OTel is for the fleet view.
 
 ### 3.21 Self-extension: planks, never the keel
 
@@ -617,6 +617,8 @@ Reviewed against Claude Code (about twenty tools, six of which do nearly all the
 | `node` | `read` (any graph node by id, with a range: the reference-passing primitive) |
 | `wake` | `at` |
 | `extend` | `propose`, `promote` (§3.21) |
+
+_(As built 2026-09-29: `fs.read` returns text, and an image as an image block for a model with vision (theseus-9g2). A PDF is still reported as a binary file.)_
 
 **Rejected, with the need's new home:** free-form `bash` (→ `proc.run`); subagents, spawn, workflows (→ task sessions); todo and plan-mode tools (→ `task.*`); multi-action `message`, `browser`, `nodes` (→ `channel.*`; browser and device control are planks); fourteen memory tools (→ two); session, subagent, and automation tools (→ protocol requests, `wake.at`, `/cancel`); secrets, gateway, config, plugin tools (→ the operator's CLI and web UI, never the model); media generation, TTS, PDF, image viewing as tools (→ node types for input, planks for generation); skills as tools (→ roles and MCP prompts); notebook and worktree tools (→ `fs.edit`, `git.*`, snapshots).
 
@@ -711,6 +713,34 @@ Graph selection yields node ids; the **compiler** turns them into a valid provid
 - **Failure.** A missing or unreadable file never stops a turn: the block says it is missing, and the daemon warns once per file per run (a log line and a `context.file_missing` row).
 - **Cap.** A file over 64 KB is cut at a character boundary and marked as cut.
 - **Records.** The manifest and every `context.compiled` row record each file's path, the digest of the text included, its bytes, and whether it was cut or missing.
+
+**Attachments and images** (2026-09-29; theseus-9g2, 7bcfd9a, 48fd2c8). A user message carries the files that
+came with it, and a tool result may carry an image.
+- **Where they come from.** `turn.submit` takes `attachments: [{name, media_type, size, text? | data? (base64) |
+  not_read?}]`.
+  - The Discord binding downloads text files, known by type or extension, up to `[tools].max_read_bytes`, and
+    PNG, JPEG, GIF, and WebP images up to 5 MiB. It downloads them beside its gateway loop, and the message's
+    turn waits for them. Anything else is listed with its type, size, and reason.
+  - `theseus ask --attach <file>` sends a file the same way.
+- **What the node keeps.**
+  - Text is capped at `[tools].max_read_bytes` on a character boundary and marked if it was cut.
+  - An image is a reference (digest, type, size, and dimensions) to its bytes. The bytes are stored once in
+    `<store dir>/blobs/<sha256>` and never in a WAL frame, so the frame budget and recovery are unchanged.
+  - A file that was not read keeps the reason.
+  - Nothing about an attachment fails a turn.
+- **Placement.** Each attachment is its own block before the typed text, under a header that names the file and
+  its sender (`[Attachment message.txt from discord:eddie, 5,012 bytes]`). Until the labels of §3.9 exist, the
+  header is what marks the text as the file's.
+- **Vision.** The catalog entry of the compilation's model decides how an image shows. A model with vision gets
+  an image block. Any other model gets one line: `[Image photo.png from discord:eddie, 1.2 MB: not shown, this
+  model has no vision]`. `fs.read` of an image does the same inside its `tool_result`.
+- **Byte-stable.** The render reads only the node, the model's vision flag, and the blob, through a bounded cache.
+  The same node renders to the same bytes, and a message without attachments renders exactly as before.
+- **Budget.** The input estimate leaves out base64 data and adds each image's estimated tokens. The image's long
+  edge is scaled to 1,568 px (Haiku 4.5) or 2,576 px (the rest), then it counts ⌈w/28⌉ × ⌈h/28⌉, capped at 1,568
+  or 4,784.
+- **Refused.** An image over 5 MiB or 8,000 px on a side, or whose bytes are not one of the four types, is listed
+  with the reason.
 
 ### 4.4a When a session is recompiled
 
@@ -831,7 +861,7 @@ theseus (core)                          theseus --tender <role>  (children of th
 
 - **The logical graph is permanent; the resident graph is a bounded cache over durable history.** Nothing about append-only requires anything to stay in RAM. Resident memory scales with the active working set, not lifetime traffic.
 - **Arena.** Nodes by monotonic id; edge storage as immutable sorted segments per edge type with an in-memory delta, compacted in the background (compressed-sparse-row columns are a benchmark candidate for cold segments, not a commitment); per-channel logs as segments in a shared append file with an allocation index. Cold nodes leave RAM entirely, metadata and adjacency included, represented only by their id in a compact presence filter, and rehydrate from the SSD index on demand. Memory targets (§9) cover the whole process tree including tenders and loaded embedding weights.
-- **Storage kernel (built in M1; Part III A1).** Two layers, one contract. The **WAL** is the truth: segment files of checksummed frames, one frame per append, one `fdatasync` per frame; a frame holding several records is atomic, which is how `settle(completion, continuation)` commits both or neither. Recovery verifies every frame, truncates a torn tail in the last segment, and refuses to guess at corruption anywhere else. The **index** is a rebuildable projection of the WAL in a pure-Rust embedded store behind an `Index` trait (`redb` chosen, `fjall` available): position → location, (kind, key) → latest position, (kind, position) for per-kind scans, and a checkpoint position. Index writes are non-durable; a checkpoint makes them durable; open replays the WAL past the checkpoint, so deleting the index entirely loses nothing. The arena remains the cache over this, never a second source of truth. Pure Rust keeps the static musl build honest.
+- **Storage kernel (built in M1; Part III A1).** Two layers, one contract. The **WAL** is the truth: segment files of checksummed frames, one frame per append, one `fdatasync` per frame; a frame holding several records is atomic, which is how `settle(completion, continuation)` commits both or neither. Recovery verifies every frame, truncates a torn tail in the last segment, and refuses to guess at corruption anywhere else. The **index** is a rebuildable projection of the WAL in a pure-Rust embedded store, `redb` (the M1 benchmark's pick; `fjall`, the other candidate, was removed in batch C, theseus-0g4): position → location, (kind, key) → latest position, (kind, position) for per-kind scans, and a checkpoint position. Index writes are non-durable; a checkpoint makes them durable; open replays the WAL past the checkpoint, so deleting the index entirely loses nothing. The arena remains the cache over this, never a second source of truth. Pure Rust keeps the static musl build honest.
 - **The turn lock and eventual durability.** "Speed first" is preserved by *where* the time goes, not by skipping durability. Within a channel exactly one turn advances at a time; that lock is held only while the core is doing local work. A turn is mostly waiting: a Messages API call is seconds, a shell job is seconds to hours, a judge call is hundreds of milliseconds, a human is minutes. At every such offload boundary the turn releases the lock and the core spends the surrendered time on **asynchronous durability work**: sealing the current WAL segment and handing it to the durability tender, taking checkpoints, flushing index updates, compacting edge segments, running the memory pass, uploading. The floor remains unchanged (intent is fsynced locally before dispatch); what changes is the off-node recovery point, which becomes **eventual: 5–60 s** rather than 1–2 minutes, achieved for free from time the loop was not using anyway. The tender scheduler prioritizes by staleness: the oldest unshipped committed record bounds the current recovery-point exposure, and that number is exported as a metric and alarmed on.
 - **WAL.** Every record appends to the local SSD and is fsynced on a short group-commit interval before the turn proceeds. Records carry a length prefix and checksum; a torn tail is truncated on recovery. Periodic **checkpoints** snapshot the arena so recovery is checkpoint plus tail, not full-history replay. Schema versions are stamped on every segment and migrations are forward-only transforms run by the durability tender. Disk-full is handled by refusing new turns with a clear message while tenders continue to drain. The SSD is a persistent volume that survives instance death and is encrypted at rest by the platform (EBS encryption, LUKS on a desktop), not by Theseus.
 - **Tenders** consume the WAL and answer rehydration over a local socket; they never touch the arena directly. Durability ships to S3 and DynamoDB when configured, with a 5–60 s target measured as "age of the oldest unshipped committed record." Tiering demotes payloads by heat and retention (stub stays in the arena, payload on SSD and S3; nothing is removed from the graph), with a Jev backup opinion for lower heat bands; rehydration misses are logged. Index owns embeddings: 768-d stored, 256-d indexed, 768-d rerank; usearch memory-mapped from SSD; tantivy BM25; reciprocal-rank fusion then Jev relevance; asynchronous after commit; long nodes chunked with `part_of`. Memory runs consolidation and decay sweeps.
@@ -1991,6 +2021,147 @@ In all, it proposed cutting about 2,600–3,200 production lines and 39 of 325 e
 - The frame-budget test asserts at most 17 frames. It is tightened to the new count when batching lands (P5b).
 - The crash test's `--tear` stays off until theseus-4x6 bounds it.
 
+#### Batch C, part 1: the low-risk deletions (theseus-0g4; 2026-09-29, 04:22–05:11; cf258c7, ea06ff8, b407dd3, f8a68c2, 605979e)
+
+**Why.** The review's remaining findings, queued before new features so they land on simpler
+code. Batch C runs in three parts: this one takes the five low-risk deletions (findings 21, 15,
+16, 20, and 14), part 2 takes findings 10, 13, and 18, and findings 11, 12, and 19 wait until after
+the Daily Driver (M3.6).
+
+**What each cut did.** One gated, signed commit each, in this order.
+1. **Finding 21: dead code and lint cleanups** (cf258c7). Eight items no code called went, with
+   `kinds::CHECKPOINT` (255) and the protocol's `BLOCKED` (-32001) kept as reserved numbers; two
+   test-only constructors are `#[cfg(test)]`; 24 of the review's 25 lint sites were fixed (the 25th
+   is `Core::new`, finding 10's); and a workspace `[lints]` table holds `unused_async`,
+   `unused_self`, and `redundant_clone` from now on.
+2. **Finding 15: one index engine** (ea06ff8). fjall, the `Index` trait, the engine parameter, the
+   simulator's `--engine` flags, and the format-1 move-aside are gone, and the manifest is read
+   once. `Engine` has one variant, so the manifest and `[server] store_engine` still name it and
+   refuse anything else. Eddie's store is format 2, redb, so it needed no migration.
+3. **Finding 16: config shims** (b407dd3). The theseus-8az renames (`deny_paths`, `deny_argv`), the
+   retired policy class keys, `telemetry.hook_spans`, and the `max_tokens` alias fail to load as
+   unknown keys; the retired `[kernel] default_budget` and `control_reserve` still load with their
+   one warning, because Eddie's note sets them. `effort`, `thinking_display`, and a provider's
+   `kind` are serde enums, and the implicit profile and provider are resolved once at load.
+4. **Finding 20: policy leftovers** (f8a68c2). The allow list's flag blacklist and its near-miss
+   text are gone. An allow entry is a prefix, documented, and still runs only when every path
+   argument is inside the roots. `[policy.mcp]` and its overrides stay (Eddie, 2026-09-28).
+5. **Finding 14: OpenTelemetry behind `otel`** (605979e). The exporter builds only with the cargo
+   feature, off by default; `[telemetry]` parses the same, and a set endpoint warns once. The gate
+   lints the feature (about 1.5 s).
+
+| measure | before (48fd2c8) | after (605979e) |
+|---|---:|---:|
+| crates in `theseusd`'s default build | 331 | 292 |
+| external crates, workspace | 325 | 286 |
+| `theseusd` release binary | 24,281,704 B | 19,021,104 B |
+| clean release build, 8 jobs | 253 s | 218 s |
+| production lines, total / compiled by default | 25,815 / 25,815 | 25,474 / 25,013 |
+| gate tests | 204 | 198 |
+
+**How it is proven.** The gate passed at every commit (204, 204, 202, 202, 202, and 198 tests).
+Eddie's vault note loaded with the same single warning under the binaries after findings 16, 20,
+and 14 (`theseusd check` on its `op://` reference), and a copy of it with Discord and the web UI
+off did under those after 21 and 15; after 16, `theseusd config` printed the same bytes. On copies of Eddie's store (only `store/`; Discord and the web UI
+off; never port 7433), the new binaries opened it, served it, and printed byte-identical
+`theseus sessions` and `theseus history`. The final check ran a GLM `fs.list` turn: 2 loops, 1
+tool call, $0.0013, with its `turn.trace` row in the ledger.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| Two `Store` implementations, `redb` and `fjall`, behind a trait, fjall selectable by config (M1; §1, §6) | redb only; the trait and fjall are gone | M1 chose redb, and a store never switches engines | §1 and §6 revised (drafts in the run's report) |
+| OpenTelemetry on by default, always compiled in, a config change to enable (§3.20; theseus-vng) | Compiled only with the `otel` feature, off by default | 19 crates, aws-lc among them, for an export no deployment enabled | §3.20 revised (draft) |
+| Old config spellings load with a warning (theseus-8az, theseus-hco) | They fail to load as unknown keys, except the two Eddie's note still sets | No deployment uses them | Eddie's note loads unchanged |
+| The allow list never covers nine git and curl flags (theseus-8az, 09bad8b) | Removed; the roots rule stays | It only second-guessed entries the operator added | Allow entries documented as prefixes |
+
+- **Review** (05:22). The gate reran at 198 tests. Tabitha's own check on the release build, over a store copy, listed Eddie's 5 sessions and ran a GLM `fs.glob` turn (2 loops, 1 tool call, $0.0005), with no error in the log. Eddie's `allow_argv` is `[["ls"], ["pwd"]]`, so dropping the flag blacklist changes nothing for his config. Installed at 05:22.
+
+**Known gaps.**
+- The otel exporter's tests do not run in the gate, which only lints the feature.
+- The default test build still compiles `opentelemetry` and `opentelemetry_sdk`, a dev-dependency
+  cargo cannot gate on a feature.
+- `Core::new` still takes the resolved secrets by value, and the functions over six arguments stay
+  for part 2 (findings 10 and 18) and after the Daily Driver (finding 19).
+
+#### Batch C, part 2: the structural cuts (theseus-0g4; 2026-09-29, 05:23–06:21; 750ec12, 6e76a5f, 69851ad)
+
+**Why.** These three findings shape the code the next Daily Driver items touch: durable delivery
+goes through the tool runtime and `Core`, and task sessions go through `Core` and the kernel.
+Eddie's rule is "ruthlessly remove complexity", and behaviour stays identical.
+
+**What each cut did.** One gated, signed commit each, in this order.
+1. **Finding 13: pending confirms, one way** (750ec12).
+   - Before, "what waits for the operator" was computed four ways: a node scan, an open-action
+     scan, the CLI's fan-out, and the transcript re-read that `confirm_action` and `resume` each
+     did to find the proposal.
+   - Now `Action::awaits_confirm` and `Kernel::pending_confirms` are the one derivation. The
+     history, the session list, a new `confirm.list` (so `theseus confirm` is one request), the
+     web UI, and resume all use it.
+   - An action that waits for the operator keeps its `Proposal`. That is a tool call the policy
+     stopped (`plan_confirm_with`) or a budget question. Other actions keep none, so the
+     transcript holds the arguments once.
+   - An action stored before this decodes without a proposal and still waits. Its proposal comes
+     from its node's gate record, in one place (`confirm_proposal`).
+   - The simulator checks that a question carries its proposal.
+2. **Finding 18: `toolrun.rs`** (6e76a5f).
+   - A `ResultNode` value replaces the 11-argument `result_node` and its `#[allow]`.
+   - `process` is a list of named gate steps, with one `plan_call` for both postures.
+   - `execute` splits into `run_inproc` and `run_job`.
+   - `resume` places each unanswered call (`Pending`), then acts in one flat match: 261 lines
+     became 61.
+3. **Finding 10: `rpc.rs`** (69851ad).
+   - `Core`'s six jobs have a file each under `rpc/`.
+   - `dispatch` is a 49-line table of named methods, where it was 462 lines. `route` parses,
+     runs, and serializes, and `?` is `INTERNAL`.
+   - One constructor path: `Core::new(cfg, secrets, store)` still takes the secrets by value,
+     so the daemon keeps no copy, and builds `Parts` for `Core::build`.
+   - `BindingBoard` counts starting bindings with a watch channel instead of a sleep loop.
+   - `health` reads the sessions once, the `turns` counter is gone, and `Config::profile` owns
+     the unknown-profile message.
+
+| measure | before (605979e) | after (69851ad) |
+|---|---:|---:|
+| production lines (not cutting at a test-module declaration) | 25,487 | 25,930 |
+| longest function in the rewritten files | 457 (`dispatch`) | 141 (`Core::build`) |
+| functions over 60 lines there, and their total length | 9, 1,583 | 10, 848 |
+| functions over 6 arguments there | 5 (2 behind `#[allow]`) | 2 (the kernel's planning pair) |
+| gate tests | 198 | 201 |
+| frames for a plain turn | 17 | 17 |
+
+**How it is proven.**
+- The gate passed at every commit.
+- An output-diff probe dumped every WAL record, frame count, notification, narrative line, and
+  result for 26 scenarios. These include confirm approved, declined, superseded, answered after a
+  restart, pending across the upgrade, and a budget question approved and declined. Its masked
+  diff was empty between runs, empty across findings 18 and 10, and across finding 13 showed only
+  the proposal on the 56 records of actions that waited, and the new method.
+- On copies of Eddie's store (only `store/`; Discord and the web UI off; never port 7433), the
+  old and new binaries printed byte-identical sessions, histories, and confirm lists.
+- A GLM turn's `fs.write` outside the roots waited, was listed by `theseus confirm`, was
+  approved, and resumed and wrote the file.
+- **Review** (06:48–06:51). The gate reran at 201 tests. Tabitha's own check on the release build, over a store copy, listed Eddie's 5 sessions and an empty `confirm.list`; a GLM `fs.write` outside the roots waited, `theseus confirm` listed it, the approval resumed the turn, and the file held the text. Installed at 06:51.
+
+**Divergence from Parts I and II, and from the review.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| An action's arguments are a node and are not duplicated on the action (§3.16; Part II M2) | An action that waits for the operator also keeps its proposal | The confirm binds it and `authorize` re-checks it; every approve path went back to the transcript for it | Recorded here; the Part II text stays as the plan |
+| The review: store the proposal on every action at plan time | Only on actions that wait | Each action record is rewritten at every transition, and `session.list` (polled every 2.5 s) decodes every action ever stored | Recorded here |
+| Pending confirms derived from planned actions and their nodes (Part III M3) | From `Kernel::pending_confirms`; the node is read only for a question's text | One derivation for every reader | Recorded here |
+| The review's estimate: about −340 production lines for the three findings | +443 | Named functions and types with their docs, per-file docs, and every payload kept identical | Accepted; the structure, not the count, was the target |
+
+
+**Known gaps.**
+- `Kernel::cancel_execution` leaves a planned tool call planned (theseus-w98), though its comment says planned
+  actions are cancelled. Such a call still counts in the history and the session list.
+- A crash between a call's plan and its authorization leaves an action that still "awaits a
+  confirm" that was never asked.
+- `open_session` and `execution_for` still differ in their narrative and ledger rows.
+- The open-action scan still decodes every action (finding 1's index).
+- `run_job` (109 lines), `Core::build` (141), and `turn_submit` (88) are still long.
+
 ### Narration (theseus-5fy; 2026-09-28, 23:53, to 2026-09-29, 00:55; e3ba8d6, 810aa6d, 12a4805)
 
 _Neither a P5c item nor a plan item. It is a request of Eddie's (2026-09-28, 20:38; his words are in §3.14), recorded as an addition to M0.6's visibility (P2b). It took the hook point's slot in the queue._
@@ -2184,3 +2355,82 @@ Eddie decided the design at 00:09 (§3.13, where his words are).
 | Every notice is visible in Discord | A loop that overflows one message shows its oldest calls only as a count on the fold line | Discord's 2,000-character limit | Kept; the ledger and the web UI keep every notice |
 
 **Known gaps.** The parenthesis adds about 23 bytes a line (about 36 for a `[policy.tools]` rule), so a loop folds sooner. If it proves too long in use, the fallback is to name the setting once per message.
+
+### Item 4. Attachments and images (theseus-9g2; 2026-09-29, 03:18–03:50; 7bcfd9a, 48fd2c8)
+
+**Why.** Of Eddie's 332 DM messages in 30 days, 7 carried an attachment: 6 `text/plain` (Discord turns a long
+paste into `message.txt`) and 1 PNG. The binding listed attachments by name and size and never read them, so
+Theseus silently missed every long paste.
+
+**What exists.**
+- **The input.** `turn.submit` takes `attachments` (serde default), and an empty `input` is accepted when there
+  are any. The user node keeps each file:
+  - text, capped at `[tools].max_read_bytes` on a character boundary and marked when cut;
+  - an image, as a reference to `<store dir>/blobs/<sha256>`, stored once and never in a WAL frame;
+  - or the reason it was not read.
+- **Rendering.** Each file is a block before the typed text, under a header that names it and its sender. An
+  image is an image block for a model whose catalog entry has vision, and the "not shown, this model has no
+  vision" line for any other. A message without attachments renders exactly as before.
+- **`fs.read`** returns an image the same way, inside its `tool_result`, through a `Tool::run_with_image` hook.
+  Its description gained one clause.
+- **The estimate** leaves out base64 data and adds each image's tiles, so a 1 MB 1920×1080 PNG reserves 2,691
+  tokens on Sonnet 5.5, not about 333,000.
+- **The catalog.** `glm-5.3` and `glm-5.2` are text-only (`2026-09-29.1`); `glm-5.3-flash` keeps vision.
+- **Discord.** `on_message` plans each file and spawns its download. The place's submit task awaits the downloads
+  before `turn.submit`, so the gateway loop never waits and order is kept. A failed download is listed, and the
+  turn runs.
+- **The CLI.** `theseus ask --attach <file>`, repeatable.
+- **Restore** carries `blobs/`.
+
+**How it is proven.**
+- **Tests.** 204, 24 of them new (9 with the text commit, 15 with the image commit). They cover:
+  - a 5,001-character `message.txt` in the scripted provider's request, under its header;
+  - a text cut at the cap, and a file listed with its reason;
+  - a failed download that still runs its turn;
+  - an image as one image block, stored once, with no bytes in the node, rendered byte for byte the same across
+    turns and a cold cache;
+  - the "no vision" line;
+  - the pixel-based estimate;
+  - `fs.read` of a PNG;
+  - a 6 MB image refused with its reason;
+  - the Discord planner and entry function, with bytes and no network;
+  - the sniffer, the blobs, and restore.
+
+  The frame budget holds at 17, and Eddie's vault config loads unchanged.
+- **Live** (03:47–03:50, debug build on a scratch daemon over a copy of Eddie's store; about $0.02 in all):
+  - Haiku answered a fact that only a 5,000-character attached note held.
+  - Haiku read "TEAL HERON 77" from a headless-Chrome PNG, and the one blob is named for the PNG's SHA-256.
+  - GLM-5.3 quoted the "no vision" line.
+  - `glm-5.3-flash` read the PNG as an attachment and through `fs.read`, so z.ai takes images in user content
+    and in `tool_result`s.
+  - A 20 MB archive was listed as not read, with the reason.
+
+  Discord was not exercised, because one bot token means one daemon, and Eddie's holds it.
+- **The runs.** The first run (02:52–03:01) was marked external by the provenance plugin after it used web tools and a probe of z.ai, so exec and write were refused. It stopped without changing anything and left its findings, and run 2 built from them with no web tools.
+- **Review** (04:22). The gate reran at 204 tests. Tabitha's own check on the release build, over a store copy: `glm-5.3-flash` answered from a 4,878-character attached note and read "AMBER FALCON 58" from a headless-Chrome screenshot, the one blob is named its SHA-256, and `glm-5.3` got the "no vision" line. Installed at 04:22.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| "The binding downloads each attachment up to `[tools].max_read_bytes`" (P5d, item 4) | Text up to `max_read_bytes` (256 KB); images up to 5 MiB | 256 KB would refuse most screenshots; 5 MiB is the provider's safe limit on every route | Kept |
+| "text becomes user content … marked external" | Its own block under a header naming the file and its sender | Theseus has no provenance labels yet (§3.9) | The header is the mark until labels exist |
+| `fs.read` returns "text, image, PDF as typed nodes" (§3.24) | Text and images; a PDF is still reported as binary | PDFs were not in this item's audit numbers | Held |
+| One `vision` flag, true for every GLM row (the catalog as it stood) | `glm-5.3` and `glm-5.2` false | OpenClaw's table marks them text-only; `glm-5.3` answered a PNG with empty text | Kept; a `[catalog]` table can override |
+
+**Known gaps.**
+- Blobs are never collected, and redaction (§5.6) does not reach them. At Eddie's rate of one image a month,
+  this costs nothing yet.
+- An image the provider rejects fails every later request of its session (theseus-0s4). The sniffer checks the header, the
+  size, and the sides, but not the pixels. `/new` in Discord, or a new message and then `recompile fresh`,
+  recovers.
+- A restore from a bare segment directory that is not named `wal` carries no blobs, and its images show as
+  missing.
+- The web UI shows an image's header line, not the image.
+- The first turn of every session after install recompiles once as `tools_changed`, with its thinking stripped.
+  For Eddie's DM that is about $1 of cache writes, once.
+- A coalesced Discord batch from several authors labels its files "from discord", not per author.
+
+**Open, held for Eddie.**
+- Whether PDFs should be read (as text, or as document blocks).
+- Whether the "no vision" line should instead route the turn to a vision profile.
