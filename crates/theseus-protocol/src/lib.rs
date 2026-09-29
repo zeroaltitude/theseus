@@ -809,6 +809,7 @@ pub struct ToolInfo {
     /// Its posture today: `open`, `notify`, or `approve`.
     pub policy: String,
     pub input_schema: Value,
+    /// Calls since the daemon started.
     #[serde(default)]
     pub calls: u64,
 }
@@ -820,6 +821,7 @@ pub struct ToolListResult {
     pub roots: Vec<String>,
     /// `proc.run` calls over all tool calls (spec §3.23 shell-fallback ratio).
     pub shell_fallback_ratio: f64,
+    /// Calls since the daemon started.
     pub calls_total: u64,
 }
 

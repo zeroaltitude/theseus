@@ -244,7 +244,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
       </ObsSection>
 
       <ObsSection id="tools" title="Tools" open={!!open.tools} onToggle={() => toggle('tools')}
-        count={tools ? `${tools.tools.length} toollets · ${tools.calls_total} call${tools.calls_total === 1 ? '' : 's'} · shell fallback ${(tools.shell_fallback_ratio * 100).toFixed(0)}%` : ''}>
+        count={tools ? `${tools.tools.length} toollets · ${tools.calls_total} call${tools.calls_total === 1 ? '' : 's'} since start · shell fallback ${(tools.shell_fallback_ratio * 100).toFixed(0)}%` : ''}>
         {tools && (
           <>
             <div className="pad small muted">roots: {tools.roots.map((r) => <code key={r}>{r} </code>)} · <b>proc.run</b> (typed argv) is the only shell path; the shell-fallback ratio is proc.run calls over all calls.</div>

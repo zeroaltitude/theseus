@@ -840,3 +840,48 @@ async fn under_open_a_floor_path_still_waits_and_is_never_refused() {
         "declined, never run: {rs:?}"
     );
 }
+
+/// `session.list` counts each session's waiting calls from one scan of the
+/// open actions, not one scan per session (theseus-hco).
+#[tokio::test]
+async fn session_list_counts_each_sessions_waiting_calls() {
+    let r = rig(vec![
+        Scripted::tools(
+            "",
+            &[("t1", "fs_write", json!({"path": "a.txt", "content": "a"}))],
+        ),
+        Scripted::tools(
+            "",
+            &[("t2", "fs_write", json!({"path": "b.txt", "content": "b"}))],
+        ),
+        Scripted::text("Hello."),
+    ]);
+    let a = turn(&r.core, None, "write a.txt").await;
+    let b = turn(&r.core, None, "write b.txt").await;
+    let plain = turn(&r.core, None, "hi").await;
+    assert!(a.awaiting_confirm.is_some() && b.awaiting_confirm.is_some());
+    let list = r.core.session_list().unwrap();
+    let waiting = |sid: &str| {
+        list.iter()
+            .find(|s| s.session_id == sid)
+            .unwrap()
+            .pending_confirms
+    };
+    assert_eq!(list.len(), 3);
+    assert_eq!(waiting(&a.session_id), 1);
+    assert_eq!(waiting(&b.session_id), 1);
+    assert_eq!(waiting(&plain.session_id), 0);
+
+    r.core
+        .confirm_action(a.awaiting_confirm.as_deref().unwrap(), false, None, "test")
+        .unwrap();
+    let list = r.core.session_list().unwrap();
+    let waiting = |sid: &str| {
+        list.iter()
+            .find(|s| s.session_id == sid)
+            .unwrap()
+            .pending_confirms
+    };
+    assert_eq!(waiting(&a.session_id), 0, "a declined call waits no longer");
+    assert_eq!(waiting(&b.session_id), 1);
+}

@@ -110,6 +110,8 @@ pub struct ToolRuntime {
     pub proc_sync_secs: u64,
     /// The environment every job gets, resolved from the daemon's at startup.
     pub proc_env: Vec<(String, String)>,
+    /// Calls per tool since the daemon started. Counting the store's history
+    /// instead would put a scan of every node on the start path (§9).
     pub calls: Mutex<BTreeMap<String, u64>>,
 }
 

@@ -231,19 +231,8 @@ impl Core {
             scrubber,
             launcher,
         )?);
-        // Tool call counts are durable facts (tool_call nodes); seed the live
-        // counters from the store so they survive a restart.
-        {
-            let mut calls = tools.calls.lock().unwrap();
-            for (_, n) in store.recent_nodes(usize::MAX)? {
-                if let Body::ToolCall { tool, .. } = n.body {
-                    *calls.entry(tool).or_default() += 1;
-                }
-            }
-        }
         tracing::info!(
             tools = tools.registry.len(),
-            calls = tools.calls.lock().unwrap().values().sum::<u64>(),
             roots = ?tools.ctx.roots,
             enforcement = tools.policy.enforcement.as_str(),
             overrides = ?tools.policy.tools,
@@ -757,29 +746,50 @@ impl Core {
         Ok(out)
     }
 
-    fn session_info(&self, r: &SessionRecord) -> theseus_protocol::SessionInfo {
+    /// Every session, the most recently active first.
+    pub fn session_list(&self) -> Result<Vec<theseus_protocol::SessionInfo>> {
+        let mut recs: Vec<SessionRecord> = self.store.list_sessions()?;
+        recs.sort_by(|a, b| {
+            b.last_active_ms
+                .max(b.created_at_unix_ms)
+                .cmp(&a.last_active_ms.max(a.created_at_unix_ms))
+        });
+        let waiting = self.waiting_confirms();
+        Ok(recs
+            .iter()
+            .map(|r| self.session_info(r, &waiting))
+            .collect())
+    }
+
+    /// Tool calls waiting for the operator, by execution: planned actions with
+    /// no bound confirmation. One scan of the open actions answers every
+    /// session of a list.
+    fn waiting_confirms(&self) -> BTreeMap<String, u32> {
+        let mut by_execution = BTreeMap::new();
+        for a in self.kernel.open_actions().unwrap_or_default() {
+            if a.state == theseus_kernel::ActionState::Planned
+                && a.confirm.is_none()
+                && a.tool != crate::turn::PROVIDER_TOOL
+            {
+                *by_execution.entry(a.execution_id).or_insert(0) += 1;
+            }
+        }
+        by_execution
+    }
+
+    fn session_info(
+        &self,
+        r: &SessionRecord,
+        waiting: &BTreeMap<String, u32>,
+    ) -> theseus_protocol::SessionInfo {
         let mut i = r.info();
         i.execution_state = r
             .execution_id
             .as_deref()
             .and_then(|id| self.kernel.execution(id).ok().flatten())
             .map(|e| e.state.as_str().to_string());
-        // A planned tool action with no bound confirmation is waiting for the operator.
         if let Some(exec) = r.execution_id.as_deref() {
-            i.pending_confirms = self
-                .kernel
-                .open_actions()
-                .map(|v| {
-                    v.iter()
-                        .filter(|a| {
-                            a.execution_id == exec
-                                && a.state == theseus_kernel::ActionState::Planned
-                                && a.confirm.is_none()
-                                && a.tool != crate::turn::PROVIDER_TOOL
-                        })
-                        .count() as u32
-                })
-                .unwrap_or(0);
+            i.pending_confirms = waiting.get(exec).copied().unwrap_or(0);
         }
         i
     }
@@ -1042,18 +1052,10 @@ impl Core {
                 info.execution_state = Some("waiting".into());
                 Ok(serde_json::to_value(info).unwrap())
             }
-            method::SESSION_LIST => {
-                let mut recs: Vec<SessionRecord> = self.store.list_sessions().map_err(bad)?;
-                recs.sort_by(|a, b| {
-                    b.last_active_ms
-                        .max(b.created_at_unix_ms)
-                        .cmp(&a.last_active_ms.max(a.created_at_unix_ms))
-                });
-                Ok(serde_json::to_value(SessionListResult {
-                    sessions: recs.iter().map(|r| self.session_info(r)).collect(),
-                })
-                .unwrap())
-            }
+            method::SESSION_LIST => Ok(serde_json::to_value(SessionListResult {
+                sessions: self.session_list().map_err(bad)?,
+            })
+            .unwrap()),
             method::TURN_SUBMIT => {
                 let p: TurnSubmitParams = parse(req.params)?;
                 if p.input.trim().is_empty() {
@@ -1235,7 +1237,7 @@ impl Core {
                 let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
                 Ok(
                     serde_json::to_value(theseus_protocol::SessionHistoryResult {
-                        session: self.session_info(&rec),
+                        session: self.session_info(&rec, &self.waiting_confirms()),
                         nodes: nodes[skip..]
                             .iter()
                             .map(|(pos, n)| Self::node_info(*pos, n))

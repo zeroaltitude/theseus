@@ -10,7 +10,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use theseus_core::config::DEFAULT_CONFIG_REF;
-use theseus_core::secrets::{OpReader, Secrets};
+use theseus_core::secrets::{OpReader, Secret, Secrets};
 use theseus_core::store::Store;
 use theseus_core::{Config, Core};
 use tokio::net::UnixListener;
@@ -140,9 +140,15 @@ async fn main() -> Result<()> {
     let secrets = Secrets::resolve_all(&cfg.secrets, &op).await?;
     tracing::info!(count = secrets.names().len(), names = ?secrets.names(), "all secrets resolved");
 
-    github_token_report(&cfg, &secrets).await;
+    // Only a warning, so a daemon runs it once the socket answers: the network
+    // stays off the start path (§9).
+    let github_check = github_token_report(
+        secrets.get(&cfg.github.token_secret).cloned(),
+        cfg.github.warn_days,
+    );
 
     if let Some(Cmd::Check) = cli.cmd {
+        github_check.await;
         println!(
             "ok: config loaded from {}; {} secret(s) resolved: {}",
             cli.config,
@@ -199,6 +205,7 @@ async fn main() -> Result<()> {
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");
+        tokio::spawn(github_check);
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
         core.clone()
@@ -225,10 +232,15 @@ async fn main() -> Result<()> {
         discord_token,
     ));
 
-    serve_socket(core, socket_path).await
+    serve_socket(core, socket_path, github_check).await
 }
 
-async fn serve_socket(core: Arc<Core>, path: PathBuf) -> Result<()> {
+/// Serve the protocol socket; `after_bind` starts once the socket answers.
+async fn serve_socket(
+    core: Arc<Core>,
+    path: PathBuf,
+    after_bind: impl std::future::Future<Output = ()> + Send + 'static,
+) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -250,6 +262,7 @@ async fn serve_socket(core: Arc<Core>, path: PathBuf) -> Result<()> {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
     tracing::info!(socket = %path.display(), "serving protocol; localhost only, file permissions are the auth");
+    tokio::spawn(after_bind);
 
     let mut conn_id: u64 = 0;
     loop {
@@ -322,15 +335,15 @@ into {}",
 }
 
 /// Log when the GitHub token expires; warn loudly when close. Never fatal.
-async fn github_token_report(cfg: &Config, secrets: &Secrets) {
-    let Some(tok) = secrets.get(&cfg.github.token_secret) else {
+async fn github_token_report(token: Option<Secret>, warn_days: i64) {
+    let Some(tok) = token else {
         return;
     };
-    match theseus_core::github::token_status(tok).await {
+    match theseus_core::github::token_status(&tok).await {
         Ok(st) => {
             let login = st.login.clone().unwrap_or_else(|| "?".into());
             match st.days_left {
-                Some(d) if d <= cfg.github.warn_days => tracing::warn!(
+                Some(d) if d <= warn_days => tracing::warn!(
                     login = %login,
                     expires_at = %st.expires_at.clone().unwrap_or_default(),
                     days_left = d,
