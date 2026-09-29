@@ -235,6 +235,5 @@ warn_days = 30                          # warn when the token expires within thi
 # otlp_endpoint = "http://127.0.0.1:4318"   # OTLP/HTTP base URL; /v1/traces and /v1/metrics are appended
 # headers_secret = "otlp_headers"           # a [secrets] entry of "Header: value" lines (e.g. x-honeycomb-team)
 service_name = "theseus"
-hook_spans = false                      # true: hook sites/marks/compile/store/lock/advancer become spans, not events
 metrics_interval_secs = 15
 export_timeout_secs = 10

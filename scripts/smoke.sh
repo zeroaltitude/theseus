@@ -17,7 +17,6 @@ for _ in $(seq 1 80); do [ -S "$SOCK" ] && break; sleep 0.25; done
 [ -S "$SOCK" ] || { echo "daemon did not come up"; exit 1; }
 
 echo "== health";  "$BIN/theseus" health
-echo "== hooks";   "$BIN/theseus" hooks list | awk '{n++} END {print n " hook events, all registerable"}'
 echo "== ask";     out=$("$BIN/theseus" ask --no-stream "Reply with the single word: ready")
 echo "model said: $out"
 echo "== json";    echo "Reply with the single word: piped" | "$BIN/theseus" ask --json \

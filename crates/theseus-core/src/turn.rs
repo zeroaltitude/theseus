@@ -32,7 +32,6 @@ use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
 use crate::compiler::{compile, CompileInput, Compiled, Recompile, RequestSpec};
-use crate::hooks::{HookEvent, Hooks, Outcome};
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node};
 use crate::provider::{Delta, Provider, ProviderError};
@@ -67,7 +66,6 @@ pub struct TurnRunner {
     pub cfg: Arc<Config>,
     /// Providers by name; `cfg.model.provider` is the default.
     pub providers: BTreeMap<String, Arc<dyn Provider>>,
-    pub hooks: Hooks,
     pub store: Store,
     /// The durable kernel: admission, the per-execution turn lock, budgets,
     /// and the action/completion record of every provider and tool call.
@@ -124,36 +122,6 @@ impl TurnRunner {
         {
             tracing::warn!(error = %e, "ledger append failed");
         }
-    }
-
-    /// Visit a hook site, ledger the visit, and record it as a trace span.
-    fn site(
-        &self,
-        trace: &mut Trace,
-        event: HookEvent,
-        session: &str,
-        turn: &str,
-        payload: Value,
-    ) -> Outcome {
-        let t0 = trace.now_us();
-        let (outcome, visit) = self
-            .hooks
-            .dispatch(event, Some(turn), Some(session), payload);
-        let t1 = trace.now_us();
-        trace.record(
-            event.name(),
-            "hook",
-            t0,
-            t1,
-            json!({"kind": event.kind().as_str(), "handlers": visit.handlers, "outcome": visit.outcome}),
-        );
-        self.ledger(
-            "hook.site",
-            session,
-            Some(turn),
-            serde_json::to_value(&visit).unwrap_or(Value::Null),
-        );
-        outcome
     }
 
     /// Resolve what a turn runs against. Precedence: raw `provider`/`model`
@@ -472,35 +440,6 @@ impl TurnRunner {
             Some(&turn_id),
             json!({"input_chars": input.as_ref().map(|t| t.chars().count()), "profile": target.profile, "provider": target.provider, "model": target.model, "execution_id": guard.execution_id, "kernel_turn": guard.turn, "continuation": continuation, "author": author}),
         );
-        if let Outcome::Blocked { reason } = self.site(
-            &mut trace,
-            HookEvent::TurnStarting,
-            &sid,
-            &turn_id,
-            json!({"continuation": continuation}),
-        ) {
-            anyhow::bail!("turn blocked: {reason}");
-        }
-        let input = match input {
-            None => None,
-            Some(text) => Some(
-                match self.site(
-                    &mut trace,
-                    HookEvent::InputReceived,
-                    &sid,
-                    &turn_id,
-                    json!({"input": text}),
-                ) {
-                    Outcome::Proceed(v) => v
-                        .get("input")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    Outcome::Blocked { reason } => anyhow::bail!("input blocked: {reason}"),
-                    Outcome::Claimed { .. } => text,
-                },
-            ),
-        };
         let ctx = |loop_index: Option<u32>| TurnCtx {
             kernel: &self.kernel,
             store: &self.store,
@@ -627,13 +566,6 @@ impl TurnRunner {
             trace.record("compile", "compile", c0, c1, summary.clone());
             self.ledger("context.compiled", &sid, Some(&turn_id), summary.clone());
             sink.send(notify::CONTEXT_COMPILED, &summary);
-            self.site(
-                &mut trace,
-                HookEvent::ContextBuilt,
-                &sid,
-                &turn_id,
-                json!({"loop": loop_index, "messages": compiled.messages, "tools": spec.tools.len(), "decision": compiled.decision()}),
-            );
             sink.send(
                 notify::LOOP_STARTED,
                 LoopStarted {
@@ -649,15 +581,6 @@ impl TurnRunner {
                 Some(&turn_id),
                 json!({"loop": loop_index}),
             );
-            if let Outcome::Blocked { reason } = self.site(
-                &mut trace,
-                HookEvent::PreModelCall,
-                &sid,
-                &turn_id,
-                json!({"loop": loop_index, "profile": target.profile, "provider": target.provider, "model": target.model}),
-            ) {
-                anyhow::bail!("model call blocked: {reason}");
-            }
 
             // --- the provider call is an action (§3.16)
             let proposal = Proposal {
@@ -933,13 +856,6 @@ impl TurnRunner {
                     json!({"stop_details": resp.stop_details, "model": resp.model}),
                 );
             }
-            self.site(
-                &mut trace,
-                HookEvent::PostModelCall,
-                &sid,
-                &turn_id,
-                json!({"loop": loop_index, "stop_reason": resp.stop_reason, "output_tokens": resp.usage.output_tokens}),
-            );
 
             // --- tools
             let uses = resp.tool_uses();
@@ -949,13 +865,6 @@ impl TurnRunner {
                 if stop == Some("tool_use") {
                     for u in &uses {
                         tool_calls += 1;
-                        self.site(
-                            &mut trace,
-                            HookEvent::ToolProposed,
-                            &sid,
-                            &turn_id,
-                            json!({"id": u.id, "name": u.name, "input": u.input}),
-                        );
                         let t0 = trace.now_us();
                         let invalid = resp.invalid_tool_inputs.get(&u.id).map(String::as_str);
                         let outcome = self
@@ -1018,13 +927,6 @@ impl TurnRunner {
                 trace.now_us(),
                 json!({"advancer": advancer.name(), "decision": decision.label()}),
             );
-            self.site(
-                &mut trace,
-                HookEvent::AdvancerDecided,
-                &sid,
-                &turn_id,
-                json!({"advancer": advancer.name(), "decision": decision}),
-            );
             sink.send(
                 notify::LOOP_ENDED,
                 LoopEnded {
@@ -1035,13 +937,6 @@ impl TurnRunner {
                     advancer: advancer.name().into(),
                     decision: decision.label(),
                 },
-            );
-            self.site(
-                &mut trace,
-                HookEvent::LoopEnded,
-                &sid,
-                &turn_id,
-                json!({"loop": loop_index}),
             );
             self.ledger(
                 "loop.ended",
@@ -1062,22 +957,6 @@ impl TurnRunner {
         // 4. Results that settled while this turn ran.
         let settled_late = self.kernel.take_results(guard)?;
         let late = self.tools.absorb(&ctx(None), &settled_late)?;
-
-        let output = match self.site(
-            &mut trace,
-            HookEvent::MessageSending,
-            &sid,
-            &turn_id,
-            json!({"output": output}),
-        ) {
-            Outcome::Proceed(v) => v
-                .get("output")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            _ => output,
-        };
-        self.site(&mut trace, HookEvent::ReplyClaim, &sid, &turn_id, json!({}));
 
         session.turns += 1;
         session.last_turn_id = Some(turn_id.clone());
@@ -1119,13 +998,6 @@ impl TurnRunner {
             stop_details,
             continuation,
         };
-        self.site(
-            &mut trace,
-            HookEvent::TurnEnded,
-            &sid,
-            &turn_id,
-            json!({"loops": result.loops, "stop_reason": result.stop_reason}),
-        );
         self.ledger(
             "turn.ended",
             &sid,

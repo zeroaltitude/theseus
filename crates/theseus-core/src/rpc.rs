@@ -11,8 +11,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use theseus_protocol::{
-    error_code, method, notify, HandlerInfo, HealthResult, HookInfo, HooksListResult,
-    HooksRegisterParams, HooksRegisterResult, Id, LedgerEntry, LedgerTailParams, LedgerTailResult,
+    error_code, method, notify, HealthResult, Id, LedgerEntry, LedgerTailParams, LedgerTailResult,
     Message, ProfileChanged, ProfileInfo, ProfileListResult, ProfileUseParams, ProviderErrorData,
     Request, Response, SessionKind, SessionListResult, SessionOpenParams, TurnSubmitParams, Usage,
 };
@@ -22,7 +21,6 @@ use tokio::sync::mpsc;
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
 use crate::compiler::Recompile;
-use crate::hooks::{HookEvent, Hooks};
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node};
 use crate::provider::{Anthropic, Provider};
@@ -38,7 +36,6 @@ use theseus_kernel::{Authority, Execution, Kernel, Spool};
 
 pub struct Core {
     pub cfg: Arc<Config>,
-    pub hooks: Hooks,
     pub store: Store,
     /// The durable kernel (M2), sharing the store's WAL and index.
     pub kernel: Arc<Kernel>,
@@ -176,7 +173,6 @@ impl Core {
         launcher: Arc<dyn JobLauncher>,
     ) -> Result<Arc<Self>> {
         let cfg = Arc::new(cfg);
-        let hooks = Hooks::new();
         // The kernel shares the store. Its spool sits beside the store dir:
         // `store` → `spool`, `store-stdio` → `spool-stdio`.
         let spool_dir = {
@@ -244,7 +240,6 @@ impl Core {
         let runner = TurnRunner {
             cfg: cfg.clone(),
             providers,
-            hooks: hooks.clone(),
             store: store.clone(),
             kernel: kernel.clone(),
             admission: admission.clone(),
@@ -265,7 +260,6 @@ impl Core {
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
         let core = Arc::new(Self {
             cfg,
-            hooks,
             store,
             kernel,
             spool,
@@ -285,14 +279,11 @@ impl Core {
             bindings: std::sync::RwLock::new(BTreeMap::new()),
             bindings_pending: AtomicU64::new(0),
         });
-        let (_, visit) = core
-            .hooks
-            .dispatch(HookEvent::ServerStarted, None, None, Value::Null);
         core.store.append_ledger(&LedgerRow::new(
             "server.started",
             None,
             None,
-            json!({"hooks": visit, "startup": core.startup_report}),
+            json!({"startup": core.startup_report}),
         ))?;
         Ok(core)
     }
@@ -917,23 +908,17 @@ impl Core {
         let _ = by;
         rec.execution_id = Some(exec.id);
         self.store.put_session(&rec.session_id, &rec)?;
-        let (_, visit) = self.hooks.dispatch(
-            HookEvent::SessionOpened,
-            None,
-            Some(&rec.session_id),
-            serde_json::to_value(rec.info())?,
-        );
         self.store.append_ledger(&LedgerRow::new(
             "session.opened",
             Some(&rec.session_id),
             None,
-            serde_json::to_value(visit)?,
+            json!({"execution_id": rec.execution_id}),
         ))?;
         Ok(rec)
     }
 
-    /// Serve one connection until EOF. `client` labels handlers this
-    /// connection registers so they are dropped when it goes away.
+    /// Serve one connection until EOF. `client` names the connection: its
+    /// session watches are dropped when it goes away.
     pub async fn serve_connection<R, W>(
         self: Arc<Self>,
         reader: R,
@@ -1003,10 +988,6 @@ impl Core {
         drop(tx);
         drop(resp_tx);
         self.bus.drop_conn(&client);
-        let n = self.hooks.unregister_client(&client);
-        if n > 0 {
-            tracing::info!(client = %client, dropped = n, "unregistered handlers of departed client");
-        }
         let _ = writer_task.await;
         Ok(())
     }
@@ -1141,60 +1122,6 @@ impl Core {
                 };
                 self.turns.fetch_add(1, Ordering::Relaxed);
                 Ok(serde_json::to_value(result).unwrap())
-            }
-            method::HOOKS_LIST => {
-                let events = HookEvent::ALL
-                    .iter()
-                    .map(|e| HookInfo {
-                        event: e.name().into(),
-                        kind: e.kind().as_str().into(),
-                        handlers: self.hooks.count(*e),
-                    })
-                    .collect();
-                let handlers = self
-                    .hooks
-                    .handlers()
-                    .into_iter()
-                    .map(|h| HandlerInfo {
-                        event: h.event.name().into(),
-                        handler_id: h.handler_id,
-                        client: h.client,
-                    })
-                    .collect();
-                Ok(serde_json::to_value(HooksListResult { events, handlers }).unwrap())
-            }
-            method::HOOKS_REGISTER => {
-                let p: HooksRegisterParams = parse(req.params)?;
-                let event: HookEvent = p
-                    .event
-                    .parse()
-                    .map_err(|e: String| RpcFailure::new(error_code::INVALID_PARAMS, e))?;
-                let rec = self
-                    .hooks
-                    .register_remote(event, p.handler_id, client.to_string(), tx);
-                self.store
-                    .append_ledger(&LedgerRow::new(
-                        "hooks.registered",
-                        None,
-                        None,
-                        serde_json::to_value(&rec).unwrap_or(Value::Null),
-                    ))
-                    .map_err(bad)?;
-                Ok(serde_json::to_value(HooksRegisterResult {
-                    event: event.name().into(),
-                    kind: event.kind().as_str().into(),
-                    handler_id: rec.handler_id,
-                })
-                .unwrap())
-            }
-            method::HOOKS_UNREGISTER => {
-                let p: HooksRegisterParams = parse(req.params)?;
-                let event: HookEvent = p
-                    .event
-                    .parse()
-                    .map_err(|e: String| RpcFailure::new(error_code::INVALID_PARAMS, e))?;
-                let removed = self.hooks.unregister(event, &p.handler_id, client);
-                Ok(serde_json::json!({"removed": removed}))
             }
             method::PROFILE_LIST => Ok(serde_json::to_value(self.profile_list()).unwrap()),
             method::PROFILE_USE => {
@@ -1501,8 +1428,6 @@ impl Core {
                 .unwrap())
             }
             method::SHUTDOWN => {
-                self.hooks
-                    .dispatch(HookEvent::ServerStopping, None, None, Value::Null);
                 let _ = self.store.append_ledger(&LedgerRow::new(
                     "server.stopping",
                     None,
@@ -1712,48 +1637,23 @@ mod tests {
         assert_eq!(kinds, vec!["user_message", "assistant_message"]);
         assert_eq!(result.provider_stop_reason.as_deref(), Some("end_turn"));
 
-        // Every hook site on the turn path was visited with zero handlers, and ledgered.
+        // No hook rows or hook spans (theseus-hco removed the hook system).
         let rows: Vec<(u64, LedgerRow)> = core.store.ledger_tail(200).unwrap();
-        let sites: Vec<String> = rows
-            .iter()
-            .filter(|(_, r)| r.kind == "hook.site" && r.turn_id.as_deref() == Some(&result.turn_id))
-            .map(|(_, r)| r.data["event"].as_str().unwrap().to_string())
-            .collect();
-        for expected in [
-            "turn.starting",
-            "input.received",
-            "context.built",
-            "model.pre_call",
-            "model.post_call",
-            "advancer.decided",
-            "loop.ended",
-            "message.sending",
-            "reply.claim",
-            "turn.ended",
-        ] {
-            assert!(
-                sites.contains(&expected.to_string()),
-                "missing site {expected}: {sites:?}"
-            );
-        }
-        assert!(rows
-            .iter()
-            .filter(|(_, r)| r.kind == "hook.site")
-            .all(|(_, r)| r.data["handlers"] == 0));
-        // The trace: turn > loop 0 > provider.call > first_token, with hooks as children.
+        assert!(!rows.iter().any(|(_, r)| r.kind.starts_with("hook")));
+        // The trace: turn > loop 0 > provider.call > first_token.
         let tr = result.trace.as_ref().expect("trace");
+        assert!(!serde_json::to_string(tr)
+            .unwrap()
+            .contains(r#""kind":"hook""#));
         assert_eq!(tr.name, "turn");
         assert!(tr.end_us.is_some());
         let names: Vec<&str> = tr.children.iter().map(|c| c.name.as_str()).collect();
         assert!(names.contains(&"admission.wait"));
-        assert!(names.contains(&"turn.starting"));
         assert!(names.contains(&"loop 0"));
         assert!(names.contains(&"session.write"));
-        assert!(names.contains(&"turn.ended"));
         let lp = tr.children.iter().find(|c| c.name == "loop 0").unwrap();
         let lnames: Vec<&str> = lp.children.iter().map(|c| c.name.as_str()).collect();
         assert!(lnames.contains(&"compile"));
-        assert!(lnames.contains(&"model.pre_call"));
         assert!(lnames.contains(&"provider.call"));
         assert!(lnames.contains(&"advancer"));
         let pc = lp
@@ -1820,54 +1720,73 @@ mod tests {
         assert_eq!(e2.code, error_code::NOT_FOUND);
     }
 
+    /// Rows written by the hook system (removed in theseus-hco) stay in old
+    /// stores. They still read through `ledger.tail`, which `theseus ledger`
+    /// and the Observatory use, and an old trace's hook spans still decode.
     #[tokio::test]
-    async fn remote_hook_observer_sees_turn_events() {
+    async fn rows_from_the_hook_system_still_read() {
         let core = test_core("ok");
+        // Byte for byte what the hook system wrote.
+        let old = [
+            r#"{"at_unix_ms":1759100000000,"kind":"server.started","data":{"hooks":{"event":"server.started","kind":"observe","handlers":0,"outcome":"proceed"},"startup":{}}}"#,
+            r#"{"at_unix_ms":1759100000001,"kind":"session.opened","session_id":"ses_old","data":{"event":"session.opened","kind":"observe","handlers":0,"outcome":"proceed"}}"#,
+            r#"{"at_unix_ms":1759100000002,"kind":"hooks.registered","data":{"event":"turn_ended","handler_id":"cli-watch","client":"cli#1"}}"#,
+            r#"{"at_unix_ms":1759100000003,"kind":"hook.site","session_id":"ses_old","turn_id":"turn_old","data":{"event":"turn.starting","kind":"gate","handlers":0,"outcome":"proceed"}}"#,
+            r#"{"at_unix_ms":1759100000004,"kind":"turn.trace","session_id":"ses_old","turn_id":"turn_old","data":{"name":"turn","kind":"turn","start_us":0,"end_us":900,"children":[{"name":"turn.starting","kind":"hook","start_us":10,"end_us":12,"attrs":{"kind":"gate","handlers":0,"outcome":"proceed"}}]}}"#,
+        ];
+        for row in old {
+            let row: Value = serde_json::from_str(row).unwrap();
+            core.store.append_ledger(&row).unwrap();
+        }
+        let tail = |id, kind: Option<&str>| {
+            Request::new(
+                Id::Num(id),
+                method::LEDGER_TAIL,
+                LedgerTailParams {
+                    n: Some(10),
+                    kind: kind.map(str::to_string),
+                    session_id: None,
+                },
+            )
+        };
         let msgs = roundtrip(
             core,
             vec![
-                Request::new(
-                    Id::Num(1),
-                    method::HOOKS_REGISTER,
-                    HooksRegisterParams {
-                        event: "turn.ended".into(),
-                        handler_id: "obs".into(),
-                    },
-                ),
-                Request::new(
-                    Id::Num(2),
-                    method::TURN_SUBMIT,
-                    TurnSubmitParams {
-                        session_id: None,
-                        input: "hi".into(),
-                        profile: None,
-                        provider: None,
-                        model: None,
-                        author: None,
-                    },
-                ),
-                Request::new(Id::Num(3), method::HOOKS_LIST, Value::Null),
+                tail(1, None),
+                tail(2, Some("hook.site")),
+                Request::new(Id::Num(3), "hooks.list", Value::Null),
             ],
         )
         .await;
-        let hook_events: Vec<&Notification> = notifications(&msgs)
-            .into_iter()
-            .filter(|n| n.method == notify::HOOK_EVENT)
-            .collect();
-        assert_eq!(hook_events.len(), 1);
-        assert_eq!(hook_events[0].params["event"], "turn.ended");
-        assert_eq!(hook_events[0].params["handler_id"], "obs");
-        let list = responses(&msgs)
-            .iter()
-            .find(|r| r.id == Id::Num(3))
-            .unwrap()
-            .result
-            .clone()
-            .unwrap();
-        let l: HooksListResult = serde_json::from_value(list).unwrap();
-        assert_eq!(l.events.len(), HookEvent::ALL.len());
-        assert_eq!(l.handlers.len(), 1);
-        assert_eq!(l.handlers[0].client, "test");
+        let rs = responses(&msgs);
+        let result = |id| -> LedgerTailResult {
+            let r = rs.iter().find(|r| r.id == Id::Num(id)).unwrap();
+            serde_json::from_value(r.result.clone().unwrap()).unwrap()
+        };
+        let all = result(1);
+        let kinds: Vec<&str> = all.rows.iter().map(|r| r.kind.as_str()).collect();
+        for k in [
+            "server.started",
+            "session.opened",
+            "hooks.registered",
+            "hook.site",
+            "turn.trace",
+        ] {
+            assert!(kinds.contains(&k), "{k} missing from {kinds:?}");
+        }
+        let sites = result(2).rows;
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].data["event"], "turn.starting");
+        assert_eq!(sites[0].turn_id.as_deref(), Some("turn_old"));
+        let trace = all.rows.iter().find(|r| r.kind == "turn.trace").unwrap();
+        let span: theseus_protocol::Span = serde_json::from_value(trace.data.clone()).unwrap();
+        assert_eq!(span.children[0].kind, "hook");
+        // An old client asking for the hook list is told plainly.
+        let gone = rs.iter().find(|r| r.id == Id::Num(3)).unwrap();
+        assert_eq!(
+            gone.error.as_ref().unwrap().code,
+            error_code::METHOD_NOT_FOUND
+        );
     }
 
     #[tokio::test]

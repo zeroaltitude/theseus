@@ -1,6 +1,6 @@
 [package]
 name = "theseus-core"
-description = "The Theseus kernel: config and secrets, hooks, sessions, turn runner, provider, advancer, store."
+description = "The Theseus kernel: config and secrets, sessions, turn runner, provider, advancer, store."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,7 +1,7 @@
 //! Turn traces: a nested tree of timed spans recorded while a turn runs.
 //!
-//! `turn > loop[n] > { hook sites, provider.call > { first_byte, first_token },
-//! advancer } > …`. Every span has a start and end in microseconds relative to
+//! `turn > loop[n] > { compile, provider.call > { first_byte, first_token },
+//! tools, advancer } > …`. Every span has a start and end in microseconds relative to
 //! the turn's start, a kind, and free-form attributes. Marks are zero-length
 //! spans. The finished tree rides on the turn result, the `turn.ended` ledger
 //! row, and the error payload of a failed turn, so timing is never something
@@ -158,7 +158,7 @@ mod tests {
     fn nests_and_closes_in_order() {
         let mut t = Trace::start("turn", "turn", json!({"a": 1}));
         t.enter("loop 0", "loop", Value::Null);
-        t.mark("hook", "hook", json!({"event": "x"}));
+        t.mark("note", "mark", json!({"event": "x"}));
         t.enter("provider.call", "provider", Value::Null);
         t.mark_at(5, "first_byte", "mark", Value::Null);
         t.exit(json!({"tokens": 3}));
@@ -172,7 +172,7 @@ mod tests {
         let lp = &root.children[0];
         assert_eq!(lp.name, "loop 0");
         assert_eq!(lp.children.len(), 2);
-        assert_eq!(lp.children[0].kind, "hook");
+        assert_eq!(lp.children[0].kind, "mark");
         let pc = &lp.children[1];
         assert_eq!(pc.name, "provider.call");
         assert_eq!(pc.attrs["tokens"], 3);

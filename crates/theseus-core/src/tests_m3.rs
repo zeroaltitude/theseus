@@ -885,3 +885,17 @@ async fn session_list_counts_each_sessions_waiting_calls() {
     assert_eq!(waiting(&a.session_id), 0, "a declined call waits no longer");
     assert_eq!(waiting(&b.session_id), 1);
 }
+
+/// Every WAL frame is its own fsync, so each frame on the turn path costs
+/// every turn. A plain one-loop turn writes 17 (27 before theseus-hco
+/// removed the hook rows); a change that adds one raises this on purpose.
+#[tokio::test]
+async fn a_plain_turn_stays_within_its_frame_budget() {
+    let r = rig(vec![Scripted::text("first"), Scripted::text("hello")]);
+    let first = turn(&r.core, None, "warm up").await;
+    let before = r.core.store.stats().unwrap().frames_appended;
+    let res = turn(&r.core, Some(&first.session_id), "hi").await;
+    assert_eq!(res.loops, 1);
+    let frames = r.core.store.stats().unwrap().frames_appended - before;
+    assert!(frames <= 17, "a plain turn wrote {frames} frames");
+}

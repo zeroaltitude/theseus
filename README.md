@@ -29,8 +29,8 @@ Two static binaries and one protocol:
 A turn is a tool loop: the session's history (compiled once, then appended to) goes to the
 Anthropic Messages API with the toollets offered, tool calls go through the policy gate, and the
 Advancer ends the turn when the model stops calling tools, a call waits for your confirmation, or
-the loop cap is reached. Every hook site is visited; handlers can be registered over the protocol
-and observe.
+the loop cap is reached. To follow turns live, a client watches the session (`session.watch`,
+`theseus watch`), which streams every turn event.
 
 ## Run it
 
@@ -44,11 +44,10 @@ theseusd check                                      # resolves every secret, the
 theseusd &                                          # daemon on ~/.theseus/theseus.sock
 
 theseus health
-theseus hooks list
 theseus ask "Say hello."                            # streamed
 echo "Summarize: ..." | theseus ask --json          # pipelines
 theseus --spawn ask "no daemon needed"              # spawns theseusd --stdio
-theseus hooks watch turn.ended                      # observe a hook over the protocol
+theseus watch                                       # follow a session live
 theseus shutdown
 ```
 
@@ -68,7 +67,6 @@ OpenTelemetry is built in and off-wire until you point it somewhere:
 [telemetry]
 otlp_endpoint = "http://127.0.0.1:4318"   # any OTLP/HTTP collector: Collector, Tempo, Honeycomb, Datadog, ADOT
 headers_secret = "honeycomb_key"          # optional; a [secrets] entry holding "x-honeycomb-team: …"
-hook_spans = false                        # true: every hook site is a span; false: an event on its parent
 ```
 
 Each turn becomes one trace (turn > loops > provider.call with GenAI attributes, first_byte/first_token
@@ -77,7 +75,7 @@ events) with the exact timestamps the ledger recorded, plus metrics: `theseus.tu
 `theseus.provider.first_token_ms`, `theseus.cost.usd`, `theseus.tool.calls` (by tool).
 
 Visibility: `theseus health` (totals), `theseus sessions list` (tokens per session),
-`theseus ledger -n 20 [-k provider.call|provider.error|turn.ended|hook.site]` (every row).
+`theseus ledger -n 20 [-k provider.call|provider.error|turn.ended]` (every row).
 
 When the Claude API does not answer: four timeouts (connect 10 s, first byte 60 s, stream idle 60 s,
 total 600 s; `[model.timeouts]` in config) end the call with a classified error (`timeout`, `network`,

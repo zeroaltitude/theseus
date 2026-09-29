@@ -4,7 +4,8 @@ import type { Span } from './protocol'
 // The turn's timing as a waterfall: one row per span, indented by depth, a bar
 // positioned by start/end relative to the whole turn. Marks (first byte, first
 // token) are ticks. Click a row for its attributes. This is the structure
-// <turn><loop>…</loop></turn> that hooks, tools, and thinking will fill in.
+// <turn><loop>…</loop></turn> that tools and thinking fill in. `hook` spans
+// appear only in traces stored before theseus-hco removed the hook system.
 
 const fmtUs = (us: number) =>
   us >= 1_000_000 ? `${(us / 1e6).toFixed(2)} s` : us >= 1000 ? `${(us / 1e3).toFixed(1)} ms` : `${us} µs`

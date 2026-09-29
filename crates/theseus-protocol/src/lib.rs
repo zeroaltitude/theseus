@@ -20,9 +20,6 @@ pub mod method {
     pub const SESSION_OPEN: &str = "session.open";
     pub const SESSION_LIST: &str = "session.list";
     pub const TURN_SUBMIT: &str = "turn.submit";
-    pub const HOOKS_LIST: &str = "hooks.list";
-    pub const HOOKS_REGISTER: &str = "hooks.register";
-    pub const HOOKS_UNREGISTER: &str = "hooks.unregister";
     pub const LEDGER_TAIL: &str = "ledger.tail";
     pub const PROFILE_LIST: &str = "profile.list";
     pub const PROFILE_USE: &str = "profile.use";
@@ -49,7 +46,6 @@ pub mod notify {
     pub const TOOL_PROPOSED: &str = "tool.proposed";
     pub const LOOP_ENDED: &str = "loop.ended";
     pub const TURN_ENDED: &str = "turn.ended";
-    pub const HOOK_EVENT: &str = "hook.event";
     pub const PROFILE_CHANGED: &str = "profile.changed";
     /// Thinking summaries / progress updates as they stream.
     pub const MODEL_THINKING: &str = "model.thinking";
@@ -534,7 +530,8 @@ pub struct ProfileChanged {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Span {
     pub name: String,
-    /// turn | loop | hook | provider | mark | advancer | store | lock | compile
+    /// turn | loop | provider | tool | mark | advancer | store | lock | compile.
+    /// Traces stored before theseus-hco also hold `hook` spans.
     pub kind: String,
     pub start_us: u64,
     #[serde(default)]
@@ -587,7 +584,7 @@ pub struct TurnSubmitResult {
     /// Provider request id of the last loop, for support tickets.
     #[serde(default)]
     pub request_id: Option<String>,
-    /// Every timed thing in the turn, nested: turn > loops > hooks/provider/advancer.
+    /// Every timed thing in the turn, nested: turn > loops > provider/tools/advancer.
     #[serde(default)]
     pub trace: Option<Span>,
     #[serde(default)]
@@ -897,49 +894,6 @@ pub struct LoopEnded {
     pub tool_calls: u32,
     pub advancer: String,
     pub decision: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookInfo {
-    pub event: String,
-    pub kind: String,
-    pub handlers: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HandlerInfo {
-    pub event: String,
-    pub handler_id: String,
-    pub client: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HooksListResult {
-    pub events: Vec<HookInfo>,
-    pub handlers: Vec<HandlerInfo>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HooksRegisterParams {
-    pub event: String,
-    pub handler_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HooksRegisterResult {
-    pub event: String,
-    pub kind: String,
-    pub handler_id: String,
-}
-
-/// Delivered to a remote handler registered for an Observe-kind hook.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookEventNotification {
-    pub event: String,
-    pub handler_id: String,
-    pub turn_id: Option<String>,
-    pub session_id: Option<String>,
-    pub payload: Value,
 }
 
 pub fn now_unix_ms() -> u64 {

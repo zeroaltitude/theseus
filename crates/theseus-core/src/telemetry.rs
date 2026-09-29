@@ -53,10 +53,11 @@ pub struct TelemetryConfig {
     pub headers_secret: Option<String>,
     #[serde(default = "default_service_name")]
     pub service_name: String,
-    /// Export hook sites, compile, store, lock, and advancer as spans rather
-    /// than events on their parent. Off: a turn is a handful of spans.
-    #[serde(default)]
-    pub hook_spans: bool,
+    /// Retired with the hook system (theseus-hco): still accepted so an older
+    /// config loads, and ignored. Marks, compile, store, lock, and advancer
+    /// are always events on their parent span.
+    #[serde(default, skip_serializing)]
+    pub hook_spans: Option<bool>,
     /// Metrics export interval.
     #[serde(default = "default_metrics_interval")]
     pub metrics_interval_secs: u64,
@@ -80,15 +81,15 @@ impl Default for TelemetryConfig {
             otlp_endpoint: None,
             headers_secret: None,
             service_name: default_service_name(),
-            hook_spans: false,
+            hook_spans: None,
             metrics_interval_secs: default_metrics_interval(),
             export_timeout_secs: default_export_timeout(),
         }
     }
 }
 
-/// Kinds that become span events unless `hook_spans` is set.
-const EVENT_KINDS: &[&str] = &["hook", "mark", "compile", "store", "lock", "advancer"];
+/// Kinds that become events on their parent span, so a turn is a handful of spans.
+const EVENT_KINDS: &[&str] = &["mark", "compile", "store", "lock", "advancer"];
 
 struct Instruments {
     turns: Counter<u64>,
@@ -146,7 +147,6 @@ struct Inner {
     tracer: SdkTracer,
     meter_provider: SdkMeterProvider,
     instruments: Instruments,
-    hook_spans: bool,
 }
 
 /// What a failed turn reports to telemetry.
@@ -223,7 +223,6 @@ impl Telemetry {
         Ok(Self::from_providers(
             tracer_provider,
             meter_provider,
-            cfg.hook_spans,
             Some(base.to_string()),
         ))
     }
@@ -232,7 +231,6 @@ impl Telemetry {
     pub fn from_providers(
         tracer_provider: SdkTracerProvider,
         meter_provider: SdkMeterProvider,
-        hook_spans: bool,
         endpoint: Option<String>,
     ) -> Self {
         let tracer = tracer_provider.tracer("theseus");
@@ -244,7 +242,6 @@ impl Telemetry {
                 tracer,
                 meter_provider,
                 instruments,
-                hook_spans,
             }),
             endpoint,
         }
@@ -410,7 +407,7 @@ fn export_span(inner: &Inner, node: &Span, origin: SystemTime, parent: Option<&C
     let end = at(origin, node.end_us.unwrap_or(node.start_us));
     let is_event_kind = EVENT_KINDS.contains(&node.kind.as_str());
 
-    if is_event_kind && !inner.hook_spans {
+    if is_event_kind {
         if let Some(cx) = parent {
             let mut attrs = flatten(&node.attrs, "");
             attrs.push(KeyValue::new("theseus.kind", node.kind.clone()));
@@ -536,9 +533,7 @@ mod tests {
     use opentelemetry_sdk::trace::InMemorySpanExporter;
     use serde_json::json;
 
-    fn test_telemetry(
-        hook_spans: bool,
-    ) -> (Telemetry, InMemorySpanExporter, InMemoryMetricExporter) {
+    fn test_telemetry() -> (Telemetry, InMemorySpanExporter, InMemoryMetricExporter) {
         let spans = InMemorySpanExporter::default();
         let metrics = InMemoryMetricExporter::default();
         let tp = SdkTracerProvider::builder()
@@ -546,11 +541,7 @@ mod tests {
             .build();
         let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metrics.clone()).build();
         let mp = SdkMeterProvider::builder().with_reader(reader).build();
-        (
-            Telemetry::from_providers(tp, mp, hook_spans, None),
-            spans,
-            metrics,
-        )
+        (Telemetry::from_providers(tp, mp, None), spans, metrics)
     }
 
     fn sample_trace() -> Span {
@@ -560,7 +551,6 @@ mod tests {
             json!({"turn_id": "t1", "origin_unix_ms": 1_700_000_000_000u64}),
         );
         t.record("lock.wait", "lock", 0, 30, Value::Null);
-        t.record("turn.starting", "hook", 40, 52, json!({"handlers": 0}));
         t.enter("loop 0", "loop", json!({"loop": 0}));
         t.enter(
             "provider.call",
@@ -578,6 +568,7 @@ mod tests {
             json!({"decision": "end_turn:x"}),
         );
         t.exit(Value::Null);
+        t.record("session.write", "store", 1400, 1410, Value::Null);
         t.finish(json!({"outcome": "complete"}))
     }
 
@@ -607,12 +598,12 @@ mod tests {
 
     #[test]
     fn exports_turn_as_nested_spans_with_events() {
-        let (tel, spans, metrics) = test_telemetry(false);
+        let (tel, spans, metrics) = test_telemetry();
         tel.record_turn(&result_with(sample_trace()));
         tel.flush();
         let finished = spans.get_finished_spans().unwrap();
         let names: Vec<&str> = finished.iter().map(|s| s.name.as_ref()).collect();
-        // hooks/marks/lock/advancer are events, so exactly three spans.
+        // marks/lock/advancer/store are events, so exactly three spans.
         assert_eq!(finished.len(), 3, "{names:?}");
         let turn = finished.iter().find(|s| s.name == "turn").unwrap();
         let lp = finished.iter().find(|s| s.name == "loop 0").unwrap();
@@ -629,7 +620,7 @@ mod tests {
             "{ev:?}"
         );
         let turn_ev: Vec<&str> = turn.events.iter().map(|e| e.name.as_ref()).collect();
-        assert!(turn_ev.contains(&"lock.wait") && turn_ev.contains(&"turn.starting"));
+        assert!(turn_ev.contains(&"lock.wait") && turn_ev.contains(&"session.write"));
         let has = |k: &str, want: &str| {
             pc.attributes
                 .iter()
@@ -661,7 +652,7 @@ mod tests {
 
     #[test]
     fn dollars_and_tool_calls_are_metrics() {
-        let (tel, _, metrics) = test_telemetry(false);
+        let (tel, _, metrics) = test_telemetry();
         let mut trace = sample_trace();
         trace.children[0].children.push(Span {
             name: "tool fs_read".into(),
@@ -689,18 +680,8 @@ mod tests {
     }
 
     #[test]
-    fn hook_spans_mode_exports_every_node_as_a_span() {
-        let (tel, spans, _) = test_telemetry(true);
-        tel.record_turn(&result_with(sample_trace()));
-        tel.flush();
-        let finished = spans.get_finished_spans().unwrap();
-        // turn, lock.wait, turn.starting, loop 0, provider.call, first_byte, first_token, advancer
-        assert_eq!(finished.len(), 8);
-    }
-
-    #[test]
     fn failure_sets_error_status_and_counts() {
-        let (tel, spans, metrics) = test_telemetry(false);
+        let (tel, spans, metrics) = test_telemetry();
         let mut t = crate::trace::Trace::start("turn", "turn", json!({"origin_unix_ms": 1u64}));
         t.enter("loop 0", "loop", Value::Null);
         t.enter(

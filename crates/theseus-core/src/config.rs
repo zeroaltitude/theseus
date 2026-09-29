@@ -668,6 +668,13 @@ impl Config {
                  [policy].enforcement unless [policy.tools] names it"
             )
         }));
+        if cfg.telemetry.hook_spans.is_some() {
+            warnings.push(
+                "telemetry.hook_spans is retired and ignored (theseus-hco): the hook system \
+                 is gone; remove the key"
+                    .into(),
+            );
+        }
         Ok((cfg, warnings))
     }
 
@@ -1054,6 +1061,33 @@ mod tests {
         let both = text.replace("[policy]\n", "[policy]\napprove_argv = [[\"x\"]]\n");
         let e = format!("{:#}", Config::parse(&both).unwrap_err());
         assert!(e.contains("duplicate"), "{e}");
+    }
+
+    /// The live vault config sets `[telemetry] hook_spans = false` (checked
+    /// 2026-09-28). The key outlived the hook system (theseus-hco): either
+    /// value loads and is ignored with one warning, and `theseusd config`
+    /// no longer shows it.
+    #[test]
+    fn the_retired_hook_spans_key_loads_with_a_warning() {
+        for value in ["false", "true"] {
+            let text = format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                 [telemetry]\nservice_name = \"theseus\"\nhook_spans = {value}\n\
+                 metrics_interval_secs = 15\n"
+            );
+            let (cfg, warnings) = Config::parse(&text).unwrap();
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(
+                warnings[0]
+                    .starts_with("telemetry.hook_spans is retired and ignored (theseus-hco)"),
+                "{warnings:?}"
+            );
+            let shown = toml::to_string(&cfg.telemetry).unwrap();
+            assert!(!shown.contains("hook"), "{shown}");
+        }
+        let (_, warnings) =
+            Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     /// There is no deny posture: `deny`, wherever a posture goes, fails to

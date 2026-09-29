@@ -1,5 +1,5 @@
-//! Ledger rows. Every state transition, hook site visit, loop, and Advancer
-//! decision is a row. In M0 rows are JSON in the embedded store.
+//! Ledger rows. Every state transition, loop, and Advancer decision is a
+//! row. In M0 rows are JSON in the embedded store.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

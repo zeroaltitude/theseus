@@ -13,10 +13,10 @@ use clap::{Parser, Subcommand};
 use serde_json::Value;
 use theseus_protocol::{
     method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmRequest,
-    HealthResult, HooksListResult, HooksRegisterParams, Id, LedgerTailParams, LedgerTailResult,
-    Message, NodeInfo, ProfileListResult, ProfileUseParams, Request, SessionHistoryParams,
-    SessionHistoryResult, SessionInfo, SessionListResult, SessionOpenParams,
-    SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams, TurnSubmitResult,
+    HealthResult, Id, LedgerTailParams, LedgerTailResult, Message, NodeInfo, ProfileListResult,
+    ProfileUseParams, Request, SessionHistoryParams, SessionHistoryResult, SessionInfo,
+    SessionListResult, SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult,
+    TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
@@ -97,7 +97,7 @@ enum Cmd {
         /// Model id for this turn (e.g. claude-sonnet-5, glm-5.3-flash).
         #[arg(long, short)]
         model: Option<String>,
-        /// After the reply, print the turn's timing tree (turn > loops > hooks/provider) to stderr.
+        /// After the reply, print the turn's timing tree (turn > loops > provider/tools) to stderr.
         #[arg(long)]
         trace: bool,
         /// Show the model's thinking summaries on stderr as they stream.
@@ -152,11 +152,6 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<SessionsCmd>,
     },
-    /// Hook events and registered handlers; `hooks watch <event>` observes one live.
-    Hooks {
-        #[command(subcommand)]
-        cmd: HooksCmd,
-    },
     /// Executions (one per session): state, turns, outstanding actions, budget; `executions cancel <id>`.
     Executions {
         #[command(subcommand)]
@@ -167,12 +162,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<ProfileCmd>,
     },
-    /// Recent ledger rows (every turn, loop, provider call, hook site, error).
+    /// Recent ledger rows (every turn, loop, provider call, state change, error).
     Ledger {
         /// How many rows.
         #[arg(short, long, default_value_t = 20)]
         n: usize,
-        /// Only rows of this kind, e.g. turn.ended, provider.call, provider.error, hook.site.
+        /// Only rows of this kind, e.g. turn.ended, provider.call, provider.error.
         #[arg(short, long)]
         kind: Option<String>,
         #[arg(short, long)]
@@ -219,18 +214,6 @@ enum SessionsCmd {
         session: String,
         #[arg(long, default_value = "fresh", value_parser = ["fresh", "transcript"])]
         strategy: String,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum HooksCmd {
-    /// Every hook event with its kind (gate/transform/claim/observe) and handler count (default).
-    List,
-    /// Register as an observer of EVENT and print each hook.event as it arrives (Ctrl-C to stop).
-    Watch {
-        event: String,
-        #[arg(long, default_value = "cli-watch")]
-        handler_id: String,
     },
 }
 
@@ -850,51 +833,6 @@ async fn run(cli: Cli) -> Result<()> {
                     println!("{}", serde_json::to_string(&v)?);
                 } else {
                     println!("{session}: the next turn recompiles ({strategy})");
-                }
-            }
-        },
-        Cmd::Hooks { cmd } => match cmd {
-            HooksCmd::List => {
-                let v = conn
-                    .call(method::HOOKS_LIST, Value::Null, |_, _| {})
-                    .await?;
-                if json {
-                    println!("{}", serde_json::to_string(&v)?);
-                } else {
-                    let l: HooksListResult = serde_json::from_value(v)?;
-                    for e in l.events {
-                        println!("{:<24}{:<12}{}", e.event, e.kind, e.handlers);
-                    }
-                    if !l.handlers.is_empty() {
-                        println!("--- handlers");
-                        for h in l.handlers {
-                            println!("{:<24}{:<20}{}", h.event, h.handler_id, h.client);
-                        }
-                    }
-                }
-            }
-            HooksCmd::Watch { event, handler_id } => {
-                let v = conn
-                    .call(
-                        method::HOOKS_REGISTER,
-                        serde_json::to_value(HooksRegisterParams {
-                            event: event.clone(),
-                            handler_id,
-                        })?,
-                        |_, _| {},
-                    )
-                    .await?;
-                eprintln!(
-                    "watching {} ({})",
-                    event,
-                    v.get("kind").and_then(Value::as_str).unwrap_or("?")
-                );
-                while let Some(msg) = conn.next().await? {
-                    if let Message::Notification(n) = msg {
-                        if n.method == notify::HOOK_EVENT {
-                            println!("{}", serde_json::to_string(&n.params)?);
-                        }
-                    }
                 }
             }
         },

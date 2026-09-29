@@ -566,6 +566,7 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'turn.failed': return s('reason')
     case r.kind === 'provider.call': return `${s('model')} · ${s('stop_reason')} · ${JSON.stringify(g('usage') ?? {})}`
     case r.kind === 'provider.error': return `${s('class')}${g('transient') ? ' transient' : ''}${g('usage_unknown') ? ' usage unknown' : ''} · ${s('message')}`
+    // Rows from before theseus-hco, which removed the hook system; old stores keep them.
     case r.kind === 'hook.site': return `${s('event')} · ${s('handlers')} handler(s) · ${s('outcome')}`
     case r.kind === 'loop.ended': return `loop ${s('loop')} · ${s('decision').replace(/[{}"]/g, '')}`
     case r.kind === 'context.compiled': return `${s('decision')}${g('trigger') ? ` (${s('trigger')})` : ''} · ${s('prefix_nodes')}+${s('tail_nodes')} nodes · ${s('messages')} msg · ~${s('est_tokens')} tok`

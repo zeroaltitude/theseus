@@ -597,7 +597,7 @@ fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     w.kernel
         .bind_confirm(&a.correlation_id, "eddie", &p)
         .unwrap();
-    // A hook mutation after the confirm: the digest no longer matches.
+    // Arguments changed after the confirm: the digest no longer matches.
     let err = w
         .kernel
         .authorize(&a.correlation_id, &other, Some("eddie"))
