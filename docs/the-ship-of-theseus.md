@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.47
+# The Ship of Theseus — v0.48
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -503,6 +503,8 @@ The `planned` record mints the **correlation id** and is committed before anythi
 | AWS-side work (Lambda, ECS/Fargate, SSM, scheduled jobs, MCP servers running in AWS) | **SQS long-poll** fed by EventBridge and by the wrapper inside the job | pull, so "no inbound" holds; at-least-once with dedupe by correlation id |
 | Sources that can do nothing but POST | loopback-only HTTP receiver, per-job HMAC, size-capped, off by default | the documented exception, never the default |
 
+Native in-process calls of one response that only read run concurrently (§4.6). Each is still a `planned`/`settled` pair in the WAL, dispatched before it runs. _(theseus-a60.)_
+
 **The job wrapper** is part of every shell class's contract (§7): it is **detached** (its lifetime does not depend on the harness; on the node it runs as its own systemd scope or L1 process tree), **durable** (result spooled to disk before any delivery attempt), and **cancellable** (the harness terminates it by correlation id through the execution's cancel path: kill the scope, stop the task, cancel the command). It is deliberately not "unkillable"; a runaway job must remain stoppable.
 
 **Deadlines and reconciliation.** Every record carries a deadline from the tool's class and the execution's budget. The heartbeat reconciler (§3.3) checks open records against the spool, the queue, job-scope state, and, for AWS classes past their deadline, the service API. Reconciliation is event-first (EventBridge task state changes flow into the same queue) and polls only overdue records, so its cost scales with stuck work, not with total work.
@@ -668,6 +670,16 @@ Why this is a principle and not a taste. A `bash` string is opaque: the gate can
 - Native does not mean unbounded. A toollet that does I/O or exceeds the synchronous bound (§3.16) is an action with a completion record like anything else; durability is unchanged.
 - Native does not mean unscoped. A toollet runs with kernel trust, so it lands through the pull-request path (§3.21) and declares the authority it needs; the gate checks typed arguments, not strings.
 - Tool count is the toolchain manager's problem, not the model's: toollets are offered by family and by the turn's needs (roles, Jev), and searched, so a hundred of them do not bloat every prompt.
+- **A toollet computes on one of the daemon's cores.**
+  - One semaphore, with a permit per core (`available_parallelism`), is held by every in-process toollet
+    while it runs on tokio's blocking pool.
+  - So calls across every session never run more CPU work at once than there are cores, and never use a
+    thread per call.
+  - A call that waits for a permit is waiting, not failing: its deadline starts with its run. _(theseus-a60.)_
+- **A toollet whose work splits borrows free cores, and never waits for one.**
+  - `fs.grep` searches the files of a big tree in chunks, on every core that is free at that moment, and
+    merges them in walk order, so its output is the same with or without them.
+  - Waiting is async and computing takes a core, so a pool full of greps cannot deadlock.
 - Every tool call is a trace span and a metric with family, tool, backend, and outcome. The **shell-fallback ratio** (`proc.run` over all calls) is watched; the most frequent `proc.run` argv patterns are the promotion queue for the next toollet (§3.21 `extend.promote`).
 - A new capability arrives as a toollet unless there is a written reason it cannot; Part III records where this slipped.
 
@@ -892,6 +904,23 @@ Inbound `Message` nodes; the turn trace (§3.3a); the `Compilation` node when th
   check for anything new, and not each loop's compile.
 
 _(Amended 2026-09-29, theseus-qa0 step F2: until then a plain turn wrote 17 frames, and decoded its transcript at every reader; Part III A3c.)_
+
+**Calls that run together** (theseus-a60).
+- A response's tool calls are gated in order. The first call that waits for the operator ends the gating,
+  and the calls after it are left for the continuation, as before.
+- The calls the policy runs go in groups. A run of consecutive reads is one group. Each write or program is
+  a group of its own, a barrier: it starts after every call before it has finished, and the calls after it
+  start after it finishes.
+- An unknown tool or invalid input is answered at once, wherever it is.
+- A group's calls run at once, in the turn's own task, and each keeps its own frames, plan and completion,
+  written as they happen. So within a group, the WAL holds the calls' plan frames first, then their
+  completions as they finish. Nowhere else does the order change.
+- The next request carries the results in the order the model asked, because the compiler places each
+  result after its call, whatever its position.
+- A question for the operator is asked after every call before it has finished, so it keeps its sequential
+  place.
+
+_(Amended 2026-09-29, theseus-a60 step F3; Part III A3c.)_
 
 ## 5. Memory
 
@@ -2629,6 +2658,87 @@ With Eddie's real note, through a shim `op` that turned the web UI and Discord o
 - The restart's 100 ms grace is a delay, not a handshake.
 - The copy is written without fsync, so a copy lost in a crash costs one slow start.
 - A start spawned the moment `theseus shutdown` returns can still fail with "Database already open" (F4).
+
+### Step F3. Parallel tool calls (theseus-a60; 2026-09-29, 14:15–15:10; a579f63, d421e1b, 59b3d9f)
+
+**Why.** Eddie, 2026-09-28 23:57: "the most performant way to run trivially parallelizable tasks is to avoid os
+threads and use truly async code." A response's tool calls ran one after another, so five reads and two greps
+took the sum of their times. In-process toollets ran on tokio's blocking pool, bounded only by its 512
+threads.
+
+**What exists.**
+- **Gate first, then run in groups** (`ToolRuntime::run_calls`).
+  - The calls are gated in order. An unknown tool or invalid input is answered at once.
+  - The first call that waits for the operator asks after the calls before it, and the calls after it wait
+    for the continuation.
+  - Consecutive reads run as futures in the turn's task (`join_all`, no task per call). A write or a program
+    runs alone.
+  - Each call keeps its own two frames, and every kernel call stays in the turn's task, one at a time.
+  - A continuation runs its ungated calls the same way.
+- **The request does not change.** The compiler already placed each result after the call it answers,
+  whatever its position.
+- **The trace shows the overlap.** A group's calls sit under a `tools` span, and `theseus ask --trace` draws
+  them on that span's own time.
+- **A fixed CPU pool** (`CpuPool`): a semaphore of `available_parallelism()` permits, held by every
+  in-process toollet while it runs. A call's deadline, and its time, are its run's own.
+- **`fs.grep` borrows free cores** for a big tree. The walk stays sequential. Past the first 256 files,
+  chunks of 64 go to every core that is free at that moment. The merge, in walk order, keeps the output
+  identical.
+- **The kernel simulator** dispatches 3 to 6 actions at once in a quarter of its turns, with crashes after
+  the dispatch and between the completions.
+
+**How it is proven.**
+- The gate passed at each commit: 288, 290, then 291 tests, 11 of them new, with the lifecycle bench within
+  its budgets at all three.
+- **The output-diff probe,** with each provider request's digest added:
+  - its 26 scenarios are byte-identical to the parent's after masking, and so are all their requests;
+  - a 27th scenario, five reads and two greps in one response, sends the same requests;
+  - its records, notifications, frames, and history reorder only inside the batch.
+- **The simulators:** `kernel-sim` (22 seeds, 746 crashes, 83 of them inside a batch, every invariant held),
+  and `crash-test`.
+- **A copy of Eddie's store** under the old and the new binaries, with GLM turns. The old binary reads the
+  new binary's session byte for byte.
+
+| Measure (release) | Before | After |
+|---|---|---|
+| a GLM response of 5 reads and 2 greps: the calls' wall time | 407–411 ms (their sum) | 168–184 ms (the slowest, 135–149 ms, plus its start) |
+| one `fs.grep` over `~/projects/openclaw` (49,370 files), in the daemon | 291–294 ms | 123–126 ms |
+| the same, in the benchmark: a full scan / the walk alone | 284 ms / 82 ms | 114 ms / 82 ms |
+| 32 CPU-bound calls in 4 sessions on 16 cores: most at once | | 15–16, never more |
+
+**Reviewed** (Tabitha, 2026-09-29, 15:17 to 15:25).
+- The gate rerun passed: 291 tests, and all four bench phases within budget.
+- On the release build, over a fresh copy of Eddie's store, a GLM response of four `fs.read`s and one
+  `fs.grep`:
+  - ran its five calls together, under one 69.0 ms `tools` span, each call about 41 ms;
+  - answered right: the `stable` channel, and 3 files for the grep, as `grep -rl` says;
+  - wrote 24 frames, with the session's open.
+- The old binary reads the new session byte for byte: 2,568 B of text, and 16,638 B of JSON.
+- Installed at 15:24.
+- **At review, the kernel's lost update (section 6 of the report) was filed as theseus-id9 (P1)**, and put
+  next in the chain, before the OTel step. Concurrency makes the race likelier, and task sessions and wakes
+  will add writers.
+- **F3's two decisions for Eddie, taken at review as engineering calls:**
+  - one plan frame per group joins theseus-l6y (F4);
+  - a tightening pressed mid-batch applies from the next response, which is the right grain for a
+    response that was gated as a whole.
+
+**Divergence from Parts I and II, and from the issue and the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The issue: calls that write a path another call touches run in call order | Every write and every program is a barrier | Ruthlessly simple (the brief); path-level analysis is described in the report, and not built | Keep |
+| The issue: `fs.glob` uses the parallel walker too | `fs.glob` unchanged; `fs.grep`'s walk sequential, its search parallel | The walk must keep its order, and `fs.glob` is all walk | Keep; a sorted parallel walk would change today's output order |
+| The brief: order results by their `ToolCall` nodes in the renderer | Nothing changed there | The renderer already placed each result after its call | Keep |
+| Concurrent completions share an fsync through group commit | Not within a turn, whose frames are committed from its one task; across turns, half of them | Commits stay in the turn's task, because the kernel rewrites an execution's record from what it read | One plan frame per group (theseus-l6y); the kernel lock first (theseus-id9) |
+| A call's `duration_ms` is its run (implicit) | Timed on its core since 59b3d9f | Timed from its future, a read in a group said 45–50 ms | Fixed |
+
+**Known gaps.**
+- A group of k calls writes 2k frames, one after another from the turn's task: about 100 ms for seven
+  instant reads on this disk (theseus-l6y).
+- A kernel transition read and rewritten on two threads can lose an update. That is old, but likelier
+  during a batch's commit bursts (theseus-id9, next).
+- `session.history` lists a group's results in the order they finished.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
