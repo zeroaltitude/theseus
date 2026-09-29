@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.41
+# The Ship of Theseus — v0.42
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -48,7 +48,8 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Proactivity | The agent may open a conversation with a human unprompted. Safety rests on the Jev security classifier plus a default-safe operator environment. |
 | Destructive confirm | Goes to the person who issued the request, as an **approval dialogue in a trusted channel**. A trusted channel is any surface the static config lists as trusted (a Discord channel or DM, the web UI, the CLI), provided every member is a trusted user, also listed in static config (Eddie, 2026-09-27; §3.9). When there is no requester (proactive or scheduled work), it goes to the **owner**. Timeout means no action. |
 | Owner vs operators | One **owner** per deployment: whoever runs the Theseus runtime, whether that is Eddie, a company's CTO, or a single person on their own laptop. The owner holds final authority over policy, budgets, and unrequested destructive actions. Many **operators** may converse with and configure the system within what the owner allows. |
-| Owner's property | There is never a proposed action the owner cannot give an overriding approval for when it concerns the owner's own property (a repository, computer, or instance the owner owns), so long as it is in concordance with the model's terms of use and safety policy (Eddie, 2026-09-27). Property is declared statically in config. The override is owner-only and given in a trusted channel, and the floor takes a stronger ceremony (§3.9). |
+| Owner's property | There is never a proposed action the owner cannot give an overriding approval for when it concerns the owner's own property (a repository, computer, or instance the owner owns), so long as it is in concordance with the model's terms of use and safety policy (Eddie, 2026-09-27). Property is declared statically in config. The override is owner-only and given in a trusted channel, and the floor takes a stronger ceremony (§3.9). _Since 2026-09-28 the gate refuses nothing, so the principle holds by construction: the owner can approve anything that waits, and the floor's ceremony is moot (§3.9; Part III A3b)._ |
+| Gate | **Notify over block** (Eddie, 2026-09-28). Every tool and every MCP inherits one posture, `open`, `notify`, or `approve`, with per-tool and per-MCP overrides. The gate never refuses a call, and the floor always asks (§3.9). |
 | Unprompted actions | All allowed without confirm: DM a human, open a thread, post in a channel, speak in voice. The agent must be invited to a channel first, voice or text; it never joins uninvited. |
 | Task terminal/stalled states | Judged by Jev like every other loop state; escalated to a human only when Jev's confidence is in question. No separate verification tier. Deterministic control paths (`/stop`, revocation, budget exhaustion) bypass Jev entirely (§3.15). |
 | Provider outage | Fail closed and say so in Discord. No secondary provider. |
@@ -82,7 +83,8 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | NATIVE FIRST | The default way Theseus does anything is a small, typed, in-process Rust toollet. Shelling out is the escape hatch, ledgered as such; the ratio of shell calls to native calls is a health metric, and the most frequent shell patterns are the queue for the next toollet. Typed arguments are what let policy read intent, provenance ride on outputs, and the learning loop see what the agent actually does. (Eddie, 2026-09-26.) |
 | EXQUISITE VISIBILITY | Every turn, loop, provider call, hook site, judgment, and completion is timed and attributed as it happens, in the record, before anyone asks. Statistics and visualization are built with the feature, not after it. Nothing that matters is sampled away, and any OpenTelemetry backend can be pointed at the running system for service-level stats without code changes. We move carefully because we can see. (Eddie, 2026-09-25.) |
 | APPEND-ONLY | The **event record** only grows. Compaction, supersession, suppression, and forgetting are new records; nothing in the record is rewritten. Projections (retention, heat, task state, trust annotations, indexes) are mutable and rebuildable from the record. Payload erasure under §5.6 is the single, receipted exception. |
-| IRREVERSIBLE WAITS | The gate protects the owner's options. A call is irreversible when, after it, no option the owner has restores what was there: a history rewrite, a destroyed remote, lost uncommitted work, a publication, a post outside Theseus. An irreversible call waits for approval at every enforcement level. Everything else may run with a notice when the owner chooses `notify` or `open`, because a notice is enough while the owner can still undo (§3.9). (Eddie, 2026-09-27.) |
+| NOTIFY OVER BLOCK | The gate tells the operator what ran; it does not stand in the way. "Theseus should notify over block -- the operator should /know/ when something bad is going to happen", and the operator should be "asked, sure, but a hard no, almost never." The finite lists of tools and MCP servers are what the operator controls, and the gate never tries to infer what a command's contents do. Safety rests on a default-safe environment and on the operator knowing what ran (§3.9). (Eddie, 2026-09-28; replaces IRREVERSIBLE WAITS.) |
+| IRREVERSIBLE WAITS | _Superseded 2026-09-28 by NOTIFY OVER BLOCK: telling which calls are irreversible meant detecting what a command does, and that detection was removed (theseus-8az; Part III A3b). The principle as it stood:_ The gate protects the owner's options. A call is irreversible when, after it, no option the owner has restores what was there: a history rewrite, a destroyed remote, lost uncommitted work, a publication, a post outside Theseus. An irreversible call waits for approval at every enforcement level. Everything else may run with a notice when the owner chooses `notify` or `open`, because a notice is enough while the owner can still undo (§3.9). (Eddie, 2026-09-27.) |
 | FUNGIBLE ONTOLOGY | The kinds of context (channel, guild, person, topic, culture, expertise, and any kind added later) are data, not code. They live in a versioned table that the owner, operators, and Jev extend, and whose memberships are trained, re-associated, and indexed by embedding. Interpretations route context; they never grant access (§4.1a). (Eddie, 2026-09-27.) |
 
 ## 3. Architecture
@@ -307,18 +309,40 @@ Question packs in the design so far: `classify.v1`, `loop.v1`, `continuation.v1`
 
 **Authority context.** Every execution carries an explicit authority context, fixed at creation and re-validated at each tool call: the **principal** (the requesting human, the owner for scheduled or proactive work, or an MCP client identity for inbound MCP calls), any **delegation** (a human may delegate a bounded capability set for a bounded time), the **binding ceiling**, and the **resource ceilings** of the channel and guild. Effective permission is the intersection: no broader than what the principal holds, capped by the binding and resource ceilings, with explicit deny taking precedence over any allow. Authority is never derived from whoever happens to be present in a channel; an administrator and an ordinary user sharing a channel do not pool their powers.
 
-**Enforcement, and the floor** (Eddie, 2026-09-26; the irreversible column 2026-09-27). The gate's bands stay allow, confirm, deny. One setting, `[policy].enforcement`, decides what the stops do. It is a single element so the stops stay compatible by construction: a call against the policy never meets less friction than a call that only needs approval, and an irreversible call never meets less friction than either of them. A call that is both irreversible and against the policy takes the stricter treatment.
+**The gate: notify over block** (Eddie, 2026-09-28; rebuilt in theseus-8az, Part III A3b). Theseus tells the operator what it does, and it waits only where the operator or the floor says to wait. In Eddie's words, "Theseus should notify over block -- the operator should /know/ when something bad is going to happen", and the operator should be "asked, sure, but a hard no, almost never." What the operator controls is the finite list of tools and, when MCP lands, of MCP servers. The gate decides per tool, from the tool's name and what its plan names: the resources, the argv, and the path arguments. It does not try to infer what a command's contents will do, since "it's literally hopeless to try to figure out all the different ways to hide a command." Safety rests on running Theseus in a default-safe environment (below) and on the operator knowing what ran.
 
-| `enforcement` | a call that needs approval | an irreversible call | a call against the policy |
-|---|---|---|---|
-| `strict` (default) | waits for approval | waits for approval | refused, with the reason |
-| `ask` | waits for approval | waits for approval | waits for approval, marked "against policy" |
-| `notify` | runs, amber notice | waits for approval | refused |
-| `open` | runs, amber notice | waits for approval | runs, red notice |
+**Postures.** One setting, `[policy].enforcement`, is the posture every tool and every MCP inherits:
 
-Every "refused" in this table means refused unless the owner overrides it (below).
+| posture | the call |
+|---|---|
+| `open` | runs |
+| `notify` | runs, and a notice is posted |
+| `approve` | waits for the operator's approval |
 
-A call that runs without asking is never silent: it is ledgered (`tool.notified`), carried on its tool-call node, and posted as a structured notice in the session's channel (on Discord an embed card with what ran, what the policy said, the level, and the outcome). Below every level is a **floor**, checked first in the same deterministic gate and refused at every level: Theseus's own state (store, spool, bindings file) and binary, and the 1Password CLI and its credentials, because the kernel is off limits to the agent (§3.21) and the vault holds every secret. No model judgment, Jev pack, or hook decides it; a transform hook can rewrite a proposal, but the floor judges what the proposal became. The workspace itself is configuration (`[tools].projects_dir`, plus any more `roots`); nothing assumes where an operator keeps projects.
+The built-in default is `open`, and the template sets `notify`. The gate has no deny anywhere: no posture, list, or reason refuses a call. The strongest answer the gate gives is to wait, and the operator approves or declines. A `deny` in the config fails to load, and the error names the three postures.
+
+**Overrides.**
+- `[policy.tools]` sets one tool's posture. The template lists every tool, one line each: the read-only tools are `open`, and the writers and `proc.run` are commented, so they inherit. `proc.run`, the universal shell, is the one worth pinning stricter. A test keeps the list in step with the tool registry, and an unknown tool name fails to load.
+- `[policy.mcp]` does the same for MCP servers: `"server"` covers every tool from a server, and `"server/tool"` covers one tool. An MCP tool takes its `[policy.tools]` line first, then `"server/tool"`, then `"server"`, then `enforcement`.
+
+**The operator's lists** are stated will, not inference.
+- `allow_argv` names commands that `proc.run` runs without asking, when every path argument is inside the workspace roots.
+- `approve_argv` names commands, and `[tools].approve_paths` names paths, that wait for approval.
+- A path outside the workspace roots waits for approval too. The workspace itself is configuration (`[tools].projects_dir`, plus any more `roots`); nothing assumes where an operator keeps projects.
+
+**The floor** is Theseus's own state (store, spool, bindings file) and binary, and the 1Password CLI and its credentials, including the token file the daemon was given. The kernel is off limits to the agent (§3.21), and the vault holds every secret. A call that touches the floor waits for approval at every posture, `open` included, and its confirm says it is the floor. It is never refused and never silent. The floor is deterministic: no model judgment, Jev pack, or hook decides it. A transform hook can rewrite a proposal, but the floor judges what the proposal became.
+
+**Order.** The first match wins:
+1. the floor;
+2. the approve lists, and a path outside the roots;
+3. the allow list;
+4. the tool's posture.
+
+**Notices and records.** Every call, under any posture, is recorded on its tool-call node with the gate's decision, the posture, and the reason. A call that runs under `notify` is also ledgered (`tool.notified`) and posted as a structured notice in the session's channel: on Discord a card with what ran, the posture, and the outcome, and the same in the web UI and the CLI. A call that waits is a confirm on every surface. A declined call is recorded as declined and never runs. Only a toollet's own input validation stops a call at the gate, and it does so as an error, not a refusal.
+
+**What the gate is not.** It judges what a call names, not what a program does once it runs, so it is not a sandbox. For arbitrary commands, the operator's control is `proc.run`'s posture, and the boundary is the environment (§7; L1 in M4).
+
+**Jev** (M5; not built). Eddie's direction is one classifier (`security.v1`) that says "this is risky: 0-100%" and, based on the posture, lets the operator know. As everywhere, Jev may make a call's treatment stricter, never looser, and it is never the sole gate (§3.7), because adversarial content can move its score.
 
 **Approval** (Eddie, 2026-09-27). An approval is a dialogue in a **trusted channel**: a surface listed in static config (`[approval].channels`) whose members are all **trusted users** (`[approval].trusted_users`). Any surface can be listed: a Discord channel or DM, the web UI, the CLI.
 - Theseus checks who can see a Discord channel when it posts the dialogue, and again when an answer arrives. If anyone outside the trusted list can see it, the dialogue is not posted there, and an answer from there does not count. The call keeps waiting, and health says why.
@@ -326,42 +350,19 @@ A call that runs without asking is never silent: it is ledgered (`tool.notified`
 - The approver must be a trusted user and must hold the capability (confirmation is not authorization, below).
 - Both lists live in the vault-held config, which agents cannot write.
 
-Beads: theseus-sgh.
+Not built yet; it is step 2b of P5c item 1 (theseus-sgh), and it still stands. Until it lands, an approval comes from the CLI (`theseus confirm`), the local web UI, or a user listed on a Discord place.
 
-**Owner override** (Eddie, 2026-09-27; §1 "Owner's property"). Every "refused" above means refused unless the owner overrides.
+**Owner override** (Eddie, 2026-09-27; §1 "Owner's property"). _Moot in the gate since 2026-09-28: the gate refuses nothing, so there is no refusal for an override to lift, and the owner can approve anything that waits. Held for Eddie: close theseus-qc4, or keep these rules for a later layer that refuses (Part III A3b)._ The rules as decided:
 - An override is possible only when every target the call touches is the owner's declared property. That property is `[owner]` in static config: repository patterns, hosts, cloud accounts. A call that touches anyone else's property keeps its refusal.
 - The override is its own dialogue, in a trusted channel, and only the owner can give it. It names the rule being overridden and why that rule refused, is bound to the exact action's digest, and is ledgered as `policy.overridden`.
-- The floor can be overridden too, at every enforcement level, but only with a **stronger ceremony**: the owner alone, the exact command shown, and a typed confirmation instead of a button.
+- The floor can be overridden too, at every enforcement level, but only with a **stronger ceremony**: the owner alone, the exact command shown, and a typed confirmation instead of a button. _(Moot since 2026-09-28: the floor asks instead of refusing.)_
 - An override approves what the model proposed. Theseus never turns a model's refusal into an action, and no override reaches property that is not the owner's.
 
-Beads: theseus-qc4.
-
-**Consequences** (Eddie, 2026-09-27; Appendix F). The gate names what a call would do to the world, beside what kind of tool it is. One property carries the policy: `irreversible` (§2, IRREVERSIBLE WAITS). The specific kinds are its reasons: they are what detection matches, what a notice names ("irreversible: history_rewrite"), and what an exception can single out.
-- **Irreversible by default:**
-  - `history_rewrite`: a force push; deleting a remote branch or tag.
-  - `destroy_remote`: deleting a repository or bucket, terminating an instance, dropping a database.
-  - `bulk_delete`: a recursive delete, or `git clean -fdx`, that loses uncommitted work.
-  - `publish`: a release, a package publish, making something public.
-  - `external_post`: posting anywhere other than Theseus's own places.
-- **Need approval by default:** `merge`, `access_change`, `spend`.
-
-Detection is deterministic, in four layers:
-1. A native toollet declares its consequences in its plan, from its typed arguments.
-2. `proc.run` is matched against a versioned rule table over argv; `bash -c` strings are parsed.
-3. A call the rules cannot see through is `opaque`, and needs approval.
-4. From M4, the boundary sees the effect itself. A job has no ambient credentials and must ask Theseus for one, so the request is the consequence. Outward traffic passes a proxy that recognizes request shapes.
-
-Jev's `security.v1` may add a consequence, and never removes one.
-
-The table grows in two ways:
-- **Kinds** are added only by the owner; Jev may propose one.
-- **Detection rules** are versioned data. Each ships with examples it must and must not match, and is replayed against the ledger before it is accepted ("would have changed N of the last M calls"). Rules are proposed from four sources: a "should have asked" button on every notice, the shell-fallback queue, Jev in shadow, and gaps the boundary reports.
-
-Beads: theseus-770.
+**Consequences** (Eddie, 2026-09-27; Appendix F). _Superseded 2026-09-28 (theseus-8az)._ The consequence kinds under one `irreversible` property, the rule table over argv with its shell parser, `opaque` for what the rules could not read, and replay (`theseus policy replay`) were built in steps 2a through 2a.3 (theseus-770 and three rounds of hardening), then removed, along with the "should have asked" flow planned for 2b. Hand-written detection of hidden commands can never be complete, and it had become the two largest files and the densest branching in the tree. Part III A3b records what was built and why it went.
 
 **Exposure** (M4; Appendix F).
 - Integrity labels (`untrusted`, `quarantined`) inherit only along transmission edges, as an `effective_trust` projection, so they do not saturate.
-- A tool call proposed from a context that holds a quarantined node, or untrusted text shaped like instructions, is judged one enforcement step stricter: `notify` behaves as `ask`, `open` as `notify`, and `ask` as `strict`. This holds only while that node is in the compiled context.
+- A tool call proposed from a context that holds a quarantined node, or untrusted text shaped like instructions, is judged one posture stricter: `open` behaves as `notify`, and `notify` as `approve`. This holds only while that node is in the compiled context. (Decided on the old four-level ladder; restated on the three postures, 2026-09-28.)
 
 Beads: theseus-3vu.
 
@@ -375,7 +376,7 @@ Beads: theseus-3vu.
 
 **Confirmation is not authorization.** A confirm click proves intent for one exact action; it grants no capability the confirmer does not already hold. Confirmations are bound to the exact tool, arguments, target resource, policy context, and an expiry; a changed argument invalidates the confirm.
 
-**Gate.** IAM-shaped policy inside Theseus. Tools carry tags: `read`, `write`, `destructive`, `spend`, `privileged`, `mcp:<server>`. Each call also carries its consequences (above). Every tool call passes a three-band gate: allow, confirm, deny. Confirm goes to the requesting principal as a component on the message that would perform the action; for owner-authority executions it goes to the owner. On timeout nothing happens and there is no other fallback. Jev's `security.v1` feeds the risk score and never decides alone; adversarial content can move it.
+**Gate.** Every tool call passes the kernel's gate in the §3.17 order: transform, validate, policy, a confirm bound to the final digest, a final revalidation, then dispatch. The policy gives one of two bands: run, or wait for a confirm. A tool's class (read, write, run) describes the tool; its posture comes from its name, not its class. Confirm goes to the requesting principal as a component on the message that would perform the action; for owner-authority executions it goes to the owner. On timeout nothing happens and there is no other fallback.
 
 **Information flow.** Cross-channel and cross-namespace recall is two decisions, not one: a **read** decision (may this execution's principal see nodes from that namespace or channel?) and a **disclosure** decision (may the result be shown in this channel to these participants?). Identity continuity for a `Person` namespace is not permission to disclose that person's data in a different guild or to other people. Both decisions are policy, evaluated deterministically, with Jev able to tighten but not loosen.
 
@@ -479,7 +480,7 @@ The simulator (§8) crashes at every transition, drops and duplicates completion
 Hooks are the extension and observation surface for everything the harness does. The design borrows the good parts of the Claude Agent SDK hook system (event taxonomy by cadence, structured results with per-event payloads, `deny > defer > ask > allow` precedence, `defer` for out-of-band human input, async observers, context caps, stop-override loop protection) and deliberately drops its footguns (exit-code control flow, fail-open timeouts on gates, best-effort filters as safety, shell scripts discovered from the working tree). Full design (types, dispatch, merge and failure rules, `defer`/`resume` mechanics, event catalogue, examples, tests): `notes/theseus-hooks-design.md`. Investigation notes: `notes/claude-agent-sdk-hooks.md`; comparison with Strands, AgentCore Gateway interceptors, Bedrock Agents parsers, and OpenClaw: `notes/hooks-comparison.md`. Borrowed from Strands: one typed event object per hook with explicit mutable fields, reverse ordering for `After*` events, `projected_input_tokens` exposed before the model call, and `resume` as a first-class re-invocation mapped onto the harness-loop wake. Borrowed from OpenClaw: the per-kind failure-policy table, operator-tunable timeouts, and written merge contracts.
 
 **Invariants**
-- Hooks never widen authority. The policy gate (§3.9) decides what is permitted; a hook may tighten (deny, ask, defer, transform inputs) but an `allow` from a hook cannot override a policy deny or skip a required confirm.
+- Hooks never widen authority. The policy gate (§3.9) decides what is permitted; a hook may tighten (deny, ask, defer, transform inputs) but an `allow` from a hook cannot skip a confirm the policy or the floor requires. (The gate itself has had no deny since 2026-09-28; whether a hook may still deny is held for Eddie, Part III A3b.)
 - Hooks return typed results, never exit codes. A handler that fails to run, times out, or returns a malformed result is a ledgered error; for **gating** hooks that error **fails closed**, for **observer** hooks it fails open.
 - Hooks are registered by compiled-in plugins, by sandboxed MCP servers, by protocol clients (observe only), and by the owner's binding config. Nothing in a workspace or repository can register a hook.
 - Every hook invocation is a ledger row: event, handler id and version, input hash, result, latency. Hooks fire no hooks (recursion exclusion), and `JudgmentMade` is observe-only.
@@ -679,7 +680,7 @@ The owner or an operator adds rows in the web UI. Jev or a dream may propose row
 - The manifest records every membership used, with its origin and as-of, so "why did it know that?" always has an answer.
 - An interpreted membership change takes effect at the session's next recompile, so the prompt cache survives it. A declared change that alters access forces a recompile (§4.4a).
 
-**Consequences** (§3.9) are also a kind in this table, on the authority side. Their memberships come only from deterministic detection, and Jev may add one but never remove one.
+**Consequences** (§3.9) were also a kind in this table, on the authority side, with memberships from deterministic detection only. _Superseded 2026-09-28: the consequence kinds were removed with the detection that assigned them (§3.9; Part III A3b)._
 
 **Phasing.**
 - **M4:** the kinds table, declared memberships, guidance, and the compile walk, beside the labels.
@@ -911,11 +912,11 @@ workspace.{create, attach_repo, snapshot, list}
 
 **L1 contract** (what "sandbox" means here, so it is not called strong by assertion): user, pid, mount, uts, ipc, and **net** namespaces; no network by default, with an explicit per-job egress allowlist and **no access to the instance metadata service or to localhost services**, including Theseus's own MCP server and web UI; capabilities dropped to none; a default seccomp profile; no device nodes beyond null/zero/random; masked `/proc` and `/sys`; cgroup limits on CPU, memory, pids, and disk with output size caps; the whole process tree killed on timeout or cancel. Anything the contract does not grant is denied. L0 grants everything the operator's user can do, and the spec says so plainly.
 
-**The consequence boundary** (M4; §3.9 Consequences). L1 is where consequences stop depending on spelling:
+**The consequence boundary** (M4; §3.9 Consequences). _Superseded in part, 2026-09-28: the consequence kinds are gone (§3.9; Part III A3b), so the boundary has no consequence to name. What stands is the default-safe environment: an L1 job starts with no ambient credentials and reaches the network only through its allowlist. Whether a credential request or a recognized request shape should notify or wait is held for Eddie, with M4._ The design as it stood, where L1 is where consequences stop depending on spelling:
 - **Credential brokering.** A job starts with no ambient credentials. To push, publish, or post it must ask Theseus for a scoped credential, and that request is the consequence, judged by the gate.
 - **Egress recognition.** Allowlisted egress passes a local proxy that recognizes request shapes: a git receive-pack, a PR merge, a registry publish. So `./deploy.sh` is caught when it pushes, however the command was written.
 
-L0 has neither: its job environment keeps `HOME`, so the operator's credential helpers are ambient. Under L0 the argv rules and `opaque` are the whole of detection.
+L0 has neither: its job environment keeps `HOME`, so the operator's credential helpers are ambient. Under L0 the gate is all there is: `proc.run`'s posture, the operator's lists, and the floor (§3.9). (Until 2026-09-28 this read "the argv rules and `opaque` are the whole of detection"; both were removed.)
 
 **Default (decided 2026-09-25).** Both L0 and L1 ship in the first useful agent. L0 is the early operator default; it is explicitly provisional and expected to be revisited once L1 has run real work for a while. Roles and Jev may steer a job to L1 within policy at any time; the default only decides what happens when nothing else has an opinion.
 
@@ -1042,6 +1043,7 @@ _Tabitha, 2026-09-27 (theseus-s3m). Eddie paused development to ask what Theseus
    - *Approval* is a dialogue in a statically configured trusted channel, among trusted users only. Any surface can be configured as one.
    - *A new principle:* the owner can override any refusal on the owner's own property, within the model's terms of use and safety policy. Overriding the floor takes the stronger ceremony (owner only, exact command shown, typed confirmation).
    - *Also adopted:* integrity labels by transmission, and the exposure rule as a one-step-stricter enforcement level. `opaque` stays at needs-approval, and Jev learns to classify related calls (theseus-770, theseus-sgh, theseus-qc4, theseus-3vu).
+   - *Reversed 2026-09-28 (theseus-8az):* the consequence kinds, the irreversible column, and the detection behind them were built and then removed, and the gate became notify over block (§2, §3.9; Part III A3b). Trusted-channel approval stands. The owner override is moot in the gate, which refuses nothing.
 3. **The standing rule is adopted with a gate test:** nothing is declared without its reader (P0; theseus-wjy).
 4. **The herdr adapter:** build it (theseus-l1l).
 5. **`theseus tui`:** build it; "first we try everything" (theseus-7yx).
@@ -1224,6 +1226,8 @@ Not in the original plan. This is Eddie's principle (§2 FAST), adopted after an
 ## P5c. The build order after M3 (added 2026-09-27)
 
 These are Eddie's decisions from the openrig and herdr walkthrough (Appendix F). Eddie approved the order on 2026-09-27; the umbrella issue is theseus-5r9. The items run strictly in sequence on `main`, each through the gate. Each is recorded in Part III as it lands.
+
+_Note, 2026-09-28 (theseus-8az). Item 1 began as steps 2a through 2a.3: consequence detection in the gate, then three rounds of hardening. They were built, then superseded by theseus-8az, and the gate is now notify over block (§3.9; Part III A3b, the reversal). Step 2b, trusted-channel approval (theseus-sgh), still stands. Step 2c's floor ceremony (theseus-qc4) is moot, since the floor now asks instead of refusing; with no refusal left in the gate, the rest of 2c waits on Eddie (§3.9, Owner override). The list below is the plan as approved._
 
 1. **Irreversible consequences, trusted approval, owner override** (theseus-770, theseus-sgh, theseus-qc4; §3.9). *Prove:*
    - `proc.run git push --force` in a workspace repository waits for approval under `notify` and under `open`.
@@ -1556,9 +1560,11 @@ Local work is about 5 % of startup; the other 95 % is two network calls on the s
 
 ## A3b. The build chain from the 2026-09-27 decisions (theseus-5r9)
 
-_P5c's items, in the order Eddie approved on 2026-09-27, each recorded when its review ends. Step 1 is spec v0.37 (3877fe9)._
+_P5c's items, in the order Eddie approved on 2026-09-27, each recorded when its review ends. Step 1 is spec v0.37 (3877fe9). Steps 2a through 2a.3 were removed on 2026-09-28; they stay here as the record, and the reversal at the end of this section says what replaced them._
 
 ### Step 2a. Consequences in the gate (theseus-770; 2026-09-27, 22:30–23:24; 03521f0, a218d8b, a3dcb64, 43faa91)
+
+_Removed 2026-09-28 in dbd7567, except the `fs.patch` deletion fix; see the reversal below._
 
 **What exists.**
 - **Kinds.** Nine seed kinds (`theseus_tools::consequence::SEED_KINDS`), graded as §3.9 lists them, with `opaque` beside the three that need approval. `[consequences.kinds.<name>]` regrades a seed or adds a kind. Every key is optional (`irreversible`, `description`, `argv`), and Eddie's pre-2a template loads unchanged (tested from a fixture copy).
@@ -1643,6 +1649,8 @@ All of them are fixed in step 2a+ (theseus-xbg), before 2b.
 
 ### Step 2a+. Gate hardening from the 2a review (theseus-xbg; 2026-09-28, 00:24–01:28; 0d0b769, 0093ec4, e57c48c)
 
+_Removed 2026-09-28 in dbd7567; see the reversal below._
+
 **What exists.**
 - **The floor and the deny list judge every command a call starts** (`ToolPolicy::floor_over_commands`, `deny_over_commands`), over what `shell::commands` returns:
   - each command's words, and the wrappers it was reached through (`Cmd.via`);
@@ -1714,6 +1722,8 @@ Only M4's boundary closes these.
 
 ### Step 2a++. Gate hardening, round 2 (theseus-0tv; 2026-09-28, 01:42–02:29; 1a58cfb, 995f830)
 
+_Removed 2026-09-28 in dbd7567; see the reversal below._
+
 **What exists.**
 - **The floor, round 2:**
   - A `$name` program word whose assignments in the script are all literal resolves to each candidate value (the union across branches). Any other dynamic program word is scanned by its own spelling for `op` or `theseusd`.
@@ -1763,6 +1773,8 @@ Honest calls are caught by their natural spellings. Against a model that is work
 
 ### Step 2a.3. Gate hardening, round 3, the last argv-layer round (theseus-905; 2026-09-28, 02:57–03:46; dc3ed99)
 
+_Removed 2026-09-28 in dbd7567; see the reversal below._
+
 **What exists.**
 - **Every simple variable reference resolves from the script's literal assignments,** not only the program word. Resolution reaches:
   - words behind wrappers (`command`, `exec`, `env`, `timeout`, …);
@@ -1804,3 +1816,64 @@ Honest calls are caught by their natural spellings. Against a model that is work
 - The floor misses a program reached through a variable copied from another (`x=op; y=$x; $y`), and values set by `printf -v` or `read`.
 - Obfuscated inline code and scripts that are written and then run stay `opaque`. Beyond the gate, the defenses are model judgment, the notices, Jev `security.v1` (tighten-only), and M4's boundary.
 - Cosmetic: nested backticks in a resolved reason break markdown rendering.
+
+### The reversal (theseus-8az, 2026-09-28)
+
+**What had been built.** Steps 2a through 2a.3 (theseus-770, theseus-xbg, theseus-0tv, theseus-905) ran from 22:30 on 2026-09-27 to their install at 08:32 on 2026-09-28. They taught the gate to name what a call would do to the world:
+- nine consequence kinds under one `irreversible` property, and the irreversible column on the `strict | ask | notify | open` ladder;
+- a shell parser that found every command a `proc.run` call would start, and a versioned rule table over argv, with examples as its tests;
+- `opaque` for whatever the parser could not read, and a floor that also scanned code it could not parse;
+- `theseus policy replay` and `theseus policy rules`.
+
+Each review probe found spellings that still got through, and each round of hardening closed them and made the parser larger. By 2a.3 the two detection files, `shell.rs` (2,499 lines) and `consequence.rs` (2,568), were the largest in the codebase, and `policy.rs` had grown from 667 lines to 1,978.
+
+**Why it was removed.** Eddie reversed the direction on the morning of 2026-09-28. Detection written by hand cannot be finished: "attempts to find embedded commands by hand -- that can **never** work" (emphasis his). The operator should be "asked, sure, but a hard no, almost never", because "Theseus should notify over block -- the operator should /know/ when something bad is going to happen", and because "we were responsible for running theseus on a default-safe environment." He added a general rule the same morning: "we should *ruthlessly remove complexity*" (emphasis his). The order he approved was a read-only scan of the vault's item titles and categories first, to anchor what "risky" means (its findings stay out of this document), then the teardown, then the replacement.
+
+**What replaced it.** The commits, each behind the gate, signed, and pushed:
+- **The teardown, dbd7567** (reviewed and installed 10:38). `shell.rs`, `consequence.rs`, their scenario tests, and a template fixture were deleted: 5,911 lines. Every other file the chain had touched went back to 3877fe9 byte for byte, except the `fs.patch` fix that refuses a deletion which does not show every line it removes. Rust went from 35,151 lines to 27,489, tests from 147 to 114, and `policy.rs` from 1,978 lines back to 667, before the ladder was added.
+- **The ladder, 09bad8b and 78b7fd9** (reviewed and installed 11:31). One posture that every tool and MCP inherits, with `[policy.tools]` and `[policy.mcp]` overrides. The template lists every tool, and a test binds the list to the registry. The floor asks at every posture and sees path arguments. The posture shows in `theseus tools`, in history, and on every surface.
+- **No deny anywhere, 2f4a285, 3c9d0c3, and a046f53** (Eddie's decisions at 11:36; reviewed and installed 13:26).
+  - `deny` left the postures and the kernel's band, so the gate cannot express a refusal.
+  - The deny lists became approve lists, and a path outside the roots waits.
+  - The floor keeps the token file whether it came from the flag or the environment.
+  - `op` and `theseusd` left the default approve list, since the floor covers them.
+  - A declined call reads "not run".
+  - The config is parsed once, unless an old key name appears.
+- **The stored vocabulary, e49a363** (Eddie's approval at 16:00; reviewed and installed 16:21). A decline is stored as `declined`, the ledger kind is `action.declined`, and the resolution reads "declined by". Rows stored under the old names still decode and render. **Rolling back past e49a363 is unsafe once a decline has been stored this way**, because an older binary has no `declined` value. Upgrades from here are forward only.
+- **The catalog, 274facd** (theseus-px4; not part of the gate, landed the same evening; installed). Claude Sonnet 5.5 joined the catalog, version 2026-09-28.1, and became the default model: the built-in default, and the template's `[model]` and `[profiles.sonnet]`.
+
+After all of it, Rust is 28,523 lines, `policy.rs` is 899, and there are 135 tests. `decide` parses no shell. It takes about 4.5 µs per call in a debug build; under 2a.3 it took 8.4 µs on a plain argv and 488 µs on a 1.7 KB script, in release.
+
+**How it is proven.**
+- The gate passed at every commit and again in each review: 114 tests after the teardown, 126 after the ladder, 133 after no deny, and 135 after the vocabulary.
+- Live, on scratch daemons:
+  - a `proc.run` under `notify` ran with a notice, and `"proc.run" = "approve"` made the same call wait;
+  - under `open`, the floor made three calls wait, each marked as the floor: a read of the file named as the token file (a decoy), a listing of the store, and `theseusd --version`;
+  - a read outside the roots waited, and ran once approved;
+  - `sudo -n true` waited on the approve list, and its decline read "not run".
+- Eddie's vault config loaded under the teardown, ladder, and no-deny binaries, in read-only checks. Until its old key names are renamed, every start logs one warning per old key.
+- On a copy of Eddie's store, rows written by the chain builds decode under the restored types. An old "denied" decline renders as "not run", and `theseus ledger --kind action.declined` returns the old row.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| IRREVERSIBLE WAITS (§2); the consequence kinds, rule table, `opaque`, replay, and "should have asked" flow (§3.9; P5c item 1, steps 2a to 2a.3) | Built, hardened three times, then removed in dbd7567. Only the `fs.patch` deletion fix was kept | Detection of hidden commands can never be complete. Each review found spellings that got through, and the cost was the two largest files in the tree | Part I §2 and §3.9 marked superseded; §3.9 rewritten to the gate as built |
+| theseus-8az as first stated: one Jev risk classifier (0–100) per call, feeding the ladder | Not built. The gate is a posture ladder over the finite tool and MCP lists | Eddie's direction at the ladder step: the tool and MCP lists are the surface the operator controls | Jev stays M5 design, stricter only (§3.9, Jev). When is held for Eddie |
+| The ladder `strict \| ask \| notify \| open` (§3.9, v0.37) | Postures `open \| notify \| approve`, inherited by every tool and MCP, with `[policy.tools]` and `[policy.mcp]` overrides. The first cut (09bad8b) also had `deny`, and 2f4a285 removed it | Notify over block: the operator is asked, and almost never told no | Kept |
+| The floor refused at every level (§3.9) | The floor waits for approval at every posture and says it is the floor. It sees path arguments, and it keeps the token file however the daemon was given it | Eddie's floor decision (09:30): never a hard block, never a silent notice | Kept |
+| `deny_argv`, `deny_paths`, and a path outside the roots refused (A3) | `approve_argv` and `approve_paths`: a match waits, and so does a path outside the roots. The old key names load with a startup warning | No deny anywhere | Keep the aliases until the vault config is renamed |
+| The class modes `read`, `write`, `run` (A3) | Retired: the old template's values load with a warning and are ignored; any other value fails to load | Eddie's live config still had them | Remove when his config is updated |
+| A decline stored as `denied` (A3) | Stored as `declined` (`action.declined`, "declined by"); rows stored under the old names still decode and render | "deny" nowhere, for consistency (Eddie, 16:00) | Forward only: rolling back past e49a363 is unsafe once a decline is stored |
+| A request Eddie is not permitted to make is blocked at the gate with a clear message (P5, the M3 prove) | It waits for approval with its reason, and a decline means it never runs | No deny anywhere | Recorded here; P5 is left as written |
+| An owner override for any refusal, and the floor's typed ceremony (§1, §3.9; step 2c, theseus-qc4) | Nothing in the gate refuses, and the owner can approve whatever waits | Follows from no deny | The floor ceremony is moot. theseus-qc4 is held for Eddie |
+| The exposure rule, one level stricter on the old ladder (§3.9, M4) | Restated on the three postures: `open` behaves as `notify`, and `notify` as `approve` | The ladder changed | Part I §3.9 updated; built in M4 |
+| The consequence boundary under L1 (§7, P6) | There is no consequence left for it to name | The kinds are gone | Held for Eddie, with M4 |
+
+**Open, held for Eddie.**
+- theseus-qc4 (the owner override): close it, or keep it for a later layer that refuses.
+- Appendix F's M4 item "content refused by label class wherever it leaves" is a refusal. Under notify over block it may become a wait.
+- §7's boundary: should a credential request, or a recognized request shape, notify or wait?
+- The Jev risk classifier: when, and whether.
+- Under `approve`, the allow list still runs `ls` and `pwd` inside the roots (the ladder step's Q2, unchanged).
+- A hook may still block a call (§3.17; P5c item 2). A hook is not the gate, so it was left as designed.
