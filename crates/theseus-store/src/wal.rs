@@ -17,10 +17,12 @@
 //! torn write. A bad frame followed by good bytes in an earlier segment is
 //! corruption, not a torn tail, and recovery refuses to guess.
 
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Write};
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use crate::record::{now_unix_ms, NewRecord, Record};
 
@@ -119,6 +121,10 @@ pub struct Wal {
     /// Counters for visibility: frames appended, fdatasync calls made.
     frames: std::sync::atomic::AtomicU64,
     syncs: std::sync::atomic::AtomicU64,
+    /// One read handle per segment, opened on its first read: a record read
+    /// is then one `pread`, where it was an open, a seek, a read, and a close
+    /// (theseus-qa0: 10,000 executions read at startup cost 10,000 opens).
+    readers: Mutex<HashMap<u32, Arc<File>>>,
 }
 
 fn segment_path(dir: &Path, n: u32) -> PathBuf {
@@ -299,6 +305,7 @@ impl Wal {
             recovery,
             frames: std::sync::atomic::AtomicU64::new(0),
             syncs: std::sync::atomic::AtomicU64::new(0),
+            readers: Mutex::default(),
         })
     }
 
@@ -462,11 +469,9 @@ impl Wal {
 
     /// Read one record at a known location.
     pub fn read_at(&self, loc: RecordLocation) -> Result<Record, WalError> {
-        let path = segment_path(&self.dir, loc.segment);
-        let mut f = File::open(&path)?;
-        f.seek(SeekFrom::Start(loc.offset))?;
+        let f = self.reader(loc.segment)?;
         let mut buf = vec![0u8; loc.len as usize];
-        f.read_exact(&mut buf)?;
+        f.read_exact_at(&mut buf, loc.offset)?;
         decode_record(&buf, 0)
             .map(|(r, _)| r)
             .ok_or_else(|| WalError::Corrupt {
@@ -474,6 +479,18 @@ impl Wal {
                 offset: loc.offset,
                 reason: "record did not decode at indexed location".into(),
             })
+    }
+
+    /// The segment's read handle. Segments only grow and are never removed
+    /// while the store is open, so a handle stays good for the store's life.
+    fn reader(&self, segment: u32) -> io::Result<Arc<File>> {
+        let mut readers = self.readers.lock().unwrap();
+        if let Some(f) = readers.get(&segment) {
+            return Ok(f.clone());
+        }
+        let f = Arc::new(File::open(segment_path(&self.dir, segment))?);
+        readers.insert(segment, f.clone());
+        Ok(f)
     }
 
     /// Walk every record with position > `after`, in order, yielding

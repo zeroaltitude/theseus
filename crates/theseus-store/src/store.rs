@@ -169,6 +169,17 @@ impl WalStore {
             None => Ok(None),
         }
     }
+
+    /// Records by position, in order: one index transaction for all of
+    /// them, then one `pread` each (theseus-qa0). A position the index does
+    /// not know is skipped, as `read` would skip it.
+    fn read_many(&self, positions: &[u64]) -> Result<Vec<Record>> {
+        let mut out = Vec::with_capacity(positions.len());
+        for loc in self.index.locations(positions)?.into_iter().flatten() {
+            out.push(self.wal.read_at(loc)?);
+        }
+        Ok(out)
+    }
 }
 
 impl Store for WalStore {
@@ -222,25 +233,19 @@ impl Store for WalStore {
     }
 
     fn latest_of_kind(&self, kind: RecordKind) -> Result<Vec<Record>> {
-        let mut out = Vec::new();
-        for (_, p) in self.index.keys_of_kind(kind)? {
-            if let Some(r) = self.read(p)? {
-                out.push(r);
-            }
-        }
-        Ok(out)
+        let positions: Vec<u64> = self
+            .index
+            .keys_of_kind(kind)?
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect();
+        self.read_many(&positions)
     }
 
     fn tail_of_kind(&self, kind: RecordKind, n: usize) -> Result<Vec<Record>> {
         let mut positions = self.index.positions_of_kind_rev(kind, n)?;
         positions.reverse();
-        let mut out = Vec::with_capacity(positions.len());
-        for p in positions {
-            if let Some(r) = self.read(p)? {
-                out.push(r);
-            }
-        }
-        Ok(out)
+        self.read_many(&positions)
     }
 
     fn count_of_kind(&self, kind: RecordKind) -> Result<u64> {
@@ -249,13 +254,7 @@ impl Store for WalStore {
 
     fn scan_scope(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<Record>> {
         let positions = self.index.positions_in_scope(scope, after, limit)?;
-        let mut out = Vec::with_capacity(positions.len());
-        for p in positions {
-            if let Some(r) = self.read(p)? {
-                out.push(r);
-            }
-        }
-        Ok(out)
+        self.read_many(&positions)
     }
 
     fn count_in_scope(&self, scope: &str) -> Result<u64> {

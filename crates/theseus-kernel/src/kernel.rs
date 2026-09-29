@@ -1570,10 +1570,24 @@ impl Kernel {
     /// actions past their deadline are checked against evidence and settled
     /// or marked unknown; unknowns are re-probed. Cost scales with open work.
     pub fn reconcile(&self, evidence: &dyn Evidence) -> Result<ReconcileReport> {
+        self.reconcile_with(evidence, None)
+    }
+
+    /// `reconcile`, over open executions already in hand (`Some`: startup's
+    /// step 2 read every one, and nothing since changed them; theseus-qa0),
+    /// or read afresh.
+    fn reconcile_with(
+        &self,
+        evidence: &dyn Evidence,
+        open: Option<Vec<Execution>>,
+    ) -> Result<ReconcileReport> {
         let t0 = std::time::Instant::now();
         let now = self.now_ms();
         let mut rep = ReconcileReport::default();
-        let execs = self.open_executions()?;
+        let execs = match open {
+            Some(v) => v,
+            None => self.open_executions()?,
+        };
         rep.open_executions = execs.len() as u64;
         for mut e in execs {
             if let (ExecState::Waiting, Some(Wake::DueAt { at_ms })) = (e.state, &e.wake) {
@@ -1690,6 +1704,8 @@ impl Kernel {
         let now = self.now_ms();
         let mut migrated = Vec::new();
         let mut rewritten = 0u32;
+        // Every execution as this step leaves it, for step 4.
+        let mut loaded = Vec::new();
         for mut e in self.executions()? {
             let mut rows = Vec::new();
             if e.schema < SCHEMA {
@@ -1722,6 +1738,7 @@ impl Kernel {
                 migrated.push(exec_record(&e)?);
                 migrated.extend(rows);
             }
+            loaded.push(e);
         }
         if !migrated.is_empty() {
             self.commit(&migrated)?;
@@ -1755,7 +1772,15 @@ impl Kernel {
         // 4. reconcile
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 4;
-        rep.reconcile = self.reconcile(evidence)?;
+        // Step 2's executions still stand unless the spool settled something:
+        // one read of every execution at startup, not two.
+        let open = (rep.spool_drained == 0).then(|| {
+            loaded
+                .into_iter()
+                .filter(|e| !e.state.is_terminal())
+                .collect()
+        });
+        rep.reconcile = self.reconcile_with(evidence, open)?;
         step_rows.push(self.ledger(
             "startup.step",
             None,

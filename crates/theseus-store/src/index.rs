@@ -138,6 +138,16 @@ impl RedbIndex {
         Ok(t.get(position)?.and_then(|v| loc_from(v.value())))
     }
 
+    /// The locations of many positions, in one read transaction.
+    pub fn locations(&self, positions: &[u64]) -> Result<Vec<Option<Location>>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(LOC)?;
+        positions
+            .iter()
+            .map(|p| Ok(t.get(*p)?.and_then(|v| loc_from(v.value()))))
+            .collect()
+    }
+
     pub fn latest_position(&self, kind: RecordKind, key: &str) -> Result<Option<u64>> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKEY)?;

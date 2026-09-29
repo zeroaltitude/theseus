@@ -42,7 +42,8 @@ impl Core {
             version: crate::VERSION.into(),
             protocol: theseus_protocol::VERSION.into(),
             uptime_secs: self.started.elapsed().as_secs(),
-            sessions: self.store.session_count().unwrap_or(0),
+            // The records just read: `session_count` would read them all again.
+            sessions: sessions.len() as u64,
             turns: sessions.iter().map(|s| s.turns).sum(),
             model: prof.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
             profile,
