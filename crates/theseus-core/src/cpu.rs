@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
+#[derive(Debug)]
 pub struct CpuPool {
     permits: Arc<Semaphore>,
     size: usize,
@@ -56,6 +57,24 @@ impl CpuPool {
             let _core = permit;
             f()
         })
+    }
+}
+
+/// A toollet that splits its work borrows free cores here: only a core that
+/// is free now, so one already holding a core never waits for another.
+impl theseus_tools::Cores for CpuPool {
+    fn try_spawn(&self, job: Box<dyn FnOnce() + Send>) -> bool {
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return false;
+        };
+        let Ok(permit) = self.permits.clone().try_acquire_owned() else {
+            return false;
+        };
+        rt.spawn_blocking(move || {
+            let _core = permit;
+            job()
+        });
+        true
     }
 }
 
@@ -111,5 +130,37 @@ mod tests {
         let n = std::thread::available_parallelism().unwrap().get();
         assert_eq!(CpuPool::for_host().size(), n);
         assert_eq!(CpuPool::new(0).size(), 1);
+    }
+
+    /// A toollet borrows only a core that is free now: with every permit
+    /// held, it gets none and does the work itself; a borrowed core holds its
+    /// permit until the job ends.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_toollet_borrows_only_a_free_core() {
+        use theseus_tools::Cores;
+        let pool = CpuPool::new(2);
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let (started, running) = std::sync::mpsc::channel::<()>();
+        let job = move || {
+            started.send(()).unwrap();
+            held.recv().ok();
+        };
+        assert!(pool.try_spawn(Box::new(job)), "a core is free");
+        running.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(pool.busy(), 1);
+        let holder = pool.spawn(|| std::thread::sleep(Duration::from_millis(300)));
+        let holder = holder.await;
+        assert_eq!(pool.busy(), 2);
+        assert!(!pool.try_spawn(Box::new(|| {})), "no core is free");
+        release.send(()).unwrap();
+        holder.await.unwrap();
+        let t0 = Instant::now();
+        while pool.busy() > 0 {
+            assert!(t0.elapsed() < Duration::from_secs(5), "the cores came back");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        // Off the runtime there is no core to lend.
+        let off = std::thread::spawn(move || pool.try_spawn(Box::new(|| {})));
+        assert!(!off.join().unwrap());
     }
 }

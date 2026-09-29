@@ -147,6 +147,16 @@ pub struct JobSpec {
     pub env: Vec<(String, String)>,
 }
 
+/// Free cores a toollet may borrow for work it can split (theseus-a60): the
+/// daemon's CPU pool. A job starts only on a core that is free now, so a
+/// toollet already holding one never waits for another, and a pool full of
+/// them cannot deadlock.
+pub trait Cores: Send + Sync + std::fmt::Debug {
+    /// Run `job` on a free core, and say whether one was free. A job that
+    /// did not start is dropped; the caller does its work itself.
+    fn try_spawn(&self, job: Box<dyn FnOnce() + Send>) -> bool;
+}
+
 /// What every toollet gets: where it may work and how much it may return.
 #[derive(Debug, Clone)]
 pub struct ToolCtx {
@@ -160,6 +170,9 @@ pub struct ToolCtx {
     /// Default and ceiling for `proc.run` timeouts.
     pub proc_timeout_secs: u64,
     pub proc_timeout_max_secs: u64,
+    /// The daemon's free cores, when it lends them (`fs.grep` searches a big
+    /// tree's files on them). `None`: every toollet runs on its own thread.
+    pub cores: Option<Arc<dyn Cores>>,
 }
 
 impl ToolCtx {
@@ -172,6 +185,7 @@ impl ToolCtx {
             max_entries: 500,
             proc_timeout_secs: 60,
             proc_timeout_max_secs: 3600,
+            cores: None,
         }
     }
 

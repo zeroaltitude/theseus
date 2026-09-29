@@ -1805,6 +1805,7 @@ pub fn build_runtime(
         .filter_map(|k| std::env::var(k).ok().map(|v| (k.clone(), v)))
         .collect();
     let notify_socket = spool.as_ref().map(|s| s.dir().join("notify.sock"));
+    let cpu = crate::cpu::CpuPool::for_host();
     Ok(ToolRuntime {
         registry,
         policy: ToolPolicy {
@@ -1826,6 +1827,7 @@ pub fn build_runtime(
             max_entries: t.max_entries,
             proc_timeout_secs: t.proc_timeout_secs,
             proc_timeout_max_secs: t.proc_timeout_max_secs,
+            cores: Some(cpu.clone()),
         },
         spool,
         scrubber,
@@ -1837,7 +1839,7 @@ pub fn build_runtime(
         calls: Mutex::new(BTreeMap::new()),
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),
-        cpu: crate::cpu::CpuPool::for_host(),
+        cpu,
     })
 }
 

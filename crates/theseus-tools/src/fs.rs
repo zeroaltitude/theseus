@@ -5,14 +5,16 @@
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::SystemTime;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    image, parse, Access, ImageData, Plan, Resource, Retry, Tool, ToolClass, ToolCtx, ToolFailure,
-    ToolOutput,
+    image, parse, Access, Cores, ImageData, Plan, Resource, Retry, Tool, ToolClass, ToolCtx,
+    ToolFailure, ToolOutput,
 };
 
 const MAX_LINE_CHARS: usize = 2000;
@@ -860,12 +862,11 @@ impl Tool for Grep {
             .unwrap_or(200)
             .min(ctx.max_entries.max(200) * 10);
         let ctxl = a.context.unwrap_or(0).min(10);
-        let mut searcher = grep_searcher::SearcherBuilder::new()
-            .line_number(true)
-            .binary_detection(grep_searcher::BinaryDetection::quit(0))
-            .before_context(if mode == "content" { ctxl } else { 0 })
-            .after_context(if mode == "content" { ctxl } else { 0 })
-            .build();
+        let s = Search {
+            matcher,
+            content: mode == "content",
+            context: ctxl,
+        };
         let files: Vec<PathBuf> = if base.is_file() {
             vec![base.clone()]
         } else {
@@ -875,23 +876,25 @@ impl Tool for Grep {
                 .map(|e| e.into_path())
                 .collect()
         };
+        let files: Vec<PathBuf> = files
+            .into_iter()
+            .filter(|f| {
+                glob.as_ref().is_none_or(|g| {
+                    let name = f.file_name().map(PathBuf::from).unwrap_or_default();
+                    let rel = f.strip_prefix(&base).unwrap_or(f);
+                    g.is_match(&name) || g.is_match(rel)
+                })
+            })
+            .collect();
+        let mut searcher = s.searcher();
+        let mut ahead: Option<Vec<Option<Found>>> = None;
         let mut out: Vec<String> = Vec::new();
         let mut hits = 0usize;
         let mut files_hit: Vec<(String, usize)> = Vec::new();
         let mut scanned = 0usize;
-        for f in &files {
-            if let Some(g) = &glob {
-                let name = f.file_name().map(PathBuf::from).unwrap_or_default();
-                let rel = f.strip_prefix(&base).unwrap_or(f);
-                if !(g.is_match(&name) || g.is_match(rel)) {
-                    continue;
-                }
-            }
+        for (i, f) in files.iter().enumerate() {
             scanned += 1;
-            let shown = f.display().to_string();
-            let mut local: Vec<String> = Vec::new();
-            let mut local_hits = 0usize;
-            let cap = if mode == "content" {
+            let cap = if s.content {
                 max.saturating_sub(hits)
             } else {
                 usize::MAX
@@ -899,27 +902,34 @@ impl Tool for Grep {
             if cap == 0 {
                 break;
             }
-            let mut sink = Collect {
-                path: &shown,
-                out: &mut local,
-                hits: &mut local_hits,
-                max: cap,
-                last_line: None,
+            // Past the first files, searched ahead on the free cores
+            // (theseus-a60), with the whole cap: the same as a search with
+            // this one, unless it found more than this one allows.
+            let early = match (i.checked_sub(INLINE_FILES), &ctx.cores) {
+                (Some(j), Some(cores)) => ahead
+                    .get_or_insert_with(|| search_ahead(&files[INLINE_FILES..], &s, max, cores))[j]
+                    .take(),
+                _ => None,
             };
-            if searcher.search_path(&matcher, f, &mut sink).is_err() {
+            let found = match early {
+                Some(Some((lines, n))) if n <= cap => Some((lines, n)),
+                Some(None) => None,
+                _ => s.search(&mut searcher, f, cap),
+            };
+            let Some((local, local_hits)) = found else {
                 continue;
-            }
+            };
             if local_hits > 0 {
                 hits += local_hits;
-                files_hit.push((shown.clone(), local_hits));
-                if mode == "content" {
+                files_hit.push((f.display().to_string(), local_hits));
+                if s.content {
                     if !out.is_empty() && ctxl > 0 {
                         out.push("--".into());
                     }
                     out.extend(local);
                 }
             }
-            if mode != "content" && files_hit.len() >= max {
+            if !s.content && files_hit.len() >= max {
                 break;
             }
         }
@@ -943,9 +953,150 @@ impl Tool for Grep {
         };
         Ok(ToolOutput {
             text,
-            meta: json!({"base": base, "files_with_matches": files_hit.len(), "matching_lines": hits, "files_scanned": scanned, "capped": mode == "content" && hits >= max}),
+            meta: json!({"base": base, "files_with_matches": files_hit.len(), "matching_lines": hits, "files_scanned": scanned, "capped": s.content && hits >= max}),
         })
     }
+}
+
+/// The files `fs.grep` searches on its own thread before it borrows cores,
+/// so a search that stops early (200 matches in the first files) does no
+/// work it throws away, and a small tree none at all.
+const INLINE_FILES: usize = 256;
+/// The files a core takes at a time.
+const CHUNK_FILES: usize = 64;
+
+/// One file's matching lines and how many matched; `None` when it could not
+/// be searched.
+type Found = Option<(Vec<String>, usize)>;
+
+/// A search's settings, cloned onto every core it borrows.
+#[derive(Clone)]
+struct Search {
+    matcher: grep_regex::RegexMatcher,
+    content: bool,
+    context: usize,
+}
+
+impl Search {
+    fn searcher(&self) -> grep_searcher::Searcher {
+        let context = if self.content { self.context } else { 0 };
+        grep_searcher::SearcherBuilder::new()
+            .line_number(true)
+            .binary_detection(grep_searcher::BinaryDetection::quit(0))
+            .before_context(context)
+            .after_context(context)
+            .build()
+    }
+
+    /// One file, stopping after `cap` matching lines.
+    fn search(&self, searcher: &mut grep_searcher::Searcher, f: &Path, cap: usize) -> Found {
+        let shown = f.display().to_string();
+        let (mut lines, mut hits) = (Vec::new(), 0usize);
+        let mut sink = Collect {
+            path: &shown,
+            out: &mut lines,
+            hits: &mut hits,
+            max: cap,
+            last_line: None,
+        };
+        searcher.search_path(&self.matcher, f, &mut sink).ok()?;
+        Some((lines, hits))
+    }
+}
+
+/// A search of many files ahead of the merge, shared by this thread and the
+/// cores it borrowed.
+struct Ahead {
+    files: Vec<PathBuf>,
+    search: Search,
+    max: usize,
+    /// The next chunk to hand out: chunks go in walk order.
+    next: AtomicUsize,
+    /// Matching lines (files, outside content mode) in the chunks searched.
+    found: AtomicUsize,
+    stop: AtomicBool,
+    chunks: Mutex<Vec<Option<Vec<Found>>>>,
+    filled: Condvar,
+}
+
+impl Ahead {
+    fn work(&self) {
+        let mut searcher = self.search.searcher();
+        let cap = if self.search.content {
+            self.max
+        } else {
+            usize::MAX
+        };
+        while !self.stop.load(Ordering::Relaxed) {
+            let c = self.next.fetch_add(1, Ordering::Relaxed);
+            let Some(files) = self.files.chunks(CHUNK_FILES).nth(c) else {
+                break;
+            };
+            let found: Vec<Found> = files
+                .iter()
+                .map(|f| self.search.search(&mut searcher, f, cap))
+                .collect();
+            let n: usize = found
+                .iter()
+                .flatten()
+                .map(|(_, hits)| match self.search.content {
+                    true => *hits,
+                    false => usize::from(*hits > 0),
+                })
+                .sum();
+            // The chunks handed out are a prefix of the walk, so once they
+            // hold the cap, the merge stops inside them.
+            if self.found.fetch_add(n, Ordering::Relaxed) + n >= self.max {
+                self.stop.store(true, Ordering::Relaxed);
+            }
+            self.chunks.lock().unwrap()[c] = Some(found);
+            self.filled.notify_all();
+        }
+    }
+}
+
+/// Search `files` in chunks, on this thread and on every core free now,
+/// each file with the whole cap, until the chunks searched hold it. A file
+/// searched ahead is `Some`; the merge searches any other itself.
+fn search_ahead(
+    files: &[PathBuf],
+    s: &Search,
+    max: usize,
+    cores: &Arc<dyn Cores>,
+) -> Vec<Option<Found>> {
+    let n = files.len().div_ceil(CHUNK_FILES);
+    let a = Arc::new(Ahead {
+        files: files.to_vec(),
+        search: s.clone(),
+        max,
+        next: AtomicUsize::new(0),
+        found: AtomicUsize::new(0),
+        stop: AtomicBool::new(false),
+        chunks: Mutex::new(vec![None; n]),
+        filled: Condvar::new(),
+    });
+    for _ in 1..n {
+        let helper = a.clone();
+        if !cores.try_spawn(Box::new(move || helper.work())) {
+            break;
+        }
+    }
+    a.work();
+    // Every chunk handed out so far is being searched: wait for them.
+    let handed = a.next.load(Ordering::Relaxed).min(n);
+    let mut chunks = a.chunks.lock().unwrap();
+    while chunks[..handed].iter().any(Option::is_none) {
+        chunks = a.filled.wait(chunks).unwrap();
+    }
+    let mut out = Vec::with_capacity(files.len());
+    for (c, chunk) in chunks.iter_mut().enumerate() {
+        let len = CHUNK_FILES.min(files.len() - c * CHUNK_FILES);
+        match chunk.take() {
+            Some(found) => out.extend(found.into_iter().map(Some)),
+            None => out.extend((0..len).map(|_| None)),
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------- fs.list
@@ -1246,6 +1397,85 @@ mod tests {
         let whole = "--- a/x.txt\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-one\n-TWO\n-three\n";
         Patch.run(&json!({"patch": whole}), &c).unwrap();
         assert!(!d.path().join("x.txt").exists());
+    }
+
+    /// Cores for the tests: a thread per job, at most `n` at once.
+    #[derive(Debug)]
+    struct Threads {
+        free: Arc<AtomicUsize>,
+        lent: AtomicUsize,
+    }
+
+    impl Cores for Threads {
+        fn try_spawn(&self, job: Box<dyn FnOnce() + Send>) -> bool {
+            let took = self
+                .free
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+            if took.is_err() {
+                return false;
+            }
+            self.lent.fetch_add(1, Ordering::SeqCst);
+            let free = self.free.clone();
+            std::thread::spawn(move || {
+                job();
+                free.fetch_add(1, Ordering::SeqCst);
+            });
+            true
+        }
+    }
+
+    /// `fs.grep` searches a big tree's files ahead on borrowed cores
+    /// (theseus-a60), and says exactly what it says on its own thread: every
+    /// mode, with context, a glob, no match, and a cap that falls inside a
+    /// file searched ahead.
+    #[test]
+    fn grep_says_the_same_with_borrowed_cores() {
+        let d = tempfile::tempdir().unwrap();
+        for i in 0..1000 {
+            let dir = d.path().join(format!("d{}", i % 10));
+            fs::create_dir_all(&dir).unwrap();
+            let text: String = (0..20)
+                .map(|l| match i % 7 == 0 && l % (1 + i % 5) == 0 {
+                    true => format!("needle {i} {l}\n"),
+                    false => format!("hay {i} {l}\n"),
+                })
+                .collect();
+            fs::write(dir.join(format!("f{i}.txt")), text).unwrap();
+        }
+        let threads = Arc::new(Threads {
+            free: Arc::new(AtomicUsize::new(3)),
+            lent: AtomicUsize::new(0),
+        });
+        let lent = ToolCtx {
+            cores: Some(threads.clone()),
+            ..ctx(&d)
+        };
+        let mut crossed = false;
+        for input in [
+            json!({"pattern": "needle"}),
+            json!({"pattern": "needle", "max_results": 1000}),
+            json!({"pattern": "needle", "context": 2, "max_results": 777}),
+            json!({"pattern": "needle", "max_results": 100000}),
+            json!({"pattern": "needle", "output_mode": "files", "max_results": 100}),
+            json!({"pattern": "needle", "output_mode": "count", "max_results": 1000}),
+            json!({"pattern": "needle 99[0-9]", "glob": "f99*.txt"}),
+            json!({"pattern": "nowhere"}),
+        ] {
+            let alone = Grep.run(&input, &ctx(&d)).unwrap();
+            let helped = Grep.run(&input, &lent).unwrap();
+            assert_eq!(alone.text, helped.text, "{input}");
+            assert_eq!(alone.meta, helped.meta, "{input}");
+            let scanned = alone.meta["files_scanned"].as_u64().unwrap() as usize;
+            crossed |= alone.meta["capped"] == true && scanned > INLINE_FILES;
+        }
+        assert!(crossed, "a cap fell among the files searched ahead");
+        assert!(threads.lent.load(Ordering::SeqCst) > 0, "it borrowed cores");
+        // A helper that found no chunk left may still be on its way out.
+        let t0 = std::time::Instant::now();
+        while threads.free.load(Ordering::SeqCst) < 3 {
+            assert!(t0.elapsed().as_secs() < 5, "every core came back");
+            std::thread::yield_now();
+        }
     }
 
     #[test]
