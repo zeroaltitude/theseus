@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.46
+# The Ship of Theseus — v0.47
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -555,7 +555,41 @@ The core is a **server**. Nothing else in the system, not the CLI, not Discord, 
 Opinionated, and simple. **Every secret lives in 1Password**, in the deployment's vault, and Theseus reads it at startup through a **service account**. The only secret the process may receive by any other path is the service-account token itself, from the environment or from a mode-0600 file whose path is configured.
 
 - **Config** is a TOML document stored as a 1Password item (`theseus/config`) so the whole deployment is reconstructible from the vault. It may also be a local file for development; the schema is identical. Secret-valued fields are `op://vault/item/field` references, never values.
-- **Resolution** starts at startup, in the background, and again on an explicit `config.reload`.
+  - **The last-known-good copy** (theseus-2fo).
+    - After every read of the vault's note that loads, the daemon keeps the note's exact text as
+      `<state dir>/config.last-good.toml`: mode 0600, under a first line naming the reference it came from.
+      It is written after serving, never on the start path.
+    - The note holds only references, so the copy holds no secret. A note whose URLs could carry a
+      credential (a user, a password, or a query in `api_base` or `otlp_endpoint`) is never copied.
+    - The copy is found in `--state-dir`, else `~/.theseus`, before any config is read. The tool floor
+      keeps it.
+  - **A start serves from the copy, and acts only on the vault's word.**
+    - A start whose config is `op://`, and that finds its copy, serves from it at once. It reads the vault
+      behind the socket, beside the secrets.
+    - Until the vault confirms the copy, the daemon answers only what reads. Every method that changes
+      anything or starts work waits, bounded at 30 s like the secrets, then fails with
+      `config_unconfirmed`.
+    - The harness loop, the driver, telemetry, the web UI, Discord, and the GitHub check start only then.
+    - Why: the copy is a file the operator's user can write, and at L0 a job runs as that user. The vault
+      is the one thing an agent cannot write, so it stays the only authority.
+    - The wait costs nothing in practice: the secrets come from the same vault at the same moment.
+  - **The vault's answer.**
+    - The same text, or one that differs only in comments or formatting, confirms. In the second case the
+      copy is rewritten.
+    - A different note that loads is ledgered as `config.changed`: the reference, both sha256 digests, and
+      the tables that differ, never values. The copy is rewritten, and the daemon restarts onto the vault's
+      version: the clean shutdown path, then an `exec` of its own image with its own arguments, so the pid,
+      the terminal, and any supervisor stay the same.
+    - A process that began as such a restart and finds the note changed again holds, and says so, rather
+      than restart again.
+    - A note that does not load, or a vault that does not answer, holds too, with the reason in health and
+      the ledger. The vault is read again at 5 s, doubling to a minute.
+  - **The rest.**
+    - A first start, with no copy, reads the vault before serving. That is the one slow start.
+    - `theseusd check`, `theseusd config` (which also says whether the copy matches), and `restore` read
+      the vault directly.
+    - A `--config` file has no copy, and needs no confirmation.
+- **Resolution** starts at startup, in the background. `config.reload` was never built, and is not planned: **a restart is the reload** (§3.22 makes it routine). A changed config note is applied by the restart that the vault's answer triggers, or by the operator's own restart. _(Amended 2026-09-29, theseus-2fo: until then the note was read before serving, and "an explicit `config.reload`" was planned.)_
   - The daemon serves first (§2 FAST). It opens the store, runs the kernel's startup, and answers its
     socket while the secrets resolve.
   - One `op inject` fetches every reference: one process and one vault session. Measured against
@@ -573,7 +607,7 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
   - Health reports `secrets: resolving | ready | failed <names>`, with each failure's reason. The ledger
     records `secrets.resolved` and `secrets.failed`.
   _(Amended 2026-09-29, theseus-qa0: until then resolution ran before serving, and the process refused to start on a missing secret; Part III A3c.)_
-- **Mechanism.** The first version shells out to the `op` CLI (`op read op://…`) under the service-account token, because 1Password publishes no first-party Rust SDK; the community FFI wrappers around its C core exist and are the candidate for removing the `op` dependency later, once they are shown to build statically. References resolve concurrently at startup. The service account is read-only, so the config item is created by a human once; Theseus never writes to the vault.
+- **Mechanism.** The first version shells out to the `op` CLI (`op read op://…`) under the service-account token, because 1Password publishes no first-party Rust SDK; the community FFI wrappers around its C core exist and are the candidate for removing the `op` dependency later, once they are shown to build statically. The config note is read with one `op read`, beside the secrets' one `op inject`. The service account is read-only, so the config item is created by a human once; Theseus never writes to the vault.
 - **Configuration is documented by its template, and the template is tested.** `theseusd example-config` prints a hand-written annotated TOML in which every parameter the code reads appears exactly once, set to its default or commented out with its default shown, with a line saying what it does. Three tests keep it honest: it parses and validates; a copy with every comment un-commented also parses under `deny_unknown_fields`, so no stale or not-yet-honored key can survive in it; and every key the loader can read appears in it, so no field can be added without documenting it. The consequence is a rule: config keys are not defined before code honors them; work not yet built is recorded in Part III, never as inert config. `theseusd config` prints the config actually loaded and its source, references only.
 - **Token hygiene.** At startup Theseus checks the GitHub token against the API, logs its login, expiry, and days remaining, and warns when fewer than a configurable number of days remain (default 30). Never fatal.
 - **Starting set** (vault `Eddie-Tabitha`, item names as they exist): `anthropic openclaw key`, `TypeSafe Jev key`, `zeroaltitude github PAT` (a fine-grained token with push on the owner's repositories, expiring 2027-02-18; chosen over the all-scopes classic token until Theseus is on rails), `z.ai key` (line `api key value`), and `strata-jam-aws-key`, a `label: value` note whose `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines are referenced separately (verified 2026-09-25 against STS: IAM user `stratajam`, account 560512680793). Discord and any others are added as their milestones arrive. The same posture applies to them all: GitHub and AWS credentials are read from 1Password too, never from `~/.aws` or `~/.config/gh`, and a secret that cannot be resolved never lets its consumer run without it, and the daemon says which one failed and why; the process itself serves meanwhile. _(Fail closed per consumer since theseus-qa0, 2026-09-29; until then the process refused to start.)_
@@ -1059,7 +1093,7 @@ lifecycle timings, and the M3.5 entry).
 
 | Metric | Target |
 |---|---|
-| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(When the config is `op://`, its note is still read on this path: about 1 s. Accepted 2026-09-29: start from a last-known-good copy, theseus-2fo, step F1b.)_ |
+| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ |
 | Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for |
 | Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms _(The bench's budget: the cold-start budget plus 100 ms.)_ |
 | Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer |
@@ -2418,7 +2452,7 @@ after, with `secrets: resolving` at each. A GLM turn sent at once waited 1.32 s 
 | References resolve concurrently through `op read` (§3.19) | One `op inject` for every reference; `op read` per reference only after a failed injection | Measured: the same wall time, a sixth of the CPU, one process | Keep |
 | Resolution happens once at startup (§3.19) | Once, then again for what failed, at 5 s doubling to 60 s | The process no longer exits on a failure, so it must fetch again | Keep |
 | The bench has five phases (P5b) | Three; binary swap and restore are F4's | A swap under load needs F4's upgrade path | F4 |
-| Nothing on the path to serving waits on the network (§2) | When the config is `op://` (Eddie's), the note is read before serving: about 1 s | Everything after it needs the config | Accepted 2026-09-29: a last-known-good copy of the note under the state dir, with nothing acting until the vault confirms it (theseus-2fo, step F1b) |
+| Nothing on the path to serving waits on the network (§2) | When the config is `op://` (Eddie's), the note is read before serving: about 1 s | Everything after it needs the config | Built in step F1b (theseus-2fo): the daemon starts from a last-known-good copy of the note, and nothing acts until the vault confirms it |
 | Store open grows with the WAL tail, never with history (§9) | `Wal::open` reads and checks every segment: 47 ms at 10,000 sessions | Since M1 | F4, with the versioned readers (theseus-8ni) |
 | The gate measures §9 on every commit (P5b) | On debug binaries and an empty store; Eddie's store and 10,000 sessions are release bench runs | A release build takes 3 min, and debug is never faster than release | Keep; revisit if a debug-only slowdown fails the gate |
 
@@ -2499,6 +2533,102 @@ Release, medians of three interleaved rounds:
 
 Beyond those, each loop still renders the whole transcript into its request. That is §4.5's rendered
 cache, which is not built.
+
+### Step F1b. Start from a last-known-good copy of the config note (theseus-2fo; 2026-09-29, 12:33–13:39; 98bce09, 06b8d53, 2b654d4, 6299536)
+
+**Why.** Eddie's daemon runs as a bare `theseusd`, so its config is the vault note, read with one `op read`
+(about 1.0 s) before anything else. F1 moved every secret behind the socket, which left the note as the last
+network wait on the start path. Everything after it needs the config, so it could not simply move. Eddie
+accepted the fix on 2026-09-29 at 11:52 ("That's perfect in practice"). Tabitha's refinements made the vault
+the only authority.
+
+**What exists.**
+- **The copy**, `<state dir>/config.last-good.toml`: the note's exact text under a line naming its reference,
+  mode 0600, written after serving. It is never kept for a note whose URLs could carry a credential, and it
+  is on the tool floor.
+- **Serve from the copy; act only on the vault's word.** One check in the dispatcher:
+  - 8 methods that act (`turn.submit`, `session.open`, `profile.use`, `session.recompile`, `action.confirm`,
+    `policy.tighten`, `policy.untighten`, `execution.cancel`) wait for the vault, bounded at 30 s, then fail
+    with `config_unconfirmed` (-32006);
+  - the 16 reads, and `shutdown`, answer at once;
+  - the actors start on the confirmation, and each also waits on the gate itself;
+  - a turn's trace shows `config.wait` when it waited.
+- **The vault's answer:**
+  - the same text, or only comments, confirms (`config.confirmed`);
+  - a changed note is ledgered (`config.changed`), rewrites the copy, and restarts the daemon in place: an
+    `exec` of `/proc/self/exe`, marked so that it never restarts twice;
+  - an invalid note or a silent vault holds (`config.invalid`, `config.unreachable`), and retries at 5 s,
+    doubling to 60 s;
+  - health, the Observatory, and the narrative (a new `config` part) say which.
+- **The restart keeps the process:** the same pid, terminal, arguments, and name. The name, `theseusd`, is
+  written back to `/proc/self/comm` after the exec, since the kernel would name the image `exe`.
+- **Startup writes nothing a copy decides.** The kernel had one config-dependent startup write: the dollar
+  limit given to executions stored with unit budgets. It is refused under an unconfirmed config, and that
+  start reads the vault first.
+- **`[web] bind`** must be a loopback address, or the config fails to load.
+- **The bench's `vault` phase:** cold starts from the copy, with a fake `op` that answers after 1 s. Each
+  first answer must say `confirming`. It adds about 0.6 s to the gate.
+
+**How it is proven.** 280 tests in the gate, 18 of them new:
+- the gate under a vault that hangs, answers late, answers the same text, only comments, a changed note, an
+  invalid note, or nothing;
+- no restart loop;
+- the security test: a copy widened to let the CLI approve never judges an approval, and the vault's version
+  refuses it;
+- the copy on the tool floor;
+- the kernel's refusal of unit budgets under an unconfirmed config;
+- the real binary: the copy kept, the start from it, the restart by `exec` in the same process under the
+  same name, the vault-first exec, a comment-only change, and a silent vault.
+
+The bench's `vault` phase on an empty store, release: p50 17.5–19.2 ms and p95 27.8–42.3 ms over three runs,
+with every first answer `confirming`.
+
+With Eddie's real note, through a shim `op` that turned the web UI and Discord off:
+- A first start with no copy answered in 1,094 ms. Three starts from the copy answered in 18.2, 20.2, and
+  21.5 ms, and the vault confirmed each 1.02–1.05 s after its spawn.
+- A GLM turn sent at a start waited 1.01 s at the gate (`config.wait`), then ran.
+- A changed note restarted the daemon in place: 148 ms from `config.changed` to serving again, and confirmed
+  in 992 ms, with the vault's limit.
+- A comment-only change confirmed, with no restart.
+- An unreachable vault held, said why, refused an acting method after 30 s, and confirmed on its fifth read.
+
+**Reviewed** (Tabitha, 2026-09-29, 14:03 to 14:13).
+- The gate rerun passed: 280 tests, and all four bench phases within budget (from the copy, p95 25.0 ms).
+- On the release build, with Eddie's real note through Tabitha's own shim, and an empty scratch state dir:
+  - a first start answered in 1,065 ms ("read before serving … there was no copy yet"), and kept a 0600
+    copy of 13,781 bytes under its reference line;
+  - the next start answered in 31 ms, saying `confirming`. A GLM turn sent at once waited 1.02 s at the gate
+    (`config.wait`), then answered, and the daemon said `confirmed in 1041 ms`;
+  - a note changed through the shim (`[kernel] spend_limit_usd = 60.0`) gave `config.changed`
+    (`["kernel"]`) and the restart. The pid stayed the same (2992727), `/proc/<pid>/comm` stayed `theseusd`,
+    and the vault's limit, $60, took effect.
+- Installed at 14:13.
+- Found in the review:
+  - F1b's real-binary test leaks its daemon when an assertion fails before its explicit `stop()`. One
+    restarted debug daemon from a deliberately failing probe ran for 45 minutes, named `exe`. The review
+    stopped it, and the fix, a guard that kills on drop, goes with the OTel step.
+  - `theseusd config | head` panics on the broken pipe (theseus-gi7, with the same step).
+
+**Divergence from Parts I and II, and from the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| Resolution happens once at startup, and again on an explicit `config.reload` (§3.19) | No `config.reload`; a restart is the reload, triggered by the vault's answer or by the operator | A config the process holds in memory is the config it started with; a restart is routine (§3.22) and cheap | §3.19 amended |
+| The config note is read before serving (§3.19, F1) | Served from the last-known-good copy; the vault is read behind the socket, and nothing acts until it confirms | FAST (§2), with the vault as the only authority | §3.19 amended |
+| The issue's first proposal: "restart to apply" (a stale copy keeps serving) | The daemon restarts itself onto the vault's version; a restarted one that finds another change holds | Tabitha's refinement: nothing may act on a file an agent can write | Keep |
+| The brief: clients waiting at the gate see their connection close | Each is answered first with `config_unconfirmed` (state `restarting`: "send this again once it answers"), then its connection closes | A stdio client would otherwise wait forever, and a socket client learns why | Keep |
+| The brief's list of methods that act (7) | 8: `session.open` too | It writes a session and opens an execution whose spend limit is the config's | Keep |
+| Kernel startup writes depend on no config value that decides policy (the brief's expectation) | One did: the unit-budget migration's dollar limit | Since theseus-0sg | Fixed: refused under an unconfirmed config, and read from the vault first |
+| The Discord DM after a restart | Implemented (2b's approval-DM path, one call), not proven live | A scratch daemon cannot bind while Eddie's holds the bot token | Prove at Eddie's next restart onto a changed note |
+
+**Known gaps.**
+- The Observatory's config line was not seen in a browser, because the live checks kept the web UI off
+  while Eddie's daemon held port 7433.
+- A job that can write the copy can hold the daemon, but never make it act. That is a denial of service,
+  not an escalation, and L1's sandbox (M4) takes the write away.
+- The restart's 100 ms grace is a delay, not a handshake.
+- The copy is written without fsync, so a copy lost in a crash costs one slow start.
+- A start spawned the moment `theseus shutdown` returns can still fail with "Database already open" (F4).
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
