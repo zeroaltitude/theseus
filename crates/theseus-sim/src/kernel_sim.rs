@@ -372,7 +372,7 @@ impl World {
         let mut dispatched = Vec::new();
         for _ in 0..n_actions {
             let g = self.guards.get(&exec_id).unwrap();
-            let mut prop = Proposal {
+            let prop = Proposal {
                 tool: if self.rng.random_bool(0.5) {
                     "fake.slow".into()
                 } else {
@@ -382,8 +382,6 @@ impl World {
                 resource: None,
                 policy_context: json!({}),
             };
-            let (gate, _) = run_gate(&AllowAll, &mut prop, &auth());
-            assert_eq!(gate, GateResult::Allow);
             let reserve = self.rng.random_range(0..3_000);
             let a = match self.kernel.plan_action(
                 g,

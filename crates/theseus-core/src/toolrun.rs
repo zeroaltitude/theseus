@@ -21,8 +21,7 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use theseus_kernel::job::{spawn_detached, WrapperArgs};
 use theseus_kernel::{
-    run_gate, Action, ActionState, Authority, Completion, GateResult, Kernel, Outcome, Proposal,
-    RetryClass, Spool, TurnGuard,
+    Action, ActionState, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
 };
 use theseus_protocol::{notify, ConfirmRequest};
 use theseus_store::Store as _;
@@ -31,7 +30,7 @@ use theseus_tools::{Backend, JobSpec, Registry, Retry, Tool, ToolCtx};
 use crate::bus::EventSink;
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, ResultStatus};
-use crate::policy::{GatePolicy, ToolPolicy};
+use crate::policy::{Posture, ToolPolicy};
 use crate::provider::ToolUse;
 use crate::scrub::Scrubber;
 use crate::store::Store;
@@ -75,7 +74,6 @@ pub struct TurnCtx<'a> {
     pub turn_id: &'a str,
     pub loop_index: Option<u32>,
     pub sink: &'a EventSink,
-    pub authority: &'a Authority,
     pub confirm_ttl_ms: u64,
 }
 
@@ -489,19 +487,29 @@ impl ToolRuntime {
         }
 
         let mut proposal = self.proposal_for(tool.as_ref(), &call.input);
-        let gp = GatePolicy::new(tool.as_ref(), &self.ctx, &self.policy);
-        let (result, trace) = run_gate(&gp, &mut proposal, tc.authority);
-        let plan = gp.plan.lock().unwrap().clone();
-        let decision = gp.decision.lock().unwrap().clone();
-        proposal.resource = plan
-            .as_ref()
-            .and_then(|p| p.resources.first())
-            .map(|r| r.path.display().to_string());
+        // The toollet's own typed parse names the resources, and an `Err` is
+        // invalid input. The policy then runs the call, notifies, or waits
+        // (§3.9); nothing it decides refuses one (theseus-8az). The gate JSON
+        // keeps the keys stored tool-call nodes carry.
+        let planned = tool.plan(&call.input, &self.ctx).map(|plan| {
+            let decision = self.policy.decide(tool.as_ref(), &plan);
+            (plan, decision)
+        });
+        let result = match &planned {
+            Err(e) => json!({"gate": "deny", "reason": format!("validation: {e}")}),
+            Ok((_, d)) if d.posture == Posture::Approve => {
+                json!({"gate": "needs_confirm", "by": self.policy.confirmer})
+            }
+            Ok(_) => json!({"gate": "allow"}),
+        };
+        if let Ok((plan, _)) = &planned {
+            proposal.resource = plan.resources.first().map(|r| r.path.display().to_string());
+        }
         let gate = json!({
             "result": result,
-            "validated": trace.validated,
-            "decision": decision,
-            "plan": plan,
+            "validated": planned.is_ok(),
+            "decision": planned.as_ref().ok().map(|(_, d)| d),
+            "plan": planned.as_ref().ok().map(|(p, _)| p),
             "proposal": proposal,
         });
         tc.sink.send(
@@ -509,15 +517,10 @@ impl ToolRuntime {
             json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "input": call.input, "gate": gate}),
         );
 
-        match result {
-            // Only validation stops a call here: the policy runs, notifies,
-            // or waits (theseus-8az), so a `Deny` is input that failed the
-            // toollet's own parse.
-            GateResult::Deny { reason } => {
-                let text = format!(
-                    "Invalid input: {}",
-                    reason.trim_start_matches("validation: ")
-                );
+        let (plan, decision) = match planned {
+            Ok(planned) => planned,
+            Err(e) => {
+                let reason = format!("validation: {e}");
                 let call_node =
                     self.tool_call_node(tc, assistant_node, call, tool.name(), None, gate);
                 let node = self.result_node(
@@ -525,7 +528,7 @@ impl ToolRuntime {
                     &call.id,
                     tool.name(),
                     ResultStatus::Error,
-                    &text,
+                    &format!("Invalid input: {e}"),
                     None,
                     None,
                     false,
@@ -540,86 +543,61 @@ impl ToolRuntime {
                     json!({"tool": tool.name(), "tool_use_id": call.id, "reason": reason, "input": call.input}),
                 );
                 self.announce_end(tc, &node);
-                Ok(CallOutcome::Done {
+                return Ok(CallOutcome::Done {
                     status: ResultStatus::Error,
-                })
+                });
             }
-            GateResult::NeedsConfirm { by } => {
-                let retry = map_retry(tool.retry());
-                let a = tc.kernel.plan_action_with(
-                    tc.guard,
-                    &proposal,
-                    retry,
-                    Some(self.deadline_ms(tool.as_ref(), &call.input)),
-                    0,
-                    |a| {
-                        Ok(vec![self
-                            .tool_call_node(
-                                tc,
-                                assistant_node,
-                                call,
-                                tool.name(),
-                                Some(&a.correlation_id),
-                                gate.clone(),
-                            )
-                            .record()?])
-                    },
-                )?;
-                let now = theseus_protocol::now_unix_ms();
-                let floor = decision.as_ref().is_some_and(|d| d.floor);
-                let req = ConfirmRequest {
-                    correlation_id: a.correlation_id.clone(),
-                    session_id: tc.session_id.into(),
-                    execution_id: tc.execution_id.into(),
-                    tool: tool.name().into(),
-                    input: call.input.clone(),
-                    resource: proposal.resource.clone(),
-                    reason: decision.map(|d| d.reason).unwrap_or_default(),
-                    by,
-                    requested_at_ms: now,
-                    expires_at_ms: now + tc.confirm_ttl_ms,
-                    floor,
-                };
-                self.ledger(tc, "tool.confirm_requested", serde_json::to_value(&req)?);
-                tc.sink.send(notify::CONFIRM_REQUESTED, &req);
-                Ok(CallOutcome::AwaitingConfirm {
-                    correlation_id: a.correlation_id,
-                })
-            }
-            GateResult::Allow => {
-                if let Some(n) = decision.as_ref().and_then(|d| d.notify.clone()) {
-                    // A notify posture runs the call and says so where the operator looks.
-                    let summary = plan.as_ref().map(|p| p.summary.clone()).unwrap_or_default();
-                    let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
-                        "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
-                        "summary": summary, "kind": n.kind, "setting": n.setting, "rule": n.rule});
-                    self.ledger(tc, "tool.notified", payload.clone());
-                    tc.sink.send(notify::POLICY_NOTIFIED, payload);
-                }
-                let retry = map_retry(tool.retry());
-                let a = tc.kernel.plan_action_with(
-                    tc.guard,
-                    &proposal,
-                    retry,
-                    Some(self.deadline_ms(tool.as_ref(), &call.input)),
-                    0,
-                    |a| {
-                        Ok(vec![self
-                            .tool_call_node(
-                                tc,
-                                assistant_node,
-                                call,
-                                tool.name(),
-                                Some(&a.correlation_id),
-                                gate.clone(),
-                            )
-                            .record()?])
-                    },
-                )?;
-                tc.kernel.authorize(&a.correlation_id, &proposal, None)?;
-                self.execute(tc, &a.correlation_id, tool, call).await
-            }
+        };
+        if let Some(n) = &decision.notify {
+            // A notify posture runs the call and says so where the operator looks.
+            let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
+                "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
+                "summary": plan.summary, "kind": n.kind, "setting": n.setting, "rule": n.rule});
+            self.ledger(tc, "tool.notified", payload.clone());
+            tc.sink.send(notify::POLICY_NOTIFIED, payload);
         }
+        let a = tc.kernel.plan_action_with(
+            tc.guard,
+            &proposal,
+            map_retry(tool.retry()),
+            Some(self.deadline_ms(tool.as_ref(), &call.input)),
+            0,
+            |a| {
+                Ok(vec![self
+                    .tool_call_node(
+                        tc,
+                        assistant_node,
+                        call,
+                        tool.name(),
+                        Some(&a.correlation_id),
+                        gate.clone(),
+                    )
+                    .record()?])
+            },
+        )?;
+        if decision.posture == Posture::Approve {
+            let now = theseus_protocol::now_unix_ms();
+            let req = ConfirmRequest {
+                correlation_id: a.correlation_id.clone(),
+                session_id: tc.session_id.into(),
+                execution_id: tc.execution_id.into(),
+                tool: tool.name().into(),
+                input: call.input.clone(),
+                resource: proposal.resource.clone(),
+                reason: decision.reason,
+                by: self.policy.confirmer.clone(),
+                requested_at_ms: now,
+                expires_at_ms: now + tc.confirm_ttl_ms,
+                floor: decision.floor,
+            };
+            self.ledger(tc, "tool.confirm_requested", serde_json::to_value(&req)?);
+            tc.sink.send(notify::CONFIRM_REQUESTED, &req);
+            return Ok(CallOutcome::AwaitingConfirm {
+                correlation_id: a.correlation_id,
+            });
+        }
+        tc.kernel.authorize(&a.correlation_id, &proposal, None)?;
+        self.execute(tc, &a.correlation_id, tool, call).await
     }
 
     fn deadline_ms(&self, tool: &dyn Tool, input: &Value) -> u64 {

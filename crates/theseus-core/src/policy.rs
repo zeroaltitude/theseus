@@ -30,25 +30,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use theseus_kernel::{Authority, Policy, PolicyDecision, Proposal};
-use theseus_tools::{paths, Access, Plan, Tool, ToolCtx};
-
-/// The kernel's band for a call: run it, or wait for a confirm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-    Allow,
-    Confirm,
-}
-
-impl Mode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Mode::Allow => "allow",
-            Mode::Confirm => "confirm",
-        }
-    }
-}
+use theseus_tools::{paths, Access, Plan, Tool};
 
 /// What the gate does with a call: `[policy].enforcement` (the posture every
 /// tool and MCP inherits) and each `[policy.tools]` / `[policy.mcp]` override.
@@ -75,14 +57,6 @@ impl Posture {
             Posture::Approve => "approve",
         }
     }
-
-    /// The kernel's band: open and notify run, approve waits.
-    pub fn mode(self) -> Mode {
-        match self {
-            Posture::Open | Posture::Notify => Mode::Allow,
-            Posture::Approve => Mode::Confirm,
-        }
-    }
 }
 
 /// The structured notice a `notify` posture posts: to the session's channel
@@ -99,8 +73,7 @@ pub struct Notice {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Decision {
-    /// The kernel's band (`Posture::mode`).
-    pub mode: Mode,
+    /// `Approve` waits for the operator; `Open` and `Notify` run.
     pub posture: Posture,
     pub reason: String,
     /// The notice a `notify` posture posts.
@@ -115,7 +88,6 @@ pub struct Decision {
 impl Decision {
     fn new(posture: Posture, reason: String) -> Self {
         Self {
-            mode: posture.mode(),
             posture,
             reason,
             notify: None,
@@ -414,53 +386,11 @@ impl ToolPolicy {
     }
 }
 
-/// The kernel's gate ordering (transform → validate → policy) over a toollet:
-/// `validate` is the toollet's own typed parse, `decide` is `ToolPolicy`.
-pub struct GatePolicy<'a> {
-    pub tool: &'a dyn Tool,
-    pub ctx: &'a ToolCtx,
-    pub policy: &'a ToolPolicy,
-    pub plan: std::sync::Mutex<Option<Plan>>,
-    pub decision: std::sync::Mutex<Option<Decision>>,
-}
-
-impl<'a> GatePolicy<'a> {
-    pub fn new(tool: &'a dyn Tool, ctx: &'a ToolCtx, policy: &'a ToolPolicy) -> Self {
-        Self {
-            tool,
-            ctx,
-            policy,
-            plan: Default::default(),
-            decision: Default::default(),
-        }
-    }
-}
-
-impl Policy for GatePolicy<'_> {
-    fn validate(&self, p: &Proposal) -> Result<(), String> {
-        let plan = self.tool.plan(&p.args, self.ctx)?;
-        *self.plan.lock().unwrap() = Some(plan);
-        Ok(())
-    }
-    fn decide(&self, _p: &Proposal, _auth: &Authority) -> PolicyDecision {
-        let plan = self.plan.lock().unwrap().clone().unwrap_or_default();
-        let d = self.policy.decide(self.tool, &plan);
-        let out = match d.mode {
-            Mode::Allow => PolicyDecision::Allow,
-            Mode::Confirm => PolicyDecision::Confirm {
-                by: self.policy.confirmer.clone(),
-            },
-        };
-        *self.decision.lock().unwrap() = Some(d);
-        out
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::{json, Value};
-    use theseus_tools::{Resource, Retry, ToolClass};
+    use theseus_tools::{Resource, Retry, ToolClass, ToolCtx};
 
     /// A tool by name only: the gate looks at nothing else about it.
     struct T(&'static str);
@@ -533,12 +463,12 @@ mod tests {
         ] {
             let t = T(tool);
             let out = policy(&root, Posture::Open).decide(&t, &pl);
-            assert_eq!((out.mode, out.posture), (Mode::Allow, Posture::Open));
+            assert_eq!(out.posture, Posture::Open);
             assert!(out.notify.is_none() && !out.floor);
             assert_eq!(out.reason, format!("{tool} — open (enforcement = open)"));
 
             let out = policy(&root, Posture::Notify).decide(&t, &pl);
-            assert_eq!((out.mode, out.posture), (Mode::Allow, Posture::Notify));
+            assert_eq!(out.posture, Posture::Notify);
             assert_eq!(
                 out.notify,
                 Some(Notice {
@@ -549,7 +479,7 @@ mod tests {
             );
 
             let out = policy(&root, Posture::Approve).decide(&t, &pl);
-            assert_eq!((out.mode, out.posture), (Mode::Confirm, Posture::Approve));
+            assert_eq!(out.posture, Posture::Approve);
             assert!(out.notify.is_none() && !out.floor);
             assert_eq!(
                 out.reason,
@@ -685,8 +615,8 @@ mod tests {
             ] {
                 let out = p.decide(&T(tool), &pl);
                 assert_eq!(
-                    (out.mode, out.posture),
-                    (Mode::Confirm, Posture::Approve),
+                    out.posture,
+                    Posture::Approve,
                     "the floor asks at {}: {what}",
                     e.as_str()
                 );
@@ -759,8 +689,8 @@ mod tests {
                 ),
             ] {
                 assert_eq!(
-                    (out.mode, out.posture),
-                    (Mode::Confirm, Posture::Approve),
+                    out.posture,
+                    Posture::Approve,
                     "waits at {}: {}",
                     e.as_str(),
                     out.reason
@@ -783,7 +713,7 @@ mod tests {
                 vec!["git", "status", "src/lib.rs"],
             ] {
                 let out = run(argv);
-                assert_eq!((out.mode, out.posture), (Mode::Allow, Posture::Open));
+                assert_eq!(out.posture, Posture::Open);
                 assert!(out.notify.is_none());
                 assert!(
                     out.reason

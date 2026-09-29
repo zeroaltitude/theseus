@@ -10,7 +10,7 @@ use tempfile::TempDir;
 use theseus_store::{Engine, Store, WalConfig, WalStore};
 
 use crate::clock::{Clock, VirtualClock};
-use crate::gate::{run_gate, AllowAll, GateResult, Policy, PolicyDecision, Proposal};
+use crate::gate::Proposal;
 use crate::kernel::*;
 use crate::spool::Spool;
 use crate::types::*;
@@ -130,11 +130,9 @@ fn running(w: &World) -> (Session, Execution, TurnGuard) {
     (s, e, g)
 }
 
-/// plan → gate → authorize → dispatch, returning the dispatched action.
+/// plan → authorize → dispatch, returning the dispatched action.
 fn dispatched(w: &World, g: &TurnGuard, tool: &str, reserve: u64) -> Action {
-    let mut p = proposal(tool);
-    let (r, _) = run_gate(&AllowAll, &mut p, &auth());
-    assert_eq!(r, GateResult::Allow);
+    let p = proposal(tool);
     let a = w
         .kernel
         .plan_action(g, &p, RetryClass::SafeToRepeat, Some(60_000), reserve)
@@ -568,24 +566,12 @@ fn due_wake_fires_from_the_reconciler_under_the_virtual_clock() {
     );
 }
 
-struct ConfirmProc;
-impl Policy for ConfirmProc {
-    fn decide(&self, p: &Proposal, _: &Authority) -> PolicyDecision {
-        if p.tool.starts_with("proc.") {
-            PolicyDecision::Confirm { by: "eddie".into() }
-        } else {
-            PolicyDecision::Allow
-        }
-    }
-}
-
 #[test]
 fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     let w = world();
     let (_, _e, g) = running(&w);
-    let mut p = proposal("proc.run");
-    let (r, _) = run_gate(&ConfirmProc, &mut p, &auth());
-    assert_eq!(r, GateResult::NeedsConfirm { by: "eddie".into() });
+    // The core's policy decided this call waits for eddie.
+    let p = proposal("proc.run");
     let a = w
         .kernel
         .plan_action(&g, &p, RetryClass::NonRepeatable, None, 0)

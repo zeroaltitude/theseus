@@ -96,12 +96,9 @@ impl ProviderRequest {
         Value::Object(m)
     }
 
-    /// sha256 of the canonical body: what a reconstruction must reproduce (§4.4).
+    /// sha256 of the body, keys sorted: what a reconstruction must reproduce (§4.4).
     pub fn digest(&self) -> String {
-        use sha2::{Digest, Sha256};
-        let mut h = Sha256::new();
-        h.update(canonical_json(&self.body()).as_bytes());
-        hex::encode(h.finalize())
+        theseus_kernel::digest_json(&self.body())
     }
 
     /// Rough size of the prompt in tokens (chars / 4) for budgeting.
@@ -116,32 +113,6 @@ impl ProviderRequest {
                 .map(|s| s.len())
                 .unwrap_or(0);
         (chars / 4) as u64
-    }
-}
-
-/// JSON with object keys sorted, recursively: the form every digest is taken over.
-pub fn canonical_json(v: &Value) -> String {
-    match v {
-        Value::Object(m) => {
-            let mut keys: Vec<&String> = m.keys().collect();
-            keys.sort();
-            let parts: Vec<String> = keys
-                .into_iter()
-                .map(|k| {
-                    format!(
-                        "{}:{}",
-                        serde_json::to_string(k).unwrap_or_default(),
-                        canonical_json(&m[k])
-                    )
-                })
-                .collect();
-            format!("{{{}}}", parts.join(","))
-        }
-        Value::Array(a) => format!(
-            "[{}]",
-            a.iter().map(canonical_json).collect::<Vec<_>>().join(",")
-        ),
-        other => serde_json::to_string(other).unwrap_or_default(),
     }
 }
 
@@ -1135,6 +1106,12 @@ mod tests {
         assert!(b.get("betas").is_none());
         assert_eq!(b["cache_control"]["type"], "ephemeral");
         assert_eq!(r.digest(), r.clone().digest());
+        // The digest the replaced sorted-key serializer gave (at 8a1e41d): a
+        // stored `request_digest` must still match its reconstruction.
+        assert_eq!(
+            r.digest(),
+            "6af8d83bc2dad527fe40c29da569472410ddfb97c810fc3fdb43dd4c99eba80f"
+        );
         let mut r2 = r.clone();
         r2.max_tokens = 11;
         assert_ne!(r.digest(), r2.digest());

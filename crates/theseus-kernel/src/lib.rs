@@ -19,7 +19,7 @@ pub mod types;
 mod tests;
 
 pub use clock::{Clock, RealClock, VirtualClock};
-pub use gate::{run_gate, AllowAll, GateResult, Policy, PolicyDecision, Proposal};
+pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{
     Accepted, Evidence, Kernel, KernelConfig, KernelError, KernelStats, NoEvidence, Probe,
     ReconcileReport, StartupReport, TurnEnd, TurnGuard,

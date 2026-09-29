@@ -20,9 +20,8 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::{
-    run_gate, AllowAll, Authority, Completion, Execution, Kernel, KernelError,
-    Outcome as ActionOutcome, Proposal, RetryClass, SessionKind as KSessionKind, TurnEnd,
-    TurnGuard, Wake,
+    Authority, Completion, Execution, Kernel, KernelError, Outcome as ActionOutcome, Proposal,
+    RetryClass, SessionKind as KSessionKind, TurnEnd, TurnGuard, Wake,
 };
 use theseus_protocol::{
     notify, LoopEnded, LoopStarted, ModelDelta, TurnStarted, TurnSubmitResult, Usage,
@@ -439,11 +438,6 @@ impl TurnRunner {
         {
             session = fresh;
         }
-        let execution = self
-            .kernel
-            .execution(&guard.execution_id)?
-            .ok_or_else(|| anyhow::anyhow!("execution vanished"))?;
-        let authority = execution.authority.clone();
         let started = Instant::now();
         let sid = session.session_id.clone();
         let turn_id = crate::new_id("turn");
@@ -523,7 +517,6 @@ impl TurnRunner {
             turn_id: &turn_id,
             loop_index,
             sink: &sink,
-            authority: &authority,
             confirm_ttl_ms,
         };
 
@@ -674,16 +667,12 @@ impl TurnRunner {
             }
 
             // --- the provider call is an action (§3.16)
-            let mut proposal = Proposal {
+            let proposal = Proposal {
                 tool: PROVIDER_TOOL.into(),
                 args: json!({"provider": target.provider, "model": target.model, "max_tokens": target.max_tokens, "loop": loop_index, "turn_id": turn_id, "digest": compiled.digest}),
                 resource: Some(target.provider.clone()),
                 policy_context: json!({"profile": target.profile}),
             };
-            let (gate, gate_trace) = run_gate(&AllowAll, &mut proposal, &authority);
-            if let theseus_kernel::GateResult::Deny { reason } = gate {
-                anyhow::bail!("provider call denied by policy: {reason}");
-            }
             let reserve = target.max_tokens as u64 + compiled.est_tokens;
             let o0 = trace.now_us();
             let action = match self.kernel.plan_action(
@@ -732,7 +721,7 @@ impl TurnRunner {
                 "store",
                 o0,
                 trace.now_us(),
-                json!({"correlation_id": action.correlation_id, "tool": action.tool, "reserved_units": reserve, "gate": gate_trace}),
+                json!({"correlation_id": action.correlation_id, "tool": action.tool, "reserved_units": reserve}),
             );
             let call_started_ms = theseus_protocol::now_unix_ms();
 

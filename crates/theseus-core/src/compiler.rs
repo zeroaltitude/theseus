@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 
 use crate::catalog::{Catalog, ThinkingMode};
 use crate::node::{Body, Node, ResultStatus};
-use crate::provider::{canonical_json, tool_uses_in, ProviderRequest};
+use crate::provider::{tool_uses_in, ProviderRequest};
 
 pub const COMPILER_VERSION: u32 = 1;
 pub const RENDERER_VERSION: u32 = 1;
@@ -167,7 +167,8 @@ pub fn manifest_for(
         provider: spec.provider.clone(),
         model: spec.model.clone(),
         system_digest: sha(&spec.system_text),
-        tools_digest: sha(&canonical_json(&Value::Array(spec.tools.clone()))),
+        tools_digest: theseus_kernel::digest_json(&Value::Array(spec.tools.clone()))[..16]
+            .to_string(),
         tools,
         catalog_version: catalog.version.clone(),
         context_window: window,
@@ -559,6 +560,20 @@ mod tests {
             refusal_fallbacks: true,
             first_party: true,
         }
+    }
+
+    /// The tools digest the replaced sorted-key serializer gave (at 8a1e41d).
+    /// If it changed, every stored manifest would read as a tool change, and
+    /// each session's next turn would recompile and strip its thinking.
+    #[test]
+    fn the_tools_digest_matches_the_one_stored_manifests_carry() {
+        let mut s = spec("m", "sys");
+        s.tools = vec![
+            json!({"name": "fs_read", "description": "Read a file", "input_schema": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}}}}),
+            json!({"name": "proc_run", "input_schema": {"properties": {"argv": {"items": {"type": "string"}, "type": "array"}}, "type": "object"}, "description": "Run é ✓"}),
+        ];
+        let m = manifest_for(&s, &Catalog::builtin(), None, false);
+        assert_eq!(m.tools_digest, "46f4e6a0c66ccbb0");
     }
 
     fn assistant(blocks: Vec<Value>) -> Node {

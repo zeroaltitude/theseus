@@ -1,19 +1,12 @@
-//! The deterministic policy gate (§3.17 ordering):
-//!
-//! `proposed → transform → schema validation → live policy → confirmation
-//! bound to the final action → final revalidation → durable dispatch`.
-//!
-//! M2 tests the *ordering*, not the policies: `Policy` is a trait with a
-//! permissive default and a scripted implementation for the simulator. What
-//! the gate guarantees is structural: a transform can never run after the
-//! confirm was bound, a policy deny is never overridden by anything later, and
-//! the digest the confirm binds is the digest that dispatches.
+//! The kernel's half of the gate (§3.17): the proposal a confirmation binds,
+//! and the digest that binds it. The core decides first (the toollet's plan,
+//! then the tool policy); the kernel plans the action under the proposal's
+//! digest, a confirm binds that digest, and `authorize` refuses a proposal
+//! whose digest changed after it was planned or confirmed.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-
-use crate::types::Authority;
 
 /// A proposed tool call as the model (or a test) states it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,126 +20,18 @@ pub struct Proposal {
     pub policy_context: Value,
 }
 
-/// sha256 over the canonical (sorted-key) JSON of the proposal.
+/// sha256 over the proposal's JSON, keys sorted.
 pub fn digest_proposal(p: &Proposal) -> String {
-    let canon = canonical(&serde_json::to_value(p).unwrap_or(Value::Null));
-    let mut h = Sha256::new();
-    h.update(canon.as_bytes());
-    hex::encode(h.finalize())
+    digest_json(&serde_json::to_value(p).unwrap_or(Value::Null))
 }
 
-fn canonical(v: &Value) -> String {
-    match v {
-        Value::Object(m) => {
-            let mut keys: Vec<_> = m.keys().collect();
-            keys.sort();
-            let parts: Vec<String> = keys
-                .into_iter()
-                .map(|k| format!("{}:{}", serde_json::to_string(k).unwrap(), canonical(&m[k])))
-                .collect();
-            format!("{{{}}}", parts.join(","))
-        }
-        Value::Array(a) => format!(
-            "[{}]",
-            a.iter().map(canonical).collect::<Vec<_>>().join(",")
-        ),
-        other => serde_json::to_string(other).unwrap_or_default(),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "decision")]
-pub enum PolicyDecision {
-    Allow,
-    Deny {
-        reason: String,
-    },
-    /// Allowed only with a confirmation from this principal.
-    Confirm {
-        by: String,
-    },
-}
-
-pub trait Policy: Send + Sync {
-    /// Hooks may tighten or rewrite the proposal before anything else looks at it.
-    fn transform(&self, _p: &mut Proposal, _auth: &Authority) {}
-    /// Schema and argument validation. Deterministic; no I/O.
-    fn validate(&self, _p: &Proposal) -> Result<(), String> {
-        Ok(())
-    }
-    /// Live policy and resource checks against the execution's authority.
-    fn decide(&self, _p: &Proposal, _auth: &Authority) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-}
-
-/// Allow everything, transform nothing.
-pub struct AllowAll;
-impl Policy for AllowAll {}
-
-/// Steps the gate took, for the ledger and the trace.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GateTrace {
-    pub transformed: bool,
-    pub digest_before: String,
-    pub digest_after: String,
-    pub validated: bool,
-    pub decision: PolicyDecision,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "gate")]
-pub enum GateResult {
-    /// Proceed to `authorize` with no confirm required.
-    Allow,
-    /// Proceed to `authorize` only after `bind_confirm` from `by`.
-    NeedsConfirm {
-        by: String,
-    },
-    Deny {
-        reason: String,
-    },
-}
-
-/// Run the ordered gate over a proposal. The proposal is mutated in place by
-/// `transform`; the returned digest is the one that must be planned, bound,
-/// and authorized. Nothing after this function may change `proposal` without
-/// rerunning it (the kernel enforces that by digest).
-pub fn run_gate(
-    policy: &dyn Policy,
-    proposal: &mut Proposal,
-    auth: &Authority,
-) -> (GateResult, GateTrace) {
-    let before = digest_proposal(proposal);
-    policy.transform(proposal, auth);
-    let after = digest_proposal(proposal);
-    let mut trace = GateTrace {
-        transformed: before != after,
-        digest_before: before,
-        digest_after: after,
-        validated: false,
-        decision: PolicyDecision::Allow,
-    };
-    if let Err(reason) = policy.validate(proposal) {
-        trace.decision = PolicyDecision::Deny {
-            reason: format!("validation: {reason}"),
-        };
-        return (
-            GateResult::Deny {
-                reason: format!("validation: {reason}"),
-            },
-            trace,
-        );
-    }
-    trace.validated = true;
-    let d = policy.decide(proposal, auth);
-    trace.decision = d.clone();
-    let r = match d {
-        PolicyDecision::Allow => GateResult::Allow,
-        PolicyDecision::Deny { reason } => GateResult::Deny { reason },
-        PolicyDecision::Confirm { by } => GateResult::NeedsConfirm { by },
-    };
-    (r, trace)
+/// sha256 (hex) over a JSON value's compact form. `serde_json::Map` is a
+/// `BTreeMap` while serde_json's `preserve_order` feature stays off, so object
+/// keys come out sorted and equal values digest equally, whatever order their
+/// keys were written in. These are the bytes every stored digest was taken
+/// over: an action's `args_digest`, a request digest, a manifest's tools digest.
+pub fn digest_json(v: &Value) -> String {
+    hex::encode(Sha256::digest(serde_json::to_vec(v).unwrap_or_default()))
 }
 
 #[cfg(test)]
@@ -174,49 +59,107 @@ mod tests {
         assert_ne!(digest_proposal(&a), digest_proposal(&c));
     }
 
-    struct Scripted;
-    impl Policy for Scripted {
-        fn transform(&self, p: &mut Proposal, _: &Authority) {
-            p.args["redacted"] = json!(true);
-        }
-        fn validate(&self, p: &Proposal) -> Result<(), String> {
-            if p.tool.is_empty() {
-                Err("empty tool".into())
-            } else {
-                Ok(())
+    /// `digest_json` replaced two hand-written sorted-key serializers (the
+    /// kernel's and the provider's). Its bytes must equal theirs, or every
+    /// stored `args_digest` stops matching and a confirm parked before the
+    /// upgrade can never be authorized.
+    #[test]
+    fn digest_json_hashes_the_bytes_the_old_canonical_form_hashed() {
+        // The serializer it replaced, verbatim, as the reference.
+        fn canonical(v: &Value) -> String {
+            match v {
+                Value::Object(m) => {
+                    let mut keys: Vec<_> = m.keys().collect();
+                    keys.sort();
+                    let parts: Vec<String> = keys
+                        .into_iter()
+                        .map(|k| {
+                            format!("{}:{}", serde_json::to_string(k).unwrap(), canonical(&m[k]))
+                        })
+                        .collect();
+                    format!("{{{}}}", parts.join(","))
+                }
+                Value::Array(a) => format!(
+                    "[{}]",
+                    a.iter().map(canonical).collect::<Vec<_>>().join(",")
+                ),
+                other => serde_json::to_string(other).unwrap_or_default(),
             }
         }
-        fn decide(&self, p: &Proposal, _: &Authority) -> PolicyDecision {
-            if p.tool.starts_with("proc.") {
-                PolicyDecision::Confirm { by: "eddie".into() }
-            } else {
-                PolicyDecision::Allow
-            }
+        let mut inserted_backwards = serde_json::Map::new();
+        for k in ["z", "y", "b", "a"] {
+            inserted_backwards.insert(k.into(), json!(k));
         }
+        let corpus = [
+            Value::Object(inserted_backwards),
+            json!({"b": 1, "a": {"d": [3, {"z": null, "y": true}], "c": "x"}}),
+            json!({"a": 1, "B": 2, "_": 3, "é": 4, "10": 5, "9": 6, "": 7, "aa": 8, "a\u{0}": 9, "Z": 10}),
+            json!([
+                "quote \" backslash \\ newline \n tab \t nul \u{0} bell \u{7} del \u{7f}",
+                "line sep \u{2028} para \u{2029} crab 🦀 e-acute é",
+                "",
+                "\u{fffd}"
+            ]),
+            json!([
+                0,
+                -0.0,
+                1.5,
+                1e300,
+                -1e-300,
+                0.1,
+                1.0,
+                u64::MAX,
+                i64::MIN,
+                i64::MAX
+            ]),
+            json!({"empty_obj": {}, "empty_arr": [], "nested": [[[{}]], {"": []}]}),
+            json!(null),
+            json!(true),
+            json!("just a string"),
+        ];
+        for v in &corpus {
+            assert_eq!(serde_json::to_string(v).unwrap(), canonical(v), "{v}");
+            assert_eq!(
+                digest_json(v),
+                hex::encode(Sha256::digest(canonical(v).as_bytes())),
+                "{v}"
+            );
+        }
+        // Taken from the code this replaced (at 8a1e41d), before the change.
+        let p1 = Proposal {
+            tool: "fs.write".into(),
+            args: json!({"path": "/x", "bytes": 3}),
+            resource: None,
+            policy_context: json!({}),
+        };
+        let p2 = Proposal {
+            tool: "proc.run".into(),
+            args: json!({"argv": ["cargo", "test", "--", "é ✓ \"q\" \\ \n"], "timeout_secs": 30, "env": {"Z": "1", "A": "2", "_": null}}),
+            resource: Some("/home/x/projects/y".into()),
+            policy_context: json!({"roots": ["/home/x/projects"], "cwd": "/home/x/projects/y"}),
+        };
+        assert_eq!(
+            digest_proposal(&p1),
+            "3f1e1c601d9bdd05afa84031bdee5acca135b7c84c7506763f76da748ace2501"
+        );
+        assert_eq!(
+            digest_proposal(&p2),
+            "076048f25f9873bc0c573b68173c17195ec130f57a2e581db788dfc982b4e01e"
+        );
     }
 
+    /// Every digest above depends on sorted keys. serde_json's `preserve_order`
+    /// feature, enabled by any crate in the graph, would turn `Map` into an
+    /// insertion-ordered map and silently change them all; this fails first.
     #[test]
-    fn gate_runs_in_order_and_reports() {
-        let mut p = Proposal {
-            tool: "proc.run".into(),
-            args: json!({"argv": ["ls"]}),
-            resource: None,
-            policy_context: json!({}),
-        };
-        let (r, t) = run_gate(&Scripted, &mut p, &Authority::default());
-        assert!(t.transformed);
-        assert_eq!(p.args["redacted"], json!(true));
-        assert!(t.validated);
-        assert_eq!(r, GateResult::NeedsConfirm { by: "eddie".into() });
-        assert_eq!(t.digest_after, digest_proposal(&p));
-        let mut bad = Proposal {
-            tool: "".into(),
-            args: json!({}),
-            resource: None,
-            policy_context: json!({}),
-        };
-        let (r, t) = run_gate(&Scripted, &mut bad, &Authority::default());
-        assert!(matches!(r, GateResult::Deny { .. }));
-        assert!(!t.validated);
+    fn serde_json_maps_keep_their_keys_sorted() {
+        let mut m = serde_json::Map::new();
+        m.insert("b".into(), json!(1));
+        m.insert("a".into(), json!(2));
+        assert_eq!(
+            serde_json::to_string(&m).unwrap(),
+            r#"{"a":2,"b":1}"#,
+            "serde_json's preserve_order feature is on: stored digests would change"
+        );
     }
 }
