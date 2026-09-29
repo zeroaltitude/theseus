@@ -77,6 +77,28 @@ pub struct TurnCtx<'a> {
     pub confirm_ttl_ms: u64,
 }
 
+impl TurnCtx<'_> {
+    /// A ledger row for this turn. A failed append is logged, not fatal.
+    pub fn ledger(&self, kind: &str, data: Value) {
+        if let Err(e) = self.store.append_ledger(&LedgerRow::new(
+            kind,
+            Some(self.session_id),
+            Some(self.turn_id),
+            data,
+        )) {
+            tracing::warn!(error = %e, "ledger append failed");
+        }
+    }
+
+    /// Tell the session's clients about a node this turn wrote.
+    pub fn node_written(&self, node: &Node) {
+        self.sink.send(
+            notify::NODE_WRITTEN,
+            json!({"session_id": self.session_id, "node_id": node.id, "kind": node.kind_str()}),
+        );
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallOutcome {
     /// A result node was written.
@@ -257,17 +279,6 @@ impl ToolRuntime {
             .or_default() += 1;
     }
 
-    fn ledger(&self, tc: &TurnCtx<'_>, kind: &str, data: Value) {
-        if let Err(e) = tc.store.append_ledger(&LedgerRow::new(
-            kind,
-            Some(tc.session_id),
-            Some(tc.turn_id),
-            data,
-        )) {
-            tracing::warn!(error = %e, "ledger append failed");
-        }
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn result_node(
         &self,
@@ -350,10 +361,7 @@ impl ToolRuntime {
                 }),
             );
         }
-        tc.sink.send(
-            notify::NODE_WRITTEN,
-            json!({"session_id": tc.session_id, "node_id": node.id, "kind": node.kind_str()}),
-        );
+        tc.node_written(node);
     }
 
     /// Write a result node on its own frame and announce it.
@@ -476,8 +484,7 @@ impl ToolRuntime {
                 None,
                 Value::Null,
             );
-            self.ledger(
-                tc,
+            tc.ledger(
                 "tool.invalid_input",
                 json!({"tool": tool.name(), "tool_use_id": call.id}),
             );
@@ -537,8 +544,7 @@ impl ToolRuntime {
                     json!({"reason": reason}),
                 );
                 tc.store.append(vec![call_node.record()?, node.record()?])?;
-                self.ledger(
-                    tc,
+                tc.ledger(
                     "tool.invalid_input",
                     json!({"tool": tool.name(), "tool_use_id": call.id, "reason": reason, "input": call.input}),
                 );
@@ -553,7 +559,7 @@ impl ToolRuntime {
             let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
                 "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
                 "summary": plan.summary, "kind": n.kind, "setting": n.setting, "rule": n.rule});
-            self.ledger(tc, "tool.notified", payload.clone());
+            tc.ledger("tool.notified", payload.clone());
             tc.sink.send(notify::POLICY_NOTIFIED, payload);
         }
         let a = tc.kernel.plan_action_with(
@@ -590,7 +596,7 @@ impl ToolRuntime {
                 expires_at_ms: now + tc.confirm_ttl_ms,
                 floor: decision.floor,
             };
-            self.ledger(tc, "tool.confirm_requested", serde_json::to_value(&req)?);
+            tc.ledger("tool.confirm_requested", serde_json::to_value(&req)?);
             tc.sink.send(notify::CONFIRM_REQUESTED, &req);
             return Ok(CallOutcome::AwaitingConfirm {
                 correlation_id: a.correlation_id,
@@ -750,7 +756,7 @@ impl ToolRuntime {
                     notify::TOOL_STARTED,
                     json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "job", "pid": pid, "argv": spec.argv, "cwd": spec.cwd}),
                 );
-                self.ledger(tc, "tool.job_started", json!({"correlation_id": correlation_id, "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "timeout_secs": spec.timeout_secs}));
+                tc.ledger("tool.job_started", json!({"correlation_id": correlation_id, "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "timeout_secs": spec.timeout_secs}));
                 let t0 = Instant::now();
                 let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
                 loop {
@@ -1206,8 +1212,7 @@ impl ToolRuntime {
             }
             let node = self.job_result_node(tc, &tool_use_id, &tool, a, None, true);
             self.write_result(tc, node)?;
-            self.ledger(
-                tc,
+            tc.ledger(
                 "tool.late_result",
                 json!({"correlation_id": a.correlation_id, "tool": tool, "state": a.state}),
             );
