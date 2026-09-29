@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, CatalogList, CompilationInfo, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, ToolList } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, ToolList } from './protocol'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -171,6 +171,10 @@ export default function Observatory({ client, health, tick, currentSession, onRe
     return n
   })
   const sessionTitle = (id: string) => { const x = sessions.find((y) => y.session_id === id); return x?.title ?? x?.label ?? short(id) }
+  // The context files of this session's current compilation (theseus-58a).
+  const contextFiles = currentSession
+    ? ((compilations.find((c) => c.current)?.manifest.context_files as ContextFileRef[] | undefined) ?? [])
+    : []
 
   return (
     <aside className="observatory">
@@ -238,6 +242,20 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                   </tr>
                 )
               })}
+            </tbody>
+          </table>
+        )}
+        {contextFiles.length > 0 && (
+          <table className="obs-table" title="the files the current compilation's system block carries, in order; an edit changes the digest and recompiles the next turn">
+            <thead><tr><th>context file</th><th>digest</th><th>bytes</th></tr></thead>
+            <tbody>
+              {contextFiles.map((f) => (
+                <tr key={f.path}>
+                  <td className="small"><code>{f.path}</code></td>
+                  <td className={f.missing ? 'warn small' : 'muted small'}>{f.missing ? `missing: ${f.missing}` : <code>{f.digest}</code>}</td>
+                  <td className={f.cut ? 'warn small' : 'muted small'}>{f.missing ? '' : `${fmt(f.bytes)}${f.cut ? ' (cut)' : ''}`}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}

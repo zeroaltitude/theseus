@@ -150,6 +150,11 @@ export interface CompilationInfo {
   derived_from?: string | null; manifest: Record<string, unknown>; current: boolean
 }
 
+/** A context file the system block carried: `manifest.context_files[]` (theseus-58a). */
+export interface ContextFileRef {
+  path: string; digest?: string | null; bytes: number; cut?: boolean; missing?: string | null
+}
+
 export interface CatalogModel { model: string; entry: Record<string, unknown>; profiles: string[] }
 export interface CatalogList { version: string; models: CatalogModel[] }
 
