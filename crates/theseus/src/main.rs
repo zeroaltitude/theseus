@@ -31,6 +31,7 @@ Quick start:
   theseus ask -P sonnet \"...\"               one turn under another profile
   theseus ledger -n 20 -k provider.call      what every call cost and how long it took
   theseus ask -s <session> \"...\"            continue a session (its whole history is the context)
+  theseus ask --attach notes.txt \"...\"      send a file with the prompt, as a Discord attachment is sent
   theseus history [session]                  a session's transcript: messages, tool calls, results
   theseus watch [session]                    follow a session live (turns started anywhere)
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
@@ -103,6 +104,10 @@ enum Cmd {
         /// Show the model's thinking summaries on stderr as they stream.
         #[arg(long)]
         thinking: bool,
+        /// Send a file with the prompt (repeatable), as a Discord attachment is sent: a text
+        /// file's text, labeled with its name; anything else listed with the reason.
+        #[arg(long = "attach", value_name = "FILE")]
+        attach: Vec<PathBuf>,
     },
     /// A session's transcript: messages, tool calls with their gate decisions, results, and
     /// anything waiting for your confirmation. SESSION defaults to the most recently active.
@@ -346,6 +351,44 @@ impl Conn {
     }
 }
 
+/// The largest file `ask --attach` sends; the daemon caps text further, at
+/// `[tools].max_read_bytes`.
+const MAX_ATTACH_BYTES: u64 = 16 * 1024 * 1024;
+
+/// One `--attach` file as `turn.submit` carries it (theseus-9g2): a text
+/// file's text, or the file listed with the reason it was not read. A file
+/// that cannot be opened stops the command, before anything is sent.
+fn attachment_for(path: &std::path::Path) -> Result<theseus_protocol::Attachment> {
+    let meta = std::fs::metadata(path).with_context(|| format!("--attach {}", path.display()))?;
+    if meta.is_dir() {
+        return Err(anyhow!("--attach {}: is a directory", path.display()));
+    }
+    let mut a = theseus_protocol::Attachment {
+        name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string()),
+        size: meta.len(),
+        ..Default::default()
+    };
+    if meta.len() > MAX_ATTACH_BYTES {
+        a.not_read = Some("over the 16 MiB limit for --attach".into());
+        return Ok(a);
+    }
+    let bytes = std::fs::read(path).with_context(|| format!("--attach {}", path.display()))?;
+    match String::from_utf8(bytes) {
+        Ok(text) if !text.as_bytes().iter().take(8192).any(|b| *b == 0) => {
+            a.media_type = "text/plain".into();
+            a.text = Some(text);
+        }
+        _ => {
+            a.media_type = "application/octet-stream".into();
+            a.not_read = Some("not a text file".into());
+        }
+    }
+    Ok(a)
+}
+
 fn read_stdin_prompt() -> Result<String> {
     use std::io::Read;
     let mut s = String::new();
@@ -400,7 +443,12 @@ async fn run(cli: Cli) -> Result<()> {
             model,
             trace,
             thinking,
+            attach,
         } => {
+            let attachments = attach
+                .iter()
+                .map(|p| attachment_for(p))
+                .collect::<Result<Vec<_>>>()?;
             let prompt = match prompt.as_deref() {
                 None | Some("-") => read_stdin_prompt()?,
                 Some(p) => p.to_string(),
@@ -416,6 +464,7 @@ async fn run(cli: Cli) -> Result<()> {
                         provider,
                         model,
                         author: None,
+                        attachments,
                     })?,
                     |m, p| printer.on(m, p),
                 )
@@ -1582,5 +1631,35 @@ impl Printer {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attach_sends_a_text_files_text_and_lists_anything_else() {
+        let dir = std::env::temp_dir().join(format!("theseus-attach-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let notes = dir.join("notes.txt");
+        std::fs::write(&notes, "The fact is 42.\n").unwrap();
+        let a = attachment_for(&notes).unwrap();
+        assert_eq!(
+            (a.name.as_str(), a.media_type.as_str(), a.size),
+            ("notes.txt", "text/plain", 16)
+        );
+        assert_eq!(a.text.as_deref(), Some("The fact is 42.\n"));
+        assert!(a.not_read.is_none());
+
+        let blob = dir.join("blob.bin");
+        std::fs::write(&blob, [0u8, 1, 2, 255]).unwrap();
+        let b = attachment_for(&blob).unwrap();
+        assert_eq!(b.not_read.as_deref(), Some("not a text file"));
+        assert!(b.text.is_none() && b.data.is_none());
+
+        assert!(attachment_for(&dir.join("missing.txt")).is_err());
+        assert!(attachment_for(&dir).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

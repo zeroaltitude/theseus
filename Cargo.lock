@@ -3372,6 +3372,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "hex",
+ "reqwest 0.12.28",
  "rustls",
  "serde",
  "serde_json",

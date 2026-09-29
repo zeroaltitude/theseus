@@ -528,6 +528,33 @@ pub struct TurnSubmitParams {
     /// local protocol client acts as the operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+    /// Files that came with the input, in order (theseus-9g2). With any, the
+    /// input may be empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
+}
+
+/// A file sent with a turn's input (theseus-9g2): a Discord attachment, or
+/// `theseus ask --attach`. Text travels as `text` and an image as base64
+/// `data`. A file the sender did not read carries `not_read` instead, with
+/// the reason, and the model is told it exists.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Attachment {
+    pub name: String,
+    /// As the sender knows it (`text/plain`, `image/png`); may be empty.
+    #[serde(default)]
+    pub media_type: String,
+    /// Bytes of the whole file.
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// The file's bytes, base64 (standard alphabet, padded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+    /// Why it was not read: too large, a type that is not read, a failed download.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_read: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

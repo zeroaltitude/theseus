@@ -85,6 +85,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             sink,
             author: "test".into(),
             recompile: None,
+            attachments: vec![],
         })
         .await
         .unwrap()
@@ -1124,6 +1125,7 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             sink: EventSink::new(r.core.bus.clone(), &rec.session_id, None),
             author: "test".into(),
             recompile: None,
+            attachments: vec![],
         })
         .await
         .expect_err("the second call fails");
@@ -1562,6 +1564,7 @@ async fn a_model_with_no_price_is_not_called() {
             sink: EventSink::new(r.core.bus.clone(), "x", None),
             author: "test".into(),
             recompile: None,
+            attachments: vec![],
         })
         .await
         .unwrap_err();
@@ -1812,4 +1815,250 @@ async fn without_context_files_the_system_block_and_manifest_are_unchanged() {
         .is_none());
     assert!(ledgered(&r, "context.file_missing").is_empty());
     assert_eq!(r.core.runner.context_files.reads(), 0);
+}
+
+// ---------------------------------------------------------------- attachments (theseus-9g2)
+
+/// One `turn.submit` over a real protocol connection; the response's result
+/// or error, as JSON.
+async fn submit(core: &Arc<Core>, p: theseus_protocol::TurnSubmitParams) -> Value {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (client, server) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(server);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "test".into()));
+    let (cr, mut cw) = tokio::io::split(client);
+    let req = theseus_protocol::Request::new(
+        theseus_protocol::Id::Num(1),
+        theseus_protocol::method::TURN_SUBMIT,
+        serde_json::to_value(p).unwrap(),
+    );
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    let writer = tokio::spawn(async move {
+        cw.write_all(line.as_bytes()).await.unwrap();
+        cw
+    });
+    let mut lines = BufReader::new(cr).lines();
+    let out = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break match (r.result, r.error) {
+                (Some(v), _) => v,
+                (None, e) => json!({"error": e}),
+            };
+        }
+    };
+    let mut cw = writer.await.unwrap();
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    out
+}
+
+fn attached(
+    name: &str,
+    media_type: &str,
+    text: Option<String>,
+    not_read: Option<&str>,
+) -> theseus_protocol::Attachment {
+    theseus_protocol::Attachment {
+        name: name.into(),
+        media_type: media_type.into(),
+        size: text.as_ref().map_or(20 * 1024 * 1024, |t| t.len() as u64),
+        text,
+        data: None,
+        not_read: not_read.map(str::to_string),
+    }
+}
+
+fn submit_params(
+    session: Option<&str>,
+    input: &str,
+    attachments: Vec<theseus_protocol::Attachment>,
+) -> theseus_protocol::TurnSubmitParams {
+    theseus_protocol::TurnSubmitParams {
+        session_id: session.map(str::to_string),
+        input: input.into(),
+        profile: None,
+        provider: None,
+        model: None,
+        author: Some("discord:eddie".into()),
+        attachments,
+    }
+}
+
+/// The user content blocks of the last request the provider saw.
+fn last_user_blocks(r: &Rig) -> Vec<Value> {
+    let reqs = r.fake.requests();
+    let msgs = &reqs.last().unwrap().messages;
+    let user = msgs.iter().rev().find(|m| m["role"] == "user").unwrap();
+    user["content"].as_array().unwrap().clone()
+}
+
+/// Discord sends a long paste as `message.txt`: its text reaches the model
+/// under a header that names it and its sender, before the typed text, and
+/// the node keeps it whole. It rides in the user node's own frame.
+#[tokio::test]
+async fn a_text_attachment_reaches_the_model_labeled_with_its_name() {
+    let r = rig(vec![
+        Scripted::text("warm"),
+        Scripted::text("It is PURPLE-OTTER-42."),
+    ]);
+    let first = submit(&r.core, submit_params(None, "warm up", vec![])).await;
+    let sid = first["session_id"].as_str().unwrap().to_string();
+    let filler = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(86);
+    let paste = format!(
+        "{}The launch code is PURPLE-OTTER-42.\n{}",
+        &filler[..2_400],
+        &filler[..2_565]
+    );
+    assert_eq!(paste.chars().count(), 5_001);
+    let before = r.core.store.stats().unwrap().frames_appended;
+    let res = submit(
+        &r.core,
+        submit_params(
+            Some(&sid),
+            "What is the launch code?",
+            vec![attached(
+                "message.txt",
+                "text/plain; charset=utf-8",
+                Some(paste.clone()),
+                None,
+            )],
+        ),
+    )
+    .await;
+    assert_eq!(res["output"], "It is PURPLE-OTTER-42.", "{res}");
+    let frames = r.core.store.stats().unwrap().frames_appended - before;
+    assert!(
+        frames <= 17,
+        "a turn with an attachment wrote {frames} frames"
+    );
+
+    let blocks = last_user_blocks(&r);
+    assert_eq!(blocks.len(), 2, "the file, then the typed text: {blocks:?}");
+    assert_eq!(
+        blocks[0]["text"],
+        format!("[Attachment message.txt from discord:eddie, 5,001 bytes]\n{paste}")
+    );
+    assert_eq!(blocks[1]["text"], "What is the launch code?");
+
+    let nodes = r.core.store.session_nodes(&sid).unwrap();
+    let user = nodes
+        .iter()
+        .rev()
+        .find_map(|(_, n)| match &n.body {
+            Body::UserMessage { text, attachments } => Some((text.clone(), attachments.clone())),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(user.0, "What is the launch code?");
+    assert_eq!(user.1.len(), 1);
+    assert_eq!(
+        user.1[0].content,
+        crate::node::AttachmentContent::Text {
+            text: paste,
+            cut: false
+        }
+    );
+    // The web UI and `theseus history` show the header under the text.
+    let (pos, node) = nodes
+        .iter()
+        .rev()
+        .find(|(_, n)| n.kind_str() == "user_message")
+        .unwrap();
+    let info = crate::rpc::Core::node_info(*pos, node);
+    assert_eq!(
+        info.text,
+        "What is the launch code?\n[Attachment message.txt from discord:eddie, 5,001 bytes]"
+    );
+}
+
+/// A text over `[tools].max_read_bytes` is cut on a character boundary and
+/// marked; a file the sender did not read is listed with its type, size,
+/// and reason.
+#[tokio::test]
+async fn an_attachment_over_the_limit_is_cut_or_listed_as_not_read_with_the_reason() {
+    let r = rig_with(vec![Scripted::text("ok")], |c| {
+        c.tools.max_read_bytes = 1_000
+    });
+    let res = submit(
+        &r.core,
+        submit_params(
+            None,
+            "Look at these.",
+            vec![
+                attached("big.log", "text/plain", Some("é".repeat(1_500)), None),
+                attached(
+                    "src.zip",
+                    "application/zip",
+                    None,
+                    Some("only text files are read"),
+                ),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(res["output"], "ok", "{res}");
+    let blocks = last_user_blocks(&r);
+    let cut = blocks[0]["text"].as_str().unwrap();
+    assert!(
+        cut.starts_with(
+            "[Attachment big.log from discord:eddie, 3,000 bytes; cut to its first 1,000 bytes]\n"
+        ),
+        "{cut}"
+    );
+    assert_eq!(cut.split_once('\n').unwrap().1, "é".repeat(500));
+    assert_eq!(
+        blocks[1]["text"],
+        "[Attachment src.zip from discord:eddie, application/zip, 20.0 MB: not read: only text files are read]"
+    );
+    assert_eq!(blocks[2]["text"], "Look at these.");
+}
+
+/// A message that is only an attachment whose download failed still runs
+/// its turn: the model reads the listing, and there is no empty text block.
+/// An empty input without attachments is still refused.
+#[tokio::test]
+async fn a_failed_download_is_listed_and_the_turn_still_runs() {
+    let r = rig(vec![Scripted::text("The file did not come through.")]);
+    let res = submit(
+        &r.core,
+        submit_params(
+            None,
+            "",
+            vec![attached(
+                "message.txt",
+                "text/plain",
+                None,
+                Some("the download failed (HTTP 404)"),
+            )],
+        ),
+    )
+    .await;
+    assert_eq!(res["output"], "The file did not come through.", "{res}");
+    assert_eq!(res["loops"], 1);
+    let blocks = last_user_blocks(&r);
+    assert_eq!(
+        blocks,
+        vec![
+            json!({"type": "text", "text": "[Attachment message.txt from discord:eddie, text/plain, 20.0 MB: not read: the download failed (HTTP 404)]"})
+        ]
+    );
+    let sid = res["session_id"].as_str().unwrap();
+    let title = r
+        .core
+        .store
+        .get_session::<SessionRecord>(sid)
+        .unwrap()
+        .unwrap()
+        .title;
+    assert_eq!(
+        title.as_deref(),
+        Some("message.txt"),
+        "a session opened by a file is named for it"
+    );
+
+    let refused = submit(&r.core, submit_params(None, "  ", vec![])).await;
+    assert_eq!(refused["error"]["message"], "input is empty", "{refused}");
 }

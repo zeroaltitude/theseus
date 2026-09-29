@@ -505,11 +505,19 @@ pub fn render_messages(
         .chain(tail.iter().map(|n| (*n, false)));
     for (n, in_prefix) in items {
         match &n.body {
-            Body::UserMessage { text } => push(
-                &mut out,
-                "user",
-                vec![json!({"type": "text", "text": text})],
-            ),
+            Body::UserMessage { text, attachments } => {
+                // Each attachment is its own block, before the typed text
+                // (theseus-9g2). A message of attachments alone has no text
+                // block; one without attachments renders as it always did.
+                let mut blocks: Vec<Value> = attachments
+                    .iter()
+                    .map(|a| json!({"type": "text", "text": crate::attach::for_model(a, n.author.as_deref())}))
+                    .collect();
+                if !text.is_empty() || attachments.is_empty() {
+                    blocks.push(json!({"type": "text", "text": text}));
+                }
+                push(&mut out, "user", blocks)
+            }
             Body::AssistantMessage { blocks, .. } => {
                 let bl: Vec<Value> = if in_prefix && strip_prefix_thinking {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()

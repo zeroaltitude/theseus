@@ -7,6 +7,7 @@
 //! spool, admission, budgets, the harness loop (`theseus-kernel` + `harness`).
 
 pub mod advancer;
+pub mod attach;
 pub mod bus;
 pub mod catalog;
 pub mod compiler;

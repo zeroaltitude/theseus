@@ -96,6 +96,8 @@ pub struct TurnRequest {
     /// The client that asked (`web#3`) or `harness` for a continuation.
     pub author: String,
     pub recompile: Option<Recompile>,
+    /// Files that came with the input (theseus-9g2); kept on its node.
+    pub attachments: Vec<theseus_protocol::Attachment>,
 }
 
 /// How long a turn may wait for admission before the client gets an error.
@@ -205,7 +207,14 @@ impl<'a> Turn<'a> {
     }
 
     /// Tell the trace, the session's clients, and the ledger that the turn began.
-    fn announce(&mut self, input: Option<&str>, author: &str, lock_wait_us: u64, admit_us: u64) {
+    fn announce(
+        &mut self,
+        input: Option<&str>,
+        files: usize,
+        author: &str,
+        lock_wait_us: u64,
+        admit_us: u64,
+    ) {
         let (guard, target) = (self.tc.guard, self.target);
         self.trace.record(
             "admission.wait",
@@ -223,15 +232,23 @@ impl<'a> Turn<'a> {
                 continuation: self.continuation,
             },
         );
-        self.tc.ledger(
-            "turn.started",
-            json!({"input_chars": input.map(|s| s.chars().count()), "profile": target.profile, "provider": target.provider, "model": target.model, "execution_id": guard.execution_id, "kernel_turn": guard.turn, "continuation": self.continuation, "author": author}),
-        );
+        let mut row = json!({"input_chars": input.map(|s| s.chars().count()), "profile": target.profile, "provider": target.provider, "model": target.model, "execution_id": guard.execution_id, "kernel_turn": guard.turn, "continuation": self.continuation, "author": author});
+        if files > 0 {
+            row["attachments"] = json!(files);
+        }
+        self.tc.ledger("turn.started", row);
+        let with_files = match files {
+            0 => String::new(),
+            n => format!(
+                " and {}",
+                narrative::count(n as u64, "attachment", "attachments")
+            ),
+        };
         match input {
             Some(text) => narrate_turn!(
                 self.tc,
                 Turn,
-                "Turn {} started by {author} on {} ({}): {} of input; up to \
+                "Turn {} started by {author} on {} ({}): {} of input{with_files}; up to \
                  {}.",
                 narrative::short(self.tc.turn_id),
                 target.profile,
@@ -649,6 +666,7 @@ impl TurnRunner {
             sink,
             author,
             recompile,
+            attachments,
         } = req;
         let provider = self
             .providers
@@ -690,16 +708,28 @@ impl TurnRunner {
             );
         }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
-        t.announce(input.as_deref(), &author, lock_wait_us, admit_us);
+        t.announce(
+            input.as_deref(),
+            attachments.len(),
+            &author,
+            lock_wait_us,
+            admit_us,
+        );
 
         // 1. What happened while no turn was running.
         let caught_up = self.catch_up(&mut t, input.is_some()).await?;
 
-        // 2. The new input.
+        // 2. The new input, with its files in the same node and frame.
         if let Some(text) = &input {
-            let node = Node::user(&sid, Some(&turn_id), &author, text);
+            let files = crate::attach::from_wire(attachments, self.cfg.tools.max_read_bytes);
+            let first_file = files.first().map(|a| a.name.clone());
+            let node = Node::user_with(&sid, Some(&turn_id), &author, text, files);
             if session.title.is_none() {
-                session.title = Some(title_from(text));
+                let title = title_from(text);
+                session.title = Some(match first_file {
+                    Some(name) if title.is_empty() => title_from(&name),
+                    _ => title,
+                });
             }
             self.store.append(vec![node.record()?])?;
             t.tc.node_written(&node);

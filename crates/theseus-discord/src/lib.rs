@@ -8,6 +8,7 @@
 //! edited messages, the confirm button, and the slash commands.
 
 pub mod bindings;
+mod files;
 pub mod render;
 mod rpc_client;
 mod runtime;

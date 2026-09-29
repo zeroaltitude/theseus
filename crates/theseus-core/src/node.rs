@@ -61,11 +61,44 @@ impl ResultStatus {
     }
 }
 
+/// A file that came with an operator's message (theseus-9g2), as its node
+/// keeps it. The node is written once, so this is what every later render
+/// of the message reads.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Attachment {
+    pub name: String,
+    /// `text/plain`, `image/png`, …; empty when the sender did not say.
+    #[serde(default)]
+    pub media_type: String,
+    /// Bytes of the whole file, as the sender reported it.
+    #[serde(default)]
+    pub size: u64,
+    pub content: AttachmentContent,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AttachmentContent {
+    /// Its text, capped at `[tools].max_read_bytes` on a character
+    /// boundary; `cut` when the file was longer.
+    Text {
+        text: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cut: bool,
+    },
+    /// Not read, and why (too large, a type that is not read, a failed download).
+    NotRead { reason: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Body {
     UserMessage {
         text: String,
+        /// Files that came with it, in order (theseus-9g2). Absent on a
+        /// message without any, so stored nodes keep their bytes.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<Attachment>,
     },
     AssistantMessage {
         /// Content blocks exactly as the provider returned them.
@@ -169,12 +202,26 @@ impl Node {
     }
 
     pub fn user(session_id: &str, turn_id: Option<&str>, author: &str, text: &str) -> Self {
+        Self::user_with(session_id, turn_id, author, text, Vec::new())
+    }
+
+    /// An operator's message with the files that came with it (theseus-9g2).
+    pub fn user_with(
+        session_id: &str,
+        turn_id: Option<&str>,
+        author: &str,
+        text: &str,
+        attachments: Vec<Attachment>,
+    ) -> Self {
         let mut n = Self::new(
             "msg",
             session_id,
             turn_id,
             Origin::Operator,
-            Body::UserMessage { text: text.into() },
+            Body::UserMessage {
+                text: text.into(),
+                attachments,
+            },
         );
         n.author = Some(author.into());
         n
@@ -228,7 +275,9 @@ impl Node {
     /// A short human preview (Observatory, CLI).
     pub fn preview(&self, max: usize) -> String {
         let s = match &self.body {
-            Body::UserMessage { text } => text.clone(),
+            Body::UserMessage { text, attachments } => {
+                crate::attach::display_text(text, attachments, self.author.as_deref())
+            }
             Body::AssistantMessage { blocks, .. } => {
                 let t = crate::provider::text_of(blocks);
                 let calls: Vec<String> = crate::provider::tool_uses_in(blocks)

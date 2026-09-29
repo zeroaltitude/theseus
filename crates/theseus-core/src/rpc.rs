@@ -708,8 +708,18 @@ impl Core {
 
     pub fn node_info(position: u64, n: &Node) -> theseus_protocol::NodeInfo {
         let (text, thinking, detail, bytes) = match &n.body {
-            Body::UserMessage { text } => {
-                (text.clone(), String::new(), Value::Null, text.len() as u64)
+            Body::UserMessage { text, attachments } => {
+                // What the node holds: the typed text and the text kept of each file.
+                let bytes = text.len() as u64
+                    + attachments
+                        .iter()
+                        .map(|a| match &a.content {
+                            crate::node::AttachmentContent::Text { text, .. } => text.len() as u64,
+                            _ => 0,
+                        })
+                        .sum::<u64>();
+                let shown = crate::attach::display_text(text, attachments, n.author.as_deref());
+                (shown, String::new(), Value::Null, bytes)
             }
             Body::AssistantMessage {
                 blocks,
@@ -1125,6 +1135,7 @@ impl Core {
                 sink,
                 author: "harness".into(),
                 recompile: None,
+                attachments: vec![],
             })
             .await;
         match r {
@@ -1295,7 +1306,7 @@ impl Core {
             .unwrap()),
             method::TURN_SUBMIT => {
                 let p: TurnSubmitParams = parse(req.params)?;
-                if p.input.trim().is_empty() {
+                if p.input.trim().is_empty() && p.attachments.is_empty() {
                     return Err(RpcFailure::new(
                         error_code::INVALID_PARAMS,
                         "input is empty",
@@ -1342,6 +1353,7 @@ impl Core {
                         sink,
                         author: p.author.clone().unwrap_or_else(|| client.to_string()),
                         recompile: None,
+                        attachments: p.attachments,
                     })
                     .await
                 {
@@ -1890,6 +1902,7 @@ mod tests {
                     provider: None,
                     model: None,
                     author: None,
+                    attachments: vec![],
                 },
             )],
         )
@@ -1976,6 +1989,7 @@ mod tests {
                         provider: None,
                         model: None,
                         author: None,
+                        attachments: vec![],
                     },
                 ),
                 Request::new(
@@ -1988,6 +2002,7 @@ mod tests {
                         provider: None,
                         model: None,
                         author: None,
+                        attachments: vec![],
                     },
                 ),
             ],
@@ -2109,6 +2124,7 @@ mod tests {
                         provider: None,
                         model: None,
                         author: None,
+                        attachments: vec![],
                     },
                 )
             })
@@ -2155,6 +2171,7 @@ mod tests {
                     provider: None,
                     model: None,
                     author: None,
+                    attachments: vec![],
                 },
             )],
         )
@@ -2207,6 +2224,7 @@ mod tests {
                         provider: None,
                         model: None,
                         author: None,
+                        attachments: vec![],
                     },
                 )
             })
@@ -2305,6 +2323,7 @@ mod tests {
                         provider: None,
                         model: None,
                         author: None,
+                        attachments: vec![],
                     },
                 )],
             )
@@ -2522,6 +2541,7 @@ mod tests {
                     provider: None,
                     model: None,
                     author: None,
+                    attachments: vec![],
                 },
             )
         };
@@ -2678,6 +2698,7 @@ mod tests {
                         provider: None,
                         model: None,
                         author: None,
+                        attachments: vec![],
                     },
                 ),
                 Request::new(
@@ -2690,6 +2711,7 @@ mod tests {
                         provider: Some("zai".into()),
                         model: Some("glm-5.3-flash".into()),
                         author: None,
+                        attachments: vec![],
                     },
                 ),
                 Request::new(
@@ -2702,6 +2724,7 @@ mod tests {
                         provider: Some("nope".into()),
                         model: None,
                         author: None,
+                        attachments: vec![],
                     },
                 ),
             ],
@@ -2781,6 +2804,7 @@ mod tests {
                     provider: None,
                     model: None,
                     author: None,
+                    attachments: vec![],
                 },
             )
         };
@@ -2929,6 +2953,7 @@ mod tests {
                     provider: None,
                     model: None,
                     author: Some("discord:eddie".into()),
+                    attachments: vec![],
                 },
             )
         };

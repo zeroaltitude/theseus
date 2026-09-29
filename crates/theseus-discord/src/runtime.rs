@@ -16,8 +16,8 @@ use serde_json::{json, Value};
 use theseus_core::config::DiscordConfig;
 use theseus_core::Core;
 use theseus_protocol::{
-    BindingStatus, Notification, PlaceStatus, SessionInfo, SessionKind, SessionListResult,
-    SessionOpenParams, SessionRef, TurnSubmitParams, TurnSubmitResult,
+    Attachment, BindingStatus, Notification, PlaceStatus, SessionInfo, SessionKind,
+    SessionListResult, SessionOpenParams, SessionRef, TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::sync::{mpsc, oneshot};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
@@ -34,6 +34,7 @@ use twilight_model::id::Id;
 use twilight_util::builder::command::CommandBuilder;
 
 use crate::bindings::{snowflake, Bindings};
+use crate::files;
 use crate::render::{Buttons, NoticeCard, Op, Renderer};
 use crate::rpc_client::{CallError, RpcClient};
 
@@ -219,6 +220,8 @@ async fn serve(
         edit_interval: Duration::from_millis(cfg.edit_interval_ms.max(250)),
         notice_embeds: cfg.notice_embeds,
         routes: Mutex::new(Routes::default()),
+        files_http: files::client(),
+        max_text: core.cfg.tools.max_read_bytes as u64,
     });
 
     shared.refresh_bot_roles(guild).await;
@@ -365,6 +368,37 @@ struct Shared {
     /// `[discord] notice_embeds`: each place's renderer posts notice cards.
     notice_embeds: bool,
     routes: Mutex<Routes>,
+    /// Downloads a message's attachments (theseus-9g2).
+    files_http: reqwest::Client,
+    /// `[tools].max_read_bytes`: the largest text attachment downloaded.
+    max_text: u64,
+}
+
+/// One message for a turn: who wrote it, what it says, its files (still
+/// downloading, theseus-9g2), and its Discord id.
+struct Inbound {
+    author: String,
+    text: String,
+    files: Option<Pending>,
+    message: Id<MessageMarker>,
+}
+
+/// A message's attachments, downloading in their own task: the gateway loop
+/// awaits each message's handler, so it never waits on a download.
+struct Pending {
+    metas: Vec<files::FileMeta>,
+    task: tokio::task::JoinHandle<Vec<Attachment>>,
+}
+
+impl Pending {
+    /// The entries for `turn.submit`. A task that never reported back lists
+    /// its files as failed downloads; the message itself still goes.
+    async fn wait(self) -> Vec<Attachment> {
+        match self.task.await {
+            Ok(v) => v,
+            Err(e) => files::lost(&self.metas, &e.to_string()),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -386,11 +420,7 @@ struct Routes {
 }
 
 enum PlaceMsg {
-    Inbound {
-        author: String,
-        text: String,
-        message: Id<MessageMarker>,
-    },
+    Inbound(Inbound),
     Event(Notification),
     SubmitDone(Result<(), CallError>),
     Control {
@@ -608,26 +638,33 @@ impl Shared {
         if m.guild_id.is_none() {
             let _ = tx.send(PlaceMsg::DmChannel(m.channel_id));
         }
-        let mut text = if mention_only {
+        let text = if mention_only {
             strip_mentions(&m.content, self.bot_id, &bot_roles)
         } else {
             m.content.clone()
         };
-        for a in &m.attachments {
-            text.push_str(&format!(
-                "\n[attachment: {} ({} bytes), not read]",
-                a.filename, a.size
-            ));
-        }
-        if text.trim().is_empty() {
+        if text.trim().is_empty() && m.attachments.is_empty() {
             return;
         }
+        // The downloads run beside the gateway loop; the place's submit
+        // waits for them, so the message keeps its place in line.
+        let files = (!m.attachments.is_empty()).then(|| {
+            let metas: Vec<files::FileMeta> =
+                m.attachments.iter().map(files::FileMeta::of).collect();
+            let task = tokio::spawn(files::fetch_all(
+                self.files_http.clone(),
+                metas.clone(),
+                self.max_text,
+            ));
+            Pending { metas, task }
+        });
         self.board.update(|s| s.messages_in += 1);
-        let _ = tx.send(PlaceMsg::Inbound {
+        let _ = tx.send(PlaceMsg::Inbound(Inbound {
             author: m.author.name.clone(),
             text,
+            files,
             message: m.id,
-        });
+        }));
     }
 
     async fn on_interaction(self: Arc<Self>, i: Interaction) {
@@ -902,8 +939,8 @@ struct Place {
     msgs: HashMap<String, Id<MessageMarker>>,
     /// A `turn.submit` of ours is outstanding.
     inflight: bool,
-    /// Messages that arrived mid-turn, for the next turn: (author, text, message).
-    queued: Vec<(String, String, Id<MessageMarker>)>,
+    /// Messages that arrived mid-turn, for the next turn.
+    queued: Vec<Inbound>,
     /// The first message of the next turn replies to this one.
     anchor: Option<Id<MessageMarker>>,
     saw_failure: bool,
@@ -936,26 +973,24 @@ impl Place {
 
     async fn handle(&mut self, m: PlaceMsg) {
         match m {
-            PlaceMsg::Inbound {
-                author,
-                text,
-                message,
-            } => {
+            PlaceMsg::Inbound(m) => {
                 self.last_activity_ms = theseus_protocol::now_unix_ms();
-                self.shared.core.binding_ledger(
-                    "discord.message.in",
-                    Some(&self.session_id),
-                    json!({"place": self.label, "author": author, "chars": text.chars().count(), "message_id": message.to_string()}),
-                );
-                if let Some(cmd) = parse_control(&text) {
-                    let reply = self.control(cmd, &format!("discord:{author}")).await;
-                    self.say(&reply, Some(message)).await;
+                let mut row = json!({"place": self.label, "author": m.author, "chars": m.text.chars().count(), "message_id": m.message.to_string()});
+                if let Some(p) = &m.files {
+                    row["attachments"] = json!(p.metas.len());
+                }
+                self.shared
+                    .core
+                    .binding_ledger("discord.message.in", Some(&self.session_id), row);
+                if let Some(cmd) = parse_control(&m.text) {
+                    let reply = self.control(cmd, &format!("discord:{}", m.author)).await;
+                    self.say(&reply, Some(m.message)).await;
                     return;
                 }
                 if self.inflight {
-                    self.queued.push((author, text, message));
+                    self.queued.push(m);
                 } else {
-                    self.submit(vec![(author, text, message)]);
+                    self.submit(vec![m]);
                 }
                 self.report();
             }
@@ -1024,38 +1059,43 @@ impl Place {
         }
     }
 
-    /// Start a turn with these messages (one, or several coalesced, authors kept).
-    fn submit(&mut self, batch: Vec<(String, String, Id<MessageMarker>)>) {
-        let one_author = batch.iter().all(|(a, _, _)| *a == batch[0].0);
+    /// Start a turn with these messages (one, or several coalesced, authors
+    /// kept). Their attachments are awaited in the turn's own task, in order.
+    fn submit(&mut self, batch: Vec<Inbound>) {
+        let one_author = batch.iter().all(|m| m.author == batch[0].author);
+        let texts = batch.iter().filter(|m| !m.text.trim().is_empty());
         let input = if batch.len() == 1 {
-            batch[0].1.clone()
+            batch[0].text.clone()
         } else if one_author {
-            batch
-                .iter()
-                .map(|(_, t, _)| t.as_str())
+            texts
+                .map(|m| m.text.as_str())
                 .collect::<Vec<_>>()
                 .join("\n\n")
         } else {
-            batch
-                .iter()
-                .map(|(a, t, _)| format!("[{a}] {t}"))
+            texts
+                .map(|m| format!("[{}] {}", m.author, m.text))
                 .collect::<Vec<_>>()
                 .join("\n\n")
         };
         let author = if one_author {
-            format!("discord:{}", batch[0].0)
+            format!("discord:{}", batch[0].author)
         } else {
             "discord".into()
         };
-        self.anchor = batch.last().map(|b| b.2);
+        self.anchor = batch.last().map(|m| m.message);
         self.inflight = true;
         self.saw_failure = false;
+        let pending: Vec<Pending> = batch.into_iter().filter_map(|m| m.files).collect();
         let (rpc, tx, sid) = (
             self.shared.rpc.clone(),
             self.tx.clone(),
             self.session_id.clone(),
         );
         tokio::spawn(async move {
+            let mut attachments = Vec::new();
+            for p in pending {
+                attachments.extend(p.wait().await);
+            }
             let r = rpc
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
@@ -1066,6 +1106,7 @@ impl Place {
                         provider: None,
                         model: None,
                         author: Some(author),
+                        attachments,
                     },
                 )
                 .await
