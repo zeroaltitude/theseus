@@ -312,14 +312,8 @@ impl TurnRunner {
         provider: Option<&str>,
         model: Option<&str>,
     ) -> Result<Target> {
-        let profiles = self.cfg.all_profiles();
         let name = profile.unwrap_or(live_profile);
-        let prof = profiles.get(name).ok_or_else(|| {
-            anyhow::anyhow!(
-                "unknown profile {name:?}; configured: {}",
-                profiles.keys().cloned().collect::<Vec<_>>().join(", ")
-            )
-        })?;
+        let prof = self.cfg.profile(name)?;
         let provider = provider.unwrap_or(&prof.provider).to_string();
         if !self.providers.contains_key(&provider) {
             anyhow::bail!(

@@ -56,7 +56,7 @@ impl Board {
             state: "starting".into(),
             ..Default::default()
         };
-        core.set_binding_status(st.clone());
+        core.bindings.set(st.clone());
         Self {
             core,
             st: Arc::new(Mutex::new(st)),
@@ -69,7 +69,7 @@ impl Board {
             f(&mut g);
             g.clone()
         };
-        self.core.set_binding_status(snapshot);
+        self.core.bindings.set(snapshot);
     }
 
     fn state(&self, state: &str, detail: Option<String>) {
@@ -116,7 +116,7 @@ struct Ready {
 impl Ready {
     fn fire(&self) {
         if !self.fired.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            self.core.binding_started();
+            self.core.bindings.started();
         }
     }
 }

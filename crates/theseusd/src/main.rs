@@ -198,7 +198,7 @@ async fn main() -> Result<()> {
     tokio::spawn(theseus_core::harness::run(core.clone()));
     if !cli.stdio {
         // Discord binds below; continuations wait until it watches its sessions.
-        core.expect_binding();
+        core.bindings.expect();
     }
     tokio::spawn(theseus_core::harness::drive(core.clone()));
 

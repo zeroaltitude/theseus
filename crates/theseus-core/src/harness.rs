@@ -83,7 +83,7 @@ pub async fn drive(core: Arc<Core>) {
     // A turn resumed at startup must be seen by its channel from its first
     // event: wait (bounded) for channel bindings to be watching their sessions.
     let t0 = std::time::Instant::now();
-    let ready = core.wait_for_bindings(BINDINGS_WAIT).await;
+    let ready = core.bindings.wait(BINDINGS_WAIT).await;
     let waited_ms = t0.elapsed().as_millis() as u64;
     if !ready {
         tracing::warn!(

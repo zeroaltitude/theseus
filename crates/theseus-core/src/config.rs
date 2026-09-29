@@ -861,6 +861,21 @@ impl Config {
         &self.resolved.profiles
     }
 
+    /// A profile by name, or the error that names every configured one.
+    pub fn profile(&self, name: &str) -> anyhow::Result<&ProfileConfig> {
+        self.resolved.profiles.get(name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown profile {name:?}; configured: {}",
+                self.resolved
+                    .profiles
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+    }
+
     /// A profile's context files: its own list, else `[model].context_files`.
     pub fn context_files_for<'a>(&'a self, prof: &'a ProfileConfig) -> &'a [String] {
         prof.context_files

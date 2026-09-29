@@ -48,7 +48,7 @@ fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));
-    let core = Core::with_provider(cfg, fake.clone(), store, vec![]).unwrap();
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
     Rig {
         core,
         fake,
@@ -728,14 +728,14 @@ async fn a_session_keeps_its_memory_across_a_restart() {
         let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text(
             "My name is Theseus.",
         )]));
-        let core = Core::with_provider(cfg.clone(), fake, store, vec![]).unwrap();
+        let core = Core::build(crate::rpc::Parts::for_tests(cfg.clone(), fake, store)).unwrap();
         turn(&core, None, "who are you?").await.session_id
     };
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text(
         "You asked who I am.",
     )]));
-    let core = Core::with_provider(cfg, fake.clone(), store, vec![]).unwrap();
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
     let res = turn(&core, Some(&sid), "what did I just ask?").await;
     assert_eq!(res.output, "You asked who I am.");
     let req = fake.requests().pop().unwrap();
