@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { ProtocolClient } from './protocol'
 import type {
-  ConfirmRequest, Health, NodeInfo, ProfileList, ProviderErrorData, RpcError, SessionHistory, SessionInfo, Span, Status, TurnResult, Usage,
+  ConfirmRequest, Health, NodeInfo, ProfileList, ProviderErrorData, RpcError, SessionHistory, SessionInfo, Span, Status, TightenResult,
+  TurnResult, Usage,
 } from './protocol'
 import Transcript from './Transcript'
 import type { LiveTurn, TurnError } from './Transcript'
@@ -179,6 +180,9 @@ export default function App() {
         case 'node.written': scheduleHistory(); return
         case 'confirm.requested':
         case 'confirm.resolved': scheduleHistory(); scheduleSessions(); return
+        // "Should have asked" (theseus-sgh): health lists the tightenings.
+        case 'policy.tightened':
+        case 'policy.untightened': void refreshHealth(); setTick((t) => t + 1); return
         case 'turn.ended':
           setResults((r) => ({ ...r, [turnId]: params as TurnResult }))
           scheduleHistory(); scheduleSessions(); void refreshHealth(); setTick((t) => t + 1)
@@ -231,6 +235,14 @@ export default function App() {
     await client.call('action.confirm', { correlation_id: correlationId, approve, note: note || undefined })
     scheduleHistory(); scheduleSessions(); setTick((t) => t + 1)
   }, [client, scheduleHistory, scheduleSessions])
+
+  // "Should have asked" on a notice (theseus-sgh): the tool asks first from now on.
+  const onTighten = useCallback(async (tool: string, correlationId: string) => {
+    const r = await client.call<TightenResult>('policy.tighten', { tool, correlation_id: correlationId || undefined })
+    void refreshHealth(); setTick((t) => t + 1)
+    return r
+  }, [client, refreshHealth])
+  const tightened = useMemo(() => Object.fromEntries((health?.tightenings ?? []).map((t) => [t.tool, t])), [health])
 
   const loadTrace = useCallback(async (turnId: string) => {
     const sid = currentRef.current
@@ -332,7 +344,8 @@ export default function App() {
             </div>
           )}
           <Transcript nodes={nodes} pending={pending} live={liveHere} results={results} errors={errors} traces={traces}
-            onConfirm={onConfirm} onLoadTrace={(id) => void loadTrace(id)} now={now} />
+            onConfirm={onConfirm} onLoadTrace={(id) => void loadTrace(id)} now={now}
+            tightened={tightened} onTighten={onTighten} />
           {draft && (
             <section className="exchange">
               <div className="prompt"><pre>{draft.text}</pre></div>

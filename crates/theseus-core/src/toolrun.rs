@@ -136,6 +136,9 @@ pub struct ToolRuntime {
     /// Calls per tool since the daemon started. Counting the store's history
     /// instead would put a scan of every node on the start path (§9).
     pub calls: Mutex<BTreeMap<String, u64>>,
+    /// "Should have asked" (theseus-sgh): the tools that ask first because
+    /// someone pressed it, from the store. The gate reads them per call.
+    pub tightened: crate::tighten::Tightenings,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -219,7 +222,16 @@ impl ToolRuntime {
             proc_sync_secs: 60,
             proc_env: vec![],
             calls: Mutex::new(BTreeMap::new()),
+            tightened: Default::default(),
         }
+    }
+
+    /// A tool's posture now: the config's, or its tightening's when that is
+    /// stricter (theseus-sgh).
+    pub fn posture_now(&self, name: &str) -> crate::policy::PostureNow {
+        let t = self.tightened.get(name);
+        self.policy
+            .posture_now(name, t.as_ref().map(crate::tighten::as_tightened))
     }
 
     pub fn enabled(&self) -> bool {
@@ -467,15 +479,17 @@ impl ToolRuntime {
             Ok(g) => g,
             Err(bad) => return self.invalid_input(tc, assistant_node, call, tool.name(), bad),
         };
+        let a = self.plan_call(tc, assistant_node, call, tool.as_ref(), &g)?;
         if let Some(n) = &g.decision.notify {
-            // A notify posture runs the call and says so where the operator looks.
+            // A notify posture runs the call and says so where the operator
+            // looks, naming the call so "should have asked" can point at it.
             let payload = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
-                "tool_use_id": call.id, "tool": tool.name(), "input": call.input,
-                "summary": g.plan.summary, "kind": n.kind, "setting": n.setting, "rule": n.rule});
+                "tool_use_id": call.id, "correlation_id": a.correlation_id, "tool": tool.name(),
+                "input": call.input, "summary": g.plan.summary, "kind": n.kind,
+                "setting": n.setting, "rule": n.rule});
             tc.ledger("tool.notified", payload.clone());
             tc.sink.send(notify::POLICY_NOTIFIED, payload);
         }
-        let a = self.plan_call(tc, assistant_node, call, tool.as_ref(), &g)?;
         if tc.narrator.on() {
             self.narrate_gate(tc, tool.name(), &g);
         }
@@ -542,8 +556,10 @@ impl ToolRuntime {
     /// and `tool.proposed` shows it to the session's clients.
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
         let mut proposal = self.proposal_for(tool, &call.input);
+        let tightened = self.tightened.get(tool.name());
         let planned = tool.plan(&call.input, &self.ctx).map(|plan| {
-            let decision = self.policy.decide(tool, &plan);
+            let t = tightened.as_ref().map(crate::tighten::as_tightened);
+            let decision = self.policy.decide_with(tool, &plan, t);
             (plan, decision)
         });
         let result = match &planned {
@@ -660,7 +676,7 @@ impl ToolRuntime {
             tool,
             g.decision.posture.as_str(),
             g.plan.argv.as_deref(),
-            &self.policy.posture(tool).1,
+            &self.posture_now(tool).setting,
         );
         let why = self.scrubber.scrub(&why).0;
         match g.decision.posture {
@@ -1582,6 +1598,8 @@ pub fn build_runtime(
         proc_sync_secs: t.proc_sync_secs,
         proc_env,
         calls: Mutex::new(BTreeMap::new()),
+        // Read from the store when the core starts (`Core::build`).
+        tightened: Default::default(),
     })
 }
 

@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::mpsc;
 
 use super::Core;
-use crate::approval::{Client, Surface};
+use crate::approval::{Answerer, Client, Surface};
 
 /// The connection a request came in on: who it is, the surface its listener
 /// named, and where its notifications go.
@@ -20,6 +20,25 @@ pub(super) struct Conn<'a> {
     pub client: &'a str,
     pub surface: Surface,
     pub tx: &'a mpsc::UnboundedSender<Message>,
+}
+
+impl Conn<'_> {
+    /// Who makes an approval-like act on this connection (an answer, a
+    /// "should have asked" press, an undo), as the connection knows it: the
+    /// label names, and the surface and the binding's Discord ids decide
+    /// (theseus-sgh). Every such method builds it here, so whatever judges
+    /// an answer judges the others the same way.
+    pub fn answerer(
+        &self,
+        author: Option<String>,
+        discord: Option<theseus_protocol::DiscordOrigin>,
+    ) -> Answerer {
+        Answerer {
+            label: author.unwrap_or_else(|| self.client.to_string()),
+            surface: self.surface,
+            discord,
+        }
+    }
 }
 
 impl Core {
@@ -150,6 +169,8 @@ impl Core {
             method::COMPILATION_LIST => route(params, |p| self.compilation_list(p)),
             method::NODE_LIST => route(params, |p| self.node_list(p)),
             method::ACTION_CONFIRM => route(params, |p| self.action_confirm(p, conn)),
+            method::POLICY_TIGHTEN => route(params, |p| self.policy_tighten(p, conn)),
+            method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
             method::CONFIRM_LIST => reply(theseus_protocol::ConfirmListResult {
                 confirms: self.confirm_list()?,
             }),

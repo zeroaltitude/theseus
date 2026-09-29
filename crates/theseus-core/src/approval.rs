@@ -219,6 +219,16 @@ impl std::fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
+/// How much of the rule an act must meet (theseus-sgh).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bar {
+    /// A trusted user through a trusted channel: an answer, and the undo of
+    /// a tightening.
+    Trusted,
+    /// Any surface that can answer an approval: a "should have asked" press.
+    Surface,
+}
+
 /// `[approval]`, resolved, with the Discord binding's latest checks.
 #[derive(Default)]
 pub struct Approval {
@@ -275,8 +285,21 @@ impl Approval {
         self.rules.is_some()
     }
 
-    /// Judge an answer: Ok when it counts, else why it does not.
+    /// Judge an answer: Ok when it counts, else why it does not. The undo of
+    /// a tightening loosens, so it is judged the same way (theseus-sgh).
     pub fn judge(&self, a: &Answerer) -> Result<(), Refusal> {
+        self.judge_at(a, Bar::Trusted)
+    }
+
+    /// Judge a "should have asked" press (theseus-sgh). It only makes calls
+    /// ask, so any surface that can answer an approval may press one: the
+    /// CLI, the web UI, or the Discord binding, which lets only a place's
+    /// listed users press anything. Without `[approval]`, anyone may.
+    pub fn judge_tighten(&self, a: &Answerer) -> Result<(), Refusal> {
+        self.judge_at(a, Bar::Surface)
+    }
+
+    fn judge_at(&self, a: &Answerer, bar: Bar) -> Result<(), Refusal> {
         let Some(rules) = &self.rules else {
             return Ok(());
         };
@@ -294,22 +317,23 @@ impl Approval {
                 a.surface.name()
             ));
         }
-        match a.surface {
-            Surface::Cli if rules.lists(Channel::Cli) => Ok(()),
-            Surface::Web if rules.lists(Channel::Web) => Ok(()),
-            Surface::Cli | Surface::Web => refuse(format!(
+        match (a.surface, &a.discord) {
+            (Surface::Unnamed, _) => refuse(format!(
+                "it came through {}, which is never a trusted channel",
+                a.surface.name()
+            )),
+            (Surface::Discord, None) => {
+                refuse("the Discord binding named no channel and user for it".into())
+            }
+            _ if bar == Bar::Surface => Ok(()),
+            (Surface::Cli, _) if rules.lists(Channel::Cli) => Ok(()),
+            (Surface::Web, _) if rules.lists(Channel::Web) => Ok(()),
+            (Surface::Cli | Surface::Web, _) => refuse(format!(
                 "{} is not a trusted channel ({})",
                 a.surface.name(),
                 rules.listing()
             )),
-            Surface::Unnamed => refuse(format!(
-                "it came through {}, which is never a trusted channel",
-                a.surface.name()
-            )),
-            Surface::Discord => {
-                let Some(d) = &a.discord else {
-                    return refuse("the Discord binding named no channel and user for it".into());
-                };
+            (Surface::Discord, Some(d)) => {
                 let mut why = Vec::new();
                 if !snowflake(&d.user_id).is_some_and(|u| rules.users.contains(&u)) {
                     why.push(format!(
@@ -580,6 +604,56 @@ mod tests {
         assert_eq!(says(&["web"]), "in the web UI");
         assert_eq!(says(&["discord:dm", "cli"]), "with `theseus confirm`");
         assert_eq!(says(&["discord:dm"]), "");
+    }
+
+    /// "Should have asked" only makes calls ask, so any surface that can
+    /// answer an approval may press it, trusted or not; the undo loosens, so
+    /// it takes the whole rule (`judge`). A connection no listener named and
+    /// a Discord claim from the CLI are refused either way (theseus-sgh).
+    #[test]
+    fn a_tightening_needs_a_known_surface_and_its_undo_the_whole_rule() {
+        let a = approval(&[&format!("discord:{EDDIE}")], &["discord:dm"]);
+        for who in [
+            local(Surface::Cli),
+            local(Surface::Web),
+            discord(MALLORY, CHANNEL, Some(GUILD)),
+            discord(EDDIE, CHANNEL, None),
+        ] {
+            assert_eq!(a.judge_tighten(&who), Ok(()), "{who:?}");
+        }
+        assert!(why(&a, &local(Surface::Cli)).starts_with("the CLI is not a trusted channel"));
+        assert!(why(&a, &discord(MALLORY, CHANNEL, Some(GUILD))).contains("not a trusted user"));
+        assert_eq!(a.judge(&discord(EDDIE, CHANNEL, None)), Ok(()));
+        let forged = Answerer {
+            discord: Some(DiscordOrigin {
+                user_id: EDDIE.into(),
+                channel_id: CHANNEL.into(),
+                guild_id: None,
+            }),
+            ..local(Surface::Cli)
+        };
+        let unnamed = Answerer::from("test");
+        let bare = Answerer {
+            discord: None,
+            ..discord(EDDIE, CHANNEL, None)
+        };
+        for (who, says) in [
+            (&forged, "only the Discord binding can name"),
+            (&unnamed, "never a trusted channel"),
+            (&bare, "named no channel and user"),
+        ] {
+            for r in [a.judge_tighten(who), a.judge(who)] {
+                assert!(r.unwrap_err().why.contains(says), "{who:?}");
+            }
+        }
+        let none = Approval::new(None);
+        for who in [&forged, &unnamed, &local(Surface::Web)] {
+            assert_eq!(
+                none.judge_tighten(who),
+                Ok(()),
+                "without [approval]: {who:?}"
+            );
+        }
     }
 
     #[test]

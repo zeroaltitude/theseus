@@ -2426,28 +2426,47 @@ async fn answer_as(
     corr: &str,
     discord: Option<(&str, Option<&str>)>,
 ) -> Result<Value, theseus_protocol::RpcError> {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let (ours, theirs) = tokio::io::duplex(64 * 1024);
-    let (sr, sw) = tokio::io::split(theirs);
-    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, client));
-    let (cr, mut cw) = tokio::io::split(ours);
     let params = theseus_protocol::ActionConfirmParams {
         correlation_id: corr.into(),
         approve: true,
         note: None,
         watch: false,
         author: discord.map(|_| "discord:eddie".to_string()),
-        discord: discord.map(|(user, guild)| theseus_protocol::DiscordOrigin {
-            user_id: user.into(),
-            channel_id: "444444444444444444".into(),
-            guild_id: guild.map(str::to_string),
-        }),
+        discord: origin(discord),
     };
-    let req = theseus_protocol::Request::new(
-        theseus_protocol::Id::Num(1),
+    rpc_as(
+        core,
+        client,
         theseus_protocol::method::ACTION_CONFIRM,
         serde_json::to_value(params).unwrap(),
-    );
+    )
+    .await
+}
+
+/// What the Discord binding names for a press: a user in channel
+/// 444444444444444444, in a guild or (None) a DM.
+fn origin(discord: Option<(&str, Option<&str>)>) -> Option<theseus_protocol::DiscordOrigin> {
+    discord.map(|(user, guild)| theseus_protocol::DiscordOrigin {
+        user_id: user.into(),
+        channel_id: "444444444444444444".into(),
+        guild_id: guild.map(str::to_string),
+    })
+}
+
+/// One request over a real protocol connection, accepted as `client`: the
+/// result, or the error.
+async fn rpc_as(
+    core: &Arc<Core>,
+    client: crate::approval::Client,
+    method: &str,
+    params: Value,
+) -> Result<Value, theseus_protocol::RpcError> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (ours, theirs) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(theirs);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, client));
+    let (cr, mut cw) = tokio::io::split(ours);
+    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), method, params);
     let mut line = serde_json::to_string(&req).unwrap();
     line.push('\n');
     cw.write_all(line.as_bytes()).await.unwrap();
@@ -2729,4 +2748,468 @@ async fn without_approval_every_surface_answers_as_before() {
         assert_eq!(ok.unwrap()["approved"], true, "{label}");
         assert!(ledgered(&r, "approval.refused").is_empty());
     }
+}
+
+// ---------------------------------------------------------------- should have asked (theseus-sgh)
+
+fn echo(id: &str, word: &str) -> Scripted {
+    Scripted::tools("", &[(id, "proc_run", json!({"argv": ["echo", word]}))])
+}
+
+/// `policy.tighten` or `policy.untighten` of proc.run over a connection
+/// accepted as `client`, pressed by `discord` when the binding names one.
+async fn press_as(
+    core: &Arc<Core>,
+    method: &str,
+    client: crate::approval::Client,
+    discord: Option<(&'static str, Option<&'static str>)>,
+) -> Result<Value, theseus_protocol::RpcError> {
+    let p = json!({"tool": "proc.run", "author": discord.map(|_| "discord:eddie"),
+                   "discord": origin(discord)});
+    rpc_as(core, client, method, p).await
+}
+
+fn tool_row(tools: &Value, name: &str) -> Value {
+    tools["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == name)
+        .cloned()
+        .unwrap()
+}
+
+/// Under notify a call runs with a notice that names its call. One press on
+/// it makes the next call of that tool wait for approval, and health, the
+/// tool list, and the narrative say so; the ledger row keeps the call's
+/// proposal digest and tool, a labeled example for later. An undo makes the
+/// tool run with a notice again.
+#[tokio::test]
+async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again() {
+    use crate::approval::Surface::{Cli, Web};
+    use theseus_protocol::{method, notify};
+    let r = rig_with(
+        vec![
+            echo("t1", "first"),
+            Scripted::text("Ran with a notice."),
+            echo("t2", "second"),
+            Scripted::text("It printed."),
+            echo("t3", "third"),
+            Scripted::text("Ran with a notice again."),
+        ],
+        |cfg| cfg.policy.enforcement = Posture::Notify,
+    );
+    let (sid, mut rx) = watched_session(&r);
+    let res = turn(&r.core, Some(&sid), "echo first").await;
+    assert!(res.awaiting_confirm.is_none(), "notify runs");
+    let notices = sent(&mut rx, notify::POLICY_NOTIFIED);
+    assert_eq!(notices.len(), 1);
+    let corr = notices[0]["correlation_id"].as_str().unwrap().to_string();
+    assert_eq!(
+        ledgered(&r, "tool.notified")[0]["correlation_id"],
+        corr.as_str(),
+        "the notice names its call"
+    );
+
+    // The press, from the web UI.
+    let t = rpc_as(
+        &r.core,
+        surface("web#1", Web),
+        method::POLICY_TIGHTEN,
+        json!({"tool": "proc.run", "correlation_id": corr}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            t["posture"].as_str(),
+            t["setting"].as_str(),
+            t["config_setting"].as_str()
+        ),
+        (
+            Some("approve"),
+            Some("tightened by web#1"),
+            Some("enforcement = notify")
+        )
+    );
+    assert_eq!(
+        (t["changed"].as_bool(), t["already"].as_bool()),
+        (Some(true), Some(false))
+    );
+    let digest = r.core.kernel.action(&corr).unwrap().unwrap().args_digest;
+    let rows = ledgered(&r, "policy.tightened");
+    assert_eq!(rows.len(), 1);
+    for (k, want) in [
+        ("tool", "proc.run"),
+        ("correlation_id", corr.as_str()),
+        ("digest", digest.as_str()),
+        ("by", "web#1"),
+        ("via", "web"),
+        ("posture", "approve"),
+    ] {
+        assert_eq!(rows[0][k], want, "{k}: {}", rows[0]);
+    }
+    assert_eq!(
+        sent(&mut rx, notify::POLICY_TIGHTENED).len(),
+        1,
+        "watchers hear it"
+    );
+    let h = r.core.health();
+    assert_eq!(h.tightenings.len(), 1);
+    assert_eq!(
+        (
+            h.tightenings[0].tool.as_str(),
+            h.tightenings[0].session_id.as_deref()
+        ),
+        ("proc.run", Some(sid.as_str()))
+    );
+    let tools = rpc_as(
+        &r.core,
+        surface("sock#1", Cli),
+        method::TOOL_LIST,
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let pr = tool_row(&tools, "proc.run");
+    assert_eq!(
+        (pr["policy"].as_str(), pr["config_posture"].as_str()),
+        (Some("approve"), Some("notify"))
+    );
+    assert_eq!(pr["tightened"]["by"], "web#1");
+    assert_eq!(
+        tool_row(&tools, "fs.write")["policy"],
+        "notify",
+        "only that tool"
+    );
+    let lines = narrated(&r, &sid);
+    assert!(
+        said(
+            &lines,
+            "approval",
+            "proc.run now asks first: tightened by web#1."
+        ),
+        "{}",
+        dump(&lines)
+    );
+
+    // The next call of that tool waits for approval.
+    let res = turn(&r.core, Some(&sid), "echo second").await;
+    let waiting = res.awaiting_confirm.clone().expect("a tightened tool asks");
+    assert!(
+        sent(&mut rx, notify::POLICY_NOTIFIED).is_empty(),
+        "it asks instead"
+    );
+    let pending = r.core.pending_confirms(&sid).unwrap();
+    assert!(
+        pending[0].reason.ends_with(
+            "proc.run — approve (tightened by web#1; the config says enforcement = notify)"
+        ),
+        "{}",
+        pending[0].reason
+    );
+    assert!(
+        results(&r.core, &sid).len() == 1,
+        "the second call has not run"
+    );
+    r.core.confirm_action(&waiting, true, None, "test").unwrap();
+    let exec = res.execution_id.clone().unwrap();
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.output, "It printed.");
+
+    // The undo, from the CLI: the tool runs with a notice again.
+    let u = rpc_as(
+        &r.core,
+        surface("sock#2", Cli),
+        method::POLICY_UNTIGHTEN,
+        json!({"tool": "proc.run"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            u["posture"].as_str(),
+            u["setting"].as_str(),
+            u["changed"].as_bool()
+        ),
+        (Some("notify"), Some("enforcement = notify"), Some(true))
+    );
+    let rows = ledgered(&r, "policy.untightened");
+    assert_eq!(
+        (
+            rows[0]["by"].as_str(),
+            rows[0]["tightened_by"].as_str(),
+            rows[0]["correlation_id"].as_str(),
+            rows[0]["via"].as_str()
+        ),
+        (
+            Some("sock#2"),
+            Some("web#1"),
+            Some(corr.as_str()),
+            Some("cli")
+        )
+    );
+    assert!(r.core.health().tightenings.is_empty());
+    assert_eq!(sent(&mut rx, notify::POLICY_UNTIGHTENED).len(), 1);
+    let res = turn(&r.core, Some(&sid), "echo third").await;
+    assert!(res.awaiting_confirm.is_none(), "back to notify");
+    assert_eq!(res.output, "Ran with a notice again.");
+    assert_eq!(sent(&mut rx, notify::POLICY_NOTIFIED).len(), 1);
+    let lines = narrated(&r, &sid);
+    assert!(
+        said(
+            &lines,
+            "approval",
+            "proc.run is back to what the config says (notify, enforcement = notify): sock#2 \
+             undid the tightening by web#1."
+        ),
+        "{}",
+        dump(&lines)
+    );
+}
+
+/// A tightening never loosens. Under a config `approve`, a press changes
+/// nothing: the call waits with the config's own reason. An undo does not
+/// loosen past the config. A second press records nothing, a call names
+/// only its own tool, and an unknown tool is an error.
+#[tokio::test]
+async fn a_tightening_never_loosens_and_its_undo_stops_at_the_config() {
+    let r = rig_with(vec![echo("t1", "one"), echo("t2", "two")], |cfg| {
+        cfg.policy.enforcement = Posture::Notify;
+        cfg.policy.tools.insert("proc.run".into(), Posture::Approve);
+    });
+    let t = r.core.tighten("proc.run", None, "test").unwrap();
+    assert_eq!(
+        (t.posture.as_str(), t.setting.as_str(), t.changed),
+        ("approve", "[policy.tools] \"proc.run\" = approve", false)
+    );
+    assert!(t.tightening.correlation_id.is_none() && t.tightening.digest.is_none());
+    let again = r.core.tighten("proc.run", None, "test").unwrap();
+    assert!(again.already && !again.changed);
+    assert_eq!(
+        ledgered(&r, "policy.tightened").len(),
+        1,
+        "a second press records nothing"
+    );
+    let res = turn(&r.core, None, "echo one").await;
+    let corr = res.awaiting_confirm.clone().expect("the config asks");
+    let p = r.core.pending_confirms(&res.session_id).unwrap();
+    assert!(
+        p[0].reason
+            .ends_with("proc.run — approve ([policy.tools] \"proc.run\" = approve)"),
+        "the config's reason, unchanged: {}",
+        p[0].reason
+    );
+    let e = r.core.tighten("fs.write", Some(&corr), "test").unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("is a call of proc.run, not fs.write"),
+        "{e}"
+    );
+    let u = r.core.untighten("proc.run", "test").unwrap();
+    assert_eq!((u.posture.as_str(), u.changed), ("approve", false));
+    let res = turn(&r.core, None, "echo two").await;
+    assert!(res.awaiting_confirm.is_some(), "the config still asks");
+    let e = r.core.untighten("proc.run", "test").unwrap_err();
+    assert!(e.to_string().contains("proc.run is not tightened"), "{e}");
+    let e = r.core.tighten("proc.runn", None, "test").unwrap_err();
+    assert!(
+        e.to_string().contains("no tool is named \"proc.runn\""),
+        "{e}"
+    );
+    let e = r
+        .core
+        .tighten("proc.run", Some("act_nope"), "test")
+        .unwrap_err();
+    assert!(e.to_string().contains("no call act_nope"), "{e}");
+}
+
+/// A tightening is in the store, not the process: after a restart the tool
+/// still asks, and its first call waits.
+#[tokio::test]
+async fn a_tightening_survives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("w");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = config(&root.canonicalize().unwrap(), dir.path());
+    cfg.policy.enforcement = Posture::Notify;
+    {
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let fake = Arc::new(FakeProvider::scripted(vec![]));
+        let core = Core::build(crate::rpc::Parts::for_tests(cfg.clone(), fake, store)).unwrap();
+        core.tighten("proc.run", None, "sock#1").unwrap();
+    }
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(vec![echo("t1", "after")]));
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake, store)).unwrap();
+    let h = core.health();
+    assert_eq!(
+        (h.tightenings.len(), h.tightenings[0].by.as_str()),
+        (1, "sock#1")
+    );
+    let res = turn(&core, None, "echo after").await;
+    assert!(res.awaiting_confirm.is_some(), "still tightened");
+    let p = core.pending_confirms(&res.session_id).unwrap();
+    assert!(
+        p[0].reason.contains("tightened by sock#1"),
+        "{}",
+        p[0].reason
+    );
+}
+
+/// With `[approval]`, a press only makes calls ask, so any surface that can
+/// answer an approval may make one. The undo loosens, so it takes the same
+/// trusted answer an approval does: refused through an untrusted surface,
+/// with the reason and an `approval.refused` row, and the tool keeps asking.
+/// A connection no listener named and a Discord claim from the CLI are
+/// refused either way.
+#[tokio::test]
+async fn only_a_trusted_answer_undoes_a_tightening() {
+    use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
+    use theseus_protocol::method;
+    let r = approval_rig(vec![], &["discord:dm"]);
+    let tighten = |client, discord| press_as(&r.core, method::POLICY_TIGHTEN, client, discord);
+    let untighten = |client, discord| press_as(&r.core, method::POLICY_UNTIGHTEN, client, discord);
+    // A press counts from the CLI, which is not a trusted channel here, and
+    // from an untrusted user in a guild channel.
+    tighten(surface("sock#1", Cli), None).await.unwrap();
+    let again = tighten(
+        surface("discord", Discord),
+        Some((MALLORY, Some("712398310421561444"))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(again["already"], true);
+    for (client, discord, why) in [
+        (surface("x", Unnamed), None, "never a trusted channel"),
+        (
+            surface("sock#2", Cli),
+            Some((EDDIE, None)),
+            "only the Discord binding can name",
+        ),
+    ] {
+        let e = tighten(client, discord).await.unwrap_err();
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
+        assert!(e.message.contains(why), "{}", e.message);
+        assert!(
+            e.message.ends_with("proc.run keeps its posture"),
+            "{}",
+            e.message
+        );
+    }
+    // The undo takes the whole rule.
+    for (client, discord, why) in [
+        (
+            surface("sock#3", Cli),
+            None,
+            "the CLI is not a trusted channel",
+        ),
+        (
+            surface("web#1", Web),
+            None,
+            "the web UI is not a trusted channel",
+        ),
+        (
+            surface("discord", Discord),
+            Some((MALLORY, None)),
+            "is not a trusted user",
+        ),
+        (
+            surface("sock#4", Cli),
+            Some((EDDIE, None)),
+            "only the Discord binding can name",
+        ),
+    ] {
+        let e = untighten(client, discord).await.unwrap_err();
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
+        assert!(e.message.contains(why), "{}", e.message);
+        assert!(
+            e.message.ends_with("proc.run keeps asking first"),
+            "{}",
+            e.message
+        );
+    }
+    assert_eq!(r.core.health().tightenings.len(), 1, "still tightened");
+    assert!(ledgered(&r, "policy.untightened").is_empty());
+    let refused = ledgered(&r, "approval.refused");
+    let undos: Vec<&Value> = refused
+        .iter()
+        .filter(|x| x["act"] == "policy.untighten")
+        .collect();
+    assert_eq!(undos.len(), 4);
+    assert_eq!(
+        (undos[0]["tool"].as_str(), undos[0]["via"].as_str()),
+        (Some("proc.run"), Some("cli"))
+    );
+    assert_eq!(
+        refused
+            .iter()
+            .filter(|x| x["act"] == "policy.tighten")
+            .count(),
+        2
+    );
+    let lines = r.core.narrator.tail();
+    assert!(
+        said(
+            &lines,
+            "approval",
+            "An undo of proc.run's tightening from sock#3 through cli did not count"
+        ),
+        "{}",
+        dump(&lines)
+    );
+    // Eddie, in his DM.
+    let ok = untighten(surface("discord", Discord), Some((EDDIE, None)))
+        .await
+        .unwrap();
+    assert_eq!(
+        ok["posture"], "approve",
+        "the rig's config asks for proc.run"
+    );
+    let undone = ledgered(&r, "policy.untightened");
+    assert_eq!(
+        (undone[0]["by"].as_str(), undone[0]["via"].as_str()),
+        (Some("discord:eddie"), Some("discord:dm"))
+    );
+    assert!(r.core.health().tightenings.is_empty());
+}
+
+/// Without `[approval]` a press and an undo behave as an answer does
+/// today: every surface may make them, and nothing is refused.
+#[tokio::test]
+async fn without_approval_every_surface_tightens_and_undoes() {
+    use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
+    use theseus_protocol::method;
+    let r = rig_with(vec![], |cfg| cfg.policy.enforcement = Posture::Notify);
+    for (label, s, discord) in [
+        ("sock#1", Cli, None),
+        ("web#1", Web, None),
+        (
+            "discord",
+            Discord,
+            Some((MALLORY, Some("712398310421561444"))),
+        ),
+        ("test", Unnamed, None),
+    ] {
+        let p = json!({"tool": "proc.run", "discord": origin(discord)});
+        let t = rpc_as(
+            &r.core,
+            surface(label, s),
+            method::POLICY_TIGHTEN,
+            p.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (t["changed"].as_bool(), t["by"].as_str()),
+            (Some(true), Some(label))
+        );
+        let u = rpc_as(&r.core, surface(label, s), method::POLICY_UNTIGHTEN, p)
+            .await
+            .unwrap();
+        assert_eq!(u["posture"], "notify", "{label}");
+    }
+    assert!(ledgered(&r, "approval.refused").is_empty());
+    assert_eq!(ledgered(&r, "policy.tightened").len(), 4);
+    assert_eq!(ledgered(&r, "policy.untightened").len(), 4);
 }

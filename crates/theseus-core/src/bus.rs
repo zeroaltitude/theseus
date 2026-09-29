@@ -53,6 +53,16 @@ impl SessionBus {
         }
     }
 
+    /// Send to every connection that watches a session, once each: news that
+    /// holds for every session, such as a tightening (theseus-sgh).
+    pub fn publish_all(&self, msg: &Message) {
+        let mut g = self.subs.lock().unwrap();
+        let mut sent = std::collections::HashSet::new();
+        for v in g.values_mut() {
+            v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.send(msg.clone()).is_ok());
+        }
+    }
+
     pub fn watchers(&self, session: &str) -> usize {
         self.subs
             .lock()
@@ -120,5 +130,24 @@ mod tests {
         assert_eq!(bus.watchers("s"), 2, "closed watcher pruned");
         bus.drop_conn("b");
         assert_eq!(bus.watchers("s"), 1);
+    }
+
+    /// News for every session reaches each watching connection once, however
+    /// many sessions it watches.
+    #[test]
+    fn publish_all_reaches_each_connection_once() {
+        let bus = SessionBus::default();
+        let (tx_a, mut rx_a) = unbounded_channel();
+        let (tx_b, mut rx_b) = unbounded_channel();
+        bus.watch("s1", "a", tx_a.clone());
+        bus.watch("s2", "a", tx_a);
+        bus.watch("s2", "b", tx_b);
+        bus.publish_all(&Message::Notification(Notification::new("x.y", 1)));
+        assert!(rx_a.try_recv().is_ok());
+        assert!(
+            rx_a.try_recv().is_err(),
+            "once, though it watches two sessions"
+        );
+        assert!(rx_b.try_recv().is_ok());
     }
 }

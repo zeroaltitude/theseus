@@ -17,15 +17,18 @@ use theseus_core::approval::{Checked, Client, Surface};
 use theseus_core::config::DiscordConfig;
 use theseus_core::Core;
 use theseus_protocol::{
-    Attachment, BindingStatus, DiscordOrigin, Notification, PlaceStatus, SessionInfo, SessionKind,
-    SessionListResult, SessionOpenParams, SessionRef, TurnSubmitParams, TurnSubmitResult,
+    Attachment, BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams,
+    SessionInfo, SessionKind, SessionListResult, SessionOpenParams, SessionRef, TightenResult,
+    TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::sync::{mpsc, oneshot};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client as Http;
 use twilight_model::application::command::CommandType;
 use twilight_model::application::interaction::{Interaction, InteractionData};
-use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
+use twilight_model::channel::message::component::{
+    ActionRow, Button, ButtonStyle, Component, SelectMenu, SelectMenuOption, SelectMenuType,
+};
 use twilight_model::channel::message::{AllowedMentions, MessageFlags};
 use twilight_model::guild::Permissions;
 use twilight_model::http::interaction::{
@@ -37,7 +40,7 @@ use twilight_util::builder::command::CommandBuilder;
 
 use crate::bindings::{snowflake, Bindings};
 use crate::files;
-use crate::render::{Buttons, NoticeCard, Op, Renderer, Route};
+use crate::render::{Asked, Buttons, NoticeCard, Op, Renderer, Route};
 use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
@@ -744,6 +747,18 @@ impl Shared {
         };
         match &i.data {
             Some(InteractionData::MessageComponent(c)) => {
+                if let Some(asked) = parse_asked_pick(&c.custom_id, &c.values) {
+                    let discord = match (&user, channel) {
+                        (Some((u, _)), Some(ch)) => Some(DiscordOrigin {
+                            user_id: u.to_string(),
+                            channel_id: ch.to_string(),
+                            guild_id: i.guild_id.map(|g| g.to_string()),
+                        }),
+                        _ => None,
+                    };
+                    self.should_have_asked(&i, asked, &who, discord).await;
+                    return;
+                }
                 let Some((approve, corr)) = parse_confirm_id(&c.custom_id) else {
                     return;
                 };
@@ -880,6 +895,34 @@ impl Shared {
             }
             _ => {}
         }
+    }
+
+    /// A "Should have asked…" pick, or the button on a notice card
+    /// (theseus-sgh): the tool asks first from now on. The core tells every
+    /// place, whose tool messages then say who tightened it and stop
+    /// offering it; the presser alone hears how it went and how to undo it.
+    async fn should_have_asked(
+        &self,
+        i: &Interaction,
+        asked: Asked,
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) {
+        self.respond(
+            i,
+            InteractionResponseType::DeferredUpdateMessage,
+            None,
+            false,
+        )
+        .await;
+        let r = send_tighten(&self.rpc, &asked, who, discord).await;
+        self.core.binding_ledger(
+            "discord.tighten",
+            None,
+            json!({"tool": asked.tool, "correlation_id": asked.correlation_id, "by": who,
+                   "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
+        );
+        self.followup(i, &tightened_reply(&asked.tool, &r)).await;
     }
 
     /// An ephemeral follow-up to an interaction already acknowledged.
@@ -1084,6 +1127,150 @@ fn parse_confirm_id(id: &str) -> Option<(bool, String)> {
     }
 }
 
+/// A notification every place gets, whatever session it names.
+fn everywhere(method: &str) -> bool {
+    matches!(
+        method,
+        theseus_protocol::notify::POLICY_TIGHTENED | theseus_protocol::notify::POLICY_UNTIGHTENED
+    )
+}
+
+/// The select menu's custom id; a notice card's button is `tighten:<value>`.
+const ASKED_MENU: &str = "tighten";
+
+/// Discord's limit on a custom id and on an option's value.
+const ID_LIMIT: usize = 100;
+
+/// A "should have asked" choice as Discord carries it (theseus-sgh):
+/// `<tool>|<correlation id>`, or the tool alone when there is no call or the
+/// card button's id for the pair, the longer of the two, would pass the limit.
+fn asked_value(a: &Asked) -> String {
+    match &a.correlation_id {
+        Some(c) if format!("{ASKED_MENU}:{}|{c}", a.tool).len() <= ID_LIMIT => {
+            format!("{}|{c}", a.tool)
+        }
+        _ => a.tool.clone(),
+    }
+}
+
+fn parse_asked(v: &str) -> Option<Asked> {
+    let (tool, corr) = match v.split_once('|') {
+        Some((t, c)) => (t, Some(c.to_string()).filter(|c| !c.is_empty())),
+        None => (v, None),
+    };
+    (!tool.is_empty()).then(|| Asked {
+        tool: tool.to_string(),
+        correlation_id: corr,
+    })
+}
+
+/// A component interaction that is a "should have asked" press: the select
+/// menu's pick, or a notice card's button.
+fn parse_asked_pick(custom_id: &str, values: &[String]) -> Option<Asked> {
+    if custom_id == ASKED_MENU {
+        return values.first().and_then(|v| parse_asked(v));
+    }
+    parse_asked(custom_id.strip_prefix(ASKED_MENU)?.strip_prefix(':')?)
+}
+
+/// The one "Should have asked…" menu on a tool message: an option per
+/// distinct notified tool (the renderer caps them at 25).
+fn asked_menu(options: &[Asked]) -> Vec<Component> {
+    let options = options
+        .iter()
+        .take(crate::render::MAX_ASKED)
+        .map(|a| SelectMenuOption {
+            default: false,
+            description: Some(format!("Ask before every {} call from now on", a.tool)),
+            emoji: None,
+            label: a.tool.clone(),
+            value: asked_value(a),
+        })
+        .collect();
+    vec![Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![Component::SelectMenu(SelectMenu {
+            id: None,
+            channel_types: None,
+            custom_id: ASKED_MENU.into(),
+            default_values: None,
+            disabled: false,
+            kind: SelectMenuType::Text,
+            max_values: Some(1),
+            min_values: Some(1),
+            options: Some(options),
+            placeholder: Some("Should have asked…".into()),
+            required: None,
+        })],
+    })]
+}
+
+/// A notice card's "Should have asked" button (with `[discord]
+/// notice_embeds`), or none once its tool asks first.
+fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
+    let Some(a) = ask else {
+        return vec![];
+    };
+    vec![Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![Component::Button(Button {
+            id: None,
+            custom_id: Some(format!("{ASKED_MENU}:{}", asked_value(a))),
+            disabled: false,
+            emoji: None,
+            label: Some("Should have asked".into()),
+            style: ButtonStyle::Secondary,
+            url: None,
+            sku_id: None,
+        })],
+    })]
+}
+
+/// A "should have asked" press, sent to the core as `policy.tighten` with
+/// who pressed and where.
+async fn send_tighten(
+    rpc: &RpcClient,
+    asked: &Asked,
+    who: &str,
+    discord: Option<DiscordOrigin>,
+) -> Result<TightenResult, CallError> {
+    rpc.call(
+        theseus_protocol::method::POLICY_TIGHTEN,
+        PolicyTightenParams {
+            tool: asked.tool.clone(),
+            correlation_id: asked.correlation_id.clone(),
+            author: Some(who.to_string()),
+            discord,
+        },
+    )
+    .await
+}
+
+/// What the presser alone is told after a "should have asked" press.
+fn tightened_reply(tool: &str, r: &Result<TightenResult, CallError>) -> String {
+    let undo =
+        format!("Undo it in the web UI's Tools view, or with `theseus policy untighten {tool}`.");
+    match r {
+        Ok(t) if t.already => format!(
+            "🔒 `{tool}` already asks first: tightened by {}.",
+            t.tightening.by
+        ),
+        Ok(t) if !t.changed => format!(
+            "🔒 `{tool}` already asks ({}), and now keeps asking if the config changes. {undo}",
+            t.config_setting
+        ),
+        Ok(_) => format!("🔒 `{tool}` asks first from now on. {undo}"),
+        Err(e) if e.code == theseus_protocol::error_code::REFUSED => format!(
+            "🔐 Your press did not count: {}.",
+            e.data
+                .get("why")
+                .and_then(Value::as_str)
+                .unwrap_or(&e.message)
+        ),
+        Err(e) => format!("⚠️ Could not tighten `{tool}`: {}", e.message),
+    }
+}
+
 fn confirm_buttons(corr: &str) -> Vec<Component> {
     let button = |verb: &str, label: &str, style| {
         Component::Button(Button {
@@ -1106,9 +1293,24 @@ fn confirm_buttons(corr: &str) -> Vec<Component> {
     })]
 }
 
-/// Hand each notification to the place whose session it names.
+/// Hand each notification to the place whose session it names. A tightening
+/// holds for every session, so every place gets it (theseus-sgh).
 async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notification>) {
     while let Some(n) = notes.recv().await {
+        if everywhere(&n.method) {
+            let places: Vec<mpsc::UnboundedSender<PlaceMsg>> = shared
+                .routes
+                .lock()
+                .unwrap()
+                .by_session
+                .values()
+                .cloned()
+                .collect();
+            for tx in places {
+                let _ = tx.send(PlaceMsg::Event(n.clone()));
+            }
+            continue;
+        }
         let target = {
             let mut r = shared.routes.lock().unwrap();
             let sid = n
@@ -1515,28 +1717,35 @@ impl Place {
         }
         let embeds = [b.build()];
         let none = AllowedMentions::default();
+        // Its "Should have asked" button, or none once the tool asks first.
+        let comps = asked_button(card.ask.as_ref());
         let http = &self.shared.http;
         let res: Result<Option<Id<MessageMarker>>, String> = match self.msgs.get(key).copied() {
             Some(mid) => http
                 .update_message(channel, mid)
                 .embeds(Some(&embeds))
+                .components(Some(&comps))
                 .allowed_mentions(Some(&none))
                 .await
                 .map(|_| None)
                 .map_err(|e| e.to_string()),
-            None => match http
-                .create_message(channel)
-                .embeds(&embeds)
-                .allowed_mentions(Some(&none))
-                .await
-            {
-                Ok(r) => r
-                    .model()
-                    .await
-                    .map(|m| Some(m.id))
-                    .map_err(|e| e.to_string()),
-                Err(e) => Err(e.to_string()),
-            },
+            None => {
+                let mut req = http
+                    .create_message(channel)
+                    .embeds(&embeds)
+                    .allowed_mentions(Some(&none));
+                if !comps.is_empty() {
+                    req = req.components(&comps);
+                }
+                match req.await {
+                    Ok(r) => r
+                        .model()
+                        .await
+                        .map(|m| Some(m.id))
+                        .map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
         };
         match res {
             Ok(Some(id)) => {
@@ -1578,6 +1787,7 @@ impl Place {
         let none = AllowedMentions::default();
         let comps = match &buttons {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr)),
+            Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep => None,
         };
@@ -1618,7 +1828,7 @@ impl Place {
                     self.shared.core.binding_ledger(
                         "discord.message.out",
                         Some(&self.session_id),
-                        json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_))}),
+                        json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_)), "menu": matches!(buttons, Buttons::ShouldHaveAsked(_))}),
                     );
                 }
                 Err(e) => self
@@ -1718,5 +1928,156 @@ mod tests {
             })
             .collect();
         assert_eq!(ids, vec!["confirm:approve:act_9", "confirm:decline:act_9"]);
+    }
+
+    /// A "should have asked" choice carries the tool and its call, in the
+    /// menu's option value or the card button's custom id, within Discord's
+    /// 100 characters (theseus-sgh).
+    #[test]
+    fn a_should_have_asked_value_carries_the_tool_and_its_call() {
+        let a = Asked {
+            tool: "proc.run".into(),
+            correlation_id: Some("act_019".into()),
+        };
+        assert_eq!(asked_value(&a), "proc.run|act_019");
+        let tool_only = Asked {
+            tool: "fs.write".into(),
+            correlation_id: None,
+        };
+        for (id, values, want) in [
+            ("tighten", vec!["proc.run|act_019"], Some(a.clone())),
+            ("tighten:proc.run|act_019", vec![], Some(a.clone())),
+            ("tighten", vec!["fs.write"], Some(tool_only.clone())),
+            ("tighten", vec!["fs.write|"], Some(tool_only.clone())),
+            ("tighten", vec![], None),
+            ("tightening", vec!["x"], None),
+            ("confirm:approve:act_1", vec![], None),
+        ] {
+            let values: Vec<String> = values.into_iter().map(String::from).collect();
+            assert_eq!(parse_asked_pick(id, &values), want, "{id} {values:?}");
+        }
+        let long = Asked {
+            tool: format!("mcp:{}/tool", "s".repeat(60)),
+            correlation_id: Some(format!("act_{}", "0".repeat(32))),
+        };
+        assert_eq!(
+            asked_value(&long),
+            long.tool,
+            "past 100 characters, the tool alone"
+        );
+
+        let menu = asked_menu(&[a.clone(), tool_only]);
+        let Component::ActionRow(row) = &menu[0] else {
+            panic!()
+        };
+        let Component::SelectMenu(m) = &row.components[0] else {
+            panic!()
+        };
+        assert_eq!(m.custom_id, "tighten");
+        assert_eq!(m.placeholder.as_deref(), Some("Should have asked…"));
+        assert_eq!((m.min_values, m.max_values), (Some(1), Some(1)));
+        let opts: Vec<(&str, &str)> = m
+            .options
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|o| (o.label.as_str(), o.value.as_str()))
+            .collect();
+        assert_eq!(
+            opts,
+            [("proc.run", "proc.run|act_019"), ("fs.write", "fs.write")]
+        );
+        assert!(asked_button(None).is_empty());
+        let b = asked_button(Some(&a));
+        let Component::ActionRow(row) = &b[0] else {
+            panic!()
+        };
+        let Component::Button(b) = &row.components[0] else {
+            panic!()
+        };
+        assert_eq!(b.custom_id.as_deref(), Some("tighten:proc.run|act_019"));
+        assert!(everywhere("policy.tightened") && everywhere("policy.untightened"));
+        assert!(!everywhere("policy.notified"));
+    }
+
+    /// A core over a scratch store, with the template's tools and posture,
+    /// and a provider that is never called.
+    fn core_for_tests(dir: &std::path::Path) -> Arc<Core> {
+        let mut cfg = theseus_core::Config::example();
+        cfg.server.state_dir = dir.to_string_lossy().into_owned();
+        let work = dir.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
+        cfg.tools.roots = vec![];
+        let store = theseus_core::store::Store::open(&dir.join("store")).unwrap();
+        let fake: Arc<dyn theseus_core::provider::Provider> =
+            Arc::new(theseus_core::provider::FakeProvider::scripted(vec![]));
+        let providers = [(cfg.model.provider.clone(), fake)].into_iter().collect();
+        Core::build(theseus_core::rpc::Parts {
+            cfg,
+            providers,
+            store,
+            secret_names: vec![],
+            telemetry: theseus_core::telemetry::Telemetry::disabled(),
+            scrubber: Arc::new(theseus_core::scrub::Scrubber::default()),
+            launcher: Arc::new(theseus_core::toolrun::InlineLauncher),
+        })
+        .unwrap()
+    }
+
+    /// A pick sends `policy.tighten` for its tool and call, as the presser
+    /// in their place, through the binding's own connection; the core
+    /// records it, and the presser alone hears how it went and how to undo
+    /// it (theseus-sgh).
+    #[tokio::test]
+    async fn a_pick_sends_the_tighten_request_and_the_presser_hears_how_to_undo_it() {
+        let d = tempfile::tempdir().unwrap();
+        let core = core_for_tests(d.path());
+        let (rpc, _notes) = RpcClient::connect(core.clone(), Client::new(CLIENT, Surface::Discord));
+        let pick = parse_asked_pick(ASKED_MENU, &["proc.run".into()]).unwrap();
+        let dm = DiscordOrigin {
+            user_id: "159471966640799744".into(),
+            channel_id: "444444444444444444".into(),
+            guild_id: None,
+        };
+        let r = send_tighten(&rpc, &pick, "discord:eddie", Some(dm)).await;
+        let t = r.as_ref().unwrap();
+        assert_eq!(
+            (t.tool.as_str(), t.posture.as_str(), t.changed),
+            ("proc.run", "approve", true)
+        );
+        assert_eq!(
+            (t.tightening.by.as_str(), t.tightening.via.as_str()),
+            ("discord:eddie", "discord:dm")
+        );
+        assert_eq!(core.health().tightenings[0].tool, "proc.run");
+        assert_eq!(
+            tightened_reply("proc.run", &r),
+            "🔒 `proc.run` asks first from now on. Undo it in the web UI's Tools view, or with \
+             `theseus policy untighten proc.run`."
+        );
+        let again = send_tighten(&rpc, &pick, "discord:eddie", None).await;
+        assert_eq!(
+            tightened_reply("proc.run", &again),
+            "🔒 `proc.run` already asks first: tightened by discord:eddie."
+        );
+        let bad = Asked {
+            tool: "fs.read".into(),
+            correlation_id: Some("act_nope".into()),
+        };
+        let e = send_tighten(&rpc, &bad, "discord:eddie", None).await;
+        assert_eq!(
+            tightened_reply("fs.read", &e),
+            "⚠️ Could not tighten `fs.read`: no call act_nope"
+        );
+        let refused: Result<TightenResult, CallError> = Err(CallError {
+            code: theseus_protocol::error_code::REFUSED,
+            message: "the press from x does not count".into(),
+            data: json!({"why": "it came through a connection no listener named"}),
+        });
+        assert_eq!(
+            tightened_reply("proc.run", &refused),
+            "🔐 Your press did not count: it came through a connection no listener named."
+        );
     }
 }

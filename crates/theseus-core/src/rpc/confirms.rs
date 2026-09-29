@@ -173,10 +173,13 @@ impl Core {
             .kernel
             .action(correlation_id)?
             .ok_or_else(|| anyhow::anyhow!("no action {correlation_id}"))?;
-        if let Err(r) = self.approval.judge(&who) {
-            self.refused(&a, approve, &who, &r)?;
-            return Err(r.into());
-        }
+        self.judge_act(
+            &who,
+            Act::Answer {
+                action: &a,
+                approve,
+            },
+        )?;
         let by = who.label.as_str();
         if a.state != theseus_kernel::ActionState::Planned {
             anyhow::bail!(
@@ -254,28 +257,78 @@ impl Core {
         })
     }
 
-    /// An answer that does not count: ledgered with who, where, and why, and
-    /// narrated. Nothing else changes: the action still waits, and so does
-    /// its execution.
-    fn refused(&self, a: &Action, approve: bool, who: &Answerer, r: &Refusal) -> Result<()> {
-        self.store.append_ledger(&LedgerRow::new(
-            "approval.refused",
-            Some(&a.session_id),
-            None,
-            json!({"correlation_id": a.correlation_id, "tool": a.tool, "approve": approve,
-                   "who": r.who, "via": r.via, "why": r.why, "by": who.label}),
-        ))?;
-        narrate!(
-            self.narrator,
-            Approval,
-            Some(&a.session_id),
-            None,
-            "An answer to {} from {} through {} did not count: {}. It keeps waiting.",
-            a.tool,
-            r.who,
-            r.via,
-            r.why
-        );
+    /// The one judgment of every approval-like act (theseus-sgh): an answer
+    /// to a waiting call, a "should have asked" press, and its undo. An
+    /// answer and an undo take the whole `[approval]` rule; a press only
+    /// makes calls ask, so any surface that can answer an approval may make
+    /// one. A refusal is ledgered as `approval.refused` (who, through what,
+    /// and why) and narrated, and it is the error, a `Refusal`. Nothing else
+    /// changes.
+    pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<()> {
+        let verdict = match act {
+            Act::Tighten { .. } => self.approval.judge_tighten(who),
+            Act::Answer { .. } | Act::Untighten { .. } => self.approval.judge(who),
+        };
+        let Err(r) = verdict else {
+            return Ok(());
+        };
+        self.refused(act, who, &r)?;
+        Err(r.into())
+    }
+
+    /// An act that does not count: ledgered with who, where, and why, and
+    /// narrated. A refused answer leaves the action and its execution
+    /// waiting; a refused undo leaves the tool asking.
+    fn refused(&self, act: Act<'_>, who: &Answerer, r: &Refusal) -> Result<()> {
+        let (session, data) = match act {
+            Act::Answer { action: a, approve } => (
+                Some(a.session_id.as_str()),
+                json!({"correlation_id": a.correlation_id, "tool": a.tool, "approve": approve,
+                       "who": r.who, "via": r.via, "why": r.why, "by": who.label}),
+            ),
+            Act::Tighten { tool } | Act::Untighten { tool } => (
+                None,
+                json!({"act": act.method(), "tool": tool, "who": r.who, "via": r.via,
+                       "why": r.why, "by": who.label}),
+            ),
+        };
+        self.store
+            .append_ledger(&LedgerRow::new("approval.refused", session, None, data))?;
+        match act {
+            Act::Answer { action: a, .. } => narrate!(
+                self.narrator,
+                Approval,
+                session,
+                None,
+                "An answer to {} from {} through {} did not count: {}. It keeps waiting.",
+                a.tool,
+                r.who,
+                r.via,
+                r.why
+            ),
+            Act::Tighten { tool } => narrate!(
+                self.narrator,
+                Approval,
+                None,
+                None,
+                "\"Should have asked\" for {tool} from {} through {} did not count: {}. It \
+                 keeps its posture.",
+                r.who,
+                r.via,
+                r.why
+            ),
+            Act::Untighten { tool } => narrate!(
+                self.narrator,
+                Approval,
+                None,
+                None,
+                "An undo of {tool}'s tightening from {} through {} did not count: {}. It keeps \
+                 asking first.",
+                r.who,
+                r.via,
+                r.why
+            ),
+        }
         Ok(())
     }
 
@@ -341,6 +394,28 @@ impl Core {
             execution_id: q.execution_id.clone(),
             resumes: approve,
         })
+    }
+}
+
+/// An approval-like act, as `Core::judge_act` judges it (theseus-sgh).
+#[derive(Clone, Copy)]
+pub(crate) enum Act<'a> {
+    /// An answer to a waiting call or a budget question.
+    Answer { action: &'a Action, approve: bool },
+    /// "Should have asked": the tool asks first from now on.
+    Tighten { tool: &'a str },
+    /// The undo of a tightening, which returns the tool to the config.
+    Untighten { tool: &'a str },
+}
+
+impl Act<'_> {
+    /// The method that makes the act, as a refusal row names it.
+    fn method(self) -> &'static str {
+        match self {
+            Act::Answer { .. } => theseus_protocol::method::ACTION_CONFIRM,
+            Act::Tighten { .. } => theseus_protocol::method::POLICY_TIGHTEN,
+            Act::Untighten { .. } => theseus_protocol::method::POLICY_UNTIGHTEN,
+        }
     }
 }
 

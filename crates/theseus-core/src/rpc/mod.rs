@@ -6,14 +6,16 @@
 //! `Core` is the server's state, built here from its `Parts`. Its jobs have a
 //! file each: serving connections and routing each method by name (`server`),
 //! the methods (`methods`), the protocol's views of records (`info`), pending
-//! confirms and their answers (`confirms`), what the harness loop drives
-//! (`driver`), and channel bindings (`bindings`).
+//! confirms and their answers (`confirms`), "should have asked" and its undo
+//! (`policy`), what the harness loop drives (`driver`), and channel bindings
+//! (`bindings`).
 
 mod bindings;
 mod confirms;
 mod driver;
 mod info;
 mod methods;
+mod policy;
 mod server;
 #[cfg(test)]
 mod tests;
@@ -233,12 +235,18 @@ impl Core {
             scrubber,
             launcher,
         )?);
+        // "Should have asked" presses are the store's, not the config's.
+        tools
+            .tightened
+            .load(&store)
+            .context("reading the tool tightenings")?;
         tracing::info!(
             tools = tools.registry.len(),
             roots = ?tools.ctx.roots,
             enforcement = tools.policy.enforcement.as_str(),
             overrides = ?tools.policy.tools,
             mcp = ?tools.policy.mcp,
+            tightened = ?tools.tightened.all().iter().map(|t| t.tool.as_str()).collect::<Vec<_>>(),
             floor = ?tools.policy.floor_paths,
             catalog = %catalog.version,
             "tools and catalog"

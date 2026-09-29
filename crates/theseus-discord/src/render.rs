@@ -26,9 +26,24 @@ pub enum Buttons {
     Keep,
     /// Approve and Decline for this correlation id.
     Confirm(String),
+    /// One "Should have asked…" select menu (theseus-sgh): an option per
+    /// distinct notified tool on the message, at most `MAX_ASKED`.
+    ShouldHaveAsked(Vec<Asked>),
     /// Remove every component.
     Clear,
 }
+
+/// One "should have asked" choice (theseus-sgh): a notified tool, and the
+/// call whose notice it was, which the press names. On a tool message it is
+/// the tool's newest notified call there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Asked {
+    pub tool: String,
+    pub correlation_id: Option<String>,
+}
+
+/// Discord allows 25 options in a select menu.
+pub const MAX_ASKED: usize = 25;
 
 /// A structured notice (a Discord embed): a call ran under a `notify` posture.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +53,9 @@ pub struct NoticeCard {
     pub color: u32,
     pub description: String,
     pub fields: Vec<(String, String)>,
+    /// A "Should have asked" button for this call; None once its tool asks
+    /// first (theseus-sgh).
+    pub ask: Option<Asked>,
 }
 
 pub const AMBER: u32 = 0xE3A008;
@@ -154,10 +172,16 @@ pub struct Renderer {
     turns: VecDeque<TurnView>,
     /// key → the content Discord last received for it.
     emitted: HashMap<String, String>,
+    /// key → the "should have asked" menu Discord last received on it.
+    menus: HashMap<String, Vec<Asked>>,
     /// correlation id → the card asked for it.
     confirms: HashMap<String, Card>,
-    /// tool_use_id → the notice card posted for it (updated when the call ends).
-    notices: HashMap<String, NoticeCard>,
+    /// tool_use_id → the notice card posted for it (updated when the call
+    /// ends) and the call it names.
+    notices: HashMap<String, (NoticeCard, Asked)>,
+    /// Tool → who tightened it ("should have asked", theseus-sgh), as the
+    /// core announced.
+    tightened: BTreeMap<String, String>,
     /// `[discord] notice_embeds`: a notified call posts its own card. Off, its
     /// tool line alone carries the notice.
     notice_embeds: bool,
@@ -268,7 +292,7 @@ impl Renderer {
                 let ms = p.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
                 let use_id = str_of(p, "tool_use_id");
                 let mut ops = vec![];
-                if let Some(card) = self.notices.get_mut(&use_id) {
+                if let Some((card, _)) = self.notices.get_mut(&use_id) {
                     let outcome = match status.as_str() {
                         "ok" => format!("✅ ok · {ms} ms"),
                         "background" => "⏳ running in the background".to_string(),
@@ -306,7 +330,14 @@ impl Renderer {
                 let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
                 let input = p.get("input").cloned().unwrap_or(Value::Null);
                 let use_id = str_of(p, "tool_use_id");
-                let card = NoticeCard {
+                let call = Asked {
+                    tool: tool.to_string(),
+                    correlation_id: p
+                        .get("correlation_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                };
+                let mut card = NoticeCard {
                     title: "🔔 Ran with a notice".into(),
                     color: AMBER,
                     description: format!("`{tool}` {}", summarize(tool, &input)),
@@ -315,12 +346,52 @@ impl Renderer {
                         ("Posture".into(), format!("`{}`", str_of(p, "setting"))),
                         ("Outcome".into(), "⏳ running".into()),
                     ],
+                    ask: None,
                 };
-                self.notices.insert(use_id.clone(), card.clone());
+                self.asked_on(&mut card, &call);
+                self.notices.insert(use_id.clone(), (card.clone(), call));
                 vec![Op::Notice {
                     key: format!("notice:{use_id}"),
                     card,
                 }]
+            }
+            // "Should have asked" (theseus-sgh). A tightening holds for every
+            // session, so every place hears of it: each tool message and
+            // notice card of that tool says who tightened it and stops
+            // offering it; an undo offers it again.
+            "policy.tightened" | "policy.untightened" => {
+                let tool = str_of(p, "tool");
+                if method == "policy.tightened" {
+                    self.tightened.insert(tool.clone(), str_of(p, "by"));
+                } else {
+                    self.tightened.remove(&tool);
+                }
+                for t in self.turns.iter_mut() {
+                    let shows = t.loops.values().any(|lv| {
+                        lv.tools
+                            .iter()
+                            .any(|l| l.tool == tool && l.notice.is_some())
+                    });
+                    t.dirty |= shows;
+                }
+                let mut cards: Vec<(String, NoticeCard, Asked)> = self
+                    .notices
+                    .iter()
+                    .filter(|(_, (_, call))| call.tool == tool)
+                    .map(|(id, (card, call))| (id.clone(), card.clone(), call.clone()))
+                    .collect();
+                cards.sort_by(|a, b| a.0.cmp(&b.0));
+                let mut ops = vec![];
+                for (use_id, mut card, call) in cards {
+                    self.asked_on(&mut card, &call);
+                    self.notices.insert(use_id.clone(), (card.clone(), call));
+                    ops.push(Op::Notice {
+                        key: format!("notice:{use_id}"),
+                        card,
+                    });
+                }
+                ops.extend(self.tick());
+                ops
             }
             "confirm.requested" => {
                 let Ok(req) = serde_json::from_value::<ConfirmRequest>(p.clone()) else {
@@ -502,20 +573,58 @@ impl Renderer {
         }
     }
 
-    /// Emit the messages whose rendered text changed since Discord last saw them.
+    /// Emit the messages whose rendered text or "should have asked" menu
+    /// changed since Discord last saw them.
     pub fn tick(&mut self) -> Vec<Op> {
         let mut rendered = Vec::new();
+        let menus = !self.notice_embeds;
         for t in self.turns.iter_mut().filter(|t| t.dirty) {
-            rendered.extend(render_turn(t));
+            rendered.extend(render_turn(t, &self.tightened, menus));
             t.dirty = false;
         }
-        rendered
-            .into_iter()
-            .filter_map(|(key, content)| {
-                (self.emitted.get(&key) != Some(&content))
-                    .then(|| self.upsert(&key, content, Buttons::Keep))
-            })
-            .collect()
+        let mut ops = Vec::new();
+        for m in rendered {
+            let before = self.menus.get(&m.key);
+            let buttons = match &m.menu {
+                Some(menu) if !menu.is_empty() && before != Some(menu) => {
+                    Buttons::ShouldHaveAsked(menu.clone())
+                }
+                Some(menu) if menu.is_empty() && before.is_some() => Buttons::Clear,
+                _ => Buttons::Keep,
+            };
+            if self.emitted.get(&m.key) == Some(&m.content) && buttons == Buttons::Keep {
+                continue;
+            }
+            match m.menu {
+                Some(menu) if !menu.is_empty() => {
+                    self.menus.insert(m.key.clone(), menu);
+                }
+                _ => {
+                    self.menus.remove(&m.key);
+                }
+            }
+            ops.push(self.upsert(&m.key, m.content, buttons));
+        }
+        ops
+    }
+
+    /// A notice card's "Should have asked" button, or, once its tool asks
+    /// first, a line that says who tightened it.
+    fn asked_on(&self, card: &mut NoticeCard, call: &Asked) {
+        card.fields.retain(|(name, _)| name != TIGHTENED_FIELD);
+        match self.tightened.get(&call.tool) {
+            Some(by) => {
+                card.ask = None;
+                card.fields.push((
+                    TIGHTENED_FIELD.into(),
+                    format!(
+                        "🔒 `{}` asks first from now on: tightened by {by}",
+                        call.tool
+                    ),
+                ));
+            }
+            None => card.ask = Some(call.clone()),
+        }
     }
 
     /// Post a card for `corr` where the route says: here, in the DM with a
@@ -615,36 +724,108 @@ impl Renderer {
     }
 }
 
+/// The field a notice card gains once its tool asks first.
+const TIGHTENED_FIELD: &str = "Should have asked";
+
+/// One message of a turn as rendered: its key, its text, and, on a tool
+/// message when menus are on, its "should have asked" choices.
+struct Rendered {
+    key: String,
+    content: String,
+    menu: Option<Vec<Asked>>,
+}
+
+impl Rendered {
+    fn text(key: String, content: String) -> Self {
+        Self {
+            key,
+            content,
+            menu: None,
+        }
+    }
+}
+
 /// Every message a turn shows, in the order Discord should first see them.
-fn render_turn(t: &TurnView) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
+/// `tightened` is tool → who tightened it; `menus` puts a "Should have
+/// asked…" select on each tool message that lists a notified call.
+fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) -> Vec<Rendered> {
+    let mut out: Vec<Rendered> = Vec::new();
     for (li, lv) in &t.loops {
         for (i, part) in split_text(&lv.text, PART_LIMIT).into_iter().enumerate() {
-            out.push((format!("{}:L{li}:p{i}", t.turn_id), part));
+            out.push(Rendered::text(format!("{}:L{li}:p{i}", t.turn_id), part));
         }
         if !lv.tools.is_empty() {
-            out.push((format!("{}:L{li}:tools", t.turn_id), tool_lines(&lv.tools)));
+            let (asked, tight) = notified_tools(&lv.tools, tightened);
+            // A line per notified tool that asks first now, under the calls.
+            let said: Vec<String> = tight
+                .iter()
+                .map(|(tool, by)| {
+                    format!("-# 🔒 `{tool}` asks first from now on: tightened by {by}")
+                })
+                .collect();
+            let reserve: usize = said.iter().map(|l| l.len() + 1).sum();
+            let mut content = tool_lines(&lv.tools, reserve);
+            for l in &said {
+                content.push('\n');
+                content.push_str(l);
+            }
+            out.push(Rendered {
+                key: format!("{}:L{li}:tools", t.turn_id),
+                content,
+                menu: menus.then_some(asked),
+            });
         }
     }
     if let Some(f) = &t.failure {
-        out.push((format!("{}:failed", t.turn_id), f.clone()));
+        out.push(Rendered::text(format!("{}:failed", t.turn_id), f.clone()));
     }
     if let Some(f) = &t.footer {
         // The footer rides on the last text part when it fits, else stands alone.
         match out.last_mut() {
-            Some((key, content))
-                if key.contains(":p") && content.len() + f.len() < DISCORD_LIMIT =>
-            {
-                content.push('\n');
-                content.push_str(f);
+            Some(m) if m.key.contains(":p") && m.content.len() + f.len() < DISCORD_LIMIT => {
+                m.content.push('\n');
+                m.content.push_str(f);
             }
-            _ => out.push((format!("{}:footer", t.turn_id), f.clone())),
+            _ => out.push(Rendered::text(format!("{}:footer", t.turn_id), f.clone())),
         }
     }
     out
 }
 
-fn tool_lines(tools: &[ToolLine]) -> String {
+/// A tool message's distinct notified tools, in the order they first ran:
+/// those still offered to "should have asked", each with its newest
+/// notified call (at most `MAX_ASKED`), and those that ask first now, with
+/// who tightened them.
+fn notified_tools(
+    tools: &[ToolLine],
+    tightened: &BTreeMap<String, String>,
+) -> (Vec<Asked>, Vec<(String, String)>) {
+    let mut asked: Vec<Asked> = Vec::new();
+    let mut tight: Vec<(String, String)> = Vec::new();
+    for l in tools.iter().filter(|l| l.notice.is_some()) {
+        if let Some(by) = tightened.get(&l.tool) {
+            if !tight.iter().any(|(t, _)| *t == l.tool) {
+                tight.push((l.tool.clone(), by.clone()));
+            }
+            continue;
+        }
+        if let Some(a) = asked.iter_mut().find(|a| a.tool == l.tool) {
+            if l.correlation_id.is_some() {
+                a.correlation_id = l.correlation_id.clone();
+            }
+        } else if asked.len() < MAX_ASKED {
+            asked.push(Asked {
+                tool: l.tool.clone(),
+                correlation_id: l.correlation_id.clone(),
+            });
+        }
+    }
+    (asked, tight)
+}
+
+/// The tool message's lines, in at most `PART_LIMIT - 60 - reserve`
+/// characters.
+fn tool_lines(tools: &[ToolLine], reserve: usize) -> String {
     let lines: Vec<String> = tools
         .iter()
         .map(|l| {
@@ -680,8 +861,9 @@ fn tool_lines(tools: &[ToolLine]) -> String {
     // with room for the line that counts the rest.
     let mut kept: Vec<&String> = Vec::new();
     let mut len = 0;
+    let budget = (PART_LIMIT - 60).saturating_sub(reserve);
     for l in lines.iter().rev() {
-        if len + l.len() + 1 > PART_LIMIT - 60 {
+        if len + l.len() + 1 > budget {
             break;
         }
         len += l.len() + 1;
@@ -1078,7 +1260,7 @@ mod tests {
             vec![Op::Upsert {
                 key: "t1:L0:tools".into(),
                 content: "⏳ `proc.run` cargo test · 🔔 notified (enforcement = notify)".into(),
-                buttons: Buttons::Keep
+                buttons: Buttons::ShouldHaveAsked(vec![asked("proc.run", None)])
             }]
         );
         let ops = r.on_notification(
@@ -1096,6 +1278,172 @@ mod tests {
                 buttons: Buttons::Keep
             }]
         );
+    }
+
+    fn asked(tool: &str, corr: Option<&str>) -> Asked {
+        Asked {
+            tool: tool.into(),
+            correlation_id: corr.map(str::to_string),
+        }
+    }
+
+    /// A notified call of any tool proposed and started, as the core sends it.
+    fn ran_notified(r: &mut Renderer, use_id: &str, tool: &str, corr: &str) {
+        let rule = format!("{tool} — notify (enforcement = notify)");
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": use_id, "tool": tool,
+            "input": {"path": "a"}, "gate": {"result": {"gate": "allow"}, "decision": {"posture": "notify",
+            "reason": rule, "notify": {"kind": "notify", "setting": "enforcement = notify", "rule": rule}}}}));
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t1", "tool_use_id": use_id, "correlation_id": corr}),
+        );
+    }
+
+    /// The loop's tool message among `ops`: its text and its components.
+    fn tool_message(ops: &[Op]) -> (String, Buttons) {
+        ops.iter()
+            .find_map(|o| match o {
+                Op::Upsert {
+                    key,
+                    content,
+                    buttons,
+                } if key == "t1:L0:tools" => Some((content.clone(), buttons.clone())),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no tool message in {ops:?}"))
+    }
+
+    /// Without notice embeds (theseus-sgh), a loop's tool message carries one
+    /// "Should have asked…" menu: an option per distinct notified tool, each
+    /// naming its newest notified call there. A tightening puts who tightened
+    /// the tool on the message and takes its option away, and the last one
+    /// takes the menu; an undo offers the tool again. At most 25 options.
+    #[test]
+    fn the_tool_message_offers_one_menu_of_its_distinct_notified_tools() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        ran_notified(&mut r, "u1", "proc.run", "act_1");
+        ran_notified(&mut r, "u2", "fs.write", "act_2");
+        ran_notified(&mut r, "u3", "proc.run", "act_3");
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u4", "tool": "fs.read",
+            "input": {"path": "b"}, "gate": {"result": {"gate": "allow"}, "decision": {"posture": "open"}}}));
+        let (_, buttons) = tool_message(&r.tick());
+        assert_eq!(
+            buttons,
+            Buttons::ShouldHaveAsked(vec![
+                asked("proc.run", Some("act_3")),
+                asked("fs.write", Some("act_2"))
+            ]),
+            "the open read is not offered"
+        );
+        assert!(r.tick().is_empty(), "nothing changed, nothing sent");
+
+        let ops = r.on_notification(
+            "policy.tightened",
+            &json!({"tool": "proc.run", "by": "discord:eddie"}),
+        );
+        let (content, buttons) = tool_message(&ops);
+        assert!(
+            content
+                .ends_with("\n-# 🔒 `proc.run` asks first from now on: tightened by discord:eddie"),
+            "{content}"
+        );
+        assert_eq!(
+            buttons,
+            Buttons::ShouldHaveAsked(vec![asked("fs.write", Some("act_2"))])
+        );
+        let (content, buttons) = tool_message(&r.on_notification(
+            "policy.tightened",
+            &json!({"tool": "fs.write", "by": "web#1"}),
+        ));
+        assert!(
+            content.contains("-# 🔒 `fs.write` asks first from now on: tightened by web#1"),
+            "{content}"
+        );
+        assert_eq!(buttons, Buttons::Clear, "nothing left to offer");
+        let (content, buttons) = tool_message(&r.on_notification(
+            "policy.untightened",
+            &json!({"tool": "proc.run", "by": "sock#1"}),
+        ));
+        assert!(!content.contains("`proc.run` asks first"), "{content}");
+        assert_eq!(
+            buttons,
+            Buttons::ShouldHaveAsked(vec![asked("proc.run", Some("act_3"))])
+        );
+        assert!(
+            r.on_notification("policy.tightened", &json!({"tool": "git.log", "by": "x"}))
+                .is_empty(),
+            "another tool's news leaves the message alone"
+        );
+
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        for i in 0..30 {
+            ran_notified(
+                &mut r,
+                &format!("u{i}"),
+                &format!("tool.n{i}"),
+                &format!("act_{i}"),
+            );
+        }
+        let (content, buttons) = tool_message(&r.tick());
+        assert!(content.len() <= PART_LIMIT);
+        let Buttons::ShouldHaveAsked(options) = buttons else {
+            panic!("{buttons:?}")
+        };
+        assert_eq!(options.len(), MAX_ASKED);
+        assert_eq!(options[0], asked("tool.n0", Some("act_0")));
+    }
+
+    /// With notice embeds, the tool message has no menu. Each notice card has
+    /// a "Should have asked" button for its call instead, and after the press
+    /// the card says who tightened the tool and loses the button; an undo
+    /// brings the button back.
+    #[test]
+    fn with_notice_embeds_each_card_gets_a_button_instead() {
+        let mut r = Renderer::new(true);
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        let (proposed, mut notice) = notified("u1", "cargo test");
+        notice["correlation_id"] = json!("act_1");
+        r.on_notification("tool.proposed", &proposed);
+        let ops = r.on_notification("policy.notified", &notice);
+        let Op::Notice { card, .. } = &ops[0] else {
+            panic!("{ops:?}")
+        };
+        assert_eq!(card.ask, Some(asked("proc.run", Some("act_1"))));
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "correlation_id": "act_1"}),
+        );
+        assert_eq!(
+            tool_message(&r.tick()).1,
+            Buttons::Keep,
+            "no menu with embeds"
+        );
+        let ops = r.on_notification(
+            "policy.tightened",
+            &json!({"tool": "proc.run", "by": "discord:eddie"}),
+        );
+        let Some(Op::Notice { key, card }) = ops.first() else {
+            panic!("{ops:?}")
+        };
+        assert_eq!((key.as_str(), card.ask.as_ref()), ("notice:u1", None));
+        assert_eq!(
+            card.fields.last(),
+            Some(&(
+                "Should have asked".to_string(),
+                "🔒 `proc.run` asks first from now on: tightened by discord:eddie".to_string()
+            ))
+        );
+        let (content, buttons) = tool_message(&ops);
+        assert!(content.contains("tightened by discord:eddie"), "{content}");
+        assert_eq!(buttons, Buttons::Keep);
+        let ops = r.on_notification("policy.untightened", &json!({"tool": "proc.run"}));
+        let Some(Op::Notice { card, .. }) = ops.first() else {
+            panic!("{ops:?}")
+        };
+        assert_eq!(card.ask, Some(asked("proc.run", Some("act_1"))));
+        assert!(card.fields.iter().all(|(n, _)| n != "Should have asked"));
     }
 
     /// The Daily Driver's proof (theseus-w4f): thirty notified calls in one

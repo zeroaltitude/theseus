@@ -24,6 +24,10 @@
 //!    `ls -la src`), so entries should be narrow;
 //! 4. otherwise the tool's posture: `[policy.tools]`, then for an MCP tool
 //!    `[policy.mcp]` "server/tool" and "server", then `[policy].enforcement`.
+//!    A runtime tightening ("should have asked", theseus-sgh) applies here,
+//!    after the config's posture, and the stricter of the two wins. So a
+//!    tightening never loosens anything, and a config that already asks is
+//!    unchanged. Like a config `approve`, it leaves the allow list alone.
 //!
 //! Reasons are written for the model and the operator to read
 //! ("proc.run — approve (enforcement = approve)").
@@ -37,7 +41,8 @@ use theseus_tools::{paths, Access, Plan, Tool};
 /// What the gate does with a call: `[policy].enforcement` (the posture every
 /// tool and MCP inherits) and each `[policy.tools]` / `[policy.mcp]` override.
 /// A config naming any other value fails to load, and the error lists these.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// They are ordered from the least strict to the strictest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Posture {
     /// Run.
@@ -57,6 +62,48 @@ impl Posture {
             Posture::Open => "open",
             Posture::Notify => "notify",
             Posture::Approve => "approve",
+        }
+    }
+
+    /// A posture by its name.
+    pub fn parse(s: &str) -> Option<Posture> {
+        Posture::ALL.into_iter().find(|p| p.as_str() == s)
+    }
+}
+
+/// A runtime tightening as the gate reads it (theseus-sgh): the posture a
+/// "should have asked" press recorded for one tool, and who pressed.
+#[derive(Debug, Clone, Copy)]
+pub struct Tightened<'a> {
+    pub posture: Posture,
+    pub by: &'a str,
+}
+
+/// A tool's posture now: the config's, or a tightening's when that is
+/// stricter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostureNow {
+    pub posture: Posture,
+    /// What chose it: the config's setting, or `tightened by <who>`.
+    pub setting: String,
+    /// What the config alone says.
+    pub config: Posture,
+    pub config_setting: String,
+}
+
+impl PostureNow {
+    /// A tightening chose the posture.
+    pub fn tightened(&self) -> bool {
+        self.posture != self.config
+    }
+
+    /// Why, as a reason's parenthesis says it: the setting, and under a
+    /// tightening what the config says as well.
+    fn why(&self) -> String {
+        if self.tightened() {
+            format!("{}; the config says {}", self.setting, self.config_setting)
+        } else {
+            self.setting.clone()
         }
     }
 }
@@ -202,8 +249,39 @@ impl ToolPolicy {
         )
     }
 
-    /// The gate's answer for one call; the order is in the module doc.
+    /// A tool's posture now: the config's posture, then a tightening, and
+    /// the stricter one wins (theseus-sgh).
+    pub fn posture_now(&self, name: &str, tightened: Option<Tightened<'_>>) -> PostureNow {
+        let (config, config_setting) = self.posture(name);
+        match tightened {
+            Some(t) if t.posture > config => PostureNow {
+                posture: t.posture,
+                setting: format!("tightened by {}", t.by),
+                config,
+                config_setting,
+            },
+            _ => PostureNow {
+                posture: config,
+                setting: config_setting.clone(),
+                config,
+                config_setting,
+            },
+        }
+    }
+
+    /// The gate's answer for one call from the config alone.
     pub fn decide(&self, tool: &dyn Tool, plan: &Plan) -> Decision {
+        self.decide_with(tool, plan, None)
+    }
+
+    /// The gate's answer for one call, with the tool's tightening if it has
+    /// one; the order is in the module doc.
+    pub fn decide_with(
+        &self,
+        tool: &dyn Tool,
+        plan: &Plan,
+        tightened: Option<Tightened<'_>>,
+    ) -> Decision {
         let name = tool.name();
         let resources: Vec<PathBuf> = plan
             .resources
@@ -257,19 +335,19 @@ impl ToolPolicy {
                 );
             }
         }
-        let (posture, setting) = self.posture(name);
-        let reason = format!("{name} — {} ({setting})", posture.as_str());
-        match posture {
-            Posture::Approve => Decision::new(posture, format!("{}: {reason}", plan.summary)),
+        let now = self.posture_now(name, tightened);
+        let reason = format!("{name} — {} ({})", now.posture.as_str(), now.why());
+        match now.posture {
+            Posture::Approve => Decision::new(now.posture, format!("{}: {reason}", plan.summary)),
             Posture::Notify => Decision {
                 notify: Some(Notice {
                     kind: "notify".into(),
-                    setting,
+                    setting: now.setting,
                     rule: reason.clone(),
                 }),
-                ..Decision::new(posture, reason)
+                ..Decision::new(now.posture, reason)
             },
-            Posture::Open => Decision::new(posture, reason),
+            Posture::Open => Decision::new(now.posture, reason),
         }
     }
 
@@ -486,6 +564,87 @@ mod tests {
         assert_eq!(p.decide(&T("fs.read"), &read).posture, Posture::Open);
         let write = plan(root.join("a.rs"), Access::Write, None);
         assert_eq!(p.decide(&T("fs.write"), &write).posture, Posture::Approve);
+    }
+
+    /// "Should have asked" (theseus-sgh): a tightening applies after the
+    /// config's posture, and the stricter one wins. Under a config that
+    /// already asks, the decision and its reason are the config's. The floor
+    /// and the approve lists ask with their own reasons, and the allow list
+    /// still runs its commands, as it does under a config `approve`.
+    #[test]
+    fn a_tightening_is_the_stricter_posture_and_never_loosens() {
+        let (_d, root) = workspace();
+        let t = Tightened {
+            posture: Posture::Approve,
+            by: "discord:eddie",
+        };
+        let cmd = |argv: Vec<&str>| plan(root.clone(), Access::Exec, Some(argv));
+        let run = cmd(vec!["cargo", "test"]);
+        for e in Posture::ALL {
+            let p = policy(&root, e);
+            let out = p.decide_with(&T("proc.run"), &run, Some(t));
+            assert_eq!(out.posture, Posture::Approve, "under {}", e.as_str());
+            assert!(out.notify.is_none() && !out.floor);
+            let want = if e == Posture::Approve {
+                "the call: proc.run — approve (enforcement = approve)".to_string()
+            } else {
+                format!(
+                    "the call: proc.run — approve (tightened by discord:eddie; the config says \
+                     enforcement = {})",
+                    e.as_str()
+                )
+            };
+            assert_eq!(out.reason, want);
+            assert_eq!(p.decide(&T("proc.run"), &run).posture, e, "untightened");
+            let write = plan(root.join("a.rs"), Access::Write, None);
+            assert_eq!(
+                p.decide_with(&T("fs.write"), &write, None).posture,
+                e,
+                "another tool keeps its posture"
+            );
+            let allowed = p.decide_with(&T("proc.run"), &cmd(vec!["git", "status"]), Some(t));
+            assert_eq!(allowed.posture, Posture::Open, "{}", allowed.reason);
+            let floor = p.decide_with(&T("proc.run"), &cmd(vec!["op", "read", "x"]), Some(t));
+            assert!(floor.floor, "{}", floor.reason);
+            let listed = p.decide_with(&T("proc.run"), &cmd(vec!["sudo", "ls"]), Some(t));
+            assert!(
+                listed
+                    .reason
+                    .ends_with("(`sudo ls` matches the approve list entry `sudo`)"),
+                "{}",
+                listed.reason
+            );
+        }
+        // A per-tool override is the config's posture too.
+        let mut p = policy(&root, Posture::Notify);
+        p.tools.insert("proc.run".into(), Posture::Open);
+        let now = p.posture_now("proc.run", Some(t));
+        assert_eq!(
+            (now.posture, now.config, now.tightened()),
+            (Posture::Approve, Posture::Open, true)
+        );
+        assert_eq!(now.setting, "tightened by discord:eddie");
+        assert_eq!(now.config_setting, "[policy.tools] \"proc.run\" = open");
+        // Stricter wins whatever the tightening says: one to notify raises an
+        // open tool to a notice, and leaves a tool that asks asking.
+        let n = Tightened {
+            posture: Posture::Notify,
+            by: "sock#1",
+        };
+        let out = policy(&root, Posture::Open).decide_with(&T("proc.run"), &run, Some(n));
+        assert_eq!(out.posture, Posture::Notify);
+        assert_eq!(
+            out.notify.map(|x| x.setting).as_deref(),
+            Some("tightened by sock#1")
+        );
+        let out = policy(&root, Posture::Approve).decide_with(&T("proc.run"), &run, Some(n));
+        assert_eq!(
+            out.reason,
+            "the call: proc.run — approve (enforcement = approve)"
+        );
+        assert!(Posture::Open < Posture::Notify && Posture::Notify < Posture::Approve);
+        assert_eq!(Posture::parse("notify"), Some(Posture::Notify));
+        assert_eq!(Posture::parse("deny"), None);
     }
 
     #[test]

@@ -15,7 +15,7 @@ use theseus_protocol::{
 use super::confirms::waiting_by_execution;
 use super::server::{Conn, RpcFailure};
 use super::{Core, META_LIVE_PROFILE};
-use crate::approval::{Answerer, Refusal};
+use crate::approval::Refusal;
 use crate::bus::EventSink;
 use crate::compiler::Recompile;
 use crate::ledger::LedgerRow;
@@ -62,6 +62,7 @@ impl Core {
             bindings: self.bindings.all(),
             narrative: self.narrator.on(),
             approval: self.approval_status(),
+            tightenings: self.tools.tightened.all(),
         }
     }
 
@@ -479,13 +480,7 @@ impl Core {
                 self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
             }
         }
-        // Who answered, as the connection knows it: its label names, and its
-        // surface and the binding's Discord ids decide (theseus-sgh).
-        let who = Answerer {
-            label: p.author.unwrap_or_else(|| conn.client.to_string()),
-            surface: conn.surface,
-            discord: p.discord,
-        };
+        let who = conn.answerer(p.author, p.discord);
         self.confirm_action(&p.correlation_id, p.approve, p.note.as_deref(), who)
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {
@@ -505,16 +500,23 @@ impl Core {
             .tools
             .registry
             .all()
-            .map(|t| theseus_protocol::ToolInfo {
-                name: t.name().into(),
-                wire_name: theseus_tools::wire_name(t.name()),
-                family: t.family().into(),
-                description: t.description().into(),
-                class: t.class().as_str().into(),
-                backend: t.backend().as_str().into(),
-                policy: self.tools.policy.posture(t.name()).0.as_str().into(),
-                input_schema: t.input_schema(),
-                calls: calls.get(t.name()).copied().unwrap_or(0),
+            .map(|t| {
+                let now = self.tools.posture_now(t.name());
+                theseus_protocol::ToolInfo {
+                    name: t.name().into(),
+                    wire_name: theseus_tools::wire_name(t.name()),
+                    family: t.family().into(),
+                    description: t.description().into(),
+                    class: t.class().as_str().into(),
+                    backend: t.backend().as_str().into(),
+                    policy: now.posture.as_str().into(),
+                    setting: now.setting,
+                    config_posture: now.config.as_str().into(),
+                    config_setting: now.config_setting,
+                    tightened: self.tools.tightened.get(t.name()),
+                    input_schema: t.input_schema(),
+                    calls: calls.get(t.name()).copied().unwrap_or(0),
+                }
             })
             .collect();
         theseus_protocol::ToolListResult {

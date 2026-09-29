@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ConfirmRequest, NodeInfo, ProviderErrorData, Span, TurnResult, Usage } from './protocol'
+import type { ConfirmRequest, NodeInfo, ProviderErrorData, Span, Tightening, TightenResult, TurnResult, Usage } from './protocol'
 import TraceView from './TraceView'
 
 // The transcript is rebuilt from the session's durable nodes (session.history):
@@ -29,6 +29,9 @@ export interface TranscriptProps {
   onConfirm: (correlationId: string, approve: boolean, note: string) => Promise<void>
   onLoadTrace: (turnId: string) => void
   now: number
+  /// Tool → its tightening ("should have asked", theseus-sgh), from health.
+  tightened: Record<string, Tightening>
+  onTighten: (tool: string, correlationId: string) => Promise<TightenResult>
 }
 
 const fmt = (n: number) => n.toLocaleString()
@@ -180,7 +183,33 @@ function ResultLine({ r, open }: { r: NodeInfo; open: boolean }) {
   )
 }
 
-function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
+/// "Should have asked" on a notice (theseus-sgh): one press makes the tool ask first from
+/// now on, on every surface. Once it does, the notice says so instead.
+function ShouldHaveAsked({ tool, corr, tightened, onTighten }: {
+  tool: string; corr: string; tightened: Tightening | undefined; onTighten: TranscriptProps['onTighten']
+}) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  if (tightened) {
+    return <span className="muted small" title={`tightened by ${tightened.by} · undo it in the Observatory's Tools view`}>asks first now</span>
+  }
+  const press = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setBusy(true); setErr(null)
+    onTighten(tool, corr).catch((x: { message?: string }) => setErr(x.message ?? String(x))).finally(() => setBusy(false))
+  }
+  return (
+    <>
+      <button type="button" className="link small" disabled={busy} onClick={press}
+        title={`${tool} asks first from now on, on every surface. It only tightens; undo it in the Observatory's Tools view.`}>
+        should have asked
+      </button>
+      {err && <span className="warn small">{err}</span>}
+    </>
+  )
+}
+
+function ToolCard({ call, use, results, confirm, running, onConfirm, now, tightened, onTighten }: {
   call: NodeInfo | null
   use: { id: string; name: string; input: unknown }
   results: NodeInfo[]
@@ -188,6 +217,8 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
   running: LiveTurn['running'][string] | undefined
   onConfirm: TranscriptProps['onConfirm']
   now: number
+  tightened: TranscriptProps['tightened']
+  onTighten: TranscriptProps['onTighten']
 }) {
   const [open, setOpen] = useState(false)
   const d = (call?.detail ?? {}) as Record<string, unknown>
@@ -204,6 +235,7 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now }: {
         <span className="tool-sum">{callSummary(tool, input)}</span>
         {gate && <span className={`pill ${GATE_CLASS[gate] ?? ''}`} title={decision?.reason ?? ''}>{gate}</span>}
         {notice && gate !== 'notify' && <span className="pill warn" title={`${notice.setting}\n${notice.rule}`}>notified</span>}
+        {notice && <ShouldHaveAsked tool={tool} corr={str(d.correlation_id)} tightened={tightened[tool]} onTighten={onTighten} />}
         {running && results.length === 0 && <span className="accent small">running {Math.max(0, Math.round((now - running.startedAt) / 1000))} s…</span>}
       </div>
       {open && (
@@ -317,7 +349,7 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
                   return <div key={u.id} className="tool queued"><div className="tool-head"><span className="chev">·</span><code className="tool-name">{wireToName(u.name)}</code><span className="tool-sum">{callSummary(wireToName(u.name), u.input)}</span><span className="muted small">waits for the call before it</span></div></div>
                 }
                 return <ToolCard key={u.id} call={call} use={u} results={res} confirm={corr ? confirmByCorr.get(corr) : undefined}
-                  running={live?.running[u.id]} onConfirm={p.onConfirm} now={p.now} />
+                  running={live?.running[u.id]} onConfirm={p.onConfirm} now={p.now} tightened={p.tightened} onTighten={p.onTighten} />
               })}
             </div>
           )

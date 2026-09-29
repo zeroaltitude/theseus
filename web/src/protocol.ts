@@ -36,6 +36,24 @@ export interface Health {
   narrative?: boolean
   /// `[approval]`: who may answer a waiting call, and where (theseus-sgh).
   approval?: ApprovalStatus
+  /// The tools that ask first because someone pressed "should have asked" (theseus-sgh).
+  tightenings?: Tightening[]
+}
+
+/// A runtime tightening (theseus-sgh): one press on a notice made a tool ask first. It is
+/// stored, never configured, and the stricter of it and the config wins.
+export interface Tightening {
+  tool: string; posture: string; by: string; who?: string; via?: string; at_ms: number
+  /// The call whose notice was pressed, and its proposal digest.
+  correlation_id?: string | null; session_id?: string | null; digest?: string | null
+}
+
+/// What `policy.tighten` or `policy.untighten` did; also the params of `policy.tightened`
+/// and `policy.untightened`.
+export interface TightenResult {
+  tool: string; by: string; tightening: Tightening
+  posture: string; setting: string; config_posture: string; config_setting: string
+  changed: boolean; already?: boolean
 }
 
 /// `[approval]` as health reports it. Not configured: every surface answers
@@ -175,7 +193,10 @@ export interface CatalogList { version: string; models: CatalogModel[] }
 
 export interface ToolInfo {
   name: string; wire_name: string; family: string; description: string
+  /// `policy` is the posture the gate applies now; `setting` is what chose it.
   class: string; backend: string; policy: string; input_schema: unknown; calls: number
+  setting?: string; config_posture?: string; config_setting?: string
+  tightened?: Tightening | null
 }
 export interface ToolList { tools: ToolInfo[]; roots: string[]; shell_fallback_ratio: number; calls_total: number }
 

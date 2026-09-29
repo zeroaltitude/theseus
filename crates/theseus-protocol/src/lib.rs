@@ -56,6 +56,12 @@ pub mod method {
     /// line as a `narrative.line` notification until `narrative.unwatch`.
     pub const NARRATIVE_WATCH: &str = "narrative.watch";
     pub const NARRATIVE_UNWATCH: &str = "narrative.unwatch";
+    /// "Should have asked" (theseus-sgh): the tool asks first from now on.
+    /// Stored, never in the config; it can only make a tool stricter.
+    pub const POLICY_TIGHTEN: &str = "policy.tighten";
+    /// Undo a tightening: the tool goes back to what the config says. It
+    /// loosens, so it takes the same trusted answer as an approval.
+    pub const POLICY_UNTIGHTEN: &str = "policy.untighten";
 }
 
 /// Notification names (server → client).
@@ -85,6 +91,11 @@ pub mod notify {
     /// A call ran under a `notify` posture (`[policy].enforcement`, or a
     /// `[policy.tools]` / `[policy.mcp]` line), and the operator is told.
     pub const POLICY_NOTIFIED: &str = "policy.notified";
+    /// A tool was tightened, or its tightening undone (theseus-sgh). These go
+    /// to every connection watching a session, once each, since a tightening
+    /// holds for every session. The params are a `TightenResult`.
+    pub const POLICY_TIGHTENED: &str = "policy.tightened";
+    pub const POLICY_UNTIGHTENED: &str = "policy.untightened";
     /// One line of the narrative, to every `narrative.watch` subscriber.
     /// Unlike the others it is not a ledger row: the narrative is never stored.
     pub const NARRATIVE_LINE: &str = "narrative.line";
@@ -248,6 +259,92 @@ pub struct HealthResult {
     /// Who may answer a waiting call, and through which channels (theseus-sgh).
     #[serde(default)]
     pub approval: ApprovalStatus,
+    /// The tools that ask first because someone pressed "should have asked"
+    /// (theseus-sgh), oldest first. They are stored, not configured.
+    #[serde(default)]
+    pub tightenings: Vec<Tightening>,
+}
+
+/// A runtime tightening (theseus-sgh, spec §3.9): one press on a notice made
+/// a tool ask first from then on. The gate applies it after the config's
+/// posture, and the stricter of the two wins, so it never loosens anything.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tightening {
+    /// The tool's canonical name (`proc.run`).
+    pub tool: String,
+    /// What the tool asks at least: `approve`.
+    pub posture: String,
+    /// Who pressed, as a label (`discord:eddie`, `sock#3`, `web#1`).
+    pub by: String,
+    /// Who pressed, as the approval rule knows them: a Discord user by id,
+    /// anyone else by label.
+    #[serde(default)]
+    pub who: String,
+    /// The channel it came through, as `[approval].channels` names it
+    /// (`cli`, `web`, `discord:dm`, `discord:<channel id>`).
+    #[serde(default)]
+    pub via: String,
+    pub at_ms: u64,
+    /// The call whose notice was pressed. With `digest` and `tool`, it is a
+    /// labeled example for later judgment work (Jev, M5). A press from the
+    /// CLI without `--call` names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// The call's proposal digest (its action's `args_digest`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+}
+
+/// `policy.tighten`: make a tool ask first from now on.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PolicyTightenParams {
+    pub tool: String,
+    /// The call whose notice was pressed, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    /// Who pressed, as a label. Default: the connection. It names and
+    /// proves nothing; the connection's surface decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Set by the Discord binding: the channel and user the press came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// `policy.untighten`: the tool goes back to what the config says.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PolicyUntightenParams {
+    pub tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// What a tighten or an undo did, and the tool's posture now. Also the
+/// params of `policy.tightened` and `policy.untightened`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TightenResult {
+    pub tool: String,
+    /// Who made this change: the one who pressed, or the one who undid it.
+    pub by: String,
+    /// The tightening recorded (tighten) or removed (untighten).
+    pub tightening: Tightening,
+    /// The posture the gate applies to the tool now, and the setting that
+    /// chose it.
+    pub posture: String,
+    pub setting: String,
+    /// What the config alone says.
+    pub config_posture: String,
+    pub config_setting: String,
+    /// The tool's posture changed. False for a press under a config that
+    /// already asks, and for an undo the config still asks under.
+    pub changed: bool,
+    /// The tool was tightened already, so nothing was recorded.
+    #[serde(default)]
+    pub already: bool,
 }
 
 /// `[approval]` as health reports it (spec §3.9 "Approval"): the trusted
@@ -979,8 +1076,21 @@ pub struct ToolInfo {
     pub class: String,
     /// `inproc` or `job`.
     pub backend: String,
-    /// Its posture today: `open`, `notify`, or `approve`.
+    /// The posture the gate applies now: `open`, `notify`, or `approve`.
     pub policy: String,
+    /// What chose it: a config setting (`enforcement = notify`), or a
+    /// tightening (`tightened by discord:eddie`).
+    #[serde(default)]
+    pub setting: String,
+    /// What the config alone says (theseus-sgh). It differs from `policy`
+    /// only while a tightening is stricter.
+    #[serde(default)]
+    pub config_posture: String,
+    #[serde(default)]
+    pub config_setting: String,
+    /// Someone pressed "should have asked" for this tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tightened: Option<Tightening>,
     pub input_schema: Value,
     /// Calls since the daemon started.
     #[serde(default)]

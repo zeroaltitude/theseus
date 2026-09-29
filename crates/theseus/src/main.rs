@@ -36,6 +36,7 @@ Quick start:
   theseus watch [session]                    follow a session live (turns started anywhere)
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
   theseus tools                              the toollets, their policy, and calls so far
+  theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
   theseus catalog                            models, context windows, and prices
   theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn
   theseus shutdown
@@ -151,6 +152,13 @@ enum Cmd {
         #[arg(long, short)]
         verbose: bool,
     },
+    /// "Should have asked": make a tool ask first from now on, undo it, or list every tool's
+    /// posture and what set it. A tightening is stored, never in the config, and only makes a
+    /// tool stricter; an undo returns the tool to what the config says.
+    Policy {
+        #[command(subcommand)]
+        cmd: Option<PolicyCmd>,
+    },
     /// The model catalog: context windows, output limits, prices per million tokens.
     Catalog,
     /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
@@ -188,6 +196,23 @@ enum Cmd {
     },
     /// Ask the server to stop cleanly (removes its socket).
     Shutdown,
+}
+
+#[derive(Subcommand, Debug)]
+enum PolicyCmd {
+    /// Every tool's posture now and what set it, with the tightenings (default).
+    List,
+    /// TOOL asks first from now on, on every surface (e.g. `theseus policy tighten proc.run`).
+    Tighten {
+        tool: String,
+        /// The call whose notice prompted it (a correlation id from `theseus ledger -k
+        /// tool.notified`), kept with the tightening as a labeled example.
+        #[arg(long = "call", value_name = "CORRELATION_ID")]
+        call: Option<String>,
+    },
+    /// Undo a tightening: TOOL goes back to what the config says. It loosens, so it counts only
+    /// where an approval would.
+    Untighten { tool: String },
 }
 
 #[derive(Subcommand, Debug)]
@@ -690,9 +715,14 @@ async fn run(cli: Cli) -> Result<()> {
                     "tool", "wire name", "class", "backend", "posture", "calls"
                 );
                 for t in &l.tools {
+                    // `*`: a "should have asked" press set it (theseus policy list).
+                    let posture = match &t.tightened {
+                        Some(_) if t.policy != t.config_posture => format!("{}*", t.policy),
+                        _ => t.policy.clone(),
+                    };
                     println!(
                         "{:<12} {:<12} {:<6} {:<7} {:<8} {:>6}",
-                        t.name, t.wire_name, t.class, t.backend, t.policy, t.calls
+                        t.name, t.wire_name, t.class, t.backend, posture, t.calls
                     );
                     if verbose {
                         println!("    {}", t.description);
@@ -707,6 +737,59 @@ async fn run(cli: Cli) -> Result<()> {
                 );
             }
         }
+        Cmd::Policy { cmd } => match cmd.unwrap_or(PolicyCmd::List) {
+            PolicyCmd::List => {
+                let tools = conn.call(method::TOOL_LIST, Value::Null, |_, _| {}).await?;
+                let health = conn.call(method::HEALTH, Value::Null, |_, _| {}).await?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"tools": tools["tools"], "tightenings": health["tightenings"]})
+                    );
+                } else {
+                    let l: ToolListResult = serde_json::from_value(tools)?;
+                    let h: HealthResult = serde_json::from_value(health)?;
+                    print!("{}", policy_list(&l, &h.tightenings));
+                }
+            }
+            PolicyCmd::Tighten { tool, call } => {
+                let v = conn
+                    .call(
+                        method::POLICY_TIGHTEN,
+                        serde_json::to_value(theseus_protocol::PolicyTightenParams {
+                            tool,
+                            correlation_id: call,
+                            author: None,
+                            discord: None,
+                        })?,
+                        |_, _| {},
+                    )
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    println!("{}", tightened_line(&serde_json::from_value(v)?, true));
+                }
+            }
+            PolicyCmd::Untighten { tool } => {
+                let v = conn
+                    .call(
+                        method::POLICY_UNTIGHTEN,
+                        serde_json::to_value(theseus_protocol::PolicyUntightenParams {
+                            tool,
+                            author: None,
+                            discord: None,
+                        })?,
+                        |_, _| {},
+                    )
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    println!("{}", tightened_line(&serde_json::from_value(v)?, false));
+                }
+            }
+        },
         Cmd::Catalog => {
             let v = conn
                 .call(method::CATALOG_LIST, Value::Null, |_, _| {})
@@ -829,6 +912,17 @@ async fn run(cli: Cli) -> Result<()> {
                     );
                 }
                 print_approval(&h.approval);
+                if !h.tightenings.is_empty() {
+                    let t: Vec<String> = h
+                        .tightenings
+                        .iter()
+                        .map(|t| format!("{} (by {}, {})", t.tool, t.by, fmt_time(t.at_ms)))
+                        .collect();
+                    println!(
+                        "tightened (should have asked): {} · undo: theseus policy untighten <tool>",
+                        t.join(", ")
+                    );
+                }
             }
         }
         Cmd::Sessions { cmd } => match cmd.unwrap_or(SessionsCmd::List) {
@@ -1361,6 +1455,85 @@ fn budget_line(b: &theseus_protocol::BudgetInfo) -> String {
 
 /// Health's `[approval]` (theseus-sgh): who may answer, and each listed
 /// channel's state, with the reason for any that is not trusted.
+/// `theseus policy list`: every tool's posture now and what set it, then any
+/// tightening of a tool this daemon does not register.
+fn policy_list(l: &ToolListResult, tightenings: &[theseus_protocol::Tightening]) -> String {
+    let mut out = format!("{:<12} {:<8} set by\n", "tool", "posture");
+    for t in &l.tools {
+        let set_by = match &t.tightened {
+            Some(x) if t.policy != t.config_posture => format!(
+                "{} at {}{} (the config says {}, {})",
+                t.setting,
+                fmt_time(x.at_ms),
+                x.correlation_id
+                    .as_deref()
+                    .map(|c| format!(", from {c}"))
+                    .unwrap_or_default(),
+                t.config_posture,
+                t.config_setting
+            ),
+            Some(x) => format!(
+                "{} (also tightened by {} at {})",
+                t.setting,
+                x.by,
+                fmt_time(x.at_ms)
+            ),
+            None => t.setting.clone(),
+        };
+        out.push_str(&format!("{:<12} {:<8} {set_by}\n", t.name, t.policy));
+    }
+    for x in tightenings
+        .iter()
+        .filter(|x| !l.tools.iter().any(|t| t.name == x.tool))
+    {
+        out.push_str(&format!(
+            "{:<12} {:<8} tightened by {} at {} (not a tool this daemon has)\n",
+            x.tool,
+            x.posture,
+            x.by,
+            fmt_time(x.at_ms)
+        ));
+    }
+    let n = tightenings.len();
+    out.push_str(&match n {
+        0 => "no tightenings: every posture is the config's\n".to_string(),
+        _ => format!(
+            "{n} tightening{} · undo one with `theseus policy untighten <tool>`\n",
+            if n == 1 { "" } else { "s" }
+        ),
+    });
+    out
+}
+
+/// One line saying what `policy tighten` (`tightened`) or `policy untighten`
+/// did.
+fn tightened_line(r: &theseus_protocol::TightenResult, tightened: bool) -> String {
+    match (tightened, r.already, r.changed) {
+        (true, true, _) => format!(
+            "{} already asks first: tightened by {} at {}",
+            r.tool,
+            r.tightening.by,
+            fmt_time(r.tightening.at_ms)
+        ),
+        (true, false, true) => format!(
+            "{} now asks first: tightened by {} (the config says {}, {}) · undo: theseus policy untighten {}",
+            r.tool, r.by, r.config_posture, r.config_setting, r.tool
+        ),
+        (true, false, false) => format!(
+            "{} already asks ({}); tightened by {} as well, so it keeps asking if the config changes",
+            r.tool, r.config_setting, r.by
+        ),
+        (false, _, true) => format!(
+            "{} is back to what the config says: {} ({}); the tightening by {} is undone",
+            r.tool, r.posture, r.setting, r.tightening.by
+        ),
+        (false, _, false) => format!(
+            "the tightening of {} by {} is undone; the config still asks ({})",
+            r.tool, r.tightening.by, r.setting
+        ),
+    }
+}
+
 fn print_approval(a: &theseus_protocol::ApprovalStatus) {
     if !a.configured {
         println!(
@@ -1581,12 +1754,23 @@ impl Printer {
             }
             notify::POLICY_NOTIFIED => {
                 self.settle();
+                let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
                 eprintln!(
-                    "  ! notified: {}: {}\n      ({})",
-                    p.get("tool").and_then(Value::as_str).unwrap_or("?"),
+                    "  ! notified: {tool}: {}\n      ({}) · should have asked: theseus policy tighten {tool}{}",
                     p.get("summary").and_then(Value::as_str).unwrap_or(""),
-                    p.get("setting").and_then(Value::as_str).unwrap_or("")
+                    p.get("setting").and_then(Value::as_str).unwrap_or(""),
+                    p.get("correlation_id")
+                        .and_then(Value::as_str)
+                        .map(|c| format!(" --call {c}"))
+                        .unwrap_or_default()
                 );
+            }
+            notify::POLICY_TIGHTENED | notify::POLICY_UNTIGHTENED => {
+                self.settle();
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::TightenResult>(p.clone())
+                {
+                    eprintln!("  🔒 {}", tightened_line(&r, m == notify::POLICY_TIGHTENED));
+                }
             }
             notify::CONFIRM_RESOLVED => {
                 self.settle();
@@ -1663,6 +1847,95 @@ impl Printer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tool(name: &str, policy: &str, config: &str, setting: &str) -> theseus_protocol::ToolInfo {
+        theseus_protocol::ToolInfo {
+            name: name.into(),
+            wire_name: name.replace('.', "_"),
+            family: String::new(),
+            description: String::new(),
+            class: "run".into(),
+            backend: "job".into(),
+            policy: policy.into(),
+            setting: setting.into(),
+            config_posture: config.into(),
+            config_setting: "enforcement = notify".into(),
+            tightened: None,
+            input_schema: Value::Null,
+            calls: 0,
+        }
+    }
+
+    /// `theseus policy list` says what set each posture, and marks a
+    /// tightening with who, when, and the call; `tighten` and `untighten`
+    /// say what changed (theseus-sgh).
+    #[test]
+    fn policy_list_and_its_lines_say_what_set_each_posture() {
+        let t = theseus_protocol::Tightening {
+            tool: "proc.run".into(),
+            posture: "approve".into(),
+            by: "discord:eddie".into(),
+            at_ms: 3_600_000,
+            correlation_id: Some("act_1".into()),
+            ..Default::default()
+        };
+        let mut run = tool(
+            "proc.run",
+            "approve",
+            "notify",
+            "tightened by discord:eddie",
+        );
+        run.tightened = Some(t.clone());
+        let l = ToolListResult {
+            tools: vec![
+                run,
+                tool("fs.write", "notify", "notify", "enforcement = notify"),
+            ],
+            roots: vec![],
+            shell_fallback_ratio: 0.0,
+            calls_total: 0,
+        };
+        let gone = theseus_protocol::Tightening {
+            tool: "mcp:x/y".into(),
+            ..t.clone()
+        };
+        let out = policy_list(&l, &[t.clone(), gone]);
+        assert!(
+            out.contains(
+                "proc.run     approve  tightened by discord:eddie at 01:00:00.000Z, from act_1 \
+                 (the config says notify, enforcement = notify)"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains("fs.write     notify   enforcement = notify"),
+            "{out}"
+        );
+        assert!(
+            out.contains("mcp:x/y      approve  tightened by discord:eddie"),
+            "{out}"
+        );
+        assert!(out.ends_with("2 tightenings · undo one with `theseus policy untighten <tool>`\n"));
+        let r = theseus_protocol::TightenResult {
+            tool: "proc.run".into(),
+            by: "sock#3".into(),
+            tightening: t,
+            posture: "notify".into(),
+            setting: "enforcement = notify".into(),
+            config_posture: "notify".into(),
+            config_setting: "enforcement = notify".into(),
+            changed: true,
+            already: false,
+        };
+        assert_eq!(
+            tightened_line(&r, false),
+            "proc.run is back to what the config says: notify (enforcement = notify); the \
+             tightening by discord:eddie is undone"
+        );
+        assert!(
+            tightened_line(&r, true).starts_with("proc.run now asks first: tightened by sock#3")
+        );
+    }
 
     #[test]
     fn attach_sends_a_text_files_text_and_lists_anything_else() {

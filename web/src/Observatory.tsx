@@ -32,7 +32,7 @@ function State({ s }: { s: string }) {
   return <span className={`pill ${STATE_CLASS[s] ?? ''}`}>{s.replace('_', ' ')}</span>
 }
 
-const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'approval.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.', 'discord.', 'store.'] as const
+const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'approval.', 'policy.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.', 'discord.', 'store.'] as const
 const BINDING_CLASS: Record<string, string> = {
   ready: 'ok', connecting: 'accent', starting: 'accent', resuming: 'warn',
   unconfigured: 'muted', disabled: 'muted', disconnected: 'bad', failed: 'bad',
@@ -145,6 +145,26 @@ export default function Observatory({ client, health, tick, currentSession, onRe
       onCancelled?.()
     } catch (err) { setError((err as { message?: string }).message ?? String(err)) }
   }, [client, refresh, onCancelled])
+
+  // "Should have asked" and its undo (theseus-sgh). A refused undo says why here.
+  const [policyNote, setPolicyNote] = useState<string | null>(null)
+  const tighten = useCallback(async (tool: string, correlationId: string) => {
+    try {
+      await client.call('policy.tighten', { tool, correlation_id: correlationId || undefined })
+      setPolicyNote(`${tool} asks first from now on`)
+      await refresh()
+    } catch (err) { setPolicyNote((err as { message?: string }).message ?? String(err)) }
+  }, [client, refresh])
+  const untighten = useCallback(async (tool: string) => {
+    if (!confirm(`Undo the tightening of ${tool}? It goes back to what the config says, which may run it without asking.`)) return
+    try {
+      await client.call('policy.untighten', { tool })
+      setPolicyNote(`${tool} is back to what the config says`)
+      await refresh()
+    } catch (err) { setPolicyNote((err as { message?: string }).message ?? String(err)) }
+  }, [client, refresh])
+  const tightenings = health?.tightenings ?? []
+  const isTightened = (tool: string) => tightenings.some((t) => t.tool === tool)
 
   const sessionOf = useMemo(() => {
     const m = new Map<string, string>()
@@ -264,7 +284,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
       </ObsSection>
 
       <ObsSection id="tools" title="Tools" open={!!open.tools} onToggle={() => toggle('tools')}
-        count={tools ? `${tools.tools.length} toollets · ${tools.calls_total} call${tools.calls_total === 1 ? '' : 's'} since start · shell fallback ${(tools.shell_fallback_ratio * 100).toFixed(0)}%` : ''}>
+        count={tools ? `${tools.tools.length} toollets · ${tools.calls_total} call${tools.calls_total === 1 ? '' : 's'} since start · shell fallback ${(tools.shell_fallback_ratio * 100).toFixed(0)}%${tightenings.length ? ` · ${tightenings.length} tightened` : ''}` : ''}>
         {tools && (
           <>
             <div className="pad small muted">roots: {tools.roots.map((r) => <code key={r}>{r} </code>)} · <b>proc.run</b> (typed argv) is the only shell path; the shell-fallback ratio is proc.run calls over all calls.</div>
@@ -276,13 +296,39 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                     <td><code>{t.name}</code></td>
                     <td className="muted">{t.class}</td>
                     <td className="muted">{t.backend}</td>
-                    <td><span className={`pill ${t.policy === 'open' ? 'ok' : t.policy === 'notify' ? 'warn' : t.policy === 'approve' ? 'accent' : 'bad'}`}>{t.policy}</span></td>
+                    <td title={t.setting ? `${t.setting}${t.config_posture && t.config_posture !== t.policy ? `\nthe config says ${t.config_posture} (${t.config_setting ?? ''})` : ''}` : ''}>
+                      <span className={`pill ${t.policy === 'open' ? 'ok' : t.policy === 'notify' ? 'warn' : t.policy === 'approve' ? 'accent' : 'bad'}`}>{t.policy}</span>
+                      {t.tightened && t.config_posture !== t.policy && <span className="accent small"> tightened</span>}
+                    </td>
                     <td>{t.calls || <span className="muted">0</span>}</td>
                     <td className="muted small desc" title={t.description}>{t.description}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            <div className="pad small muted">
+              <b>Should have asked:</b> one press on a notice makes that tool ask first from then on. It is stored, never in the config,
+              and only tightens: the stricter of it and the config wins. Undo returns the tool to what the config says, so it counts only
+              where an approval would.
+            </div>
+            {policyNote && <div className="pad small accent">{policyNote}</div>}
+            {tightenings.length > 0 && (
+              <table className="obs-table">
+                <thead><tr><th>tightened</th><th>since</th><th>by</th><th>via</th><th>the call</th><th></th></tr></thead>
+                <tbody>
+                  {tightenings.map((t) => (
+                    <tr key={t.tool} title={t.digest ? `proposal digest ${t.digest}` : 'pressed without naming a call'}>
+                      <td><code>{t.tool}</code> <span className="muted small">asks first</span></td>
+                      <td className="muted small" title={clock(t.at_ms)}>{ago(t.at_ms, now)}</td>
+                      <td className="small">{t.by}</td>
+                      <td className="muted small">{t.via ?? ''}</td>
+                      <td className="muted small">{t.correlation_id ? <code>{short(t.correlation_id)}</code> : '—'}{t.session_id && <> · {sessionTitle(t.session_id)}</>}</td>
+                      <td><button type="button" className="link danger" onClick={() => void untighten(t.tool)}>undo</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </>
         )}
       </ObsSection>
@@ -505,6 +551,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
               <code className={`kind ${r.kind.split('.')[0]}`}>{r.kind}</code>
               <span className="muted small ids">{r.session_id ? short(r.session_id) : ''}{r.turn_id ? ` · ${short(r.turn_id)}` : ''}</span>
               <span className="summary muted">{summarize(r)}</span>
+              {r.kind === 'tool.notified' && <NoticeAsk r={r} tightened={isTightened} onTighten={tighten} />}
               {openRow === r.position && <pre className="ldata">{JSON.stringify(r.data, null, 2)}</pre>}
             </div>
           ))}
@@ -583,6 +630,21 @@ export default function Observatory({ client, health, tick, currentSession, onRe
   )
 }
 
+/// "Should have asked" on a notice's ledger row (theseus-sgh), or a note that its tool asks first now.
+function NoticeAsk({ r, tightened, onTighten }: {
+  r: LedgerEntry; tightened: (tool: string) => boolean; onTighten: (tool: string, correlationId: string) => Promise<void>
+}) {
+  const d = (r.data ?? {}) as Record<string, unknown>
+  const tool = typeof d.tool === 'string' ? d.tool : ''
+  if (!tool) return null
+  if (tightened(tool)) return <span className="muted small"> · asks first now</span>
+  const corr = typeof d.correlation_id === 'string' ? d.correlation_id : ''
+  return (
+    <button type="button" className="link small" title={`${tool} asks first from now on, on every surface; undo it in the Tools view`}
+      onClick={(e) => { e.stopPropagation(); void onTighten(tool, corr) }}>should have asked</button>
+  )
+}
+
 function ObsSection({ title, count, open, onToggle, children }: {
   id: string; title: string; count?: string; open: boolean; onToggle: () => void; children: React.ReactNode
 }) {
@@ -646,7 +708,10 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`
     case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
     case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('via') ? ` via ${s('via')}` : ''}${g('note') ? ` · ${s('note')}` : ''}`
-    case r.kind === 'approval.refused': return `${s('tool')} · ${s('who')} via ${s('via')} did not count: ${s('why')}`
+    case r.kind === 'approval.refused': return `${g('act') === 'policy.untighten' ? 'undo of ' : g('act') === 'policy.tighten' ? 'should have asked for ' : ''}${s('tool')} · ${s('who')} via ${s('via')} did not count: ${s('why')}`
+    case r.kind === 'policy.tightened': return `${s('tool')} asks first: tightened by ${s('by')} via ${s('via')}${g('correlation_id') ? ` · from ${s('correlation_id')}` : ''}${g('changed') === false ? ` · the config already asks (${s('config_setting')})` : ` · the config says ${s('config_posture')}`}`
+    case r.kind === 'policy.untightened': return `${s('tool')} back to ${s('posture')} (${s('setting')}) · undone by ${s('by')} via ${s('via')} · tightened by ${s('tightened_by')}`
+    case r.kind === 'discord.tighten': return `should have asked: ${s('tool')} by ${s('by')}${g('ok') ? '' : ` · failed: ${s('error')}`}`
     case r.kind === 'approval.channel_checked': return `${s('channel')} · ${g('trusted') ? 'trusted' : 'not trusted'}: ${s('detail')}`
     case r.kind === 'turn.trace': return 'timing tree (open for spans)'
     case r.kind === 'discord.message.in': return `${s('place')} · from ${s('author')} · ${s('chars')} chars`
