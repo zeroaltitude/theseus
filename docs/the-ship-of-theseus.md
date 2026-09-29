@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.45
+# The Ship of Theseus — v0.46
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -555,11 +555,28 @@ The core is a **server**. Nothing else in the system, not the CLI, not Discord, 
 Opinionated, and simple. **Every secret lives in 1Password**, in the deployment's vault, and Theseus reads it at startup through a **service account**. The only secret the process may receive by any other path is the service-account token itself, from the environment or from a mode-0600 file whose path is configured.
 
 - **Config** is a TOML document stored as a 1Password item (`theseus/config`) so the whole deployment is reconstructible from the vault. It may also be a local file for development; the schema is identical. Secret-valued fields are `op://vault/item/field` references, never values.
-- **Resolution** happens once at startup and on an explicit `config.reload`; resolved values are held in memory in zeroizing containers, never written to disk, config, logs, the ledger, or a provider request except where they belong (an `Authorization` header). The redaction receipt system (§5.6) treats a leaked secret as must-not-exist content.
+- **Resolution** starts at startup, in the background, and again on an explicit `config.reload`.
+  - The daemon serves first (§2 FAST). It opens the store, runs the kernel's startup, and answers its
+    socket while the secrets resolve.
+  - One `op inject` fetches every reference: one process and one vault session. Measured against
+    concurrent `op read`s, it is about as fast and costs a sixth of the CPU (theseus-qa0). If it fails, one
+    `op read` per reference names each bad one.
+  - A secret that fails is fetched again after 5 s, then at doubling intervals up to a minute.
+  - Resolved values are held in memory in zeroizing containers. They are never written to disk, config,
+    logs, the ledger, or a provider request, except where they belong (an `Authorization` header).
+- **Each consumer waits for its own secret, and fails closed.**
+  - A turn waits for its provider's key, and for the first round of every secret, because the scrubber must
+    know each value before a tool result passes through it. The wait is bounded at 30 s. Then the turn runs,
+    or it is refused with the class `secret_failed` or `secret_resolving`.
+  - The Discord binding waits for its token, and never connects without it.
+  - The GitHub token check and the telemetry exporter wait for theirs.
+  - Health reports `secrets: resolving | ready | failed <names>`, with each failure's reason. The ledger
+    records `secrets.resolved` and `secrets.failed`.
+  _(Amended 2026-09-29, theseus-qa0: until then resolution ran before serving, and the process refused to start on a missing secret; Part III A3c.)_
 - **Mechanism.** The first version shells out to the `op` CLI (`op read op://…`) under the service-account token, because 1Password publishes no first-party Rust SDK; the community FFI wrappers around its C core exist and are the candidate for removing the `op` dependency later, once they are shown to build statically. References resolve concurrently at startup. The service account is read-only, so the config item is created by a human once; Theseus never writes to the vault.
 - **Configuration is documented by its template, and the template is tested.** `theseusd example-config` prints a hand-written annotated TOML in which every parameter the code reads appears exactly once, set to its default or commented out with its default shown, with a line saying what it does. Three tests keep it honest: it parses and validates; a copy with every comment un-commented also parses under `deny_unknown_fields`, so no stale or not-yet-honored key can survive in it; and every key the loader can read appears in it, so no field can be added without documenting it. The consequence is a rule: config keys are not defined before code honors them; work not yet built is recorded in Part III, never as inert config. `theseusd config` prints the config actually loaded and its source, references only.
 - **Token hygiene.** At startup Theseus checks the GitHub token against the API, logs its login, expiry, and days remaining, and warns when fewer than a configurable number of days remain (default 30). Never fatal.
-- **Starting set** (vault `Eddie-Tabitha`, item names as they exist): `anthropic openclaw key`, `TypeSafe Jev key`, `zeroaltitude github PAT` (a fine-grained token with push on the owner's repositories, expiring 2027-02-18; chosen over the all-scopes classic token until Theseus is on rails), `z.ai key` (line `api key value`), and `strata-jam-aws-key`, a `label: value` note whose `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines are referenced separately (verified 2026-09-25 against STS: IAM user `stratajam`, account 560512680793). Discord and any others are added as their milestones arrive. The same posture applies to them all: GitHub and AWS credentials are read from 1Password too, never from `~/.aws` or `~/.config/gh`, and the process refuses to start if a referenced secret cannot be resolved (fail closed and say so).
+- **Starting set** (vault `Eddie-Tabitha`, item names as they exist): `anthropic openclaw key`, `TypeSafe Jev key`, `zeroaltitude github PAT` (a fine-grained token with push on the owner's repositories, expiring 2027-02-18; chosen over the all-scopes classic token until Theseus is on rails), `z.ai key` (line `api key value`), and `strata-jam-aws-key`, a `label: value` note whose `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines are referenced separately (verified 2026-09-25 against STS: IAM user `stratajam`, account 560512680793). Discord and any others are added as their milestones arrive. The same posture applies to them all: GitHub and AWS credentials are read from 1Password too, never from `~/.aws` or `~/.config/gh`, and a secret that cannot be resolved never lets its consumer run without it, and the daemon says which one failed and why; the process itself serves meanwhile. _(Fail closed per consumer since theseus-qa0, 2026-09-29; until then the process refused to start.)_
 
 ### 3.20 Telemetry
 
@@ -822,6 +839,26 @@ Most stable first: persona and role hints; tool schemas; frozen transcript prefi
 
 Inbound `Message` nodes; the turn trace (§3.3a); the `Compilation` node when the turn recompiled (selection plus manifest, and its rendered cache), otherwise a manifest reference to the compilation and tail range used; model output as `Message`; `ToolCall`/`ToolResult` with `in_session` and, when delivered, `in_channel` edges; loop `Judgment`s; `Task` mutations; and the updated `Session` record. Each is written in the WAL frame of the kernel transition that produced it (the model's message with its provider completion, a tool call with its planned action, an in-process result with its completion, a late result when it is absorbed), not in one transaction at the end of the turn, so a crash mid-turn leaves exactly the nodes whose effects are durable and a continuation resumes from them (as built in M3, Part III A3). The memory pass (§5) runs over these afterwards.
 
+**The frame rule.** Every frame is an fdatasync, so a turn writes no more frames than its durability needs.
+- A state transition, a node, the session record, and a compilation are each in a frame that is synced
+  before the call that wrote it returns, as above.
+- An observability row that is no state transition waits in the turn's store handle. It rides at the
+  front of the next frame that the turn, or the kernel, commits for it, in the order it was written. These
+  rows are `turn.started`, `context.compiled`, `loop.started`, `loop.ended`, `turn.ended`, `turn.trace`, and
+  the tool layer's rows. `provider.call` rides in its call's completion frame, and `tool.notified` in its
+  call's plan frame. A crash in the middle of a turn can lose some of these rows, but never a transition
+  or a node.
+- An action that never waits for a confirm is planned, authorized, and dispatched in one frame: the
+  provider call, and any tool call the policy runs (`open` or `notify`). Each transition keeps its own
+  record and row, so the record still reads as three transitions.
+- A plain one-loop turn writes 8 frames, and each further loop with one in-process tool call writes 4.
+  `tests_m3::a_plain_turn_stays_within_its_frame_budget` holds the first number.
+- A turn reads its session's transcript once, at its first reader, and every node its frames write
+  joins that view. No reader in the turn decodes the transcript again: not resume, not absorb, not the
+  check for anything new, and not each loop's compile.
+
+_(Amended 2026-09-29, theseus-qa0 step F2: until then a plain turn wrote 17 frames, and decoded its transcript at every reader; Part III A3c.)_
+
 ## 5. Memory
 
 The graph is append-only. Compaction adds `Summary` nodes and re-roots the default view; the trimmed range stays in the graph, reachable through `summarizes`, merely absent from that view. Decay lowers a node's retention and heat until the tiering tender moves its payload to cold storage, but the node, its edges, and its stub remain. Nothing is ever lost.
@@ -1004,13 +1041,27 @@ What it buys: invariants as property tests (a destructive tool never runs withou
 
 ## 9. Efficiency targets (to measure, not assert)
 
-Under FAST (§2), the lifecycle rows are budgets. From M3.5 (P5b), the simulator's lifecycle bench measures them on every commit, and a result past a budget fails the gate. Measured values are in Part III (A3, lifecycle timings).
+Under FAST (§2), the lifecycle rows are budgets. `theseus-sim bench lifecycle` measures them (M3.5,
+P5b):
+- cold start to the first `health` answer;
+- clean shutdown with executions waiting and a job running;
+- SIGKILL, then restart to the first answer.
+
+Each phase runs N times, with p50 and p95, per phase, per start-path phase, and per kernel step. It runs
+on an empty store, on the owner's store, or on a synthetic store of parked sessions.
+
+`scripts/gate.sh` runs it on every commit: ten runs of each phase on an empty store, with debug binaries,
+which are never faster than release. Each p95 is checked against its budget plus that phase's noise
+margin, measured as the spread of p95 over repeated runs on the build machine (in 2026-09: 7 ms cold,
+4 ms shutdown, 25 ms kill). A miss fails the gate. Between today's store sizes and 10,000 parked
+sessions, the cold-start budget is the line from 50 ms to 250 ms. Measured values are in Part III (A3,
+lifecycle timings, and the M3.5 entry).
 
 | Metric | Target |
 |---|---|
-| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history |
+| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(When the config is `op://`, its note is still read on this path: about 1 s. Accepted 2026-09-29: start from a last-known-good copy, theseus-2fo, step F1b.)_ |
 | Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for |
-| Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms |
+| Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms _(The bench's budget: the cold-start budget plus 100 ms.)_ |
 | Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer |
 | Store or schema migration | adds nothing before serving: old formats are read in place, and a tender rewrites them in the background using at most 5 % of one core |
 | Restore from a local WAL | at the disk's sequential read speed; to measure |
@@ -2293,6 +2344,161 @@ _Neither a P5c item nor a plan item. It is a request of Eddie's (2026-09-28, 20:
 | A button on every amber notice | One select menu per loop's tool message on Discord (quiet notices), a button per card with `notice_embeds`, and buttons in the web UI | Quiet notices put a loop's notices on one message | Kept |
 
 **Known gaps.** Discord was not exercised live, because one bot token means one daemon. The allow list still runs its entries outright under a tightening, as it does under a config `approve`. An undo from a job through the CLI or the web UI counts wherever those channels are trusted (theseus-6qy).
+
+## A3c. M3.5 Fast (theseus-qa0)
+
+M3.5 (P5b) runs as these steps:
+- F1: serve first, and the lifecycle bench.
+- F1b: start from a last-known-good copy of the config note (theseus-2fo, accepted by Eddie 2026-09-29).
+- F2: fewer frames and one transcript read per turn.
+- F3: parallel tool calls (theseus-a60).
+- F4: the swap and restore phases, with versioned readers, and F2's remaining frame merges (theseus-l6y).
+
+Eddie's order (2026-09-29) is:
+1. F1, F2, F1b, and F3;
+2. then the native OTel exporter, the self-approval fix, and the secret broker;
+3. then the Daily Driver's items 5 to 8, before his end-to-end testing.
+
+F4 comes after that.
+
+### Step F1. Serve first, and the lifecycle bench in the gate (theseus-qa0; 2026-09-29, 08:54–09:18 and 09:49–10:52; 10c35c4, 269642f, 36e2173, 460a35b)
+
+**Why.** Cold start took 1.3 s to the first `health` answer, and 1.0 s of it was `op read`s before the
+store opened (A3, lifecycle timings). Eddie made FAST a primary goal on 2026-09-27 (§2).
+
+**What exists.**
+- **Serve first.** Secrets resolve in the background into a board:
+  - one `op inject` for every reference, `op read` per reference after a failed injection;
+  - a retry of what failed at 5 s, doubling to 60 s.
+
+  Each consumer waits for its own secret, and none runs without it. A turn waits for its key, bounded
+  at 30 s, or is refused with `secret_failed` or `secret_resolving`. The Discord binding, the GitHub
+  check, and the telemetry exporter wait for theirs. Health says `secrets: resolving | ready | failed
+  <names>`. The ledger gets `secrets.resolved` and `secrets.failed`, and the Observatory has a Startup
+  section.
+- **The start path pays one fsync of its own.** The kernel's five `startup.step` rows share a frame.
+  `server.started` goes after serving, in one frame with `server.serving`. The harness loop and the
+  driver start once the socket answers. redb's open adds its two.
+- **The store's read path.** A read is one `pread` on a kept segment handle, and a batch of positions
+  shares one index transaction. Startup reads every execution once, not twice.
+- **The lifecycle bench**, `theseus-sim bench lifecycle`:
+  - phases: cold start; clean shutdown with executions waiting and a job running; SIGKILL, then restart;
+  - the job is a real `proc.run` from a real turn against a stand-in for the Messages API;
+  - secrets come from a fake `op` that answers after 1 s;
+  - stores: empty, a copy, or synthetic (`--sessions N`, 250 sessions to a frame);
+  - `--config` runs the operator's own config with the real `op`.
+- **The gate** runs it on every commit: debug, empty store, ten runs a phase, 4.7 s. Each p95 is held
+  to §9 plus a measured per-phase margin (7, 4, and 25 ms). A throwaway 100 ms sleep in cold start
+  failed it.
+
+**How it is proven.** 256 tests in the gate, 20 of them new:
+- serve first under a vault that hangs, answers late, or fails;
+- the binding without its token;
+- the bench's arithmetic, budgets, and config;
+- the synthetic store read back through the kernel and the core.
+
+The frame-budget test holds at 17. Release, at 460a35b:
+
+| Store | Cold p50 / p95 | Shutdown p50 / p95 | Kill p50 / p95 |
+|---|---|---|---|
+| empty | 17.2 / 31.3 ms | 33.5 / 44.9 ms | 36.3 / 56.1 ms |
+| Eddie's copy | 18.4 / 21.7 ms | 33.6 / 38.7 ms | 35.3 / 45.4 ms |
+| 10,000 sessions | 124.7 / 142.7 ms | 22.5 / 34.4 ms | 147.0 / 154.3 ms |
+
+With Eddie's config and real secrets, the first answer took 1 075–1 104 ms before and 18.3–18.7 ms
+after, with `secrets: resolving` at each. A GLM turn sent at once waited 1.32 s for its key and then ran.
+
+**Review** (11:18–11:21). The gate reran at 256 tests, with LIFECYCLE OK (cold p95 24.6 ms of 50, shutdown 49.2 of 100, kill 45.1 of 150). Tabitha's own check on the release build, over a store copy, with Eddie's real secrets: the first `health` answer came at 20–21 ms warm (57 ms on the copy's first open), with `secrets: resolving`. A GLM turn sent right after the start showed `secrets.wait 1.02 s` in its trace, then answered, and health then said `ready · 7 ready 1071 ms after start (inject)`. Installed at 11:21. The first run (08:54–09:18) was killed when an abort in its parent DM session cascaded to it; its uncommitted work was backed up, and the second run continued from the tree.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The process refuses to start if a referenced secret cannot be resolved (§3.19) | The process serves. Each consumer refuses to run without its secret, and health, the ledger, and the Observatory name the failure and why | FAST (§2): the socket never waits on the network | §3.19 amended |
+| References resolve concurrently through `op read` (§3.19) | One `op inject` for every reference; `op read` per reference only after a failed injection | Measured: the same wall time, a sixth of the CPU, one process | Keep |
+| Resolution happens once at startup (§3.19) | Once, then again for what failed, at 5 s doubling to 60 s | The process no longer exits on a failure, so it must fetch again | Keep |
+| The bench has five phases (P5b) | Three; binary swap and restore are F4's | A swap under load needs F4's upgrade path | F4 |
+| Nothing on the path to serving waits on the network (§2) | When the config is `op://` (Eddie's), the note is read before serving: about 1 s | Everything after it needs the config | Accepted 2026-09-29: a last-known-good copy of the note under the state dir, with nothing acting until the vault confirms it (theseus-2fo, step F1b) |
+| Store open grows with the WAL tail, never with history (§9) | `Wal::open` reads and checks every segment: 47 ms at 10,000 sessions | Since M1 | F4, with the versioned readers (theseus-8ni) |
+| The gate measures §9 on every commit (P5b) | On debug binaries and an empty store; Eddie's store and 10,000 sessions are release bench runs | A release build takes 3 min, and debug is never faster than release | Keep; revisit if a debug-only slowdown fails the gate |
+
+**Known gaps carried forward:**
+- health, the heartbeat's reconcile, and the driver's 500 ms tick each read every execution, and health
+  also reads every session and action: O(all), where O(open) would do;
+- redb's open costs two fsyncs, and its repair after a SIGKILL about 26 ms;
+- the Observatory re-lists every execution and session every 2.5 s.
+
+### Step F2. Fewer frames per turn, and one transcript read (theseus-qa0; 2026-09-29, 11:22–12:18; 6402e80, 49c4db4)
+
+**Why.** A plain one-loop turn wrote 17 WAL frames, each an fdatasync of about 7 ms here. Every turn also
+decoded its whole transcript at least twice, plus once per loop (the complexity review, findings 3 and 8;
+Part III A3b).
+
+**What exists.**
+- **A turn's own handles.** `Store::for_turn` and `Kernel::view` give each turn a store handle, and a
+  kernel that commits through it. The turn's observability rows wait there. They ride at the front of
+  the next frame that either one commits for the turn, in order. `provider.call` is in its completion's
+  frame. The turn flushes whatever still waits at its end.
+- **`Kernel::plan_and_dispatch`.** The provider call, and every tool call the policy runs, are planned,
+  authorized, and dispatched in one frame. The kernel simulator plans half its actions this way. It holds
+  a new invariant: such an action is never found planned or authorized, crash or no crash.
+- **One transcript read per turn.** The turn's handle keeps its session's transcript
+  (`Vec<(u64, Arc<Node>)>`). It is read at the first reader, and extended with every node that the
+  turn's frames write. A debug build compares it with the store at every read, and panics on a
+  difference. Every node write in a turn goes through the turn's handles, so no writer can miss the list.
+
+**How it is proven.**
+- The gate passed at each commit: 260 tests, then 262 (6 new), with the lifecycle bench within its
+  budgets both times.
+- The batch C output-diff probe, with each frame's grouping added, ran across its 26 scenarios. After
+  masking, every record, notification, and result is identical. Frames went from 1,116 to 624 (−44%).
+  The second commit's dump is byte-identical to the first's.
+- `kernel-sim` (18 seeds, 105 crashes, every invariant held) and `crash-test` (zero committed records
+  lost).
+- A copy of Eddie's store was read under the old and the new binaries: every session list, history, and
+  confirm list identical. A GLM tool turn wrote 13 frames where it would have written 30, and the old
+  binary reads its session identically.
+
+Release, medians of three interleaved rounds:
+
+| Turn | Before | After | Frames | Transcript reads |
+|---|---|---|---|---|
+| plain | 123.0 ms | 58.0 ms | 17 → 8 | 2 → 1 |
+| two loops, one tool | 211.6 ms | 90.0 ms | 29 → 12 | 4 → 1 |
+| plain, 200-node session | 135.7 ms | 65.9 ms | 17 → 8 | 2 → 1 |
+| two loops, 200-node session | 235.8 ms | 104.6 ms | 29 → 12 | 4 → 1 |
+
+**Reviewed** (Tabitha, 2026-09-29, 12:23 to 12:31).
+- The gate rerun passed: 262 tests, with the bench's cold start at p95 35.4 ms against 50.
+- On the release build, over a fresh copy of Eddie's store, the old and the new binaries gave identical
+  output: the session list, and all five histories, as text and as JSON.
+- A GLM turn with one `fs_read` wrote 13 frames, and a plain follow-up turn wrote 8. Each outbox (plan,
+  authorize, dispatch) was one fsync of about 7 ms.
+- The old binary reads the new session byte for byte.
+- Installed at 12:30.
+- Found in passing: `theseus shutdown` removes the socket before the process releases the store's lock.
+  So a start that follows at once can fail with "Database already open", which F4's swap phase must
+  handle.
+
+**Divergence from Parts I and II, and from the review.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| Each node and row is written in the frame of the kernel transition that produced it (§4.6) | Nodes, yes; observability rows ride in the turn's next frame | FAST: each frame is an fdatasync | §4.6 amended |
+| The review: `turn.ended`, `turn.trace`, and the session write in one frame | `turn.ended` and `turn.trace` ride with `end_turn`'s frame | The trace times the session write; the count is the same | Keep |
+| The review: `take_results` returns early when nothing is queued (one frame) | It always did; the plain turn's `results_consumed` frame consumes the provider call's own queue entry | Dropping the entry changes what a fault leaves | Drop it, with an explicit wake on a fault (Tabitha at review): theseus-l6y, with F4 |
+| The review: `plan_and_dispatch`, with the provider call as its first user | Also every tool call the policy runs | A loop with one tool: 12 frames → 4 | Keep |
+| The review: push each node the turn writes onto the list | The turn's handle adds every node its frames write, from the bytes written | No writer can forget one; a debug build checks the list at each read | Keep |
+| Per-turn harness overhead under 5 ms (§9) | About 58 ms for a plain turn: 8 fdatasyncs of about 7 ms | The disk | Recorded; theseus-l6y takes a plain turn to about 5 frames |
+
+**Known gaps.** These are theseus-l6y's:
+- the plain turn's `results_consumed` frame;
+- `wake_input` and `admit`, and a confirmed call's `authorize` and `dispatch`, which are two frames each;
+- the session write, which could ride in `end_turn`'s frame;
+- `confirm.list`, which still reads a transcript for a question's reason.
+
+Beyond those, each loop still renders the whole transcript into its request. That is §4.5's rendered
+cache, which is not built.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
