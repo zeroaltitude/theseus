@@ -158,7 +158,7 @@ pub fn run_wrapper(args: WrapperArgs) -> Result<()> {
         finished_at_ms: now_ms(),
         producer: format!("wrapper:{}", std::process::id()),
         signature: None,
-        usage_units: None,
+        cost_micros: None,
         detail: Some(detail),
     };
     spool.write(&c)?; // durable before any delivery attempt

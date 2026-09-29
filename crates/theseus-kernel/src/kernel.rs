@@ -27,10 +27,9 @@ pub struct KernelConfig {
     pub admission_ceiling: u32,
     /// Deadline for an action whose tool declares none.
     pub default_deadline_ms: u64,
-    /// Budget units a new execution gets when the caller names none.
-    pub default_budget: u64,
-    /// Units kept back for control and cleanup.
-    pub control_reserve: u64,
+    /// The spend limit, in micro-dollars, of a new execution whose caller
+    /// names none, and of an execution stored with a unit budget.
+    pub spend_limit_micros: Micros,
     /// How long a confirmation stays valid.
     pub confirm_ttl_ms: u64,
     /// Reconciler cadence (the heartbeat, §3.3).
@@ -46,8 +45,7 @@ impl Default for KernelConfig {
         Self {
             admission_ceiling: 8,
             default_deadline_ms: 10 * 60 * 1000,
-            default_budget: 1_000_000,
-            control_reserve: 10_000,
+            spend_limit_micros: 100 * MICROS_PER_USD,
             confirm_ttl_ms: 15 * 60 * 1000,
             heartbeat_ms: 60_000,
             fault_after_startup_step: None,
@@ -71,11 +69,20 @@ pub enum KernelError {
         id: ExecutionId,
         state: &'static str,
     },
-    #[error("budget exhausted: needed {needed} units, {available} available (limit {limit})")]
-    BudgetExhausted {
-        needed: u64,
-        available: u64,
-        limit: u64,
+    /// A reservation did not fit under the spend limit. Nothing was written:
+    /// the caller asks the operator (`Kernel::ask_budget`).
+    #[error(
+        "over budget: the call needs {}, and {} of the {} limit is left ({} spent)",
+        usd(*.needed),
+        usd(*.available),
+        usd(*.limit),
+        usd(*.spent)
+    )]
+    OverBudget {
+        needed: Micros,
+        available: Micros,
+        spent: Micros,
+        limit: Micros,
     },
     #[error("action {correlation_id} is {state}; expected {expected}")]
     ActionState {
@@ -229,6 +236,10 @@ pub struct KernelStats {
     pub accepting: bool,
 }
 
+/// A session's recorded spend in micro-dollars, by session id: what an
+/// execution stored with a unit budget had spent in dollars (theseus-0sg).
+pub type LegacySpend = Arc<dyn Fn(&str) -> Micros + Send + Sync>;
+
 pub struct Kernel {
     store: Arc<dyn Store>,
     clock: Arc<dyn Clock>,
@@ -236,6 +247,7 @@ pub struct Kernel {
     held: Arc<Mutex<HashSet<ExecutionId>>>,
     /// 0..=4 while starting; 5 once accepting events.
     phase: Mutex<u8>,
+    legacy_spend: Option<LegacySpend>,
 }
 
 const QUARANTINE_PREFIX: &str = "quarantine:";
@@ -250,7 +262,16 @@ impl Kernel {
             cfg,
             held: Arc::new(Mutex::new(HashSet::new())),
             phase: Mutex::new(0),
+            legacy_spend: None,
         }
+    }
+
+    /// Where startup finds the dollar spend of an execution stored with a
+    /// unit budget: the session's own record, which the core keeps. Without
+    /// one, such an execution starts again from $0.
+    pub fn with_legacy_spend(mut self, f: LegacySpend) -> Self {
+        self.legacy_spend = Some(f);
+        self
     }
 
     pub fn store(&self) -> &Arc<dyn Store> {
@@ -281,14 +302,28 @@ impl Kernel {
 
     // ------------------------------------------------------------ reads
 
+    /// Every read of an execution goes through the versioned reader, so an
+    /// execution stored with a unit budget reads in dollars.
+    fn read_execution(&self, r: &Record) -> Result<Execution> {
+        Execution::from_stored(&r.payload, self.cfg.spend_limit_micros)
+            .with_context(|| format!("execution record at {}", r.position))
+    }
+
     pub fn execution(&self, id: &str) -> Result<Option<Execution>> {
-        decode_opt(self.store.latest_by_key(kinds::EXECUTION, id)?)
+        match self.store.latest_by_key(kinds::EXECUTION, id)? {
+            Some(r) => Ok(Some(self.read_execution(&r)?)),
+            None => Ok(None),
+        }
     }
     pub fn action(&self, correlation_id: &str) -> Result<Option<Action>> {
         decode_opt(self.store.latest_by_key(kinds::ACTION, correlation_id)?)
     }
     pub fn executions(&self) -> Result<Vec<Execution>> {
-        decode_all(self.store.latest_of_kind(kinds::EXECUTION)?)
+        self.store
+            .latest_of_kind(kinds::EXECUTION)?
+            .iter()
+            .map(|r| self.read_execution(r))
+            .collect()
     }
     pub fn open_executions(&self) -> Result<Vec<Execution>> {
         Ok(self
@@ -373,13 +408,14 @@ impl Kernel {
     // ------------------------------------------------------------ sessions
 
     /// Create the one execution for a session whose record someone else
-    /// owns (the core's `SessionRecord`). Starts `Waiting` on input.
+    /// owns (the core's `SessionRecord`). Starts `Waiting` on input, with
+    /// `limit_micros` or the configured spend limit.
     pub fn open_execution(
         &self,
         session_id: &str,
         kind: SessionKind,
         authority: Authority,
-        budget_limit: Option<u64>,
+        limit_micros: Option<Micros>,
         reports_to: Option<String>,
     ) -> Result<Execution> {
         self.require_accepting()?;
@@ -391,10 +427,7 @@ impl Kernel {
             kind,
             state: ExecState::Waiting,
             authority,
-            budget: Budget::new(
-                budget_limit.unwrap_or(self.cfg.default_budget),
-                self.cfg.control_reserve,
-            ),
+            budget: Budget::new(limit_micros.unwrap_or(self.cfg.spend_limit_micros)),
             wake: Some(Wake::Input),
             outstanding: vec![],
             queued_results: vec![],
@@ -413,7 +446,7 @@ impl Kernel {
             self.ledger(
                 "execution.opened",
                 Some(session_id),
-                json!({"execution_id": exec.id, "kind": kind, "budget": exec.budget.limit}),
+                json!({"execution_id": exec.id, "kind": kind, "limit_usd": micros_to_usd(exec.budget.limit_micros)}),
             )?,
         ])?;
         Ok(exec)
@@ -488,6 +521,7 @@ impl Kernel {
     /// A human declined a planned action (a confirm answered "no", or new
     /// input superseded the question). The action settles `Cancelled` with the
     /// reason as its resolution and its reservation released; it never ran.
+    /// A declined budget question leaves its execution waiting on the budget.
     /// Rows written before theseus-8az say `action.denied` and `denied by`.
     pub fn decline_action(&self, correlation_id: &str, by: &str, reason: &str) -> Result<Action> {
         let mut a = self
@@ -509,6 +543,10 @@ impl Kernel {
         if let Some(mut e) = self.execution(&a.execution_id)? {
             if let Some(r) = &a.reservation_id {
                 settle_reservation_in(&mut e.budget, r, Some(0));
+            }
+            if e.budget.question.as_deref() == Some(correlation_id) {
+                e.budget.question = None;
+                e.budget.question_needs_micros = 0;
             }
             e.updated_at_ms = now;
             frame.push(self.exec_record(&e)?);
@@ -686,7 +724,20 @@ impl Kernel {
         // Ending with work still outstanding is a cancel of that work: the
         // actions get `cancel_requested` in the same frame and the harness
         // terminates their backends (they stay in `outstanding` until verified).
+        // An open budget question closes with the execution.
         if e.state.is_terminal() {
+            if let Some(qid) = e.budget.question.take() {
+                e.budget.question_needs_micros = 0;
+                if let Some(mut q) = self.action(&qid)? {
+                    if q.state == ActionState::Planned {
+                        q.state = ActionState::Cancelled;
+                        q.settled_at_ms = Some(now);
+                        q.resolution = Some(format!("the execution ended ({})", e.state.as_str()));
+                        frame.push(self.action_record(&q)?);
+                    }
+                }
+                frame[0] = self.exec_record(&e)?;
+            }
             for c in &e.outstanding {
                 if let Some(mut a) = self.action(c)? {
                     if a.state == ActionState::Dispatched && a.cancel.is_none() {
@@ -710,21 +761,23 @@ impl Kernel {
 
     /// `planned`: mint the correlation id and commit before anything else
     /// happens (§3.16). Requires a held turn (the execution is `Running`).
-    /// `reserve_units` reserves budget in the same frame; exhaustion refuses.
+    /// `reserve_micros` reserves budget in the same frame. A reservation that
+    /// does not fit is refused with `OverBudget` and writes nothing; the
+    /// execution goes on running, and the caller asks the operator.
     pub fn plan_action(
         &self,
         guard: &TurnGuard,
         proposal: &Proposal,
         retry_class: RetryClass,
         deadline_ms: Option<u64>,
-        reserve_units: u64,
+        reserve_micros: Micros,
     ) -> Result<Action> {
         self.plan_action_with(
             guard,
             proposal,
             retry_class,
             deadline_ms,
-            reserve_units,
+            reserve_micros,
             |_| Ok(vec![]),
         )
     }
@@ -737,7 +790,7 @@ impl Kernel {
         proposal: &Proposal,
         retry_class: RetryClass,
         deadline_ms: Option<u64>,
-        reserve_units: u64,
+        reserve_micros: Micros,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
         let mut e = self
@@ -753,33 +806,20 @@ impl Kernel {
         let now = self.now_ms();
         let mut frame = Vec::new();
         let mut reservation_id = None;
-        if reserve_units > 0 {
+        if reserve_micros > 0 {
             let available = e.budget.available();
-            if reserve_units > available {
-                e.state = ExecState::BudgetExhausted;
-                e.ended_reason = Some(format!(
-                    "action {} needs {reserve_units} units, {available} available",
-                    proposal.tool
-                ));
-                e.updated_at_ms = now;
-                self.commit(vec![
-                    self.exec_record(&e)?,
-                    self.ledger(
-                        "execution.budget_exhausted",
-                        Some(&e.session_id),
-                        json!({"execution_id": e.id, "needed": reserve_units, "available": available}),
-                    )?,
-                ])?;
-                return Err(KernelError::BudgetExhausted {
-                    needed: reserve_units,
+            if reserve_micros > available {
+                return Err(KernelError::OverBudget {
+                    needed: reserve_micros,
                     available,
-                    limit: e.budget.limit,
+                    spent: e.budget.spent_micros,
+                    limit: e.budget.limit_micros,
                 }
                 .into());
             }
             let id = new_id("rsv");
-            e.budget.reserved += reserve_units;
-            e.budget.reservations.insert(id.clone(), reserve_units);
+            e.budget.reserved_micros += reserve_micros;
+            e.budget.reservations.insert(id.clone(), reserve_micros);
             reservation_id = Some(id);
             e.updated_at_ms = now;
             frame.push(self.exec_record(&e)?);
@@ -804,7 +844,7 @@ impl Kernel {
             confirm: None,
             cancel: None,
             reservation_id,
-            reserved_units: reserve_units,
+            reserved_micros: reserve_micros,
             resolution: None,
             completions_seen: 0,
         };
@@ -812,11 +852,188 @@ impl Kernel {
         frame.push(self.ledger(
             "action.planned",
             Some(&a.session_id),
-            json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id, "tool": a.tool, "args_digest": a.args_digest, "retry_class": a.retry_class, "deadline_at_ms": a.deadline_at_ms, "reserved": reserve_units}),
+            json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id, "tool": a.tool, "args_digest": a.args_digest, "retry_class": a.retry_class, "deadline_at_ms": a.deadline_at_ms, "reserved_usd": micros_to_usd(reserve_micros)}),
         )?);
         frame.extend(extra(&a)?);
         self.commit(frame)?;
         Ok(a)
+    }
+
+    // ------------------------------------------------------------ budget
+
+    /// A reservation did not fit (`OverBudget`): ask the operator whether
+    /// the execution's spend may go back to $0 (theseus-0sg). Requires the
+    /// held turn. The question is a planned `budget.reset` action with no
+    /// reservation, answered through the confirm path: `reset_budget` on an
+    /// approval, `decline_action` otherwise. The turn then ends waiting on
+    /// `Wake::Budget`. An earlier question still open is superseded in the
+    /// same frame, so one is open at a time.
+    pub fn ask_budget(&self, guard: &TurnGuard, needed_micros: Micros) -> Result<Action> {
+        let mut e = self
+            .execution(&guard.execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
+        if e.state != ExecState::Running {
+            return Err(KernelError::NoTurn {
+                id: e.id.clone(),
+                state: e.state.as_str(),
+            }
+            .into());
+        }
+        let now = self.now_ms();
+        let mut frame = Vec::new();
+        if let Some(old) = e.budget.question.take() {
+            if let Some(mut q) = self.action(&old)? {
+                if q.state == ActionState::Planned {
+                    q.state = ActionState::Cancelled;
+                    q.settled_at_ms = Some(now);
+                    q.resolution = Some("superseded by a newer budget question".into());
+                    frame.push(self.action_record(&q)?);
+                    frame.push(self.ledger(
+                        "action.declined",
+                        Some(&q.session_id),
+                        json!({"correlation_id": q.correlation_id, "tool": q.tool, "by": "harness", "reason": "superseded by a newer budget question"}),
+                    )?);
+                }
+            }
+        }
+        let b = &e.budget;
+        let proposal = Proposal {
+            tool: BUDGET_TOOL.into(),
+            args: json!({"spent_micros": b.spent_micros, "limit_micros": b.limit_micros, "needed_micros": needed_micros, "resets": b.resets}),
+            resource: None,
+            policy_context: json!({}),
+        };
+        let q = Action {
+            correlation_id: new_id("act"),
+            schema: SCHEMA,
+            execution_id: e.id.clone(),
+            session_id: e.session_id.clone(),
+            tool: BUDGET_TOOL.into(),
+            args_digest: digest_proposal(&proposal),
+            resource: None,
+            retry_class: RetryClass::NonRepeatable,
+            state: ActionState::Planned,
+            deadline_at_ms: now + self.cfg.confirm_ttl_ms,
+            planned_at_ms: now,
+            authorized_at_ms: None,
+            dispatched_at_ms: None,
+            settled_at_ms: None,
+            external_op_id: None,
+            result_ref: None,
+            confirm: None,
+            cancel: None,
+            reservation_id: None,
+            reserved_micros: 0,
+            resolution: None,
+            completions_seen: 0,
+        };
+        let asked = json!({
+            "execution_id": e.id,
+            "correlation_id": q.correlation_id,
+            "spent_usd": micros_to_usd(b.spent_micros),
+            "limit_usd": micros_to_usd(b.limit_micros),
+            "needed_usd": micros_to_usd(needed_micros),
+            "available_usd": micros_to_usd(b.available()),
+            "resets": b.resets,
+        });
+        e.budget.question = Some(q.correlation_id.clone());
+        e.budget.question_needs_micros = needed_micros;
+        e.updated_at_ms = now;
+        frame.push(self.exec_record(&e)?);
+        frame.push(self.action_record(&q)?);
+        frame.push(self.ledger(
+            "action.planned",
+            Some(&q.session_id),
+            json!({"execution_id": q.execution_id, "correlation_id": q.correlation_id, "tool": q.tool, "args_digest": q.args_digest, "retry_class": q.retry_class, "deadline_at_ms": q.deadline_at_ms, "reserved_usd": 0.0}),
+        )?);
+        frame.push(self.ledger("budget.asked", Some(&e.session_id), asked)?);
+        self.commit(frame)?;
+        Ok(q)
+    }
+
+    /// The operator approved a budget question: the execution's spend goes
+    /// back to $0 and the waiting call proceeds (theseus-0sg). One frame: the
+    /// question settles `Succeeded`; `spent_micros` becomes zero while the
+    /// reservations and held amounts stay (they are calls in flight, or not
+    /// yet accounted for); `resets` counts one more; the question joins the
+    /// results the next turn consumes; and a waiting execution is queued for
+    /// the driver. `budget.reset` records who approved
+    /// it, the spend before, and the limit. This is the only transition that
+    /// lowers spend. Returns the execution and the spend before.
+    pub fn reset_budget(&self, correlation_id: &str, by: &str) -> Result<(Execution, Micros)> {
+        let mut q = self
+            .action(correlation_id)?
+            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+        if q.tool != BUDGET_TOOL || q.state != ActionState::Planned {
+            return Err(KernelError::ActionState {
+                correlation_id: q.correlation_id.clone(),
+                state: q.state.as_str(),
+                expected: "a planned budget question",
+            }
+            .into());
+        }
+        let mut e = self
+            .execution(&q.execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(q.execution_id.clone()))?;
+        if e.state.is_terminal() {
+            return Err(KernelError::NotRunnable {
+                id: e.id.clone(),
+                state: e.state.as_str(),
+            }
+            .into());
+        }
+        let now = self.now_ms();
+        let before = e.budget.spent_micros;
+        q.state = ActionState::Succeeded;
+        q.settled_at_ms = Some(now);
+        q.resolution = Some(format!(
+            "approved by {by}: spend reset from {} to $0",
+            usd(before)
+        ));
+        e.budget.spent_micros = 0;
+        e.budget.resets += 1;
+        e.budget.question = None;
+        e.budget.question_needs_micros = 0;
+        if !e.queued_results.contains(&q.correlation_id) {
+            e.queued_results.push(q.correlation_id.clone());
+        }
+        // Approved means go on: a waiting execution is queued whatever it
+        // waits on (after a crash between asking and parking, it may wait on
+        // input with the question still open).
+        let woke = e.state == ExecState::Waiting;
+        if woke {
+            e.state = ExecState::Queued;
+            e.wake = None;
+            e.resume_pending = true;
+        }
+        e.updated_at_ms = now;
+        let mut frame = vec![
+            self.action_record(&q)?,
+            self.exec_record(&e)?,
+            self.ledger(
+                "budget.reset",
+                Some(&e.session_id),
+                json!({
+                    "execution_id": e.id,
+                    "correlation_id": q.correlation_id,
+                    "by": by,
+                    "spent_before_usd": micros_to_usd(before),
+                    "limit_usd": micros_to_usd(e.budget.limit_micros),
+                    "reserved_usd": micros_to_usd(e.budget.reserved_micros),
+                    "held_unknown_usd": micros_to_usd(e.budget.held_unknown_micros),
+                    "resets": e.budget.resets,
+                }),
+            )?,
+        ];
+        if woke {
+            frame.push(self.ledger(
+                "execution.queued",
+                Some(&e.session_id),
+                json!({"execution_id": e.id, "why": "budget_reset"}),
+            )?);
+        }
+        self.commit(frame)?;
+        Ok((e, before))
     }
 
     /// Bind a confirmation to the action's *current* digest (§3.9).
@@ -1091,16 +1308,19 @@ impl Kernel {
         if let Some(r) = &a.reservation_id {
             if was_unknown {
                 if c.outcome != Outcome::Unknown {
-                    e.budget.held_unknown = e.budget.held_unknown.saturating_sub(a.reserved_units);
-                    e.budget.spent = e
+                    e.budget.held_unknown_micros = e
                         .budget
-                        .spent
-                        .saturating_add(c.usage_units.unwrap_or(a.reserved_units));
+                        .held_unknown_micros
+                        .saturating_sub(a.reserved_micros);
+                    e.budget.spent_micros = e
+                        .budget
+                        .spent_micros
+                        .saturating_add(c.cost_micros.unwrap_or(a.reserved_micros));
                 }
             } else {
                 match c.outcome {
                     Outcome::Unknown => hold_reservation_in(&mut e.budget, r),
-                    _ => settle_reservation_in(&mut e.budget, r, c.usage_units),
+                    _ => settle_reservation_in(&mut e.budget, r, c.cost_micros),
                 }
             }
         }
@@ -1132,7 +1352,7 @@ impl Kernel {
         frame.push(self.ledger(
             kind,
             Some(&a.session_id),
-            json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "usage_units": c.usage_units}),
+            json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "cost_usd": c.cost_micros.map(micros_to_usd)}),
         )?);
         frame.extend(extra);
         self.commit(frame)?;
@@ -1163,7 +1383,7 @@ impl Kernel {
             finished_at_ms: self.now_ms(),
             producer: format!("reconciler:{reason}"),
             signature: None,
-            usage_units: None,
+            cost_micros: None,
             detail: None,
         };
         let a = self
@@ -1201,7 +1421,20 @@ impl Kernel {
         e.ended_reason = Some(format!("cancelled by {by}"));
         e.wake = None;
         e.updated_at_ms = now;
-        let mut frame = vec![self.exec_record(&e)?];
+        let mut frame = Vec::new();
+        // An open budget question closes with the execution: nothing waits on it now.
+        e.budget.question_needs_micros = 0;
+        if let Some(qid) = e.budget.question.take() {
+            if let Some(mut q) = self.action(&qid)? {
+                if q.state == ActionState::Planned {
+                    q.state = ActionState::Cancelled;
+                    q.settled_at_ms = Some(now);
+                    q.resolution = Some(format!("the execution was cancelled by {by}"));
+                    frame.push(self.action_record(&q)?);
+                }
+            }
+        }
+        frame.insert(0, self.exec_record(&e)?);
         let mut to_kill = Vec::new();
         for c in &e.outstanding {
             if let Some(mut a) = self.action(c)? {
@@ -1391,31 +1624,55 @@ impl Kernel {
         )?])?;
         step(1, "store", t)?;
 
-        // 2. load executions; requeue interrupted turns
+        // 2. load executions; requeue interrupted turns; rewrite, once, the
+        //    executions stored with a unit budget (theseus-0sg). The rewrites
+        //    share one frame: the first start under this binary pays one
+        //    fsync for them, and every later start finds none.
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 2;
         let now = self.now_ms();
-        for mut e in self.open_executions()? {
+        let mut migrated = Vec::new();
+        let mut rewritten = 0u32;
+        for mut e in self.executions()? {
+            let mut rows = Vec::new();
+            if e.schema < SCHEMA {
+                e.budget.spent_micros = self.legacy_spend.as_ref().map_or(0, |f| f(&e.session_id));
+                e.schema = SCHEMA;
+                rows.push(self.ledger(
+                    "budget.migrated",
+                    Some(&e.session_id),
+                    json!({"execution_id": e.id, "state": e.state, "limit_usd": micros_to_usd(e.budget.limit_micros), "spent_usd": micros_to_usd(e.budget.spent_micros), "units_before": e.budget.units_before}),
+                )?);
+                rewritten += 1;
+            }
             if e.state == ExecState::Running {
                 e.state = ExecState::Queued;
                 e.interrupted += 1;
                 e.resume_pending = true;
                 e.updated_at_ms = now;
-                self.commit(vec![
+                let mut frame = vec![
                     self.exec_record(&e)?,
                     self.ledger(
                         "execution.interrupted",
                         Some(&e.session_id),
                         json!({"execution_id": e.id, "interrupted": e.interrupted, "turn": e.turns}),
                     )?,
-                ])?;
+                ];
+                frame.extend(rows);
+                self.commit(frame)?;
                 rep.requeued_interrupted.push(e.id.clone());
+            } else if !rows.is_empty() {
+                migrated.push(self.exec_record(&e)?);
+                migrated.extend(rows);
             }
+        }
+        if !migrated.is_empty() {
+            self.commit(migrated)?;
         }
         self.commit(vec![self.ledger(
             "startup.step",
             None,
-            json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted}),
+            json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten}),
         )?])?;
         step(2, "load", t)?;
 
@@ -1463,14 +1720,17 @@ impl Kernel {
     }
 }
 
-fn settle_reservation_in(b: &mut Budget, reservation_id: &str, actual: Option<u64>) {
+/// Release a reservation into what the call really cost, which is booked in
+/// full even past the reservation (a real cost is never hidden), or, with no
+/// cost known, into `held_unknown_micros`.
+fn settle_reservation_in(b: &mut Budget, reservation_id: &str, actual: Option<Micros>) {
     let Some(reserved) = b.reservations.remove(reservation_id) else {
         return;
     };
-    b.reserved = b.reserved.saturating_sub(reserved);
+    b.reserved_micros = b.reserved_micros.saturating_sub(reserved);
     match actual {
-        Some(u) => b.spent = b.spent.saturating_add(u),
-        None => b.held_unknown = b.held_unknown.saturating_add(reserved),
+        Some(cost) => b.spent_micros = b.spent_micros.saturating_add(cost),
+        None => b.held_unknown_micros = b.held_unknown_micros.saturating_add(reserved),
     }
 }
 

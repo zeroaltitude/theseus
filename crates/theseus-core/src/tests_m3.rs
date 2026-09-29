@@ -1178,3 +1178,344 @@ async fn the_narrative_follows_an_approval_and_a_background_job() {
         );
     }
 }
+
+// ---------------------------------------------------------------- budgets in dollars (theseus-0sg)
+
+/// The template's live profile is Sonnet 5.5: a call reserves its
+/// 128,000-token output cap at $10 per million ($1.28) plus its input
+/// estimate at $2. A $1.40 limit fits the first call, not the second once
+/// the first's 30,000 words out (about $0.30) are spent, and fits the second
+/// again after a reset.
+fn over_budget_rig(then: Vec<Scripted>) -> Rig {
+    let mut script = vec![Scripted::tools(
+        &"word ".repeat(30_000),
+        &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
+    )];
+    script.extend(then);
+    rig_with(script, |c| c.kernel.spend_limit_usd = 1.40)
+}
+
+/// A new session watched from before its first turn.
+fn watched_session(
+    r: &Rig,
+) -> (
+    String,
+    tokio::sync::mpsc::UnboundedReceiver<theseus_protocol::Message>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.core.bus.watch(&rec.session_id, "watcher", tx);
+    (rec.session_id, rx)
+}
+
+fn sent(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<theseus_protocol::Message>,
+    method: &str,
+) -> Vec<Value> {
+    let mut out = vec![];
+    while let Ok(m) = rx.try_recv() {
+        if let theseus_protocol::Message::Notification(n) = m {
+            if n.method == method {
+                out.push(n.params);
+            }
+        }
+    }
+    out
+}
+
+/// A scripted session reaches its limit: the turn does not fail; it parks,
+/// and the execution waits with the reason `budget`. The question goes where
+/// an approval goes (a `confirm.requested`, the history's pending confirms,
+/// the session list's count). An approval resets the spend to $0, writes a
+/// `budget.reset` row, and leaves the lifetime cost where it was; the driver
+/// then makes the call that did not fit, and the new call is the new spend.
+#[tokio::test]
+async fn a_session_at_its_limit_asks_and_an_approved_reset_makes_the_waiting_call() {
+    use theseus_kernel::{micros_to_usd, ExecState};
+    let r = over_budget_rig(vec![Scripted::text("The diff is one line.")]);
+    let (sid, mut rx) = watched_session(&r);
+    let res = turn(&r.core, Some(&sid), "diff these").await;
+    assert_eq!(res.stop_reason, "budget", "{res:?}");
+    assert_eq!(res.loops, 2, "loop 0 ran; loop 1's call did not fit");
+    assert_eq!(r.fake.requests().len(), 1, "nothing ran over the limit");
+    let q = res
+        .awaiting_confirm
+        .clone()
+        .expect("the turn parks on the question");
+    let exec = res.execution_id.clone().unwrap();
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(e.state, ExecState::Waiting);
+    assert_eq!(
+        serde_json::to_value(&e.wake).unwrap(),
+        json!({"on": "budget", "correlation_id": q})
+    );
+    let spent = e.budget.spent_micros;
+    assert!(
+        (250_000..400_000).contains(&spent),
+        "loop 0's 30,000 words: {spent}"
+    );
+    let asked = sent(&mut rx, theseus_protocol::notify::CONFIRM_REQUESTED);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    let req: theseus_protocol::ConfirmRequest = serde_json::from_value(asked[0].clone()).unwrap();
+    assert_eq!(
+        (req.tool.as_str(), req.correlation_id.as_str()),
+        ("budget.reset", q.as_str())
+    );
+    assert_eq!(
+        req.reason,
+        format!(
+            "This session has spent {} of its $1.40 limit. Reset its spend to $0 and continue?",
+            crate::narrative::dollars(spent)
+        )
+    );
+    let b = req.budget.clone().unwrap();
+    assert_eq!((b.spent_usd, b.limit_usd), (micros_to_usd(spent), 1.4));
+    assert!(b.needed_usd > 1.28, "{b:?}");
+    let pending = r.core.pending_confirms(&sid).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        (
+            pending[0].correlation_id.as_str(),
+            pending[0].reason.as_str()
+        ),
+        (q.as_str(), req.reason.as_str())
+    );
+    let listed = r.core.session_list().unwrap();
+    assert_eq!(
+        listed
+            .iter()
+            .find(|s| s.session_id == sid)
+            .unwrap()
+            .pending_confirms,
+        1
+    );
+    assert_eq!(ledgered(&r, "budget.asked").len(), 1);
+    let lifetime = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap()
+        .cost_usd;
+    assert!(
+        (lifetime - micros_to_usd(spent)).abs() < 1e-5,
+        "{lifetime} vs {spent}"
+    );
+
+    let ans = r
+        .core
+        .confirm_action(&q, true, None, "discord:eddie")
+        .unwrap();
+    assert!(ans.approved && ans.resumes);
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (e.state, e.budget.spent_micros, e.budget.resets),
+        (ExecState::Queued, 0, 1)
+    );
+    assert!(e.resume_pending, "the driver takes the next turn");
+    let s = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        s.cost_usd, lifetime,
+        "a reset never lowers the lifetime cost"
+    );
+    assert_eq!(r.core.health().cost_usd_total, lifetime);
+    let reset = ledgered(&r, "budget.reset");
+    assert_eq!(reset.len(), 1);
+    assert_eq!(reset[0]["by"], "discord:eddie");
+    assert_eq!(reset[0]["spent_before_usd"], json!(micros_to_usd(spent)));
+    assert_eq!(reset[0]["limit_usd"], json!(1.4));
+    assert_eq!(reset[0]["correlation_id"], json!(q));
+    assert!(r.core.pending_confirms(&sid).unwrap().is_empty());
+
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert!(cont.continuation);
+    assert_eq!(cont.output, "The diff is one line.");
+    assert_eq!(r.fake.requests().len(), 2, "the waiting call ran");
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(e.state, ExecState::Waiting);
+    assert!(
+        e.budget.spent_micros > 0 && e.budget.spent_micros < spent,
+        "the call after the reset is the new spend: {}",
+        e.budget.spent_micros
+    );
+    let s = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    let now = lifetime + cont.cost_usd.unwrap();
+    assert!((s.cost_usd - now).abs() < 1e-9, "{} vs {now}", s.cost_usd);
+    assert!((r.core.health().cost_usd_total - now).abs() < 1e-9);
+}
+
+/// A decline, or no answer, is not a hard no: the session keeps waiting on
+/// its budget, and nothing resumes. Its next message asks again; a message
+/// that comes while a question is open replaces it. Cancel still ends it,
+/// and closes the question.
+#[tokio::test]
+async fn a_declined_reset_keeps_waiting_and_the_next_message_asks_again() {
+    use theseus_kernel::{ActionState, ExecState, Wake};
+    let r = over_budget_rig(vec![]);
+    let res = turn(&r.core, None, "diff these").await;
+    let (sid, exec) = (res.session_id.clone(), res.execution_id.clone().unwrap());
+    let q1 = res.awaiting_confirm.clone().unwrap();
+    let spent = r
+        .core
+        .kernel
+        .execution(&exec)
+        .unwrap()
+        .unwrap()
+        .budget
+        .spent_micros;
+    let ans = r
+        .core
+        .confirm_action(&q1, false, None, "discord:eddie")
+        .unwrap();
+    assert!(!ans.approved && !ans.resumes, "a decline resumes nothing");
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (
+            e.state,
+            e.wake.clone(),
+            e.budget.spent_micros,
+            e.budget.resets
+        ),
+        (
+            ExecState::Waiting,
+            Some(Wake::Budget {
+                correlation_id: q1.clone()
+            }),
+            spent,
+            0
+        )
+    );
+    assert!(!e.resume_pending);
+    assert!(r.core.pending_confirms(&sid).unwrap().is_empty());
+
+    let res2 = turn(&r.core, Some(&sid), "go on").await;
+    assert_eq!(res2.stop_reason, "budget");
+    let q2 = res2.awaiting_confirm.clone().unwrap();
+    assert_ne!(q2, q1, "a new question");
+    assert_eq!(r.fake.requests().len(), 1, "no call ran over the limit");
+    let res3 = turn(&r.core, Some(&sid), "still there?").await;
+    let q3 = res3.awaiting_confirm.clone().unwrap();
+    let a2 = r.core.kernel.action(&q2).unwrap().unwrap();
+    assert_eq!(a2.state, ActionState::Cancelled);
+    assert!(
+        a2.resolution.as_deref().unwrap().contains("superseded"),
+        "{:?}",
+        a2.resolution
+    );
+    let pending = r.core.pending_confirms(&sid).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].correlation_id, q3);
+    assert_eq!(ledgered(&r, "budget.asked").len(), 3);
+    assert!(ledgered(&r, "budget.reset").is_empty());
+    assert!(
+        r.core.confirm_action(&q2, true, None, "late").is_err(),
+        "a replaced question is closed"
+    );
+
+    r.core.cancel_execution(&exec, "discord:eddie").unwrap();
+    assert_eq!(
+        r.core.kernel.action(&q3).unwrap().unwrap().state,
+        ActionState::Cancelled
+    );
+    assert!(r.core.pending_confirms(&sid).unwrap().is_empty());
+}
+
+/// One call's reservation and settlement in dollars, by hand from the
+/// catalog (Sonnet 5.5: $2 in, $10 out, $0.20 cache read, $2.50 cache write
+/// per million tokens). The call reserves 128,000 output tokens at $10 plus
+/// the compiler's input estimate at $2, and settles at 1,200 in, 900 out,
+/// 40,000 cache reads, and 3,000 cache writes: $0.0024 + $0.009 + $0.008 +
+/// $0.0075 = $0.0269, in the budget, the session, and the ledger alike.
+#[tokio::test]
+async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
+    let usage = theseus_protocol::Usage {
+        input_tokens: 1_200,
+        output_tokens: 900,
+        cache_read_input_tokens: 40_000,
+        cache_creation_input_tokens: 3_000,
+    };
+    let r = rig(vec![Scripted::Billed {
+        usage,
+        then: Box::new(Scripted::text("Priced.")),
+    }]);
+    let res = turn(&r.core, None, "price one call").await;
+    assert_eq!(res.output, "Priced.");
+    let est = ledgered(&r, "context.compiled")[0]["est_tokens"]
+        .as_u64()
+        .unwrap();
+    let planned = ledgered(&r, "action.planned");
+    let call = planned
+        .iter()
+        .find(|p| p["tool"] == "provider.messages")
+        .unwrap();
+    let reserved = 128_000 * 10 + est * 2;
+    assert_eq!(
+        call["reserved_usd"],
+        json!(theseus_kernel::micros_to_usd(reserved)),
+        "{call}"
+    );
+    let e = r
+        .core
+        .kernel
+        .execution(res.execution_id.as_deref().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(e.budget.spent_micros, 2_400 + 9_000 + 8_000 + 7_500);
+    assert_eq!(e.budget.reserved_micros, 0);
+    let s = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&res.session_id)
+        .unwrap()
+        .unwrap();
+    assert!((s.cost_usd - 0.0269).abs() < 1e-12, "{}", s.cost_usd);
+    let row = &ledgered(&r, "provider.call")[0];
+    assert!(
+        (row["cost_usd"].as_f64().unwrap() - 0.0269).abs() < 1e-12,
+        "{row}"
+    );
+    assert!((res.cost_usd.unwrap() - 0.0269).abs() < 1e-12);
+}
+
+/// A model with no price never runs (budgets are dollars): the turn fails
+/// with the class `unpriced` and says what to add to the config.
+#[tokio::test]
+async fn a_model_with_no_price_is_not_called() {
+    let r = rig(vec![Scripted::text("never")]);
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let (live, _) = r.core.live_profile();
+    let target = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, Some("mystery-model"))
+        .unwrap();
+    let err = r
+        .core
+        .runner
+        .run(TurnRequest {
+            session: rec,
+            input: Some("hi".into()),
+            target,
+            sink: EventSink::new(r.core.bus.clone(), "x", None),
+            author: "test".into(),
+            recompile: None,
+        })
+        .await
+        .unwrap_err();
+    let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(te.class, "unpriced");
+    assert!(format!("{:#}", te.source).contains("[catalog.\"mystery-model\"]"));
+    assert!(r.fake.requests().is_empty());
+}

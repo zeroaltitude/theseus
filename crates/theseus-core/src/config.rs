@@ -324,12 +324,18 @@ pub struct KernelSection {
     /// How many executions may hold a turn at once.
     #[serde(default = "default_admission_ceiling")]
     pub admission_ceiling: u32,
-    /// Budget units (tokens today) a new session's execution gets.
-    #[serde(default = "default_budget")]
-    pub default_budget: u64,
-    /// Units kept back for control and cleanup (cancel, final report).
-    #[serde(default = "default_control_reserve")]
-    pub control_reserve: u64,
+    /// Each session's spend limit in US dollars (theseus-0sg). At the limit
+    /// the session asks the operator whether its spend may go back to $0.
+    #[serde(default = "default_spend_limit_usd")]
+    pub spend_limit_usd: f64,
+    /// Retired (theseus-0sg): budget units, and the units kept back as a
+    /// control reserve. Both still load, so an older config starts, and are
+    /// never honored: budgets are dollars, and nothing reserves for control
+    /// (a cancel never spends, and the limit asks instead of ending).
+    #[serde(default, skip_serializing)]
+    pub default_budget: Option<toml::Value>,
+    #[serde(default, skip_serializing)]
+    pub control_reserve: Option<toml::Value>,
     /// Heartbeat reconciler cadence.
     #[serde(default = "default_heartbeat_secs")]
     pub heartbeat_secs: u64,
@@ -344,11 +350,8 @@ pub struct KernelSection {
 fn default_admission_ceiling() -> u32 {
     8
 }
-fn default_budget() -> u64 {
-    1_000_000
-}
-fn default_control_reserve() -> u64 {
-    10_000
+fn default_spend_limit_usd() -> f64 {
+    100.0
 }
 fn default_heartbeat_secs() -> u64 {
     60
@@ -364,8 +367,9 @@ impl Default for KernelSection {
     fn default() -> Self {
         Self {
             admission_ceiling: default_admission_ceiling(),
-            default_budget: default_budget(),
-            control_reserve: default_control_reserve(),
+            spend_limit_usd: default_spend_limit_usd(),
+            default_budget: None,
+            control_reserve: None,
             heartbeat_secs: default_heartbeat_secs(),
             default_deadline_secs: default_deadline_secs(),
             confirm_ttl_secs: default_confirm_ttl_secs(),
@@ -374,12 +378,22 @@ impl Default for KernelSection {
 }
 
 impl KernelSection {
+    /// The retired unit keys this config still sets.
+    pub fn retired(&self) -> Vec<&'static str> {
+        [
+            ("default_budget", self.default_budget.is_some()),
+            ("control_reserve", self.control_reserve.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(k, set)| set.then_some(k))
+        .collect()
+    }
+
     pub fn to_kernel_config(&self) -> theseus_kernel::KernelConfig {
         theseus_kernel::KernelConfig {
             admission_ceiling: self.admission_ceiling.max(1),
             default_deadline_ms: self.default_deadline_secs * 1000,
-            default_budget: self.default_budget,
-            control_reserve: self.control_reserve,
+            spend_limit_micros: theseus_kernel::usd_to_micros(self.spend_limit_usd),
             confirm_ttl_ms: self.confirm_ttl_secs * 1000,
             heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
             fault_after_startup_step: None,
@@ -683,6 +697,23 @@ impl Config {
                     .into(),
             );
         }
+        // One warning for the unit budget however many of its keys remain:
+        // they retire together, and the fix is one edit.
+        let units = cfg.kernel.retired();
+        if !units.is_empty() {
+            warnings.push(format!(
+                "{} {} budget units, retired and ignored (theseus-0sg): budgets are dollars, \
+                 and each session's limit is kernel.spend_limit_usd (now ${}); remove {}",
+                units
+                    .iter()
+                    .map(|k| format!("kernel.{k}"))
+                    .collect::<Vec<_>>()
+                    .join(" and "),
+                if units.len() == 1 { "is" } else { "are" },
+                cfg.kernel.spend_limit_usd,
+                if units.len() == 1 { "it" } else { "them" },
+            ));
+        }
         Ok((cfg, warnings))
     }
 
@@ -806,6 +837,10 @@ impl Config {
                 "model.live = {:?} is not the implicit \"default\" profile nor a key of [profiles]",
                 self.model.live
             );
+        }
+        let limit = self.kernel.spend_limit_usd;
+        if !limit.is_finite() || limit <= 0.0 {
+            anyhow::bail!("kernel.spend_limit_usd = {limit} must be a dollar amount above zero");
         }
         let builtin = crate::catalog::Catalog::builtin();
         for (id, row) in &self.catalog {
@@ -1113,6 +1148,55 @@ mod tests {
         let (_, warnings) =
             Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    /// Eddie's vault config (its [kernel] keys checked 2026-09-29, by name
+    /// only) still sets the unit budget, `default_budget` and
+    /// `control_reserve` (theseus-0sg). It loads with exactly one warning,
+    /// which names both; the session limit is the $100 default; and
+    /// `theseusd config` shows `spend_limit_usd` and neither old key.
+    #[test]
+    fn the_vault_config_with_its_unit_budget_loads_with_one_warning() {
+        let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                    [kernel]\nadmission_ceiling = 8\ndefault_budget = 20000000\n\
+                    control_reserve = 10000\nheartbeat_secs = 60\n\
+                    default_deadline_secs = 600\nconfirm_ttl_secs = 900\n";
+        let (cfg, warnings) = Config::parse(text).unwrap();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with(
+                "kernel.default_budget and kernel.control_reserve are budget units, retired \
+                 and ignored (theseus-0sg)"
+            ) && warnings[0].contains("kernel.spend_limit_usd (now $100)"),
+            "{warnings:?}"
+        );
+        assert_eq!(cfg.kernel.spend_limit_usd, 100.0);
+        assert_eq!(
+            cfg.kernel.to_kernel_config().spend_limit_micros,
+            100_000_000
+        );
+        let shown = toml::to_string(&cfg.kernel).unwrap();
+        assert!(shown.contains("spend_limit_usd = 100.0"), "{shown}");
+        assert!(
+            !shown.contains("default_budget") && !shown.contains("control_reserve"),
+            "{shown}"
+        );
+        // One key alone is named alone; the template sets neither.
+        let one = text.replace("control_reserve = 10000\n", "");
+        let (_, w) = Config::parse(&one).unwrap();
+        assert!(
+            w.len() == 1 && w[0].starts_with("kernel.default_budget is budget units"),
+            "{w:?}"
+        );
+        let (t, w) = Config::parse(Config::EXAMPLE_TOML).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(t.kernel.spend_limit_usd, 100.0);
+        for bad in ["0.0", "-5.0", "nan"] {
+            let doc = format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[kernel]\nspend_limit_usd = {bad}\n"
+            );
+            assert!(Config::parse(&doc).is_err(), "{bad}");
+        }
     }
 
     /// `narrative` is a top-level key, off unless the config says true

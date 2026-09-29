@@ -218,6 +218,18 @@ pub fn money(cost: Option<f64>) -> String {
     }
 }
 
+/// Micro-dollars as a sentence says them (theseus-0sg): to the cent from a
+/// dollar up (`$100`, `$99.48`, `$12.30`), to four decimals below it
+/// (`$0.45`, `$0.0045`, `$0.002`), and exactly below a hundredth of a cent.
+pub fn dollars(m: theseus_kernel::Micros) -> String {
+    let step = match m {
+        1_000_000.. => 10_000,
+        100.. => 100,
+        _ => 1,
+    };
+    theseus_kernel::usd((m + step / 2) / step * step)
+}
+
 /// `3 ms`, `2.3 s`, `4 min 12 s`.
 pub fn duration(ms: u64) -> String {
     if ms < 1000 {
@@ -344,6 +356,7 @@ pub fn end_phrase(reason: &str) -> String {
         "nothing_new" => "there was nothing new for the model".into(),
         "refusal" => "the model refused".into(),
         "max_tokens" => "the model hit its output limit".into(),
+        "budget" => "the session reached its spend limit and asks the operator".into(),
         other => format!("the stop reason is {other}"),
     }
 }
@@ -431,6 +444,19 @@ mod tests {
         assert_eq!(money(Some(0.0042)), "$0.0042");
         assert_eq!(money(Some(0.0)), "$0");
         assert_eq!(money(None), "an unknown cost");
+        for (m, s) in [
+            (100_000_000, "$100"),
+            (99_482_311, "$99.48"),
+            (12_300_000, "$12.30"),
+            (450_000, "$0.45"),
+            (452_311, "$0.4523"),
+            (4_521, "$0.0045"),
+            (2_000, "$0.002"),
+            (42, "$0.000042"),
+            (0, "$0"),
+        ] {
+            assert_eq!(dollars(m), s, "{m}");
+        }
         assert_eq!(duration(3), "3 ms");
         assert_eq!(duration(2300), "2.3 s");
         assert_eq!(duration(252_000), "4 min 12 s");

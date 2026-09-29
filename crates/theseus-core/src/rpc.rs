@@ -189,11 +189,24 @@ impl Core {
                 .with_file_name(name.replacen("store", "spool", 1))
         };
         let spool = Spool::open(&spool_dir).context("opening completion spool")?;
-        let kernel = Arc::new(Kernel::new(
-            store.shared(),
-            Arc::new(theseus_kernel::RealClock),
-            cfg.kernel.to_kernel_config(),
-        ));
+        // An execution stored with a unit budget takes its dollar spend from
+        // its session's recorded cost when startup rewrites it (theseus-0sg).
+        let sessions = store.clone();
+        let legacy_spend: theseus_kernel::LegacySpend = Arc::new(move |sid: &str| {
+            sessions
+                .get_session::<SessionRecord>(sid)
+                .ok()
+                .flatten()
+                .map_or(0, |s| theseus_kernel::usd_to_micros(s.cost_usd))
+        });
+        let kernel = Arc::new(
+            Kernel::new(
+                store.shared(),
+                Arc::new(theseus_kernel::RealClock),
+                cfg.kernel.to_kernel_config(),
+            )
+            .with_legacy_spend(legacy_spend),
+        );
         let startup = kernel
             .startup(
                 Some(&spool),
@@ -313,10 +326,13 @@ impl Core {
             actions_by_state: st.actions_by_state,
             quarantined_completions: st.quarantined_completions,
             startup: self.startup_report.clone(),
+            spend_limit_usd: self.cfg.kernel.spend_limit_usd,
         }
     }
 
     pub fn execution_info(e: &Execution) -> theseus_protocol::ExecutionInfo {
+        use theseus_kernel::micros_to_usd as usd;
+        let b = &e.budget;
         theseus_protocol::ExecutionInfo {
             execution_id: e.id.clone(),
             session_id: e.session_id.clone(),
@@ -327,11 +343,17 @@ impl Core {
             outstanding: e.outstanding.len() as u32,
             queued_results: e.queued_results.len() as u32,
             budget: theseus_protocol::BudgetInfo {
-                limit: e.budget.limit,
-                spent: e.budget.spent,
-                reserved: e.budget.reserved,
-                held_unknown: e.budget.held_unknown,
-                available: e.budget.available(),
+                limit_usd: usd(b.limit_micros),
+                spent_usd: usd(b.spent_micros),
+                reserved_usd: usd(b.reserved_micros),
+                held_unknown_usd: usd(b.held_unknown_micros),
+                available_usd: usd(b.available()),
+                resets: b.resets,
+                question: b.question.clone(),
+                units_before: b
+                    .units_before
+                    .as_ref()
+                    .map_or(Value::Null, |u| json!({"limit": u.limit, "spent": u.spent, "reserved": u.reserved, "held_unknown": u.held_unknown})),
             },
             wake: serde_json::to_value(&e.wake).unwrap_or(Value::Null),
             reports_to: e.reports_to.clone(),
@@ -357,7 +379,7 @@ impl Core {
             dispatched_at_ms: a.dispatched_at_ms,
             settled_at_ms: a.settled_at_ms,
             deadline_at_ms: a.deadline_at_ms,
-            reserved_units: a.reserved_units,
+            reserved_usd: theseus_kernel::micros_to_usd(a.reserved_micros),
             confirmed: a.confirm.is_some(),
             cancel: a
                 .cancel
@@ -761,12 +783,55 @@ impl Core {
         }
     }
 
-    /// Tool calls in a session still waiting for the operator.
+    /// A session's open budget question, as the confirm it is (theseus-0sg):
+    /// its execution reached the spend limit and waits for the operator.
+    fn budget_confirm(&self, session: &SessionRecord) -> Option<theseus_protocol::ConfirmRequest> {
+        use theseus_kernel::micros_to_usd as usd;
+        let e = self
+            .kernel
+            .execution(session.execution_id.as_deref()?)
+            .ok()??;
+        let q = self.kernel.action(e.budget.question.as_deref()?).ok()??;
+        if q.state != theseus_kernel::ActionState::Planned {
+            return None;
+        }
+        let b = &e.budget;
+        let needed = usd(b.question_needs_micros);
+        Some(theseus_protocol::ConfirmRequest {
+            correlation_id: q.correlation_id.clone(),
+            session_id: session.session_id.clone(),
+            execution_id: e.id.clone(),
+            tool: theseus_kernel::BUDGET_TOOL.into(),
+            input: json!({"spent_usd": usd(b.spent_micros), "limit_usd": usd(b.limit_micros), "needed_usd": needed}),
+            resource: None,
+            reason: format!(
+                "This session has spent {} of its {} limit. Reset its spend to $0 and continue?",
+                crate::narrative::dollars(b.spent_micros),
+                crate::narrative::dollars(b.limit_micros)
+            ),
+            by: OPERATOR.into(),
+            requested_at_ms: q.planned_at_ms,
+            expires_at_ms: 0,
+            floor: false,
+            budget: Some(theseus_protocol::BudgetAsk {
+                spent_usd: usd(b.spent_micros),
+                limit_usd: usd(b.limit_micros),
+                needed_usd: needed,
+                lifetime_usd: session.cost_usd,
+            }),
+        })
+    }
+
+    /// Tool calls in a session still waiting for the operator, and its open
+    /// budget question.
     pub fn pending_confirms(
         &self,
         session_id: &str,
     ) -> Result<Vec<theseus_protocol::ConfirmRequest>> {
         let mut out = Vec::new();
+        if let Some(rec) = self.store.get_session::<SessionRecord>(session_id)? {
+            out.extend(self.budget_confirm(&rec));
+        }
         let nodes = self.store.session_nodes(session_id)?;
         let ttl = self.kernel.config().confirm_ttl_ms;
         for (_, n) in &nodes {
@@ -795,6 +860,7 @@ impl Core {
                             requested_at_ms: a.planned_at_ms,
                             expires_at_ms: a.planned_at_ms + ttl,
                             floor: gate["decision"]["floor"].as_bool().unwrap_or(false),
+                            budget: None,
                         });
                     }
                 }
@@ -869,6 +935,9 @@ impl Core {
                 "action {correlation_id} is {}, not waiting for confirmation",
                 a.state.as_str()
             );
+        }
+        if a.tool == theseus_kernel::BUDGET_TOOL {
+            return self.answer_budget(&a, approve, note, by);
         }
         if approve {
             let call = self
@@ -947,6 +1016,70 @@ impl Core {
             approved: approve,
             session_id: a.session_id,
             execution_id: a.execution_id,
+            resumes: true,
+        })
+    }
+
+    /// Answer a budget question (theseus-0sg). Approve: the execution's spend
+    /// goes back to $0 and the driver makes the waiting call; the session's
+    /// lifetime cost is untouched. Decline: the question closes and the
+    /// session keeps waiting on its budget, which is not a hard no; its next
+    /// message asks again, or the operator cancels it or starts `/new`.
+    fn answer_budget(
+        &self,
+        q: &theseus_kernel::Action,
+        approve: bool,
+        note: Option<&str>,
+        by: &str,
+    ) -> Result<theseus_protocol::ActionConfirmResult> {
+        let correlation_id = q.correlation_id.as_str();
+        if approve {
+            let (e, before) = self.kernel.reset_budget(correlation_id, by)?;
+            narrate!(
+                self.narrator,
+                Approval,
+                Some(&q.session_id),
+                None,
+                "Spend reset to $0 by {by} (it was {} of the {} limit); continuing.",
+                crate::narrative::dollars(before),
+                crate::narrative::dollars(e.budget.limit_micros)
+            );
+        } else {
+            self.kernel.decline_action(
+                correlation_id,
+                by,
+                note.unwrap_or("the operator declined the reset"),
+            )?;
+            narrate!(
+                self.narrator,
+                Approval,
+                Some(&q.session_id),
+                None,
+                "The budget reset was declined by {by}; the session keeps waiting, and a new \
+                 message asks again."
+            );
+        }
+        self.store.append_ledger(&LedgerRow::new(
+            "action.confirm_answered",
+            Some(&q.session_id),
+            None,
+            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "tool": q.tool}),
+        ))?;
+        self.bus.publish(
+            &q.session_id,
+            &Message::Notification(theseus_protocol::Notification::new(
+                notify::CONFIRM_RESOLVED,
+                json!({"session_id": q.session_id, "correlation_id": correlation_id, "approved": approve, "by": by}),
+            )),
+            None,
+        );
+        self.admission.notify_waiters();
+        Ok(theseus_protocol::ActionConfirmResult {
+            correlation_id: correlation_id.into(),
+            approved: approve,
+            session_id: q.session_id.clone(),
+            execution_id: q.execution_id.clone(),
+            resumes: approve,
         })
     }
 
@@ -1031,12 +1164,11 @@ impl Core {
                 Session,
                 Some(&rec.session_id),
                 None,
-                "Session {} opened ({}); its execution {} has a budget of \
-                 {} units.",
+                "Session {} opened ({}); its execution {} has a spend limit of {}.",
                 crate::narrative::short(&rec.session_id),
                 rec.kind.as_str(),
                 crate::narrative::short(&exec.id),
-                crate::narrative::thousands(exec.budget.limit)
+                crate::narrative::dollars(exec.budget.limit_micros)
             );
         }
         rec.execution_id = Some(exec.id);
@@ -2120,13 +2252,14 @@ mod tests {
 
     /// A turn that fails after its first loop still books that loop: its usage,
     /// cost, and tool call reach the session, the `turn.failed` row, and
-    /// `error.data`. Both failure exits: the provider fails in loop 1, or the
-    /// budget runs out planning loop 1 (loop 0's 30,000 words spend it).
+    /// `error.data`. The provider fails in loop 1. (A budget that runs out in
+    /// loop 1 no longer fails the turn: it asks, see `tests_m3`.) The failure
+    /// says its cause once (theseus-woy).
     #[tokio::test]
     async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
         use crate::provider::{ProviderError, Scripted};
         let mut wrong = Vec::new();
-        for exit in ["provider", "budget"] {
+        for exit in ["provider"] {
             let first = Scripted::tools(
                 &"word ".repeat(30_000),
                 &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
@@ -2145,11 +2278,7 @@ mod tests {
             };
             let core =
                 Core::with_provider(Config::example(), Arc::new(fake), store, vec![]).unwrap();
-            // The budget fits loop 0's reservation, and not loop 1's once loop 0 is spent.
-            let (live, _) = core.live_profile();
-            let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-            let limit = (exit == "budget")
-                .then(|| core.kernel.config().control_reserve + target.max_tokens as u64 + 20_000);
+            let limit = None;
             let mut rec = SessionRecord::new(SessionKind::Conversation, None);
             let authority = Authority {
                 principal: OPERATOR.into(),
@@ -2179,6 +2308,22 @@ mod tests {
             )
             .await;
             let err = responses(&msgs)[0].error.clone().expect("the turn fails");
+            let said: Vec<String> = notifications(&msgs)
+                .iter()
+                .filter(|n| n.method == notify::TURN_FAILED)
+                .map(|n| n.params["error"].as_str().unwrap_or_default().to_string())
+                .collect();
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert_eq!(
+                said[0].matches("busy").count(),
+                1,
+                "the cause once: {said:?}"
+            );
+            assert!(
+                !said[0].contains("failed ("),
+                "the class rides beside it: {said:?}"
+            );
+            assert_eq!(err.message.matches("busy").count(), 1, "{}", err.message);
             let rows: Vec<(u64, LedgerRow)> = core.store.ledger_tail(500).unwrap();
             let row = |kind: &str| {
                 rows.iter()
@@ -2193,11 +2338,7 @@ mod tests {
                 "{exit}: loop 0 has a cost: {call}"
             );
             let s: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
-            let class = if exit == "budget" {
-                "budget_exhausted"
-            } else {
-                "overloaded"
-            };
+            let class = "overloaded";
             for (what, got, want) in [
                 ("error.data class", err.data["class"].clone(), json!(class)),
                 ("session turns", json!(s.turns), json!(1)),
@@ -2241,6 +2382,165 @@ mod tests {
             wrong.is_empty(),
             "the failed turn lost:\n{}",
             wrong.join("\n")
+        );
+    }
+
+    /// A store the previous binary wrote, whose executions carry unit budgets
+    /// (theseus-0sg): one ended `budget_exhausted` at 877,683 of 1,000,000
+    /// units, as Eddie's Discord session did on 2026-09-29 for $0.45, and one
+    /// waits on input. It serves at once. `session.list`, `session.history`,
+    /// and `execution.list` answer; the ended one stays ended, now read in
+    /// dollars at the configured limit with its units kept; the waiting one
+    /// takes its session's recorded cost as its spend, and its next turn runs.
+    #[tokio::test]
+    async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
+        use theseus_store::{kinds, NewRecord};
+        let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+        let store = Store::open(&dir.join("store"), theseus_store::Engine::Redb).unwrap();
+        let mut ended = SessionRecord::new(SessionKind::Conversation, None);
+        ended.cost_usd = 0.45;
+        ended.turns = 15;
+        ended.execution_id = Some("exe_old_exhausted".into());
+        let mut open = SessionRecord::new(SessionKind::Conversation, None);
+        open.cost_usd = 0.012;
+        open.turns = 3;
+        open.execution_id = Some("exe_old_waiting".into());
+        store.put_session(&ended.session_id, &ended).unwrap();
+        store.put_session(&open.session_id, &open).unwrap();
+        let exec = |id: &str, session: &str, rest: &str| {
+            let json = format!(
+                r#"{{"id":"{id}","schema":1,"session_id":"{session}","kind":"conversation","authority":{{"principal":"operator","ceilings":{{}}}},"outstanding":[],"queued_results":[],"turns":3,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000500000,{rest}}}"#
+            );
+            let v: Value = serde_json::from_str(&json).unwrap();
+            NewRecord::json(kinds::EXECUTION, Some(id), &v)
+                .unwrap()
+                .scoped(session)
+        };
+        store
+            .append(vec![
+                exec(
+                    "exe_old_exhausted",
+                    &ended.session_id,
+                    r#""state":"budget_exhausted","ended_reason":"action provider.messages needs 172068 units, 112317 available","budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
+                ),
+                exec(
+                    "exe_old_waiting",
+                    &open.session_id,
+                    r#""state":"waiting","wake":{"on":"input"},"budget":{"limit":20000000,"spent":154321,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
+                ),
+                crate::node::Node::user(&open.session_id, Some("turn_old"), "discord:eddie", "hello")
+                    .record()
+                    .unwrap(),
+            ])
+            .unwrap();
+        let mut cfg = Config::example();
+        cfg.server.state_dir = dir.to_string_lossy().into_owned();
+        let fake = FakeProvider {
+            reply: "Still here.".into(),
+            ..Default::default()
+        };
+        let core = Core::with_provider(cfg, Arc::new(fake), store, vec![]).unwrap();
+        let history = |id: u64, session: &str| {
+            Request::new(
+                Id::Num(id),
+                method::SESSION_HISTORY,
+                theseus_protocol::SessionHistoryParams {
+                    session_id: session.into(),
+                    n: None,
+                },
+            )
+        };
+        let msgs = roundtrip(
+            core.clone(),
+            vec![
+                Request::new(Id::Num(1), method::SESSION_LIST, Value::Null),
+                history(2, &ended.session_id),
+                history(3, &open.session_id),
+                Request::new(Id::Num(4), method::EXECUTION_LIST, Value::Null),
+            ],
+        )
+        .await;
+        let rs = responses(&msgs);
+        assert_eq!(rs.len(), 4);
+        for r in &rs {
+            assert!(r.error.is_none(), "{:?}", r.error);
+        }
+        let list: SessionListResult =
+            serde_json::from_value(rs[0].result.clone().unwrap()).unwrap();
+        let state = |sid: &str| {
+            list.sessions
+                .iter()
+                .find(|s| s.session_id == sid)
+                .and_then(|s| s.execution_state.clone())
+        };
+        assert_eq!(
+            state(&ended.session_id).as_deref(),
+            Some("budget_exhausted")
+        );
+        assert_eq!(state(&open.session_id).as_deref(), Some("waiting"));
+        let h: theseus_protocol::SessionHistoryResult =
+            serde_json::from_value(rs[2].result.clone().unwrap()).unwrap();
+        assert_eq!(h.nodes.len(), 1);
+        assert!(h.pending_confirms.is_empty());
+        let execs: theseus_protocol::ExecutionListResult =
+            serde_json::from_value(rs[3].result.clone().unwrap()).unwrap();
+        let x = execs
+            .executions
+            .iter()
+            .find(|e| e.execution_id == "exe_old_exhausted")
+            .unwrap();
+        assert_eq!(x.state, "budget_exhausted", "terminal stays terminal");
+        assert_eq!((x.budget.limit_usd, x.budget.spent_usd), (100.0, 0.45));
+        assert_eq!(x.budget.units_before["spent"], 877_683);
+        let y = execs
+            .executions
+            .iter()
+            .find(|e| e.execution_id == "exe_old_waiting")
+            .unwrap();
+        assert_eq!((y.state.as_str(), y.budget.spent_usd), ("waiting", 0.012));
+        let migrated: Vec<LedgerRow> = core
+            .store
+            .ledger_tail::<LedgerRow>(500)
+            .unwrap()
+            .into_iter()
+            .map(|(_, r)| r)
+            .filter(|r| r.kind == "budget.migrated")
+            .collect();
+        assert_eq!(migrated.len(), 2);
+
+        // The ended session refuses a turn as before; the waiting one runs.
+        let submit = |id: u64, session: &str| {
+            Request::new(
+                Id::Num(id),
+                method::TURN_SUBMIT,
+                TurnSubmitParams {
+                    session_id: Some(session.into()),
+                    input: "hi again".into(),
+                    profile: None,
+                    provider: None,
+                    model: None,
+                    author: None,
+                },
+            )
+        };
+        let msgs = roundtrip(core.clone(), vec![submit(5, &ended.session_id)]).await;
+        let refused = responses(&msgs)[0]
+            .error
+            .clone()
+            .expect("an ended execution takes no turn");
+        assert_eq!(
+            refused.data["class"], "execution_budget_exhausted",
+            "{refused:?}"
+        );
+        let msgs = roundtrip(core.clone(), vec![submit(6, &open.session_id)]).await;
+        let ok: TurnSubmitResult =
+            serde_json::from_value(responses(&msgs)[0].result.clone().unwrap()).unwrap();
+        assert_eq!(ok.output, "Still here.");
+        let e = core.kernel.execution("exe_old_waiting").unwrap().unwrap();
+        assert!(
+            e.budget.spent_micros > 12_000,
+            "the old spend, then the new call: {:?}",
+            e.budget
         );
     }
 
@@ -2644,7 +2944,7 @@ mod tests {
         };
         for (part, needle) in [
             (NarrativePart::Session, "opened (conversation)"),
-            (NarrativePart::Session, "budget of 20,000,000 units"),
+            (NarrativePart::Session, "has a spend limit of $100."),
             (NarrativePart::Turn, "started by discord:eddie"),
             (NarrativePart::Turn, "2 characters of input"),
             (NarrativePart::Turn, "ended after 1 loop"),

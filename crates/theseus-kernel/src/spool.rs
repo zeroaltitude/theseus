@@ -159,7 +159,7 @@ mod tests {
             finished_at_ms: 2,
             producer: "test".into(),
             signature: None,
-            usage_units: None,
+            cost_micros: None,
             detail: None,
         };
         sp.write(&c).unwrap();

@@ -12,6 +12,16 @@
 //! At the end the world is quiesced (every job delivered, reconciled) and the
 //! terminal invariants are checked: no committed completion lost, no
 //! execution left running, no action left open.
+//!
+//! Budgets are dollars (theseus-0sg). A call that does not fit asks the
+//! operator and waits with the reason `budget`; the operator approves (the
+//! spend resets to $0), declines (it keeps waiting), or sends new input (it
+//! asks again). Executions stored with unit budgets are seeded before the
+//! first startup and must come out in dollars. The budget invariants: nothing
+//! is reserved past the limit; spend goes down only through an approved
+//! reset, and every reset is a `budget.reset` row; one question is open per
+//! execution, and a budget wait names its question; terminal stays terminal,
+//! and nothing new ever ends `budget_exhausted`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -59,6 +69,10 @@ pub struct SimReport {
     pub unknowns: u64,
     pub resolved_unknowns: u64,
     pub quarantined: u64,
+    pub budget_questions: u64,
+    pub budget_resets: u64,
+    pub budget_declines: u64,
+    pub legacy_migrated: u64,
     pub reconciles: u64,
     pub invariant_checks: u64,
     pub final_positions: u64,
@@ -76,6 +90,8 @@ struct Job {
     /// The spool file was removed after a settled frame.
     settled: bool,
     cancelled: bool,
+    /// What its action reserved; the job costs at most this.
+    reserved: Micros,
 }
 
 struct World {
@@ -90,6 +106,60 @@ struct World {
     p: SimParams,
     rep: SimReport,
     last_reconcile_ms: u64,
+    /// Each execution's (spent, resets) at the last check.
+    budgets: HashMap<String, (Micros, u32)>,
+    /// Resets the sim approved and the kernel accepted, per execution.
+    resets_done: HashMap<String, u32>,
+    /// Every execution seen terminal, and the state it ended in.
+    terminal: HashMap<String, ExecState>,
+}
+
+/// Executions stored with unit budgets before theseus-0sg, seeded into the
+/// store before the first startup: (execution, session, state, extra JSON).
+const LEGACY: &[(&str, &str, &str)] = &[
+    (
+        "exe_legacy_waiting",
+        "ses_legacy_waiting",
+        r#""state":"waiting","wake":{"on":"input"},"budget":{"limit":20000000,"spent":154321,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
+    ),
+    (
+        "exe_legacy_running",
+        "ses_legacy_running",
+        r#""state":"running","budget":{"limit":1000000,"spent":5000,"reserved":133351,"held_unknown":2000,"control_reserve":10000,"reservations":{"rsv_old":133351}}"#,
+    ),
+    (
+        "exe_legacy_exhausted",
+        "ses_legacy_exhausted",
+        r#""state":"budget_exhausted","ended_reason":"action provider.messages needs 172068 units, 112317 available","budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
+    ),
+];
+
+/// What each legacy session's record says it spent (the core's lookup).
+fn legacy_spend(session: &str) -> Micros {
+    match session {
+        "ses_legacy_waiting" => 20_000,
+        "ses_legacy_running" => 5_000,
+        "ses_legacy_exhausted" => 90_000,
+        _ => 0,
+    }
+}
+
+fn legacy_records() -> Result<Vec<theseus_store::NewRecord>> {
+    LEGACY
+        .iter()
+        .map(|(id, session, rest)| {
+            let json = format!(
+                r#"{{"id":"{id}","schema":1,"session_id":"{session}","kind":"conversation","authority":{{"principal":"operator","ceilings":{{}}}},"outstanding":[],"queued_results":[],"turns":4,"interrupted":0,"resume_pending":false,"created_at_ms":1690000000000,"updated_at_ms":1690000000000,{rest}}}"#
+            );
+            let v: serde_json::Value = serde_json::from_str(&json)?;
+            Ok(theseus_store::NewRecord::json(theseus_store::kinds::EXECUTION, Some(id), &v)?
+                .scoped(session))
+        })
+        .collect()
+}
+
+fn new_kernel(store: Arc<dyn Store>, clock: Arc<VirtualClock>, c: KernelConfig) -> Kernel {
+    Kernel::new(store, clock, c).with_legacy_spend(Arc::new(legacy_spend))
 }
 
 fn open_store(dir: &Path, p: &SimParams) -> Result<Arc<dyn Store>> {
@@ -110,8 +180,7 @@ fn cfg(p: &SimParams) -> KernelConfig {
     KernelConfig {
         admission_ceiling: p.ceiling,
         default_deadline_ms: 30_000,
-        default_budget: 100_000,
-        control_reserve: 1_000,
+        spend_limit_micros: 100_000,
         confirm_ttl_ms: 60_000,
         heartbeat_ms: 60_000,
         fault_after_startup_step: None,
@@ -132,7 +201,9 @@ pub fn run(p: SimParams) -> Result<SimReport> {
     let dir = tmp.path().to_path_buf();
     let clock = VirtualClock::new(1_700_000_000_000);
     let spool = Spool::open(&dir.join("spool"))?;
-    let kernel = Kernel::new(open_store(&dir, &p)?, clock.clone(), cfg(&p));
+    let store = open_store(&dir, &p)?;
+    store.append(&legacy_records()?)?;
+    let kernel = new_kernel(store, clock.clone(), cfg(&p));
     kernel.startup(
         Some(&spool),
         &WrapperEvidence {
@@ -154,7 +225,23 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         },
         p,
         last_reconcile_ms: 0,
+        budgets: HashMap::new(),
+        resets_done: HashMap::new(),
+        terminal: HashMap::new(),
     };
+    w.rep.legacy_migrated = w
+        .kernel
+        .executions()?
+        .iter()
+        .filter(|e| e.budget.units_before.is_some())
+        .count() as u64;
+    if w.rep.legacy_migrated != LEGACY.len() as u64 {
+        bail!(
+            "{} of {} unit-budget executions read after startup",
+            w.rep.legacy_migrated,
+            LEGACY.len()
+        );
+    }
 
     for step in 0..w.p.steps {
         w.step(step)?;
@@ -213,7 +300,7 @@ impl World {
             if self.chance(0.3) {
                 c.fault_after_startup_step = Some(self.rng.random_range(1..=4));
             }
-            let k = Kernel::new(
+            let k = new_kernel(
                 open_store(&self.dir, &self.p)?,
                 self.clock.clone(),
                 c.clone(),
@@ -296,7 +383,8 @@ impl World {
             } else {
                 SessionKind::Task
             };
-            let budget = self.rng.random_range(5_000..200_000);
+            // Small enough that a few calls reach it, so the budget wait runs.
+            let budget = self.rng.random_range(1_000..15_000);
             // The product's path: the core keeps the session's own record,
             // and the kernel opens the session's one execution.
             let e = self.kernel.open_execution(
@@ -319,17 +407,50 @@ impl World {
         if roll < 70 + (self.p.p_cancel * 100.0) as i32 {
             return self.cancel_one();
         }
-        // Wake a waiting conversation with input.
+        if roll % 2 == 0 {
+            return self.answer_budget();
+        }
+        // Wake a waiting conversation with input; on a budget wait, new
+        // input is how its next call asks again.
         let waiting: Vec<_> = self
             .kernel
             .open_executions()?
             .into_iter()
-            .filter(|e| e.state == ExecState::Waiting && matches!(e.wake, Some(Wake::Input)))
+            .filter(|e| {
+                e.state == ExecState::Waiting
+                    && matches!(e.wake, Some(Wake::Input) | Some(Wake::Budget { .. }))
+            })
             .collect();
         if !waiting.is_empty() {
             let i = self.rng.random_range(0..waiting.len());
             self.kernel.wake_input(&waiting[i].id)?;
         }
+        Ok(())
+    }
+
+    /// The operator answers an open budget question: approve (the spend
+    /// resets to $0 and the execution continues) or decline (it waits on).
+    fn answer_budget(&mut self) -> Result<()> {
+        let asked: Vec<_> = self
+            .kernel
+            .open_executions()?
+            .into_iter()
+            .filter(|e| e.budget.question.is_some())
+            .collect();
+        if asked.is_empty() {
+            return Ok(());
+        }
+        let e = &asked[self.rng.random_range(0..asked.len())];
+        let q = e.budget.question.clone().unwrap();
+        if self.chance(0.6) {
+            self.kernel.reset_budget(&q, "sim")?;
+            *self.resets_done.entry(e.id.clone()).or_default() += 1;
+            self.rep.budget_resets += 1;
+        } else {
+            self.kernel.decline_action(&q, "sim", "not now")?;
+            self.rep.budget_declines += 1;
+        }
+        self.maybe_crash("after a budget answer")?;
         Ok(())
     }
 
@@ -394,15 +515,28 @@ impl World {
             ) {
                 Ok(a) => a,
                 Err(err) => {
-                    if matches!(
+                    if !matches!(
                         err.downcast_ref::<KernelError>(),
-                        Some(KernelError::BudgetExhausted { .. })
+                        Some(KernelError::OverBudget { .. })
                     ) {
-                        // Terminal; the turn is over.
-                        self.guards.remove(&exec_id);
+                        return Err(err);
+                    }
+                    // Over budget: ask the operator, and park on the question.
+                    let q = self.kernel.ask_budget(g, reserve)?;
+                    self.rep.budget_questions += 1;
+                    if self.maybe_crash("after ask_budget")? {
                         return Ok(());
                     }
-                    return Err(err);
+                    let g = self.guards.remove(&exec_id).unwrap();
+                    self.kernel.end_turn(
+                        g,
+                        TurnEnd::Wait {
+                            wake: Wake::Budget {
+                                correlation_id: q.correlation_id,
+                            },
+                        },
+                    )?;
+                    return Ok(());
                 }
             };
             self.rep.actions += 1;
@@ -447,6 +581,7 @@ impl World {
                 spooled: false,
                 settled: false,
                 cancelled: false,
+                reserved: reserve,
             });
             dispatched.push(a.correlation_id);
             if self.maybe_crash("after dispatch")? {
@@ -506,7 +641,11 @@ impl World {
             .kernel
             .open_executions()?
             .into_iter()
-            .filter(|e| !e.outstanding.is_empty() || e.state == ExecState::Queued)
+            .filter(|e| {
+                !e.outstanding.is_empty()
+                    || e.state == ExecState::Queued
+                    || matches!(e.wake, Some(Wake::Budget { .. }))
+            })
             .collect();
         if open.is_empty() {
             return Ok(());
@@ -542,7 +681,7 @@ impl World {
                 finished_at_ms: now,
                 producer: "sim-wrapper".into(),
                 signature: None,
-                usage_units: Some(self.rng.random_range(0..1_000)),
+                cost_micros: Some(self.rng.random_range(0..=j.reserved)),
                 detail: None,
             };
             // The wrapper always spools first (durable), then notifies.
@@ -645,16 +784,95 @@ impl World {
                 _ => {}
             }
             let b = &e.budget;
-            if b.spent + b.reserved + b.held_unknown > b.limit {
+            // Nothing is reserved past the limit (a job costs at most what it reserved).
+            if b.spent_micros + b.reserved_micros + b.held_unknown_micros > b.limit_micros {
                 bail!("{at}: {} budget over limit: {:?}", e.id, b);
             }
             let sum: u64 = b.reservations.values().sum();
-            if sum != b.reserved {
+            if sum != b.reserved_micros {
                 bail!(
                     "{at}: {} reservations {sum} != reserved {}",
                     e.id,
-                    b.reserved
+                    b.reserved_micros
                 );
+            }
+            if e.schema < SCHEMA {
+                bail!("{at}: {} still has a unit budget after startup", e.id);
+            }
+            // Spend goes down only through a reset the sim approved.
+            let approved = self.resets_done.get(&e.id).copied().unwrap_or(0);
+            if b.resets != approved {
+                bail!(
+                    "{at}: {} shows {} resets, but {approved} were approved",
+                    e.id,
+                    b.resets
+                );
+            }
+            if let Some(&(spent, resets)) = self.budgets.get(&e.id) {
+                if b.spent_micros < spent && b.resets == resets {
+                    bail!(
+                        "{at}: {} spend went down from {spent} to {} with no reset",
+                        e.id,
+                        b.spent_micros
+                    );
+                }
+            }
+            self.budgets
+                .insert(e.id.clone(), (b.spent_micros, b.resets));
+            // Terminal stays terminal, and nothing new ends budget_exhausted.
+            if let Some(st) = self.terminal.get(&e.id) {
+                if e.state != *st {
+                    bail!("{at}: {} was {st:?} and is now {:?}", e.id, e.state);
+                }
+            }
+            if e.state.is_terminal() {
+                self.terminal.insert(e.id.clone(), e.state);
+            }
+            if e.state == ExecState::BudgetExhausted && !LEGACY.iter().any(|(id, _, _)| *id == e.id)
+            {
+                bail!(
+                    "{at}: {} ended budget_exhausted; a budget waits instead",
+                    e.id
+                );
+            }
+            // One question open at a time, and a budget wait names its own.
+            let open_questions: Vec<&&Action> = by_corr
+                .values()
+                .filter(|a| {
+                    a.execution_id == e.id
+                        && a.tool == BUDGET_TOOL
+                        && a.state == ActionState::Planned
+                })
+                .collect();
+            match (&b.question, open_questions.as_slice()) {
+                (None, []) => {}
+                (Some(q), [a]) if &a.correlation_id == q && !e.state.is_terminal() => {}
+                (q, open) => bail!(
+                    "{at}: {} question {q:?} but open budget actions {:?}",
+                    e.id,
+                    open.iter().map(|a| &a.correlation_id).collect::<Vec<_>>()
+                ),
+            }
+            if let (ExecState::Waiting, Some(Wake::Budget { correlation_id })) = (e.state, &e.wake)
+            {
+                let a = by_corr.get(correlation_id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{at}: {} waits on budget question {correlation_id}, which does not exist",
+                        e.id
+                    )
+                })?;
+                if a.tool != BUDGET_TOOL
+                    || a.execution_id != e.id
+                    || !matches!(a.state, ActionState::Planned | ActionState::Cancelled)
+                {
+                    bail!(
+                        "{at}: {} waits on {correlation_id}, a {} {:?} of {}",
+                        e.id,
+                        a.tool,
+                        a.state,
+                        a.execution_id
+                    );
+                }
             }
             for c in &e.outstanding {
                 let a = by_corr
@@ -781,6 +999,25 @@ impl World {
         }
         if self.kernel.stats()?.turns_held != 0 {
             bail!("turns still held after quiesce");
+        }
+        // Every reset is one `budget.reset` row, in the execution's session.
+        for e in self.kernel.executions()? {
+            let rows = self
+                .kernel
+                .store()
+                .scan_scope(&e.session_id, 0, usize::MAX)?
+                .into_iter()
+                .filter(|r| r.kind == theseus_store::kinds::LEDGER)
+                .filter_map(|r| r.decode::<LedgerRow>().ok())
+                .filter(|r| r.kind == "budget.reset" && r.data["execution_id"] == e.id.as_str())
+                .count() as u32;
+            if rows != e.budget.resets {
+                bail!(
+                    "{} has {} resets but {rows} budget.reset rows",
+                    e.id,
+                    e.budget.resets
+                );
+            }
         }
         Ok(())
     }

@@ -671,6 +671,7 @@ impl ToolRuntime {
                 requested_at_ms: now,
                 expires_at_ms: now + tc.confirm_ttl_ms,
                 floor: decision.floor,
+                budget: None,
             };
             tc.ledger("tool.confirm_requested", serde_json::to_value(&req)?);
             tc.sink.send(notify::CONFIRM_REQUESTED, &req);
@@ -757,7 +758,7 @@ impl ToolRuntime {
                     finished_at_ms: theseus_protocol::now_unix_ms(),
                     producer: format!("inproc:{}", tool.name()),
                     signature: None,
-                    usage_units: None,
+                    cost_micros: None,
                     detail: Some(json!({"duration_ms": dur, "meta": meta})),
                 };
                 tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
@@ -925,7 +926,7 @@ impl ToolRuntime {
             finished_at_ms: now,
             producer: format!("harness:{tool}"),
             signature: None,
-            usage_units: None,
+            cost_micros: None,
             detail: Some(json!({"error": msg})),
         };
         tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
@@ -1294,7 +1295,9 @@ impl ToolRuntime {
     pub fn absorb(&self, tc: &TurnCtx<'_>, settled: &[Action]) -> Result<u32> {
         let jobs: Vec<&Action> = settled
             .iter()
-            .filter(|a| a.tool != crate::turn::PROVIDER_TOOL)
+            .filter(|a| {
+                a.tool != crate::turn::PROVIDER_TOOL && a.tool != theseus_kernel::BUDGET_TOOL
+            })
             .collect();
         if jobs.is_empty() {
             return Ok(0);

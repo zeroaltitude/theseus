@@ -103,7 +103,7 @@ fn completion(id: &str, outcome: Outcome, usage: Option<u64>) -> Completion {
         finished_at_ms: 2,
         producer: "test".into(),
         signature: None,
-        usage_units: usage,
+        cost_micros: usage,
         detail: None,
     }
 }
@@ -153,7 +153,7 @@ fn full_lifecycle_one_action_one_turn() {
     let a = dispatched(&w, &g, "fs.read", 100);
     let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert_eq!(e2.outstanding, vec![a.correlation_id.clone()]);
-    assert_eq!(e2.budget.reserved, 100);
+    assert_eq!(e2.budget.reserved_micros, 100);
 
     // The turn parks on the action.
     let e3 = w
@@ -190,8 +190,8 @@ fn full_lifecycle_one_action_one_turn() {
     let e4 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert!(e4.outstanding.is_empty());
     assert_eq!(e4.queued_results, vec![a.correlation_id.clone()]);
-    assert_eq!(e4.budget.spent, 40);
-    assert_eq!(e4.budget.reserved, 0);
+    assert_eq!(e4.budget.spent_micros, 40);
+    assert_eq!(e4.budget.reserved_micros, 0);
 
     // Next turn consumes the result and completes.
     let g = w.kernel.admit(&e.id).unwrap();
@@ -422,7 +422,7 @@ fn cancel_of_dispatched_job_then_late_completion_does_not_revive() {
     assert_eq!(a3.state, ActionState::Cancelled);
     let e4 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert!(e4.outstanding.is_empty());
-    assert_eq!(e4.budget.reserved, 0);
+    assert_eq!(e4.budget.reserved_micros, 0);
     // The job finished anyway, late.
     let acc = w
         .kernel
@@ -469,9 +469,9 @@ fn unknown_then_genuine_success_resolves_and_budget_moves_held_to_spent() {
         "unknown is a result the model gets"
     );
     assert_eq!(e2.queued_results, vec![a.correlation_id.clone()]);
-    assert_eq!(e2.budget.held_unknown, 200);
-    assert_eq!(e2.budget.reserved, 0);
-    assert_eq!(e2.budget.spent, 0);
+    assert_eq!(e2.budget.held_unknown_micros, 200);
+    assert_eq!(e2.budget.reserved_micros, 0);
+    assert_eq!(e2.budget.spent_micros, 0);
     // Later, authoritative evidence.
     let acc = w
         .kernel
@@ -492,8 +492,8 @@ fn unknown_then_genuine_success_resolves_and_budget_moves_held_to_spent() {
     assert_eq!(a3.state, ActionState::Succeeded);
     assert!(a3.resolution.as_deref().unwrap().contains("resolved"));
     let e3 = w.kernel.execution(&e.id).unwrap().unwrap();
-    assert_eq!(e3.budget.held_unknown, 0);
-    assert_eq!(e3.budget.spent, 120);
+    assert_eq!(e3.budget.held_unknown_micros, 0);
+    assert_eq!(e3.budget.spent_micros, 120);
     // Resolution never revives a cancelled execution: cancel, then resolve another unknown.
 }
 
@@ -640,42 +640,335 @@ fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     drop(g);
 }
 
-#[test]
-fn budget_is_a_hard_limit_and_exhaustion_is_terminal() {
-    let w = world();
-    let (_, e, g) = running(&w);
-    // limit 100_000, control reserve 10_000 => 90_000 available
-    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
-    assert_eq!(e1.budget.available(), 90_000);
-    let _a = dispatched(&w, &g, "fs.read", 80_000);
+/// The ledger rows of one kind in a session, oldest first.
+fn rows(w: &World, session: &str, kind: &str) -> Vec<serde_json::Value> {
+    w.kernel
+        .store()
+        .scan_scope(session, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|r| r.kind == kinds::LEDGER)
+        .filter_map(|r| r.decode::<LedgerRow>().ok())
+        .filter(|r| r.kind == kind)
+        .map(|r| r.data)
+        .collect()
+}
+
+/// Plan a reservation that must not fit, and return the refusal's figures.
+fn over(w: &World, g: &TurnGuard, reserve: Micros) -> (Micros, Micros, Micros, Micros) {
     let err = w
         .kernel
         .plan_action(
-            &g,
-            &proposal("fs.read"),
+            g,
+            &proposal("provider.messages"),
             RetryClass::SafeToRepeat,
             None,
-            20_000,
+            reserve,
         )
         .unwrap_err();
-    assert!(matches!(
-        err.downcast_ref::<KernelError>(),
-        Some(KernelError::BudgetExhausted {
-            needed: 20_000,
-            available: 10_000,
-            ..
-        })
-    ));
-    let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
-    assert_eq!(e2.state, ExecState::BudgetExhausted);
-    assert!(e2.ended_reason.is_some());
-    // Nothing further runs against it.
-    assert!(w
+    match err.downcast_ref::<KernelError>() {
+        Some(KernelError::OverBudget {
+            needed,
+            available,
+            spent,
+            limit,
+        }) => (*needed, *available, *spent, *limit),
+        other => panic!("expected OverBudget, got {other:?}: {err}"),
+    }
+}
+
+/// A budget is a hard limit in micro-dollars (theseus-0sg): a reservation that
+/// does not fit is refused and changes nothing, and the execution does not
+/// end. It waits with the reason `budget` on a question to the operator; an
+/// approval resets its spend to $0, ledgers who approved it with the spend
+/// before and the limit, and queues the execution with the question as a
+/// result, so its next turn makes the call.
+#[test]
+fn a_call_over_the_limit_waits_on_the_operator_and_an_approved_reset_continues() {
+    let w = world();
+    let (s, e, g) = running(&w);
+    assert_eq!(e.budget.limit_micros, 100_000, "running() opens $0.10");
+    assert_eq!(e.budget.available(), 100_000, "no control reserve");
+    let a = dispatched(&w, &g, "provider.messages", 60_000);
+    w.kernel
+        .accept_completion(&completion(
+            &a.correlation_id,
+            Outcome::Succeeded,
+            Some(45_000),
+        ))
+        .unwrap();
+    let before = w.kernel.store().last_position();
+    assert_eq!(over(&w, &g, 60_000), (60_000, 55_000, 45_000, 100_000));
+    assert_eq!(
+        w.kernel.store().last_position(),
+        before,
+        "a refusal writes nothing"
+    );
+    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(e1.state, ExecState::Running, "the execution does not end");
+    assert_eq!(
+        format!(
+            "{}",
+            KernelError::OverBudget {
+                needed: 60_000,
+                available: 55_000,
+                spent: 45_000,
+                limit: 100_000
+            }
+        ),
+        "over budget: the call needs $0.06, and $0.055 of the $0.10 limit is left ($0.045 spent)"
+    );
+
+    // The turn consumes the call it settled, as a turn does before it parks.
+    assert_eq!(w.kernel.take_results(&g).unwrap().len(), 1);
+    let q = w.kernel.ask_budget(&g, 60_000).unwrap();
+    assert_eq!(
+        (q.tool.as_str(), q.state),
+        (BUDGET_TOOL, ActionState::Planned)
+    );
+    assert_eq!(q.reserved_micros, 0);
+    let asked = rows(&w, &s, "budget.asked");
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0]["spent_usd"], 0.045);
+    assert_eq!(asked[0]["limit_usd"], 0.1);
+    assert_eq!(asked[0]["needed_usd"], 0.06);
+    let e2 = w
         .kernel
-        .plan_action(&g, &proposal("fs.read"), RetryClass::SafeToRepeat, None, 1)
-        .is_err());
+        .end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q.correlation_id.clone(),
+                },
+            },
+        )
+        .unwrap();
+    assert_eq!(e2.state, ExecState::Waiting);
+    assert_eq!(
+        e2.budget.question.as_deref(),
+        Some(q.correlation_id.as_str())
+    );
+    let stored = serde_json::to_value(&e2.wake).unwrap();
+    assert_eq!(
+        stored["on"], "budget",
+        "the waiting reason is budget: {stored}"
+    );
+
+    let (e3, spent_before) = w
+        .kernel
+        .reset_budget(&q.correlation_id, "discord:eddie")
+        .unwrap();
+    assert_eq!(spent_before, 45_000);
+    assert_eq!(e3.state, ExecState::Queued);
+    assert!(e3.resume_pending, "the driver takes the next turn");
+    assert_eq!(
+        (e3.budget.spent_micros, e3.budget.resets),
+        (0, 1),
+        "spend back to $0, one reset"
+    );
+    assert!(e3.budget.question.is_none());
+    assert_eq!(e3.queued_results, vec![q.correlation_id.clone()]);
+    let q2 = w.kernel.action(&q.correlation_id).unwrap().unwrap();
+    assert_eq!(q2.state, ActionState::Succeeded);
+    assert!(q2.settled_at_ms.is_some());
+    assert!(
+        q2.resolution
+            .as_deref()
+            .unwrap()
+            .starts_with("approved by discord:eddie"),
+        "{:?}",
+        q2.resolution
+    );
+    let reset = rows(&w, &s, "budget.reset");
+    assert_eq!(reset.len(), 1);
+    assert_eq!(reset[0]["by"], "discord:eddie");
+    assert_eq!(reset[0]["spent_before_usd"], 0.045);
+    assert_eq!(reset[0]["limit_usd"], 0.1);
+    assert_eq!(reset[0]["resets"], 1);
+    assert_eq!(reset[0]["correlation_id"], q.correlation_id.as_str());
+
+    // The next turn gets the answer as a result, and the call now fits.
+    let g = w.kernel.admit(&e.id).unwrap();
+    let results = w.kernel.take_results(&g).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].tool, BUDGET_TOOL);
+    let _ = dispatched(&w, &g, "provider.messages", 60_000);
+    // A question is answered once.
+    assert!(w.kernel.reset_budget(&q.correlation_id, "eddie").is_err());
     drop(g);
-    assert!(w.kernel.admit(&e.id).is_err());
+}
+
+/// A decline, or no answer, is not a hard no: the execution keeps waiting on
+/// its budget. New input wakes it, its next call asks again, and the new
+/// question supersedes an unanswered one.
+#[test]
+fn a_declined_budget_question_keeps_waiting_and_new_input_asks_again() {
+    let w = world();
+    let (s, e, g) = running(&w);
+    let _ = over(&w, &g, 200_000);
+    let q1 = w.kernel.ask_budget(&g, 200_000).unwrap();
+    let wake = Wake::Budget {
+        correlation_id: q1.correlation_id.clone(),
+    };
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: wake.clone() })
+        .unwrap();
+    let d = w
+        .kernel
+        .decline_action(&q1.correlation_id, "operator", "not now")
+        .unwrap();
+    assert_eq!(d.state, ActionState::Cancelled);
+    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        (e1.state, e1.wake.clone()),
+        (ExecState::Waiting, Some(wake)),
+        "declined: still waiting on the budget"
+    );
+    assert!(e1.budget.question.is_none());
+    assert!(w.kernel.reset_budget(&q1.correlation_id, "eddie").is_err());
+
+    // A new message: the next call asks again.
+    w.kernel.wake_input(&e.id).unwrap();
+    let g = w.kernel.admit(&e.id).unwrap();
+    let _ = over(&w, &g, 200_000);
+    let q2 = w.kernel.ask_budget(&g, 200_000).unwrap();
+    assert_ne!(q2.correlation_id, q1.correlation_id);
+    w.kernel
+        .end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q2.correlation_id.clone(),
+                },
+            },
+        )
+        .unwrap();
+    // Unanswered, and another message: the newer question supersedes it.
+    w.kernel.wake_input(&e.id).unwrap();
+    let g = w.kernel.admit(&e.id).unwrap();
+    let q3 = w.kernel.ask_budget(&g, 200_000).unwrap();
+    let q2 = w.kernel.action(&q2.correlation_id).unwrap().unwrap();
+    assert_eq!(q2.state, ActionState::Cancelled);
+    assert!(
+        q2.resolution.as_deref().unwrap().contains("superseded"),
+        "{:?}",
+        q2.resolution
+    );
+    let e3 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        e3.budget.question.as_deref(),
+        Some(q3.correlation_id.as_str())
+    );
+    assert_eq!(rows(&w, &s, "budget.asked").len(), 3);
+    let open: Vec<_> = w
+        .kernel
+        .open_actions()
+        .unwrap()
+        .into_iter()
+        .filter(|a| a.tool == BUDGET_TOOL)
+        .collect();
+    assert_eq!(open.len(), 1, "one open question at a time");
+    drop(g);
+}
+
+/// An approval that lands before the turn parks (the operator is quick)
+/// still continues: the turn ends queued, never waiting on an answered question.
+#[test]
+fn a_reset_approved_before_the_turn_parks_still_continues() {
+    let w = world();
+    let (_, _, g) = running(&w);
+    let q = w.kernel.ask_budget(&g, 500_000).unwrap();
+    let (mid, _) = w.kernel.reset_budget(&q.correlation_id, "eddie").unwrap();
+    assert_eq!(mid.state, ExecState::Running);
+    let e2 = w
+        .kernel
+        .end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q.correlation_id.clone(),
+                },
+            },
+        )
+        .unwrap();
+    assert_eq!(e2.state, ExecState::Queued);
+    assert_eq!(e2.queued_results, vec![q.correlation_id]);
+    assert!(e2.wake.is_none());
+}
+
+/// Cancel is still the operator's way out, and terminal stays terminal: the
+/// open question closes with the execution, and a reset cannot revive it.
+#[test]
+fn cancelling_a_budget_wait_closes_its_question_and_terminal_stays_terminal() {
+    let w = world();
+    let (_, e, g) = running(&w);
+    let q = w.kernel.ask_budget(&g, 500_000).unwrap();
+    w.kernel
+        .end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q.correlation_id.clone(),
+                },
+            },
+        )
+        .unwrap();
+    w.kernel.cancel_execution(&e.id, "eddie").unwrap();
+    let q2 = w.kernel.action(&q.correlation_id).unwrap().unwrap();
+    assert_eq!(q2.state, ActionState::Cancelled);
+    assert!(q2.settled_at_ms.is_some());
+    assert!(w.kernel.reset_budget(&q.correlation_id, "eddie").is_err());
+    let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(e2.state, ExecState::Cancelled);
+    assert!(w.kernel.wake_input(&e.id).is_err());
+}
+
+/// A turn that ends its execution while a budget question is open (a later
+/// call fitted, and the turn completed) closes the question with it: the
+/// simulator found this (seed 8), and nothing may approve a dead question.
+#[test]
+fn an_execution_that_ends_closes_its_open_budget_question() {
+    let w = world();
+    let (_, e, g) = running(&w);
+    let q = w.kernel.ask_budget(&g, 500_000).unwrap();
+    let _ = dispatched(&w, &g, "provider.messages", 1_000);
+    w.kernel
+        .end_turn(
+            g,
+            TurnEnd::Complete {
+                reason: "done".into(),
+            },
+        )
+        .unwrap();
+    let q2 = w.kernel.action(&q.correlation_id).unwrap().unwrap();
+    assert_eq!(q2.state, ActionState::Cancelled);
+    assert!(q2.resolution.as_deref().unwrap().contains("ended"));
+    let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert!(e2.budget.question.is_none());
+    assert!(w.kernel.reset_budget(&q.correlation_id, "eddie").is_err());
+}
+
+/// A real cost is never hidden: a call that cost more than it reserved books
+/// all of it, so spend may pass the limit, and then nothing more is reserved
+/// until the operator resets it.
+#[test]
+fn a_call_that_costs_more_than_it_reserved_books_all_of_it() {
+    let w = world();
+    let (_, e, g) = running(&w);
+    let a = dispatched(&w, &g, "provider.messages", 90_000);
+    w.kernel
+        .accept_completion(&completion(
+            &a.correlation_id,
+            Outcome::Succeeded,
+            Some(120_000),
+        ))
+        .unwrap();
+    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(e1.budget.spent_micros, 120_000);
+    assert_eq!(e1.budget.available(), 0);
+    let (_, available, spent, limit) = over(&w, &g, 1);
+    assert_eq!((available, spent, limit), (0, 120_000, 100_000));
+    drop(g);
 }
 
 #[test]
@@ -849,10 +1142,11 @@ fn rows_stored_before_the_session_model_cut_still_read() {
     let exec = r#"{"id":"exe_01a0e754c794744aa0f3c8cef99e690b","schema":1,"session_id":"ses_01a0e754c794744aa0f3c8cd0a26857d","kind":"conversation","state":"waiting","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":20000000,"spent":0,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}},"wake":{"on":"input"},"outstanding":[],"queued_results":[],"turns":0,"interrupted":0,"resume_pending":false,"created_at_ms":1790587488148,"updated_at_ms":1790587488148}"#;
     let safe = r#"{"correlation_id":"act_01a0e754c7ee733bb97884fe2629cac7","schema":1,"execution_id":"exe_01a0e754c794744aa0f3c8cef99e690b","session_id":"ses_01a0e754c794744aa0f3c8cd0a26857d","tool":"provider.messages","args_digest":"d29b78a3f83cb59acf23e90bebd287435a94c213061bca8447156b65d31f72ee","resource":"zai","retry_class":{"class":"safe_to_repeat"},"state":"planned","deadline_at_ms":1790588088238,"planned_at_ms":1790587488238,"reservation_id":"rsv_01a0e754c7ee733bb97884fd65b5d52e","reserved_units":133351,"completions_seen":0}"#;
     let once = r#"{"correlation_id":"act_01a0e7568c0577d7a4a2c9d58fb052dd","schema":1,"execution_id":"exe_01a0e755c3c475aab628168f14e0d0f0","session_id":"ses_01a0e755c3c475aab628168e7d9a2424","tool":"proc.run","args_digest":"8adceac28fe004b3c3980e81c17840a7fdfc7315fba1bd907234bd2f20591aff","resource":"/tmp/theseus-2app/work/scratch","retry_class":{"class":"non_repeatable"},"state":"planned","deadline_at_ms":1790588233973,"planned_at_ms":1790587603973,"reserved_units":0,"completions_seen":0}"#;
-    let e: Execution = serde_json::from_str(exec).unwrap();
+    let e = Execution::from_stored(exec.as_bytes(), 100 * MICROS_PER_USD).unwrap();
     assert_eq!(e.kind, SessionKind::Conversation);
     let a: Action = serde_json::from_str(safe).unwrap();
     assert_eq!(a.retry_class, RetryClass::SafeToRepeat);
+    assert_eq!(a.reserved_micros, 0, "units never read as dollars");
     let b: Action = serde_json::from_str(once).unwrap();
     assert_eq!(b.retry_class, RetryClass::NonRepeatable);
     for (kind, stored) in [
@@ -881,6 +1175,127 @@ fn rows_stored_before_the_session_model_cut_still_read() {
         ])
         .unwrap();
     let (w, _) = crash(w, KernelConfig::default());
-    assert_eq!(w.kernel.execution(&e.id).unwrap().unwrap(), e);
+    // Startup rewrote the unit budget once, in dollars (theseus-0sg).
+    let expected = Execution {
+        schema: SCHEMA,
+        ..e.clone()
+    };
+    assert_eq!(w.kernel.execution(&e.id).unwrap().unwrap(), expected);
     assert_eq!(w.kernel.action(&a.correlation_id).unwrap().unwrap(), a);
+}
+
+/// Executions stored with unit budgets (before theseus-0sg) serve under this
+/// binary: M3.5's rule is that a new on-disk format lands with the reader for
+/// the one it replaces. The reader gives each a dollar budget: the configured
+/// limit, nothing reserved or held, and the unit figures kept as they were.
+/// Startup rewrites each once, taking its spend from the session's recorded
+/// cost (a lookup the core installs). Terminal stays terminal, a turn a crash
+/// interrupted is requeued, and the next startup rewrites nothing.
+#[test]
+fn executions_stored_with_unit_budgets_serve_in_dollars() {
+    let exhausted = r#"{"id":"exe_old_exhausted","schema":1,"session_id":"ses_old_a","kind":"conversation","state":"budget_exhausted","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}},"outstanding":[],"queued_results":[],"turns":15,"interrupted":0,"resume_pending":false,"ended_reason":"action provider.messages needs 172068 units, 112317 available","created_at_ms":1790000000000,"updated_at_ms":1790000500000}"#;
+    let waiting = r#"{"id":"exe_old_waiting","schema":1,"session_id":"ses_old_b","kind":"conversation","state":"waiting","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":20000000,"spent":154321,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}},"wake":{"on":"input"},"outstanding":[],"queued_results":[],"turns":3,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000500000}"#;
+    let running = r#"{"id":"exe_old_running","schema":1,"session_id":"ses_old_c","kind":"task","state":"running","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":1000000,"spent":5000,"reserved":133351,"held_unknown":2000,"control_reserve":10000,"reservations":{"rsv_old":133351}},"outstanding":[],"queued_results":[],"turns":2,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000500000}"#;
+    let w = world();
+    let raw = |key: &str, session: &str, json: &str| {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        NewRecord::json(kinds::EXECUTION, Some(key), &v)
+            .unwrap()
+            .scoped(session)
+    };
+    w.kernel
+        .store()
+        .append(&[
+            raw("exe_old_exhausted", "ses_old_a", exhausted),
+            raw("exe_old_waiting", "ses_old_b", waiting),
+            raw("exe_old_running", "ses_old_c", running),
+        ])
+        .unwrap();
+    // Before any rewrite, the reader already serves every one of them.
+    let read = w.kernel.execution("exe_old_exhausted").unwrap().unwrap();
+    assert_eq!(read.state, ExecState::BudgetExhausted);
+    assert_eq!(read.budget.limit_micros, 100 * MICROS_PER_USD);
+    assert_eq!(read.budget.units_before.as_ref().unwrap().spent, 877_683);
+
+    let restart = |w: World| {
+        let World {
+            dir,
+            clock,
+            spool,
+            kernel,
+        } = w;
+        drop(kernel);
+        let spent = |session: &str| match session {
+            "ses_old_a" => 450_000,
+            "ses_old_b" => 12_000,
+            _ => 0,
+        };
+        let kernel = Kernel::new(
+            open_store(dir.path()),
+            clock.clone(),
+            KernelConfig::default(),
+        )
+        .with_legacy_spend(Arc::new(spent));
+        kernel.startup(Some(&spool), &NoEvidence).unwrap();
+        World {
+            dir,
+            clock,
+            spool,
+            kernel,
+        }
+    };
+    let w = restart(w);
+    let x = w.kernel.execution("exe_old_exhausted").unwrap().unwrap();
+    assert_eq!(
+        x.state,
+        ExecState::BudgetExhausted,
+        "terminal stays terminal"
+    );
+    assert_eq!(x.schema, SCHEMA);
+    assert_eq!(
+        (x.budget.limit_micros, x.budget.spent_micros),
+        (100 * MICROS_PER_USD, 450_000),
+        "the configured limit, and the session's recorded $0.45"
+    );
+    let units = x.budget.units_before.clone().unwrap();
+    assert_eq!((units.limit, units.spent), (1_000_000, 877_683));
+    assert_eq!(
+        x.ended_reason.as_deref().map(|r| r.contains("172068")),
+        Some(true)
+    );
+    let y = w.kernel.execution("exe_old_waiting").unwrap().unwrap();
+    assert_eq!(
+        (y.state, y.budget.spent_micros),
+        (ExecState::Waiting, 12_000)
+    );
+    let z = w.kernel.execution("exe_old_running").unwrap().unwrap();
+    assert_eq!((z.state, z.interrupted), (ExecState::Queued, 1));
+    assert_eq!(
+        (z.budget.reserved_micros, z.budget.held_unknown_micros),
+        (0, 0),
+        "units are never read as dollars"
+    );
+    assert!(z.budget.reservations.is_empty());
+    assert_eq!(z.budget.units_before.as_ref().unwrap().held_unknown, 2000);
+    for (session, n) in [("ses_old_a", 1), ("ses_old_b", 1), ("ses_old_c", 1)] {
+        let migrated = rows(&w, session, "budget.migrated");
+        assert_eq!(migrated.len(), n, "{session}");
+        assert!(migrated[0]["units_before"].is_object(), "{:?}", migrated[0]);
+    }
+    assert_eq!(
+        rows(&w, "ses_old_a", "budget.migrated")[0]["spent_usd"],
+        0.45
+    );
+    // The next startup finds nothing to rewrite.
+    let w = restart(w);
+    for session in ["ses_old_a", "ses_old_b", "ses_old_c"] {
+        assert_eq!(rows(&w, session, "budget.migrated").len(), 1, "{session}");
+    }
+    assert_eq!(
+        w.kernel.stats().unwrap().executions_by_state["budget_exhausted"],
+        1
+    );
+    // The rewritten budget counts on from the session's recorded spend.
+    let e = w.kernel.execution("exe_old_waiting").unwrap().unwrap();
+    assert_eq!(e.budget.available(), 100 * MICROS_PER_USD - 12_000);
 }

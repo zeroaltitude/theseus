@@ -46,6 +46,8 @@ pub const AMBER: u32 = 0xE3A008;
 pub const ASK: &str = "**Approve?** ";
 /// How a floor confirm opens.
 pub const FLOOR_ASK: &str = "🔒 **Floor: Theseus's own state or secrets. Approve?** ";
+/// How a budget question opens (theseus-0sg): the session reached its limit.
+pub const BUDGET_ASK: &str = "💵 **Budget:** ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
@@ -111,8 +113,8 @@ pub struct Renderer {
     turns: VecDeque<TurnView>,
     /// key → the content Discord last received for it.
     emitted: HashMap<String, String>,
-    /// correlation id → (message key, the tool line it describes).
-    confirms: HashMap<String, (String, String)>,
+    /// correlation id → (message key, the line it describes, a budget question).
+    confirms: HashMap<String, (String, String, bool)>,
     /// tool_use_id → the notice card posted for it (updated when the call ends).
     notices: HashMap<String, NoticeCard>,
 }
@@ -249,6 +251,27 @@ impl Renderer {
                 let Ok(req) = serde_json::from_value::<ConfirmRequest>(p.clone()) else {
                     return vec![];
                 };
+                if let Some(b) = &req.budget {
+                    // No tool line waits: the turn stopped before its call.
+                    let corr = req.correlation_id.clone();
+                    let key = format!("confirm:{corr}");
+                    let content = format!(
+                        "{BUDGET_ASK}{}\n-# Approve resets its spend to $0 and the waiting call goes on; \
+                         the session's lifetime cost ({}) keeps counting. Decline, or send a new \
+                         message, and it keeps waiting. You can also answer in the web UI or with \
+                         `theseus confirm`.",
+                        clip(&req.reason, 300),
+                        dollars(b.lifetime_usd)
+                    );
+                    let line = format!(
+                        "spend reset ({} of the {} limit)",
+                        dollars(b.spent_usd),
+                        dollars(b.limit_usd)
+                    );
+                    self.confirms
+                        .insert(corr.clone(), (key.clone(), line, true));
+                    return vec![self.upsert(&key, content, Buttons::Confirm(corr))];
+                }
                 // The newest proposed call of this tool is the one waiting.
                 let corr = req.correlation_id.clone();
                 if let Some(t) = self.turns.iter_mut().rev().find(|t| !t.ended) {
@@ -279,7 +302,8 @@ impl Renderer {
                 } else {
                     line
                 };
-                self.confirms.insert(corr.clone(), (key.clone(), line));
+                self.confirms
+                    .insert(corr.clone(), (key.clone(), line, false));
                 vec![self.upsert(&key, content, Buttons::Confirm(corr))]
             }
             "confirm.resolved" => {
@@ -309,10 +333,14 @@ impl Renderer {
                         }
                     }
                 }
-                let Some((key, line)) = self.confirms.remove(&corr) else {
+                let Some((key, line, budget)) = self.confirms.remove(&corr) else {
                     return vec![];
                 };
-                let content = if superseded {
+                let content = if budget && superseded {
+                    format!("⏭️ **Replaced**: a new message came first, and its call asks again if it still does not fit. {line}")
+                } else if budget && !approved {
+                    format!("❎ **Declined** by {by} · {line}; the session keeps waiting, and a new message asks again")
+                } else if superseded {
                     format!("⏭️ **Not run**: a new message replaced this request. {line}")
                 } else if approved {
                     format!("✅ **Approved** by {by} · {line}")
@@ -573,6 +601,11 @@ pub fn summarize(tool: &str, input: &Value) -> String {
     clip(&text.replace('`', "'").replace('\n', " "), 90)
 }
 
+/// Dollars as the narrative says them: `$100`, `$0.45`, `$0.0045`.
+fn dollars(usd: f64) -> String {
+    theseus_core::narrative::dollars((usd.max(0.0) * 1e6).round() as u64)
+}
+
 fn str_of(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or("").to_string()
 }
@@ -718,6 +751,46 @@ mod tests {
             ops[0].1
         );
         assert!(!r.busy());
+    }
+
+    /// A session at its spend limit asks with its own message and buttons
+    /// (theseus-0sg); approve says the spend was reset, decline says it keeps
+    /// waiting, and a new message replaces the question.
+    #[test]
+    fn a_budget_question_asks_with_buttons_and_says_what_each_answer_does() {
+        let ask = |corr: &str| {
+            json!({"correlation_id": corr, "session_id": "s", "execution_id": "e", "tool": "budget.reset",
+                "input": {"spent_usd": 99.48, "limit_usd": 100.0}, "by": "operator", "requested_at_ms": 1, "expires_at_ms": 0,
+                "reason": "This session has spent $99.48 of its $100 limit. Reset its spend to $0 and continue?",
+                "budget": {"spent_usd": 99.48, "limit_usd": 100.0, "needed_usd": 1.368, "lifetime_usd": 212.4}})
+        };
+        for (answer, want) in [
+            (json!({"approved": true, "by": "discord:eddie"}), "✅ **Approved** by discord:eddie · spend reset ($99.48 of the $100 limit)"),
+            (json!({"approved": false, "by": "discord:eddie"}), "❎ **Declined** by discord:eddie · spend reset ($99.48 of the $100 limit); the session keeps waiting, and a new message asks again"),
+            (json!({"approved": false, "superseded": true}), "⏭️ **Replaced**: a new message came first, and its call asks again if it still does not fit. spend reset ($99.48 of the $100 limit)"),
+        ] {
+            let mut r = Renderer::default();
+            r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+            match &r.on_notification("confirm.requested", &ask("act_b"))[..] {
+                [Op::Upsert { key, content, buttons }] => {
+                    assert_eq!(key, "confirm:act_b");
+                    assert!(content.starts_with(&format!("{BUDGET_ASK}This session has spent $99.48 of its $100 limit. Reset its spend to $0 and continue?\n")), "{content}");
+                    assert!(content.contains("lifetime cost ($212.40) keeps counting"), "{content}");
+                    assert!(!content.contains("expires"), "a budget question does not expire: {content}");
+                    assert_eq!(buttons, &Buttons::Confirm("act_b".into()));
+                }
+                other => panic!("{other:?}"),
+            }
+            let mut p = answer.clone();
+            p["correlation_id"] = json!("act_b");
+            match &r.on_notification("confirm.resolved", &p)[..] {
+                [Op::Upsert { key, content, buttons }] => {
+                    assert_eq!((key.as_str(), content.as_str()), ("confirm:act_b", want));
+                    assert_eq!(buttons, &Buttons::Clear);
+                }
+                other => panic!("{answer}: {other:?}"),
+            }
+        }
     }
 
     #[test]

@@ -12,14 +12,20 @@ use serde::{Deserialize, Serialize};
 /// One enum on the wire and in the store: stored executions carry
 /// `"conversation"` or `"task"` either way.
 pub use theseus_protocol::SessionKind;
+/// The tool name of a budget question: the planned action that asks the
+/// operator whether an execution's spend may go back to $0 (theseus-0sg).
+pub use theseus_protocol::BUDGET_TOOL;
 
 pub type ExecutionId = String;
 pub type SessionId = String;
 pub type CorrelationId = String;
 
 /// Schema versions stamped into every record's payload so forward-only
-/// migrations can read old rows.
-pub const SCHEMA: u16 = 1;
+/// migrations can read old rows. 2 (theseus-0sg): budgets and reservations
+/// are micro-dollars. Executions stored at 1 carry a unit budget, which
+/// `Execution::from_stored` reads; actions stored at 1 carry
+/// `reserved_units`, which is never read as dollars.
+pub const SCHEMA: u16 = 2;
 
 /// US dollars in millionths ($1 is 1,000,000). Budgets count in these, so
 /// every sum and every comparison against a limit is exact (theseus-0sg).
@@ -109,6 +115,12 @@ pub enum Wake {
     Confirm { confirm_id: String },
     /// Human input on the session (a conversation between exchanges).
     Input,
+    /// The budget (theseus-0sg): a call did not fit under the spend limit,
+    /// and the operator is asked, by the `budget.reset` action named here,
+    /// whether the spend may go back to $0. An approval wakes it
+    /// (`Kernel::reset_budget`). A decline leaves it waiting; new input wakes
+    /// it, and its next call asks again.
+    Budget { correlation_id: CorrelationId },
 }
 
 /// The authority an execution acts under (§3.9), inherited never widened.
@@ -122,41 +134,84 @@ pub struct Authority {
     pub ceilings: BTreeMap<String, String>,
 }
 
-/// Budget as a hard limit with reservations (§3.15, Part II M2). Units are
-/// abstract "units" (tokens today; dollars once the catalog lands, M2+).
+/// A spend limit in US dollars, with reservations (§3.13, §3.15, Part II
+/// M2; dollars since theseus-0sg). Every amount is micro-dollars. A call
+/// reserves what it may cost before it runs and settles at what it did cost.
+/// A reservation that does not fit is refused, and the execution waits on
+/// the operator (`Wake::Budget`) instead of ending; an approved reset is the
+/// only way `spent_micros` goes down.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Budget {
-    pub limit: u64,
-    pub spent: u64,
+    pub limit_micros: Micros,
+    /// Settled costs since the execution opened or was last reset.
+    pub spent_micros: Micros,
     /// Reserved for in-flight work; released or converted to spent on settle.
-    pub reserved: u64,
-    /// Reservations whose real usage is unknown (interrupted provider calls)
-    /// stay held here until reconciled; they never silently release.
-    pub held_unknown: u64,
-    /// Kept back for control and cleanup (cancel, final report) so a runaway
-    /// never leaves the execution unable to end cleanly.
-    pub control_reserve: u64,
+    pub reserved_micros: Micros,
+    /// Reservations whose real cost is unknown (interrupted provider calls)
+    /// stay held here until reconciled; they never silently release, and a
+    /// reset leaves them held.
+    pub held_unknown_micros: Micros,
     /// Open reservations by id.
     #[serde(default)]
-    pub reservations: BTreeMap<String, u64>,
+    pub reservations: BTreeMap<String, Micros>,
+    /// The budget question the operator has not answered: a planned
+    /// `budget.reset` action of this execution. One is open at a time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<CorrelationId>,
+    /// What the call waiting on that question would reserve.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub question_needs_micros: Micros,
+    /// Approved resets, each a `budget.reset` ledger row.
+    #[serde(default)]
+    pub resets: u32,
+    /// The unit budget a record stored before theseus-0sg carried, as it was.
+    /// It is history only: nothing decides from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units_before: Option<UnitBudget>,
 }
 
 impl Budget {
-    pub fn new(limit: u64, control_reserve: u64) -> Self {
+    pub fn new(limit_micros: Micros) -> Self {
         Self {
-            limit,
-            control_reserve: control_reserve.min(limit),
+            limit_micros,
             ..Default::default()
         }
     }
-    /// What may still be reserved for ordinary work.
-    pub fn available(&self) -> u64 {
-        self.limit
-            .saturating_sub(self.spent)
-            .saturating_sub(self.reserved)
-            .saturating_sub(self.held_unknown)
-            .saturating_sub(self.control_reserve)
+    /// What may still be reserved.
+    pub fn available(&self) -> Micros {
+        self.limit_micros
+            .saturating_sub(self.spent_micros)
+            .saturating_sub(self.reserved_micros)
+            .saturating_sub(self.held_unknown_micros)
     }
+    /// A unit budget read in dollars: the given limit, nothing spent,
+    /// reserved, or held (a unit has no price), and the unit figures kept.
+    /// Startup then takes the spend from the session's recorded cost.
+    pub fn from_units(units: UnitBudget, limit_micros: Micros) -> Self {
+        Self {
+            limit_micros,
+            units_before: Some(units),
+            ..Default::default()
+        }
+    }
+}
+
+fn is_zero(m: &Micros) -> bool {
+    *m == 0
+}
+
+/// A budget as stored before theseus-0sg: abstract units, the tokens of every
+/// call at full weight, with a slice kept back as a control reserve.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct UnitBudget {
+    pub limit: u64,
+    pub spent: u64,
+    pub reserved: u64,
+    pub held_unknown: u64,
+    #[serde(default)]
+    pub control_reserve: u64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reservations: BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,6 +251,29 @@ pub struct Execution {
     pub ended_reason: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
+}
+
+impl Execution {
+    /// Read a stored execution. Schema 2 decodes as it is. Schema 1, a unit
+    /// budget from before theseus-0sg, decodes with a dollar budget of
+    /// `limit_micros` and its unit figures in `budget.units_before`; its
+    /// `schema` stays 1 until startup rewrites it (see `Kernel::startup`).
+    pub fn from_stored(payload: &[u8], limit_micros: Micros) -> anyhow::Result<Self> {
+        let first = match serde_json::from_slice::<Execution>(payload) {
+            Ok(e) => return Ok(e),
+            Err(e) => e,
+        };
+        let mut v: serde_json::Value = serde_json::from_slice(payload)?;
+        let stored = v.get("schema").and_then(serde_json::Value::as_u64);
+        if stored.is_some_and(|s| s >= SCHEMA as u64) {
+            return Err(first.into());
+        }
+        let units: UnitBudget = serde_json::from_value(v["budget"].take()).map_err(|e| {
+            anyhow::anyhow!("execution budget is neither dollars ({first}) nor units ({e})")
+        })?;
+        v["budget"] = serde_json::to_value(Budget::from_units(units, limit_micros))?;
+        Ok(serde_json::from_value(v)?)
+    }
 }
 
 /// Per-operation declaration of what a repeat would do (§3.16). Every tool
@@ -296,8 +374,10 @@ pub struct Action {
     /// Budget reservation held for this action, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reservation_id: Option<String>,
+    /// What the reservation holds. Actions stored before theseus-0sg carry
+    /// `reserved_units` instead, which is left unread: a unit has no price.
     #[serde(default)]
-    pub reserved_units: u64,
+    pub reserved_micros: Micros,
     /// How an `OutcomeUnknown` was later resolved, if it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolution: Option<String>,
@@ -341,9 +421,10 @@ pub struct Completion {
     pub producer: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
-    /// Real usage if the producer knows it (converts the reservation).
+    /// The real cost, when the producer knows it: it settles the reservation.
+    /// (Completions stored before theseus-0sg said `usage_units`.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub usage_units: Option<u64>,
+    pub cost_micros: Option<Micros>,
     /// Producer-specific facts: exit code, signal, bytes, truncation, duration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<serde_json::Value>,

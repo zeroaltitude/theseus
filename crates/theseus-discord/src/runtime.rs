@@ -693,6 +693,7 @@ impl Shared {
                     .and_then(|m| m.content.lines().next())
                     .map(|l| {
                         l.trim_start_matches(crate::render::FLOOR_ASK)
+                            .trim_start_matches(crate::render::BUDGET_ASK)
                             .trim_start_matches(crate::render::ASK)
                             .to_string()
                     })

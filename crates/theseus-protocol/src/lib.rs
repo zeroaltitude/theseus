@@ -14,6 +14,11 @@ use serde_json::Value;
 pub const VERSION: &str = "0.1";
 pub const JSONRPC: &str = "2.0";
 
+/// The `tool` of a budget question (theseus-0sg): a session reached its spend
+/// limit, and a `confirm.requested` with this tool asks the operator whether
+/// its spend may go back to $0. Answered with `action.confirm` like any other.
+pub const BUDGET_TOOL: &str = "budget.reset";
+
 /// Method names. Requests (client → server).
 pub mod method {
     pub const HEALTH: &str = "health";
@@ -316,6 +321,10 @@ pub struct KernelStatus {
     /// The last startup: step timings in µs and what it recovered.
     #[serde(default)]
     pub startup: Value,
+    /// The spend limit a new session gets, in US dollars (`[kernel]
+    /// spend_limit_usd`).
+    #[serde(default)]
+    pub spend_limit_usd: f64,
 }
 
 /// One execution as the protocol shows it (spec §3.15).
@@ -343,13 +352,26 @@ pub struct ExecutionInfo {
     pub updated_at_ms: u64,
 }
 
+/// An execution's budget in US dollars (theseus-0sg).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BudgetInfo {
-    pub limit: u64,
-    pub spent: u64,
-    pub reserved: u64,
-    pub held_unknown: u64,
-    pub available: u64,
+    pub limit_usd: f64,
+    /// Settled costs since the execution opened or was last reset. The
+    /// session's `cost_usd` is its lifetime total, which a reset never lowers.
+    pub spent_usd: f64,
+    pub reserved_usd: f64,
+    pub held_unknown_usd: f64,
+    pub available_usd: f64,
+    /// Approved resets of the spend to $0.
+    #[serde(default)]
+    pub resets: u32,
+    /// The budget question waiting for the operator (a correlation id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
+    /// The unit budget a record stored before dollar budgets carried, as it
+    /// was: `limit`, `spent`, `reserved`, `held_unknown`.
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub units_before: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,7 +396,9 @@ pub struct ActionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settled_at_ms: Option<u64>,
     pub deadline_at_ms: u64,
-    pub reserved_units: u64,
+    /// What the action's budget reservation holds, in US dollars.
+    #[serde(default)]
+    pub reserved_usd: f64,
     pub confirmed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cancel: Option<String>,
@@ -784,11 +808,30 @@ pub struct ConfirmRequest {
     pub reason: String,
     pub by: String,
     pub requested_at_ms: u64,
+    /// When the question stops holding; 0 for a budget question, which
+    /// holds until it is answered or a newer one replaces it.
     pub expires_at_ms: u64,
     /// The floor asks: the call touches Theseus's own binary or state, or the
     /// 1Password CLI or token. It asks at every posture.
     #[serde(default)]
     pub floor: bool,
+    /// Set on a budget question (`tool` is `budget.reset`): the figures it
+    /// asks about. `reason` is the question in words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<BudgetAsk>,
+}
+
+/// What a budget question asks about (theseus-0sg): the session reached its
+/// spend limit. Approving resets `spent_usd` to $0 and the waiting call
+/// proceeds; the session's lifetime cost keeps counting.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BudgetAsk {
+    pub spent_usd: f64,
+    pub limit_usd: f64,
+    /// What the waiting call reserves.
+    pub needed_usd: f64,
+    /// The session's lifetime cost, resets included.
+    pub lifetime_usd: f64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -812,6 +855,15 @@ pub struct ActionConfirmResult {
     pub approved: bool,
     pub session_id: String,
     pub execution_id: String,
+    /// The answer woke the execution, so a continuation turn follows. False
+    /// for a declined budget question: the session keeps waiting, and its
+    /// next message asks again.
+    #[serde(default = "yes")]
+    pub resumes: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

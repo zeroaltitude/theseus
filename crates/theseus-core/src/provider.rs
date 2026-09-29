@@ -855,6 +855,11 @@ pub enum Scripted {
         stop_reason: String,
     },
     Fail(ProviderError),
+    /// `then`, billed with exactly this usage (cache reads and writes too).
+    Billed {
+        usage: Usage,
+        then: Box<Scripted>,
+    },
 }
 
 impl Scripted {
@@ -938,13 +943,19 @@ impl Provider for FakeProvider {
             if let Some(e) = &self.fail_with {
                 return Err(e.clone().into());
             }
-            let next = self.script.lock().unwrap().pop_front();
+            let mut next = self.script.lock().unwrap().pop_front();
+            let mut billed = None;
+            if let Some(Scripted::Billed { usage, then }) = next {
+                billed = Some(usage);
+                next = Some(*then);
+            }
             let (blocks, stop_reason) = match next {
                 Some(Scripted::Fail(e)) => return Err(e.into()),
                 Some(Scripted::Blocks {
                     blocks,
                     stop_reason,
                 }) => (blocks, stop_reason),
+                Some(Scripted::Billed { .. }) => unreachable!("one bill per response"),
                 None => (
                     vec![serde_json::json!({"type": "text", "text": self.reply})],
                     self.stop_reason.clone(),
@@ -971,11 +982,11 @@ impl Provider for FakeProvider {
             }
             let text = text_of(&blocks);
             Ok(ModelResponse {
-                usage: Usage {
+                usage: billed.unwrap_or_else(|| Usage {
                     input_tokens: req.estimate_tokens(),
                     output_tokens: (text.split_whitespace().count() as u64).max(1),
                     ..Default::default()
-                },
+                }),
                 text,
                 content: blocks,
                 stop_reason: Some(stop_reason),

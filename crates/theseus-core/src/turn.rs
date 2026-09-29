@@ -20,11 +20,13 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::{
-    Action, Authority, Completion, ExecState, Execution, Kernel, KernelError,
-    Outcome as ActionOutcome, Proposal, RetryClass, TurnEnd, TurnGuard, Wake,
+    micros_to_usd, Action, ActionState, Authority, Completion, ExecState, Execution, Kernel,
+    KernelError, Micros, Outcome as ActionOutcome, Proposal, RetryClass, TurnEnd, TurnGuard, Wake,
+    BUDGET_TOOL,
 };
 use theseus_protocol::{
-    notify, LoopEnded, LoopStarted, ModelDelta, TurnStarted, TurnSubmitResult, Usage,
+    notify, BudgetAsk, ConfirmRequest, LoopEnded, LoopStarted, ModelDelta, TurnStarted,
+    TurnSubmitResult, Usage,
 };
 use theseus_store::NewRecord;
 
@@ -140,9 +142,25 @@ struct Turn<'a> {
     last: Option<ModelResponse>,
     /// The tool call waiting on a confirm.
     awaiting: Option<String>,
+    /// The budget question the turn parks on: a call did not fit.
+    budget_question: Option<String>,
     /// Jobs this turn started or resumed in the background.
     background: Vec<String>,
     stop_reason: String,
+}
+
+/// What became of a loop's provider call.
+enum Called {
+    Answered(Box<(ModelResponse, Node)>),
+    /// The call failed after it began; the turn reports it.
+    Failed(Failure),
+    /// Its reservation did not fit under the spend limit; nothing ran.
+    OverBudget {
+        needed: Micros,
+        available: Micros,
+        spent: Micros,
+        limit: Micros,
+    },
 }
 
 impl<'a> Turn<'a> {
@@ -175,6 +193,7 @@ impl<'a> Turn<'a> {
             tool_calls: 0,
             last: None,
             awaiting: None,
+            budget_question: None,
             background: Vec::new(),
             stop_reason: String::new(),
         }
@@ -250,9 +269,10 @@ impl<'a> Turn<'a> {
 }
 
 /// A turn that failed after it began, in a way the client is told about:
-/// the kernel would not plan the provider call (the budget ran out, the
-/// execution was cancelled), or the call failed. Any other error is a fault
-/// and propagates as it is.
+/// the kernel would not plan the provider call (the execution was
+/// cancelled, the model has no price), or the call failed. A call over the
+/// budget is not a failure: the turn parks on a question to the operator.
+/// Any other error is a fault and propagates as it is.
 struct Failure {
     class: String,
     transient: bool,
@@ -386,13 +406,45 @@ impl TurnRunner {
             Session,
             Some(&session.session_id),
             None,
-            "Session {} had no execution; opened {} with a budget of {} \
-             units.",
+            "Session {} had no execution; opened {} with a spend limit of {}.",
             narrative::short(&session.session_id),
             narrative::short(&e.id),
-            narrative::thousands(e.budget.limit)
+            narrative::dollars(e.budget.limit_micros)
         );
         Ok(e)
+    }
+
+    /// New input came while a budget question was open: the question is
+    /// superseded (a new message is not an answer), and the turn's next call
+    /// asks again if it still does not fit.
+    fn supersede_budget_question(&self, exec: &Execution, sink: &EventSink, author: &str) {
+        let Some(q) = exec.budget.question.as_deref() else {
+            return;
+        };
+        match self.kernel.decline_action(
+            q,
+            OPERATOR,
+            "superseded: a new message came instead of an answer; the next call asks again if \
+             it still does not fit",
+        ) {
+            Ok(_) => {
+                sink.send(
+                    notify::CONFIRM_RESOLVED,
+                    json!({"session_id": exec.session_id, "correlation_id": q, "approved": false, "superseded": true, "by": author}),
+                );
+                narrate!(
+                    self.narrator,
+                    Approval,
+                    Some(&exec.session_id),
+                    None,
+                    "The budget question was superseded by new input from {author}; the next \
+                     call asks again if it still does not fit."
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, correlation_id = q, "superseding a budget question failed")
+            }
+        }
     }
 
     /// Take the kernel turn. With `wait`, wait for admission (ceiling, or
@@ -454,6 +506,7 @@ impl TurnRunner {
         // The narrative's session id and clock, taken only when it is on.
         let sid = self.narrator.on().then(|| req.session.session_id.clone());
         if !continuation {
+            self.supersede_budget_question(&exec, &req.sink, &req.author);
             if let Err(e) = self.kernel.wake_input(&exec.id) {
                 if let Some(KernelError::NotRunnable { state, .. }) =
                     e.downcast_ref::<KernelError>()
@@ -542,7 +595,8 @@ impl TurnRunner {
                     execution_id: Some(exec_id.clone()),
                     continuation,
                     class: te.map(|t| t.class.clone()),
-                    error: format!("{e:#}"),
+                    // The class and the turn ride beside it: the cause, once.
+                    error: te.map_or_else(|| format!("{e:#}"), |t| format!("{:#}", t.source)),
                 },
             );
         }
@@ -658,8 +712,18 @@ impl TurnRunner {
                 .call_model(&mut t, provider.as_ref(), &compiled, i)
                 .await?
             {
-                Ok(called) => called,
-                Err(failure) => return Err(self.fail(t, &mut session, failure)),
+                Called::Answered(called) => *called,
+                Called::Failed(failure) => return Err(self.fail(t, &mut session, failure)),
+                Called::OverBudget {
+                    needed,
+                    available,
+                    spent,
+                    limit,
+                } => {
+                    self.ask_budget(&mut t, &session, needed, available, spent, limit)?;
+                    t.trace.exit(json!({"decision": "budget"}));
+                    break;
+                }
             };
             let uses = resp.tool_uses();
             let answered = self.run_tools(&mut t, &resp, &uses, &node, i).await?;
@@ -678,16 +742,23 @@ impl TurnRunner {
         let t0 = t.trace.now_us();
         let settled = self.kernel.take_results(t.tc.guard)?;
         let absorbed = self.tools.absorb(&t.tc, &settled)?;
+        // An approved budget question: the call that did not fit proceeds.
+        let reset = settled
+            .iter()
+            .any(|a| a.tool == BUDGET_TOOL && a.state == ActionState::Succeeded);
         let resumed = self.tools.resume(&t.tc, has_input).await?;
         t.trace.record(
             "continuation",
             "tool",
             t0,
             t.trace.now_us(),
-            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background}),
+            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background, "budget_reset": reset}),
         );
         if t.tc.narrator.on() {
             let mut done = Vec::new();
+            if reset {
+                done.push("the spend was reset, so the waiting call proceeds".to_string());
+            }
             if !settled.is_empty() {
                 done.push(format!(
                     "{} settled",
@@ -720,7 +791,7 @@ impl TurnRunner {
         }
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
-        Ok(absorbed + resumed.wrote)
+        Ok(absorbed + resumed.wrote + u32::from(reset))
     }
 
     /// Does the model have anything new to read: input or results it has not
@@ -862,16 +933,16 @@ impl TurnRunner {
         Ok(compiled)
     }
 
-    /// The provider call, as a kernel action (§3.16): planned (its budget
-    /// reservation can end the turn), dispatched, streamed, and settled. The
-    /// outer error is a fault; the inner one is a failure the turn reports.
+    /// The provider call, as a kernel action (§3.16): planned (with its
+    /// budget reservation), dispatched, streamed, and settled. The outer
+    /// error is a fault; the rest the turn reports or parks on.
     async fn call_model(
         &self,
         t: &mut Turn<'_>,
         provider: &dyn Provider,
         compiled: &Compiled,
         i: u32,
-    ) -> Result<Result<(ModelResponse, Node), Failure>> {
+    ) -> Result<Called> {
         let target = t.target;
         let proposal = Proposal {
             tool: PROVIDER_TOOL.into(),
@@ -879,7 +950,29 @@ impl TurnRunner {
             resource: Some(target.provider.clone()),
             policy_context: json!({"profile": target.profile}),
         };
-        let reserve = target.max_tokens as u64 + compiled.est_tokens;
+        // Budgets are dollars (theseus-0sg), so nothing runs unpriced.
+        let Some(price) = self.catalog.get(&target.model) else {
+            narrate_turn!(
+                t.tc,
+                Model,
+                "{} has no price in the catalog, so it is not called.",
+                target.model
+            );
+            return Ok(Called::Failed(Failure {
+                class: "unpriced".into(),
+                transient: false,
+                usage_unknown: false,
+                reason: format!("unpriced: {}", target.model),
+                source: anyhow::anyhow!(
+                    "{} has no price: add a [catalog.\"{}\"] table with its provider, \
+                     context_window, max_output_tokens, and four prices",
+                    target.model,
+                    target.model
+                ),
+            }));
+        };
+        // The output cap at the output price, the input estimate at the input price.
+        let reserve = price.reserve_micros(target.max_tokens, compiled.est_tokens);
         let o0 = t.trace.now_us();
         let action = match self.kernel.plan_action(
             t.tc.guard,
@@ -890,48 +983,31 @@ impl TurnRunner {
         ) {
             Ok(a) => a,
             Err(e) => {
-                let exhausted = matches!(
-                    e.downcast_ref::<KernelError>(),
-                    Some(KernelError::BudgetExhausted { .. })
-                );
-                match e.downcast_ref::<KernelError>() {
-                    Some(KernelError::BudgetExhausted {
-                        needed,
-                        available,
-                        limit,
-                    }) => {
-                        narrate!(
-                            self.narrator,
-                            Session,
-                            Some(t.tc.session_id),
-                            Some(t.tc.turn_id),
-                            "Budget exhausted: the call to {} needs {} units and {} of \
-                             {} remain; the execution ends.",
-                            target.model,
-                            narrative::thousands(*needed),
-                            narrative::thousands(*available),
-                            narrative::thousands(*limit)
-                        );
-                    }
-                    _ => {
-                        narrate_turn!(
-                            t.tc,
-                            Model,
-                            "The kernel would not plan the call to {}: {e}.",
-                            target.model
-                        )
-                    }
+                if let Some(KernelError::OverBudget {
+                    needed,
+                    available,
+                    spent,
+                    limit,
+                }) = e.downcast_ref::<KernelError>()
+                {
+                    return Ok(Called::OverBudget {
+                        needed: *needed,
+                        available: *available,
+                        spent: *spent,
+                        limit: *limit,
+                    });
                 }
-                let class = if exhausted {
-                    "budget_exhausted"
-                } else {
-                    "kernel"
-                };
-                return Ok(Err(Failure {
-                    class: class.into(),
+                narrate_turn!(
+                    t.tc,
+                    Model,
+                    "The kernel would not plan the call to {}: {e}.",
+                    target.model
+                );
+                return Ok(Called::Failed(Failure {
+                    class: "kernel".into(),
                     transient: false,
                     usage_unknown: false,
-                    reason: format!("{class}: {e}"),
+                    reason: format!("kernel: {e}"),
                     source: e,
                 }));
             }
@@ -942,12 +1018,14 @@ impl TurnRunner {
         narrate_turn!(
             t.tc,
             Model,
-            "Calling {} on {}: reserving {} units ({} for output, {} \
-             for the input).",
+            "Calling {} on {}: reserving {} ({} for {} output tokens, {} for about {} \
+             input tokens).",
             target.model,
             target.provider,
-            narrative::thousands(reserve),
+            narrative::dollars(reserve),
+            narrative::dollars(price.reserve_micros(target.max_tokens, 0)),
             narrative::thousands(target.max_tokens as u64),
+            narrative::dollars(price.reserve_micros(0, compiled.est_tokens)),
             narrative::thousands(compiled.est_tokens)
         );
         t.trace.record(
@@ -955,7 +1033,7 @@ impl TurnRunner {
             "store",
             o0,
             t.trace.now_us(),
-            json!({"correlation_id": action.correlation_id, "tool": action.tool, "reserved_units": reserve}),
+            json!({"correlation_id": action.correlation_id, "tool": action.tool, "reserved_usd": micros_to_usd(reserve)}),
         );
         let started_ms = theseus_protocol::now_unix_ms();
 
@@ -1005,9 +1083,9 @@ impl TurnRunner {
                     "rate_limit_tokens_remaining": resp.rate_limit.tokens_remaining,
                 }));
                 let node = self.settle_call(t, &action, compiled, &resp, started_ms, i)?;
-                Ok(Ok((resp, node)))
+                Ok(Called::Answered(Box::new((resp, node))))
             }
-            Err(e) => Ok(Err(self.settle_failed(
+            Err(e) => Ok(Called::Failed(self.settle_failed(
                 t,
                 &action,
                 started_ms,
@@ -1016,6 +1094,78 @@ impl TurnRunner {
                 i,
             ))),
         }
+    }
+
+    /// The loop's call did not fit under the spend limit: ask the operator
+    /// whether the spend may go back to $0 (theseus-0sg). The question goes
+    /// where a tool approval goes (a `confirm.requested` to the session's
+    /// clients: its Discord place, the web UI, `theseus confirm`), and the
+    /// turn ends parked on it; the execution waits with the reason `budget`.
+    fn ask_budget(
+        &self,
+        t: &mut Turn<'_>,
+        session: &SessionRecord,
+        needed: Micros,
+        available: Micros,
+        spent: Micros,
+        limit: Micros,
+    ) -> Result<()> {
+        let q = self.kernel.ask_budget(t.tc.guard, needed)?;
+        let lifetime = session.cost_usd + t.cost.unwrap_or(0.0);
+        let question = format!(
+            "This session has spent {} of its {} limit. Reset its spend to $0 and continue?",
+            narrative::dollars(spent),
+            narrative::dollars(limit)
+        );
+        let now = theseus_protocol::now_unix_ms();
+        let req = ConfirmRequest {
+            correlation_id: q.correlation_id.clone(),
+            session_id: t.tc.session_id.into(),
+            execution_id: t.tc.execution_id.into(),
+            tool: BUDGET_TOOL.into(),
+            input: json!({"spent_usd": micros_to_usd(spent), "limit_usd": micros_to_usd(limit), "needed_usd": micros_to_usd(needed), "available_usd": micros_to_usd(available), "model": t.target.model}),
+            resource: None,
+            reason: question,
+            by: OPERATOR.into(),
+            requested_at_ms: now,
+            expires_at_ms: 0,
+            floor: false,
+            budget: Some(BudgetAsk {
+                spent_usd: micros_to_usd(spent),
+                limit_usd: micros_to_usd(limit),
+                needed_usd: micros_to_usd(needed),
+                lifetime_usd: lifetime,
+            }),
+        };
+        t.tc.sink.send(notify::CONFIRM_REQUESTED, &req);
+        t.tc.sink.send(
+            notify::LOOP_ENDED,
+            LoopEnded {
+                turn_id: t.tc.turn_id.into(),
+                loop_index: t.loops.saturating_sub(1),
+                provider_stop_reason: None,
+                tool_calls: 0,
+                advancer: "budget".into(),
+                decision: "budget".into(),
+            },
+        );
+        narrate!(
+            self.narrator,
+            Session,
+            Some(t.tc.session_id),
+            Some(t.tc.turn_id),
+            "Session {} reached its {} limit: it has spent {}, and the call to {} needs {} \
+             with {} left; waiting for the operator to reset it.",
+            narrative::short(t.tc.session_id),
+            narrative::dollars(limit),
+            narrative::dollars(spent),
+            t.target.model,
+            narrative::dollars(needed),
+            narrative::dollars(available)
+        );
+        t.budget_question = Some(q.correlation_id);
+        t.stop_reason = "budget".into();
+        Ok(())
     }
 
     /// Settle a call that answered: the assistant node rides in the frame of
@@ -1057,10 +1207,13 @@ impl TurnRunner {
                 request_digest: Some(compiled.digest.clone()),
             },
         );
-        let units = resp.usage.input_tokens
-            + resp.usage.output_tokens
-            + resp.usage.cache_read_input_tokens
-            + resp.usage.cache_creation_input_tokens;
+        // The budget settles at the real cost, each token class at its own
+        // price; a served model the catalog lacks is priced as the target.
+        let cost = self
+            .catalog
+            .get(&resp.model)
+            .or_else(|| self.catalog.get(&target.model))
+            .map_or(action.reserved_micros, |e| e.cost_micros(&resp.usage));
         let s0 = t.trace.now_us();
         self.kernel.accept_completion_with(
             &Completion {
@@ -1072,7 +1225,7 @@ impl TurnRunner {
                 finished_at_ms: theseus_protocol::now_unix_ms(),
                 producer: format!("provider:{}", target.provider),
                 signature: None,
-                usage_units: Some(units),
+                cost_micros: Some(cost),
                 detail: Some(json!({"served_model": resp.model, "message_id": resp.message_id})),
             },
             vec![node.record()?],
@@ -1082,7 +1235,7 @@ impl TurnRunner {
             "store",
             s0,
             t.trace.now_us(),
-            json!({"correlation_id": action.correlation_id, "outcome": "succeeded", "units": units, "node_id": node.id}),
+            json!({"correlation_id": action.correlation_id, "outcome": "succeeded", "cost_usd": micros_to_usd(cost), "node_id": node.id}),
         );
         t.tc.node_written(&node);
         add_usage(&mut t.usage, &resp.usage);
@@ -1182,7 +1335,7 @@ impl TurnRunner {
             finished_at_ms: theseus_protocol::now_unix_ms(),
             producer: format!("provider:{}", target.provider),
             signature: None,
-            usage_units: if unknown { None } else { Some(0) },
+            cost_micros: if unknown { None } else { Some(0) },
             detail: Some(json!({"class": class})),
         });
         t.trace.record(
@@ -1214,9 +1367,13 @@ impl TurnRunner {
             narrative::duration(call_started.elapsed().as_millis() as u64),
             if transient { " (transient)" } else { "" },
             if unknown {
-                "whether the provider did the work is unknown, so its units stay held"
+                format!(
+                    "whether the provider did the work is unknown, so its reservation of {} \
+                     stays held",
+                    narrative::dollars(action.reserved_micros)
+                )
             } else {
-                "the call is settled as failed"
+                "the call is settled as failed".into()
             }
         );
         Failure {
@@ -1474,7 +1631,7 @@ impl TurnRunner {
             execution_id: Some(t.tc.execution_id.into()),
             cost_usd: t.cost,
             tool_calls: t.tool_calls,
-            awaiting_confirm: t.awaiting.clone(),
+            awaiting_confirm: t.awaiting.clone().or_else(|| t.budget_question.clone()),
             stop_details: last.and_then(|r| r.stop_details.clone()),
             continuation: t.continuation,
         };
@@ -1505,12 +1662,17 @@ impl TurnRunner {
             narrative::money(result.cost_usd),
             narrative::end_phrase(&result.stop_reason)
         );
-        let end = self.park(t.tc.execution_id, t.awaiting, &t.background)?;
+        let end = match t.budget_question {
+            Some(q) => TurnEnd::Wait {
+                wake: Wake::Budget { correlation_id: q },
+            },
+            None => self.park(t.tc.execution_id, t.awaiting, &t.background)?,
+        };
         Ok((result, end, late > 0))
     }
 
     /// Where the execution waits: on the confirm, on outstanding jobs, or on
-    /// the next input.
+    /// the next input. (A turn over its budget waits on the budget question.)
     fn park(
         &self,
         exec_id: &str,
@@ -1567,6 +1729,11 @@ impl TurnRunner {
                 n => format!("Parked until one of {n} background jobs finishes."),
             },
             TurnEnd::Wait { wake: Wake::Input } => "Parked until the next input.".into(),
+            TurnEnd::Wait {
+                wake: Wake::Budget { .. },
+            } => "Parked on the budget until the operator resets the spend; a new message asks \
+                  again."
+                .into(),
             other => format!("The turn ends the execution's wait: {other:?}."),
         }
     }
@@ -1606,8 +1773,10 @@ impl TurnRunner {
 }
 
 /// A failed turn, with the classification the protocol reports in `error.data`.
+/// Its own text names the turn and the class; the cause is its `source`, so
+/// `{:#}` says the cause once (theseus-woy: it once said it twice).
 #[derive(Debug, thiserror::Error)]
-#[error("turn {turn_id} failed ({class}): {source}")]
+#[error("turn {turn_id} failed ({class})")]
 pub struct TurnError {
     pub class: String,
     pub transient: bool,

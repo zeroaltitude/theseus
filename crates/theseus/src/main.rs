@@ -33,7 +33,7 @@ Quick start:
   theseus ask -s <session> \"...\"            continue a session (its whole history is the context)
   theseus history [session]                  a session's transcript: messages, tool calls, results
   theseus watch [session]                    follow a session live (turns started anywhere)
-  theseus confirm [id] [--decline]           answer a tool call waiting for you (no id: list them)
+  theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
   theseus tools                              the toollets, their policy, and calls so far
   theseus catalog                            models, context windows, and prices
   theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn
@@ -123,11 +123,13 @@ enum Cmd {
         #[arg(long)]
         thinking: bool,
     },
-    /// Answer a tool call waiting for your confirmation, then follow the turn it resumes.
+    /// Answer a tool call waiting for your confirmation, or a session at its spend limit
+    /// (approve resets its spend to $0), then follow the turn it resumes.
     /// Without an id, list everything waiting.
     Confirm {
         correlation_id: Option<String>,
-        /// Decline instead of approve (the model is told, and carries on without it).
+        /// Decline instead of approve (the model is told, and carries on without it; a
+        /// session at its limit keeps waiting, and its next message asks again).
         #[arg(long, alias = "deny")]
         decline: bool,
         /// A note for the ledger and, on a decline, for the model.
@@ -560,6 +562,18 @@ async fn run(cli: Cli) -> Result<()> {
                 )
                 .await?;
             let r: ActionConfirmResult = serde_json::from_value(v.clone())?;
+            if !r.resumes {
+                // A declined budget question: nothing resumes until a new message.
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    println!(
+                        "declined {} · session {} keeps waiting on its budget; a new message asks again",
+                        r.correlation_id, r.session_id
+                    );
+                }
+                return Ok(());
+            }
             if no_wait {
                 if json {
                     println!("{}", serde_json::to_string(&v)?);
@@ -850,7 +864,7 @@ async fn run(cli: Cli) -> Result<()> {
                     }
                     for e in l.executions {
                         println!(
-                            "{}\t{}\t{}\tturns={}\tinterrupted={}\toutstanding={}\tqueued={}\tbudget spent {}/{} (reserved {}, held {})\tsession={}{}",
+                            "{}\t{}\t{}\tturns={}\tinterrupted={}\toutstanding={}\tqueued={}\t{}\tsession={}{}",
                             e.execution_id,
                             e.kind,
                             e.state,
@@ -858,10 +872,7 @@ async fn run(cli: Cli) -> Result<()> {
                             e.interrupted,
                             e.outstanding,
                             e.queued_results,
-                            e.budget.spent,
-                            e.budget.limit,
-                            e.budget.reserved,
-                            e.budget.held_unknown,
+                            budget_line(&e.budget),
                             e.session_id,
                             e.ended_reason.map(|r| format!("\t{r}")).unwrap_or_default()
                         );
@@ -1280,7 +1291,40 @@ fn print_node(n: &NodeInfo, full: bool) {
     }
 }
 
+/// An execution's budget in dollars: spend since the last reset, the limit,
+/// what is reserved and held, and what came before dollar budgets.
+fn budget_line(b: &theseus_protocol::BudgetInfo) -> String {
+    let mut s = format!(
+        "budget ${:.4} of ${:.2} (reserved ${:.4}, held ${:.4})",
+        b.spent_usd, b.limit_usd, b.reserved_usd, b.held_unknown_usd
+    );
+    if b.resets > 0 {
+        s.push_str(&format!(
+            " · {} reset{}",
+            b.resets,
+            if b.resets == 1 { "" } else { "s" }
+        ));
+    }
+    if let Some(q) = &b.question {
+        s.push_str(&format!(" · at its limit: theseus confirm {q}"));
+    }
+    if !b.units_before.is_null() {
+        s.push_str(&format!(
+            " · before dollars: {} of {} units",
+            b.units_before["spent"], b.units_before["limit"]
+        ));
+    }
+    s
+}
+
 fn print_confirm(c: &ConfirmRequest) {
+    if c.budget.is_some() {
+        println!(
+            "  $ {} waits for you: {}\n      reset and continue: theseus confirm {}\n      keep waiting: theseus confirm --decline {}",
+            c.session_id, c.reason, c.correlation_id, c.correlation_id
+        );
+        return;
+    }
     println!(
         "  ? {} waits for you in {}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --decline {}",
         c.tool,
@@ -1442,6 +1486,13 @@ impl Printer {
             notify::CONFIRM_REQUESTED => {
                 self.settle();
                 if let Ok(c) = serde_json::from_value::<ConfirmRequest>(p.clone()) {
+                    if c.budget.is_some() {
+                        eprintln!(
+                            "  $ {}\n      reset and continue: theseus confirm {}\n      keep waiting: theseus confirm --decline {}",
+                            c.reason, c.correlation_id, c.correlation_id
+                        );
+                        return;
+                    }
                     eprintln!(
                         "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --decline {}",
                         c.tool,

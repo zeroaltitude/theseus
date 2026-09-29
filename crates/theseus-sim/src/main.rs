@@ -159,12 +159,16 @@ fn main() -> Result<()> {
                 })
                 .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
                 println!(
-                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} reconciles · {} invariant checks · {} positions · {} ms",
+                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
                     rep.steps, rep.crashes, rep.startup_faults, rep.sessions, rep.turns, rep.actions,
                     rep.completions_delivered, rep.duplicates, rep.notify_dropped, rep.lost_jobs,
                     rep.late_after_cancel, rep.cancels, rep.unknowns, rep.resolved_unknowns,
+                    rep.budget_questions, rep.budget_resets, rep.budget_declines, rep.legacy_migrated,
                     rep.reconciles, rep.invariant_checks, rep.final_positions, rep.wall_ms
                 );
+                totals.budget_questions += rep.budget_questions;
+                totals.budget_resets += rep.budget_resets;
+                totals.budget_declines += rep.budget_declines;
                 totals.crashes += rep.crashes;
                 totals.startup_faults += rep.startup_faults;
                 totals.turns += rep.turns;
@@ -182,11 +186,12 @@ fn main() -> Result<()> {
             }
             if seeds > 1 {
                 println!(
-                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} invariant checks · {} ms · all invariants held",
+                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} invariant checks · {} ms · all invariants held",
                     seeds, totals.crashes, totals.startup_faults, totals.turns, totals.actions,
                     totals.completions_delivered, totals.duplicates, totals.notify_dropped,
                     totals.lost_jobs, totals.late_after_cancel, totals.cancels, totals.unknowns,
-                    totals.resolved_unknowns, totals.invariant_checks, totals.wall_ms
+                    totals.resolved_unknowns, totals.budget_questions, totals.budget_resets,
+                    totals.budget_declines, totals.invariant_checks, totals.wall_ms
                 );
             }
             Ok(())
