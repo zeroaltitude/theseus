@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.48
+# The Ship of Theseus — v0.49
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -482,6 +482,19 @@ Execution {
 
 Rules: one execution per session, one turn at a time per execution; an execution reports into one channel at a time; a channel orders deliveries, not turns, so a conversation execution and any number of task executions reporting into the same channel run concurrently; the admission scheduler bounds how many hold a turn; a channel switch is an execution moving, not a new execution. An execution is `waiting` when it has no runnable model work but a wake condition exists (a due time, a running shell or external operation, a blocking execution, a pending confirmation, Jev recovery, and since 2026-09-29 a budget question, §3.13). `waiting` executions are tended by the harness loop at near-zero cost and never consume model or Jev calls until their wake fires. Deterministic control paths, `/stop`, `/cancel <execution>`, permission revocation, budget exhaustion, act on executions directly and never route through Jev. Executions are nodes in the graph (`Execution` kind) with `in_channel`, `by` (principal), `evidence_for` (tasks) edges, so the context assembler can show the model what it is currently executing and why.
 
+**One writer at a time.**
+- Every kernel transition that reads an execution, or one of its actions, and writes it back holds that
+  execution's lock from the read until its frame is indexed: the append, its fsync, and the index update.
+- Actions belong to their execution, and its lock covers them.
+- Writers of different executions never wait for each other.
+- A reader that writes nothing takes no lock, so its view can be one frame stale. A decision read from such
+  a view (the reconciler's scan, startup's) is read again under the lock before anything is written.
+- A transition that touches two executions, such as a child's spend counted against its parent's, takes
+  both locks in id order.
+- So a cancel is never lost to a commit read before it, and no commit is lost to a cancel.
+
+_(theseus-id9; Part III A3c.)_
+
 ### 3.16 External actions and completions
 
 Local durability cannot make an external side effect atomic with the log, and holding a pending result in harness memory makes it die with the harness. Both problems have one answer: every tool call that leaves the process is a durable record whose completion arrives as an event from outside the harness's own stack.
@@ -509,7 +522,7 @@ Native in-process calls of one response that only read run concurrently (§4.6).
 
 **Deadlines and reconciliation.** Every record carries a deadline from the tool's class and the execution's budget. The heartbeat reconciler (§3.3) checks open records against the spool, the queue, job-scope state, and, for AWS classes past their deadline, the service API. Reconciliation is event-first (EventBridge task state changes flow into the same queue) and polls only overdue records, so its cost scales with stuck work, not with total work.
 
-**Settlement is atomic with continuation.** Accepting a completion writes, in one WAL transaction, the action's settled state **and** the owning execution's next durable state (runnable with the result queued, or waiting on something else). An in-memory mailbox notification is never the only link between a settled action and a waiting execution; if the process dies after the transaction, replay reconstructs the pending continuation. A duplicate completion is a no-op only because the transaction already happened, never because the first one was "handled" in memory.
+**Settlement is atomic with continuation.** Accepting a completion writes, in one WAL transaction, the action's settled state **and** the owning execution's next durable state (runnable with the result queued, or waiting on something else). An in-memory mailbox notification is never the only link between a settled action and a waiting execution; if the process dies after the transaction, replay reconstructs the pending continuation. A duplicate completion is a no-op only because the transaction already happened, never because the first one was "handled" in memory. The frame is written under the execution's lock (§3.15), so nothing else changes the execution between the settlement's read and its frame.
 
 **`outcome_unknown` is knowledge, not a terminal fact.** A record marked unknown stays **resolvable**: later authoritative evidence (a late completion, a reconciler finding) settles it to succeeded or failed and is ledgered as a resolution. Resolution never revives a cancelled execution and never authorizes new work by itself; it updates the record and, if the execution is still waiting on it, delivers the result.
 
@@ -2739,6 +2752,104 @@ threads.
 - A kernel transition read and rewritten on two threads can lose an update. That is old, but likelier
   during a batch's commit bursts (theseus-id9, next).
 - `session.history` lists a group's results in the order they finished.
+
+### Step K1. The kernel never loses an update to an execution (theseus-id9; 2026-09-29, 15:26–16:15; 920f732, 5e52a63)
+
+**Why.** The kernel read an execution record, changed it, and wrote it back, with no lock, and the store
+indexes a frame only after its fsync. So two writers of one execution on two threads could lose an update:
+a turn's commit, read before a cancel's frame was indexed, put `running` back over `cancelled`. The bug was
+as old as M2. F3's commit bursts made it likelier, and task sessions (DD7) and wakes (DD8) add writers. F3's
+report found it, and it was filed at F3's review (P1) and put before the OTel step.
+
+**What exists.**
+- **One writer at a time per execution** (`theseus-kernel/src/locks.rs`).
+  - The locks are the set of executions being written, under one mutex, with a condvar for the waiters.
+  - An id is in the set exactly while it is held, so nothing needs pruning when an execution ends.
+  - A map of mutexes was rejected: it loses the lock when an entry is pruned under a waiter.
+  - Stripes were rejected: they make unrelated executions wait.
+- **Every transition that reads and writes back holds the lock from its read until its frame is indexed**,
+  the fsync included. An action's transition reads the action to find its execution, then locks that and
+  reads the action again. `Kernel::view` shares the locks, so a turn's view and the kernel are one.
+- **Decisions read outside the lock are read again inside it:**
+  - the reconciler's due wake, from its scan;
+  - `mark_unknown`'s "still dispatched";
+  - startup's step 2 rewrites (`lock_all`, in id order).
+
+  A reconcile no longer fails when an overdue action settles under it.
+- **A lock taken twice on one thread panics**, instead of waiting on itself.
+- **The ordered two-lock helper**, `lock_two`, for DD7's carved budgets. Nothing calls it yet.
+- **Nothing else changed:** no record, frame, or row. A plain turn still writes 8 frames.
+
+**How it is proven.**
+- The gate passed at both commits: 300 tests, 9 of them new, with the lifecycle bench within budget.
+  `crash-test`, 20 iterations × 3 restarts, lost zero committed records.
+- **Deterministic races.** A test store stops one thread between a transition's read and its write while a
+  second writer runs. Without the lock, a throwaway break, six races lose an update:
+  - `running` over `cancelled`;
+  - a dispatched call dropped;
+  - `queued` over `cancelled`, twice;
+  - `waiting` over `cancelled`;
+  - a decline undone.
+
+  All six pass with the lock, and writers of different executions never wait. `lock_two` in opposite orders
+  never deadlocks. Without its id order, it deadlocks at the test's 20 s timeout.
+- **`kernel-sim` with a second OS thread.** Raced turns (`--p-race`) put a cancel, completions arriving,
+  wakes, input, and the heartbeat on the other thread, with crashes inside them.
+  - A new invariant: a cancelled execution never runs again, read from the ledger in WAL order.
+  - Five runs held: 38 seeds, 145 crashes, and 614 raced turns, with fsync on in one run and every turn
+    raced in another.
+  - Without the lock, every seed group failed within a few steps.
+- **Live, over a copy of Eddie's store.** GLM turns of seven reads, four of them FIFOs that hold the batch
+  open:
+  - a cancel while the batch ran ended `cancelled`, stayed so across a restart, and left nothing
+    dispatched;
+  - a cancel released together with the FIFOs landed in the burst of completion frames. On the parent
+    build it was lost, 2 of 2: the model answered a second loop, the execution ended `waiting`, and three
+    reads that succeeded were recorded `cancelled`. On K1, 3 of 3 stayed cancelled, with nothing lost.
+
+| Measure (release, medians of three interleaved rounds) | Parent | K1 |
+|---|---|---|
+| frames: a plain turn / two loops with one read / with five reads at once | 8 / 12 / 20 | 8 / 12 / 20 |
+| a plain turn | 56.2 ms | 58.0 ms |
+| two loops, one read / five reads at once | 86.1 / 148.8 ms | 89.4 / 145.8 ms |
+| lifecycle p50: cold / from the copy / shutdown / kill | 17.4 / 17.1 / 35.3 / 34.1 ms | 16.9 / 17.0 / 37.0 / 34.4 ms |
+| an uncontended lock and unlock; the extra action read | | 216 ns; 1.9 µs (about 3 µs a plain turn) |
+
+Load was 3.6 to 5.5, with other sessions compiling. The differences go both ways, and each is inside the
+spread of its own rounds.
+
+**Reviewed** (Tabitha, 2026-09-29, 16:18 to 16:26).
+- **The first gate rerun failed on one bench run.** Clean shutdown had p95 148.3 ms against 100 + 4, with
+  p50 a normal 38.3 ms, while 1.3 GB of dirty pages from other sessions' builds were being written back.
+  Four standalone bench runs right after passed at about 50 ms, and the gate passed after a `sync`: 300
+  tests, with shutdown p95 50.9 ms. So the bench measured the machine's writeback, not K1. The fix, a
+  `sync` before the bench and a second run before a miss fails the gate, goes into the OTel step.
+- **Tabitha's own race, on the release build, over a fresh copy of Eddie's store.**
+  - Seven reads, four held by FIFOs.
+  - The FIFOs were released and `theseus executions cancel` sent at once. The cancel landed in the burst,
+    after the first FIFO completion, and asked 3 calls to stop.
+  - The turn's next loop was refused (`kernel`: not running, state cancelled).
+  - The execution ended `cancelled` with nothing outstanding, and stayed so across a restart.
+  - K1's WAL-order checker found no problems.
+- Installed at 16:25.
+- **Found by K1, and filed at review:** theseus-xeo. The core's `SessionRecord` has the same
+  read-and-write-back shape: a `session.recompile` during a turn can be lost. It is folded into DD7, and
+  DD7 also gives `lock_two` its first caller.
+
+**Divergence from the issue and the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The issue: a lock held from the read to the WAL write, released before the fsync | Held through the fsync and the index update (the brief) | The index moves only after the fsync; a lock released before it lets the next writer read the old record | Keep; group commit across one execution's frames needs an index that moves before the fsync |
+| The brief: a map of `Arc<Mutex<()>>` pruned when an execution ends, or striped locks | The set of executions being written, with a condvar | Nothing to prune, no pruning race, and no false sharing | Keep |
+| The brief: a test hook between a transition's read and its write | A test store that stops one thread at one read | No hook in the product | Keep |
+| `kernel-sim` reproducible from its seed (M2) | Only up to its first raced turn; `--p-race 0` is reproducible throughout | The OS picks the interleaving | Keep |
+| The ordered two-lock helper | `lock_two`, and `lock_all` for startup's rewrites | Startup rewrites many executions in one frame | Keep |
+
+**Known gaps.**
+- A turn's frames, and one execution's frames in general, still take one fsync each. Group commit over a
+  group's frames needs the index to move before the fsync (theseus-l6y).
+- The core's `SessionRecord` read-and-write-back (theseus-xeo, with DD7).
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
