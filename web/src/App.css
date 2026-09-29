@@ -147,7 +147,7 @@ button.link.danger { color: var(--bad); }
 /* the narrative */
 .narrative { overflow-y: auto; min-height: 0; background: var(--panel); font-size: 12px; }
 .narr-lines { padding: 2px 0 10px; }
-.narr-line { display: grid; grid-template-columns: 84px 70px minmax(70px, 130px) 1fr; gap: 8px; align-items: baseline; padding: 3px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.narr-line { display: grid; grid-template-columns: 84px 70px 58px 1fr; gap: 8px; align-items: baseline; padding: 3px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
 .narr-line.mine { box-shadow: inset 3px 0 0 var(--accent); }
 .narr-time { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-variant-numeric: tabular-nums; }
 .narr-session { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px !important; }

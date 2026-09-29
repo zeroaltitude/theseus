@@ -30,7 +30,8 @@ const bySeq = (lines: NarrativeLine[]) => {
 export interface NarrativeProps {
   client: ProtocolClient
   currentSession: string | null
-  /// A session's title for the link, when the page knows it.
+  /// A session's title for the link's tooltip, when the page knows it. The
+  /// link itself shows the id: a title is the first words of a prompt.
   sessionLabel?: (id: string) => string | null
   onPickSession?: (id: string) => void
 }
@@ -99,8 +100,9 @@ export default function Narrative({ client, currentSession, sessionLabel, onPick
             <span className="narr-time">{clock(l.at_unix_ms)}</span>
             <span><span className={`pill ${PART_CLASS[l.part] ?? 'muted'}`}>{l.part}</span></span>
             {l.session_id
-              ? <button type="button" className="link narr-session" title={`session ${l.session_id}${l.turn_id ? `\nturn ${l.turn_id}` : ''}`}
-                  onClick={() => onPickSession?.(l.session_id!)}>{sessionLabel?.(l.session_id) ?? short(l.session_id)}</button>
+              ? <button type="button" className="link narr-session"
+                  title={`open ${sessionLabel?.(l.session_id) ?? 'this session'}\nsession ${l.session_id}${l.turn_id ? `\nturn ${l.turn_id}` : ''}`}
+                  onClick={() => onPickSession?.(l.session_id!)}>{short(l.session_id)}</button>
               : <span className="muted narr-session">all</span>}
             <span className="narr-text">{l.text}</span>
           </div>
