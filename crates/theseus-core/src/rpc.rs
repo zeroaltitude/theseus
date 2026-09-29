@@ -772,8 +772,13 @@ impl Core {
                 duration_ms,
                 late,
                 meta,
+                image,
             } => (
-                content.clone(),
+                match image {
+                    // The web UI and the CLI show the image's header line.
+                    Some(img) => format!("{content}\n{}", crate::attach::header(img, None)),
+                    None => content.clone(),
+                },
                 String::new(),
                 json!({"tool_use_id": tool_use_id, "tool": tool, "status": status.as_str(), "is_error": is_error, "correlation_id": correlation_id, "truncated": truncated, "full_ref": full_ref, "duration_ms": duration_ms, "late": late, "meta": meta}),
                 *bytes_total,
@@ -2593,6 +2598,7 @@ mod tests {
                 duration_ms: None,
                 late: false,
                 meta: Value::Null,
+                image: None,
             },
         );
         let mut old = serde_json::to_value(&n).unwrap();

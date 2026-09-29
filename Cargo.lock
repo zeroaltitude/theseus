@@ -3330,6 +3330,7 @@ name = "theseus"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "clap",
  "libc",
  "serde_json",
@@ -3343,6 +3344,7 @@ name = "theseus-core"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "futures-util",
  "hex",
  "opentelemetry",
@@ -3464,6 +3466,7 @@ dependencies = [
  "serde_json",
  "similar",
  "tempfile",
+ "theseus-protocol",
 ]
 
 [[package]]

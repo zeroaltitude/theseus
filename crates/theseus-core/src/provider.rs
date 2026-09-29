@@ -53,6 +53,10 @@ pub struct ProviderRequest {
     /// Other top-level fields (e.g. `fallbacks`).
     #[serde(default)]
     pub extra: BTreeMap<String, Value>,
+    /// What the request's images are estimated to cost (theseus-9g2), set
+    /// by the compiler, which knows their sizes; never sent.
+    #[serde(skip)]
+    pub image_tokens: u64,
 }
 
 impl ProviderRequest {
@@ -101,7 +105,10 @@ impl ProviderRequest {
         theseus_kernel::digest_json(&self.body())
     }
 
-    /// Rough size of the prompt in tokens (chars / 4) for budgeting.
+    /// Rough size of the prompt in tokens (chars / 4) for budgeting. An
+    /// image's base64 is not text the model reads: its characters are left
+    /// out and its estimated tokens counted instead (theseus-9g2), or a
+    /// 1 MB PNG would reserve about 333,000 tokens.
     pub fn estimate_tokens(&self) -> u64 {
         let chars = serde_json::to_string(&self.system)
             .map(|s| s.len())
@@ -112,8 +119,28 @@ impl ProviderRequest {
             + serde_json::to_string(&self.messages)
                 .map(|s| s.len())
                 .unwrap_or(0);
-        (chars / 4) as u64
+        let data: usize = self
+            .messages
+            .iter()
+            .map(|m| base64_chars(&m["content"]))
+            .sum();
+        (chars.saturating_sub(data) / 4) as u64 + self.image_tokens
     }
+}
+
+/// Characters of base64 image data in a message's content, tool results
+/// included.
+fn base64_chars(content: &Value) -> usize {
+    content.as_array().map_or(0, |blocks| {
+        blocks
+            .iter()
+            .map(|b| match b.get("type").and_then(Value::as_str) {
+                Some("image") => b["source"]["data"].as_str().map_or(0, str::len),
+                Some("tool_result") => base64_chars(&b["content"]),
+                _ => 0,
+            })
+            .sum()
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

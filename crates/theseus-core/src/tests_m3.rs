@@ -2062,3 +2062,236 @@ async fn a_failed_download_is_listed_and_the_turn_still_runs() {
     let refused = submit(&r.core, submit_params(None, "  ", vec![])).await;
     assert_eq!(refused["error"]["message"], "input is empty", "{refused}");
 }
+
+// ---------------------------------------------------------------- images (theseus-9g2)
+
+fn image_attached(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
+    theseus_protocol::Attachment {
+        name: name.into(),
+        media_type: "image/png".into(),
+        size: bytes.len() as u64,
+        data: Some(crate::blobs::encode(bytes)),
+        ..Default::default()
+    }
+}
+
+fn blob_files(r: &Rig) -> usize {
+    std::fs::read_dir(r.core.store.blobs().dir())
+        .map(|d| d.count())
+        .unwrap_or(0)
+}
+
+/// A PNG sent to a vision model is one image block, after the line that
+/// names it and before the typed text. Its bytes are stored once, beside
+/// the WAL, and the node holds their digest. The next turn's request begins
+/// with the same bytes: the image node renders identically every time.
+#[tokio::test]
+async fn an_image_is_one_image_block_for_a_vision_model_stored_once_and_rendered_the_same() {
+    let r = rig(vec![
+        Scripted::text("It says HELLO."),
+        Scripted::text("Still HELLO."),
+    ]);
+    let bytes = crate::attach::tests::png(1280, 720, 2_000);
+    let first = submit(
+        &r.core,
+        submit_params(
+            None,
+            "What does it say?",
+            vec![image_attached("shot.png", &bytes)],
+        ),
+    )
+    .await;
+    assert_eq!(first["output"], "It says HELLO.", "{first}");
+    let blocks = last_user_blocks(&r);
+    assert_eq!(blocks.len(), 3, "{blocks:?}");
+    assert_eq!(
+        blocks[0]["text"],
+        "[Image shot.png from discord:eddie, 2,033 bytes, 1280×720]"
+    );
+    assert_eq!(blocks[1]["type"], "image");
+    assert_eq!(blocks[1]["source"]["type"], "base64");
+    assert_eq!(blocks[1]["source"]["media_type"], "image/png");
+    assert_eq!(
+        crate::blobs::decode(blocks[1]["source"]["data"].as_str().unwrap()).unwrap(),
+        bytes
+    );
+    assert_eq!(blocks[2]["text"], "What does it say?");
+
+    // Stored once, and the node holds the reference, not the bytes.
+    assert_eq!(blob_files(&r), 1);
+    let sid = first["session_id"].as_str().unwrap().to_string();
+    let (_, node) = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .find(|(_, n)| n.kind_str() == "user_message")
+        .unwrap();
+    let stored = serde_json::to_string(&node).unwrap();
+    assert!(stored.contains(&crate::blobs::digest(&bytes)), "{stored}");
+    assert!(
+        stored.len() < 1_000,
+        "the node carries no image bytes: {} bytes",
+        stored.len()
+    );
+
+    // The same image again: still one blob. The first request's messages
+    // are the second's first messages, byte for byte.
+    let second = submit(
+        &r.core,
+        submit_params(
+            Some(&sid),
+            "And now?",
+            vec![image_attached("again.png", &bytes)],
+        ),
+    )
+    .await;
+    assert_eq!(second["output"], "Still HELLO.", "{second}");
+    assert_eq!(blob_files(&r), 1);
+    let reqs = r.fake.requests();
+    let (a, b) = (&reqs[0].messages, &reqs[1].messages);
+    assert_eq!(
+        serde_json::to_vec(&b[..a.len()]).unwrap(),
+        serde_json::to_vec(a).unwrap()
+    );
+    // A cold cache (a restart) renders the same bytes too.
+    let cold = crate::blobs::Blobs::new(r.core.store.dir());
+    let fresh = cold
+        .base64(&crate::blobs::digest(&bytes))
+        .expect("the blob is on disk");
+    assert_eq!(&*fresh, blocks[1]["source"]["data"].as_str().unwrap());
+}
+
+/// A model whose catalog entry has no vision reads one line instead.
+#[tokio::test]
+async fn a_model_without_vision_reads_a_line_instead_of_the_image() {
+    let r = rig_with(vec![Scripted::text("I cannot see it.")], |c| {
+        c.catalog.insert(
+            "claude-sonnet-5-5".into(),
+            crate::catalog::CatalogRow {
+                vision: Some(false),
+                ..Default::default()
+            },
+        );
+    });
+    let bytes = crate::attach::tests::png(800, 600, 1_200_000);
+    let res = submit(
+        &r.core,
+        submit_params(
+            None,
+            "What does it say?",
+            vec![image_attached("photo.png", &bytes)],
+        ),
+    )
+    .await;
+    assert_eq!(res["output"], "I cannot see it.", "{res}");
+    assert_eq!(
+        last_user_blocks(&r),
+        vec![
+            json!({"type": "text", "text": "[Image photo.png from discord:eddie, 1.1 MB: not shown, this model has no vision]"}),
+            json!({"type": "text", "text": "What does it say?"}),
+        ]
+    );
+}
+
+/// The budget estimate counts an image by its pixels, not its base64: a
+/// 1 MB PNG would otherwise reserve about 333,000 input tokens.
+#[tokio::test]
+async fn a_one_megabyte_image_is_estimated_by_its_pixels() {
+    let r = rig(vec![Scripted::text("ok")]);
+    let bytes = crate::attach::tests::png(1920, 1080, 1_000_000);
+    let res = submit(
+        &r.core,
+        submit_params(None, "Look.", vec![image_attached("big.png", &bytes)]),
+    )
+    .await;
+    assert_eq!(res["output"], "ok", "{res}");
+    let est = ledgered(&r, "context.compiled")[0]["est_tokens"]
+        .as_u64()
+        .unwrap();
+    let image = crate::catalog::image_tokens("claude-sonnet-5-5", 1920, 1080);
+    assert_eq!(image, 69 * 39);
+    let req = &r.fake.requests()[0];
+    assert_eq!(req.image_tokens, image);
+    let text_only = crate::provider::ProviderRequest {
+        image_tokens: 0,
+        messages: vec![json!({"role": "user", "content": [{"type": "text", "text": "Look."}]})],
+        ..req.clone()
+    }
+    .estimate_tokens();
+    assert!(
+        est >= image && est < text_only + image + 100,
+        "est {est}, image {image}, text {text_only}"
+    );
+}
+
+/// `fs.read` of a PNG answers the model with the image inside its
+/// `tool_result`, and the result node holds the reference.
+#[tokio::test]
+async fn fs_read_of_a_png_returns_an_image_block() {
+    let r = rig(vec![
+        Scripted::tools("", &[("t1", "fs_read", json!({"path": "shot.png"}))]),
+        Scripted::text("It is a screenshot."),
+    ]);
+    let bytes = crate::attach::tests::png(640, 480, 300);
+    std::fs::write(r.root.join("shot.png"), &bytes).unwrap();
+    let res = turn(&r.core, None, "Read shot.png").await;
+    assert_eq!(res.output, "It is a screenshot.");
+    let reqs = r.fake.requests();
+    let user = reqs[1].messages.last().unwrap();
+    let content = &user["content"][0]["content"];
+    assert_eq!(user["content"][0]["type"], "tool_result");
+    assert!(
+        content[0]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("shot.png is a PNG image, 640×480, 333 bytes."),
+        "{content}"
+    );
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(
+        crate::blobs::decode(content[1]["source"]["data"].as_str().unwrap()).unwrap(),
+        bytes
+    );
+    let img = r
+        .core
+        .store
+        .session_nodes(&res.session_id)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult { image, .. } => image,
+            _ => None,
+        })
+        .expect("the result node holds the image");
+    assert_eq!(
+        img.content,
+        crate::node::AttachmentContent::Image {
+            digest: crate::blobs::digest(&bytes),
+            width: 640,
+            height: 480
+        }
+    );
+    assert_eq!(blob_files(&r), 1);
+}
+
+/// An image over 5 MiB is not stored and the model reads the reason.
+#[tokio::test]
+async fn a_six_megabyte_image_is_refused_with_the_reason() {
+    let r = rig(vec![Scripted::text("Too big.")]);
+    let bytes = crate::attach::tests::png(4000, 3000, 6 * 1024 * 1024);
+    let res = submit(
+        &r.core,
+        submit_params(None, "", vec![image_attached("huge.png", &bytes)]),
+    )
+    .await;
+    assert_eq!(res["output"], "Too big.", "{res}");
+    assert_eq!(
+        last_user_blocks(&r),
+        vec![
+            json!({"type": "text", "text": "[Attachment huge.png from discord:eddie, image/png, 6.0 MB: not read: an image over the 5 MiB limit]"})
+        ]
+    );
+    assert_eq!(blob_files(&r), 0);
+}

@@ -11,7 +11,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    parse, Access, Plan, Resource, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
+    image, parse, Access, ImageData, Plan, Resource, Retry, Tool, ToolClass, ToolCtx, ToolFailure,
+    ToolOutput,
 };
 
 const MAX_LINE_CHARS: usize = 2000;
@@ -87,7 +88,7 @@ impl Tool for Read {
         "fs.read"
     }
     fn description(&self) -> &'static str {
-        "Read a text file, returned with line numbers (`   12\\tline`). Use it before editing a file and whenever you need a file's current contents. Pass offset/limit to page through long files. Binary files are reported, not returned."
+        "Read a text file, returned with line numbers (`   12\\tline`). Use it before editing a file and whenever you need a file's current contents. Pass offset/limit to page through long files. Binary files are reported, not returned; an image (PNG, JPEG, GIF, WebP) is returned as an image."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -120,6 +121,13 @@ impl Tool for Read {
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
+        self.run_with_image(input, ctx).map(|(o, _)| o)
+    }
+    fn run_with_image(
+        &self,
+        input: &Value,
+        ctx: &ToolCtx,
+    ) -> Result<(ToolOutput, Option<ImageData>), ToolFailure> {
         let a: ReadArgs = parse(input).map_err(ToolFailure::new)?;
         let path = ctx.resolve(&a.path);
         let meta = fs::metadata(&path)
@@ -139,15 +147,53 @@ impl Tool for Read {
             )));
         }
         let bytes = fs::read(&path)?;
+        // An image the models read comes back as an image (theseus-9g2),
+        // capped as an attached one is.
+        if let Some(info) = image::sniff(&bytes) {
+            let size = bytes.len() as u64;
+            let what = format!(
+                "{} is a {} image, {}×{}, {} bytes",
+                path.display(),
+                info.kind(),
+                info.width,
+                info.height,
+                size
+            );
+            let mut meta = json!({"path": path, "bytes": size, "image": info.media_type, "width": info.width, "height": info.height});
+            if let Some(why) = image::refusal(size, &info) {
+                meta["not_shown"] = json!(why);
+                return Ok((
+                    ToolOutput {
+                        text: format!("{what}: not shown, {why}."),
+                        meta,
+                    },
+                    None,
+                ));
+            }
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string());
+            return Ok((
+                ToolOutput {
+                    text: format!("{what}."),
+                    meta,
+                },
+                Some(ImageData { name, info, bytes }),
+            ));
+        }
         if is_binary(&bytes) {
-            return Ok(ToolOutput {
-                text: format!(
-                    "{} is a binary file ({} bytes); fs_read returns text only.",
-                    path.display(),
-                    bytes.len()
-                ),
-                meta: json!({"path": path, "bytes": bytes.len(), "binary": true}),
-            });
+            return Ok((
+                ToolOutput {
+                    text: format!(
+                        "{} is a binary file ({} bytes); fs_read returns text only.",
+                        path.display(),
+                        bytes.len()
+                    ),
+                    meta: json!({"path": path, "bytes": bytes.len(), "binary": true}),
+                },
+                None,
+            ));
         }
         let text = String::from_utf8_lossy(&bytes);
         let lines: Vec<&str> = text.lines().collect();
@@ -184,10 +230,13 @@ impl Tool for Read {
                 last + 1
             ));
         }
-        Ok(ToolOutput {
-            text: out,
-            meta: json!({"path": path, "lines_total": total, "from": from, "to": last, "bytes": bytes.len()}),
-        })
+        Ok((
+            ToolOutput {
+                text: out,
+                meta: json!({"path": path, "lines_total": total, "from": from, "to": last, "bytes": bytes.len()}),
+            },
+            None,
+        ))
     }
 }
 
@@ -1042,6 +1091,55 @@ mod tests {
 
     fn ctx(d: &tempfile::TempDir) -> ToolCtx {
         ToolCtx::for_tests(d.path())
+    }
+
+    /// A PNG header for the given size, then `pad` zero bytes.
+    fn png(width: u32, height: u32, pad: usize) -> Vec<u8> {
+        let mut v = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+        v.extend_from_slice(&width.to_be_bytes());
+        v.extend_from_slice(&height.to_be_bytes());
+        v.extend_from_slice(&[8, 2, 0, 0, 0, 0, 0, 0, 0]);
+        v.resize(v.len() + pad, 0);
+        v
+    }
+
+    /// `fs.read` of an image returns it for the model (theseus-9g2); one
+    /// over the 5 MiB limit is described and refused with the reason.
+    #[test]
+    fn reading_an_image_returns_it_and_a_huge_one_is_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let c = ctx(&d);
+        let bytes = png(640, 480, 500);
+        std::fs::write(d.path().join("shot.png"), &bytes).unwrap();
+        let (out, img) = Read
+            .run_with_image(&json!({"path": "shot.png"}), &c)
+            .unwrap();
+        assert!(
+            out.text
+                .ends_with("shot.png is a PNG image, 640×480, 533 bytes."),
+            "{}",
+            out.text
+        );
+        assert_eq!(out.meta["image"], "image/png");
+        let img = img.expect("an image");
+        assert_eq!((img.name.as_str(), img.info.width), ("shot.png", 640));
+        assert_eq!(img.bytes, bytes);
+        // `run` (what a caller without images gets) says the same, without the bytes.
+        let plain = Read.run(&json!({"path": "shot.png"}), &c).unwrap();
+        assert_eq!(plain.text, out.text);
+
+        std::fs::write(d.path().join("huge.png"), png(4000, 3000, 6 * 1024 * 1024)).unwrap();
+        let (out, img) = Read
+            .run_with_image(&json!({"path": "huge.png"}), &c)
+            .unwrap();
+        assert!(img.is_none());
+        assert!(
+            out.text
+                .ends_with(": not shown, an image over the 5 MiB limit."),
+            "{}",
+            out.text
+        );
+        assert_eq!(out.meta["not_shown"], "an image over the 5 MiB limit");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Discord attachments (theseus-9g2). Discord turns a long paste into a
 //! `message.txt` attachment, so a binding that only listed attachments
-//! silently missed every long paste.
+//! silently missed every long paste. Text files and images (PNG, JPEG, GIF,
+//! WebP, up to 5 MiB) are downloaded; anything else is listed.
 //!
 //! The gateway loop awaits each message's handler inline, so nothing here
 //! runs on it: `on_message` plans each file (`plan`, pure), and the downloads
@@ -56,8 +57,18 @@ impl FileMeta {
 pub enum Plan {
     /// Download it and pass its text.
     Text,
+    /// Download it and pass its bytes; the core checks them and stores them.
+    Image,
     /// List it without reading it, for this reason.
     Skip(String),
+}
+
+/// The image types the models read (the core checks the bytes themselves).
+fn image_type(t: &str, name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let ext = lower.rsplit_once('.').map_or("", |(_, e)| e);
+    matches!(t, "image/png" | "image/jpeg" | "image/gif" | "image/webp")
+        || (t.is_empty() && matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "webp"))
 }
 
 /// Extensions read as text whatever type Discord reports (it reports none
@@ -165,10 +176,16 @@ pub fn plan(f: &FileMeta, max_text: u64) -> Plan {
         }
         return Plan::Text;
     }
-    if t.starts_with("image/") {
-        return Plan::Skip("images are not read yet".into());
+    if image_type(&t, &f.name) {
+        if f.size > theseus_protocol::MAX_IMAGE_BYTES {
+            return Plan::Skip("an image over the 5 MiB limit".into());
+        }
+        return Plan::Image;
     }
-    Plan::Skip("only text files are read".into())
+    if t.starts_with("image/") {
+        return Plan::Skip("only PNG, JPEG, GIF, and WebP images are read".into());
+    }
+    Plan::Skip("only text files and images are read".into())
 }
 
 /// The `attachments` entry for one file: its metadata, its plan, and what
@@ -188,8 +205,11 @@ pub fn entry(f: &FileMeta, plan: &Plan, fetched: Option<Result<Vec<u8>, String>>
                 Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
             });
         }
-        (Plan::Text, Some(Err(e))) => a.not_read = Some(format!("the download failed ({e})")),
-        (Plan::Text, None) => a.not_read = Some("the download did not run".into()),
+        (Plan::Image, Some(Ok(bytes))) => a.data = Some(theseus_core::blobs::encode(&bytes)),
+        (Plan::Text | Plan::Image, Some(Err(e))) => {
+            a.not_read = Some(format!("the download failed ({e})"))
+        }
+        (Plan::Text | Plan::Image, None) => a.not_read = Some("the download did not run".into()),
     }
     a
 }
@@ -234,6 +254,7 @@ pub async fn fetch_all(
         let p = plan(f, max_text);
         let fetched = match p {
             Plan::Text => Some(fetch(&http, &f.url, max_text).await),
+            Plan::Image => Some(fetch(&http, &f.url, theseus_protocol::MAX_IMAGE_BYTES).await),
             Plan::Skip(_) => None,
         };
         out.push(entry(f, &p, fetched));
@@ -313,7 +334,10 @@ mod tests {
         assert!(a.text.is_none());
         let zip = meta("src.zip", Some("application/zip"), 20 * 1024 * 1024);
         let a = entry(&zip, &plan(&zip, MAX), None);
-        assert_eq!(a.not_read.as_deref(), Some("only text files are read"));
+        assert_eq!(
+            a.not_read.as_deref(),
+            Some("only text files and images are read")
+        );
         assert_eq!(
             (a.size, a.media_type.as_str()),
             (20_971_520, "application/zip")
@@ -341,5 +365,30 @@ mod tests {
             Some(Ok(vec![b'o', 0xff, b'k'])),
         );
         assert_eq!(odd.text.as_deref(), Some("o\u{fffd}k"));
+    }
+
+    #[test]
+    fn an_image_is_downloaded_and_passed_as_its_bytes() {
+        let shot = meta("image.png", Some("image/png"), 4);
+        assert_eq!(plan(&shot, MAX), Plan::Image);
+        let a = entry(&shot, &Plan::Image, Some(Ok(b"\x89PNG".to_vec())));
+        assert_eq!(a.data.as_deref(), Some("iVBORw=="));
+        assert!(a.text.is_none() && a.not_read.is_none());
+        assert_eq!(plan(&meta("photo.JPG", None, 10), MAX), Plan::Image);
+        let big = meta("huge.png", Some("image/png"), 6 * 1024 * 1024);
+        assert_eq!(
+            plan(&big, MAX),
+            Plan::Skip("an image over the 5 MiB limit".into())
+        );
+        let heic = meta("x.heic", Some("image/heic"), 10);
+        assert_eq!(
+            plan(&heic, MAX),
+            Plan::Skip("only PNG, JPEG, GIF, and WebP images are read".into())
+        );
+        let failed = entry(&shot, &Plan::Image, Some(Err("timed out".into())));
+        assert_eq!(
+            failed.not_read.as_deref(),
+            Some("the download failed (timed out)")
+        );
     }
 }

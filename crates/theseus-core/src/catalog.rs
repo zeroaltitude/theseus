@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-09-28.1";
+pub const BUILTIN_VERSION: &str = "2026-09-29.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -110,6 +110,24 @@ fn micros_of(terms: &[(u64, f64)]) -> Micros {
         .map(|&(tokens, per_mtok)| tokens as u128 * usd_to_micros(per_mtok) as u128)
         .sum();
     u64::try_from(scaled.div_ceil(MICROS_PER_USD as u128)).unwrap_or(u64::MAX)
+}
+
+/// About how many input tokens an image costs a model (theseus-9g2), for
+/// the budget reservation; the provider's usage is what is charged. Claude
+/// scales an image down to fit its long-edge limit, then counts one token
+/// per 28×28 tile, up to a cap: 1,568 px and 1,568 tokens on Haiku 4.5,
+/// 2,576 px and 4,784 tokens on the models from Claude 4.7 on. GLM models are
+/// estimated the same way.
+pub fn image_tokens(model: &str, width: u32, height: u32) -> u64 {
+    let (long_edge, cap) = if model.starts_with("claude-haiku-4") {
+        (1_568.0, 1_568)
+    } else {
+        (2_576.0, 4_784)
+    };
+    let (w, h) = (width.max(1) as f64, height.max(1) as f64);
+    let scale = (long_edge / w.max(h)).min(1.0);
+    let tiles = |px: f64| ((px * scale).round().max(1.0) / 28.0).ceil() as u64;
+    (tiles(w) * tiles(h)).min(cap)
 }
 
 /// A `[catalog."<id>"]` table in the config. Over a built-in model every
@@ -312,13 +330,22 @@ impl Catalog {
             "claude-haiku-4-5".into(),
             claude(200_000, 64_000, 1.0, 5.0, 0.10, 1.25, Budget, false, 4096),
         );
+        // Text only (theseus-9g2): OpenClaw's model table marks glm-5.3 and
+        // glm-5.2 text-only, and glm-5.3 answered a test PNG with empty text
+        // (2026-09-29). The "no vision" line beats a silent empty answer.
         e.insert(
             "glm-5.3".into(),
-            glm(1_000_000, 128_000, 1.40, 4.40, 0.26, 1.40),
+            CatalogEntry {
+                vision: false,
+                ..glm(1_000_000, 128_000, 1.40, 4.40, 0.26, 1.40)
+            },
         );
         e.insert(
             "glm-5.2".into(),
-            glm(1_000_000, 128_000, 1.40, 4.40, 0.26, 1.40),
+            CatalogEntry {
+                vision: false,
+                ..glm(1_000_000, 128_000, 1.40, 4.40, 0.26, 1.40)
+            },
         );
         e.insert(
             "glm-5.3-flash".into(),
@@ -434,6 +461,29 @@ mod tests {
             ThinkingMode::Always
         );
         assert_eq!(c.get("glm-5.3-flash").unwrap().provider, "zai");
+    }
+
+    /// Which models see images, and what an image is estimated to cost
+    /// (theseus-9g2).
+    #[test]
+    fn glm_5_3_and_5_2_are_text_only_and_images_cost_their_tiles() {
+        let c = Catalog::builtin();
+        let blind: Vec<&str> = c
+            .entries
+            .iter()
+            .filter(|(_, e)| !e.vision)
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(blind, vec!["glm-5.2", "glm-5.3"]);
+        assert!(c.get("glm-5.3-flash").unwrap().vision);
+        // 1920×1080 fits Sonnet 5.5's 2,576 px: 69 × 39 tiles of 28 px.
+        assert_eq!(image_tokens("claude-sonnet-5-5", 1920, 1080), 2_691);
+        // Haiku 4.5 scales it to 1568×882 first: 56 × 32, capped at 1,568.
+        assert_eq!(image_tokens("claude-haiku-4-5", 1920, 1080), 1_568);
+        assert_eq!(image_tokens("claude-haiku-4-5", 200, 100), 8 * 4);
+        // A huge square is capped, never absurd.
+        assert_eq!(image_tokens("claude-opus-5-5", 8_000, 8_000), 4_784);
+        assert_eq!(image_tokens("glm-5.3-flash", 1, 1), 1);
     }
 
     #[test]

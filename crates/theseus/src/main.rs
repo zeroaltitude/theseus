@@ -105,7 +105,8 @@ enum Cmd {
         #[arg(long)]
         thinking: bool,
         /// Send a file with the prompt (repeatable), as a Discord attachment is sent: a text
-        /// file's text, labeled with its name; anything else listed with the reason.
+        /// file's text, labeled with its name, or an image (PNG, JPEG, GIF, WebP, up to 5 MiB);
+        /// anything else is listed with the reason.
         #[arg(long = "attach", value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
@@ -376,15 +377,23 @@ fn attachment_for(path: &std::path::Path) -> Result<theseus_protocol::Attachment
         return Ok(a);
     }
     let bytes = std::fs::read(path).with_context(|| format!("--attach {}", path.display()))?;
-    match String::from_utf8(bytes) {
+    let bytes = match String::from_utf8(bytes) {
         Ok(text) if !text.as_bytes().iter().take(8192).any(|b| *b == 0) => {
             a.media_type = "text/plain".into();
             a.text = Some(text);
+            return Ok(a);
         }
-        _ => {
-            a.media_type = "application/octet-stream".into();
-            a.not_read = Some("not a text file".into());
-        }
+        Ok(text) => text.into_bytes(),
+        Err(e) => e.into_bytes(),
+    };
+    // Not text: its bytes, when an image could be this small. The daemon
+    // reads the type from the bytes and keeps only an image.
+    if bytes.len() as u64 <= theseus_protocol::MAX_IMAGE_BYTES {
+        use base64::Engine as _;
+        a.data = Some(base64::engine::general_purpose::STANDARD.encode(&bytes));
+    } else {
+        a.media_type = "application/octet-stream".into();
+        a.not_read = Some("not a text file, and over the 5 MiB limit for images".into());
     }
     Ok(a)
 }
@@ -1652,11 +1661,12 @@ mod tests {
         assert_eq!(a.text.as_deref(), Some("The fact is 42.\n"));
         assert!(a.not_read.is_none());
 
-        let blob = dir.join("blob.bin");
-        std::fs::write(&blob, [0u8, 1, 2, 255]).unwrap();
-        let b = attachment_for(&blob).unwrap();
-        assert_eq!(b.not_read.as_deref(), Some("not a text file"));
-        assert!(b.text.is_none() && b.data.is_none());
+        // Not text: its bytes go, and the daemon keeps them only if they are an image.
+        let shot = dir.join("shot.png");
+        std::fs::write(&shot, b"\x89PNG\r\n\x1a\n").unwrap();
+        let b = attachment_for(&shot).unwrap();
+        assert_eq!(b.data.as_deref(), Some("iVBORw0KGgo="));
+        assert!(b.text.is_none() && b.not_read.is_none());
 
         assert!(attachment_for(&dir.join("missing.txt")).is_err());
         assert!(attachment_for(&dir).is_err());

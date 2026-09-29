@@ -14,6 +14,11 @@ use serde_json::Value;
 pub const VERSION: &str = "0.1";
 pub const JSONRPC: &str = "2.0";
 
+/// The largest image an attachment or `fs.read` passes to a model
+/// (theseus-9g2): 5 MiB of raw bytes, which every route takes (Anthropic's
+/// direct API allows 10 MB of base64; Bedrock and Vertex allow 5 MB).
+pub const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
+
 /// The `tool` of a budget question (theseus-0sg): a session reached its spend
 /// limit, and a `confirm.requested` with this tool asks the operator whether
 /// its spend may go back to $0. Answered with `action.confirm` like any other.

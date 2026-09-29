@@ -721,7 +721,11 @@ impl TurnRunner {
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(text) = &input {
-            let files = crate::attach::from_wire(attachments, self.cfg.tools.max_read_bytes);
+            let files = crate::attach::from_wire(
+                attachments,
+                self.cfg.tools.max_read_bytes,
+                self.store.blobs(),
+            );
             let first_file = files.first().map(|a| a.name.clone());
             let node = Node::user_with(&sid, Some(&turn_id), &author, text, files);
             if session.title.is_none() {
@@ -916,6 +920,7 @@ impl TurnRunner {
             catalog: &self.catalog,
             force,
             window_override: None,
+            blobs: Some(self.store.blobs()),
         });
         if compiled.new_compilation {
             self.persist_compilation(&compiled, session, t.tc.turn_id)?;

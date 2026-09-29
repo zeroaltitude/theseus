@@ -17,6 +17,8 @@ use theseus_store::{kinds, Engine, NewRecord, Store as _, StoreStats, WalConfig,
 pub struct Store {
     inner: Arc<WalStore>,
     dir: std::path::PathBuf,
+    /// Image bytes beside the WAL, by digest (theseus-9g2).
+    blobs: Arc<crate::blobs::Blobs>,
 }
 
 impl Store {
@@ -36,7 +38,13 @@ impl Store {
         Ok(Self {
             inner: Arc::new(inner),
             dir: dir.to_path_buf(),
+            blobs: Arc::new(crate::blobs::Blobs::new(dir)),
         })
+    }
+
+    /// The store's image blobs (theseus-9g2).
+    pub fn blobs(&self) -> &crate::blobs::Blobs {
+        &self.blobs
     }
 
     /// The same store as the kernel's `Store` trait object (one WAL, one index).

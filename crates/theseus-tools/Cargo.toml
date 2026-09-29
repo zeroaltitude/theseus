@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+theseus-protocol.workspace = true
 anyhow.workspace = true
 diffy = "0.5.2"
 gix = { version = "0.88.0", default-features = false, features = ["revision", "sha1"] }

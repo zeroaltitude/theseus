@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 
 pub mod fs;
 pub mod git;
+pub mod image;
 pub mod paths;
 pub mod proc;
 pub mod text;
@@ -124,6 +125,17 @@ impl<E: std::fmt::Display> From<E> for ToolFailure {
     }
 }
 
+/// An image a toollet read, for the model to see (`fs.read` of a PNG,
+/// theseus-9g2). The runtime stores its bytes once, in the store's blobs,
+/// and the result node holds the reference.
+#[derive(Debug, Clone)]
+pub struct ImageData {
+    /// The file's name, for the line that names it.
+    pub name: String,
+    pub info: image::ImageInfo,
+    pub bytes: Vec<u8>,
+}
+
 /// A job for the detached wrapper.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobSpec {
@@ -187,6 +199,15 @@ pub trait Tool: Send + Sync {
     /// Run in process (only for `Backend::Inproc`, only after the gate).
     fn run(&self, _input: &Value, _ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
         Err(ToolFailure::new("this tool runs as a job, not in process"))
+    }
+    /// `run`, plus an image for the model when the tool read one (only
+    /// `fs.read` returns one). The runtime calls this.
+    fn run_with_image(
+        &self,
+        input: &Value,
+        ctx: &ToolCtx,
+    ) -> Result<(ToolOutput, Option<ImageData>), ToolFailure> {
+        self.run(input, ctx).map(|o| (o, None))
     }
     /// The job to launch (only for `Backend::Job`).
     fn job(&self, _input: &Value, _ctx: &ToolCtx) -> Result<JobSpec, String> {

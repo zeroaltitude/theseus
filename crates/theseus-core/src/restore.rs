@@ -32,6 +32,8 @@ pub struct RestoreReport {
     pub sessions: u64,
     pub nodes: u64,
     pub ledger_rows: u64,
+    /// Image blobs copied from beside the WAL (theseus-9g2).
+    pub blobs: u32,
 }
 
 /// `from` may be a WAL directory (holding `*.seg`) or a store directory
@@ -82,6 +84,24 @@ pub fn restore(
         std::fs::copy(s, staging.join("wal").join(name))
             .with_context(|| format!("copying {}", s.display()))?;
     }
+    // Image bytes live beside the WAL, in the store's `blobs/` (theseus-9g2).
+    let blobs_src = (wal_src.file_name().is_some_and(|n| n == "wal"))
+        .then(|| wal_src.parent().map(|p| p.join("blobs")))
+        .flatten()
+        .filter(|p| p.is_dir());
+    let mut blobs = 0u32;
+    if let Some(src) = &blobs_src {
+        std::fs::create_dir_all(staging.join("blobs"))?;
+        for e in std::fs::read_dir(src)? {
+            let p = e?.path();
+            let Some(name) = p.file_name() else { continue };
+            if p.is_file() && !name.to_string_lossy().starts_with('.') {
+                std::fs::copy(&p, staging.join("blobs").join(name))
+                    .with_context(|| format!("copying {}", p.display()))?;
+                blobs += 1;
+            }
+        }
+    }
 
     let mut report = RestoreReport {
         from: wal_src.display().to_string(),
@@ -96,6 +116,7 @@ pub fn restore(
         sessions: 0,
         nodes: 0,
         ledger_rows: 0,
+        blobs,
     };
     {
         let store = Store::open(&staging, engine)
@@ -115,7 +136,8 @@ pub fn restore(
             None,
             json!({"from": report.from, "segments": report.segments, "frames": report.frames,
                    "records": report.records, "last_position": report.last_position,
-                   "truncated_bytes": report.truncated_bytes, "sessions": report.sessions}),
+                   "truncated_bytes": report.truncated_bytes, "sessions": report.sessions,
+                   "blobs": report.blobs}),
         ))?;
         store.checkpoint()?;
     }
@@ -231,5 +253,32 @@ mod tests {
         let dst = tempfile::tempdir().unwrap();
         let e = restore(empty.path(), dst.path(), Engine::Redb, false).unwrap_err();
         assert!(e.to_string().contains("no WAL segments"), "{e}");
+    }
+
+    /// Image bytes live beside the WAL (theseus-9g2), so a restore carries
+    /// them: an image node restored without its blob would show as missing.
+    #[test]
+    fn a_restore_carries_the_image_blobs() {
+        let live = tempfile::tempdir().unwrap();
+        store_with_sessions(live.path(), 1);
+        let digest = {
+            let store = Store::open(&live.path().join("store"), Engine::Redb).unwrap();
+            store.blobs().put(b"\x89PNG image bytes").unwrap()
+        };
+        let fresh = tempfile::tempdir().unwrap();
+        let r = restore(
+            &live.path().join("store"),
+            fresh.path(),
+            Engine::Redb,
+            false,
+        )
+        .unwrap();
+        assert_eq!(r.blobs, 1);
+        let back = Store::open(&fresh.path().join("store"), Engine::Redb).unwrap();
+        let b64 = back.blobs().base64(&digest).unwrap();
+        assert_eq!(
+            crate::blobs::decode(&b64).unwrap(),
+            b"\x89PNG image bytes".to_vec()
+        );
     }
 }

@@ -22,6 +22,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::attach::Media;
 use crate::catalog::{Catalog, ThinkingMode};
 use crate::node::{Body, Node, ResultStatus};
 use crate::provider::{tool_uses_in, ProviderRequest};
@@ -142,6 +143,9 @@ pub struct CompileInput<'a> {
     pub force: Option<Recompile>,
     /// Tests: pretend the model's window is this many tokens.
     pub window_override: Option<u64>,
+    /// Where image blocks get their bytes (theseus-9g2); `None` shows every
+    /// image as a line saying its bytes are missing.
+    pub blobs: Option<&'a crate::blobs::Blobs>,
 }
 
 #[derive(Debug, Clone)]
@@ -293,7 +297,7 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
     let mut trigger = new_compilation.then(|| compilation.trigger.clone());
 
     let (mut request, mut prefix_n, mut tail_n, mut repairs) =
-        render_request(spec, input.catalog, &compilation, input.nodes);
+        render_request(spec, input.catalog, &compilation, input.nodes, input.blobs);
     let mut est = request.estimate_tokens();
 
     // 2. Overflow: drop leading turns (ring), cutting only before a user message.
@@ -313,7 +317,8 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
             for &cut in starts.iter().skip(1) {
                 let includes: Vec<String> = seq[cut..].iter().map(|n| n.id.clone()).collect();
                 let candidate = make("overflow".into(), "ring", true, includes);
-                let (r, p, t, rep) = render_request(spec, input.catalog, &candidate, input.nodes);
+                let (r, p, t, rep) =
+                    render_request(spec, input.catalog, &candidate, input.nodes, input.blobs);
                 let e = r.estimate_tokens();
                 let last = cut == *starts.last().unwrap();
                 if e <= target || last {
@@ -353,6 +358,7 @@ pub fn render_request(
     catalog: &Catalog,
     c: &Compilation,
     nodes: &[(u64, Node)],
+    blobs: Option<&crate::blobs::Blobs>,
 ) -> (ProviderRequest, usize, usize, Vec<String>) {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
     let prefix: Vec<&Node> = nodes
@@ -365,9 +371,16 @@ pub fn render_request(
         .filter(|(pos, n)| *pos > c.as_of && renderable(n))
         .map(|(_, n)| n)
         .collect();
-    let (messages, repairs) = render_messages(&prefix, &tail, c.manifest.strip_thinking);
-
     let entry = catalog.get(&spec.model);
+    // The compilation's model decides how its images show (theseus-9g2).
+    let media = Media {
+        vision: entry.is_some_and(|e| e.vision),
+        model: &spec.model,
+        blobs,
+    };
+    let (messages, repairs, image_tokens) =
+        render_messages(&prefix, &tail, c.manifest.strip_thinking, &media);
+
     let mut betas = Vec::new();
     let mut extra = std::collections::BTreeMap::new();
     let thinking = match entry.map(|e| e.thinking) {
@@ -414,6 +427,7 @@ pub fn render_request(
         cache_control: Some(json!({"type": "ephemeral"})),
         betas,
         extra,
+        image_tokens,
     };
     (req, prefix.len(), tail.len(), repairs)
 }
@@ -425,16 +439,21 @@ fn is_thinking(b: &Value) -> bool {
     )
 }
 
-fn tool_result_block(r: &Node) -> Value {
+fn tool_result_block(r: &Node, media: &Media, tokens: &mut u64) -> Value {
     match &r.body {
         Body::ToolResult {
             tool_use_id,
             content,
             is_error,
+            image,
             ..
         } => {
             if *is_error {
                 json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": true})
+            } else if let Some(img) = image {
+                // An image the tool returned (theseus-9g2).
+                let content = crate::attach::tool_content(content, img, media, tokens);
+                json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content})
             } else {
                 json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content})
             }
@@ -471,12 +490,15 @@ fn late_result_text(r: &Node) -> String {
 
 /// Nodes → provider messages. Tool results are placed in one user message
 /// right after the assistant message whose `tool_use` blocks they answer,
-/// `tool_result` blocks first; consecutive same-role messages merge.
+/// `tool_result` blocks first; consecutive same-role messages merge. Also
+/// returns the repaired calls and the tokens the images are estimated at.
 pub fn render_messages(
     prefix: &[&Node],
     tail: &[&Node],
     strip_prefix_thinking: bool,
-) -> (Vec<Value>, Vec<String>) {
+    media: &Media,
+) -> (Vec<Value>, Vec<String>, u64) {
+    let mut image_tokens = 0u64;
     let mut results: HashMap<&str, &Node> = HashMap::new();
     for n in prefix.iter().chain(tail.iter()) {
         if let Body::ToolResult {
@@ -506,12 +528,15 @@ pub fn render_messages(
     for (n, in_prefix) in items {
         match &n.body {
             Body::UserMessage { text, attachments } => {
-                // Each attachment is its own block, before the typed text
-                // (theseus-9g2). A message of attachments alone has no text
-                // block; one without attachments renders as it always did.
+                // Each attachment is its own block (an image, two), before
+                // the typed text (theseus-9g2). A message of attachments
+                // alone has no text block; one without attachments renders
+                // as it always did.
                 let mut blocks: Vec<Value> = attachments
                     .iter()
-                    .map(|a| json!({"type": "text", "text": crate::attach::for_model(a, n.author.as_deref())}))
+                    .flat_map(|a| {
+                        crate::attach::blocks(a, n.author.as_deref(), media, &mut image_tokens)
+                    })
                     .collect();
                 if !text.is_empty() || attachments.is_empty() {
                     blocks.push(json!({"type": "text", "text": text}));
@@ -533,7 +558,7 @@ pub fn render_messages(
                     let mut rb = Vec::new();
                     for u in uses {
                         match results.get(u.id.as_str()) {
-                            Some(r) => rb.push(tool_result_block(r)),
+                            Some(r) => rb.push(tool_result_block(r, media, &mut image_tokens)),
                             None => {
                                 repairs.push(u.id.clone());
                                 rb.push(json!({
@@ -560,7 +585,7 @@ pub fn render_messages(
         .into_iter()
         .map(|(role, content)| json!({"role": role, "content": content}))
         .collect();
-    (msgs, repairs)
+    (msgs, repairs, image_tokens)
 }
 
 /// The result status a background placeholder carries.
@@ -652,6 +677,7 @@ mod tests {
                 duration_ms: None,
                 late,
                 meta: json!({"exit_code": 0}),
+                image: None,
             },
         )
     }
@@ -675,6 +701,7 @@ mod tests {
             catalog: &Catalog::builtin(),
             force: None,
             window_override: None,
+            blobs: None,
         })
     }
 
@@ -832,6 +859,7 @@ mod tests {
             catalog: &Catalog::builtin(),
             force: Some(Recompile::Fresh),
             window_override: None,
+            blobs: None,
         });
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
@@ -859,6 +887,7 @@ mod tests {
             catalog: &Catalog::builtin(),
             force: None,
             window_override: Some(13_000),
+            blobs: None,
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");

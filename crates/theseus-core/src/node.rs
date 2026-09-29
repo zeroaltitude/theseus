@@ -86,6 +86,14 @@ pub enum AttachmentContent {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         cut: bool,
     },
+    /// An image, stored once in the store's blobs by the SHA-256 of its
+    /// bytes (`blobs.rs`); the node holds the reference, never the bytes.
+    /// `media_type` is the type its bytes say, and `size` its bytes.
+    Image {
+        digest: String,
+        width: u32,
+        height: u32,
+    },
     /// Not read, and why (too large, a type that is not read, a failed download).
     NotRead { reason: String },
 }
@@ -160,6 +168,10 @@ pub enum Body {
         late: bool,
         #[serde(default)]
         meta: Value,
+        /// An image the tool returned (`fs.read` of a PNG), stored once in
+        /// the blobs like an attached one (theseus-9g2).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<Attachment>,
     },
 }
 

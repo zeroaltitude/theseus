@@ -325,6 +325,7 @@ impl ToolRuntime {
                 duration_ms,
                 late,
                 meta,
+                image: None,
             },
         )
     }
@@ -715,7 +716,7 @@ impl ToolRuntime {
                 let started = theseus_protocol::now_unix_ms();
                 let t0 = Instant::now();
                 let (t, input, ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
-                let run = tokio::task::spawn_blocking(move || t.run(&input, &ctx));
+                let run = tokio::task::spawn_blocking(move || t.run_with_image(&input, &ctx));
                 let outcome = match tokio::time::timeout(
                     Duration::from_millis(INPROC_DEADLINE_MS),
                     run,
@@ -728,11 +729,31 @@ impl ToolRuntime {
                     Err(_) => Err(format!("timed out after {} ms", INPROC_DEADLINE_MS)),
                 };
                 let dur = t0.elapsed().as_millis() as u64;
-                let (status, text, meta) = match outcome {
-                    Ok(o) => (ResultStatus::Ok, o.text, o.meta),
-                    Err(m) => (ResultStatus::Error, m, Value::Null),
+                let (status, mut text, meta, img) = match outcome {
+                    Ok((o, img)) => (ResultStatus::Ok, o.text, o.meta, img),
+                    Err(m) => (ResultStatus::Error, m, Value::Null, None),
                 };
-                let node = self.result_node(
+                // An image the tool read goes to the blobs once; the node
+                // holds the reference (theseus-9g2).
+                let image = img.and_then(|d| {
+                    match crate::attach::store_image(&d.bytes, tc.store.blobs()) {
+                        Ok((info, digest)) => Some(crate::node::Attachment {
+                            name: d.name,
+                            media_type: info.media_type.into(),
+                            size: d.bytes.len() as u64,
+                            content: crate::node::AttachmentContent::Image {
+                                digest,
+                                width: info.width,
+                                height: info.height,
+                            },
+                        }),
+                        Err(why) => {
+                            text.push_str(&format!(" It is not shown: {why}."));
+                            None
+                        }
+                    }
+                });
+                let mut node = self.result_node(
                     tc,
                     &call.id,
                     tool.name(),
@@ -745,6 +766,9 @@ impl ToolRuntime {
                     None,
                     meta.clone(),
                 );
+                if let Body::ToolResult { image: slot, .. } = &mut node.body {
+                    *slot = image;
+                }
                 let c = Completion {
                     correlation_id: correlation_id.into(),
                     outcome: if status == ResultStatus::Ok {
