@@ -158,7 +158,8 @@ proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME"
 #      1Password CLI, its credentials, and the token file this daemon was given;
 #   2. your approve lists wait for your approval: approve_argv,
 #      [tools].approve_paths, and any path outside the workspace roots;
-#   3. your allow list runs: allow_argv.
+#   3. your allow list runs: allow_argv. An entry is a prefix: ["ls"] also runs
+#      `ls -la src`, so keep entries narrow.
 [policy]
 enforcement = "notify"                  # open | notify | approve: what every tool and MCP inherits (built-in default: open)
 allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)

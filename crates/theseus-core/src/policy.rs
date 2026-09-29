@@ -19,7 +19,9 @@
 //!    token) waits for approval at every posture, and is marked as the floor;
 //! 2. the operator's approve lists (`approve_argv`, `approve_paths`) and any
 //!    path outside the roots wait for approval;
-//! 3. the operator's explicit allow (`allow_argv`) runs;
+//! 3. the operator's explicit allow (`allow_argv`) runs, when every path
+//!    argument is inside the roots. An entry is a prefix (`["ls"]` also runs
+//!    `ls -la src`), so entries should be narrow;
 //! 4. otherwise the tool's posture: `[policy.tools]`, then for an MCP tool
 //!    `[policy.mcp]` "server/tool" and "server", then `[policy].enforcement`.
 //!
@@ -135,23 +137,6 @@ pub fn floor_argv() -> Vec<Vec<String>> {
 /// What the floor's paths hold, in the operator's words.
 const FLOOR_STATE: &str = "Theseus's own state or the 1Password token";
 
-/// Flags the allow list never covers, whatever it says: they make an
-/// innocent-looking command write a file (`--output`), read any file
-/// (`--no-index`), or run a program configured elsewhere (`--ext-diff`,
-/// `--textconv`, `--exec`, `--upload-pack`, `-c`). A command carrying one
-/// takes its tool's posture instead.
-const NOT_ALLOW_LISTED: &[&str] = &[
-    "--output",
-    "--no-index",
-    "--ext-diff",
-    "--textconv",
-    "--exec",
-    "--upload-pack",
-    "--receive-pack",
-    "--config-env",
-    "-c",
-];
-
 /// The command's arguments that name paths, resolved against `cwd`: absolute,
 /// `~`, `.`-relative, or containing a separator; `--opt=value` is judged by
 /// its value. Plain words (`status`, `-la`) are not paths.
@@ -258,35 +243,22 @@ impl ToolPolicy {
                 format!("{}: {name} — approve ({why})", plan.summary),
             );
         }
-        // The allow list runs a command outright; a near miss says why not.
-        let mut near_miss = String::new();
+        // The allow list runs a command outright when its path arguments stay
+        // inside the roots; otherwise the tool's posture decides.
         if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
-            let entry = format!(
-                "`{}` matches the allow list entry `{}`",
-                argv.join(" "),
-                p.join(" ")
-            );
-            let flag = argv.iter().skip(1).find(|a| {
-                NOT_ALLOW_LISTED
-                    .iter()
-                    .any(|f| a.as_str() == *f || a.starts_with(&format!("{f}=")))
-            });
-            let outside = args.iter().find(|(_, p)| !self.within_roots(p));
-            match (flag, outside) {
-                (Some(f), _) => {
-                    near_miss = format!("; {entry}, but the allow list never covers `{f}`")
-                }
-                (None, Some((a, _))) => {
-                    near_miss =
-                        format!("; {entry}, but its argument `{a}` is outside the workspace roots")
-                }
-                (None, None) => {
-                    return Decision::new(Posture::Open, format!("{name} — open ({entry})"))
-                }
+            if args.iter().all(|(_, p)| self.within_roots(p)) {
+                return Decision::new(
+                    Posture::Open,
+                    format!(
+                        "{name} — open (`{}` matches the allow list entry `{}`)",
+                        argv.join(" "),
+                        p.join(" ")
+                    ),
+                );
             }
         }
         let (posture, setting) = self.posture(name);
-        let reason = format!("{name} — {} ({setting}{near_miss})", posture.as_str());
+        let reason = format!("{name} — {} ({setting})", posture.as_str());
         match posture {
             Posture::Approve => Decision::new(posture, format!("{}: {reason}", plan.summary)),
             Posture::Notify => Decision {
@@ -722,24 +694,21 @@ mod tests {
                     out.reason
                 );
             }
-            // A near miss takes the posture and says why the list did not apply.
-            for (argv, why) in [
-                (
-                    vec!["git", "status", "--output=/tmp/x"],
-                    "the allow list never covers `--output=/tmp/x`",
-                ),
-                (
-                    vec!["git", "status", "/etc"],
-                    "its argument `/etc` is outside the workspace roots",
-                ),
-                (
-                    vec!["git", "status", ".."],
-                    "its argument `..` is outside the workspace roots",
-                ),
+            // A path argument outside the roots, `--opt=value` included, leaves
+            // the command to its tool's posture.
+            for argv in [
+                vec!["git", "status", "--output=/tmp/x"],
+                vec!["git", "status", "/etc"],
+                vec!["git", "status", ".."],
             ] {
                 let out = run(argv);
                 assert_eq!(out.posture, e, "{}", out.reason);
-                assert!(out.reason.contains(why), "{}", out.reason);
+                assert!(
+                    out.reason
+                        .ends_with(&format!("proc.run — {0} (enforcement = {0})", e.as_str())),
+                    "{}",
+                    out.reason
+                );
             }
         }
     }

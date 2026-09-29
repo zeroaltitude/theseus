@@ -247,7 +247,7 @@ pub struct PolicyConfig {
     #[serde(default)]
     pub enforcement: crate::policy::Posture,
     /// `proc.run` argv prefixes that run (open) when every path argument is
-    /// inside the roots.
+    /// inside the roots. A prefix covers any arguments after it.
     #[serde(default = "default_allow_argv")]
     pub allow_argv: Vec<Vec<String>>,
     /// `proc.run` argv prefixes that wait for approval.
