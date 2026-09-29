@@ -192,9 +192,13 @@ impl ConfigGate {
         });
     }
 
-    /// An acting method's wait, bounded: how long it waited, or why it may
-    /// not act (`config_unconfirmed`).
+    /// An acting method's wait, bounded: how long it waited (zero when the
+    /// config may act already, so a turn's trace shows no wait), or why it
+    /// may not act (`config_unconfirmed`).
     pub async fn wait(&self) -> Result<Duration, String> {
+        if self.is_open() {
+            return Ok(Duration::ZERO);
+        }
         let t0 = Instant::now();
         let mut rx = self.tx.subscribe();
         let settled = tokio::time::timeout(

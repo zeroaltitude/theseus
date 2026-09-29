@@ -428,6 +428,31 @@ async fn a_turn_sent_from_the_copy_waits_for_the_vault_then_runs() {
     );
 }
 
+/// A config that may act already (a file, as every older test has) waits for
+/// nothing, and a turn's trace has no `config.wait` span.
+#[tokio::test]
+async fn a_config_that_may_act_waits_for_nothing() {
+    assert_eq!(ConfigGate::file("x").wait().await, Ok(Duration::ZERO));
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("plain")]));
+    let core = Core::build(Parts::for_tests(cfg, fake, store)).unwrap();
+    let res = rpc_as(
+        &core,
+        cli(),
+        method::TURN_SUBMIT,
+        params(method::TURN_SUBMIT),
+    )
+    .await
+    .unwrap();
+    assert_eq!(res["output"], "plain");
+    let trace = serde_json::to_string(&res["trace"]).unwrap();
+    assert!(!trace.contains("config.wait"), "{trace}");
+    assert_eq!(core.health().config.state, "confirmed");
+}
+
 /// Nothing acts on the copy's word: a continuation queued behind an answered
 /// question waits while the vault is silent, and the driver runs it once the
 /// vault answers the copy's own text. The startup phase `config.vault` and a
