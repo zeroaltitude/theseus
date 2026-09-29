@@ -234,7 +234,16 @@ pub struct HealthResult {
     pub provider: String,
     #[serde(default)]
     pub providers: Vec<String>,
+    /// The secrets whose values are ready (names only).
     pub secrets_resolved: Vec<String>,
+    /// Where every secret stands: the daemon serves before they resolve
+    /// (theseus-qa0), and each consumer waits for its own.
+    #[serde(default)]
+    pub secrets: SecretsStatus,
+    /// The last start's phases, timed from process start: those on the path
+    /// to answering the socket, then those after it.
+    #[serde(default)]
+    pub startup: Vec<StartupPhase>,
     /// Tokens across every session, summed from session records.
     pub usage_total: Usage,
     pub provider_errors: u64,
@@ -263,6 +272,80 @@ pub struct HealthResult {
     /// (theseus-sgh), oldest first. They are stored, not configured.
     #[serde(default)]
     pub tightenings: Vec<Tightening>,
+}
+
+/// Where the vault's secrets stand (theseus-qa0, spec §2 FAST): the daemon
+/// answers its socket before they resolve, and each consumer waits for its own.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SecretsStatus {
+    /// `resolving` until every secret has settled, then `ready`, or `failed`
+    /// with `failed` naming each one that did not resolve.
+    pub state: String,
+    #[serde(default)]
+    pub ready: Vec<String>,
+    #[serde(default)]
+    pub resolving: Vec<String>,
+    #[serde(default)]
+    pub failed: Vec<SecretFailed>,
+    /// How the vault was read: `inject` (one `op inject` for every reference),
+    /// or `inject, then read` after a failed injection.
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Rounds run: the first, then one per retry of what failed.
+    #[serde(default)]
+    pub rounds: u32,
+    /// When resolution began, and when its first round settled, in ms after
+    /// the process started.
+    #[serde(default)]
+    pub started_ms: Option<u64>,
+    #[serde(default)]
+    pub settled_ms: Option<u64>,
+    /// Until the next fetch of what failed.
+    #[serde(default)]
+    pub retry_in_ms: Option<u64>,
+}
+
+impl SecretsStatus {
+    /// `resolving`, `ready`, or `failed a, b`: what health says in a word.
+    pub fn summary(&self) -> String {
+        match self.state.as_str() {
+            "failed" => format!(
+                "failed {}",
+                self.failed
+                    .iter()
+                    .map(|f| f.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            "" => "unknown".into(),
+            s => s.into(),
+        }
+    }
+}
+
+/// A secret that did not resolve, and why (never a value).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecretFailed {
+    pub name: String,
+    pub error: String,
+}
+
+/// One phase of the last start (theseus-qa0), timed from process start.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct StartupPhase {
+    /// `config`, `store`, `kernel`, `core`, `socket` on the path to serving;
+    /// `secrets`, `provider.<name>`, `discord.token`, `github.check`,
+    /// `telemetry.headers`, `driver.bindings` after it.
+    pub name: String,
+    /// After the socket answers: nothing on the path to serving waits for it.
+    #[serde(default)]
+    pub background: bool,
+    pub start_us: u64,
+    /// `None` while it runs.
+    #[serde(default)]
+    pub end_us: Option<u64>,
+    #[serde(default)]
+    pub detail: Value,
 }
 
 /// A runtime tightening (theseus-sgh, spec §3.9): one press on a notice made

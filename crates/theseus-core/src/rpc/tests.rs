@@ -22,8 +22,17 @@ fn test_core(reply: &str) -> Arc<Core> {
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    let secrets = SecretBoard::new(["anthropic_api_key".to_string()], std::time::Instant::now());
+    secrets.publish(
+        [(
+            "anthropic_api_key".to_string(),
+            Ok(crate::secrets::Secret::new("sk-test-not-a-key".into())),
+        )]
+        .into(),
+        "fake",
+    );
     Core::build(Parts {
-        secret_names: vec!["anthropic_api_key".into()],
+        secrets,
         ..Parts::for_tests(
             cfg,
             Arc::new(FakeProvider {
@@ -102,6 +111,177 @@ async fn continuations_wait_for_expected_bindings_but_not_forever() {
     assert!(waiter.await.unwrap(), "released when the binding starts");
     core.bindings.started(); // a second report never underflows
     assert!(core.bindings.wait(Duration::from_millis(10)).await);
+}
+
+// ---------------------------------------------------------------- serve first (theseus-qa0)
+
+/// A core whose secrets resolve from `vault` in the background, as the
+/// daemon's do: `anthropic_api_key` (the test provider's) and one more.
+fn serving_core(
+    vault: crate::secrets::fake::FakeVault,
+    reply: &str,
+) -> (Arc<Core>, Arc<SecretBoard>) {
+    let refs: BTreeMap<String, String> = [
+        ("anthropic_api_key", "op://V/anthropic/notesPlain"),
+        ("github_token", "op://V/github/notesPlain"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    let board = SecretBoard::new(refs.keys().cloned(), std::time::Instant::now());
+    tokio::spawn(crate::secrets::resolve_into(
+        board.clone(),
+        refs,
+        Arc::new(vault),
+    ));
+    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let store = Store::open(&dir.join("store")).unwrap();
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    let core = Core::build(Parts {
+        secrets: board.clone(),
+        ..Parts::for_tests(
+            cfg,
+            Arc::new(FakeProvider {
+                reply: reply.into(),
+                ..Default::default()
+            }),
+            store,
+        )
+    })
+    .unwrap();
+    (core, board)
+}
+
+fn submit(id: u64, input: &str) -> Request {
+    Request::new(
+        Id::Num(id),
+        method::TURN_SUBMIT,
+        TurnSubmitParams {
+            session_id: None,
+            input: input.into(),
+            profile: None,
+            provider: None,
+            model: None,
+            author: None,
+            attachments: vec![],
+        },
+    )
+}
+
+/// With a vault that never answers, `health` answers inside the cold-start
+/// budget (§9, 50 ms), from the request to its answer, and says the secrets
+/// are resolving. The process-level budget is the lifecycle bench's, on a
+/// release build (`theseus-sim bench lifecycle`).
+#[tokio::test]
+async fn health_answers_at_once_while_a_hung_vault_resolves() {
+    let (vault, _never) = crate::secrets::fake::FakeVault::gated(&[]);
+    let (core, _) = serving_core(vault, "x");
+    let (client, server) = duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(server);
+    let srv = tokio::spawn(core.serve_connection(sr, sw, "test".into()));
+    let (cr, mut cw) = tokio::io::split(client);
+    let mut lines = BufReader::new(cr).lines();
+    let req = Request::new(Id::Num(1), method::HEALTH, Value::Null);
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    let t0 = std::time::Instant::now();
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let answer = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let Message::Response(r) = serde_json::from_str::<Message>(&l).unwrap() {
+            break r;
+        }
+    };
+    let took = t0.elapsed();
+    let h = answer.result.clone().unwrap();
+    assert!(took < Duration::from_millis(50), "health took {took:?}");
+    assert_eq!(h["secrets"]["state"], "resolving", "{h}");
+    assert_eq!(h["secrets"]["resolving"].as_array().unwrap().len(), 2);
+    assert_eq!(h["secrets_resolved"], json!([]));
+    cw.shutdown().await.unwrap();
+    drop((cw, lines));
+    let _ = srv.await;
+}
+
+/// A turn that arrives before its key waits for it, then runs; its trace
+/// and the startup phases say how long it waited.
+#[tokio::test]
+async fn a_turn_waits_for_its_secret_then_runs() {
+    let (vault, open) = crate::secrets::fake::FakeVault::gated(&[
+        ("op://V/anthropic/notesPlain", "sk-test-0000000000"),
+        ("op://V/github/notesPlain", "github-test-000000"),
+    ]);
+    let (core, board) = serving_core(vault, "after the wait");
+    let c = core.clone();
+    let turn = tokio::spawn(async move { roundtrip(c, vec![submit(3, "hi")]).await });
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(!turn.is_finished(), "the turn waits for its key");
+    assert_eq!(board.status().state, "resolving");
+    let opened = core.startup_log.us(std::time::Instant::now());
+    open.send(true).unwrap();
+    let msgs = tokio::time::timeout(Duration::from_secs(10), turn)
+        .await
+        .unwrap()
+        .unwrap();
+    let r = responses(&msgs)[0];
+    let result: TurnSubmitResult = serde_json::from_value(r.result.clone().unwrap()).unwrap();
+    assert_eq!(result.output, "after the wait");
+    let trace = serde_json::to_string(&result.trace).unwrap();
+    assert!(trace.contains("secrets.wait"), "{trace}");
+    let phases = core.startup_log.snapshot();
+    let waited = phases
+        .iter()
+        .find(|p| p.name == format!("provider.{}", core.cfg.model.provider))
+        .unwrap();
+    // The wait began before the vault answered and ended after it did.
+    assert!(
+        waited.start_us < opened && waited.end_us.unwrap() >= opened,
+        "{waited:?}, vault opened at {opened} µs"
+    );
+    assert_eq!(waited.detail["outcome"], "ready");
+}
+
+/// A key the vault does not have: health names it with the reason, the
+/// ledger says so, and a turn is refused with a clear class. Nothing ran
+/// without the key.
+#[tokio::test]
+async fn a_failed_secret_is_named_and_its_turn_refused_with_a_class() {
+    let vault =
+        crate::secrets::fake::FakeVault::new(&[("op://V/github/notesPlain", "github-test-000000")]);
+    let (core, board) = serving_core(vault, "never");
+    tokio::spawn(core.clone().watch_secrets());
+    board.wait_settled(Duration::from_secs(5)).await.unwrap();
+    let h = core.health();
+    assert_eq!(h.secrets.summary(), "failed anthropic_api_key");
+    assert!(h.secrets.failed[0].error.contains("no item at"), "{h:?}");
+    assert_eq!(h.secrets_resolved, ["github_token"]);
+    let msgs = roundtrip(core.clone(), vec![submit(4, "hi")]).await;
+    let err = responses(&msgs)[0].error.clone().unwrap();
+    assert_eq!(err.code, error_code::PROVIDER);
+    assert_eq!(err.data["class"], "secret_failed", "{err:?}");
+    assert!(err.message.contains("anthropic_api_key"), "{}", err.message);
+    let kinds: Vec<String> = core
+        .store
+        .ledger_tail::<LedgerRow>(50)
+        .unwrap()
+        .into_iter()
+        .map(|(_, r)| r.kind)
+        .collect();
+    assert!(kinds.iter().any(|k| k == "turn.refused"), "{kinds:?}");
+    for _ in 0..50 {
+        if core
+            .store
+            .ledger_tail::<LedgerRow>(50)
+            .unwrap()
+            .iter()
+            .any(|(_, r)| r.kind == "secrets.failed")
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("no secrets.failed row");
 }
 
 #[tokio::test]

@@ -871,13 +871,16 @@ async fn run(cli: Cli) -> Result<()> {
                     k.quarantined_completions
                 );
                 println!(
-                    "tokens total: in {} out {} cache-read {} cache-write {} · secrets [{}]",
+                    "tokens total: in {} out {} cache-read {} cache-write {}",
                     h.usage_total.input_tokens,
                     h.usage_total.output_tokens,
                     h.usage_total.cache_read_input_tokens,
                     h.usage_total.cache_creation_input_tokens,
-                    h.secrets_resolved.join(", ")
                 );
+                println!("{}", secrets_line(&h.secrets, &h.secrets_resolved));
+                if let Some(line) = startup_line(&h.startup) {
+                    println!("{line}");
+                }
                 for b in &h.bindings {
                     let places: Vec<String> = b
                         .places
@@ -1162,6 +1165,66 @@ fn fmt_us(us: u64) -> String {
     } else {
         format!("{us} µs")
     }
+}
+
+/// `secrets: resolving | ready | failed <names>`, with the names ready, how
+/// the vault was read and how long it took, and each failure's reason
+/// (theseus-qa0). A daemon older than that reports only the ready names.
+fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> String {
+    if s.state.is_empty() {
+        return format!("secrets [{}]", ready.join(", "));
+    }
+    let mut line = format!("secrets: {}", s.summary());
+    match s.state.as_str() {
+        "resolving" => line.push_str(&format!(
+            " · {} of {} ready so far",
+            s.ready.len(),
+            s.ready.len() + s.resolving.len() + s.failed.len()
+        )),
+        _ => {
+            if let Some(ms) = s.settled_ms {
+                line.push_str(&format!(" · {} ready {ms} ms after start", s.ready.len()));
+            }
+            if let Some(m) = &s.method {
+                line.push_str(&format!(" ({m})"));
+            }
+        }
+    }
+    if !s.ready.is_empty() {
+        line.push_str(&format!(" [{}]", s.ready.join(", ")));
+    }
+    for f in &s.failed {
+        line.push_str(&format!("\n  {} did not resolve: {}", f.name, f.error));
+    }
+    if let Some(ms) = s.retry_in_ms.filter(|_| !s.failed.is_empty()) {
+        line.push_str(&format!("\n  fetched again in {:.0} s", ms as f64 / 1000.0));
+    }
+    line
+}
+
+/// `startup: serving at 14.2 ms (config 1.0 ms · store 2.1 ms · …) · after:
+/// secrets 1.03 s · …`: the last start's phases (theseus-qa0).
+fn startup_line(phases: &[theseus_protocol::StartupPhase]) -> Option<String> {
+    let serving = phases
+        .iter()
+        .filter(|p| !p.background)
+        .filter_map(|p| p.end_us)
+        .max()?;
+    let span = |p: &theseus_protocol::StartupPhase| match p.end_us {
+        Some(end) => format!("{} {}", p.name, fmt_us(end.saturating_sub(p.start_us))),
+        None => format!("{} running", p.name),
+    };
+    let on: Vec<String> = phases.iter().filter(|p| !p.background).map(span).collect();
+    let after: Vec<String> = phases.iter().filter(|p| p.background).map(span).collect();
+    let mut line = format!(
+        "startup: serving at {} ({})",
+        fmt_us(serving),
+        on.join(" · ")
+    );
+    if !after.is_empty() {
+        line.push_str(&format!(" · after: {}", after.join(" · ")));
+    }
+    Some(line)
 }
 
 /// Indented tree with a 24-column bar: where in the turn each span sat.
@@ -1961,5 +2024,62 @@ mod tests {
         assert!(attachment_for(&dir.join("missing.txt")).is_err());
         assert!(attachment_for(&dir).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `theseus health` says where the secrets stand and names a failure
+    /// with its reason; the startup line splits the start path from what
+    /// follows it (theseus-qa0).
+    #[test]
+    fn health_says_resolving_ready_or_failed_and_times_the_start() {
+        use theseus_protocol::{SecretFailed, SecretsStatus, StartupPhase};
+        let resolving = SecretsStatus {
+            state: "resolving".into(),
+            resolving: vec!["a".into(), "b".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            secrets_line(&resolving, &[]),
+            "secrets: resolving · 0 of 2 ready so far"
+        );
+        let failed = SecretsStatus {
+            state: "failed".into(),
+            ready: vec!["a".into()],
+            failed: vec![SecretFailed {
+                name: "b".into(),
+                error: "could not find item".into(),
+            }],
+            method: Some("inject, then read".into()),
+            settled_ms: Some(1720),
+            retry_in_ms: Some(4000),
+            ..Default::default()
+        };
+        assert_eq!(
+            secrets_line(&failed, &[]),
+            "secrets: failed b · 1 ready 1720 ms after start (inject, then read) [a]\n  b did not \
+             resolve: could not find item\n  fetched again in 4 s"
+        );
+        assert_eq!(
+            secrets_line(&SecretsStatus::default(), &["a".into()]),
+            "secrets [a]",
+            "an older daemon"
+        );
+        let phase = |name: &str, bg: bool, start: u64, end: Option<u64>| StartupPhase {
+            name: name.into(),
+            background: bg,
+            start_us: start,
+            end_us: end,
+            detail: Value::Null,
+        };
+        let line = startup_line(&[
+            phase("config", false, 100, Some(900)),
+            phase("socket", false, 11_000, Some(11_400)),
+            phase("secrets", true, 1000, None),
+        ])
+        .unwrap();
+        assert_eq!(
+            line,
+            "startup: serving at 11.4 ms (config 800 µs · socket 400 µs) · after: secrets running"
+        );
+        assert!(startup_line(&[]).is_none());
     }
 }

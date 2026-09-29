@@ -27,6 +27,7 @@ pub mod rpc;
 pub mod scrub;
 pub mod secrets;
 pub mod session;
+pub mod startup;
 pub mod store;
 pub mod telemetry;
 pub mod tighten;

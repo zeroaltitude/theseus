@@ -36,8 +36,9 @@ use crate::ledger::LedgerRow;
 use crate::narrative::Narrator;
 use crate::provider::{Anthropic, Provider};
 use crate::scrub::Scrubber;
-use crate::secrets::Secrets;
+use crate::secrets::{SecretBoard, SecretState};
 use crate::session::SessionRecord;
+use crate::startup::StartupLog;
 use crate::store::Store;
 use crate::telemetry::Telemetry;
 use crate::toolrun::{JobLauncher, ToolRuntime, WrapperLauncher};
@@ -61,8 +62,15 @@ pub struct Core {
     pub bus: Arc<SessionBus>,
     pub tools: Arc<ToolRuntime>,
     pub runner: TurnRunner,
-    pub secret_names: Vec<String>,
-    pub telemetry: Arc<Telemetry>,
+    /// Each secret's state. The daemon serves before they resolve, and each
+    /// consumer waits for its own (theseus-qa0).
+    pub secrets: Arc<SecretBoard>,
+    /// The last start's phases, for health and the Observatory.
+    pub startup_log: Arc<StartupLog>,
+    /// The export pipeline, once built: at once, or when its headers secret
+    /// resolves (`install_telemetry`). Until then nothing is exported.
+    telemetry: std::sync::OnceLock<Telemetry>,
+    telemetry_off: Telemetry,
     /// The narrative (`narrative = true`): live lines and a bounded tail.
     pub narrator: Arc<Narrator>,
     started: Instant,
@@ -77,15 +85,18 @@ pub struct Core {
     pub approval: crate::approval::Approval,
 }
 
-/// What a `Core` is built from. `Core::new` resolves these from the config and
-/// the vault's secrets; tests start from `Parts::for_tests`.
+/// What a `Core` is built from. `Core::new` builds these from the config and
+/// the secret board; tests start from `Parts::for_tests`.
 pub struct Parts {
     pub cfg: Config,
     pub providers: BTreeMap<String, Arc<dyn Provider>>,
     pub store: Store,
-    /// The resolved secrets' names, for health; never their values.
-    pub secret_names: Vec<String>,
-    pub telemetry: Telemetry,
+    /// Each secret's state; values stay in it, and the providers, the
+    /// scrubber, and the bindings read their own there.
+    pub secrets: Arc<SecretBoard>,
+    pub startup_log: Arc<StartupLog>,
+    /// `None`: built by `install_telemetry` once its headers secret resolves.
+    pub telemetry: Option<Telemetry>,
     pub scrubber: Arc<Scrubber>,
     pub launcher: Arc<dyn JobLauncher>,
 }
@@ -93,38 +104,37 @@ pub struct Parts {
 const META_LIVE_PROFILE: &str = "live_profile";
 
 impl Core {
-    /// The daemon's core, from its config and the resolved secrets. It takes
-    /// the secrets by value and they go when it returns: the providers, the
-    /// telemetry headers, and the scrubber keep what each needs, and the daemon
-    /// keeps no other copy.
-    pub fn new(cfg: Config, secrets: Secrets, store: Store) -> Result<Arc<Self>> {
+    /// The daemon's core, from its config and the secret board, which may
+    /// still be resolving: nothing here waits for a secret (theseus-qa0).
+    /// Each provider and the scrubber read their values from the board, and
+    /// the telemetry pipeline that needs a headers secret is built later.
+    pub fn new(
+        cfg: Config,
+        secrets: Arc<SecretBoard>,
+        store: Store,
+        startup_log: Arc<StartupLog>,
+    ) -> Result<Arc<Self>> {
         let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
         for (name, pc) in cfg.all_providers() {
-            let key = secrets
-                .get(&pc.api_key_secret)
-                .with_context(|| {
-                    format!(
-                        "secret {} for provider {name} missing after resolution",
-                        pc.api_key_secret
-                    )
-                })?
-                .clone();
             let timeouts = pc
                 .timeouts
                 .clone()
                 .unwrap_or_else(|| cfg.model.timeouts.clone());
             providers.insert(
                 name.clone(),
-                Arc::new(Anthropic::new(&pc.api_base, key, timeouts)?),
+                Arc::new(Anthropic::new(
+                    &pc.api_base,
+                    secrets.clone(),
+                    &pc.api_key_secret,
+                    timeouts,
+                )?),
             );
         }
-        let headers = cfg
-            .telemetry
-            .headers_secret
-            .as_deref()
-            .and_then(|n| secrets.get(n));
-        let telemetry = crate::telemetry::Telemetry::from_config(&cfg.telemetry, headers)?;
-        let scrubber = Arc::new(Scrubber::from_secrets(&secrets));
+        let telemetry = match Self::telemetry_headers(&cfg) {
+            None => Some(Telemetry::from_config(&cfg.telemetry, None)?),
+            Some(_) => None,
+        };
+        let scrubber = Arc::new(Scrubber::from_board(secrets.clone()));
         // Wrappers run this very image: after an in-place upgrade (copy, then
         // rename over the old file) the path on disk is a newer binary, or
         // `current_exe()` names a deleted file; `/proc/self/exe` is still us.
@@ -138,11 +148,133 @@ impl Core {
             cfg,
             providers,
             store,
-            secret_names: secrets.names(),
+            secrets,
+            startup_log,
             telemetry,
             scrubber,
             launcher,
         })
+    }
+
+    /// The telemetry headers secret, when an export would carry it.
+    fn telemetry_headers(cfg: &Config) -> Option<String> {
+        cfg.telemetry
+            .headers_secret
+            .clone()
+            .filter(|_| cfg.telemetry.endpoint().is_some())
+    }
+
+    /// The export pipeline, or a disabled one until it is built.
+    pub fn telemetry(&self) -> &Telemetry {
+        self.telemetry.get().unwrap_or(&self.telemetry_off)
+    }
+
+    /// Build the telemetry pipeline once its headers secret resolves. Fail
+    /// closed: nothing is exported without its headers, and a failure waits
+    /// for the secret's retry.
+    pub async fn install_telemetry(self: Arc<Self>) {
+        let Some(name) = Self::telemetry_headers(&self.cfg) else {
+            return;
+        };
+        let t0 = std::time::Instant::now();
+        let phase = self.startup_log.begin("telemetry.headers", true, t0);
+        let mut rx = self.secrets.subscribe();
+        // A failure is said once per reason, not on every change to the board.
+        let mut said: Option<String> = None;
+        loop {
+            let state = rx.borrow_and_update().get(&name).cloned();
+            match state {
+                Some(SecretState::Ready(headers)) => {
+                    let detail = match Telemetry::from_config(&self.cfg.telemetry, Some(&headers)) {
+                        Ok(t) => {
+                            let _ = self.telemetry.set(t);
+                            json!({"secret": name, "waited_ms": t0.elapsed().as_millis() as u64, "outcome": "ready", "enabled": self.telemetry().enabled()})
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %format!("{e:#}"), "telemetry: building the exporter failed; nothing is exported");
+                            json!({"secret": name, "outcome": "error", "error": format!("{e:#}")})
+                        }
+                    };
+                    self.startup_log.end(phase, detail);
+                    return;
+                }
+                Some(SecretState::Failed(why)) if said.as_deref() != Some(why.as_str()) => {
+                    tracing::error!(secret = %name, error = %why, "telemetry: its headers secret did not resolve; nothing is exported until it does");
+                    self.startup_log.end(
+                        phase,
+                        json!({"secret": name, "waited_ms": t0.elapsed().as_millis() as u64, "outcome": "failed", "error": why}),
+                    );
+                    said = Some(why);
+                }
+                // Config validation keeps an unknown name out of a daemon.
+                None => return,
+                _ => {}
+            }
+            if rx.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Ledger the secrets as they settle (theseus-qa0): the first round's
+    /// outcome, then each retry that makes one ready. Closes the `secrets`
+    /// startup phase.
+    pub async fn watch_secrets(self: Arc<Self>) {
+        let start = self
+            .secrets
+            .started_at()
+            .unwrap_or_else(std::time::Instant::now);
+        let phase = self.startup_log.begin("secrets", true, start);
+        let mut rx = self.secrets.subscribe();
+        self.secrets.settle_all().await;
+        let st = self.secrets.status();
+        let failed: Vec<&str> = st.failed.iter().map(|f| f.name.as_str()).collect();
+        self.startup_log.end(
+            phase,
+            json!({"state": st.state, "method": st.method, "ready": st.ready.len(), "failed": failed}),
+        );
+        let row = if st.failed.is_empty() {
+            LedgerRow::new(
+                "secrets.resolved",
+                None,
+                None,
+                json!({"names": st.ready, "ms": st.settled_ms, "method": st.method, "rounds": st.rounds}),
+            )
+        } else {
+            LedgerRow::new(
+                "secrets.failed",
+                None,
+                None,
+                json!({"failed": st.failed, "ready": st.ready, "ms": st.settled_ms, "method": st.method, "rounds": st.rounds, "retry_in_ms": st.retry_in_ms}),
+            )
+        };
+        if let Err(e) = self.store.append_ledger(&row) {
+            tracing::warn!(error = %e, "ledger append failed");
+        }
+        let mut ready: std::collections::BTreeSet<String> = st.ready.into_iter().collect();
+        while self.secrets.status().state == "failed" && rx.changed().await.is_ok() {
+            let newly: Vec<String> = self
+                .secrets
+                .ready_names()
+                .into_iter()
+                .filter(|n| !ready.contains(n))
+                .collect();
+            if newly.is_empty() {
+                continue;
+            }
+            let st = self.secrets.status();
+            tracing::info!(secrets = ?newly, rounds = st.rounds, "secrets resolved on a retry");
+            let row = LedgerRow::new(
+                "secrets.resolved",
+                None,
+                None,
+                json!({"names": newly, "ms": self.startup_log.us(std::time::Instant::now()) / 1000, "method": st.method, "rounds": st.rounds, "still_failed": st.failed}),
+            );
+            if let Err(e) = self.store.append_ledger(&row) {
+                tracing::warn!(error = %e, "ledger append failed");
+            }
+            ready.extend(newly);
+        }
     }
 
     /// Build a core from its parts: the kernel opened on the store and started
@@ -153,7 +285,8 @@ impl Core {
             cfg,
             providers,
             store,
-            secret_names,
+            secrets,
+            startup_log,
             telemetry,
             scrubber,
             launcher,
@@ -190,6 +323,7 @@ impl Core {
             )
             .with_legacy_spend(legacy_spend),
         );
+        let k0 = std::time::Instant::now();
         let startup = kernel
             .startup(
                 Some(&spool),
@@ -198,6 +332,12 @@ impl Core {
                 },
             )
             .context("kernel startup")?;
+        startup_log.record(
+            "kernel",
+            false,
+            k0,
+            json!({"steps": startup.steps.iter().map(|s| json!({"name": s.name, "us": s.elapsed_us})).collect::<Vec<_>>()}),
+        );
         for st in &startup.steps {
             tracing::info!(step = st.step, name = %st.name, us = st.elapsed_us, "kernel startup step");
         }
@@ -263,7 +403,13 @@ impl Core {
             narrator: narrator.clone(),
             // Empty: nothing is read until a turn compiles (FAST).
             context_files: Default::default(),
+            secrets: secrets.clone(),
+            startup_log: startup_log.clone(),
         };
+        let telemetry_cell = std::sync::OnceLock::new();
+        if let Some(t) = telemetry {
+            let _ = telemetry_cell.set(t);
+        }
         // A persisted runtime switch wins over config, if it still names a profile.
         let profiles = cfg.all_profiles();
         let live = match store.get_meta::<String>(META_LIVE_PROFILE)? {
@@ -287,8 +433,10 @@ impl Core {
             bus,
             tools,
             runner,
-            secret_names,
-            telemetry: Arc::new(telemetry),
+            secrets,
+            startup_log,
+            telemetry: telemetry_cell,
+            telemetry_off: Telemetry::disabled(),
             narrator,
             started: Instant::now(),
             provider_errors: AtomicU64::new(0),
@@ -322,8 +470,9 @@ impl Parts {
             cfg,
             providers,
             store,
-            secret_names: vec![],
-            telemetry: Telemetry::disabled(),
+            secrets: SecretBoard::empty(),
+            startup_log: Arc::default(),
+            telemetry: Some(Telemetry::disabled()),
             scrubber: Arc::new(Scrubber::default()),
             launcher: Arc::new(crate::toolrun::InlineLauncher),
         }

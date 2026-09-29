@@ -8,6 +8,7 @@
 //! `streaming` modules and the Messages API reference; nothing is imported.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -16,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use theseus_protocol::Usage;
 
-use crate::secrets::Secret;
+use crate::secrets::{Secret, SecretBoard};
 
 pub const API_VERSION: &str = "2023-06-01";
 
@@ -507,12 +508,20 @@ pub trait Provider: Send + Sync {
 pub struct Anthropic {
     http: reqwest::Client,
     api_base: String,
-    key: Secret,
+    /// The key, read from the board at each call: the daemon serves before
+    /// it resolves (theseus-qa0), and a turn waits for it before calling.
+    secrets: Arc<SecretBoard>,
+    key_secret: String,
     timeouts: Timeouts,
 }
 
 impl Anthropic {
-    pub fn new(api_base: &str, key: Secret, timeouts: Timeouts) -> Result<Self> {
+    pub fn new(
+        api_base: &str,
+        secrets: Arc<SecretBoard>,
+        key_secret: &str,
+        timeouts: Timeouts,
+    ) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(format!("theseus/{}", crate::VERSION))
             .connect_timeout(Duration::from_secs(timeouts.connect_secs))
@@ -520,8 +529,19 @@ impl Anthropic {
         Ok(Self {
             http,
             api_base: api_base.trim_end_matches('/').to_string(),
-            key,
+            secrets,
+            key_secret: key_secret.to_string(),
             timeouts,
+        })
+    }
+
+    /// The key, or why there is none. Fail closed: no call goes out without it.
+    fn key(&self) -> Result<Secret> {
+        self.secrets.get(&self.key_secret).ok_or_else(|| {
+            anyhow::anyhow!(
+                "secret {} has not resolved; a turn waits for it before calling",
+                self.key_secret
+            )
         })
     }
 
@@ -530,6 +550,7 @@ impl Anthropic {
         req: &ProviderRequest,
         on_delta: DeltaSink<'_>,
     ) -> Result<ModelResponse> {
+        let key = self.key()?;
         let started = Instant::now();
         let deadline = started + Duration::from_secs(self.timeouts.total_secs);
         let elapsed = |s: Instant| s.elapsed().as_millis() as u64;
@@ -541,7 +562,7 @@ impl Anthropic {
         let mut post = self
             .http
             .post(format!("{}/v1/messages", self.api_base))
-            .header("x-api-key", self.key.expose())
+            .header("x-api-key", key.expose())
             .header("anthropic-version", API_VERSION)
             .header("content-type", "application/json");
         if !req.betas.is_empty() {

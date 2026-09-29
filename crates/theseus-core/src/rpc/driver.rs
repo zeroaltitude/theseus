@@ -222,7 +222,7 @@ impl Core {
                 attachments: vec![],
             })
             .await?;
-        self.telemetry.record_turn(&res);
+        self.telemetry().record_turn(&res);
         Ok(Some(res))
     }
 }

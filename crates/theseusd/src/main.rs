@@ -1,17 +1,23 @@
 //! `theseusd`: the Theseus server.
 //!
-//! Startup order: read the service-account token, load config (from 1Password
-//! or a file), resolve every secret or refuse to start, open the store, then
-//! serve the protocol on stdio (`--stdio`) or a Unix socket (default).
+//! Startup order (serve first, theseus-qa0): read the service-account token,
+//! load config (from 1Password or a file), start resolving the secrets in the
+//! background, open the store, run the kernel's startup, then serve the
+//! protocol on stdio (`--stdio`) or a Unix socket (default). Nothing on that
+//! path waits for a secret: each consumer waits for its own, and one that
+//! fails to resolve never runs without it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use serde_json::json;
 use theseus_core::approval::{Client, Surface};
 use theseus_core::config::DEFAULT_CONFIG_REF;
-use theseus_core::secrets::{OpReader, Secret, Secrets};
+use theseus_core::secrets::{OpReader, Secret, SecretBoard, Waited};
+use theseus_core::startup::StartupLog;
 use theseus_core::store::Store;
 use theseus_core::{Config, Core};
 use tokio::net::UnixListener;
@@ -20,9 +26,11 @@ mod web;
 
 const AFTER_HELP: &str = "\
 Running it:
-  With no COMMAND, theseusd serves: it loads config, resolves every secret from 1Password
-  (refusing to start if any is missing), opens the store, then listens on the Unix socket
-  and the web UI (http://127.0.0.1:7433/). It stays in the foreground; Ctrl-C stops it.
+  With no COMMAND, theseusd serves: it loads config, opens the store, and listens on the Unix
+  socket and the web UI (http://127.0.0.1:7433/) while the secrets resolve from 1Password in
+  the background. `theseus health` says whether they are resolving, ready, or failed; a turn,
+  the Discord binding, and the GitHub check each wait for their own, and never run without it.
+  It stays in the foreground; Ctrl-C stops it.
 
   export OP_SERVICE_ACCOUNT_TOKEN=...   the only secret allowed outside 1Password
   theseusd check                        prove the vault wiring, then exit
@@ -100,6 +108,8 @@ enum Cmd {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // The start of every startup phase's clock (theseus-qa0).
+    let origin = Instant::now();
     let cli = Cli::parse();
     // Logs go to stderr always; stdout may be the protocol stream.
     tracing_subscriber::fmt()
@@ -126,7 +136,17 @@ async fn main() -> Result<()> {
     }
 
     let op = OpReader::from_env(cli.op_token_file.as_deref())?;
+    let startup = Arc::new(StartupLog::new(origin));
+    let t = Instant::now();
     let mut cfg = Config::load(&cli.config, &op).await?;
+    // The config note is read through `op` too: on the start path, because
+    // everything after it needs it (the report's open question).
+    let source = if cli.config.starts_with("op://") {
+        "vault"
+    } else {
+        "file"
+    };
+    startup.record("config", false, t, json!({"source": source}));
     // The floor keeps the token file, whether the flag or the environment named it.
     cfg.op_token_file = op.token_file().map(std::path::Path::to_path_buf);
     if let Some(Cmd::Config) = cli.cmd {
@@ -138,25 +158,18 @@ async fn main() -> Result<()> {
         return restore(&cli, &cfg, from, *force).await;
     }
     tracing::info!(source = %cli.config, model = %cfg.model.model, "config loaded");
-    let secrets = Secrets::resolve_all(&cfg.secrets, &op).await?;
-    tracing::info!(count = secrets.names().len(), names = ?secrets.names(), "all secrets resolved");
 
-    // Only a warning, so a daemon runs it once the socket answers: the network
-    // stays off the start path (§9).
-    let github_check = github_token_report(
-        secrets.get(&cfg.github.token_secret).cloned(),
-        cfg.github.warn_days,
-    );
+    // Serve first (FAST, §2): the secrets resolve in the background while
+    // the store opens and the socket binds.
+    let secrets = SecretBoard::new(cfg.secrets.keys().cloned(), origin);
+    tokio::spawn(theseus_core::secrets::resolve_into(
+        secrets.clone(),
+        cfg.secrets.clone(),
+        Arc::new(op),
+    ));
 
     if let Some(Cmd::Check) = cli.cmd {
-        github_check.await;
-        println!(
-            "ok: config loaded from {}; {} secret(s) resolved: {}",
-            cli.config,
-            secrets.names().len(),
-            secrets.names().join(", ")
-        );
-        return Ok(());
+        return check(&cli.config, &cfg, &secrets).await;
     }
 
     let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
@@ -165,34 +178,28 @@ async fn main() -> Result<()> {
     // The store is single-process. A spawned stdio server must not fight a
     // running daemon for the same directory, so stdio mode uses its own.
     let store_name = if cli.stdio { "store-stdio" } else { "store" };
+    let t = Instant::now();
     let store = Store::open(&state_dir.join(store_name))?;
+    let st = store.stats()?;
+    startup.record(
+        "store",
+        false,
+        t,
+        json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index}),
+    );
+    tracing::info!(
+        last_position = st.last_position,
+        wal_bytes = st.wal_bytes,
+        segments = st.wal_segments,
+        frames = st.frames_appended,
+        syncs = st.syncs,
+        "store open"
+    );
     let socket_path = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
-    let discord_token = secrets
-        .get(&cfg.discord.token_secret)
-        .map(|s| s.expose().to_string());
     let bindings_path = cfg.discord.bindings_path(&state_dir);
-    let core = Core::new(cfg, secrets, store)?;
-    if let Ok(st) = core.store.stats() {
-        tracing::info!(
-            last_position = st.last_position,
-            wal_bytes = st.wal_bytes,
-            segments = st.wal_segments,
-            ledger_rows = core.store.ledger_len().unwrap_or(0),
-            frames = st.frames_appended,
-            syncs = st.syncs,
-            "store open"
-        );
-    }
-    {
-        let k = core.kernel_status();
-        tracing::info!(
-            admission_ceiling = k.admission_ceiling,
-            executions = ?k.executions_by_state,
-            actions = ?k.actions_by_state,
-            quarantined = k.quarantined_completions,
-            "kernel"
-        );
-    }
+    let t = Instant::now();
+    let core = Core::new(cfg, secrets, store, startup.clone())?;
+    startup.record("core", false, t, serde_json::Value::Null);
 
     // The harness loop: heartbeat reconciler and the wrapper notify socket;
     // the driver takes continuation turns (job results, confirms, restarts).
@@ -202,10 +209,12 @@ async fn main() -> Result<()> {
         core.bindings.expect();
     }
     tokio::spawn(theseus_core::harness::drive(core.clone()));
+    tokio::spawn(core.clone().watch_secrets());
+    tokio::spawn(core.clone().install_telemetry());
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");
-        tokio::spawn(github_check);
+        tokio::spawn(after_serving(core.clone()));
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
         core.clone()
@@ -229,10 +238,82 @@ async fn main() -> Result<()> {
         core.clone(),
         core.cfg.discord.clone(),
         bindings_path,
-        discord_token,
     ));
 
-    serve_socket(core, socket_path, github_check).await
+    let after_bind = after_serving(core.clone());
+    serve_socket(core, socket_path, after_bind).await
+}
+
+/// `theseusd check`: every secret resolves, or the check fails naming each
+/// one that did not and why. It waits for the first round, as serving does not.
+async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result<()> {
+    secrets.settle_all().await;
+    let st = secrets.status();
+    if !st.failed.is_empty() {
+        anyhow::bail!(
+            "{} secret(s) failed to resolve:\n  {}",
+            st.failed.len(),
+            st.failed
+                .iter()
+                .map(|f| format!("{}: {}", f.name, f.error))
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+    }
+    github_token_report(secrets.get(&cfg.github.token_secret), cfg.github.warn_days).await;
+    println!(
+        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}",
+        st.ready.len(),
+        st.settled_ms.unwrap_or(0),
+        st.method.as_deref().unwrap_or("nothing to fetch"),
+        st.ready.join(", ")
+    );
+    Ok(())
+}
+
+/// What runs once the socket answers: the start path's phases in the
+/// ledger, the kernel's counts in the log, and the GitHub token check once
+/// its secret resolves. The network stays off the start path (§9).
+async fn after_serving(core: Arc<Core>) {
+    let serving = core.startup_log.us(Instant::now());
+    let phases: Vec<_> = core
+        .startup_log
+        .snapshot()
+        .into_iter()
+        .filter(|p| !p.background)
+        .collect();
+    tracing::info!(serving_ms = serving / 1000, "serving");
+    core.binding_ledger(
+        "server.serving",
+        None,
+        json!({"serving_us": serving, "phases": phases}),
+    );
+    let k = core.kernel_status();
+    tracing::info!(
+        admission_ceiling = k.admission_ceiling,
+        executions = ?k.executions_by_state,
+        actions = ?k.actions_by_state,
+        quarantined = k.quarantined_completions,
+        "kernel"
+    );
+    let name = core.cfg.github.token_secret.clone();
+    let t0 = Instant::now();
+    let phase = core.startup_log.begin("github.check", true, t0);
+    let detail = match core.secrets.settle(&name).await {
+        Waited::Ready(token) => {
+            let waited_ms = t0.elapsed().as_millis() as u64;
+            let mut d = github_token_report(Some(token), core.cfg.github.warn_days).await;
+            d["secret"] = json!(name);
+            d["waited_ms"] = json!(waited_ms);
+            d
+        }
+        Waited::Failed(why) => {
+            tracing::warn!(secret = %name, error = %why, "GitHub token check skipped: its secret did not resolve");
+            json!({"secret": name, "outcome": "failed", "error": why})
+        }
+        Waited::Absent | Waited::Resolving => json!({"secret": name, "outcome": "unconfigured"}),
+    };
+    core.startup_log.end(phase, detail);
 }
 
 /// Serve the protocol socket; `after_bind` starts once the socket answers.
@@ -241,6 +322,7 @@ async fn serve_socket(
     path: PathBuf,
     after_bind: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<()> {
+    let t = Instant::now();
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -261,7 +343,9 @@ async fn serve_socket(
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
-    tracing::info!(socket = %path.display(), "serving protocol; localhost only, file permissions are the auth");
+    core.startup_log
+        .record("socket", false, t, serde_json::Value::Null);
+    tracing::info!(socket = %path.display(), secrets = %core.secrets.status().summary(), "serving protocol; localhost only, file permissions are the auth");
     tokio::spawn(after_bind);
 
     let mut conn_id: u64 = 0;
@@ -337,13 +421,18 @@ into {}",
 }
 
 /// Log when the GitHub token expires; warn loudly when close. Never fatal.
-async fn github_token_report(token: Option<Secret>, warn_days: i64) {
+/// Returns what it found, for the startup phase.
+async fn github_token_report(token: Option<Secret>, warn_days: i64) -> serde_json::Value {
     let Some(tok) = token else {
-        return;
+        return json!({"outcome": "unconfigured"});
     };
-    match theseus_core::github::token_status(&tok).await {
+    let t0 = Instant::now();
+    let found = theseus_core::github::token_status(&tok).await;
+    let check_ms = t0.elapsed().as_millis() as u64;
+    match found {
         Ok(st) => {
             let login = st.login.clone().unwrap_or_else(|| "?".into());
+            let detail = json!({"outcome": "ok", "login": login, "days_left": st.days_left, "check_ms": check_ms});
             match st.days_left {
                 Some(d) if d <= warn_days => tracing::warn!(
                     login = %login,
@@ -360,8 +449,12 @@ async fn github_token_report(token: Option<Secret>, warn_days: i64) {
                 ),
                 None => tracing::info!(login = %login, "GitHub token ok (no expiry reported)"),
             }
+            detail
         }
-        Err(e) => tracing::warn!(error = %e, "could not check GitHub token; continuing"),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not check GitHub token; continuing");
+            json!({"outcome": "error", "error": format!("{e:#}"), "check_ms": check_ms})
+        }
     }
 }
 

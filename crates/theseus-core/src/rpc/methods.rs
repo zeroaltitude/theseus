@@ -48,13 +48,15 @@ impl Core {
             profile,
             provider: prof.map(|p| p.provider).unwrap_or_default(),
             providers: self.runner.providers.keys().cloned().collect(),
-            secrets_resolved: self.secret_names.clone(),
+            secrets_resolved: self.secrets.ready_names(),
+            secrets: self.secrets.status(),
+            startup: self.startup_log.snapshot(),
             usage_total,
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
             ledger_rows: self.store.ledger_len().unwrap_or(0),
             telemetry: theseus_protocol::TelemetryStatus {
-                enabled: self.telemetry.enabled(),
-                otlp_endpoint: self.telemetry.endpoint.clone(),
+                enabled: self.telemetry().enabled(),
+                otlp_endpoint: self.telemetry().endpoint.clone(),
             },
             kernel: self.kernel_status(),
             cost_usd_total: sessions.iter().map(|s| s.cost_usd).sum(),
@@ -215,13 +217,13 @@ impl Core {
             .await;
         match result {
             Ok(r) => {
-                self.telemetry.record_turn(&r);
+                self.telemetry().record_turn(&r);
                 Ok(r)
             }
             Err(e) => Err(match e.downcast::<TurnError>() {
                 Ok(te) => {
                     self.provider_errors.fetch_add(1, Ordering::Relaxed);
-                    self.telemetry
+                    self.telemetry()
                         .record_failure(&crate::telemetry::FailedTurn {
                             profile: &t_profile,
                             provider: &t_provider,
@@ -637,7 +639,7 @@ impl Core {
         let _ =
             self.store
                 .append_ledger(&LedgerRow::new("server.stopping", None, None, Value::Null));
-        self.telemetry.flush();
+        self.telemetry().flush();
         let _ = self.store.checkpoint();
         self.shutdown.notify_waiters();
         json!({"ok": true})

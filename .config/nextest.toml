@@ -1,0 +1,9 @@
+# nextest's settings for the gate (theseus-qa0). Serve-first tests run a
+# vault that never answers on purpose, so a test that hangs is killed at two
+# minutes and fails, instead of stalling the gate.
+[profile.default]
+# Half the cores, as cargo's own cap (~/.cargo/config.toml, 2026-09-28).
+test-threads = 8
+slow-timeout = { period = "60s", terminate-after = 2 }
+# A test's leftover child processes (a daemon, an `op`) get this long to exit.
+leak-timeout = "500ms"

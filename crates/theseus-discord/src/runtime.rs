@@ -134,8 +134,9 @@ impl Drop for Ready {
 }
 
 /// Run the binding until the process ends. Never fails the daemon: whatever
-/// goes wrong is a state in health and a `discord.error` ledger row.
-pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf, token: Option<String>) {
+/// goes wrong is a state in health and a `discord.error` ledger row. The bot
+/// token comes from the secret board once it resolves (theseus-qa0).
+pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
     let ready = Arc::new(Ready {
         core: core.clone(),
         fired: std::sync::atomic::AtomicBool::new(false),
@@ -146,16 +147,6 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf, token: Opti
         return;
     }
     board.update(|s| s.bindings_file = Some(path.display().to_string()));
-    let Some(token) = token else {
-        board.state(
-            "unconfigured",
-            Some(format!(
-                "no [secrets] entry named {:?} for the bot token",
-                cfg.token_secret
-            )),
-        );
-        return;
-    };
     if !path.exists() {
         board.state(
             "unconfigured",
@@ -177,8 +168,66 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf, token: Opti
         s.guild_id = Some(bindings.guild_id.clone());
         s.revision = Some(bindings.revision.clone());
     });
+    let Some(token) = bot_token(&core, &cfg.token_secret, &board, &ready).await else {
+        return;
+    };
     if let Err(e) = serve(core, cfg, token, bindings, board.clone(), ready.clone()).await {
         board.state("failed", Some(format!("{e:#}")));
+    }
+}
+
+/// The bot token, once the vault gives it. Fail closed: the binding never
+/// connects without it. While it resolves the binding is `waiting`; if it
+/// fails, the binding is `failed` with the reason, lets the continuation
+/// driver go on without it, and connects when a retry resolves the token.
+async fn bot_token(core: &Arc<Core>, name: &str, board: &Board, ready: &Ready) -> Option<String> {
+    use theseus_core::secrets::SecretState;
+    let t0 = std::time::Instant::now();
+    let phase = core.startup_log.begin("discord.token", true, t0);
+    let mut rx = core.secrets.subscribe();
+    loop {
+        let state = rx.borrow_and_update().get(name).cloned();
+        match state {
+            Some(SecretState::Ready(token)) => {
+                core.startup_log.end(
+                    phase,
+                    json!({"secret": name, "waited_ms": t0.elapsed().as_millis() as u64, "outcome": "ready"}),
+                );
+                return Some(token.expose().to_string());
+            }
+            None => {
+                board.state(
+                    "unconfigured",
+                    Some(format!(
+                        "no [secrets] entry named {name:?} for the bot token"
+                    )),
+                );
+                core.startup_log
+                    .end(phase, json!({"secret": name, "outcome": "unconfigured"}));
+                return None;
+            }
+            Some(SecretState::Resolving) => board.state(
+                "waiting",
+                Some(format!("waiting for the secret {name} to resolve")),
+            ),
+            Some(SecretState::Failed(why)) => {
+                board.state(
+                    "failed",
+                    Some(format!(
+                        "the secret {name} did not resolve ({why}); the binding connects when a \
+                         retry resolves it"
+                    )),
+                );
+                core.startup_log.end(
+                    phase,
+                    json!({"secret": name, "waited_ms": t0.elapsed().as_millis() as u64, "outcome": "failed", "error": why}),
+                );
+                ready.fire();
+            }
+        }
+        if rx.changed().await.is_err() {
+            return None;
+        }
     }
 }
 
@@ -2003,6 +2052,13 @@ mod tests {
     /// A core over a scratch store, with the template's tools and posture,
     /// and a provider that is never called.
     fn core_for_tests(dir: &std::path::Path) -> Arc<Core> {
+        core_with_secrets(dir, theseus_core::secrets::SecretBoard::empty())
+    }
+
+    fn core_with_secrets(
+        dir: &std::path::Path,
+        secrets: Arc<theseus_core::secrets::SecretBoard>,
+    ) -> Arc<Core> {
         let mut cfg = theseus_core::Config::example();
         cfg.server.state_dir = dir.to_string_lossy().into_owned();
         let work = dir.join("work");
@@ -2017,12 +2073,68 @@ mod tests {
             cfg,
             providers,
             store,
-            secret_names: vec![],
-            telemetry: theseus_core::telemetry::Telemetry::disabled(),
+            secrets,
+            startup_log: Arc::default(),
+            telemetry: Some(theseus_core::telemetry::Telemetry::disabled()),
             scrubber: Arc::new(theseus_core::scrub::Scrubber::default()),
             launcher: Arc::new(theseus_core::toolrun::InlineLauncher),
         })
         .unwrap()
+    }
+
+    /// Fail closed (theseus-qa0): with its token resolving the binding
+    /// waits, and with it failed the binding says why and lets the driver go
+    /// on. It never starts connecting either way.
+    #[tokio::test]
+    async fn the_binding_never_connects_without_its_token() {
+        use theseus_core::secrets::{Secret, SecretBoard};
+        let d = tempfile::tempdir().unwrap();
+        let name = "discord_bot_token".to_string();
+        let board = SecretBoard::new([name.clone()], std::time::Instant::now());
+        let core = core_with_secrets(d.path(), board.clone());
+        let path = d.path().join("bindings.toml");
+        std::fs::write(&path, crate::EXAMPLE_BINDINGS).unwrap();
+        let cfg = core.cfg.discord.clone();
+        assert!(cfg.enabled && cfg.token_secret == name);
+        core.bindings.expect();
+        let binding = tokio::spawn(run(core.clone(), cfg, path));
+        let state = |core: &Arc<Core>| {
+            let b = core.bindings.all().pop().unwrap();
+            (b.state, b.detail.unwrap_or_default())
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let (s, detail) = state(&core);
+        assert_eq!(s, "waiting", "{detail}");
+        assert!(detail.contains("discord_bot_token"), "{detail}");
+        assert!(
+            !core
+                .bindings
+                .wait(std::time::Duration::from_millis(10))
+                .await,
+            "the driver still waits for the binding"
+        );
+        board.publish(
+            [(name.clone(), Err::<Secret, _>("could not find item".into()))].into(),
+            "fake",
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let (s, detail) = state(&core);
+        assert_eq!(s, "failed");
+        assert!(
+            detail.contains("discord_bot_token") && detail.contains("could not find item"),
+            "{detail}"
+        );
+        assert!(
+            core.bindings
+                .wait(std::time::Duration::from_millis(10))
+                .await,
+            "a failed token lets the driver go on"
+        );
+        assert!(!binding.is_finished(), "it waits for a retry");
+        binding.abort();
+        let phases = core.startup_log.snapshot();
+        let p = phases.iter().find(|p| p.name == "discord.token").unwrap();
+        assert_eq!(p.detail["outcome"], "failed");
     }
 
     /// A pick sends `policy.tighten` for its tool and call, as the presser

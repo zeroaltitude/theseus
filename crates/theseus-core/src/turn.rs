@@ -40,7 +40,9 @@ use crate::ledger::LedgerRow;
 use crate::narrative::{self, narrate, narrate_turn, Narrator};
 use crate::node::{Body, Node};
 use crate::provider::{Delta, ModelResponse, Provider, ProviderError, ToolUse};
+use crate::secrets::{SecretBoard, Waited};
 use crate::session::{title_from, SessionRecord, TargetRef};
+use crate::startup::StartupLog;
 use crate::store::Store;
 use crate::toolrun::{CallOutcome, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
@@ -82,6 +84,33 @@ pub struct TurnRunner {
     pub narrator: Arc<Narrator>,
     /// What each context file held when last read (theseus-58a).
     pub context_files: ContextFiles,
+    /// Each secret's state: a turn waits for its provider's key (theseus-qa0).
+    pub secrets: Arc<SecretBoard>,
+    /// Where a turn's first wait for a provider's key is recorded.
+    pub startup_log: Arc<StartupLog>,
+}
+
+/// The longest a turn waits for its secrets (theseus-qa0). A round takes
+/// about a second, and each `op` gives up after 10 s, so the bound is
+/// reached only when the vault hangs past its own timeouts.
+pub const SECRET_WAIT: Duration = Duration::from_secs(30);
+
+/// What a turn waited for before it ran, in microseconds from its arrival.
+struct Waits {
+    /// Its secrets (theseus-qa0), before admission.
+    secrets_us: u64,
+    /// Arrival to admission, the secrets included.
+    lock_us: u64,
+    /// Admission and the turn lock alone.
+    admit_us: u64,
+}
+
+/// Why a turn did not run: a secret it needs is not there.
+struct SecretRefusal {
+    /// `secret_failed` or `secret_resolving`.
+    class: &'static str,
+    secret: String,
+    error: String,
 }
 
 /// One turn to run.
@@ -205,19 +234,30 @@ impl<'a> Turn<'a> {
     }
 
     /// Tell the trace, the session's clients, and the ledger that the turn began.
-    fn announce(
-        &mut self,
-        input: Option<&str>,
-        files: usize,
-        author: &str,
-        lock_wait_us: u64,
-        admit_us: u64,
-    ) {
+    fn announce(&mut self, input: Option<&str>, files: usize, author: &str, waits: &Waits) {
         let (guard, target) = (self.tc.guard, self.target);
+        let (lock_wait_us, admit_us) = (waits.lock_us, waits.admit_us);
+        if waits.secrets_us > 0 {
+            self.trace.record(
+                "secrets.wait",
+                "lock",
+                0,
+                waits.secrets_us,
+                json!({"provider": target.provider, "note": "the provider's key and the first round of secrets (theseus-qa0)"}),
+            );
+            narrate_turn!(
+                self.tc,
+                Turn,
+                "Waited {} for the vault: {} needs its key, and every secret must be known before \
+                 a tool result is scrubbed.",
+                narrative::duration(waits.secrets_us / 1000),
+                target.provider
+            );
+        }
         self.trace.record(
             "admission.wait",
             "lock",
-            0,
+            waits.secrets_us,
             lock_wait_us,
             json!({"execution_id": guard.execution_id, "turn": guard.turn, "note": "kernel admission + per-execution turn lock"}),
         );
@@ -522,9 +562,111 @@ impl TurnRunner {
         }
     }
 
+    /// Wait for the secrets a turn needs (theseus-qa0): its provider's key,
+    /// and the first round of every secret, since the scrubber must know
+    /// each value before any tool output passes through it. Both are
+    /// usually there already. Returns how long it waited, or why the turn
+    /// cannot run. Fail closed: no provider call goes out without its key.
+    async fn await_secrets(&self, target: &Target) -> Result<u64, SecretRefusal> {
+        let Some(name) = self
+            .cfg
+            .all_providers()
+            .get(&target.provider)
+            .map(|p| p.api_key_secret.clone())
+        else {
+            return Ok(0);
+        };
+        if self.secrets.get(&name).is_some() && self.secrets.is_settled() {
+            return Ok(0);
+        }
+        let t0 = Instant::now();
+        let outcome = match self.secrets.wait(&name, SECRET_WAIT).await {
+            Waited::Ready(_) | Waited::Absent => {
+                let left = SECRET_WAIT.saturating_sub(t0.elapsed());
+                self.secrets
+                    .wait_settled(left)
+                    .await
+                    .map_err(|still| SecretRefusal {
+                        class: "secret_resolving",
+                        error: format!(
+                            "{} still resolving after {} s; the scrubber needs every value \
+                             before a tool result passes through it",
+                            still.join(", "),
+                            SECRET_WAIT.as_secs()
+                        ),
+                        secret: still.join(", "),
+                    })
+            }
+            Waited::Failed(why) => Err(SecretRefusal {
+                class: "secret_failed",
+                secret: name.clone(),
+                error: why,
+            }),
+            Waited::Resolving => Err(SecretRefusal {
+                class: "secret_resolving",
+                secret: name.clone(),
+                error: format!("still resolving after {} s", SECRET_WAIT.as_secs()),
+            }),
+        };
+        let waited_us = t0.elapsed().as_micros() as u64;
+        // A provider's first wait is a startup phase: a slow start names it.
+        let phase = format!("provider.{}", target.provider);
+        if !self.startup_log.has(&phase) {
+            self.startup_log.record(
+                &phase,
+                true,
+                t0,
+                json!({"secret": name, "waited_ms": waited_us / 1000, "outcome": outcome.as_ref().err().map_or("ready", |r| r.class)}),
+            );
+        }
+        outcome.map(|()| waited_us)
+    }
+
+    /// A turn whose secret is not there: an input turn is refused with the
+    /// class, in the ledger and the narrative; a continuation fails as a
+    /// fault, so the driver keeps its execution queued and tries again.
+    fn refuse(&self, req: &TurnRequest, r: SecretRefusal) -> anyhow::Error {
+        let sid = &req.session.session_id;
+        let source = anyhow::anyhow!("secret {} did not resolve: {}", r.secret, r.error);
+        if req.input.is_none() {
+            return source.context(format!(
+                "a continuation of session {sid} waits for its secrets"
+            ));
+        }
+        if let Err(e) = self.store.append_ledger(&LedgerRow::new(
+            "turn.refused",
+            Some(sid),
+            None,
+            json!({"class": r.class, "secret": r.secret, "error": r.error, "author": req.author, "provider": req.target.provider}),
+        )) {
+            tracing::warn!(error = %e, "ledger append failed");
+        }
+        tracing::warn!(session_id = %sid, class = r.class, secret = %r.secret, error = %r.error, "turn refused: a secret it needs is not there");
+        narrate!(
+            self.narrator,
+            Turn,
+            Some(sid),
+            None,
+            "A turn from {} was refused: {} needs the secret {}, which {}.",
+            req.author,
+            req.target.provider,
+            r.secret,
+            if r.class == "secret_failed" {
+                "did not resolve"
+            } else {
+                "is still resolving"
+            }
+        );
+        turn_error(r.class, sid, "", 0, source)
+    }
+
     pub async fn run(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
         let arrived = Instant::now();
         let continuation = req.input.is_none();
+        let secret_wait_us = match self.await_secrets(&req.target).await {
+            Ok(us) => us,
+            Err(r) => return Err(self.refuse(&req, r)),
+        };
         let exec = self.execution_for(&mut req.session)?;
         // The narrative's session id and clock, taken only when it is on.
         let sid = self.narrator.on().then(|| req.session.session_id.clone());
@@ -570,9 +712,12 @@ impl TurnRunner {
         let admit_us = admitting.map_or(0, |t| t.elapsed().as_micros() as u64);
         let admission_wait_us = arrived.elapsed().as_micros() as u64;
         let failure_sink = req.sink.clone();
-        let r = self
-            .run_inner(&guard, req, arrived, admission_wait_us, admit_us)
-            .await;
+        let waits = Waits {
+            secrets_us: secret_wait_us,
+            lock_us: admission_wait_us,
+            admit_us,
+        };
+        let r = self.run_inner(&guard, req, arrived, waits).await;
         let (end, rewake) = match &r {
             Ok((_, end, rewake)) => (end.clone(), *rewake),
             Err(_) => (TurnEnd::Wait { wake: Wake::Input }, false),
@@ -648,8 +793,7 @@ impl TurnRunner {
         guard: &TurnGuard,
         req: TurnRequest,
         arrived: Instant,
-        lock_wait_us: u64,
-        admit_us: u64,
+        waits: Waits,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool)> {
         let TurnRequest {
             mut session,
@@ -700,13 +844,7 @@ impl TurnRunner {
             );
         }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
-        t.announce(
-            input.as_deref(),
-            attachments.len(),
-            &author,
-            lock_wait_us,
-            admit_us,
-        );
+        t.announce(input.as_deref(), attachments.len(), &author, &waits);
 
         // 1. What happened while no turn was running.
         let caught_up = self.catch_up(&mut t, input.is_some()).await?;
