@@ -948,13 +948,12 @@ impl Shared {
     /// Without the Server Members intent it cannot be verified. True when it
     /// is trusted.
     async fn check_channel(&self, channel: u64) -> bool {
-        let (trusted, detail) = if !self.members_intent {
-            (false, viewers::NO_INTENT.to_string())
-        } else {
-            match self.viewers(channel).await {
+        let (trusted, detail) = match viewers::unverifiable(self.members_intent) {
+            Some(v) => v,
+            None => match self.viewers(channel).await {
                 Ok(v) => v,
                 Err(e) => (false, format!("could not check who can view it: {e}")),
-            }
+            },
         };
         self.core.approval_checked(
             channel,

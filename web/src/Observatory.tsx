@@ -32,7 +32,7 @@ function State({ s }: { s: string }) {
   return <span className={`pill ${STATE_CLASS[s] ?? ''}`}>{s.replace('_', ' ')}</span>
 }
 
-const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.', 'discord.', 'store.'] as const
+const LEDGER_FAMILIES = ['all', 'tool.', 'context.', 'execution.', 'action.', 'approval.', 'completion.', 'budget.', 'turn.', 'loop.', 'provider.', 'hook.', 'startup.', 'reconcile', 'session.', 'discord.', 'store.'] as const
 const BINDING_CLASS: Record<string, string> = {
   ready: 'ok', connecting: 'accent', starting: 'accent', resuming: 'warn',
   unconfigured: 'muted', disabled: 'muted', disconnected: 'bad', failed: 'bad',
@@ -160,6 +160,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
 
   const k = health?.kernel
   const approval = health?.approval
+  const approvalRows = ledger.filter((r) => r.kind.startsWith('approval.')).slice(0, 8)
   const startup = (k?.startup ?? null) as null | {
     steps?: { step: number; name: string; elapsed_us: number }[]
     requeued_interrupted?: string[]; spool_drained?: number; spool_quarantined?: number; elapsed_us?: number
@@ -396,6 +397,20 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                 ))}
               </tbody>
             </table>
+            {approvalRows.length > 0 && (
+              <table className="obs-table">
+                <thead><tr><th>when</th><th>kind</th><th>what</th></tr></thead>
+                <tbody>
+                  {approvalRows.map((r) => (
+                    <tr key={r.position} title={JSON.stringify(r.data, null, 2)}>
+                      <td className="muted small">{clock(r.at_unix_ms)}</td>
+                      <td className={r.kind === 'approval.refused' ? 'warn' : ''}>{r.kind.replace('approval.', '')}</td>
+                      <td className="small">{summarize(r)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </>
         )}
       </ObsSection>
@@ -630,7 +645,9 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'tool.notified': return `notified · ${s('tool')} · ${s('summary')} · ${s('setting')}`
     case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`
     case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
-    case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('note') ? ` · ${s('note')}` : ''}`
+    case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('via') ? ` via ${s('via')}` : ''}${g('note') ? ` · ${s('note')}` : ''}`
+    case r.kind === 'approval.refused': return `${s('tool')} · ${s('who')} via ${s('via')} did not count: ${s('why')}`
+    case r.kind === 'approval.channel_checked': return `${s('channel')} · ${g('trusted') ? 'trusted' : 'not trusted'}: ${s('detail')}`
     case r.kind === 'turn.trace': return 'timing tree (open for spans)'
     case r.kind === 'discord.message.in': return `${s('place')} · from ${s('author')} · ${s('chars')} chars`
     case r.kind === 'discord.message.out': return `${s('place')} · ${s('chars')} chars${g('buttons') ? ' · with Approve/Decline' : ''} · ${s('part')}`

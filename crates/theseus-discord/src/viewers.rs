@@ -31,6 +31,12 @@ pub fn members_intent(flags: Option<ApplicationFlags>) -> bool {
     })
 }
 
+/// The verdict on a listed guild channel when its members cannot be read:
+/// without the intent, not trusted. None when the check can go ahead.
+pub fn unverifiable(members_intent: bool) -> Option<(bool, String)> {
+    (!members_intent).then(|| (false, NO_INTENT.to_string()))
+}
+
 /// A guild member, as the check needs one.
 #[derive(Debug, Clone)]
 pub struct Member {
@@ -236,6 +242,57 @@ mod tests {
                 true,
                 "only trusted users can view it (3 members checked)".into()
             )
+        );
+    }
+
+    /// A guild channel `[approval]` lists, checked by a bot without the
+    /// Server Members intent (the real bot's case, whose gateway intents
+    /// lack GUILD_MEMBERS and whose portal toggle is read from its flags):
+    /// not trusted, health says why, and an answer from there is refused.
+    #[test]
+    fn a_guild_channel_without_the_intent_is_not_trusted() {
+        use theseus_core::approval::{Answerer, Approval, Checked, Surface};
+        let channel = 333333333333333333u64;
+        let a = Approval::new(Some(&theseus_core::config::ApprovalConfig {
+            trusted_users: vec![format!("discord:{EDDIE}")],
+            channels: vec![format!("discord:{channel}")],
+        }));
+        let (trusted, detail) = unverifiable(members_intent(None)).expect("cannot check");
+        assert_eq!(
+            unverifiable(true),
+            None,
+            "with the intent the check goes ahead"
+        );
+        a.report(
+            channel,
+            Checked {
+                trusted,
+                detail,
+                at_ms: 1,
+            },
+        );
+        assert!(!a.trusts_guild_channel(channel));
+        let s = a.status(true, Some("ready"));
+        assert_eq!(s.channels[0].state, "not_trusted");
+        assert!(
+            s.channels[0]
+                .detail
+                .starts_with("cannot be verified without the Server Members intent"),
+            "{s:?}"
+        );
+        let from_there = Answerer {
+            label: "discord:eddie".into(),
+            surface: Surface::Discord,
+            discord: Some(theseus_protocol::DiscordOrigin {
+                user_id: EDDIE.to_string(),
+                channel_id: channel.to_string(),
+                guild_id: Some(GUILD.to_string()),
+            }),
+        };
+        let why = a.judge(&from_there).unwrap_err().why;
+        assert!(
+            why.contains("is not trusted: cannot be verified without the Server Members intent"),
+            "{why}"
         );
     }
 
