@@ -15,14 +15,20 @@
 //!   text. A session that reads a report from a task that holds it holds it
 //!   too, from the frame that writes the report.
 //! - **What waits.** Every call whose class is not `Read` (writes, edits,
-//!   patches, `proc.run`, `task.create`, `wake.at`), after the whole order of
-//!   §3.9, the allow list included: the stricter posture wins, as a granted
-//!   secret's does. `Read` calls keep their posture, so research goes on. A
+//!   patches, `proc.run`, `task.create`), after the whole order of §3.9, the
+//!   allow list included: the stricter posture wins, as a granted secret's
+//!   does. `Read` calls keep their posture, fetches included, so research
+//!   goes on, and each fetch's notice names its URL (Eddie, 2026-09-30). A
 //!   wake's turn and a turn that a task's report started are the session's
 //!   own turns, so the hold covers them.
+//! - **`wake.at` keeps its posture** (Eddie, 2026-09-30, T1b): the reminder's
+//!   turn runs in this same session, so any call it makes that acts still
+//!   waits. `task.create` still waits: a task spends its own budget and runs
+//!   turns of its own.
 //! - **Clearing.** Only the operator, with the trusted answer an approval
-//!   takes: `policy.trust`, or an approval with `trust`. Ledgered as
-//!   `session.trusted`. A later read holds the session again.
+//!   takes: `policy.trust` (the CLI, the Observatory, Discord's `/trust`),
+//!   or an approval with `trust`. Ledgered as `session.trusted`. A later read
+//!   holds the session again.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -141,9 +147,16 @@ pub fn held(store: &crate::store::Store, session_id: &str) -> Result<Option<Exte
         .map_err(|e| format!("{e:#}"))
 }
 
+/// A call the hold leaves at its own posture, whose gate reads no record: a
+/// `Read`, and `wake.at`, whose turn runs in this same session, where the
+/// hold still covers what it does.
+pub fn exempt(class: ToolClass, tool: &str) -> bool {
+    class == ToolClass::Read || tool == crate::wake::AT
+}
+
 /// The gate's decision for a call of `class` in a session whose hold is
 /// `held`, after the whole order of §3.9: a call that acts runs at no looser
-/// a posture than the mode's, and a `Read` call keeps its own. The decision
+/// a posture than the mode's, and an exempt call keeps its own. The decision
 /// names the hold only when the hold is what raised it.
 pub fn gate(
     d: Decision,
@@ -153,7 +166,7 @@ pub fn gate(
     tool: &str,
     summary: &str,
 ) -> Decision {
-    if class == ToolClass::Read {
+    if exempt(class, tool) {
         return d;
     }
     let setting = format!("[policy] external_text = {}", mode.as_str());
@@ -225,7 +238,8 @@ pub fn narrated(h: &ExternalText, mode: Mode) -> String {
     };
     format!(
         "This session read external text ({}): from now on {then}, until the operator trusts \
-         it again (`theseus policy trust`, or \"Approve + trust session\" on a card).",
+         it again (`theseus policy trust`, `/trust` on Discord, or \"Approve + trust session\" \
+         on a card).",
         source(h)
     )
 }
@@ -245,8 +259,8 @@ mod tests {
     }
 
     /// A call that acts after external text waits, with the reason the brief
-    /// gives; a read keeps its posture; a call that waits already keeps its
-    /// own reason; and `notify` notifies instead.
+    /// gives; a read and `wake.at` keep their postures; a call that waits
+    /// already keeps its own reason; and `notify` notifies instead.
     #[test]
     fn a_call_that_acts_waits_and_a_read_keeps_its_posture() {
         let h = Ok(Some(hold_of("http.fetch")));
@@ -296,6 +310,35 @@ mod tests {
         );
         assert_eq!(read.posture, Posture::Notify);
         assert!(read.external.is_none());
+        // `wake.at` keeps its posture and its own reason (T1b), even where
+        // the record cannot be read; `task.create` still waits.
+        for held in [&h, &Err("disk".into())] {
+            let wake = gate(
+                notify.clone(),
+                ToolClass::Write,
+                held,
+                Mode::Ask,
+                "wake.at",
+                "wake in 2m",
+            );
+            assert_eq!(
+                (wake.posture, &wake.reason, wake.external.is_none()),
+                (Posture::Notify, &notify.reason, true),
+                "wake.at is exempt"
+            );
+        }
+        let task = gate(
+            notify.clone(),
+            ToolClass::Run,
+            &h,
+            Mode::Ask,
+            "task.create",
+            "start a task",
+        );
+        assert_eq!(task.posture, Posture::Approve);
+        assert!(task.external.is_some());
+        assert!(exempt(ToolClass::Write, "wake.at") && exempt(ToolClass::Read, "fs.read"));
+        assert!(!exempt(ToolClass::Run, "task.create") && !exempt(ToolClass::Write, "fs.write"));
         let clean = gate(
             notify.clone(),
             ToolClass::Write,

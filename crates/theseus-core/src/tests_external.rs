@@ -3,8 +3,9 @@
 //! same turn and the next, until the operator trusts the session again; a
 //! read keeps its posture; a job's process cannot trust it; the hold survives
 //! a restart; a task that a holding session starts holds it, a report from a
-//! holding task gives it to its parent, and a wake's turn keeps it; and a
-//! session that read nothing is unchanged.
+//! holding task gives it to its parent, and a wake's turn keeps it, while
+//! setting the wake keeps its posture (T1b); and a session that read nothing
+//! is unchanged.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -754,9 +755,10 @@ async fn a_report_from_a_task_that_read_external_text_makes_its_parent_hold_it()
     assert!(hold(core, &task).is_some(), "the task keeps its own");
 }
 
-/// A wake's turn is the session's own turn, so the hold covers it: a turn
-/// sets a wake (at notify, before any page), then fetches one; the wake's
-/// turn proposes `proc.run`, and it waits with the reason.
+/// `wake.at` keeps its posture in a holding session (T1b), and a wake's turn
+/// is the session's own turn, so the hold covers it: a turn reads a page,
+/// then sets a wake, which runs at notify with no wait; the wake's turn
+/// proposes `proc.run`, and it waits with the reason.
 #[tokio::test]
 async fn a_wakes_turn_follows_the_rule() {
     let r = rig(
@@ -770,7 +772,8 @@ async fn a_wakes_turn_follows_the_rule() {
             }
             let url = said.split_whitespace().last().unwrap_or("").to_string();
             match results {
-                0 => Scripted::tools(
+                0 => fetch("f1", &url),
+                1 => Scripted::tools(
                     "",
                     &[(
                         "k1",
@@ -778,8 +781,7 @@ async fn a_wakes_turn_follows_the_rule() {
                         json!({"after": "1s", "note": "WAKE-NOTE run it"}),
                     )],
                 ),
-                1 => fetch("f1", &url),
-                _ => Scripted::text("Set, and read."),
+                _ => Scripted::text("Read, and set."),
             }
         },
         true,
@@ -787,12 +789,18 @@ async fn a_wakes_turn_follows_the_rule() {
     .await;
     let (core, url) = (&r.core, page(r.port));
     let sid = session(core);
-    let res = turn(core, &sid, &format!("remind me, then read {url}")).await;
+    let res = turn(core, &sid, &format!("read, then remind me {url}")).await;
     assert!(
         res.awaiting_confirm.is_none(),
-        "the wake was set before the page"
+        "the wake is set with no wait, after the page: {res:?}"
     );
     assert!(hold(core, &sid).is_some());
+    let set: Vec<Value> = ledgered(core, "tool.notified")
+        .into_iter()
+        .filter(|n| n["tool"] == "wake.at")
+        .collect();
+    assert_eq!(set.len(), 1, "{set:?}");
+    assert_eq!(set[0]["setting"], "enforcement = notify", "its own posture");
     until("the wake's turn to wait", || {
         core.confirm_list()
             .unwrap()
@@ -809,6 +817,9 @@ async fn a_wakes_turn_follows_the_rule() {
         .unwrap();
     assert_eq!(c.tool, "proc.run");
     assert_waits_for(&c.reason, &url);
+    let asked: Vec<Value> = ledgered(core, "tool.confirm_requested");
+    assert_eq!(asked.len(), 1, "only the wake's run waited: {asked:?}");
+    assert_eq!(asked[0]["tool"], "proc.run");
 }
 
 /// A request over a real protocol connection accepted as `client`.

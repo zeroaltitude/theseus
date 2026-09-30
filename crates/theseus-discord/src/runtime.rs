@@ -23,7 +23,7 @@ use theseus_core::Core;
 use theseus_protocol::{
     Attachment, BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams,
     SessionInfo, SessionKind, SessionListResult, SessionOpenParams, SessionRef, TightenResult,
-    TurnSubmitParams, TurnSubmitResult,
+    TrustResult, TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::sync::{mpsc, oneshot};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
@@ -412,8 +412,9 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
 
 /// The slash commands every place answers, one effect each (Eddie's rule):
 /// `/stop` halts this session's own work and keeps the conversation (W1),
-/// `/new` alone starts a fresh session, and `/cancel` names a task (DD7) or a
-/// pending wake (DD8), by one option, `id`.
+/// `/new` alone starts a fresh session, `/trust` clears its hold on web text
+/// (T1b), and `/cancel` names a task (DD7) or a pending wake (DD8), by one
+/// option, `id`.
 fn commands() -> Vec<twilight_model::application::command::Command> {
     let mut cmds: Vec<_> = [
         (
@@ -435,6 +436,10 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
         (
             "wakes",
             "This place's pending wakes: when each is due, and its note",
+        ),
+        (
+            "trust",
+            "Trust this conversation again after it read web text: its calls that change things stop waiting",
         ),
     ]
     .into_iter()
@@ -481,13 +486,28 @@ pub(crate) struct Shared {
 }
 
 /// One message for a turn: who wrote it, what it says, its files (still
-/// downloading, theseus-9g2), and its Discord id.
+/// downloading, theseus-9g2), its Discord id, and where it was written.
 struct Inbound {
     author: String,
     author_id: u64,
     text: String,
     files: Option<Pending>,
     message: Id<MessageMarker>,
+    channel: Id<ChannelMarker>,
+    /// None in a DM.
+    guild: Option<Id<GuildMarker>>,
+}
+
+impl Inbound {
+    /// Who wrote it and where, as the core judges an answer (a typed
+    /// `/trust`, T1b).
+    fn origin(&self) -> DiscordOrigin {
+        DiscordOrigin {
+            user_id: self.author_id.to_string(),
+            channel_id: self.channel.to_string(),
+            guild_id: self.guild.map(|g| g.to_string()),
+        }
+    }
 }
 
 /// A message's attachments, downloading in their own task: the gateway loop
@@ -553,6 +573,10 @@ enum Control {
     Wakes,
     /// Cancel the wake or stop the task named; None asks which.
     Cancel(Option<String>),
+    /// Trust this place's session again after it read web text (T1b), as
+    /// the presser, whose ids the handler fills in: None names no one, and
+    /// counts only without an `[approval]` section.
+    Trust(Option<DiscordOrigin>),
 }
 
 /// What a place says when it is bound to a fresh session: how to talk, and
@@ -565,8 +589,9 @@ fn bind_notice(session_id: &str, mention_only: bool) -> String {
     };
     format!(
         "🔗 Theseus is bound here (session `{session_id}`). {how}. `/stop` halts what I am doing \
-         and keeps the conversation, `/new` starts a fresh one, and `/status`, `/tasks` and \
-         `/wakes` show this place's; everything shows in the web UI."
+         and keeps the conversation, `/new` starts a fresh one, `/trust` trusts the conversation \
+         again after it reads web text, and `/status`, `/tasks` and `/wakes` show this place's; \
+         everything shows in the web UI."
     )
 }
 
@@ -601,6 +626,27 @@ fn stop_answer(r: &theseus_protocol::ExecutionStopResult) -> String {
     out
 }
 
+/// What `/trust` answers (T1b): who trusted the conversation again, and what
+/// it had read; or, when the core refused the presser, why.
+fn trust_answer(r: &Result<TrustResult, CallError>) -> String {
+    match r {
+        Ok(t) => format!(
+            "Trusted again by {}: this conversation no longer holds web text (it had read {}). \
+             Calls that change things run at their postures again.",
+            t.by,
+            theseus_core::external::source(&t.held)
+        ),
+        Err(e) if e.code == theseus_protocol::error_code::REFUSED => format!(
+            "🔐 Your /trust did not count: {}. This conversation still holds web text.",
+            e.data
+                .get("why")
+                .and_then(Value::as_str)
+                .unwrap_or(&e.message)
+        ),
+        Err(e) => format!("⚠️ Could not trust the conversation again: {e}."),
+    }
+}
+
 fn parse_control(text: &str) -> Option<Control> {
     let mut words = text.split_whitespace();
     match words.next()? {
@@ -610,6 +656,7 @@ fn parse_control(text: &str) -> Option<Control> {
         "/status" => Some(Control::Status),
         "/tasks" => Some(Control::Tasks),
         "/wakes" => Some(Control::Wakes),
+        "/trust" => Some(Control::Trust(None)),
         _ => None,
     }
 }
@@ -995,34 +1042,46 @@ impl Shared {
             text,
             files,
             message: m.id,
+            channel: m.channel_id,
+            guild: m.guild_id,
         }));
     }
 
     async fn on_interaction(self: Arc<Self>, i: Interaction) {
-        self.board.update(|s| s.interactions += 1);
         let user = i.author().map(|u| (u.id.get(), u.name.clone()));
         let channel = i.channel.as_ref().map(|c| c.id.get());
+        // Its place is found as a message's is (theseus-e89): a guild
+        // interaction's by its channel alone, and a DM's by its user's DM
+        // binding, so a command in a guild channel never acts on a DM.
         let (tx, allowed) = {
             let r = self.routes.lock().unwrap();
-            let tx = channel
-                .and_then(|c| r.by_channel.get(&c).cloned())
-                .or_else(|| {
-                    user.as_ref()
-                        .and_then(|(u, _)| r.by_dm_user.get(u).cloned())
-                });
-            let allowed = match (channel, &user) {
-                (Some(c), Some((u, _))) => {
-                    r.users.get(&c).is_some_and(|v| v.contains(u)) || r.by_dm_user.contains_key(u)
+            match i.guild_id {
+                Some(_) => (
+                    channel.and_then(|c| r.by_channel.get(&c).cloned()),
+                    match (channel, &user) {
+                        (Some(c), Some((u, _))) => r.users.get(&c).is_some_and(|v| v.contains(u)),
+                        _ => false,
+                    },
+                ),
+                None => {
+                    let tx = user
+                        .as_ref()
+                        .and_then(|(u, _)| r.by_dm_user.get(u).cloned());
+                    (tx.clone(), tx.is_some())
                 }
-                _ => false,
-            };
-            (tx, allowed)
+            }
         };
+        let Some(tx) = tx else {
+            // Not a place of ours: no answer at all, so that a daemon on the
+            // same bot that binds it can give one.
+            return;
+        };
+        self.board.update(|s| s.interactions += 1);
         let who = user
             .as_ref()
             .map(|(_, n)| format!("discord:{n}"))
             .unwrap_or_else(|| "discord".into());
-        let (Some(tx), true) = (tx, allowed) else {
+        if !allowed {
             self.respond(
                 &i,
                 InteractionResponseType::ChannelMessageWithSource,
@@ -1031,18 +1090,20 @@ impl Shared {
             )
             .await;
             return;
+        }
+        // Who pressed, and where: the ids the core judges an answer by, which
+        // only this binding may name (theseus-sgh).
+        let discord = match (&user, channel) {
+            (Some((u, _)), Some(c)) => Some(DiscordOrigin {
+                user_id: u.to_string(),
+                channel_id: c.to_string(),
+                guild_id: i.guild_id.map(|g| g.to_string()),
+            }),
+            _ => None,
         };
         match &i.data {
             Some(InteractionData::MessageComponent(c)) => {
                 if let Some(asked) = parse_asked_pick(&c.custom_id, &c.values) {
-                    let discord = match (&user, channel) {
-                        (Some((u, _)), Some(ch)) => Some(DiscordOrigin {
-                            user_id: u.to_string(),
-                            channel_id: ch.to_string(),
-                            guild_id: i.guild_id.map(|g| g.to_string()),
-                        }),
-                        _ => None,
-                    };
                     self.should_have_asked(&i, asked, &who, discord).await;
                     return;
                 }
@@ -1069,14 +1130,6 @@ impl Shared {
                         self.check_channel(c).await;
                     }
                 }
-                let discord = match (&user, channel) {
-                    (Some((u, _)), Some(c)) => Some(DiscordOrigin {
-                        user_id: u.to_string(),
-                        channel_id: c.to_string(),
-                        guild_id: i.guild_id.map(|g| g.to_string()),
-                    }),
-                    _ => None,
-                };
                 let r = self
                     .rpc
                     .call::<_, Value>(
@@ -1175,6 +1228,8 @@ impl Shared {
                     "new" => Control::New,
                     "tasks" => Control::Tasks,
                     "wakes" => Control::Wakes,
+                    // As the presser (T1b), as a card's press is.
+                    "trust" => Control::Trust(discord),
                     _ => Control::Status,
                 };
                 self.respond(
@@ -1748,6 +1803,10 @@ impl Place {
                     .core
                     .binding_ledger("discord.message.in", Some(&self.session_id), row);
                 if let Some(cmd) = parse_control(&m.text) {
+                    let cmd = match cmd {
+                        Control::Trust(None) => Control::Trust(Some(m.origin())),
+                        cmd => cmd,
+                    };
                     let reply = self.control(cmd, &format!("discord:{}", m.author)).await;
                     self.say(&reply, Some(m.message));
                     return;
@@ -2034,7 +2093,46 @@ impl Place {
                 };
                 self.cancel_task(name, by, &no_wake).await
             }
+            Control::Trust(origin) => self.trust(origin, by).await,
         }
+    }
+
+    /// `/trust` (T1b): this place's session no longer holds web text. It
+    /// goes through `policy.trust` as the presser, so the core judges it as a
+    /// card's press (`[approval]`, and `approval.refused` when it does not
+    /// count). A session that holds nothing is told so, and nothing is
+    /// written.
+    async fn trust(&self, origin: Option<DiscordOrigin>, by: &str) -> String {
+        let held = self
+            .shared
+            .session_info(&self.session_id)
+            .await
+            .and_then(|s| s.external_text);
+        if held.is_none() {
+            return "This conversation holds no web text, so there is nothing to trust.".into();
+        }
+        // A guild channel `[approval]` lists is checked again, as for a press.
+        let listed = origin
+            .as_ref()
+            .filter(|o| o.guild_id.is_some())
+            .and_then(|o| o.channel_id.parse::<u64>().ok())
+            .filter(|c| self.shared.core.approval.lists_discord_channel(*c));
+        if let Some(c) = listed {
+            self.shared.check_channel(c).await;
+        }
+        let r = self
+            .shared
+            .rpc
+            .call::<_, TrustResult>(
+                theseus_protocol::method::POLICY_TRUST,
+                theseus_protocol::PolicyTrustParams {
+                    session_id: self.session_id.clone(),
+                    author: Some(by.to_string()),
+                    discord: origin,
+                },
+            )
+            .await;
+        trust_answer(&r)
     }
 
     /// `/cancel <id>` for a task (DD7), once no wake had the name.
@@ -2157,7 +2255,10 @@ mod tests {
     fn the_slash_commands_list_tasks_and_wakes_and_cancel_one_by_name() {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, ["stop", "new", "status", "tasks", "wakes", "cancel"]);
+        assert_eq!(
+            names,
+            ["stop", "new", "status", "tasks", "wakes", "trust", "cancel"]
+        );
         // One required option names a task or a wake (DD8; DD7 called it `task`).
         let cancel = cmds.iter().find(|c| c.name == "cancel").unwrap();
         assert_eq!(cancel.options.len(), 1);
@@ -2182,6 +2283,18 @@ mod tests {
             desc("new"),
             "Start a fresh session here; the old one stays in the web UI"
         );
+        // `/trust` (T1b): its one effect.
+        assert_eq!(
+            desc("trust"),
+            "Trust this conversation again after it read web text: its calls that change things \
+             stop waiting"
+        );
+        assert!(cmds
+            .iter()
+            .find(|c| c.name == "trust")
+            .unwrap()
+            .options
+            .is_empty());
         // Discord refuses a description over 100 characters.
         assert!(cmds.iter().all(|c| c.description.chars().count() <= 100));
     }
@@ -2192,8 +2305,9 @@ mod tests {
         assert_eq!(
             bind_notice("ses_1", false),
             "🔗 Theseus is bound here (session `ses_1`). Talk to me in this place. `/stop` halts \
-             what I am doing and keeps the conversation, `/new` starts a fresh one, and \
-             `/status`, `/tasks` and `/wakes` show this place's; everything shows in the web UI."
+             what I am doing and keeps the conversation, `/new` starts a fresh one, `/trust` \
+             trusts the conversation again after it reads web text, and `/status`, `/tasks` and \
+             `/wakes` show this place's; everything shows in the web UI."
         );
         assert!(bind_notice("ses_1", true).contains(". @mention me or reply"));
         let exec = theseus_protocol::ExecutionInfo {
@@ -2253,6 +2367,9 @@ mod tests {
         assert_eq!(parse_control("/wakes"), Some(Control::Wakes));
         assert_eq!(parse_control("/new"), Some(Control::New));
         assert_eq!(parse_control("/status"), Some(Control::Status));
+        // A typed `/trust` (T1b): the place fills in who typed it, and where.
+        assert_eq!(parse_control("/trust"), Some(Control::Trust(None)));
+        assert_eq!(parse_control("/trusted"), None);
         assert_eq!(parse_control("please /stop"), None);
         assert_eq!(parse_control("/stopper"), None);
         let press = |approve, trust, corr: &str| Press {
@@ -2428,12 +2545,22 @@ mod tests {
         dir: &std::path::Path,
         secrets: Arc<theseus_core::secrets::SecretBoard>,
     ) -> Arc<Core> {
+        core_with(dir, secrets, |_| {})
+    }
+
+    /// `core_with_secrets`, with `tweak` applied to the config first.
+    fn core_with(
+        dir: &std::path::Path,
+        secrets: Arc<theseus_core::secrets::SecretBoard>,
+        tweak: impl FnOnce(&mut theseus_core::Config),
+    ) -> Arc<Core> {
         let mut cfg = theseus_core::Config::example();
         cfg.server.state_dir = dir.to_string_lossy().into_owned();
         let work = dir.join("work");
         std::fs::create_dir_all(&work).unwrap();
         cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
         cfg.tools.roots = vec![];
+        tweak(&mut cfg);
         let store = theseus_core::store::Store::open(&dir.join("store")).unwrap();
         let fake: Arc<dyn theseus_core::provider::Provider> =
             Arc::new(theseus_core::provider::FakeProvider::scripted(vec![]));
@@ -2580,6 +2707,8 @@ mod tests {
             text: "SECOND never mind".into(),
             files: None,
             message: Id::new(7),
+            channel: Id::new(43),
+            guild: None,
         }]);
         let done = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -2699,5 +2828,301 @@ mod tests {
             tightened_reply("proc.run", &refused),
             "🔐 Your press did not count: it came through a connection no listener named."
         );
+    }
+
+    /// Eddie's user id, and a user of a place whom `[approval]` does not list.
+    const EDDIE: u64 = 159_471_966_640_799_744;
+    const MALLORY: u64 = 222_222_222_222_222_222;
+
+    /// Give `sid` a hold on web text, as a fetch leaves one (theseus-9bp);
+    /// the core's own tests bring it in through a real fetch.
+    fn holding(core: &Arc<Core>, sid: &str) {
+        let mut rec: theseus_core::session::SessionRecord =
+            core.store.get_session(sid).unwrap().unwrap();
+        rec.external = Some(theseus_protocol::ExternalText {
+            since_ms: 1_759_266_720_000,
+            tool: "http.fetch".into(),
+            url: "https://example.test/page".into(),
+            node_id: "nod_1".into(),
+            from_session: None,
+            via: None,
+        });
+        core.store.put_session(sid, &rec).unwrap();
+    }
+
+    /// `/trust` (T1b), driven as W1 drives `/stop`: it clears the place's
+    /// session's hold through `policy.trust`, as the presser, and
+    /// `session.trusted` names Discord and them; a second press finds nothing
+    /// to trust and writes nothing; a user `[approval]` does not list is
+    /// refused with the reason, and the hold stays; and a typed `/trust`
+    /// answers in the place.
+    #[tokio::test]
+    async fn trust_clears_the_places_hold_as_the_presser_under_approval() {
+        let d = tempfile::tempdir().unwrap();
+        let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
+            c.discord.rest_proxy = Some("127.0.0.1:9".into());
+            c.approval = Some(theseus_core::config::ApprovalConfig {
+                trusted_users: vec![format!("discord:{EDDIE}")],
+                channels: vec!["discord:dm".into(), "cli".into()],
+            });
+        });
+        let rec = theseus_core::session::SessionRecord::new(
+            theseus_protocol::SessionKind::Conversation,
+            None,
+        );
+        let sid = rec.session_id.clone();
+        core.store.put_session(&sid, &rec).unwrap();
+        holding(&core, &sid);
+        let (mut place, _rx) = place_for_tests(&core, &sid);
+        let dm = |user: u64| {
+            Some(DiscordOrigin {
+                user_id: user.to_string(),
+                channel_id: "444444444444444444".into(),
+                guild_id: None,
+            })
+        };
+        let ledger = || {
+            core.store
+                .ledger_tail::<theseus_core::ledger::LedgerRow>(100_000)
+                .unwrap()
+        };
+        let rows = |kind: &str| -> Vec<Value> {
+            ledger()
+                .into_iter()
+                .filter(|(_, r)| r.kind == kind)
+                .map(|(_, r)| r.data)
+                .collect()
+        };
+        let held = || {
+            core.store
+                .get_session::<theseus_core::session::SessionRecord>(&sid)
+                .unwrap()
+                .unwrap()
+                .external
+        };
+
+        let answer = place
+            .control(Control::Trust(dm(EDDIE)), "discord:eddie")
+            .await;
+        assert!(
+            answer.starts_with(
+                "Trusted again by discord:eddie: this conversation no longer holds web text (it \
+                 had read http.fetch https://example.test/page, at "
+            ),
+            "{answer}"
+        );
+        assert!(
+            answer.ends_with("). Calls that change things run at their postures again."),
+            "{answer}"
+        );
+        assert!(held().is_none());
+        let trusted = rows("session.trusted");
+        assert_eq!(trusted.len(), 1);
+        let who = format!("discord:{EDDIE} (discord:eddie)");
+        assert_eq!(
+            (
+                trusted[0]["via"].as_str(),
+                trusted[0]["by"].as_str(),
+                trusted[0]["who"].as_str(),
+                trusted[0]["how"].as_str()
+            ),
+            (
+                Some("discord:dm"),
+                Some("discord:eddie"),
+                Some(who.as_str()),
+                Some("policy.trust")
+            )
+        );
+
+        // A second press: nothing to trust, and nothing written.
+        let before = ledger().len();
+        let answer = place
+            .control(Control::Trust(dm(EDDIE)), "discord:eddie")
+            .await;
+        assert_eq!(
+            answer,
+            "This conversation holds no web text, so there is nothing to trust."
+        );
+        assert_eq!(ledger().len(), before);
+
+        // A user `[approval]` does not list: refused with the reason,
+        // ledgered, and the hold stays.
+        holding(&core, &sid);
+        let answer = place
+            .control(Control::Trust(dm(MALLORY)), "discord:mallory")
+            .await;
+        assert_eq!(
+            answer,
+            format!(
+                "🔐 Your /trust did not count: discord:{MALLORY} is not a trusted user \
+                 ([approval] trusted_users). This conversation still holds web text."
+            )
+        );
+        assert!(held().is_some());
+        let refused = rows("approval.refused");
+        assert_eq!(refused.len(), 1);
+        assert_eq!(
+            (refused[0]["act"].as_str(), refused[0]["via"].as_str()),
+            (Some("policy.trust"), Some("discord:dm"))
+        );
+        assert_eq!(rows("session.trusted").len(), 1);
+
+        // Typed as a message, it answers in the place, as its author.
+        place
+            .handle(PlaceMsg::Inbound(Inbound {
+                author: "eddie".into(),
+                author_id: EDDIE,
+                text: "/trust".into(),
+                files: None,
+                message: Id::new(7),
+                channel: Id::new(444_444_444_444_444_444),
+                guild: None,
+            }))
+            .await;
+        assert!(held().is_none());
+        assert_eq!(rows("session.trusted").len(), 2);
+        let said: Vec<String> = core
+            .outbox
+            .open_for("discord:dm:42")
+            .iter()
+            .filter_map(|a| {
+                theseus_core::outbox::body_of(a)["text"]
+                    .as_str()
+                    .map(String::from)
+            })
+            .collect();
+        assert!(
+            said.iter()
+                .any(|t| t.starts_with("Trusted again by discord:eddie: ")),
+            "{said:?}"
+        );
+    }
+
+    /// A slash command as the gateway delivers one, from `user`, in
+    /// `channel`, in `guild` (None: a DM).
+    fn slash(guild: Option<&str>, channel: u64, user: u64, command: &str) -> Interaction {
+        let mut v = json!({
+            "id": "1000000000000000001",
+            "application_id": "1000000000000000002",
+            "type": 2,
+            "token": "not-a-token",
+            "version": 1,
+            "authorizing_integration_owners": {},
+            "channel": {"id": channel.to_string(), "type": if guild.is_some() { 0 } else { 1 }},
+            "user": {"id": user.to_string(), "username": if user == EDDIE { "eddie" } else { "mallory" },
+                     "discriminator": "0", "avatar": null},
+            "data": {"id": "1000000000000000003", "name": command, "type": 1, "options": []},
+        });
+        if let Some(g) = guild {
+            v["guild_id"] = json!(g);
+        }
+        serde_json::from_value(v).unwrap()
+    }
+
+    /// Interactions find their place as messages do (theseus-e89): a guild
+    /// interaction in a channel this daemon does not bind is left alone, with
+    /// no answer and nothing acted on, even from a user whose DM it binds; a
+    /// DM's reaches the DM's place; a bound channel's reaches its place, with
+    /// the presser's ids for `/trust`; and a bound place still refuses a user
+    /// it does not list.
+    #[tokio::test]
+    async fn interactions_find_their_place_as_messages_do_and_leave_the_rest_alone() {
+        const GUILD: &str = "712398310421561444";
+        const BOUND: u64 = 900_000_000_000_000_001;
+        const UNBOUND: u64 = 900_000_000_000_000_002;
+        let fake = theseus_sim::fake_discord::FakeDiscord::start();
+        let d = tempfile::tempdir().unwrap();
+        let addr = fake.addr.clone();
+        let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
+            c.discord.rest_proxy = Some(addr)
+        });
+        let shared = shared_for_tests(&core);
+        let (dm_tx, mut dm_rx) = mpsc::unbounded_channel();
+        let (ch_tx, mut ch_rx) = mpsc::unbounded_channel();
+        {
+            let mut r = shared.routes.lock().unwrap();
+            r.by_dm_user.insert(EDDIE, dm_tx);
+            r.by_channel.insert(BOUND, ch_tx);
+            r.users.insert(BOUND, vec![EDDIE]);
+        }
+        // Each answer to an interaction is a POST to its callback.
+        let answered = || {
+            fake.seen()
+                .iter()
+                .filter(|s| s.path.contains("/interactions/"))
+                .count()
+        };
+        let commands = || {
+            core.store
+                .ledger_tail::<theseus_core::ledger::LedgerRow>(100_000)
+                .unwrap()
+                .into_iter()
+                .filter(|(_, r)| r.kind == "discord.command")
+                .count()
+        };
+        let control = |m: Option<PlaceMsg>| match m {
+            Some(PlaceMsg::Control { cmd, by, reply }) => {
+                let _ = reply.send("done".into());
+                (cmd, by)
+            }
+            _ => panic!("not a control"),
+        };
+
+        // A guild channel no place of ours binds, from a user whose DM is
+        // bound: no answer, and nothing acted on.
+        for cmd in ["stop", "trust"] {
+            shared
+                .clone()
+                .on_interaction(slash(Some(GUILD), UNBOUND, EDDIE, cmd))
+                .await;
+        }
+        assert!(dm_rx.try_recv().is_err() && ch_rx.try_recv().is_err());
+        assert_eq!((answered(), commands()), (0, 0), "{:?}", fake.seen());
+        assert_eq!(shared.board.st.lock().unwrap().interactions, 0);
+
+        // A bound channel still refuses a user it does not list.
+        shared
+            .clone()
+            .on_interaction(slash(Some(GUILD), BOUND, MALLORY, "stop"))
+            .await;
+        assert!(ch_rx.try_recv().is_err());
+        assert_eq!((answered(), commands()), (1, 0));
+
+        // A DM's reaches the DM's place.
+        let h = tokio::spawn(shared.clone().on_interaction(slash(
+            None,
+            444_444_444_444_444_444,
+            EDDIE,
+            "status",
+        )));
+        let got = tokio::time::timeout(Duration::from_secs(10), dm_rx.recv())
+            .await
+            .unwrap();
+        assert_eq!(control(got), (Control::Status, "discord:eddie".into()));
+        h.await.unwrap();
+
+        // A bound channel's reaches its place, and `/trust` carries who
+        // pressed it, and where.
+        let h = tokio::spawn(shared.clone().on_interaction(slash(
+            Some(GUILD),
+            BOUND,
+            EDDIE,
+            "trust",
+        )));
+        let got = tokio::time::timeout(Duration::from_secs(10), ch_rx.recv())
+            .await
+            .unwrap();
+        let origin = DiscordOrigin {
+            user_id: EDDIE.to_string(),
+            channel_id: BOUND.to_string(),
+            guild_id: Some(GUILD.into()),
+        };
+        assert_eq!(
+            control(got),
+            (Control::Trust(Some(origin)), "discord:eddie".into())
+        );
+        h.await.unwrap();
+        assert_eq!((answered(), commands()), (3, 2));
+        assert!(dm_rx.try_recv().is_err() && ch_rx.try_recv().is_err());
     }
 }

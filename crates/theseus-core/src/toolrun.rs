@@ -822,11 +822,12 @@ impl ToolRuntime {
             let decision = self.policy.decide_with(tool, &plan, t);
             let decision = self.brokered(tool.name(), &plan, &call.input, decision);
             // After the whole order (theseus-9bp): a call that acts in a
-            // session that read external text waits. A read keeps its
-            // posture, and costs no record read.
-            let held = match tool.class() {
-                ToolClass::Read => Ok(None),
-                _ => crate::external::held(tc.store, tc.session_id),
+            // session that read external text waits. A read and `wake.at`
+            // keep their postures (T1b), and cost no record read.
+            let held = if crate::external::exempt(tool.class(), tool.name()) {
+                Ok(None)
+            } else {
+                crate::external::held(tc.store, tc.session_id)
             };
             let decision = crate::external::gate(
                 decision,
