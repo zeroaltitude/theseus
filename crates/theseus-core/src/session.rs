@@ -51,6 +51,11 @@ pub struct SessionRecord {
     /// it, and where it reports. Written once, when the task opens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<TaskOf>,
+    /// The session read external text (theseus-9bp, `external.rs`): written
+    /// in the frame that brings the text in, cleared only by the operator's
+    /// trust. A turn never writes it (`take_turns_fields`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external: Option<theseus_protocol::ExternalText>,
 }
 
 /// Where a task session came from, and where it reports (DD7, theseus-qn2).
@@ -92,6 +97,7 @@ impl SessionRecord {
             title: None,
             pending_recompile: None,
             task: None,
+            external: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it
@@ -135,6 +141,7 @@ impl SessionRecord {
             pending_confirms: 0,
             parent_session_id: self.task.as_ref().map(|t| t.parent_session.clone()),
             limit_usd: None,
+            external_text: self.external.clone(),
         }
     }
 }

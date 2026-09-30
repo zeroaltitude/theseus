@@ -2841,6 +2841,7 @@ async fn answer_as(
         watch: false,
         author: discord.map(|_| "discord:eddie".to_string()),
         discord: origin(discord),
+        trust: false,
     };
     rpc_as(
         core,
@@ -4362,6 +4363,7 @@ async fn answer(
         watch: false,
         author: None,
         discord: None,
+        trust: false,
     };
     rpc_as(
         core,

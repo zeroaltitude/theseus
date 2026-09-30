@@ -210,6 +210,9 @@ pub struct ToolRuntime {
     /// The secret broker (theseus-dcy): what a job's program and a toollet
     /// are given from the board.
     pub broker: Arc<Broker>,
+    /// What a call that acts gets once its session has read external text
+    /// (theseus-9bp, `[policy] external_text`).
+    pub external_text: crate::external::Mode,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -296,6 +299,7 @@ impl ToolRuntime {
             tightened: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
+            external_text: Default::default(),
         }
     }
 
@@ -817,6 +821,21 @@ impl ToolRuntime {
             let t = tightened.as_ref().map(crate::tighten::as_tightened);
             let decision = self.policy.decide_with(tool, &plan, t);
             let decision = self.brokered(tool.name(), &plan, &call.input, decision);
+            // After the whole order (theseus-9bp): a call that acts in a
+            // session that read external text waits. A read keeps its
+            // posture, and costs no record read.
+            let held = match tool.class() {
+                ToolClass::Read => Ok(None),
+                _ => crate::external::held(tc.store, tc.session_id),
+            };
+            let decision = crate::external::gate(
+                decision,
+                tool.class(),
+                &held,
+                self.external_text,
+                tool.name(),
+                &plan.summary,
+            );
             (plan, decision)
         });
         let result = match &planned {
@@ -1023,6 +1042,7 @@ impl ToolRuntime {
                 short: crate::task::short(tc.session_id),
                 title: None,
             }),
+            external_text: g.decision.external,
         };
         tc.ledger("tool.confirm_requested", serde_json::to_value(&req)?);
         tc.sink.send(notify::CONFIRM_REQUESTED, &req);
@@ -1265,9 +1285,56 @@ impl ToolRuntime {
                 json!({"tool": tool.name(), "secret": secret, "correlation_id": correlation_id}),
             );
         }
-        tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
+        self.complete(tc, &c, &node)?;
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })
+    }
+
+    /// An in-process result's completion frame. A result marked external
+    /// (DD5) that its session is the first to read since it was last trusted
+    /// brings the session's hold in the same frame, under the session
+    /// record's lock (theseus-9bp): no crash leaves the text in the context
+    /// without the hold.
+    fn complete(&self, tc: &TurnCtx<'_>, c: &Completion, node: &Node) -> Result<()> {
+        let read = match &node.body {
+            Body::ToolResult {
+                external: Some(e),
+                status: ResultStatus::Ok,
+                tool,
+                ..
+            } => Some((tool.clone(), e.url.clone())),
+            _ => None,
+        };
+        let Some((tool, url)) = read else {
+            tc.kernel.accept_completion_with(c, vec![node.record()?])?;
+            return Ok(());
+        };
+        let mut newly = None;
+        let done = tc.store.with_session(tc.session_id, |rec| {
+            let h = crate::external::read(&node.id, &tool, &url, theseus_protocol::now_unix_ms());
+            let mut frame = vec![node.record()?];
+            if let Some(more) = crate::external::hold(rec, h.clone(), Some(tc.turn_id))? {
+                frame.extend(more);
+                newly = Some(h);
+            }
+            tc.kernel.accept_completion_with(c, frame)?;
+            Ok(())
+        })?;
+        if done.is_none() {
+            // Every session a surface opens has a record before its first
+            // turn; one without cannot keep a hold.
+            tracing::warn!(session_id = %tc.session_id, "external text read in a session with no record: no hold is kept");
+            tc.kernel.accept_completion_with(c, vec![node.record()?])?;
+        }
+        if let Some(h) = newly {
+            narrate_turn!(
+                tc,
+                Approval,
+                "{}",
+                crate::external::narrated(&h, self.external_text)
+            );
+        }
+        Ok(())
     }
 
     /// A job: started through the wrapper, waited for up to `proc_sync_secs`,
@@ -2186,6 +2253,7 @@ pub fn build_runtime(
         tightened: Default::default(),
         cpu,
         broker: Arc::new(broker),
+        external_text: cfg.policy.external_text,
     })
 }
 

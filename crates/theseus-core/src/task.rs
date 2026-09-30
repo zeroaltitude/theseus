@@ -233,6 +233,13 @@ pub fn create(
     let title = title_from(&i.brief);
     let (_, task_session) = task_ids(correlation_id);
     let text = brief_text(&task_session, tc.session_id, &i.brief);
+    // A task that a session holding external text starts holds it too, from
+    // its brief on, since the brief may carry that text (theseus-9bp).
+    let parent_hold = tc
+        .store
+        .get_session::<SessionRecord>(tc.session_id)
+        .map_err(|e| format!("Not started: {e:#}"))?
+        .and_then(|r| r.external);
     let opened = tc.kernel.open_task(
         tc.guard,
         correlation_id,
@@ -265,10 +272,24 @@ pub fn create(
                 &format!("session:{}", tc.session_id),
                 &text,
             );
-            let mut records = vec![
-                NewRecord::json(kinds::SESSION, Some(&rec.session_id), &rec)?,
-                brief.record()?,
-            ];
+            let mut records = match &parent_hold {
+                Some(h) => {
+                    let taken = crate::external::taken(
+                        h,
+                        tc.session_id,
+                        crate::external::VIA_TASK,
+                        &brief.id,
+                        theseus_protocol::now_unix_ms(),
+                    );
+                    crate::external::hold(rec, taken, None)?.unwrap_or_default()
+                }
+                None => vec![NewRecord::json(
+                    kinds::SESSION,
+                    Some(&rec.session_id),
+                    &rec,
+                )?],
+            };
+            records.push(brief.record()?);
             if let Some(t) = &target {
                 records.push(tc.outbox.task_record(&task.session_id, t)?);
             }
@@ -307,6 +328,14 @@ pub fn create(
                 None => "in this session".to_string(),
             }
         );
+        if parent_hold.is_some() {
+            narrate_turn!(
+                tc,
+                Approval,
+                "Task {s} holds this session's external text from its start, so its calls that \
+                 act wait for approval too, until the operator trusts it."
+            );
+        }
     }
     let capped = i.budget_usd.is_some() && want > limit;
     let budget = if capped {
@@ -388,6 +417,9 @@ pub struct Report {
     pub elapsed_ms: u64,
     /// Where it reports: where its parent posted when it started.
     pub target: Option<String>,
+    /// The task held external text when its report was read (theseus-9bp):
+    /// the parent that reads the report holds it too.
+    pub external: Option<theseus_protocol::ExternalText>,
 }
 
 /// The line a turn that a report started shows above its reply (W1), as a
@@ -424,6 +456,7 @@ impl Report {
             turns: e.turns,
             elapsed_ms: e.updated_at_ms.saturating_sub(e.created_at_ms),
             target: None,
+            external: None,
         }
     }
 
@@ -505,8 +538,10 @@ pub fn load_report(
         None
     };
     let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
+    let external = rec.as_ref().and_then(|r| r.external.clone());
     Ok(Some(Report {
         target,
+        external,
         ..Report::new(&e, rec.and_then(|r| r.title), last)
     }))
 }

@@ -19,6 +19,7 @@ mod policy;
 mod server;
 #[cfg(test)]
 mod tests;
+mod trust;
 
 pub use bindings::BindingBoard;
 pub use server::ACTS;

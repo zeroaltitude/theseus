@@ -19,6 +19,7 @@ pub mod config_copy;
 pub mod config_gate;
 pub mod context_files;
 pub mod cpu;
+pub mod external;
 pub mod github;
 pub mod harness;
 pub mod ledger;
@@ -56,6 +57,8 @@ pub fn new_id(prefix: &str) -> String {
 
 #[cfg(test)]
 mod tests_config;
+#[cfg(test)]
+mod tests_external;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]

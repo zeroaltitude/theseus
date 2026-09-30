@@ -76,6 +76,7 @@ impl Core {
             approval: self.approval_status(),
             tightenings: self.tools.tightened.all(),
             wakes: self.wakes(None, None).unwrap_or_default(),
+            external_text: crate::external::listed(&sessions),
         }
     }
 
@@ -680,15 +681,21 @@ impl Core {
             }
         }
         let who = conn.answerer(p.author, p.discord);
-        self.confirm_action(&p.correlation_id, p.approve, p.note.as_deref(), who)
-            .map_err(|e| match e.downcast::<Refusal>() {
-                Ok(r) => RpcFailure {
-                    code: error_code::REFUSED,
-                    message: r.to_string(),
-                    data: json!({"who": r.who, "via": r.via, "why": r.why}),
-                },
-                Err(e) => RpcFailure::invalid(e),
-            })
+        self.confirm_action_with(
+            &p.correlation_id,
+            p.approve,
+            p.note.as_deref(),
+            who,
+            p.trust,
+        )
+        .map_err(|e| match e.downcast::<Refusal>() {
+            Ok(r) => RpcFailure {
+                code: error_code::REFUSED,
+                message: r.to_string(),
+                data: json!({"who": r.who, "via": r.via, "why": r.why}),
+            },
+            Err(e) => RpcFailure::invalid(e),
+        })
     }
 
     pub(super) fn tool_list(&self) -> theseus_protocol::ToolListResult {

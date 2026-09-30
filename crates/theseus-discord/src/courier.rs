@@ -561,7 +561,13 @@ impl Lane {
         let note = render::card_note(&route, &card.line, &elsewhere);
         let key = format!("confirm:{q}");
         let note_key = format!("approval:{q}");
-        let buttons = Buttons::Confirm(q.clone());
+        // A call that waits because its session read external text gets the
+        // third button, which trusts the session again (theseus-9bp).
+        let buttons = if req.external_text.is_some() {
+            Buttons::ConfirmTrust(q.clone())
+        } else {
+            Buttons::Confirm(q.clone())
+        };
         let mut writes = Vec::new();
         let (how, dm) = match &route {
             Route::Here => {
@@ -788,7 +794,8 @@ impl Lane {
             "allowed_mentions": {"parse": [], "replied_user": false},
         });
         let comps = match buttons {
-            Buttons::Confirm(corr) => confirm_buttons(corr),
+            Buttons::Confirm(corr) => confirm_buttons(corr, false),
+            Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
             Buttons::Clear | Buttons::Keep => vec![],
         };
@@ -822,7 +829,7 @@ impl Lane {
             "discord.message.out",
             None,
             json!({"place": self.label, "message_id": m.id.to_string(), "part": key,
-                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_)),
+                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_))}),
         );
         Ok((m.id.get(), m.content))
@@ -837,7 +844,8 @@ impl Lane {
     ) -> Result<(), SendErr> {
         let none = AllowedMentions::default();
         let comps = match buttons {
-            Buttons::Confirm(corr) => Some(confirm_buttons(corr)),
+            Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
+            Buttons::ConfirmTrust(corr) => Some(confirm_buttons(corr, true)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep => None,

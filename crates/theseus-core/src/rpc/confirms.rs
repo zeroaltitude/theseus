@@ -60,6 +60,11 @@ impl Core {
             floor: gate["decision"]["floor"].as_bool().unwrap_or(false),
             budget: None,
             task: crate::task::task_ref(session),
+            // The call waits because its session read external text
+            // (theseus-9bp): its card offers to trust the session again.
+            external_text: gate["decision"]
+                .get("external")
+                .and_then(|v| serde_json::from_value(v.clone()).ok()),
         })
     }
 
@@ -98,6 +103,7 @@ impl Core {
                 lifetime_usd: session.cost_usd,
             }),
             task: crate::task::task_ref(session),
+            external_text: None,
         })
     }
 
@@ -205,11 +211,33 @@ impl Core {
         note: Option<&str>,
         by: impl Into<Answerer>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
+        self.confirm_action_with(correlation_id, approve, note, by, false)
+    }
+
+    /// `confirm_action`, and with `trust`, trust the call's session again as
+    /// well (theseus-9bp): its hold on external text is cleared before the
+    /// approval wakes the execution, so the calls after this one run at their
+    /// postures. The answer's judgment covers the trust, which only goes with
+    /// an approval of a tool call.
+    pub fn confirm_action_with(
+        &self,
+        correlation_id: &str,
+        approve: bool,
+        note: Option<&str>,
+        by: impl Into<Answerer>,
+        trust: bool,
+    ) -> Result<theseus_protocol::ActionConfirmResult> {
         let who = by.into();
         let a = self
             .kernel
             .action(correlation_id)?
             .ok_or_else(|| anyhow::anyhow!("no action {correlation_id}"))?;
+        if trust && (!approve || a.tool == BUDGET_TOOL) {
+            anyhow::bail!(
+                "trust goes with an approval of a tool call: approve {correlation_id} to trust \
+                 its session, or use `policy.trust`"
+            );
+        }
         let asker = self.judge_act(
             &who,
             Act::Answer {
@@ -232,6 +260,15 @@ impl Core {
             let proposal = crate::toolrun::confirm_proposal(&self.store, &a, None)?;
             self.kernel
                 .bind_confirm(correlation_id, OPERATOR, &proposal)?;
+            if trust {
+                self.clear_hold(
+                    &a.session_id,
+                    &who,
+                    theseus_protocol::method::ACTION_CONFIRM,
+                    Some(correlation_id),
+                    &asker,
+                )?;
+            }
         } else {
             self.kernel.decline_action(
                 correlation_id,
@@ -244,7 +281,7 @@ impl Core {
             Some(&a.session_id),
             None,
             json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via,
-                   "asker": asker.json()}),
+                   "asker": asker.json(), "trust": trust}),
         ))?;
         narrate!(
             self.narrator,
@@ -281,13 +318,16 @@ impl Core {
             &a.session_id,
             &Message::Notification(theseus_protocol::Notification::new(
                 notify::CONFIRM_RESOLVED,
-                json!({"session_id": a.session_id, "correlation_id": correlation_id, "approved": approve, "by": by}),
+                json!({"session_id": a.session_id, "correlation_id": correlation_id, "approved": approve, "by": by, "trust": trust}),
             )),
             None,
         );
         self.card_closed(
             correlation_id,
-            Closed::new(if approve { "approved" } else { "declined" }, Some(by)),
+            Closed {
+                note: trust.then(|| "and trusted the session again".to_string()),
+                ..Closed::new(if approve { "approved" } else { "declined" }, Some(by))
+            },
         );
         self.admission.notify_waiters();
         Ok(theseus_protocol::ActionConfirmResult {
@@ -325,7 +365,7 @@ impl Core {
     pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<Traced> {
         let traced = match act {
             Act::Tighten { .. } => Traced::NoProcess,
-            Act::Answer { .. } | Act::Untighten { .. } => who.peer.trace(),
+            Act::Answer { .. } | Act::Untighten { .. } | Act::Trust { .. } => who.peer.trace(),
         };
         let verdict = match (act, traced.refusal()) {
             (_, Some(why)) => Err(Refusal {
@@ -359,6 +399,11 @@ impl Core {
             Act::Tighten { tool } | Act::Untighten { tool } => (
                 None,
                 json!({"act": act.method(), "tool": tool, "who": r.who, "via": r.via,
+                       "why": r.why, "by": who.label}),
+            ),
+            Act::Trust { session } => (
+                Some(session),
+                json!({"act": act.method(), "session_id": session, "who": r.who, "via": r.via,
                        "why": r.why, "by": who.label}),
             ),
         };
@@ -413,6 +458,17 @@ impl Core {
                 r.via,
                 r.why
             ),
+            Act::Trust { .. } => narrate!(
+                self.narrator,
+                Approval,
+                session,
+                None,
+                "Trusting this session again, from {} through {}, did not count: {}. Its calls \
+                 that act keep waiting.",
+                r.who,
+                r.via,
+                r.why
+            ),
         }
         Ok(())
     }
@@ -433,11 +489,16 @@ impl Core {
             Act::Answer { action: a, .. } => format!("an answer to {}", a.tool),
             Act::Untighten { tool } => format!("the undo of {tool}'s tightening"),
             Act::Tighten { tool } => format!("\"should have asked\" for {tool}"),
+            Act::Trust { session } => format!(
+                "trusting session {} again",
+                crate::narrative::short(session)
+            ),
         };
         let then = match act {
             Act::Answer { .. } => "It keeps waiting for the operator's answer.",
             Act::Untighten { .. } => "It keeps asking first.",
             Act::Tighten { .. } => "Nothing changed.",
+            Act::Trust { .. } => "It still holds external text, and its calls that act wait.",
         };
         narrate!(
             self.narrator,
@@ -629,6 +690,9 @@ pub(crate) enum Act<'a> {
     Tighten { tool: &'a str },
     /// The undo of a tightening, which returns the tool to the config.
     Untighten { tool: &'a str },
+    /// Trusting a session again (theseus-9bp): it no longer holds external
+    /// text, so its calls that act return to their postures.
+    Trust { session: &'a str },
 }
 
 impl Act<'_> {
@@ -638,6 +702,7 @@ impl Act<'_> {
             Act::Answer { .. } => theseus_protocol::method::ACTION_CONFIRM,
             Act::Tighten { .. } => theseus_protocol::method::POLICY_TIGHTEN,
             Act::Untighten { .. } => theseus_protocol::method::POLICY_UNTIGHTEN,
+            Act::Trust { .. } => theseus_protocol::method::POLICY_TRUST,
         }
     }
 }

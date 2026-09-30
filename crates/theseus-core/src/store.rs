@@ -371,6 +371,26 @@ impl Store {
         Ok(Some(rec))
     }
 
+    /// Hold a session record's lock while `f` writes a frame that carries a
+    /// change to it (theseus-9bp): `f` gets the latest record, and a frame it
+    /// writes through this store, or through the kernel's view of it, is
+    /// indexed before the lock is released. So a change can ride in another
+    /// writer's frame (a completion's, a task's reports') and lose no other
+    /// writer's change. None, and `f` not called, when there is no such
+    /// session. `f` must not take the lock again; a kernel lock inside it is
+    /// fine, since no kernel transition takes a session's.
+    pub fn with_session<R>(
+        &self,
+        id: &str,
+        f: impl FnOnce(crate::session::SessionRecord) -> Result<R>,
+    ) -> Result<Option<R>> {
+        let _held = self.sessions.lock(id);
+        let Some(rec) = self.get_session::<crate::session::SessionRecord>(id)? else {
+            return Ok(None);
+        };
+        f(rec).map(Some)
+    }
+
     /// Hold a session record's lock, as a writer between its read and its
     /// write does (a test's way to stop one there).
     #[cfg(test)]

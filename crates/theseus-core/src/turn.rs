@@ -1314,27 +1314,67 @@ impl TurnRunner {
         let tc = &t.tc;
         let mut nodes = Vec::new();
         let mut reports = Vec::new();
-        let taken = tc.kernel.take_reports(tc.guard, |ids| {
-            let mut records = Vec::new();
-            for id in ids {
-                let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)? else {
-                    continue;
-                };
-                let n = Node::relayed(
-                    tc.session_id,
-                    Some(tc.turn_id),
-                    crate::node::Origin::Harness,
-                    &format!("task:{}", r.short),
-                    &r.node_text(),
-                );
-                records.push(n.record()?);
-                nodes.push(n);
-                reports.push(r);
-            }
-            Ok(records)
-        })?;
+        let mut held = None;
+        // A report from a task that holds external text brings the hold to
+        // this session, in the frame that writes the report, under the
+        // session record's lock (theseus-9bp): the report may carry what the
+        // task read.
+        let mut take = |rec: Option<SessionRecord>| {
+            tc.kernel.take_reports(tc.guard, |ids| {
+                let mut records = Vec::new();
+                let mut rec = rec;
+                for id in ids {
+                    let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)? else {
+                        continue;
+                    };
+                    let n = Node::relayed(
+                        tc.session_id,
+                        Some(tc.turn_id),
+                        crate::node::Origin::Harness,
+                        &format!("task:{}", r.short),
+                        &r.node_text(),
+                    );
+                    records.push(n.record()?);
+                    if let Some(h) = &r.external {
+                        if let Some(before) = rec.take() {
+                            let h = crate::external::taken(
+                                h,
+                                &r.task,
+                                crate::external::VIA_REPORT,
+                                &n.id,
+                                theseus_protocol::now_unix_ms(),
+                            );
+                            if let Some(more) =
+                                crate::external::hold(before, h.clone(), Some(tc.turn_id))?
+                            {
+                                records.extend(more);
+                                held = Some(h);
+                            }
+                        }
+                    }
+                    nodes.push(n);
+                    reports.push(r);
+                }
+                Ok(records)
+            })
+        };
+        let taken = match tc
+            .store
+            .with_session(tc.session_id, |rec| take(Some(rec)))?
+        {
+            Some(taken) => taken,
+            None => take(None)?,
+        };
         for n in &nodes {
             tc.node_written(n);
+        }
+        if let Some(h) = &held {
+            narrate_turn!(
+                tc,
+                Approval,
+                "{}",
+                crate::external::narrated(h, self.tools.external_text)
+            );
         }
         for r in reports
             .iter()
@@ -1753,6 +1793,7 @@ impl TurnRunner {
                 lifetime_usd: lifetime,
             }),
             task: crate::task::task_ref(session),
+            external_text: None,
         };
         t.tc.sink.send(notify::CONFIRM_REQUESTED, &req);
         t.tc.sink.send(

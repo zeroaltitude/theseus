@@ -34,6 +34,9 @@ pub enum Buttons {
     Keep,
     /// Approve and Decline for this correlation id.
     Confirm(String),
+    /// Approve, "Approve + trust session", and Decline (theseus-9bp): the
+    /// call waits because its session read external text.
+    ConfirmTrust(String),
     /// One "Should have asked…" select menu (theseus-sgh): an option per
     /// distinct notified tool on the message, at most `MAX_ASKED`.
     ShouldHaveAsked(Vec<Asked>),
@@ -786,8 +789,15 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
         "" => String::new(),
         e => format!(" · you can also answer {e}"),
     };
+    // A call that waits because its session read external text
+    // (theseus-9bp): the card's third button trusts the session again.
+    let trust = if req.external_text.is_some() {
+        " · **Approve + trust session** also lets its later calls run at their postures"
+    } else {
+        ""
+    };
     content.push_str(&format!(
-        "\n-# {asked_for}expires <t:{}:R>{also}",
+        "\n-# {asked_for}expires <t:{}:R>{trust}{also}",
         req.expires_at_ms / 1000
     ));
     CardText {
@@ -838,6 +848,8 @@ pub fn settled(closed: &Closed, line: &str, budget: bool) -> String {
              again"
         ),
         "declined" => format!("❎ **Declined** by {by} · {line}"),
+        // An approval that trusted the session again says so (theseus-9bp).
+        "approved" if !note.is_empty() => format!("✅ **Approved** by {by}, {note} · {line}"),
         "approved" => format!("✅ **Approved** by {by} · {line}"),
         "withdrawn" => format!("↩️ **Withdrawn**: {note} · {line}"),
         "ended" => format!("⏹️ **Closed**: the session's work ended · {line}"),

@@ -64,6 +64,10 @@ pub mod method {
     /// Undo a tightening: the tool goes back to what the config says. It
     /// loosens, so it takes the same trusted answer as an approval.
     pub const POLICY_UNTIGHTEN: &str = "policy.untighten";
+    /// Trust a session again (theseus-9bp): it no longer holds external
+    /// text, so its calls that act go back to their postures. It loosens, so
+    /// it takes the same trusted answer as an approval.
+    pub const POLICY_TRUST: &str = "policy.trust";
     /// Tasks (DD7): the child sessions conversations started, with state and
     /// spend.
     pub const TASK_LIST: &str = "task.list";
@@ -76,7 +80,7 @@ pub mod method {
     pub const WAKE_CANCEL: &str = "wake.cancel";
 
     /// Every method, so a server can say which only read (theseus-2fo).
-    pub const ALL: [&str; 30] = [
+    pub const ALL: [&str; 31] = [
         HEALTH,
         SESSION_OPEN,
         SESSION_LIST,
@@ -103,6 +107,7 @@ pub mod method {
         NARRATIVE_UNWATCH,
         POLICY_TIGHTEN,
         POLICY_UNTIGHTEN,
+        POLICY_TRUST,
         TASK_LIST,
         TASK_CANCEL,
         WAKE_LIST,
@@ -142,6 +147,9 @@ pub mod notify {
     /// holds for every session. The params are a `TightenResult`.
     pub const POLICY_TIGHTENED: &str = "policy.tightened";
     pub const POLICY_UNTIGHTENED: &str = "policy.untightened";
+    /// The operator trusted a session again (theseus-9bp), to the session's
+    /// watchers. The params are a `TrustResult`.
+    pub const SESSION_TRUSTED: &str = "session.trusted";
     /// A Theseus job's process tried to answer an approval, reset the spend,
     /// or undo a tightening, and was refused (theseus-6qy): a security event,
     /// to every connection. The params are the `approval.refused` ledger
@@ -348,6 +356,11 @@ pub struct HealthResult {
     /// soonest first (DD8).
     #[serde(default)]
     pub wakes: Vec<WakeInfo>,
+    /// The sessions that hold external text (theseus-9bp), the longest-held
+    /// first: in each, a call that acts waits for approval until the operator
+    /// trusts it again.
+    #[serde(default)]
+    pub external_text: Vec<ExternalTextInfo>,
 }
 
 /// Where the vault's secrets stand (theseus-qa0, spec §2 FAST): the daemon
@@ -575,6 +588,79 @@ pub struct TightenResult {
     /// The tool was tightened already, so nothing was recorded.
     #[serde(default)]
     pub already: bool,
+}
+
+/// What made a session hold external text (theseus-9bp, spec §3.9): the first
+/// result marked `external` that entered its context since the operator last
+/// trusted it, or the hold it took from another session. From then on, every
+/// call whose class is not `read` waits for the operator's approval.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalText {
+    /// When the session came to hold it.
+    pub since_ms: u64,
+    /// The tool whose result it was (`http.fetch`, `web.search`). A hold
+    /// taken from another session names that session's first source.
+    pub tool: String,
+    /// Where the text came from: the page's final URL, or the search's
+    /// request.
+    pub url: String,
+    /// The node that brought it into this session: the result, a task's
+    /// brief, or a task's report.
+    pub node_id: String,
+    /// The session it came from, when this one took it from another.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_session: Option<String>,
+    /// How it came from there: `task.create` (a task that a session holding
+    /// it started) or `task.report` (a report from a task that held it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
+}
+
+/// A session that holds external text, as health lists it (theseus-9bp).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalTextInfo {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The task's short id, when the session is a task's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    pub held: ExternalText,
+}
+
+/// `policy.trust`: the session no longer holds external text.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PolicyTrustParams {
+    pub session_id: String,
+    /// Who trusted it, as a label. Default: the connection. It names and
+    /// proves nothing; the connection's surface decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// What a trust cleared, and who cleared it: `policy.trust`'s result, and the
+/// params of `session.trusted`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrustResult {
+    pub session_id: String,
+    /// Who trusted it, as a label.
+    pub by: String,
+    /// Who, as the approval rule knows them, and the channel it came through.
+    #[serde(default)]
+    pub who: String,
+    #[serde(default)]
+    pub via: String,
+    /// `policy.trust`, or `action.confirm` for an approval that trusted the
+    /// session too.
+    pub how: String,
+    /// The approval that trusted it, when one did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    pub at_ms: u64,
+    /// The hold it cleared.
+    pub held: ExternalText,
 }
 
 /// `[approval]` as health reports it (spec §3.9 "Approval"): the trusted
@@ -1222,6 +1308,10 @@ pub struct SessionInfo {
     /// A task's carved limit, in US dollars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit_usd: Option<f64>,
+    /// The session holds external text (theseus-9bp): what it read, and
+    /// since when. Its calls that act wait until the operator trusts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_text: Option<ExternalText>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1574,6 +1664,10 @@ pub struct ConfirmRequest {
     /// The task that asks, when a task does (DD7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<TaskRef>,
+    /// The call waits because its session read external text (theseus-9bp):
+    /// what it read. An approval with `trust` clears that as well.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_text: Option<ExternalText>,
 }
 
 /// What a budget question asks about (theseus-0sg): the session reached its
@@ -1614,6 +1708,11 @@ pub struct ActionConfirmParams {
     /// Set by the Discord binding: the channel and user the answer came from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discord: Option<DiscordOrigin>,
+    /// Approve, and trust the session again (theseus-9bp): it no longer holds
+    /// external text, so its calls that act go back to their postures. Only
+    /// with `approve`; the answer's judgment covers it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trust: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

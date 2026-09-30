@@ -26,7 +26,9 @@ export interface TranscriptProps {
   results: Record<string, TurnResult>
   errors: Record<string, TurnError>
   traces: Record<string, Span | null>
-  onConfirm: (correlationId: string, approve: boolean, note: string) => Promise<void>
+  /// `trust` (theseus-9bp): approve, and trust the session again, so it no longer holds
+  /// external text.
+  onConfirm: (correlationId: string, approve: boolean, note: string, trust?: boolean) => Promise<void>
   onLoadTrace: (turnId: string) => void
   now: number
   /// Tool → its tightening ("should have asked", theseus-sgh), from health.
@@ -107,20 +109,25 @@ function ConfirmCard({ c, onConfirm, now }: { c: ConfirmRequest; onConfirm: Tran
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const left = Math.max(0, Math.round((c.expires_at_ms - now) / 1000))
-  const answer = async (approve: boolean) => {
+  const answer = async (approve: boolean, trust = false) => {
     setBusy(true); setErr(null)
-    try { await onConfirm(c.correlation_id, approve, note) } catch (e) { setErr((e as { message?: string }).message ?? String(e)); setBusy(false) }
+    try { await onConfirm(c.correlation_id, approve, note, trust) } catch (e) { setErr((e as { message?: string }).message ?? String(e)); setBusy(false) }
   }
+  // It waits because its session read external text (theseus-9bp).
+  const ext = c.external_text
   return (
     <div className={`confirm ${c.floor ? 'floor' : ''}`}>
       <div className="confirm-head"><b>{c.tool}</b> {c.floor
         ? <><span className="pill bad">floor</span> touches Theseus's own state or secrets; it always asks</>
+        : ext ? <><span className="pill warn">external text</span> this session read {ext.tool} {clip(ext.url, 80)}, so a call that acts waits</>
         : 'needs your confirmation'}</div>
       <div className="muted small">{c.reason}</div>
       <Preview tool={c.tool} input={c.input} />
       <div className="confirm-actions">
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note (optional; the model sees it on a decline)" disabled={busy} />
         <button type="button" className="approve" disabled={busy} onClick={() => void answer(true)}>Approve</button>
+        {ext && <button type="button" className="approve" disabled={busy} onClick={() => void answer(true, true)}
+          title="Approve this call, and trust the session again: its later calls that act run at their postures, until it reads external text again">Approve + trust session</button>}
         <button type="button" className="decline" disabled={busy} onClick={() => void answer(false)}>Decline</button>
       </div>
       <div className="muted small">

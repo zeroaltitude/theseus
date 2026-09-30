@@ -87,6 +87,9 @@ export interface Health {
   tightenings?: Tightening[]
   /// The wakes conversations set with `wake.at` that have not run yet, soonest first (DD8).
   wakes?: WakeInfo[]
+  /// The sessions that read external text, the longest-held first (theseus-9bp): each one's
+  /// calls that act wait until the operator trusts it again.
+  external_text?: ExternalTextInfo[]
   /// Where the vault's secrets stand: the daemon serves before they resolve (theseus-qa0).
   secrets?: SecretsStatus
   /// Where the config came from, and whether the vault has confirmed the copy this start
@@ -153,6 +156,29 @@ export interface Tightening {
   correlation_id?: string | null; session_id?: string | null; digest?: string | null
 }
 
+/// What made a session hold external text (theseus-9bp): the first page or search it read
+/// since it was last trusted, or the hold it took from another session (`via`
+/// `task.create` or `task.report`, from `from_session`).
+export interface ExternalText {
+  since_ms: number; tool: string; url: string; node_id: string
+  from_session?: string | null; via?: string | null
+}
+
+/// A session that holds external text, as health lists it.
+export interface ExternalTextInfo {
+  session_id: string; title?: string | null
+  /// The task's short id, when the session is a task's.
+  task?: string | null
+  held: ExternalText
+}
+
+/// What `policy.trust` cleared, and who cleared it.
+export interface TrustResult {
+  session_id: string; by: string; who?: string; via?: string
+  /// `policy.trust`, or `action.confirm` for an approval that trusted the session too.
+  how: string; correlation_id?: string | null; at_ms: number; held: ExternalText
+}
+
 /// What `policy.tighten` or `policy.untighten` did; also the params of `policy.tightened`
 /// and `policy.untightened`.
 export interface TightenResult {
@@ -206,6 +232,8 @@ export interface SessionInfo {
   pending_confirms?: number
   /** A task session (DD7): the session that started it, and its carved limit. */
   parent_session_id?: string | null; limit_usd?: number | null
+  /** The session read external text (theseus-9bp): its calls that act wait until trusted. */
+  external_text?: ExternalText | null
 }
 
 /// An execution's budget in US dollars (theseus-0sg). `spent_usd` counts since the last reset;
@@ -290,6 +318,9 @@ export interface ConfirmRequest {
   requested_at_ms: number; expires_at_ms: number; floor?: boolean
   /// Set when `tool` is `budget.reset`; `reason` is the question in words.
   budget?: BudgetAsk | null
+  /// The call waits because its session read external text (theseus-9bp): approving with
+  /// `trust` clears that too.
+  external_text?: ExternalText | null
 }
 
 export interface SessionHistory { session: SessionInfo; nodes: NodeInfo[]; pending_confirms: ConfirmRequest[] }

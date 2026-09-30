@@ -41,6 +41,7 @@ Quick start:
   theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
+  theseus policy trust <session>             after a session read a web page, its calls that act wait; this trusts it again
   theseus catalog                            models, context windows, and prices
   theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn
   theseus shutdown
@@ -152,6 +153,10 @@ enum Cmd {
         /// Return as soon as the answer is recorded instead of following the resumed turn.
         #[arg(long)]
         no_wait: bool,
+        /// Approve, and trust the call's session again: it no longer holds external text, so
+        /// its later calls that act run at their postures (as `theseus policy trust` does).
+        #[arg(long, conflicts_with = "decline")]
+        trust: bool,
     },
     /// The toollets: class, backend, what policy does with each, and calls so far.
     Tools {
@@ -249,6 +254,13 @@ enum PolicyCmd {
     /// Undo a tightening: TOOL goes back to what the config says. It loosens, so it counts only
     /// where an approval would.
     Untighten { tool: String },
+    /// Trust SESSION again: it no longer holds the external text it read (a web page, a
+    /// search), so its calls that act run at their postures again. It loosens, so it counts
+    /// only where an approval would. SESSION is its id, or at least its last four characters.
+    Trust {
+        #[arg(value_name = "SESSION")]
+        session: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -633,6 +645,7 @@ async fn run(cli: Cli) -> Result<()> {
             decline,
             note,
             no_wait,
+            trust,
         } => {
             let Some(corr) = correlation_id else {
                 // Everything waiting, across sessions.
@@ -663,6 +676,7 @@ async fn run(cli: Cli) -> Result<()> {
                         watch: !no_wait,
                         author: None,
                         discord: None,
+                        trust,
                     })?,
                     |m, p| printer.on(m, p),
                 )
@@ -790,6 +804,9 @@ async fn run(cli: Cli) -> Result<()> {
                     let l: ToolListResult = serde_json::from_value(tools)?;
                     let h: HealthResult = serde_json::from_value(health)?;
                     print!("{}", policy_list(&l, &h.tightenings));
+                    if let Some(line) = external_line(&h.external_text) {
+                        println!("{line}");
+                    }
                 }
             }
             PolicyCmd::Tighten { tool, call } => {
@@ -827,6 +844,30 @@ async fn run(cli: Cli) -> Result<()> {
                     println!("{}", serde_json::to_string(&v)?);
                 } else {
                     println!("{}", tightened_line(&serde_json::from_value(v)?, false));
+                }
+            }
+            PolicyCmd::Trust { session } => {
+                // A short name is looked for among the sessions that hold
+                // external text (theseus-9bp), which health lists.
+                let h: HealthResult = serde_json::from_value(
+                    conn.call(method::HEALTH, Value::Null, |_, _| {}).await?,
+                )?;
+                let session_id = trust_target(&h.external_text, &session)?;
+                let v = conn
+                    .call(
+                        method::POLICY_TRUST,
+                        serde_json::to_value(theseus_protocol::PolicyTrustParams {
+                            session_id,
+                            author: None,
+                            discord: None,
+                        })?,
+                        |_, _| {},
+                    )
+                    .await?;
+                if json {
+                    println!("{}", serde_json::to_string(&v)?);
+                } else {
+                    println!("{}", trusted_line(&serde_json::from_value(v)?));
                 }
             }
         },
@@ -979,6 +1020,9 @@ async fn run(cli: Cli) -> Result<()> {
                         "tightened (should have asked): {} · undo: theseus policy untighten <tool>",
                         t.join(", ")
                     );
+                }
+                if let Some(line) = external_line(&h.external_text) {
+                    println!("{line}");
                 }
             }
         }
@@ -2015,6 +2059,97 @@ fn wake_line(w: &theseus_protocol::WakeInfo, now_ms: u64) -> String {
 
 /// `wakes: 2 pending · next 3f9a1c 2026-09-30 13:15:00 -07:00 (in 9m): check
 /// the build`, or nothing when none is pending.
+/// The sessions that hold external text (theseus-9bp), as health and `policy
+/// list` say them: how many, the first three with what each read and since
+/// when, and the way to trust one again.
+fn external_line(held: &[theseus_protocol::ExternalTextInfo]) -> Option<String> {
+    if held.is_empty() {
+        return None;
+    }
+    let each: Vec<String> = held
+        .iter()
+        .take(3)
+        .map(|i| {
+            let url: String = i.held.url.chars().take(60).collect();
+            let name = match &i.task {
+                Some(t) => format!("task {t}"),
+                None => short_id(&i.session_id),
+            };
+            format!(
+                "{name} since {} ({} {url}{})",
+                fmt_time(i.held.since_ms),
+                i.held.tool,
+                match i.held.via.as_deref() {
+                    Some("task.create") => ", from the session that started it",
+                    Some("task.report") => ", from a task's report",
+                    _ => "",
+                }
+            )
+        })
+        .collect();
+    let more = match held.len() {
+        n if n > 3 => format!(", and {} more", n - 3),
+        _ => String::new(),
+    };
+    Some(format!(
+        "external text: {} session{} read it, so their calls that act wait: {}{more} · trust one \
+         again: theseus policy trust <session>",
+        held.len(),
+        if held.len() == 1 { "" } else { "s" },
+        each.join("; ")
+    ))
+}
+
+/// A session id as people name it: `…` and its last six characters.
+fn short_id(id: &str) -> String {
+    let n = id.chars().count();
+    format!(
+        "…{}",
+        id.chars().skip(n.saturating_sub(6)).collect::<String>()
+    )
+}
+
+/// The session `policy trust` names (theseus-9bp): its whole id, or at least
+/// its last four characters among the sessions that hold external text.
+fn trust_target(held: &[theseus_protocol::ExternalTextInfo], session: &str) -> Result<String> {
+    let s = session.trim().trim_start_matches('…');
+    if s.len() < 4 {
+        anyhow::bail!(
+            "`{session}` is too short to name a session: give at least four characters of its id"
+        );
+    }
+    let found: Vec<&str> = held
+        .iter()
+        .map(|i| i.session_id.as_str())
+        .filter(|id| *id == s || id.ends_with(s))
+        .collect();
+    match found.as_slice() {
+        [one] => Ok(one.to_string()),
+        [] if s.starts_with("ses_") => Ok(s.to_string()),
+        [] => anyhow::bail!(
+            "no session that holds external text is named `{session}` (theseus health lists them)"
+        ),
+        more => anyhow::bail!(
+            "`{session}` names {} sessions: give more of its id",
+            more.len()
+        ),
+    }
+}
+
+/// What `theseus policy trust` prints: the session, what it had read, and
+/// that its calls that act run at their postures again.
+fn trusted_line(r: &theseus_protocol::TrustResult) -> String {
+    format!(
+        "trusted session {} again (by {}) · it had read {} {} since {} · its calls that act run \
+         at their postures again, until it reads external text again",
+        r.session_id,
+        r.by,
+        r.held.tool,
+        r.held.url,
+        fmt_time(r.held.since_ms)
+    )
+}
+
 fn wakes_line(wakes: &[theseus_protocol::WakeInfo], now_ms: u64) -> Option<String> {
     let next = wakes.iter().min_by_key(|w| w.due_at_ms)?;
     let note: String = next
@@ -2215,12 +2350,21 @@ fn print_confirm(c: &ConfirmRequest) {
         return;
     }
     println!(
-        "  ? {} waits for you in {}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --decline {}",
+        "  ? {} waits for you in {}: {}\n      input: {}\n      approve: theseus confirm {}{}\n      decline: theseus confirm --decline {}",
         c.tool,
         c.session_id,
         c.reason,
         clip(&c.input.to_string(), 200),
         c.correlation_id,
+        // It waits because its session read external text (theseus-9bp).
+        if c.external_text.is_some() {
+            format!(
+                "\n      approve, and trust the session again: theseus confirm --trust {}",
+                c.correlation_id
+            )
+        } else {
+            String::new()
+        },
         c.correlation_id
     );
 }
@@ -2383,12 +2527,22 @@ impl Printer {
                         return;
                     }
                     eprintln!(
-                        "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}\n      decline: theseus confirm --decline {}",
+                        "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}{}\n      decline: theseus confirm --decline {}",
                         c.tool,
                         if c.floor { " (FLOOR)" } else { "" },
                         c.reason,
                         clip(&c.input.to_string(), 200),
                         c.correlation_id,
+                        // It waits because its session read external text
+                        // (theseus-9bp).
+                        if c.external_text.is_some() {
+                            format!(
+                                "\n      approve, and trust the session again: theseus confirm --trust {}",
+                                c.correlation_id
+                            )
+                        } else {
+                            String::new()
+                        },
                         c.correlation_id
                     );
                 }

@@ -231,10 +231,12 @@ export default function App() {
     }
   }, [client, input, loadHistory, pick, refreshHealth, refreshSessions, status])
 
-  const onConfirm = useCallback(async (correlationId: string, approve: boolean, note: string) => {
-    await client.call('action.confirm', { correlation_id: correlationId, approve, note: note || undefined })
+  const onConfirm = useCallback(async (correlationId: string, approve: boolean, note: string, trust?: boolean) => {
+    // `trust` (theseus-9bp): approve, and trust the session again.
+    await client.call('action.confirm', { correlation_id: correlationId, approve, note: note || undefined, trust: trust || undefined })
     scheduleHistory(); scheduleSessions(); setTick((t) => t + 1)
-  }, [client, scheduleHistory, scheduleSessions])
+    if (trust) void refreshHealth()
+  }, [client, scheduleHistory, scheduleSessions, refreshHealth])
 
   // "Should have asked" on a notice (theseus-sgh): the tool asks first from now on.
   const onTighten = useCallback(async (tool: string, correlationId: string) => {

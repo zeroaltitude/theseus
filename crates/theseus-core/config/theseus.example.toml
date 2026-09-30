@@ -207,6 +207,11 @@ search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Bra
 enforcement = "notify"                  # open | notify | approve: what every tool and MCP inherits (built-in default: open)
 allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
 approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"]]  # proc.run waits for your approval on these (op and theseusd are on the floor)
+# After a session reads web text (http.fetch, web.search), every call that acts
+# (writes, proc.run, task.create, wake.at) waits for your approval, the allow
+# list's too, until you trust the session again (`theseus policy trust <session>`,
+# or "Approve + trust session" on the card). Reads keep their postures.
+external_text = "ask"                   # ask | notify: notify runs those calls with a notice instead
 
 # Per-tool postures, one line for every tool (keep it that way as tools are
 # added). A set line overrides enforcement; a commented one inherits it.

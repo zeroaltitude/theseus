@@ -1046,7 +1046,12 @@ impl Shared {
                     self.should_have_asked(&i, asked, &who, discord).await;
                     return;
                 }
-                let Some((approve, corr)) = parse_confirm_id(&c.custom_id) else {
+                let Some(Press {
+                    approve,
+                    trust,
+                    corr,
+                }) = parse_confirm_id(&c.custom_id)
+                else {
                     return;
                 };
                 // Acknowledge now (Discord allows three seconds), answer the kernel, then settle the message.
@@ -1083,6 +1088,7 @@ impl Shared {
                             watch: false,
                             author: Some(who.clone()),
                             discord,
+                            trust,
                         },
                     )
                     .await;
@@ -1094,7 +1100,7 @@ impl Shared {
                         self.core.binding_ledger(
                             "discord.confirm",
                             None,
-                            json!({"correlation_id": corr, "approve": approve, "by": who, "ok": false, "refused": true, "error": e.message}),
+                            json!({"correlation_id": corr, "approve": approve, "trust": trust, "by": who, "ok": false, "refused": true, "error": e.message}),
                         );
                         let why = e.data.get("why").and_then(Value::as_str);
                         self.followup(
@@ -1121,6 +1127,9 @@ impl Shared {
                     })
                     .unwrap_or_default();
                 let content = match &r {
+                    Ok(_) if trust => {
+                        format!("✅ **Approved** by {who}, and trusted the session again · {line}")
+                    }
                     Ok(_) if approve => format!("✅ **Approved** by {who} · {line}"),
                     Ok(_) => format!("❎ **Declined** by {who} · {line}"),
                     Err(e) => format!("⚠️ Could not answer: {e} · {line}"),
@@ -1128,7 +1137,7 @@ impl Shared {
                 self.core.binding_ledger(
                     "discord.confirm",
                     None,
-                    json!({"correlation_id": corr, "approve": approve, "by": who, "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
+                    json!({"correlation_id": corr, "approve": approve, "trust": trust, "by": who, "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
                 );
                 // An outbox card is settled by its settle post, which the
                 // answer just wrote (theseus-q4v); a card from before the
@@ -1422,15 +1431,31 @@ fn terminal(state: Option<&str>) -> bool {
     )
 }
 
-/// `confirm:approve:<corr>` / `confirm:decline:<corr>`.
-fn parse_confirm_id(id: &str) -> Option<(bool, String)> {
+/// What a card's button asks: approve, and whether to trust the session
+/// again too (theseus-9bp), for one correlation id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Press {
+    approve: bool,
+    trust: bool,
+    corr: String,
+}
+
+/// `confirm:approve:<corr>`, `confirm:trust:<corr>` (approve, and trust the
+/// session again), or `confirm:decline:<corr>`.
+fn parse_confirm_id(id: &str) -> Option<Press> {
     let rest = id.strip_prefix("confirm:")?;
     let (verb, corr) = rest.split_once(':')?;
-    match verb {
-        "approve" => Some((true, corr.to_string())),
-        "decline" => Some((false, corr.to_string())),
-        _ => None,
-    }
+    let (approve, trust) = match verb {
+        "approve" => (true, false),
+        "trust" => (true, true),
+        "decline" => (false, false),
+        _ => return None,
+    };
+    Some(Press {
+        approve,
+        trust,
+        corr: corr.to_string(),
+    })
 }
 
 /// A notification every place gets, whatever session it names.
@@ -1577,7 +1602,10 @@ fn tightened_reply(tool: &str, r: &Result<TightenResult, CallError>) -> String {
     }
 }
 
-pub(crate) fn confirm_buttons(corr: &str) -> Vec<Component> {
+/// Approve and Decline, and with `trust` (theseus-9bp) "Approve + trust
+/// session" between them, for a call that waits because its session read
+/// external text.
+pub(crate) fn confirm_buttons(corr: &str, trust: bool) -> Vec<Component> {
     let button = |verb: &str, label: &str, style| {
         Component::Button(Button {
             id: None,
@@ -1590,12 +1618,18 @@ pub(crate) fn confirm_buttons(corr: &str) -> Vec<Component> {
             sku_id: None,
         })
     };
+    let mut components = vec![button("approve", "Approve", ButtonStyle::Success)];
+    if trust {
+        components.push(button(
+            "trust",
+            "Approve + trust session",
+            ButtonStyle::Primary,
+        ));
+    }
+    components.push(button("decline", "Decline", ButtonStyle::Danger));
     vec![Component::ActionRow(ActionRow {
         id: None,
-        components: vec![
-            button("approve", "Approve", ButtonStyle::Success),
-            button("decline", "Decline", ButtonStyle::Danger),
-        ],
+        components,
     })]
 }
 
@@ -2221,13 +2255,24 @@ mod tests {
         assert_eq!(parse_control("/status"), Some(Control::Status));
         assert_eq!(parse_control("please /stop"), None);
         assert_eq!(parse_control("/stopper"), None);
+        let press = |approve, trust, corr: &str| Press {
+            approve,
+            trust,
+            corr: corr.into(),
+        };
         assert_eq!(
             parse_confirm_id("confirm:approve:act_1"),
-            Some((true, "act_1".into()))
+            Some(press(true, false, "act_1"))
         );
         assert_eq!(
             parse_confirm_id("confirm:decline:act_2"),
-            Some((false, "act_2".into()))
+            Some(press(false, false, "act_2"))
+        );
+        // "Approve + trust session" (theseus-9bp): an approval that trusts
+        // the session again as well.
+        assert_eq!(
+            parse_confirm_id("confirm:trust:act_3"),
+            Some(press(true, true, "act_3"))
         );
         assert_eq!(parse_confirm_id("confirm:maybe:x"), None);
         assert_eq!(parse_confirm_id("other"), None);
@@ -2268,19 +2313,39 @@ mod tests {
 
     #[test]
     fn confirm_buttons_carry_the_correlation_id() {
-        let c = confirm_buttons("act_9");
-        let Component::ActionRow(row) = &c[0] else {
-            panic!()
+        let ids = |trust| {
+            let c = confirm_buttons("act_9", trust);
+            let Component::ActionRow(row) = &c[0] else {
+                panic!()
+            };
+            row.components
+                .iter()
+                .map(|b| match b {
+                    Component::Button(b) => {
+                        (b.custom_id.clone().unwrap(), b.label.clone().unwrap())
+                    }
+                    _ => panic!(),
+                })
+                .collect::<Vec<_>>()
         };
-        let ids: Vec<_> = row
-            .components
-            .iter()
-            .map(|b| match b {
-                Component::Button(b) => b.custom_id.clone().unwrap(),
-                _ => panic!(),
-            })
-            .collect();
-        assert_eq!(ids, vec!["confirm:approve:act_9", "confirm:decline:act_9"]);
+        let plain: Vec<String> = ids(false).into_iter().map(|(id, _)| id).collect();
+        assert_eq!(
+            plain,
+            vec!["confirm:approve:act_9", "confirm:decline:act_9"]
+        );
+        // A call that waits because its session read external text
+        // (theseus-9bp): the third button trusts the session again.
+        assert_eq!(
+            ids(true),
+            vec![
+                ("confirm:approve:act_9".to_string(), "Approve".to_string()),
+                (
+                    "confirm:trust:act_9".to_string(),
+                    "Approve + trust session".to_string()
+                ),
+                ("confirm:decline:act_9".to_string(), "Decline".to_string()),
+            ]
+        );
     }
 
     /// A "should have asked" choice carries the tool and its call, in the

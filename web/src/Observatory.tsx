@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList, WakeInfo } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, ExternalTextInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList, WakeInfo } from './protocol'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -179,6 +179,17 @@ export default function Observatory({ client, health, tick, currentSession, onRe
     if (!confirm(`Cancel wake ${w.short}, due ${w.due_local}? Its turn will not run: "${w.note}"`)) return
     try {
       await client.call('wake.cancel', { wake: w.wake_id })
+      await refresh()
+    } catch (err) { setError((err as { message?: string }).message ?? String(err)) }
+  }, [client, refresh])
+
+  // The sessions that read external text (theseus-9bp): health lists them, and a trust
+  // is `policy.trust`, judged as an approval is.
+  const external: ExternalTextInfo[] = health?.external_text ?? []
+  const trust = useCallback(async (i: ExternalTextInfo) => {
+    if (!confirm(`Trust ${i.task ? `task ${i.task}` : i.title ?? i.session_id} again? It read ${i.held.tool} ${i.held.url}; its calls that act will run at their postures, without asking, until it reads external text again.`)) return
+    try {
+      await client.call('policy.trust', { session_id: i.session_id })
       await refresh()
     } catch (err) { setError((err as { message?: string }).message ?? String(err)) }
   }, [client, refresh])
@@ -532,6 +543,25 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                   <td><button type="button" className="link" onClick={() => onPickSession?.(w.session_id)}>{w.session_title ?? short(w.session_id)}</button> <State s={w.state} /></td>
                   <td>{w.note}</td>
                   <td><button type="button" className="link danger" onClick={() => void cancelWake(w)}>cancel</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </ObsSection>
+
+      <ObsSection id="external" title="External text" open={open.external ?? true} onToggle={() => toggle('external')} count={`${external.length} session${external.length === 1 ? '' : 's'}`}>
+        {external.length === 0 ? <div className="muted pad">none: once a session reads a web page or a search (<code>http.fetch</code>, <code>web.search</code>), its calls that act wait for your approval, until you trust it again</div> : (
+          <table className="obs-table">
+            <thead><tr><th>session</th><th>since</th><th>read</th><th>how</th><th></th></tr></thead>
+            <tbody>
+              {external.map((i) => (
+                <tr key={i.session_id} className={i.session_id === currentSession ? 'mine' : ''} title={`${i.session_id}\nnode ${i.held.node_id}`}>
+                  <td><button type="button" className="link" onClick={() => onPickSession?.(i.session_id)}>{i.task ? `task ${i.task}` : i.title ?? short(i.session_id)}</button></td>
+                  <td className="muted small" title={clock(i.held.since_ms)}>{ago(i.held.since_ms, now)}</td>
+                  <td className="small"><code>{i.held.tool}</code> {i.held.url}</td>
+                  <td className="muted small">{i.held.via === 'task.create' ? `from the session that started it (${short(i.held.from_session ?? '')})` : i.held.via === 'task.report' ? `from task ${short(i.held.from_session ?? '')}'s report` : 'read here'}</td>
+                  <td><button type="button" className="link danger" onClick={() => void trust(i)}>trust again</button></td>
                 </tr>
               ))}
             </tbody>

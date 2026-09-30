@@ -400,6 +400,11 @@ pub struct PolicyConfig {
     /// `"server/tool"` (one tool), for tools named `mcp:<server>/<tool>`.
     #[serde(default)]
     pub mcp: BTreeMap<String, crate::policy::Posture>,
+    /// After a session reads external text (theseus-9bp): `ask`, the default,
+    /// makes a call that acts wait for approval; `notify` runs it with a
+    /// notice at least. Either holds until the operator trusts the session.
+    #[serde(default)]
+    pub external_text: crate::external::Mode,
 }
 
 fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
@@ -435,6 +440,7 @@ impl Default for PolicyConfig {
             approve_argv: default_approve_argv(),
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
+            external_text: Default::default(),
         }
     }
 }

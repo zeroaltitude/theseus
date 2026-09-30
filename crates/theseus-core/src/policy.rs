@@ -137,6 +137,11 @@ pub struct Decision {
     /// (theseus-dcy). Its tool line and its notice say so.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub granted: Option<String>,
+    /// The call waits (or is notified) because its session read external
+    /// text (theseus-9bp): what it read. Set only when that is what raised
+    /// the posture, so its card can offer to trust the session again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external: Option<theseus_protocol::ExternalText>,
 }
 
 impl Decision {
@@ -147,6 +152,7 @@ impl Decision {
             notify: None,
             floor: false,
             granted: None,
+            external: None,
         }
     }
 
