@@ -729,6 +729,10 @@ pub struct KernelStatus {
     /// spend_limit_usd`).
     #[serde(default)]
     pub spend_limit_usd: f64,
+    /// Job wrappers whose command has exited, each still waiting for the
+    /// descendants that outlived it (theseus-6qy).
+    #[serde(default)]
+    pub lingering_wrappers: u64,
 }
 
 /// One execution as the protocol shows it (spec §3.15).

@@ -344,6 +344,10 @@ export default function Observatory({ client, health, tick, currentSession, onRe
               Object.entries(k.actions_by_state).map(([s, n]) => <span key={s} className="count"><b>{n}</b> <State s={s} /></span>)}</div>
             <div><span className="muted">quarantined completions</span> <b className={k.quarantined_completions ? 'warn' : ''}>{k.quarantined_completions}</b>
               <span className="muted"> (results that matched no action; never inferred into anything)</span></div>
+            {!!k.lingering_wrappers && (
+              <div><span className="muted">lingering job wrappers</span> <b>{k.lingering_wrappers}</b>
+                <span className="muted"> (a command exited and left processes running; each wrapper waits for them, so they stay under their job)</span></div>
+            )}
             <div><span className="muted">ledger rows</span> <b>{fmt(health!.ledger_rows)}</b> <span className="muted">· uptime</span> <b>{fmt(health!.uptime_secs)}</b><span className="muted"> s</span></div>
             {startup?.steps && (
               <div className="startup">

@@ -6,6 +6,8 @@
 //! - `<correlation_id>.json`        a `Completion`, written tmp+rename
 //! - `<correlation_id>.json.tmp`    in flight; never read
 //! - `pids/<correlation_id>`        the wrapper's pid while it runs
+//! - `lingering/<correlation_id>`   the wrapper's pid while it waits, its command done,
+//!   for descendants that outlived the command (theseus-6qy)
 //! - `results/<correlation_id>.out` captured output the completion's `result_ref` points at
 //! - `malformed/`                   files that did not parse, moved aside and surfaced
 
@@ -32,6 +34,7 @@ impl Spool {
     pub fn open(dir: &Path) -> Result<Self> {
         fs::create_dir_all(dir)?;
         fs::create_dir_all(dir.join("pids"))?;
+        fs::create_dir_all(dir.join("lingering"))?;
         fs::create_dir_all(dir.join("results"))?;
         fs::create_dir_all(dir.join("malformed"))?;
         Ok(Self {
@@ -138,6 +141,48 @@ impl Spool {
     }
     pub fn remove_pid(&self, id: &CorrelationId) {
         let _ = fs::remove_file(self.pid_path(id));
+    }
+
+    fn lingering_path(&self, id: &str) -> PathBuf {
+        self.dir.join("lingering").join(id)
+    }
+
+    /// A wrapper whose command has exited waits for its descendants
+    /// (theseus-6qy).
+    pub fn write_lingering(&self, id: &str, pid: u32) -> Result<()> {
+        fs::create_dir_all(self.dir.join("lingering"))?;
+        fs::write(self.lingering_path(id), pid.to_string())?;
+        Ok(())
+    }
+
+    pub fn remove_lingering(&self, id: &str) {
+        let _ = fs::remove_file(self.lingering_path(id));
+    }
+
+    /// The wrappers lingering now, as (job, wrapper pid): each marker whose
+    /// pid is still that job's wrapper. A marker a killed wrapper left
+    /// behind is removed.
+    pub fn lingering(&self) -> Vec<(String, u32)> {
+        let Ok(dir) = fs::read_dir(self.dir.join("lingering")) else {
+            return vec![];
+        };
+        let mut out = Vec::new();
+        for e in dir.flatten() {
+            let id = e.file_name().to_string_lossy().into_owned();
+            let pid = fs::read_to_string(e.path())
+                .ok()
+                .and_then(|s| s.trim().parse::<u32>().ok());
+            match pid {
+                Some(pid) if crate::job::wrapper_job(pid).as_deref() == Some(id.as_str()) => {
+                    out.push((id, pid));
+                }
+                _ => {
+                    let _ = fs::remove_file(e.path());
+                }
+            }
+        }
+        out.sort();
+        out
     }
 }
 

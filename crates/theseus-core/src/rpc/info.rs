@@ -20,6 +20,7 @@ impl Core {
             quarantined_completions: st.quarantined_completions,
             startup: self.startup_report.clone(),
             spend_limit_usd: self.cfg.kernel.spend_limit_usd,
+            lingering_wrappers: self.spool.lingering().len() as u64,
         }
     }
 

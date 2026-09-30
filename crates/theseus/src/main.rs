@@ -861,13 +861,14 @@ async fn run(cli: Cli) -> Result<()> {
                     }
                 };
                 println!(
-                    "kernel: {} · turns held {}/{} · executions [{}] · actions [{}] · quarantined completions {}",
+                    "kernel: {} · turns held {}/{} · executions [{}] · actions [{}] · quarantined completions {}{}",
                     if k.accepting { "accepting" } else { "starting" },
                     k.turns_held,
                     k.admission_ceiling,
                     fmt_counts(&k.executions_by_state),
                     fmt_counts(&k.actions_by_state),
-                    k.quarantined_completions
+                    k.quarantined_completions,
+                    lingering_note(k.lingering_wrappers)
                 );
                 println!(
                     "tokens total: in {} out {} cache-read {} cache-write {}",
@@ -1202,6 +1203,16 @@ fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> String
         line.push_str(&format!("\n  fetched again in {:.0} s", ms as f64 / 1000.0));
     }
     line
+}
+
+/// The kernel line's note of job wrappers that linger for descendants their
+/// command left running (theseus-6qy); nothing when none does.
+fn lingering_note(n: u64) -> String {
+    match n {
+        0 => String::new(),
+        1 => " · 1 job wrapper lingers for what its command left running".into(),
+        n => format!(" · {n} job wrappers linger for what their commands left running"),
+    }
 }
 
 /// `config: vault (confirmed in 1034 ms)`, `config: confirming …`, or
@@ -2018,6 +2029,21 @@ mod tests {
             input_schema: Value::Null,
             calls: 0,
         }
+    }
+
+    /// The kernel line counts the job wrappers that linger, and says nothing
+    /// when none does (theseus-6qy).
+    #[test]
+    fn the_kernel_line_counts_lingering_wrappers() {
+        assert_eq!(lingering_note(0), "");
+        assert_eq!(
+            lingering_note(1),
+            " · 1 job wrapper lingers for what its command left running"
+        );
+        assert_eq!(
+            lingering_note(3),
+            " · 3 job wrappers linger for what their commands left running"
+        );
     }
 
     /// `theseus policy list` says what set each posture, and marks a

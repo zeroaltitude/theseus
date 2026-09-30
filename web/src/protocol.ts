@@ -22,6 +22,8 @@ export interface KernelStatus {
   quarantined_completions: number; startup: unknown
   /// The spend limit a new session gets, in US dollars.
   spend_limit_usd?: number
+  /// Job wrappers whose command has exited, waiting for what it left running (theseus-6qy).
+  lingering_wrappers?: number
 }
 
 export interface Health {

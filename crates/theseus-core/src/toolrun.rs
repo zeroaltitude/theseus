@@ -49,7 +49,12 @@ pub struct WrapperLauncher {
 
 impl JobLauncher for WrapperLauncher {
     fn launch(&self, spool: &Spool, args: &WrapperArgs) -> Result<u32> {
-        spawn_detached(&self.self_exe, &["job-wrapper"], spool, args)
+        spawn_detached(
+            &self.self_exe,
+            &[theseus_kernel::job::WRAPPER_MODE],
+            spool,
+            args,
+        )
     }
 }
 

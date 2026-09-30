@@ -149,9 +149,10 @@ fn main() -> Result<()> {
         return out(theseus_discord::EXAMPLE_BINDINGS);
     }
     if let Some(Cmd::JobWrapper { args }) = cli.cmd {
-        // No config, no secrets: the wrapper only runs a command and spools.
+        // No config, no secrets, no threads: the wrapper runs a command,
+        // spools its result, and waits for what the command left running.
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
-        return theseus_kernel::job::run_wrapper(&wa);
+        return theseus_kernel::job::run_wrapper_process(&wa);
     }
     keep_name();
     let rt = tokio::runtime::Builder::new_multi_thread()

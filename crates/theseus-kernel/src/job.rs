@@ -2,9 +2,11 @@
 //!
 //! `spawn_detached` starts *this binary* in wrapper mode as its own session
 //! (setsid), so its lifetime does not depend on the harness. The wrapper
-//! (`run_wrapper`) runs the real command, enforces its own deadline, captures
+//! (`run_wrapper_process`) runs the real command, enforces its own deadline, captures
 //! output to the spool's `results/`, writes the `Completion` to the spool
 //! (tmp+rename), then pokes the harness over a Unix socket if one is given.
+//! It is a child subreaper, so a descendant that a double fork orphans stays
+//! under it, and it lingers until the last one has exited (theseus-6qy).
 //! Cancellation kills the wrapper's process group by correlation id and
 //! verifies the pid is gone; `WrapperEvidence` is what the reconciler asks.
 
@@ -88,8 +90,46 @@ pub fn spawn_detached(
     Ok(pid)
 }
 
-/// The wrapper's body. Runs in the detached process.
+/// The mode word that puts a binary into wrapper mode. A wrapper's command
+/// line is `<binary> job-wrapper --spool … --correlation-id <id> … -- <argv>`.
+pub const WRAPPER_MODE: &str = "job-wrapper";
+
+/// The wrapper's body as its own process (`theseusd job-wrapper`).
+///
+/// It is a child subreaper (theseus-6qy): a descendant orphaned by a double
+/// fork (`setsid nohup … &`) is reparented to the wrapper, not to init, so it
+/// stays a descendant of its job, which is what the core's check of who
+/// answers an approval looks for. While the command runs, the wrapper reaps
+/// every child that exits, so orphans never pile up as zombies. It reports
+/// the command's result as `run_wrapper` does, then lingers until no
+/// descendant remains, and only then exits. It kills nothing.
+pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
+    let subreaper = set_subreaper();
+    let spool = run(args, Reap::Descendants, subreaper.err())?;
+    linger(&spool, &args.correlation_id);
+    Ok(())
+}
+
+/// The wrapper's body on a thread of this process (the tests' in-process
+/// launcher). It waits for its own command only: a thread that waited for
+/// any child, or made its process a subreaper, would take other threads'
+/// children.
 pub fn run_wrapper(args: &WrapperArgs) -> Result<()> {
+    run(args, Reap::Command, None).map(|_| ())
+}
+
+/// What a wrapper waits for while its command runs.
+#[derive(Clone, Copy)]
+enum Reap {
+    /// The command alone.
+    Command,
+    /// Every child: the command, and each descendant reparented here.
+    Descendants,
+}
+
+/// The command, its deadline, and the report. `subreaper_error` is why the
+/// wrapper could not become a subreaper, recorded in the completion.
+fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Result<Spool> {
     let spool = Spool::open(&args.spool_dir)?;
     let started = now_ms();
     let t0 = Instant::now();
@@ -106,7 +146,11 @@ pub fn run_wrapper(args: &WrapperArgs) -> Result<()> {
         command.current_dir(c);
     }
     let mut child = command.spawn();
+    drop(command);
     let mut detail = serde_json::json!({});
+    if let Some(e) = subreaper_error {
+        detail["subreaper_error"] = serde_json::Value::String(e);
+    }
     let (outcome, note) = match &mut child {
         Err(e) => {
             detail["spawn_error"] = serde_json::Value::String(e.to_string());
@@ -115,7 +159,11 @@ pub fn run_wrapper(args: &WrapperArgs) -> Result<()> {
         Ok(child) => {
             let deadline = Duration::from_millis(args.deadline_ms);
             loop {
-                match child.try_wait() {
+                let exited = match reap {
+                    Reap::Command => child.try_wait(),
+                    Reap::Descendants => reap_children(child.id()),
+                };
+                match exited {
                     Ok(Some(status)) => {
                         detail["exit_code"] = serde_json::json!(status.code());
                         #[cfg(unix)]
@@ -166,7 +214,117 @@ pub fn run_wrapper(args: &WrapperArgs) -> Result<()> {
     if let Some(sock) = &args.notify_socket {
         notify(sock, &args.correlation_id);
     }
-    Ok(())
+    Ok(spool)
+}
+
+/// Become a child subreaper: an orphaned descendant is reparented here
+/// instead of to init. The error, when there is one, says why not.
+fn set_subreaper() -> std::result::Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } == -1 {
+            return Err(format!(
+                "PR_SET_CHILD_SUBREAPER: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("a child subreaper needs Linux".into())
+    }
+}
+
+/// Reap every child that has exited, orphans reparented here among them.
+/// The command's status, when it was one of them.
+fn reap_children(command: u32) -> std::io::Result<Option<std::process::ExitStatus>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        let mut found = None;
+        loop {
+            let mut status = 0;
+            match unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) } {
+                0 => return Ok(found),
+                -1 => {
+                    let e = std::io::Error::last_os_error();
+                    match e.raw_os_error() {
+                        Some(libc::EINTR) => continue,
+                        Some(libc::ECHILD) if found.is_some() => return Ok(found),
+                        _ => return Err(e),
+                    }
+                }
+                pid if pid as u32 == command => {
+                    found = Some(std::process::ExitStatus::from_raw(status));
+                }
+                _ => {}
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = command;
+        Err(std::io::Error::other("reaping needs Unix"))
+    }
+}
+
+/// After the report: wait for every descendant that outlived the command,
+/// each reparented here as its parent exited (theseus-6qy). While any
+/// remains, the spool's `lingering/<id>` names this wrapper, which health
+/// counts. The wrapper signals nothing; it only waits.
+fn linger(spool: &Spool, correlation_id: &str) {
+    #[cfg(unix)]
+    {
+        let mut marked = false;
+        loop {
+            let mut status = 0;
+            let flags = if marked { 0 } else { libc::WNOHANG };
+            match unsafe { libc::waitpid(-1, &mut status, flags) } {
+                0 => {
+                    // Descendants remain, and none has exited: say so, then block.
+                    let _ = spool.write_lingering(correlation_id, std::process::id());
+                    marked = true;
+                }
+                -1 if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) => {}
+                // ECHILD: no descendant remains.
+                -1 => break,
+                _ => {}
+            }
+        }
+        if marked {
+            spool.remove_lingering(correlation_id);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (spool, correlation_id);
+    }
+}
+
+/// The job a live wrapper runs, from its command line (theseus-6qy): a
+/// process whose first argument is the mode word is a wrapper, and its
+/// `--correlation-id`, before the `--` that starts the job's own argv, names
+/// the job ("?" if it has none). A zombie's command line is empty, so a
+/// wrapper that has exited is none.
+pub fn wrapper_job(pid: u32) -> Option<String> {
+    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    job_in_cmdline(&cmdline)
+}
+
+/// `wrapper_job` over a NUL-separated command line, as `/proc` gives it.
+pub fn job_in_cmdline(cmdline: &[u8]) -> Option<String> {
+    let mut args = cmdline.split(|&b| b == 0);
+    args.next()?;
+    if args.next()? != WRAPPER_MODE.as_bytes() {
+        return None;
+    }
+    let own: Vec<&[u8]> = args.take_while(|a| *a != b"--").collect();
+    let id = own
+        .windows(2)
+        .find(|w| w[0] == b"--correlation-id")
+        .map(|w| String::from_utf8_lossy(w[1]).into_owned());
+    Some(id.unwrap_or_else(|| "?".into()))
 }
 
 /// Best-effort poke: one line on a Unix stream socket. Failure is fine; the
@@ -182,16 +340,32 @@ pub fn notify(sock: &Path, correlation_id: &str) {
 #[cfg(not(unix))]
 pub fn notify(_: &Path, _: &str) {}
 
-/// Is a pid alive? (`kill(pid, 0)`).
+/// Is a pid alive? It exists (`kill(pid, 0)`) and is not a zombie. A wrapper
+/// that has exited stays a zombie until its parent reaps it, and the daemon
+/// does not wait for its wrappers, so a cancel took a wrapper it had killed
+/// for alive, and settled `OutcomeUncertain` after its whole grace
+/// (theseus-6qy).
 pub fn pid_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
-        unsafe { libc::kill(pid as i32, 0) == 0 }
+        let exists = unsafe { libc::kill(pid as i32, 0) == 0 };
+        exists && !exited(pid)
     }
     #[cfg(not(unix))]
     {
         false
     }
+}
+
+/// A zombie, or a process being reaped (`/proc/<pid>/stat` state Z or X).
+fn exited(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|s| {
+            s.rfind(')')
+                .map(|i| s[i + 1..].trim_start().starts_with(['Z', 'X']))
+        })
+        .unwrap_or(false)
 }
 
 /// Terminate a wrapper's whole process group: SIGTERM, wait up to `grace`,
@@ -293,4 +467,61 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
         cwd,
         env: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cmdline(args: &[&str]) -> Vec<u8> {
+        let mut v = args.join("\0").into_bytes();
+        v.push(0);
+        v
+    }
+
+    /// A wrapper is known by its command line, as `spawn_detached` makes it,
+    /// and names its job; the job's own argv, after `--`, names nothing.
+    #[test]
+    fn a_wrapper_is_known_by_its_command_line() {
+        let wrapper = |id_args: &[&str], argv: &[&str]| {
+            let mut a = vec!["theseusd", WRAPPER_MODE, "--spool", "/s/spool"];
+            a.extend_from_slice(id_args);
+            a.extend_from_slice(&["--deadline-ms", "600000", "--"]);
+            a.extend_from_slice(argv);
+            job_in_cmdline(&cmdline(&a))
+        };
+        assert_eq!(
+            wrapper(&["--correlation-id", "act_1"], &["sh", "-c", "true"]).as_deref(),
+            Some("act_1")
+        );
+        // The job's argv cannot name another job, and a wrapper with no id is
+        // still a wrapper.
+        assert_eq!(
+            wrapper(&[], &["x", "--correlation-id", "act_2"]).as_deref(),
+            Some("?")
+        );
+        for other in [
+            cmdline(&["theseusd", "--config", "x"]),
+            cmdline(&["sh", "-c", "theseusd job-wrapper --correlation-id act_3"]),
+            cmdline(&["theseusd"]),
+            vec![],
+        ] {
+            assert_eq!(job_in_cmdline(&other), None, "{other:?}");
+        }
+    }
+
+    /// A zombie is not alive: it has exited, and waits only to be reaped.
+    #[test]
+    fn a_zombie_is_not_alive() {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        let t0 = Instant::now();
+        while !exited(pid) {
+            assert!(t0.elapsed() < Duration::from_secs(10), "true never exited");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!pid_alive(pid), "unreaped, it still answers kill(pid, 0)");
+        child.wait().unwrap();
+        assert!(pid_alive(std::process::id()));
+    }
 }
