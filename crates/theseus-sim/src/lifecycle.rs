@@ -235,6 +235,27 @@ enum Vault {
     Real(PathBuf),
 }
 
+/// A spawned `theseusd`, killed and reaped when dropped: a bench that fails
+/// anywhere, with `?` or a panic, leaves no daemon running (theseus-hee).
+struct Daemon(Child);
+
+impl Daemon {
+    /// SIGKILL, and reaped.
+    fn kill(&mut self) -> Result<()> {
+        self.0.kill()?;
+        self.0.wait()?;
+        Ok(())
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        // A daemon already reaped is not signalled again: std keeps its status.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 struct Rig {
     theseusd: PathBuf,
     /// A config file, or an `op://` note (the vault phase).
@@ -246,7 +267,7 @@ struct Rig {
 }
 
 impl Rig {
-    fn spawn(&self) -> Result<(Child, Instant)> {
+    fn spawn(&self) -> Result<(Daemon, Instant)> {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -281,7 +302,7 @@ impl Rig {
         let child = cmd
             .spawn()
             .with_context(|| format!("starting {}", self.theseusd.display()))?;
-        Ok((child, t0))
+        Ok((Daemon(child), t0))
     }
 
     /// The same rig with its config an `op://` note (the vault phase).
@@ -331,23 +352,22 @@ impl Rig {
     }
 
     /// Start a daemon and time it to its first `health` answer.
-    fn start(&self) -> Result<(Child, Start)> {
-        let (mut child, t0) = self.spawn()?;
+    fn start(&self) -> Result<(Daemon, Start)> {
+        let (mut daemon, t0) = self.spawn()?;
         let deadline = t0 + Duration::from_secs(30);
         loop {
             if let Ok(s) = UnixStream::connect(&self.sock) {
                 let h = request(s, "health", Value::Null)?;
                 let ms = t0.elapsed().as_secs_f64() * 1000.0;
-                return Ok((child, Start::from_health(ms, &h)));
+                return Ok((daemon, Start::from_health(ms, &h)));
             }
-            if let Some(status) = child.try_wait()? {
+            if let Some(status) = daemon.0.try_wait()? {
                 bail!(
                     "theseusd exited ({status}) before answering; its log ends:\n{}",
                     tail(&self.log)
                 );
             }
             if Instant::now() > deadline {
-                let _ = child.kill();
                 bail!(
                     "theseusd did not answer within 30 s; its log ends:\n{}",
                     tail(&self.log)
@@ -358,11 +378,11 @@ impl Rig {
     }
 
     /// The `shutdown` request to process exit, in ms.
-    fn stop(&self, child: &mut Child) -> Result<f64> {
+    fn stop(&self, daemon: &mut Daemon) -> Result<f64> {
         let s = UnixStream::connect(&self.sock).context("connecting to stop theseusd")?;
         let t0 = Instant::now();
         send(&s, "shutdown", Value::Null)?;
-        let status = child.wait()?;
+        let status = daemon.0.wait()?;
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
         if !status.success() {
             bail!("theseusd exited with {status} on shutdown");
@@ -370,12 +390,9 @@ impl Rig {
         Ok(ms)
     }
 
-    /// Stop a daemon however it can be stopped: a failed bench leaves none.
-    fn stop_anyhow(&self, child: &mut Child) {
-        if self.stop(child).is_err() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+    /// Stop a daemon cleanly if it can be; its guard kills it otherwise.
+    fn stop_anyhow(&self, daemon: &mut Daemon) {
+        let _ = self.stop(daemon);
     }
 
     fn call(&self, method: &str, params: Value) -> Result<Value> {
@@ -732,7 +749,6 @@ pub fn run(o: &Opts) -> Result<Report> {
             if want("kill") {
                 for _ in 0..o.runs {
                     child.kill()?;
-                    child.wait()?;
                     let (c, mut s) = rig.start()?;
                     child = c;
                     samples.entry("kill".into()).or_default().push(s.ms);

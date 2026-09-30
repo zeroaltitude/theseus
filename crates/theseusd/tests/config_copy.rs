@@ -3,14 +3,19 @@
 //! copy while the vault is read; a changed note restarts the daemon onto the
 //! vault's version through `exec`, in the same process; a comment-only change
 //! confirms; a vault that does not answer holds. The vault is a fake `op`,
-//! first on the daemon's PATH, that answers after `OP_MS`.
+//! first on the daemon's PATH, that answers after `OP_MS`. Each daemon is
+//! held by a guard that kills and reaps it, so an assertion that fails
+//! before its stop leaves none running.
+
+mod common;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use common::Daemon;
 use serde_json::{json, Value};
 use theseus_core::config_copy;
 
@@ -70,32 +75,27 @@ impl Rig {
         c
     }
 
-    fn spawn(&self) -> (Child, Instant) {
+    fn spawn(&self) -> (Daemon, Instant) {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(self.path("theseusd.log"))
             .unwrap();
         let t0 = Instant::now();
-        let child = self
-            .command()
-            .stdout(Stdio::null())
-            .stderr(log)
-            .spawn()
-            .unwrap();
-        (child, t0)
+        let daemon = Daemon::spawn(self.command().stdout(Stdio::null()).stderr(log));
+        (daemon, t0)
     }
 
     /// Spawn to the first `health` answer.
-    fn start(&self) -> (Child, Value, Duration) {
-        let (mut child, t0) = self.spawn();
-        let h = self.until(&mut child, "a first answer", |_| true);
-        (child, h, t0.elapsed())
+    fn start(&self) -> (Daemon, Value, Duration) {
+        let (mut daemon, t0) = self.spawn();
+        let h = self.until(&mut daemon, "a first answer", |_| true);
+        (daemon, h, t0.elapsed())
     }
 
     /// Ask `health` until `ok` says so, at most 15 s; a restart in between
     /// closes the socket, and the next ask finds the new one.
-    fn until(&self, child: &mut Child, what: &str, ok: impl Fn(&Value) -> bool) -> Value {
+    fn until(&self, daemon: &mut Daemon, what: &str, ok: impl Fn(&Value) -> bool) -> Value {
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             if let Ok(h) = self.call("health", Value::Null) {
@@ -103,7 +103,7 @@ impl Rig {
                     return h;
                 }
             }
-            if let Some(status) = child.try_wait().unwrap() {
+            if let Some(status) = daemon.try_wait() {
                 panic!("theseusd exited ({status}) before {what}:\n{}", self.log());
             }
             assert!(
@@ -137,14 +137,17 @@ impl Rig {
         }
     }
 
-    fn stop(&self, mut child: Child) {
+    /// The protocol's `shutdown`, to the process's exit: a clean stop. The
+    /// guard kills one that does not stop.
+    fn stop(&self, mut daemon: Daemon) {
         let _ = self.call("shutdown", Value::Null);
         let deadline = Instant::now() + Duration::from_secs(10);
-        while child.try_wait().unwrap().is_none() {
-            if Instant::now() > deadline {
-                let _ = child.kill();
-                panic!("theseusd did not stop:\n{}", self.log());
-            }
+        while daemon.try_wait().is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "theseusd did not stop:\n{}",
+                self.log()
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -186,45 +189,9 @@ fn fake_op(note: &Path, down: &Path) -> String {
     )
 }
 
-/// The template, made safe to serve here: the web UI and Discord off, no
-/// GitHub token, every secret on the fake vault, and the model endpoints on
-/// a port nothing answers.
+/// The template, made safe to serve here, with every secret on the fake vault.
 fn test_note(r: &Rig, spend_limit_usd: f64) -> String {
-    let out = Command::new(&r.theseusd)
-        .arg("example-config")
-        .output()
-        .unwrap();
-    let mut t: toml::Table = String::from_utf8(out.stdout).unwrap().parse().unwrap();
-    fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-        t.entry(key)
-            .or_insert_with(|| toml::Value::Table(Default::default()))
-            .as_table_mut()
-            .unwrap()
-    }
-    table(&mut t, "model").insert("api_base".into(), "http://127.0.0.1:9".into());
-    for (_, p) in table(&mut t, "providers").iter_mut() {
-        p.as_table_mut()
-            .unwrap()
-            .insert("api_base".into(), "http://127.0.0.1:9".into());
-    }
-    let secrets = table(&mut t, "secrets");
-    let names: Vec<String> = secrets
-        .keys()
-        .filter(|k| k.as_str() != "github_token")
-        .cloned()
-        .collect();
-    secrets.clear();
-    for n in names {
-        secrets.insert(n.clone(), format!("op://Test/{n}/credential").into());
-    }
-    table(&mut t, "discord").insert("enabled".into(), false.into());
-    table(&mut t, "web").insert("enabled".into(), false.into());
-    table(&mut t, "tools").insert(
-        "projects_dir".into(),
-        r.path("projects").display().to_string().into(),
-    );
-    table(&mut t, "kernel").insert("spend_limit_usd".into(), spend_limit_usd.into());
-    toml::to_string(&t).unwrap()
+    common::safe_note(&r.theseusd, &r.path("projects"), spend_limit_usd)
 }
 
 #[test]
@@ -236,14 +203,14 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
 
     // A first start: no copy, so it reads the vault before serving, and it
     // keeps the copy once serving.
-    let (mut child, h, took) = r.start();
+    let (mut daemon, h, took) = r.start();
     assert_eq!(h["config"]["started_from"], "vault", "{}", h["config"]);
     assert_eq!(h["config"]["state"], "confirmed");
     assert!(
         took >= Duration::from_millis(OP_MS),
         "it read the vault first: {took:?}"
     );
-    r.until(&mut child, "the copy kept", |h| {
+    r.until(&mut daemon, "the copy kept", |h| {
         h["config"]["detail"]
             .as_str()
             .is_some_and(|d| d.contains("the copy is kept"))
@@ -255,18 +222,18 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
         config_copy::read(&copy, NOTE_REF).unwrap().unwrap().text,
         note
     );
-    r.stop(child);
+    r.stop(daemon);
 
     // From the copy: health answers before the vault could, says
     // confirming, and then confirmed.
-    let (mut child, h, took) = r.start();
+    let (mut daemon, h, took) = r.start();
     assert_eq!(h["config"]["state"], "confirming", "{}", h["config"]);
     assert_eq!(h["config"]["started_from"], "copy");
     assert!(
         took < Duration::from_millis(OP_MS),
         "served from the copy: {took:?}"
     );
-    let h = r.until(&mut child, "confirmed", |h| {
+    let h = r.until(&mut daemon, "confirmed", |h| {
         h["config"]["state"] == "confirmed"
     });
     assert_eq!(h["config"]["detail"], "the same text as the copy");
@@ -274,7 +241,7 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
     assert!(phases
         .iter()
         .any(|p| p["name"] == "config.vault" && p["background"] == true));
-    r.stop(child);
+    r.stop(daemon);
     let shown = r.command().arg("config").output().unwrap();
     let shown = String::from_utf8(shown.stdout).unwrap();
     assert!(
@@ -306,8 +273,8 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
             )
             .unwrap();
     }
-    let (mut child, h, _) = r.start();
-    let pid = child.id();
+    let (mut daemon, h, _) = r.start();
+    let pid = daemon.id();
     assert_eq!(h["config"]["started_from"], "vault", "{}", h["config"]);
     assert!(
         h["config"]["detail"]
@@ -321,31 +288,25 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
         1,
         "migrated under the vault's config"
     );
-    assert!(
-        child.try_wait().unwrap().is_none(),
-        "the same process: pid {pid}"
-    );
-    r.until(&mut child, "the copy kept", |h| {
+    assert!(daemon.try_wait().is_none(), "the same process: pid {pid}");
+    r.until(&mut daemon, "the copy kept", |h| {
         h["config"]["detail"]
             .as_str()
             .is_some_and(|d| d.contains("the copy is kept"))
     });
-    r.stop(child);
+    r.stop(daemon);
 
     // The note changes: the daemon serves from the old copy, finds the
     // change, and restarts itself onto the vault's version, in place.
     let changed = test_note(&r, 42.5);
     std::fs::write(r.path("note.toml"), &changed).unwrap();
-    let (mut child, h, _) = r.start();
+    let (mut daemon, h, _) = r.start();
     assert_eq!(h["config"]["state"], "confirming");
-    let pid = child.id();
-    let h = r.until(&mut child, "the restart confirmed", |h| {
+    let pid = daemon.id();
+    let h = r.until(&mut daemon, "the restart confirmed", |h| {
         h["config"]["state"] == "confirmed" && !h["config"]["restarted"].is_null()
     });
-    assert!(
-        child.try_wait().unwrap().is_none(),
-        "the same process: pid {pid}"
-    );
+    assert!(daemon.try_wait().is_none(), "the same process: pid {pid}");
     assert_eq!(h["config"]["restarted"]["tables"], json!(["kernel"]));
     assert_eq!(
         h["kernel"]["spend_limit_usd"], 42.5,
@@ -368,13 +329,13 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
         config_copy::read(&copy, NOTE_REF).unwrap().unwrap().text,
         changed
     );
-    r.stop(child);
+    r.stop(daemon);
 
     // A comment-only change confirms, with no restart.
     let commented = format!("# pasted again\n{changed}");
     std::fs::write(r.path("note.toml"), &commented).unwrap();
-    let (mut child, _, _) = r.start();
-    let h = r.until(&mut child, "confirmed", |h| {
+    let (mut daemon, _, _) = r.start();
+    let h = r.until(&mut daemon, "confirmed", |h| {
         h["config"]["state"] == "confirmed"
     });
     assert!(h["config"]["restarted"].is_null());
@@ -386,15 +347,15 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
         config_copy::read(&copy, NOTE_REF).unwrap().unwrap().text,
         commented
     );
-    r.stop(child);
+    r.stop(daemon);
 
     // A vault that does not answer: held, answering reads, and saying why;
     // and shutdown works.
     std::fs::write(r.path("down"), "").unwrap();
-    let (mut child, _, _) = r.start();
-    let h = r.until(&mut child, "held", |h| h["config"]["state"] == "held");
+    let (mut daemon, _, _) = r.start();
+    let h = r.until(&mut daemon, "held", |h| h["config"]["state"] == "held");
     let why = h["config"]["detail"].as_str().unwrap();
     assert!(why.starts_with("the vault did not answer: "), "{why}");
     assert!(why.contains("network down"), "{why}");
-    r.stop(child);
+    r.stop(daemon);
 }
