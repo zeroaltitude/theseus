@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.58
+# The Ship of Theseus — v0.59
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -161,7 +161,7 @@ The word *session* is used deliberately and narrowly. A **session is a compiler 
 
 **Promotion requires an arrangement** (Eddie, 2026-09-27; openrig's mission install, Appendix F). The requesting conversation's agent holds the discussion, so it writes an `Arrangement` node. The node names the pieces the task needs (objective, acceptance criteria, design nodes, all by id), what to trust, and what supersedes what. The task's first compilation admits the pieces by reference, never paraphrased, so a later correction still reaches them. The arrangement comes right after the objective, rendered as testimony with its origin and as-of. Promotion is refused without an arrangement, and the refusal gives the reason. No arrangement is ever generated at install time, because a generated summary is a second source that drifts. If a one-line objective is drawn from a long discussion, promotion flags it and asks for the design to be attached.
 
-_(As built 2026-09-30, theseus-qn2 (DD7), a first form of promotion. `task.create { brief, budget_usd? }` opens a task session whose first node is the brief, and returns at once. The child inherits the parent's authority, persona, context files, postures, and model. Its approvals go where the parent's go, and its notices name it. Its budget is carved from the parent's: `budget_usd`, or a quarter of what the parent has left, capped at all of it, as a reservation in the parent, with the child's spend counted in the parent's. Depth is one: a task cannot start tasks. A task is done when its turn would wait on input, and its last message is its report. The report goes once to the place through the outbox (§3.16), and once into the parent's session as a node at the parent's next turn. Nothing starts a parent turn. `task.list` and `task.cancel`, `theseus tasks` and `theseus cancel`, and Discord's `/tasks` and `/cancel <task>` see and stop tasks, and the web UI shows each session's tasks as a tree. The arrangement, `autonomous: true`, sub-tasks, and §3.5's task graph are not built: the requesting model writes the brief. Part III A4, item 7.)_
+_(As built 2026-09-30, theseus-qn2 (DD7), a first form of promotion. `task.create { brief, budget_usd? }` opens a task session whose first node is the brief, and returns at once. The child inherits the parent's authority, persona, context files, postures, and model. Its approvals go where the parent's go, and its notices name it. Its budget is carved from the parent's: `budget_usd`, or a quarter of what the parent has left, capped at all of it, as a reservation in the parent, with the child's spend counted in the parent's. Depth is one: a task cannot start tasks. A task is done when its turn would wait on input, and its last message is its report. The report goes once to the place through the outbox (§3.16), and once into the parent's session as a node at the parent's next turn. By default nothing starts a parent turn. A task opened with `wake_parent: true` starts that turn when it finishes or fails (theseus-lji, W1): the frame that ends it queues the parent, as a due wake does (§3.15), and the turn runs in the parent's session, under its authority and budget, with the report as its input and `📋 task a1b2c3 reported` above its reply. A busy parent runs it when it is free, reports that land together start one turn, and a cancelled task wakes nothing, since whoever cancelled it is there. The option is for a chain, where the parent reviews each result and starts the next. `task.list` and `task.cancel`, `theseus tasks` and `theseus cancel`, and Discord's `/tasks` and `/cancel <id>` see and stop tasks, and `/stop` does not stop them, and the web UI shows each session's tasks as a tree. The arrangement, `autonomous: true`, sub-tasks, and §3.5's task graph are not built: the requesting model writes the brief. Part III A4, item 7.)_
 
 **How they stay connected.** Only through the graph, never through shared in-memory state:
 
@@ -554,7 +554,13 @@ Rules: one execution per session, one turn at a time per execution; an execution
 - **Firing.** A wake fires once it is due and its execution is free: waiting on input, a due time, a job, or another execution, where new input would start a turn too. It never fires over an approval or a budget question, since only the operator answers those. The due scan runs on the driver's half-second tick, and in the heartbeat's reconciler as a backstop, and queues the execution for the driver (`resume_pending`). A busy execution keeps its wakes, and the frame that ends its turn queues it again.
 - **Once.** The next turn takes every due wake in one frame, which removes them and writes each as a user-role node from the harness (`⏰ wake (set 13:05): <note>`), before any new input. A crash before that frame leaves them pending, and a crash after it leaves them taken. A wake's id comes from the call that set it, so a call run again after a restart finds its wake.
 - **Late.** Startup writes nothing for a due wake: the driver's first tick queues it, after serving and after the vault confirms the config. A wake that runs more than 5 s late says when it was due and how late, and, when it fell due before this process started, that the daemon was not running. The ledger's `wake.fired` row always carries `late_ms` and `while_down`.
-- **Bounds.** At most 5 per session, 1 s to 30 days ahead, and notes up to 2,000 characters. A task cannot set one. A cancel of the execution, or its end, drops its wakes. A wake's turn is an ordinary turn, with the session's authority, budget, and model. Its reply goes where the session posts, or, if the place has moved on to a new session, to where the wake was set.
+- **Bounds.** At most 5 per session, 1 s to 30 days ahead, and notes up to 2,000 characters. A task cannot set one. A cancel of the execution, or its end, drops its wakes; a stop keeps them (W1). A wake's turn is an ordinary turn, with the session's authority, budget, and model. Its reply goes where the session posts, or, if the place has moved on to a new session, to where the wake was set.
+
+**Stopping** (theseus-lji; built 2026-09-30). `/stop` halts a conversation's work and keeps the conversation (`execution.stop`, `Kernel::stop_execution`). It is not a cancel, which is terminal.
+- **What stops.** Running jobs and tool calls are told to stop, and their backends terminated, as for a cancel. Planned calls, approvals, and the budget question are declined, so nothing the work asked for runs later. A turn running then gets a stop mark: its next step is refused, it runs none of its answer's calls, and it posts no reply and no failure notice. Its model call, if one is in flight, runs to its end, and its cost is booked.
+- **What stays.** The execution waits on its next input, and the next message continues the same session and execution. Its history, budget and spend, pending wakes, and tasks are kept, and `/cancel <id>` stops a task or cancels a wake. A stopped job's result reaches the next turn as a late result, `[cancelled: stopped by <who>]`.
+- **Once.** A stop is one frame. After a crash, startup does not resume a turn that a stop had stopped. A task cannot be stopped; its cancel ends it.
+- `/new` alone starts a fresh session.
 
 _(theseus-id9; Part III A3c.)_
 
@@ -1905,7 +1911,7 @@ M3 was built in three parts: **content** (the session graph, the context compile
 - **Scrubbing.** Tool output is scrubbed before it becomes a node: exact vault values become `[redacted:<name>]`, token shapes (`sk-ant-`, `ghp_`, `github_pat_`, `gho_`, `ops_`, `xoxb-`, `xoxp-`) become `[redacted:shape]`.
 - **Protocol.** Methods `session.history`, `session.watch`, `session.unwatch`, `session.recompile`, `action.confirm` (with `watch`, which subscribes before the answer wakes anything), `catalog.list`, `compilation.list`, `node.list`, `tool.list`. Notifications `model.thinking`, `context.compiled`, `tool.proposed`, `tool.started`, `tool.ended`, `confirm.requested`, `confirm.resolved`, `node.written`, `turn.failed`. Turn results gain execution id, dollars, tool calls, the awaiting confirmation, stop details, and a continuation flag; sessions gain last activity, dollars, tool calls, profile and model, compilation, title, and pending confirmations; health gains total dollars and the catalog version.
 - **CLI.** `theseus history`, `watch`, `confirm` (without an id: everything waiting; with one: answer it and follow the turn it resumes), `tools`, `catalog`, `sessions recompile`; `ask` shows tool activity, confirmation requests, and recompiles on stderr, `--thinking` shows thinking summaries, and the status line has tool calls and dollars. SIGPIPE is back to its default, so `theseus history | head` ends quietly.
-- **Discord** (theseus-9ko, crate `theseus-discord`, twilight 0.17). A protocol client of the core, connected the way the web UI is (an in-process pipe into `serve_connection`), so a Discord turn, a button press, and `/stop` run `turn.submit`, `action.confirm`, and `execution.cancel`. It watches the sessions behind its places, so continuation turns (a job's late result, a restart, an answer given in the web UI) reach Discord with nobody asking. **Places** come from the **bindings file** (P5): one guild, text channels, DMs, and the Discord users who may drive each; its SHA-256 prefix is the binding revision. The file lives in the state dir by default, beside the store that remembers each place's session, so a scratch instance with its own state dir never opens a second gateway connection on the same token; only the socket daemon binds (never `--stdio`). Each place is an actor with one conversation session (its id in store meta, replaced when that execution is cancelled or exhausted): turns are serialized, messages that arrive mid-turn are coalesced into the next turn with their authors, and a new place posts a short bind notice. **Rendering** is pure and tested: each loop's streamed text becomes messages edited in place (at most one edit per message per `edit_interval_ms`, split under Discord's 2000 characters with code fences closed and reopened across a split); each loop's tool calls are one message of lines updated as they run (proposed, running, waiting for approval, background, done with duration, denied with the reason, answered by whom); a confirmation is its own message with **Approve** and **Decline** buttons bound to the correlation id, settled (buttons removed, who answered) when it is answered anywhere; a footer carries the profile, model, loops, tool calls, dollars, and time; a failed turn says its class and error. Mentions are never pinged. **Controls**: `/stop` and `/cancel` (cancel the session's execution, then bind the place to a fresh session), `/new`, `/status`, as slash commands and as plain text. Only listed users can drive a place or press its buttons; anyone else is ignored and counted. A channel binding is **mention-only** by default (9383bdc): only a message that @mentions the bot (as a user or through its managed role) or replies to one of its messages starts a turn, with the mention stripped, so a channel shared with people or other bots does not get a turn per message. Eddie bound #openclaw this way, beside five OpenClaw agents that answer only when mentioned.
+- **Discord** (theseus-9ko, crate `theseus-discord`, twilight 0.17). A protocol client of the core, connected the way the web UI is (an in-process pipe into `serve_connection`), so a Discord turn, a button press, and `/stop` run `turn.submit`, `action.confirm`, and `execution.stop` (`execution.cancel` until W1, 2026-09-30). It watches the sessions behind its places, so continuation turns (a job's late result, a restart, an answer given in the web UI) reach Discord with nobody asking. **Places** come from the **bindings file** (P5): one guild, text channels, DMs, and the Discord users who may drive each; its SHA-256 prefix is the binding revision. The file lives in the state dir by default, beside the store that remembers each place's session, so a scratch instance with its own state dir never opens a second gateway connection on the same token; only the socket daemon binds (never `--stdio`). Each place is an actor with one conversation session (its id in store meta, replaced when that execution is cancelled or exhausted): turns are serialized, messages that arrive mid-turn are coalesced into the next turn with their authors, and a new place posts a short bind notice. **Rendering** is pure and tested: each loop's streamed text becomes messages edited in place (at most one edit per message per `edit_interval_ms`, split under Discord's 2000 characters with code fences closed and reopened across a split); each loop's tool calls are one message of lines updated as they run (proposed, running, waiting for approval, background, done with duration, denied with the reason, answered by whom); a confirmation is its own message with **Approve** and **Decline** buttons bound to the correlation id, settled (buttons removed, who answered) when it is answered anywhere; a footer carries the profile, model, loops, tool calls, dollars, and time; a failed turn says its class and error. Mentions are never pinged. **Controls**: `/stop` and `/cancel` (cancel the session's execution, then bind the place to a fresh session), `/new`, `/status`, as slash commands and as plain text. Only listed users can drive a place or press its buttons; anyone else is ignored and counted. A channel binding is **mention-only** by default (9383bdc): only a message that @mentions the bot (as a user or through its managed role) or replies to one of its messages starts a turn, with the mention stripped, so a channel shared with people or other bots does not get a turn per message. Eddie bound #openclaw this way, beside five OpenClaw agents that answer only when mentioned.
 - **Restore** (theseus-at8). `theseusd restore --from <dir>` takes a WAL directory or a store directory, refuses while a daemon serves the socket, copies the segments into a staging store beside the live one, opens it (every frame's checksum checked, a torn final frame cut and reported, the index rebuilt from the WAL), writes a `store.restored` ledger row, and swaps it in. The source is only read; a store already there needs `--force` and is moved aside, never deleted.
 - **Web UI** (Eddie's observability rule). A sessions sidebar: any session can be resumed, the open one survives a reload, and a session opens with its first message rather than per page load. The transcript is rebuilt from nodes: tool cards with the gate's decision and reason, status, exit code, duration, bytes, colored diffs, and the full input and output on click; a late result both on the card of the call that started it and in the turn that received it; calls queued behind a confirmation. Confirmation cards inline, with a preview (the edit as a diff, the file content, the command line), an optional note, Approve and Decline, and the expiry. Thinking summaries collapse; dollars per turn, per session, and in total; a pulsing "N waiting for you" in the header and "needs you" in the sidebar; automatic reconnection that re-watches and reloads; timing trees for past turns from their `turn.trace` rows. The Observatory gained **Context** (compilations with trigger, strategy, as-of, prefix size, model, and thinking kept or stripped; each loop's decision with prefix and tail, messages, estimated tokens, repairs, and digest; recompile buttons), **Tools** (policy per tool, calls, roots, the shell-fallback ratio), **Nodes** (by kind, the JSON on click), **Model catalog**, and sessions with dollars, tool calls, and pending confirmations; the ledger gained `tool.*` and `context.*` chips. For M3c/d the Observatory gained a **Discord** panel (state and why, bot, guild, bindings file and revision, connection age and heartbeat, messages in and out, edits, button and command presses, ignored messages, errors and the last one; each place with its channel, its session as a link, who may drive it, and last activity; the latest `discord.*` rows), and `discord.*` and `store.*` ledger chips. Health carries `bindings[]`, and `theseus health` prints a line per binding. The protocol gained optional `author` labels on `turn.submit`, `action.confirm`, and `execution.cancel`, so the ledger and the confirm card say `discord:eddie`; they are labels, not authority.
 
@@ -1940,7 +1946,7 @@ Local work is about 5 % of startup; the other 95 % is two network calls on the s
 | Discord (twilight) as M3's front end, the confirm as a Discord component | Built third, after the web UI and CLI, as a protocol client of the core | The confirm needed a surface first and Eddie's rule required the web UI to show everything first; a protocol client runs exactly the paths the other surfaces run | Keep |
 | Delivery to a channel is an action (§3.2a) | Discord posts and edits are direct HTTP calls, counted in health and ledgered (`discord.message.out`, `discord.error`) | M3 has no task executions reporting into channels; a conversation's reply is already the turn's own output | Done in M3.6 item 6 (theseus-q4v, A4): what must be seen is an outbox post, and live progress stays direct |
 | Messages coalesced with each author preserved (§3.2) | Coalesced into one input: joined when one author wrote them all, `[author]` tags otherwise; the node's author label is `discord:<name>` | One operator in M3; separate nodes per author arrive with Person nodes | Revisit with roles and Persons |
-| `/stop` stops the model loop | `/stop` cancels the session's execution and binds the place to a fresh session | The kernel has no soft stop for a turn; an execution is one per session and cancel is terminal | Consider a turn-level stop with M5's Advancer |
+| `/stop` stops the model loop | `/stop` cancels the session's execution and binds the place to a fresh session | The kernel has no soft stop for a turn; an execution is one per session and cancel is terminal | Done in M3.6 (theseus-lji, A4 item 9): the kernel has a turn-level stop, so `/stop` halts the work and keeps the session, and `/new` alone starts a fresh one |
 | `theseus restore` | `theseusd restore --from <dir>` | The daemon owns the store, and restore must run with the daemon stopped | Keep |
 | Toollet families as separate crates (§3.23) | One `theseus-tools` crate, a module per family | Eleven small tools; a crate per family is packaging, not isolation | Split when a family brings a heavy dependency |
 | `git.diff` staged and unstaged | HEAD against the worktree, or rev against rev | The index diff was the costlier path; the common question is "what changed" | Add staged when asked |
@@ -4092,3 +4098,80 @@ conversation: "check the build in 10 minutes".
   the place.
 - An older binary reads a store with pending wakes but ignores them, and would drop them the next time it
   wrote the execution. F4's versioned readers close this.
+
+### Item 9. W1: a task can wake its parent, and `/stop` only halts (theseus-lji; 2026-09-30, 10:09–11:02; 2975183, 426e2b7)
+
+**Why.** Eddie, 2026-09-30, answering DD7's two questions. First, a finished task should be able to
+start the conversation's next turn, as an opt-in: "Yes!" Second, `/stop` should only halt the work and
+keep the conversation, while `/new` alone starts fresh: "Yes!" His rule for controls is one command, one
+effect.
+
+**What exists.**
+- **`task.create { brief, budget_usd?, wake_parent? }`.** With `wake_parent`, a task that finishes or
+  fails asks for its parent's next turn. The frame that ends it puts it on the parent's `report_wakes`,
+  with a `task.report_wake` row, and queues a free parent for the driver (`why: report`), as a due wake
+  does. A busy parent keeps the ask until its turn ends. The turn's catch-up reads every report and
+  clears both lists, and its reply posts where the parent posts, under `📋 task a1b2c3 reported`. A
+  cancelled task wakes nothing. The start's notice says the task will wake the conversation, and
+  `task.list` and `theseus tasks` show the option.
+- **A soft stop** (`theseus-kernel/src/stops.rs`, `Kernel::stop_execution`), §3.15's Stopping.
+- **Surfaces.** `execution.stop` (an acting method), `theseus stop <session>`, and Discord's `/stop`,
+  which no longer rebinds. The bind notice, the help text, and the commands' descriptions name each
+  control with its one effect. The place freezes the stopped turn's stream, and a declined card settles
+  as `stopped`. `/new` is unchanged.
+
+**How it is proven.**
+- The gate at 426e2b7: 496 tests, 23 of them new: 11 in the kernel; 7 in the core (6 through the real
+  driver, and the notice's unit test); 2 in Discord (a place's `/stop` and `/new` over a real core); 2
+  against the real daemon with the fake Discord REST (a report's turn, and a stop that kills a real
+  job); and 1 in the CLI. The frame budget test holds 8.
+- The step's live check (10:54–10:58), on a copy of Eddie's store with the binding on a fake REST: a task
+  with `wake_parent` ran `git log`, and the parent's turn started by itself 14 ms after the task's end
+  frame; a task without it reported, and no turn followed in 45 s; `theseus stop` during a `sleep 45` job
+  killed it, and the next message continued the same execution.
+- Discord's `/stop` itself was not run live, since the gateway is not faked. The binding's test drives it.
+
+**Reviewed** (Tabitha, 2026-09-30, 11:30 to 11:37).
+- The gate rerun passed: 496 tests, and every bench phase within budget (cold start p95 42.2 ms).
+- On the release build of 426e2b7, over a fresh copy of Eddie's store, with the binding on a fake REST
+  (port 9477):
+  - the bind notice names `/stop`'s new meaning: "halts what I am doing and keeps the conversation";
+  - **a task that wakes its parent.** A GLM turn started task `8ec704`, with `wake_parent` and $0.30, to
+    run `hostname`. Its report reached the fake. Its end wrote `task.report_wake` (`queued: true`) and the
+    parent's `execution.queued` (`why: report`). The parent's turn then started by itself, read the
+    report (`task.reports_read`, `woke`), and posted "The hostname is `zeroradeons`." under
+    `-# 📋 task 8ec704 reported`;
+  - **a stop.** A turn ran `sleep 40` in a job. `theseus stop` answered "1 action(s) told to stop … the
+    conversation goes on", and the `sleep` was gone. The ledger had `execution.stopped` by the CLI, the
+    turn's end with `stop_reason: stopped`, and `execution.waiting`, `why: stopped`. The fake got only the
+    call's tool line, and no reply;
+  - **the conversation went on.** The next question ran in the same session and the same execution as the
+    first turn, and GLM answered from its history that the sleep "was stopped by the CLI";
+  - nothing reached Discord: the connections went to 127.0.0.1, api.z.ai, and api.github.com.
+- Eddie's unchanged note loads under the new binary.
+- Installed at 11:35.
+- **Taken at review:**
+  - A stop keeps the session's pending wakes, as it keeps its tasks: one command, one effect.
+  - The web UI's stop control is filed (theseus-nkt), and so is aborting a stopped turn's in-flight model
+    stream (theseus-yey).
+  - A call that a stop killed shows `❌ … cancelled` on its Discord tool line, which reads as a failure,
+    though it was asked for. It goes into fix batch 2 on the roadmap: `⏹️ stopped`.
+
+**Divergence from the brief and the issue.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| "`/stop` … cancels the session's current work, as today" | A new transition, `Kernel::stop_execution`, not `execution.cancel` | A cancel is terminal, so a session it ends cannot take a turn | Keep |
+| "the running turn, its jobs, and the queued messages" | Also declines planned calls, approvals, and the budget question | An approval answered after a stop would resume the stopped work | Keep |
+| — | The running turn's model call runs to its end; its answer is kept, but not acted on or posted | No abort exists for a provider stream today | Keep; theseus-yey |
+| — (DD8: a cancel, `/stop` then, dropped the wakes) | A stop keeps the session's wakes | One command, one effect | Keep |
+| "the frame that ends the task also queues a continuation turn" | For a free parent in that frame; for a busy one, in the frame that frees it | A turn cannot start over another, or over an open question | Keep |
+| — | A failed task wakes its parent too | A failure is a result a chain should review | Keep |
+| — | `theseus stop <session>` in the CLI | So the stop runs live, through the method Discord's `/stop` calls | Keep |
+| — | A job a stop or a cancel killed ends the turn's in-turn wait at once | `job_settled` did not count `cancelled` before | Keep |
+
+**Known gaps.**
+- Discord's `/stop` was not run live, since the gateway is not faked.
+- A stopped turn's in-flight model call runs to its end, and its cost is paid (theseus-yey).
+- An older binary would drop `stopped`, `report_wakes`, and `wake_parent` on a rewrite. F4a closes this.
+- The kernel-sim's random operations include neither stops nor report wakes yet.
