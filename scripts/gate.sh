@@ -7,7 +7,6 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -q -- -D warnings
-cargo clippy -p theseus-core --features otel --all-targets -q -- -D warnings  # OTLP export is off by default; keep it compiling
 cargo nextest run --workspace --no-fail-fast
 # The lifecycle budgets of §9 (FAST, theseus-qa0): cold start, clean shutdown
 # with a job running, SIGKILL then restart, 10 runs each on an empty store,

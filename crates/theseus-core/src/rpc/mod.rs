@@ -70,8 +70,9 @@ pub struct Core {
     pub secrets: Arc<SecretBoard>,
     /// The last start's phases, for health and the Observatory.
     pub startup_log: Arc<StartupLog>,
-    /// The export pipeline, once built: at once, or when its headers secret
-    /// resolves (`install_telemetry`). Until then nothing is exported.
+    /// The export pipeline, once built after serving, when the config may act
+    /// and its headers secret resolves (`install_telemetry`). Until then
+    /// nothing is exported.
     telemetry: std::sync::OnceLock<Telemetry>,
     telemetry_off: Telemetry,
     /// The narrative (`narrative = true`): live lines and a bounded tail.
@@ -122,10 +123,10 @@ const RESTART_GRACE: std::time::Duration = std::time::Duration::from_millis(100)
 impl Core {
     /// The daemon's core, from its config and the secret board, which may
     /// still be resolving: nothing here waits for a secret (theseus-qa0).
-    /// Each provider and the scrubber read their values from the board, and
-    /// the telemetry pipeline that needs a headers secret is built later.
-    /// A config the vault has not confirmed builds no telemetry at all until
-    /// it does (theseus-2fo).
+    /// Each provider and the scrubber read their values from the board. The
+    /// telemetry pipeline is built after serving (`install_telemetry`), once
+    /// the vault confirms the config (theseus-2fo) and its headers secret
+    /// resolves, so its client stays off the start path.
     pub fn new(
         cfg: Config,
         secrets: Arc<SecretBoard>,
@@ -150,10 +151,6 @@ impl Core {
                 )?),
             );
         }
-        let telemetry = match Self::telemetry_headers(&cfg) {
-            None if config_gate.is_open() => Some(Telemetry::from_config(&cfg.telemetry, None)?),
-            _ => None,
-        };
         let scrubber = Arc::new(Scrubber::from_board(secrets.clone()));
         // Wrappers run this very image: after an in-place upgrade (copy, then
         // rename over the old file) the path on disk is a newer binary, or
@@ -172,7 +169,7 @@ impl Core {
             store,
             secrets,
             startup_log,
-            telemetry,
+            telemetry: None,
             scrubber,
             launcher,
             config_gate,
@@ -193,24 +190,61 @@ impl Core {
         self.telemetry.get().unwrap_or(&self.telemetry_off)
     }
 
-    /// Build the telemetry pipeline once the vault confirms the config
-    /// (theseus-2fo) and its headers secret resolves. Fail closed: nothing is
-    /// exported without its headers, and a failure waits for the secret's
-    /// retry.
+    /// Telemetry for health: the pipeline's own status once it is built;
+    /// before that, `off` without an endpoint, or `waiting` and for what.
+    pub fn telemetry_status(&self) -> theseus_protocol::TelemetryStatus {
+        if let Some(t) = self.telemetry.get() {
+            return t.status();
+        }
+        let Some(endpoint) = self.cfg.telemetry.endpoint() else {
+            return theseus_protocol::TelemetryStatus::off();
+        };
+        let detail = match Self::telemetry_headers(&self.cfg) {
+            _ if !self.config_gate.is_open() => {
+                "the vault has not confirmed the config yet".to_string()
+            }
+            Some(name) => match self.secrets.states().get(&name) {
+                Some(SecretState::Failed(why)) => {
+                    format!("its headers secret {name} did not resolve: {why}")
+                }
+                _ => format!("its headers secret {name} is resolving"),
+            },
+            None => "starting".to_string(),
+        };
+        theseus_protocol::TelemetryStatus {
+            otlp_endpoint: Some(endpoint.to_string()),
+            state: "waiting".into(),
+            detail: Some(detail),
+            ..Default::default()
+        }
+    }
+
+    /// Build the pipeline, or keep why it could not be built.
+    fn build_telemetry(&self, headers: Option<&crate::secrets::Secret>) -> Result<(), String> {
+        let (t, out) = match Telemetry::from_config(&self.cfg.telemetry, headers) {
+            Ok(t) => (t, Ok(())),
+            Err(e) => {
+                let why = format!("{e:#}");
+                tracing::error!(error = %why, "telemetry: building the exporter failed; nothing is exported");
+                let endpoint = self.cfg.telemetry.endpoint().unwrap_or_default();
+                (Telemetry::failed(endpoint, why.clone()), Err(why))
+            }
+        };
+        let _ = self.telemetry.set(t);
+        out
+    }
+
+    /// Build the telemetry pipeline after serving, once the vault confirms
+    /// the config (theseus-2fo) and its headers secret resolves. Fail
+    /// closed: nothing is exported without its headers, and a failure waits
+    /// for the secret's retry.
     pub async fn install_telemetry(self: Arc<Self>) {
         if !self.config_gate.opened().await {
             return;
         }
         let Some(name) = Self::telemetry_headers(&self.cfg) else {
             if self.telemetry.get().is_none() {
-                match Telemetry::from_config(&self.cfg.telemetry, None) {
-                    Ok(t) => {
-                        let _ = self.telemetry.set(t);
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %format!("{e:#}"), "telemetry: building the exporter failed; nothing is exported")
-                    }
-                }
+                let _ = self.build_telemetry(None);
             }
             return;
         };
@@ -223,15 +257,11 @@ impl Core {
             let state = rx.borrow_and_update().get(&name).cloned();
             match state {
                 Some(SecretState::Ready(headers)) => {
-                    let detail = match Telemetry::from_config(&self.cfg.telemetry, Some(&headers)) {
-                        Ok(t) => {
-                            let _ = self.telemetry.set(t);
+                    let detail = match self.build_telemetry(Some(&headers)) {
+                        Ok(()) => {
                             json!({"secret": name, "waited_ms": t0.elapsed().as_millis() as u64, "outcome": "ready", "enabled": self.telemetry().enabled()})
                         }
-                        Err(e) => {
-                            tracing::error!(error = %format!("{e:#}"), "telemetry: building the exporter failed; nothing is exported");
-                            json!({"secret": name, "outcome": "error", "error": format!("{e:#}")})
-                        }
+                        Err(why) => json!({"secret": name, "outcome": "error", "error": why}),
                     };
                     self.startup_log.end(phase, detail);
                     return;

@@ -56,10 +56,7 @@ impl Core {
             usage_total,
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
             ledger_rows: self.store.ledger_len().unwrap_or(0),
-            telemetry: theseus_protocol::TelemetryStatus {
-                enabled: self.telemetry().enabled(),
-                otlp_endpoint: self.telemetry().endpoint.clone(),
-            },
+            telemetry: self.telemetry_status(),
             kernel: self.kernel_status(),
             cost_usd_total: sessions.iter().map(|s| s.cost_usd).sum(),
             catalog_version: self.catalog.version.clone(),
@@ -637,13 +634,12 @@ impl Core {
         json!({"watching": false})
     }
 
-    /// `shutdown`: ledgered, telemetry flushed, the index checkpointed, and the
-    /// daemon told to stop.
+    /// `shutdown`: ledgered, the index checkpointed, and the daemon told to
+    /// stop. `theseusd` flushes telemetry once its serving loop ends, bounded.
     pub(super) fn stop(&self) -> Value {
         let _ =
             self.store
                 .append_ledger(&LedgerRow::new("server.stopping", None, None, Value::Null));
-        self.telemetry().flush();
         let _ = self.store.checkpoint();
         self.shutdown.notify_waiters();
         json!({"ok": true})

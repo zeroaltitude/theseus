@@ -630,10 +630,81 @@ pub struct PlaceStatus {
     pub last_activity_ms: u64,
 }
 
+/// The OTLP exporter (theseus-hee, spec §3.20): what it sent and dropped.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetryStatus {
     pub enabled: bool,
     pub otlp_endpoint: Option<String>,
+    /// `off` (no endpoint), `waiting` (for the vault's confirmation of the
+    /// config, or for the headers secret), `exporting`, or `failed` (the
+    /// exporter could not be built). Empty from a daemon older than that.
+    #[serde(default)]
+    pub state: String,
+    /// Why it waits, or why it failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// Batches the receiver took: one per turn's trace, one per metrics export.
+    #[serde(default)]
+    pub traces_sent: u64,
+    #[serde(default)]
+    pub metrics_sent: u64,
+    #[serde(default)]
+    pub spans_sent: u64,
+    /// Batches dropped: after a failed retry, or the oldest trace when the
+    /// queue was full.
+    #[serde(default)]
+    pub dropped: u64,
+    /// Traces waiting for the sender.
+    #[serde(default)]
+    pub queued: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error_at_ms: Option<u64>,
+}
+
+impl TelemetryStatus {
+    pub fn off() -> Self {
+        Self {
+            state: "off".into(),
+            ..Default::default()
+        }
+    }
+
+    /// What `theseus health` says after `telemetry: `, as of `now_ms`.
+    pub fn summary(&self, now_ms: u64) -> String {
+        let at = self.otlp_endpoint.as_deref().unwrap_or("?");
+        let detail = self.detail.as_deref().unwrap_or("?");
+        match (self.state.as_str(), &self.otlp_endpoint) {
+            ("exporting", _) => {
+                let mut s = format!(
+                    "exporting to {at} · sent {} ({} traces, {} metrics) · dropped {}",
+                    self.traces_sent + self.metrics_sent,
+                    self.traces_sent,
+                    self.metrics_sent,
+                    self.dropped
+                );
+                if self.queued > 0 {
+                    s.push_str(&format!(" · {} waiting", self.queued));
+                }
+                if let Some(e) = &self.last_error {
+                    s.push_str(&format!(" · last error {e}"));
+                    if let Some(t) = self.last_error_at_ms {
+                        s.push_str(&format!(
+                            " ({} s ago)",
+                            now_ms.saturating_sub(t).div_ceil(1000)
+                        ));
+                    }
+                }
+                s
+            }
+            ("waiting", _) => format!("waiting to export to {at}: {detail}"),
+            ("failed", _) => format!("not exporting to {at}: {detail}"),
+            // A daemon older than theseus-hee.
+            ("", Some(e)) => format!("OTLP/HTTP → {e}"),
+            _ => "off (no [telemetry].otlp_endpoint)".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

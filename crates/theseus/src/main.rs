@@ -847,10 +847,7 @@ async fn run(cli: Cli) -> Result<()> {
                 );
                 println!(
                     "telemetry: {}",
-                    match &h.telemetry.otlp_endpoint {
-                        Some(e) => format!("OTLP/HTTP → {e}"),
-                        None => "off (no [telemetry].otlp_endpoint)".to_string(),
-                    }
+                    h.telemetry.summary(theseus_protocol::now_unix_ms())
                 );
                 let k = &h.kernel;
                 let fmt_counts = |m: &std::collections::BTreeMap<String, u64>| {

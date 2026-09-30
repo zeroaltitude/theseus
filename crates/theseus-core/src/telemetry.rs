@@ -1,24 +1,31 @@
 //! OpenTelemetry as a projection of the record (spec §3.20).
 //!
 //! The turn trace is already a span tree with absolute timestamps. When a
-//! turn ends, a build with the `otel` cargo feature walks it and emits OTel
-//! spans with those exact start and end times, so the exported picture is the
-//! ledger's picture and the hot path pays nothing extra; metrics are recorded
-//! at the same moment, and nothing leaves the process until an OTLP endpoint
-//! is configured. The feature is off by default (theseus-0g4): such a build
-//! parses `[telemetry]` the same way, exports nothing, and its config load
-//! warns once if an endpoint is set. The trace, the ledger, and `turn.trace`
-//! are the record either way.
+//! turn ends, its metrics are recorded in the process and its trace is handed
+//! to one sender task, which walks it into OTel spans with those exact start
+//! and end times and posts them as OTLP/HTTP JSON (`export`), so the exported
+//! picture is the ledger's picture and the hot path pays nothing but the
+//! hand-over. The metrics are aggregated here with cumulative temporality and
+//! exported every `metrics_interval_secs`. Nothing leaves the process until an
+//! OTLP endpoint is configured. The exporter is always compiled in, and brings
+//! no crate the daemon did not already have (theseus-hee); until then it was
+//! the `otel` cargo feature, over the OpenTelemetry SDK and 19 crates. The
+//! trace, the ledger, and `turn.trace` are the record either way.
+
+mod export;
+mod metrics;
+mod otlp;
+mod spans;
+#[cfg(test)]
+pub(crate) mod tests;
+
+use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use theseus_protocol::Span;
-#[cfg(not(feature = "otel"))]
-use theseus_protocol::TurnSubmitResult;
+use theseus_protocol::{Span, TelemetryStatus, TurnSubmitResult};
 
-#[cfg(feature = "otel")]
-mod otel;
-#[cfg(feature = "otel")]
-pub use otel::Telemetry;
+use crate::secrets::Secret;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,40 +90,116 @@ pub struct FailedTurn<'a> {
     pub trace: Option<&'a Span>,
 }
 
-/// A build without the `otel` feature: no pipeline, and every method does nothing.
-#[cfg(not(feature = "otel"))]
+/// The telemetry pipeline. Cheap to hold; off unless an endpoint is set.
 pub struct Telemetry {
-    pub endpoint: Option<String>,
+    state: State,
 }
 
-#[cfg(not(feature = "otel"))]
+enum State {
+    Off,
+    /// An endpoint is set, and its exporter could not be built.
+    Failed {
+        endpoint: String,
+        why: String,
+    },
+    On(Arc<export::Shared>),
+}
+
 impl Telemetry {
     pub fn disabled() -> Self {
-        Self { endpoint: None }
+        Self { state: State::Off }
+    }
+
+    /// The pipeline that could not be built, so health can say why.
+    pub fn failed(endpoint: &str, why: String) -> Self {
+        Self {
+            state: State::Failed {
+                endpoint: endpoint.to_string(),
+                why,
+            },
+        }
     }
 
     pub fn enabled(&self) -> bool {
-        false
+        matches!(self.state, State::On(_))
     }
 
-    /// Nothing to build. An endpoint set here was already warned about when
-    /// the config loaded.
-    pub fn from_config(
+    /// Build from config, and start the sender (inside a tokio runtime).
+    /// With no endpoint this is `disabled()`.
+    pub fn from_config(cfg: &TelemetryConfig, headers: Option<&Secret>) -> anyhow::Result<Self> {
+        Self::with_tuning(cfg, headers, export::Tuning::from_config(cfg))
+    }
+
+    fn with_tuning(
         cfg: &TelemetryConfig,
-        _headers: Option<&crate::secrets::Secret>,
+        headers: Option<&Secret>,
+        tuning: export::Tuning,
     ) -> anyhow::Result<Self> {
-        match cfg.endpoint() {
-            None => tracing::info!("telemetry: no otlp_endpoint configured; nothing is exported"),
-            Some(_) => {
-                tracing::info!("telemetry: this build has no OTLP export; nothing is exported")
-            }
-        }
-        Ok(Self::disabled())
+        let Some(endpoint) = cfg.endpoint() else {
+            tracing::info!("telemetry: no otlp_endpoint configured; nothing is exported");
+            return Ok(Self::disabled());
+        };
+        let endpoint = endpoint.trim().trim_end_matches('/');
+        let shared = export::start(cfg, endpoint, headers, tuning)?;
+        tracing::info!(endpoint = %endpoint, "telemetry: OTLP/HTTP export on (JSON)");
+        Ok(Self {
+            state: State::On(shared),
+        })
     }
 
-    pub fn record_turn(&self, _: &TurnSubmitResult) {}
+    fn shared(&self) -> Option<&export::Shared> {
+        match &self.state {
+            State::On(s) => Some(s),
+            _ => None,
+        }
+    }
 
-    pub fn record_failure(&self, _: &FailedTurn<'_>) {}
+    /// A finished turn: its metrics now, and its trace to the sender.
+    pub fn record_turn(&self, result: &TurnSubmitResult) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .turn(result);
+        if let Some(t) = &result.trace {
+            s.push(t.clone());
+        }
+    }
 
-    pub fn flush(&self) {}
+    /// A failed turn: its metrics now, and its partial trace, with error
+    /// status, to the sender.
+    pub fn record_failure(&self, f: &FailedTurn<'_>) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .failure(f);
+        if let Some(t) = f.trace {
+            s.push(t.clone());
+        }
+    }
+
+    /// Send what waits, and the metrics, now: true once done (or nothing to
+    /// do), false when `within` passed first. The daemon's clean shutdown
+    /// waits here, bounded.
+    pub async fn flush(&self, within: Duration) -> bool {
+        match self.shared() {
+            Some(s) => s.flush(within).await,
+            None => true,
+        }
+    }
+
+    /// For health.
+    pub fn status(&self) -> TelemetryStatus {
+        match &self.state {
+            State::Off => TelemetryStatus::off(),
+            State::Failed { endpoint, why } => TelemetryStatus {
+                otlp_endpoint: Some(endpoint.clone()),
+                state: "failed".into(),
+                detail: Some(why.clone()),
+                ..Default::default()
+            },
+            State::On(s) => s.status(),
+        }
+    }
 }

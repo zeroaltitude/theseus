@@ -1529,3 +1529,148 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
     }
     assert!(off.narrator.tail().is_empty());
 }
+
+// ---------------------------------------------------------------- telemetry (theseus-hee)
+
+/// A core over an empty store whose config sets `telemetry`; its pipeline
+/// is built by `install_telemetry`, as the daemon's is after serving.
+fn telemetry_core(
+    tweak: impl FnOnce(&mut crate::telemetry::TelemetryConfig),
+    secrets: Arc<SecretBoard>,
+) -> Arc<Core> {
+    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let store = Store::open(&dir.join("store")).unwrap();
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    tweak(&mut cfg.telemetry);
+    Core::build(Parts {
+        secrets,
+        telemetry: None,
+        ..Parts::for_tests(
+            cfg,
+            Arc::new(FakeProvider {
+                reply: "hello".into(),
+                ..Default::default()
+            }),
+            store,
+        )
+    })
+    .unwrap()
+}
+
+async fn health_telemetry(core: &Arc<Core>) -> Value {
+    let msgs = roundtrip(
+        core.clone(),
+        vec![Request::new(Id::Num(1), method::HEALTH, Value::Null)],
+    )
+    .await;
+    responses(&msgs)[0].result.clone().unwrap()["telemetry"].clone()
+}
+
+/// Nothing is sent until the headers secret resolves (F1): health says the
+/// exporter waits, and for what; then it exports, and each batch carries the
+/// headers. With no endpoint, health says off.
+#[tokio::test]
+async fn telemetry_waits_for_its_headers_then_exports_with_them() {
+    let rx = crate::telemetry::tests::Receiver::start(vec![]).await;
+    let (vault, open) = crate::secrets::fake::FakeVault::gated(&[
+        ("op://V/anthropic/notesPlain", "sk-test-0000000000"),
+        ("op://V/otlp/notesPlain", "x-team: team-header-value"),
+    ]);
+    let refs: BTreeMap<String, String> = [
+        ("anthropic_api_key", "op://V/anthropic/notesPlain"),
+        ("otlp_headers", "op://V/otlp/notesPlain"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    let board = SecretBoard::new(refs.keys().cloned(), std::time::Instant::now());
+    tokio::spawn(crate::secrets::resolve_into(
+        board.clone(),
+        refs,
+        Arc::new(vault),
+    ));
+    let endpoint = rx.endpoint();
+    let core = telemetry_core(
+        |t| {
+            t.otlp_endpoint = Some(endpoint.clone());
+            t.headers_secret = Some("otlp_headers".into());
+        },
+        board,
+    );
+    tokio::spawn(core.clone().install_telemetry());
+    let t = health_telemetry(&core).await;
+    assert_eq!(t["state"], "waiting", "{t}");
+    assert_eq!(t["detail"], "its headers secret otlp_headers is resolving");
+    assert!(rx.got().is_empty());
+    open.send(true).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !core.telemetry().enabled() {
+        assert!(std::time::Instant::now() < deadline, "never built");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let msgs = roundtrip(core.clone(), vec![submit(2, "hi")]).await;
+    assert!(responses(&msgs)[0].error.is_none(), "{msgs:?}");
+    assert!(core.telemetry().flush(Duration::from_secs(10)).await);
+    let got = rx.got();
+    assert_eq!(got.len(), 2, "the turn's trace and the metrics: {got:#?}");
+    for g in &got {
+        assert!(g
+            .headers
+            .iter()
+            .any(|(k, v)| k == "x-team" && v == "team-header-value"));
+    }
+    let t = health_telemetry(&core).await;
+    assert_eq!(t["state"], "exporting", "{t}");
+    assert_eq!(
+        (t["traces_sent"].as_u64(), t["metrics_sent"].as_u64()),
+        (Some(1), Some(1))
+    );
+    assert_eq!(t["otlp_endpoint"], json!(endpoint));
+    // No endpoint: off, and nothing is built.
+    let off = telemetry_core(|_| {}, SecretBoard::empty());
+    off.clone().install_telemetry().await;
+    assert!(!off.telemetry().enabled());
+    assert_eq!(health_telemetry(&off).await["state"], "off");
+}
+
+/// A turn never waits for the network: with a receiver that accepts and
+/// never answers (a 10 s timeout), turns take what they take without one.
+#[tokio::test]
+async fn a_turn_does_not_wait_for_a_receiver_that_hangs() {
+    let rx = crate::telemetry::tests::Receiver::start(vec![0; 64]).await;
+    let endpoint = rx.endpoint();
+    let hung = telemetry_core(
+        |t| t.otlp_endpoint = Some(endpoint.clone()),
+        SecretBoard::empty(),
+    );
+    hung.clone().install_telemetry().await;
+    assert!(hung.telemetry().enabled());
+    let off = telemetry_core(|_| {}, SecretBoard::empty());
+    let mut times: BTreeMap<&str, Vec<Duration>> = BTreeMap::new();
+    for round in 0..3 {
+        for (name, core) in [("hung", &hung), ("off", &off)] {
+            let t0 = std::time::Instant::now();
+            let msgs = roundtrip(core.clone(), vec![submit(round, "hi")]).await;
+            times.entry(name).or_default().push(t0.elapsed());
+            assert!(responses(&msgs)[0].error.is_none(), "{msgs:?}");
+        }
+    }
+    rx.until("the first trace, which hangs", |g| !g.is_empty())
+        .await;
+    let median = |v: &mut Vec<Duration>| {
+        v.sort();
+        v[v.len() / 2]
+    };
+    let (h, o) = (
+        median(times.get_mut("hung").unwrap()),
+        median(times.get_mut("off").unwrap()),
+    );
+    eprintln!("turn.submit median: {h:?} with a receiver that hangs, {o:?} with telemetry off");
+    for t in &times["hung"] {
+        assert!(*t < Duration::from_secs(2), "a turn waited: {t:?}");
+    }
+    let t = health_telemetry(&hung).await;
+    assert_eq!(t["state"], "exporting");
+    assert_eq!(t["traces_sent"], 0);
+}

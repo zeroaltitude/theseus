@@ -733,13 +733,6 @@ impl Config {
         let cfg = Self::from_toml(text).context("parsing config TOML")?;
         cfg.validate()?;
         let mut warnings = Vec::new();
-        if !cfg!(feature = "otel") && cfg.telemetry.endpoint().is_some() {
-            warnings.push(
-                "telemetry.otlp_endpoint is set, but this build has no OTLP export (theseus-0g4: \
-                 build with the `otel` cargo feature); nothing is exported"
-                    .into(),
-            );
-        }
         // One warning for the unit budget however many of its keys remain:
         // they retire together, and the fix is one edit.
         let units = cfg.kernel.retired();
@@ -1234,33 +1227,35 @@ mod tests {
         );
     }
 
-    /// `[telemetry]` parses the same with or without the `otel` feature. A
-    /// build without it warns once if an endpoint is set, since nothing is
-    /// exported (theseus-0g4); a blank endpoint counts as unset. Eddie's note
-    /// sets none, so it gets no new warning.
+    /// `[telemetry]` keeps its five keys (theseus-hee), and the exporter is
+    /// in every build, so an endpoint loads with no warning (until then a
+    /// build without the `otel` feature warned once). A blank endpoint counts
+    /// as unset.
     #[test]
-    fn an_otlp_endpoint_warns_once_in_a_build_without_otel() {
-        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[telemetry]\n";
+    fn an_otlp_endpoint_loads_quietly_now_that_every_build_exports() {
+        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\notlp_headers = \"op://v/h/f\"\n\n[telemetry]\n";
         let (cfg, warnings) = Config::parse(&format!(
-            "{base}otlp_endpoint = \"http://127.0.0.1:4318\"\n"
+            "{base}otlp_endpoint = \"http://127.0.0.1:4318\"\nheaders_secret = \"otlp_headers\"\n\
+             service_name = \"theseus-x\"\nmetrics_interval_secs = 5\nexport_timeout_secs = 3\n"
         ))
         .unwrap();
-        assert_eq!(cfg.telemetry.endpoint(), Some("http://127.0.0.1:4318"));
-        if cfg!(feature = "otel") {
-            assert!(warnings.is_empty(), "{warnings:?}");
-        } else {
-            assert_eq!(warnings.len(), 1, "{warnings:?}");
-            assert!(
-                warnings[0].starts_with(
-                    "telemetry.otlp_endpoint is set, but this build has no OTLP export"
-                ),
-                "{warnings:?}"
-            );
-        }
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let t = &cfg.telemetry;
+        assert_eq!(t.endpoint(), Some("http://127.0.0.1:4318"));
+        assert_eq!(t.headers_secret.as_deref(), Some("otlp_headers"));
+        assert_eq!(
+            (
+                t.service_name.as_str(),
+                t.metrics_interval_secs,
+                t.export_timeout_secs
+            ),
+            ("theseus-x", 5, 3)
+        );
         for quiet in ["", "otlp_endpoint = \"  \"\n"] {
-            let (_, w) =
+            let (c, w) =
                 Config::parse(&format!("{base}service_name = \"theseus\"\n{quiet}")).unwrap();
             assert!(w.is_empty(), "{w:?}");
+            assert_eq!(c.telemetry.endpoint(), None);
         }
     }
 

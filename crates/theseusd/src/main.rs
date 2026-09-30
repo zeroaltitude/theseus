@@ -371,17 +371,37 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         let conn = core
             .clone()
             .serve_connection(stdin, stdout, Client::new("stdio", Surface::Cli));
-        tokio::select! {
-            r = conn => r?,
-            _ = core.restart_asked() => {}
-        }
+        let served = tokio::select! {
+            r = conn => r,
+            _ = core.restart_asked() => Ok(()),
+        };
+        flush_telemetry(&core).await;
+        served?;
         return Ok(exit(&core));
     }
 
     // Only the socket daemon binds Discord: one bot token, one gateway connection.
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path));
-    serve_socket(core.clone(), socket_path, after_bind).await?;
+    let served = serve_socket(core.clone(), socket_path, after_bind).await;
+    flush_telemetry(&core).await;
+    served?;
     Ok(exit(&core))
+}
+
+/// How long a stopping daemon waits for telemetry's last batch.
+const TELEMETRY_FLUSH: Duration = Duration::from_secs(1);
+
+/// Telemetry's last batch as the daemon ends (§3.22): the traces still
+/// waiting, and the metrics since the last interval. Bounded, so a receiver
+/// that does not answer never holds a stop; with no endpoint, no wait.
+async fn flush_telemetry(core: &Core) {
+    let t = core.telemetry();
+    if t.enabled() && !t.flush(TELEMETRY_FLUSH).await {
+        tracing::warn!(
+            "telemetry: its last batch was not sent within {} s; stopping without it",
+            TELEMETRY_FLUSH.as_secs()
+        );
+    }
 }
 
 /// How the daemon ends: a restart onto the vault's changed note execs the

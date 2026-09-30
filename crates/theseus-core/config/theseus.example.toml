@@ -339,16 +339,19 @@ token_secret = "github_token"           # name of the [secrets] entry
 warn_days = 30                          # warn when the token expires within this many days
 
 # ---------------------------------------------------------------- telemetry
-# OpenTelemetry export is a build option, off by default: build theseusd with
-# `--features otel`. Without it this section still parses, nothing is exported,
-# and a set otlp_endpoint gets one warning at startup. With it, nothing leaves
-# the process until otlp_endpoint is set. Each turn's trace becomes one OTel
-# trace with the recorded timestamps; metrics: theseus.turns, theseus.tokens,
-# theseus.provider.errors, theseus.turn.duration_ms,
-# theseus.provider.call.duration_ms, theseus.provider.first_token_ms.
+# OpenTelemetry export, in every build: nothing leaves the process until
+# otlp_endpoint is set, the vault has confirmed this config, and the headers
+# secret (if any) has resolved. It speaks OTLP/HTTP with the JSON encoding, which
+# the OpenTelemetry Collector and most vendors accept. Each turn's trace becomes
+# one OTel trace with the recorded timestamps, sent when the turn ends; the turn
+# never waits for it. Metrics, cumulative, every metrics_interval_secs:
+# theseus.turns, theseus.tokens, theseus.provider.errors, theseus.cost.usd,
+# theseus.tool.calls, theseus.turn.duration_ms, theseus.provider.call.duration_ms,
+# theseus.provider.first_token_ms. A failed export is retried once, then dropped
+# and counted: `theseus health` says what was sent and dropped, and the last error.
 [telemetry]
 # otlp_endpoint = "http://127.0.0.1:4318"   # OTLP/HTTP base URL; /v1/traces and /v1/metrics are appended
-# headers_secret = "otlp_headers"           # a [secrets] entry of "Header: value" lines (e.g. x-honeycomb-team)
+# headers_secret = "otlp_headers"           # a [secrets] entry of "Header: value" lines, or "k=v,k2=v2" (e.g. x-honeycomb-team)
 service_name = "theseus"
-metrics_interval_secs = 15
-export_timeout_secs = 10
+metrics_interval_secs = 15                  # how often the metrics are exported
+export_timeout_secs = 10                    # each export's HTTP timeout
