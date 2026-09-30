@@ -15,7 +15,7 @@ use crate::node::{Body, Node};
 use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
-use theseus_kernel::{Action, BUDGET_TOOL};
+use theseus_kernel::{Action, LimitFollowed, BUDGET_TOOL};
 
 impl Core {
     /// A waiting action as the question the operator sees: the one place a
@@ -476,6 +476,76 @@ impl Core {
             execution_id: q.execution_id.clone(),
             resumes: approve,
         })
+    }
+}
+
+impl Core {
+    /// Open sessions follow `[kernel] spend_limit_usd` (theseus-3pj). The
+    /// core runs this when the vault confirms the copy this start served
+    /// from, before the gate opens, so nothing acts on an old limit once the
+    /// vault has confirmed a new one. (A start whose config may act at once
+    /// had the kernel's startup do it.) A failure is loud, and the gate still
+    /// opens: a store that cannot write this frame cannot write a turn either.
+    pub fn follow_spend_limit(&self) {
+        match self.kernel.follow_spend_limit() {
+            Ok(followed) => self.said_limits_followed(&followed),
+            Err(e) => tracing::error!(
+                error = %format!("{e:#}"),
+                "open sessions could not take the configured spend limit; they keep the one they had"
+            ),
+        }
+    }
+
+    /// Say what following the spend limit did: one log line, a narrative
+    /// line per session, and `confirm.resolved` to the clients of each
+    /// session whose question a raise withdrew.
+    pub(crate) fn said_limits_followed(&self, followed: &[LimitFollowed]) {
+        let Some(first) = followed.first() else {
+            return;
+        };
+        let proceed = followed.iter().filter(|f| f.proceeds).count();
+        tracing::info!(
+            limit_usd = theseus_kernel::micros_to_usd(first.to_micros),
+            sessions = followed.len(),
+            raised = followed
+                .iter()
+                .filter(|f| f.to_micros > f.from_micros)
+                .count(),
+            proceed,
+            "open sessions follow the configured spend limit"
+        );
+        for f in followed {
+            let then = if f.proceeds {
+                "; the call that waited at the old limit proceeds"
+            } else if f.to_micros < f.from_micros {
+                "; its next call that does not fit asks"
+            } else {
+                ""
+            };
+            narrate!(
+                self.narrator,
+                Session,
+                Some(&f.session_id),
+                None,
+                "Session {} follows the config's spend limit: {} before, {} now{then}.",
+                crate::narrative::short(&f.session_id),
+                crate::narrative::dollars(f.from_micros),
+                crate::narrative::dollars(f.to_micros)
+            );
+            if let Some(q) = &f.withdrew {
+                self.bus.publish(
+                    &f.session_id,
+                    &Message::Notification(theseus_protocol::Notification::new(
+                        notify::CONFIRM_RESOLVED,
+                        json!({"session_id": f.session_id, "correlation_id": q, "approved": false, "withdrawn": true, "by": "config"}),
+                    )),
+                    None,
+                );
+            }
+        }
+        if proceed > 0 {
+            self.admission.notify_waiters();
+        }
     }
 }
 

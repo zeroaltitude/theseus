@@ -4319,3 +4319,80 @@ async fn a_jobs_process_can_tighten_but_not_undo_a_tightening() {
         std::process::id()
     );
 }
+
+// ---------------------------------------------------------------- the limit follows the config (theseus-3pj)
+
+/// A lower `spend_limit_usd`, and a restart: the open session takes it in
+/// startup (a config that may act at once), with nothing else changed, and
+/// its next turn's first call no longer fits, so the turn asks, as usual.
+#[tokio::test]
+async fn a_lowered_limit_makes_the_next_turn_over_it_ask() {
+    use theseus_kernel::ExecState;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("w");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = config(&root.canonicalize().unwrap(), dir.path());
+    cfg.kernel.spend_limit_usd = 5.0;
+    let (sid, exec, spent, lifetime) = {
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let fake = Arc::new(FakeProvider::scripted(vec![
+            Scripted::tools(
+                &"word ".repeat(30_000),
+                &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
+            ),
+            Scripted::text("One line differs."),
+        ]));
+        let core = Core::build(crate::rpc::Parts::for_tests(cfg.clone(), fake, store)).unwrap();
+        let res = turn(&core, None, "diff these").await;
+        assert_eq!(res.stop_reason, "no_tool_calls", "under $5 it fits");
+        let exec = res.execution_id.clone().unwrap();
+        let e = core.kernel.execution(&exec).unwrap().unwrap();
+        let s: SessionRecord = core.store.get_session(&res.session_id).unwrap().unwrap();
+        (res.session_id, exec, e.budget.spent_micros, s.cost_usd)
+    };
+    assert!(spent > 250_000, "30,000 words out: {spent}");
+
+    cfg.kernel.spend_limit_usd = 1.50;
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("never asked")]));
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
+    let e = core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (e.state, e.budget.limit_micros, e.budget.spent_micros),
+        (ExecState::Waiting, 1_500_000, spent),
+        "the new limit, and nothing else"
+    );
+    let r = Rig {
+        core: core.clone(),
+        fake: fake.clone(),
+        root: root.clone(),
+        _dir: dir,
+    };
+    let changed = ledgered(&r, "budget.limit_changed");
+    assert_eq!(
+        (
+            &changed[0]["from_usd"],
+            &changed[0]["to_usd"],
+            &changed[0]["proceeds"]
+        ),
+        (&json!(5.0), &json!(1.5), &json!(false))
+    );
+
+    // Sonnet 5.5's call reserves its 128,000-token cap ($1.28) and its input:
+    // more than the $1.50 limit leaves.
+    let res = turn(&core, Some(&sid), "and now?").await;
+    assert_eq!(res.stop_reason, "budget");
+    assert!(fake.requests().is_empty(), "nothing ran over the new limit");
+    let q = res.awaiting_confirm.unwrap();
+    let pending = core.pending_confirms(&sid).unwrap();
+    assert_eq!(pending[0].correlation_id, q);
+    assert_eq!(
+        pending[0].reason,
+        format!(
+            "This session has spent {} of its $1.50 limit. Reset its spend to $0 and continue?",
+            crate::narrative::dollars(spent)
+        )
+    );
+    let s: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(s.cost_usd, lifetime, "the lifetime cost is untouched");
+}

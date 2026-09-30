@@ -1107,6 +1107,303 @@ fn a_call_that_costs_more_than_it_reserved_books_all_of_it() {
     drop(g);
 }
 
+// ------------------------------------------------------------ the limit follows the config (theseus-3pj)
+
+fn limited(spend_limit_micros: Micros) -> KernelConfig {
+    KernelConfig {
+        spend_limit_micros,
+        ..KernelConfig::default()
+    }
+}
+
+/// A conversation opened with the config's limit, which it follows, woken
+/// and admitted.
+fn following(w: &World) -> (SessionId, Execution, TurnGuard) {
+    let e = w
+        .kernel
+        .open_execution(
+            &new_id("ses"),
+            SessionKind::Conversation,
+            auth(),
+            None,
+            None,
+        )
+        .unwrap();
+    assert!(!e.budget.pinned);
+    w.kernel.wake_input(&e.id).unwrap();
+    let g = w.kernel.admit(&e.id).unwrap();
+    let e = w.kernel.execution(&e.id).unwrap().unwrap();
+    (e.session_id.clone(), e, g)
+}
+
+/// Spend `cost` on one call; then the next call, needing `needs`, does not
+/// fit, and the turn parks on its question.
+fn parked_at_limit(w: &World, g: TurnGuard, cost: Micros, needs: Micros) -> Action {
+    let a = dispatched(w, &g, "provider.messages", cost);
+    w.kernel
+        .accept_completion(&completion(
+            &a.correlation_id,
+            Outcome::Succeeded,
+            Some(cost),
+        ))
+        .unwrap();
+    w.kernel.take_results(&g).unwrap();
+    over(w, &g, needs);
+    let q = w.kernel.ask_budget(&g, needs).unwrap();
+    w.kernel
+        .end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q.correlation_id.clone(),
+                },
+            },
+        )
+        .unwrap();
+    q
+}
+
+/// An open session follows `spend_limit_micros` (theseus-3pj). A raise
+/// across a restart gives it the new limit in one ledgered rewrite, withdraws
+/// the question it waits on, with the reason, and queues it with the
+/// question as a result, as an approved reset does, so its next turn makes
+/// the call that did not fit. The spend and the resets are untouched. A
+/// second start under the same config writes nothing.
+#[test]
+fn a_raised_limit_across_a_restart_lets_a_session_waiting_at_its_old_limit_continue() {
+    let w = world_with(limited(100_000));
+    let (s, e, g) = following(&w);
+    assert_eq!(e.budget.limit_micros, 100_000);
+    let q = parked_at_limit(&w, g, 60_000, 60_000);
+
+    let (w, rep) = crash(w, limited(250_000));
+    assert_eq!(
+        rep.limits_followed,
+        vec![LimitFollowed {
+            execution_id: e.id.clone(),
+            session_id: s.clone(),
+            from_micros: 100_000,
+            to_micros: 250_000,
+            withdrew: Some(q.correlation_id.clone()),
+            proceeds: true,
+        }]
+    );
+    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        (
+            e1.state,
+            e1.budget.limit_micros,
+            e1.budget.spent_micros,
+            e1.budget.resets
+        ),
+        (ExecState::Queued, 250_000, 60_000, 0),
+        "the config's limit; the spend and the resets as they were"
+    );
+    assert!(e1.resume_pending, "the driver takes the next turn");
+    assert!(e1.wake.is_none() && e1.budget.question.is_none());
+    assert_eq!(e1.queued_results, vec![q.correlation_id.clone()]);
+    let q1 = w.kernel.action(&q.correlation_id).unwrap().unwrap();
+    assert_eq!(q1.state, ActionState::Cancelled);
+    assert_eq!(
+        q1.resolution.as_deref(),
+        Some("withdrawn: the spend limit was raised from $0.10 to $0.25")
+    );
+    let changed = rows(&w, &s, "budget.limit_changed");
+    assert_eq!(changed.len(), 1);
+    let c = &changed[0];
+    assert_eq!(
+        (
+            &c["from_usd"],
+            &c["to_usd"],
+            &c["spent_usd"],
+            &c["available_usd"]
+        ),
+        (&json!(0.1), &json!(0.25), &json!(0.06), &json!(0.19))
+    );
+    assert_eq!(
+        (&c["withdrew"], &c["proceeds"], &c["state"]),
+        (&json!(q.correlation_id), &json!(true), &json!("queued"))
+    );
+    assert_eq!(
+        rows(&w, &s, "execution.queued").last().unwrap()["why"],
+        "limit_raised"
+    );
+    assert!(w.kernel.pending_confirms().unwrap().is_empty());
+
+    // The next turn gets the withdrawn question as its result, and the call fits.
+    let g = w.kernel.admit(&e.id).unwrap();
+    let results = w.kernel.take_results(&g).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].correlation_id, q.correlation_id);
+    let _ = dispatched(&w, &g, "provider.messages", 60_000);
+    drop(g);
+
+    // Once: a start under the same limit rewrites nothing.
+    let (w, rep) = crash(w, limited(250_000));
+    assert!(rep.limits_followed.is_empty(), "{:?}", rep.limits_followed);
+    assert_eq!(rows(&w, &s, "budget.limit_changed").len(), 1);
+}
+
+/// A lower limit changes nothing but the limit, even when the session has
+/// already spent more than it. Its next reservation does not fit, and the
+/// turn asks, as usual; an approved reset then brings the spend to $0 under
+/// the new limit.
+#[test]
+fn a_lowered_limit_asks_at_the_next_reservation_over_it() {
+    let w = world_with(limited(100_000));
+    let (s, e, g) = following(&w);
+    let a = dispatched(&w, &g, "provider.messages", 50_000);
+    w.kernel
+        .accept_completion(&completion(
+            &a.correlation_id,
+            Outcome::Succeeded,
+            Some(50_000),
+        ))
+        .unwrap();
+    w.kernel.take_results(&g).unwrap();
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+
+    let (w, rep) = crash(w, limited(40_000));
+    assert_eq!(rep.limits_followed.len(), 1);
+    let f = &rep.limits_followed[0];
+    assert_eq!(
+        (
+            f.from_micros,
+            f.to_micros,
+            f.withdrew.as_deref(),
+            f.proceeds
+        ),
+        (100_000, 40_000, None, false)
+    );
+    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        (e1.state, e1.wake.clone(), e1.budget.limit_micros),
+        (ExecState::Waiting, Some(Wake::Input), 40_000)
+    );
+    assert_eq!(
+        e1.budget.spent_micros, 50_000,
+        "spend never moves but by a reset"
+    );
+    let changed = rows(&w, &s, "budget.limit_changed");
+    assert_eq!(
+        (&changed[0]["to_usd"], &changed[0]["available_usd"]),
+        (&json!(0.04), &json!(0.0))
+    );
+
+    w.kernel.wake_input(&e.id).unwrap();
+    let g = w.kernel.admit(&e.id).unwrap();
+    assert_eq!(over(&w, &g, 1), (1, 0, 50_000, 40_000));
+    let q = w.kernel.ask_budget(&g, 30_000).unwrap();
+    assert_eq!(rows(&w, &s, "budget.asked")[0]["limit_usd"], 0.04);
+    w.kernel
+        .end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q.correlation_id.clone(),
+                },
+            },
+        )
+        .unwrap();
+    let (e2, before) = w.kernel.reset_budget(&q.correlation_id, "eddie").unwrap();
+    assert_eq!((before, e2.budget.spent_micros), (50_000, 0));
+    let g = w.kernel.admit(&e.id).unwrap();
+    w.kernel.take_results(&g).unwrap();
+    let _ = dispatched(&w, &g, "provider.messages", 30_000);
+    drop(g);
+}
+
+/// Under a copy the vault has not confirmed (theseus-2fo), startup writes no
+/// limit the copy decides. The vault's word applies it, once
+/// (`follow_spend_limit`).
+#[test]
+fn under_an_unconfirmed_copy_startup_keeps_the_limits_and_the_vaults_word_applies_them() {
+    let w = world_with(limited(100_000));
+    let (s, e, g) = following(&w);
+    let q = parked_at_limit(&w, g, 60_000, 60_000);
+    let (w, rep) = crash(
+        w,
+        KernelConfig {
+            unconfirmed_config: true,
+            ..limited(250_000)
+        },
+    );
+    assert!(rep.limits_followed.is_empty());
+    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        (e1.state, e1.budget.limit_micros, e1.budget.question),
+        (ExecState::Waiting, 100_000, Some(q.correlation_id))
+    );
+    assert!(rows(&w, &s, "budget.limit_changed").is_empty());
+
+    let followed = w.kernel.follow_spend_limit().unwrap();
+    assert_eq!(followed.len(), 1);
+    assert!(followed[0].proceeds);
+    let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        (e2.state, e2.budget.limit_micros),
+        (ExecState::Queued, 250_000)
+    );
+    assert!(w.kernel.follow_spend_limit().unwrap().is_empty(), "once");
+    assert_eq!(rows(&w, &s, "budget.limit_changed").len(), 1);
+}
+
+/// A declined question leaves the session waiting on its budget. A raise
+/// lets that wait proceed too: the declined question, which stays declined,
+/// is queued as the result.
+#[test]
+fn a_raise_lets_a_declined_budget_wait_proceed() {
+    let w = world_with(limited(100_000));
+    let (_, e, g) = following(&w);
+    let q = parked_at_limit(&w, g, 60_000, 60_000);
+    w.kernel
+        .decline_action(&q.correlation_id, "eddie", "not now")
+        .unwrap();
+    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert!(e1.budget.question.is_none());
+    assert!(matches!(e1.wake, Some(Wake::Budget { .. })));
+
+    let (w, rep) = crash(w, limited(200_000));
+    let f = &rep.limits_followed[0];
+    assert_eq!((f.withdrew.as_deref(), f.proceeds), (None, true));
+    let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(e2.state, ExecState::Queued);
+    assert_eq!(e2.queued_results, vec![q.correlation_id.clone()]);
+    let q2 = w.kernel.action(&q.correlation_id).unwrap().unwrap();
+    assert!(q2.resolution.unwrap().starts_with("declined by eddie"));
+}
+
+/// What does not follow: an execution opened with a limit of its own
+/// (`pinned`), and one that has ended. A limit that is the config's leaves
+/// no mark in the record, so every record the product has written follows.
+#[test]
+fn a_pinned_limit_and_an_ended_execution_keep_their_limits() {
+    let w = world_with(limited(100_000));
+    let (_, pinned, g) = running(&w);
+    assert!(pinned.budget.pinned);
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    let (_, done, g) = following(&w);
+    let stored = serde_json::to_value(&done.budget).unwrap();
+    assert!(stored.get("pinned").is_none(), "{stored}");
+    w.kernel
+        .end_turn(
+            g,
+            TurnEnd::Complete {
+                reason: "done".into(),
+            },
+        )
+        .unwrap();
+
+    let (w, rep) = crash(w, limited(300_000));
+    assert!(rep.limits_followed.is_empty(), "{:?}", rep.limits_followed);
+    let limit = |id: &str| w.kernel.execution(id).unwrap().unwrap().budget.limit_micros;
+    assert_eq!((limit(&pinned.id), limit(&done.id)), (100_000, 100_000));
+}
+
 #[test]
 fn admission_ceiling_holds_and_cancel_is_honored_immediately() {
     let w = world_with(KernelConfig {

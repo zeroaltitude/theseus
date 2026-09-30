@@ -983,22 +983,29 @@ impl TurnRunner {
         let t0 = t.trace.now_us();
         let settled = t.tc.kernel.take_results(t.tc.guard)?;
         let absorbed = self.tools.absorb(&t.tc, &settled)?;
-        // An approved budget question: the call that did not fit proceeds.
-        let reset = settled
-            .iter()
-            .any(|a| a.tool == BUDGET_TOOL && a.state == ActionState::Succeeded);
+        // A budget question the kernel queued as a result: approved (the
+        // spend was reset), or withdrawn by a raised limit (theseus-3pj).
+        // Either way the call that did not fit proceeds.
+        let budget = |approved: bool| {
+            settled
+                .iter()
+                .any(|a| a.tool == BUDGET_TOOL && (a.state == ActionState::Succeeded) == approved)
+        };
+        let (reset, raised) = (budget(true), budget(false));
         let resumed = self.tools.resume(&t.tc, has_input).await?;
         t.trace.record(
             "continuation",
             "tool",
             t0,
             t.trace.now_us(),
-            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background, "budget_reset": reset}),
+            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background, "budget_reset": reset, "limit_raised": raised}),
         );
         if t.tc.narrator.on() {
             let mut done = Vec::new();
             if reset {
                 done.push("the spend was reset, so the waiting call proceeds".to_string());
+            } else if raised {
+                done.push("the spend limit was raised, so the waiting call proceeds".to_string());
             }
             if !settled.is_empty() {
                 done.push(format!(
@@ -1032,7 +1039,7 @@ impl TurnRunner {
         }
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
-        Ok(absorbed + resumed.wrote + u32::from(reset))
+        Ok(absorbed + resumed.wrote + u32::from(reset || raised))
     }
 
     /// Does the model have anything new to read: input or results it has not

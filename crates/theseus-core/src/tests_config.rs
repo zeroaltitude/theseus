@@ -879,3 +879,164 @@ async fn a_copy_that_widens_approval_never_judges_an_approval() {
         theseus_kernel::ActionState::Planned
     );
 }
+
+// ---------------------------------------------------------------- the spend limit (theseus-3pj)
+
+/// "I raised the limit in the vault and restarted": the daemon starts from
+/// the old copy, the vault's changed note restarts it onto the new one, and
+/// on the vault's word the session waiting at its old limit takes the new
+/// limit and continues. Its question is withdrawn with the reason, before
+/// anything may act. Nothing written under either copy changed a limit, and
+/// neither the spend nor the lifetime cost went down.
+#[tokio::test]
+async fn a_limit_raised_in_the_vault_lets_a_session_waiting_at_its_old_limit_continue() {
+    use theseus_kernel::{micros_to_usd, ActionState, ExecState};
+    let r = from_copy(
+        vec![Scripted::tools(
+            &"word ".repeat(30_000),
+            &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
+        )],
+        Duration::from_secs(10),
+        |c| c.kernel.spend_limit_usd = 1.40,
+    );
+    config_gate::confirm(
+        r.core.clone(),
+        Vault::new(vec![Ok(r.text.clone())]),
+        None,
+        Instant::now(),
+    )
+    .await;
+    let res = turn(&r.core, "diff these").await;
+    assert_eq!(res.stop_reason, "budget", "{res:?}");
+    let (sid, exec) = (res.session_id.clone(), res.execution_id.clone().unwrap());
+    let q = res.awaiting_confirm.clone().expect("it asks");
+    let spent = r
+        .core
+        .kernel
+        .execution(&exec)
+        .unwrap()
+        .unwrap()
+        .budget
+        .spent_micros;
+    let lifetime = |core: &Core| {
+        core.store
+            .get_session::<SessionRecord>(&sid)
+            .unwrap()
+            .unwrap()
+            .cost_usd
+    };
+    let before = lifetime(&r.core);
+    let dir = r._dir.path().to_path_buf();
+    let raised = note(&r.root, &dir, |c| c.kernel.spend_limit_usd = 3.0);
+
+    // The start after the edit serves from the old copy; the vault's note
+    // differs, so it restarts onto it.
+    drop(r.core);
+    let (core, _) = start(
+        vec![],
+        Duration::from_secs(10),
+        &r.copy,
+        r.store.clone(),
+        None,
+    );
+    let e = core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (e.state, e.budget.limit_micros),
+        (ExecState::Waiting, 1_400_000)
+    );
+    config_gate::confirm(
+        core.clone(),
+        Vault::new(vec![Ok(raised.clone())]),
+        None,
+        Instant::now(),
+    )
+    .await;
+    let restart = core.restart_requested().expect("a restart onto the note");
+    assert_eq!(restart.tables, ["kernel"]);
+    assert_eq!(
+        core.kernel
+            .execution(&exec)
+            .unwrap()
+            .unwrap()
+            .budget
+            .limit_micros,
+        1_400_000,
+        "a restart onto the note changes nothing itself"
+    );
+
+    // The restarted daemon, from the rewritten copy: unconfirmed, it still
+    // writes no limit; on the vault's word it does, before the gate opens.
+    drop(core);
+    let (core, fake) = start(
+        vec![Scripted::text("The diff is one line.")],
+        Duration::from_secs(10),
+        &r.copy,
+        r.store.clone(),
+        Some(restart),
+    );
+    let e = core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (e.budget.limit_micros, e.budget.question.as_deref()),
+        (1_400_000, Some(q.as_str()))
+    );
+    assert!(ledgered(&core, "budget.limit_changed").is_empty());
+    config_gate::confirm(
+        core.clone(),
+        Vault::new(vec![Ok(raised)]),
+        None,
+        Instant::now(),
+    )
+    .await;
+    assert_eq!(core.config_gate.state(), Gate::Open);
+    let e = core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (
+            e.state,
+            e.budget.limit_micros,
+            e.budget.spent_micros,
+            e.budget.resets
+        ),
+        (ExecState::Queued, 3_000_000, spent, 0)
+    );
+    assert!(e.resume_pending && e.budget.question.is_none());
+    let withdrawn = core.kernel.action(&q).unwrap().unwrap();
+    assert_eq!(withdrawn.state, ActionState::Cancelled);
+    assert_eq!(
+        withdrawn.resolution.as_deref(),
+        Some("withdrawn: the spend limit was raised from $1.40 to $3")
+    );
+    assert!(core.pending_confirms(&sid).unwrap().is_empty());
+    let changed = ledgered(&core, "budget.limit_changed");
+    assert_eq!(changed.len(), 1);
+    assert_eq!(
+        (
+            &changed[0]["from_usd"],
+            &changed[0]["to_usd"],
+            &changed[0]["spent_usd"]
+        ),
+        (&json!(1.4), &json!(3.0), &json!(micros_to_usd(spent)))
+    );
+    // The limit was the vault's before anything could act on the old one.
+    let rows = core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(10_000)
+        .unwrap();
+    let at = |kind: &str| rows.iter().rev().find(|(_, r)| r.kind == kind).unwrap().0;
+    assert!(at("budget.limit_changed") < at("config.confirmed"));
+    let lines: Vec<String> = core.narrator.tail().into_iter().map(|l| l.text).collect();
+    assert!(
+        lines.iter().any(|l| l.contains("follows the config's spend limit: $1.40 before, $3 now; the call that waited at the old limit proceeds")),
+        "{lines:?}"
+    );
+    assert_eq!(lifetime(&core), before, "a new limit lowers nothing");
+
+    // The driver's continuation makes the call that waited, under the new limit.
+    let cont = core.continue_execution(&exec).await.unwrap().unwrap();
+    assert!(cont.continuation);
+    assert_eq!(cont.output, "The diff is one line.");
+    assert_eq!(fake.requests().len(), 1, "the waiting call ran");
+    let e = core.kernel.execution(&exec).unwrap().unwrap();
+    assert!(e.budget.spent_micros > spent, "no reset: the spend goes on");
+    let now = before + cont.cost_usd.unwrap();
+    assert!((lifetime(&core) - now).abs() < 1e-9);
+}

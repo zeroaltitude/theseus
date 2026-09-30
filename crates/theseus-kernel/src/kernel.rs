@@ -33,7 +33,9 @@ pub struct KernelConfig {
     /// Deadline for an action whose tool declares none.
     pub default_deadline_ms: u64,
     /// The spend limit, in micro-dollars, of a new execution whose caller
-    /// names none, and of an execution stored with a unit budget.
+    /// names none, and of an execution stored with a unit budget. Every open
+    /// execution whose limit is the config's follows it once this config may
+    /// act (theseus-3pj; `Kernel::follow_spend_limit`).
     pub spend_limit_micros: Micros,
     /// How long a confirmation stays valid.
     pub confirm_ttl_ms: u64,
@@ -47,7 +49,9 @@ pub struct KernelConfig {
     /// confirmed yet (theseus-2fo). Startup then writes nothing that config
     /// decides: an execution stored with a unit budget takes its dollar
     /// limit from `spend_limit_micros` when startup rewrites it, so a store
-    /// that still holds one refuses to start (`KernelError::UnconfirmedConfig`).
+    /// that still holds one refuses to start (`KernelError::UnconfirmedConfig`);
+    /// and the open executions follow the config's limit only once the vault
+    /// confirms it (`Kernel::follow_spend_limit`), not in startup.
     #[serde(skip)]
     pub unconfirmed_config: bool,
 }
@@ -233,10 +237,32 @@ pub struct ReconcileReport {
 pub struct StartupReport {
     pub steps: Vec<StartupStep>,
     pub requeued_interrupted: Vec<ExecutionId>,
+    /// Open executions that took a changed spend limit in step 2 (a config
+    /// that may act at once; theseus-3pj).
+    #[serde(default)]
+    pub limits_followed: Vec<LimitFollowed>,
     pub spool_drained: u32,
     pub spool_quarantined: u32,
     pub reconcile: ReconcileReport,
     pub elapsed_us: u64,
+}
+
+/// One open execution that took the config's changed spend limit
+/// (theseus-3pj), as its `budget.limit_changed` row says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LimitFollowed {
+    pub execution_id: ExecutionId,
+    pub session_id: SessionId,
+    pub from_micros: Micros,
+    pub to_micros: Micros,
+    /// The budget question a raise withdrew, still unanswered until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub withdrew: Option<CorrelationId>,
+    /// A raise let the call that waited at the old limit proceed: the
+    /// question joined the queued results, and a waiting execution was
+    /// queued for the driver.
+    #[serde(default)]
+    pub proceeds: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -467,7 +493,8 @@ impl Kernel {
 
     /// Create the one execution for a session whose record someone else
     /// owns (the core's `SessionRecord`). Starts `Waiting` on input, with
-    /// `limit_micros` or the configured spend limit.
+    /// the configured spend limit, which it follows when the config changes,
+    /// or `limit_micros`, which it keeps (`Budget::pinned`).
     pub fn open_execution(
         &self,
         session_id: &str,
@@ -485,7 +512,10 @@ impl Kernel {
             kind,
             state: ExecState::Waiting,
             authority,
-            budget: Budget::new(limit_micros.unwrap_or(self.cfg.spend_limit_micros)),
+            budget: Budget {
+                pinned: limit_micros.is_some(),
+                ..Budget::new(limit_micros.unwrap_or(self.cfg.spend_limit_micros))
+            },
             wake: Some(Wake::Input),
             outstanding: vec![],
             queued_results: vec![],
@@ -1195,6 +1225,148 @@ impl Kernel {
         Ok((e, before))
     }
 
+    /// Every open execution whose limit is the config's takes the config's
+    /// spend limit, when it has changed (theseus-3pj): the transition the
+    /// core runs when the vault confirms the copy a start served from.
+    /// (A start whose config may act at once does this in startup's step 2.)
+    /// The rewrites share one frame, and each is ledgered as
+    /// `budget.limit_changed`. Spend, reservations, held amounts, and resets
+    /// are untouched: a lower limit refuses the next reservation that does
+    /// not fit, which asks as usual. A higher one lets a call that waited at
+    /// the old limit proceed (`follow_limit`).
+    pub fn follow_spend_limit(&self) -> Result<Vec<LimitFollowed>> {
+        self.require_accepting()?;
+        let ids: Vec<ExecutionId> = self
+            .executions()?
+            .into_iter()
+            .filter(|e| self.follows_limit(e))
+            .map(|e| e.id)
+            .collect();
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        // Decided from the scan; each is read again under the locks.
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let _w = self.locks.lock_all(&refs);
+        let now = self.now_ms();
+        let mut frame = Vec::new();
+        let mut followed = Vec::new();
+        for id in &ids {
+            let Some(mut e) = self.execution(id)? else {
+                continue;
+            };
+            if let Some((f, records)) = self.follow_limit(&mut e, now)? {
+                frame.push(exec_record(&e)?);
+                frame.extend(records);
+                followed.push(f);
+            }
+        }
+        if !frame.is_empty() {
+            self.commit(&frame)?;
+        }
+        Ok(followed)
+    }
+
+    /// An open execution whose limit is the config's and differs from it.
+    fn follows_limit(&self, e: &Execution) -> bool {
+        !e.state.is_terminal()
+            && !e.budget.pinned
+            && e.budget.limit_micros != self.cfg.spend_limit_micros
+    }
+
+    /// Give `e`, read under its lock, the config's spend limit, if it follows
+    /// it: the records beside `e`'s own for the frame (a withdrawn question,
+    /// and the rows), and what changed. A raise withdraws the budget question
+    /// the execution waits on, or has open, and puts it with the results the
+    /// next turn consumes, as an approved reset does, so the call that did
+    /// not fit proceeds (and asks again, in the new figures, if it still does
+    /// not fit); a waiting execution is queued for the driver.
+    fn follow_limit(
+        &self,
+        e: &mut Execution,
+        now: u64,
+    ) -> Result<Option<(LimitFollowed, Vec<NewRecord>)>> {
+        if !self.follows_limit(e) {
+            return Ok(None);
+        }
+        let (from, to) = (e.budget.limit_micros, self.cfg.spend_limit_micros);
+        e.budget.limit_micros = to;
+        e.updated_at_ms = now;
+        let mut records = Vec::new();
+        let mut withdrew = None;
+        let mut proceeds = false;
+        // The question open, or the one a budget wait names (answered no).
+        // A lower limit leaves it as it is.
+        let asked = e.budget.question.clone().or_else(|| match &e.wake {
+            Some(Wake::Budget { correlation_id }) => Some(correlation_id.clone()),
+            _ => None,
+        });
+        if let Some(qid) = asked.filter(|_| to > from) {
+            if let Some(mut q) = self.action(&qid)? {
+                if q.state == ActionState::Planned {
+                    q.state = ActionState::Cancelled;
+                    q.settled_at_ms = Some(now);
+                    q.resolution = Some(format!(
+                        "withdrawn: the spend limit was raised from {} to {}",
+                        usd(from),
+                        usd(to)
+                    ));
+                    records.push(action_record(&q)?);
+                    withdrew = Some(qid.clone());
+                }
+                if e.budget.question.as_deref() == Some(qid.as_str()) {
+                    e.budget.question = None;
+                    e.budget.question_needs_micros = 0;
+                }
+                if !e.queued_results.contains(&qid) {
+                    e.queued_results.push(qid);
+                }
+                proceeds = true;
+            }
+        }
+        let woke = proceeds && e.state == ExecState::Waiting;
+        if woke {
+            e.state = ExecState::Queued;
+            e.wake = None;
+            e.resume_pending = true;
+        }
+        let b = &e.budget;
+        records.push(self.ledger(
+            "budget.limit_changed",
+            Some(&e.session_id),
+            json!({
+                "execution_id": e.id,
+                "from_usd": micros_to_usd(from),
+                "to_usd": micros_to_usd(to),
+                "spent_usd": micros_to_usd(b.spent_micros),
+                "reserved_usd": micros_to_usd(b.reserved_micros),
+                "held_unknown_usd": micros_to_usd(b.held_unknown_micros),
+                "available_usd": micros_to_usd(b.available()),
+                "state": e.state,
+                "withdrew": withdrew,
+                "proceeds": proceeds,
+            }),
+        )?);
+        if woke {
+            records.push(self.ledger(
+                "execution.queued",
+                Some(&e.session_id),
+                json!({"execution_id": e.id, "why": "limit_raised"}),
+            )?);
+        }
+        Ok(Some((
+            LimitFollowed {
+                execution_id: e.id.clone(),
+                session_id: e.session_id.clone(),
+                from_micros: from,
+                to_micros: to,
+                withdrew,
+                proceeds,
+            },
+            records,
+        )))
+    }
+
     /// Bind a confirmation to the action's *current* digest (§3.9).
     pub fn bind_confirm(
         &self,
@@ -1848,9 +2020,13 @@ impl Kernel {
         step(1, "store", t)?;
 
         // 2. load executions; requeue interrupted turns; rewrite, once, the
-        //    executions stored with a unit budget (theseus-0sg). The rewrites
-        //    share one frame: the first start under this binary pays one
-        //    fsync for them, and every later start finds none.
+        //    executions stored with a unit budget (theseus-0sg); and, under a
+        //    config that may act, give every open execution that follows the
+        //    config a changed spend limit (theseus-3pj; under a copy the vault
+        //    has not confirmed, `follow_spend_limit` does it on the vault's
+        //    word). The rewrites share one frame: the first start under this
+        //    binary, or under a changed limit, pays one fsync for them, and
+        //    every later start finds none.
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 2;
         let now = self.now_ms();
@@ -1863,11 +2039,14 @@ impl Kernel {
         if legacy > 0 && self.cfg.unconfirmed_config {
             return Err(KernelError::UnconfirmedConfig { executions: legacy }.into());
         }
+        let follow = !self.cfg.unconfirmed_config;
         // The executions this step rewrites are read again under their locks,
         // taken together in id order and held to the step's end, so the scan
         // decides nothing it writes. A clean start rewrites none, and reads
         // each execution once.
-        let rewrites = |e: &Execution| e.state == ExecState::Running || e.schema < SCHEMA;
+        let rewrites = |e: &Execution| {
+            e.state == ExecState::Running || e.schema < SCHEMA || (follow && self.follows_limit(e))
+        };
         let ids: Vec<&str> = all
             .iter()
             .filter(|e| rewrites(e))
@@ -1891,19 +2070,29 @@ impl Kernel {
                 )?);
                 rewritten += 1;
             }
-            if e.state == ExecState::Running {
+            let interrupted = e.state == ExecState::Running;
+            if interrupted {
                 e.state = ExecState::Queued;
                 e.interrupted += 1;
                 e.resume_pending = true;
                 e.updated_at_ms = now;
-                let mut frame = vec![
-                    exec_record(&e)?,
+                rows.insert(
+                    0,
                     self.ledger(
                         "execution.interrupted",
                         Some(&e.session_id),
                         json!({"execution_id": e.id, "interrupted": e.interrupted, "turn": e.turns}),
                     )?,
-                ];
+                );
+            }
+            if follow {
+                if let Some((f, records)) = self.follow_limit(&mut e, now)? {
+                    rows.extend(records);
+                    rep.limits_followed.push(f);
+                }
+            }
+            if interrupted {
+                let mut frame = vec![exec_record(&e)?];
                 frame.extend(rows);
                 self.commit(&frame)?;
                 rep.requeued_interrupted.push(e.id.clone());
@@ -1920,7 +2109,7 @@ impl Kernel {
         step_rows.push(self.ledger(
             "startup.step",
             None,
-            json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten}),
+            json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten, "limits_followed": rep.limits_followed.len()}),
         )?);
         step(2, "load", t)?;
 

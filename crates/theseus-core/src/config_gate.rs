@@ -413,6 +413,9 @@ pub async fn confirm(
             Step::Confirmed(how) => {
                 let reads = gate.status().reads;
                 let restarted = gate.restarted();
+                // The open sessions take the vault's spend limit before
+                // anything may act (theseus-3pj).
+                core.follow_spend_limit();
                 gate.confirm(how.clone());
                 ledger(
                     &core,

@@ -295,18 +295,25 @@ fn main() -> Result<()> {
                 })
                 .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
                 println!(
-                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
+                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
                     rep.steps, rep.crashes, rep.startup_faults, rep.sessions, rep.turns, rep.actions,
                     rep.one_frame_dispatches, rep.batches, rep.batch_actions, rep.batch_crashes,
                     rep.races, rep.race_ops, rep.race_crashes,
                     rep.completions_delivered, rep.duplicates, rep.notify_dropped, rep.lost_jobs,
                     rep.late_after_cancel, rep.cancels, rep.unknowns, rep.resolved_unknowns,
-                    rep.budget_questions, rep.budget_resets, rep.budget_declines, rep.legacy_migrated,
+                    rep.budget_questions, rep.budget_resets, rep.budget_declines,
+                    rep.limit_changes, rep.limit_raises, rep.limits_followed, rep.limit_proceeds,
+                    rep.confirmed_after_startup, rep.legacy_migrated,
                     rep.reconciles, rep.invariant_checks, rep.final_positions, rep.wall_ms
                 );
                 totals.budget_questions += rep.budget_questions;
                 totals.budget_resets += rep.budget_resets;
                 totals.budget_declines += rep.budget_declines;
+                totals.limit_changes += rep.limit_changes;
+                totals.limit_raises += rep.limit_raises;
+                totals.limits_followed += rep.limits_followed;
+                totals.limit_proceeds += rep.limit_proceeds;
+                totals.confirmed_after_startup += rep.confirmed_after_startup;
                 totals.crashes += rep.crashes;
                 totals.startup_faults += rep.startup_faults;
                 totals.turns += rep.turns;
@@ -331,14 +338,16 @@ fn main() -> Result<()> {
             }
             if seeds > 1 {
                 println!(
-                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} invariant checks · {} ms · all invariants held",
+                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} invariant checks · {} ms · all invariants held",
                     seeds, totals.crashes, totals.startup_faults, totals.turns, totals.actions,
                     totals.one_frame_dispatches, totals.batches, totals.batch_actions,
                     totals.batch_crashes, totals.races, totals.race_ops, totals.race_crashes,
                     totals.completions_delivered, totals.duplicates, totals.notify_dropped,
                     totals.lost_jobs, totals.late_after_cancel, totals.cancels, totals.unknowns,
                     totals.resolved_unknowns, totals.budget_questions, totals.budget_resets,
-                    totals.budget_declines, totals.invariant_checks, totals.wall_ms
+                    totals.budget_declines, totals.limit_changes, totals.limit_raises,
+                    totals.limits_followed, totals.limit_proceeds, totals.confirmed_after_startup,
+                    totals.invariant_checks, totals.wall_ms
                 );
             }
             Ok(())

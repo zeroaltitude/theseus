@@ -172,6 +172,12 @@ pub struct Budget {
     /// It is history only: nothing decides from it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub units_before: Option<UnitBudget>,
+    /// The limit is the one the opener named, and the config's does not
+    /// replace it. Unset, the limit is the config's, and it follows
+    /// `spend_limit_micros` when the config changes (theseus-3pj). No caller
+    /// in the product names one yet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
 }
 
 impl Budget {

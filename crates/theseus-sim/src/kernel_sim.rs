@@ -23,7 +23,18 @@
 //! execution, and a budget wait names its question; terminal stays terminal,
 //! and nothing new ever ends `budget_exhausted`. A question carries the
 //! proposal its answer binds, and any proposal an action keeps is the one it
-//! was planned under (theseus-0g4). Half the actions are planned, authorized,
+//! was planned under (theseus-0g4).
+//!
+//! The limit moves (theseus-3pj). Half the executions open with the config's
+//! limit and follow it; the rest name their own, which never changes. Now and
+//! then the operator changes the config's limit and the process restarts onto
+//! it; a third of all starts serve from a copy the vault has not confirmed,
+//! and the vault's word then applies the limit (`follow_spend_limit`). Every
+//! open execution that follows the config has the config's limit after every
+//! step, and each change of an execution's limit is a `budget.limit_changed`
+//! row from the old limit to the new. A raise leaves none of them waiting on
+//! its budget. A lower limit may put a budget over it, but only a lower limit
+//! does, and nothing new is reserved while it is over. Half the actions are planned, authorized,
 //! and dispatched in one frame (`plan_and_dispatch`, theseus-qa0); such an
 //! action is never found planned or authorized, crash or no crash, and its
 //! three transitions carry their times in order.
@@ -113,6 +124,15 @@ pub struct SimReport {
     pub race_ops: u64,
     pub race_crashes: u64,
     pub legacy_migrated: u64,
+    /// Restarts onto a changed spend limit (theseus-3pj), and how many
+    /// raised it; the open executions that took a new limit; the budget waits
+    /// a raise let proceed; and the starts from an unconfirmed copy, whose
+    /// limit the vault's word applied after startup.
+    pub limit_changes: u64,
+    pub limit_raises: u64,
+    pub limits_followed: u64,
+    pub limit_proceeds: u64,
+    pub confirmed_after_startup: u64,
     pub reconciles: u64,
     pub invariant_checks: u64,
     pub final_positions: u64,
@@ -158,6 +178,16 @@ struct World {
     /// the invariant check has read the ledger to.
     cancelled: HashSet<String>,
     ledger_read_to: u64,
+    /// The config's spend limit, which executions opened without one of
+    /// their own follow (theseus-3pj). It changes only across a restart.
+    limit: Micros,
+    /// Executions opened with a limit of their own, and that limit.
+    pinned: HashMap<String, Micros>,
+    /// Each execution's limit at the last check.
+    limits: HashMap<String, Micros>,
+    /// Executions over their limit at the last check (a lower limit came
+    /// after their spend), and the reservations they held then.
+    over: HashMap<String, BTreeSet<String>>,
 }
 
 /// Executions stored with unit budgets before theseus-0sg, seeded into the
@@ -221,11 +251,15 @@ fn open_store(dir: &Path, p: &SimParams) -> Result<Arc<dyn Store>> {
     ))
 }
 
-fn cfg(p: &SimParams) -> KernelConfig {
+/// The config's limit when a run starts: small, as the executions' own
+/// limits are, so that a few calls reach it.
+const FIRST_LIMIT: Micros = 4_000;
+
+fn cfg(p: &SimParams, spend_limit_micros: Micros) -> KernelConfig {
     KernelConfig {
         admission_ceiling: p.ceiling,
         default_deadline_ms: 30_000,
-        spend_limit_micros: 100_000,
+        spend_limit_micros,
         confirm_ttl_ms: 60_000,
         heartbeat_ms: 60_000,
         fault_after_startup_step: None,
@@ -249,7 +283,7 @@ pub fn run(p: SimParams) -> Result<SimReport> {
     let spool = Spool::open(&dir.join("spool"))?;
     let store = open_store(&dir, &p)?;
     store.append(&legacy_records()?)?;
-    let kernel = new_kernel(store, clock.clone(), cfg(&p));
+    let kernel = new_kernel(store, clock.clone(), cfg(&p, FIRST_LIMIT));
     kernel.startup(
         Some(&spool),
         &WrapperEvidence {
@@ -277,6 +311,10 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         one_frame: HashSet::new(),
         cancelled: HashSet::new(),
         ledger_read_to: 0,
+        limit: FIRST_LIMIT,
+        pinned: HashMap::new(),
+        limits: HashMap::new(),
+        over: HashMap::new(),
     };
     w.rep.legacy_migrated = w
         .kernel
@@ -292,6 +330,9 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         );
     }
 
+    // The first check reads every execution as startup left it: the limits
+    // a later change is measured from.
+    w.check_invariants("after the first startup")?;
     for step in 0..w.p.steps {
         w.step(step)?;
         w.check_invariants(&format!("after step {step}"))?;
@@ -329,6 +370,16 @@ impl World {
         if self.p.verbose {
             eprintln!("  crash {where_} at t={}", self.now());
         }
+        self.restart()
+    }
+
+    /// The process is gone, and a new one starts under `self.limit`. A start
+    /// may die inside a startup step, and is tried again. A third of the
+    /// starts serve from a copy of the config the vault has not confirmed
+    /// (theseus-2fo): their startup leaves every limit as it was, and the
+    /// vault's word then gives the open executions the config's
+    /// (`follow_spend_limit`).
+    fn restart(&mut self) -> Result<()> {
         // The process dies: guards vanish without ending turns.
         let guards: Vec<_> = self.guards.drain().map(|(_, g)| g).collect();
         for g in guards {
@@ -345,7 +396,8 @@ impl World {
         drop(old);
         // Sometimes the restart itself dies inside a startup step; try again.
         loop {
-            let mut c = cfg(&self.p);
+            let mut c = cfg(&self.p, self.limit);
+            c.unconfirmed_config = self.chance(0.3);
             if self.chance(0.3) {
                 c.fault_after_startup_step = Some(self.rng.random_range(1..=4));
             }
@@ -369,6 +421,21 @@ impl World {
                     }
                     self.rep.unknowns += rep.reconcile.marked_unknown.len() as u64;
                     self.rep.resolved_unknowns += rep.reconcile.resolved_unknown.len() as u64;
+                    let followed = if c.unconfirmed_config {
+                        if !rep.limits_followed.is_empty() {
+                            bail!(
+                                "startup under an unconfirmed copy changed {} limits",
+                                rep.limits_followed.len()
+                            );
+                        }
+                        self.rep.confirmed_after_startup += 1;
+                        k.follow_spend_limit()?
+                    } else {
+                        rep.limits_followed
+                    };
+                    self.rep.limits_followed += followed.len() as u64;
+                    self.rep.limit_proceeds +=
+                        followed.iter().filter(|f| f.proceeds).count() as u64;
                     self.mark_settled_from_spool();
                     self.kernel = k;
                     break;
@@ -432,17 +499,20 @@ impl World {
             } else {
                 SessionKind::Task
             };
-            // Small enough that a few calls reach it, so the budget wait runs.
-            let budget = self.rng.random_range(1_000..15_000);
+            // Small enough that a few calls reach it, so the budget wait
+            // runs. Half the executions follow the config's limit
+            // (theseus-3pj); the rest name a limit of their own.
+            let own = self
+                .chance(0.5)
+                .then(|| self.rng.random_range(1_000..15_000));
             // The product's path: the core keeps the session's own record,
             // and the kernel opens the session's one execution.
-            let e = self.kernel.open_execution(
-                &format!("ses_{step}"),
-                kind,
-                auth(),
-                Some(budget),
-                None,
-            )?;
+            let e = self
+                .kernel
+                .open_execution(&format!("ses_{step}"), kind, auth(), own, None)?;
+            if let Some(own) = own {
+                self.pinned.insert(e.id.clone(), own);
+            }
             self.execs.push(e.id.clone());
             if self.maybe_crash("after open_execution")? {
                 return Ok(());
@@ -452,6 +522,9 @@ impl World {
         }
         if roll < 70 {
             return self.take_a_turn();
+        }
+        if roll >= 96 {
+            return self.change_limit();
         }
         if roll < 70 + (self.p.p_cancel * 100.0) as i32 {
             return self.cancel_one();
@@ -473,6 +546,51 @@ impl World {
         if !waiting.is_empty() {
             let i = self.rng.random_range(0..waiting.len());
             self.kernel.wake_input(&waiting[i].id)?;
+        }
+        Ok(())
+    }
+
+    /// The operator changes `[kernel] spend_limit_usd`, and the daemon
+    /// restarts onto it (theseus-3pj): every open execution that follows the
+    /// config takes the new limit. A raise lets each one waiting at its old
+    /// limit proceed, so none still waits on its budget; a lower limit
+    /// refuses the next reservation that does not fit.
+    fn change_limit(&mut self) -> Result<()> {
+        // Most often a raise when one of them waits at its limit, so the
+        // raise's wake runs often; otherwise anywhere in the range.
+        let at_limit = self.kernel.open_executions()?.iter().any(|e| {
+            !e.budget.pinned
+                && (matches!(e.wake, Some(Wake::Budget { .. })) || e.budget.question.is_some())
+        });
+        let mut to = if at_limit && self.chance(0.7) {
+            self.limit + self.rng.random_range(1_000..6_000)
+        } else {
+            self.rng.random_range(1_500..8_000)
+        };
+        if to == self.limit {
+            to += 1_000;
+        }
+        let raised = to > self.limit;
+        self.limit = to;
+        self.rep.limit_changes += 1;
+        self.rep.limit_raises += u64::from(raised);
+        if self.p.verbose {
+            eprintln!("  restart onto a spend limit of {to} at t={}", self.now());
+        }
+        self.restart()?;
+        if raised {
+            for e in self.kernel.open_executions()? {
+                if !e.budget.pinned
+                    && (matches!(e.wake, Some(Wake::Budget { .. })) || e.budget.question.is_some())
+                {
+                    bail!(
+                        "a raised limit left {} waiting on its budget ({:?}, question {:?})",
+                        e.id,
+                        e.wake,
+                        e.budget.question
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -1287,6 +1405,8 @@ impl World {
         // is planned, and it is `cancelled` from then on. Its rows are
         // evidence a later write cannot take back, so a cancel another thread
         // overwrote between two checks is caught too.
+        // Each execution's `budget.limit_changed` since the last check: (from, to).
+        let mut changed: HashMap<String, (Micros, Micros)> = HashMap::new();
         let last = self.kernel.store().last_position();
         if last > self.ledger_read_to {
             for r in self
@@ -1304,6 +1424,10 @@ impl World {
                 match row.kind.as_str() {
                     "execution.cancelled" => {
                         self.cancelled.insert(id.to_string());
+                    }
+                    "budget.limit_changed" => {
+                        let micros = |k: &str| usd_to_micros(row.data[k].as_f64().unwrap_or(-1.0));
+                        changed.insert(id.to_string(), (micros("from_usd"), micros("to_usd")));
                     }
                     "execution.running" | "action.planned" if self.cancelled.contains(id) => {
                         bail!(
@@ -1333,9 +1457,64 @@ impl World {
                 _ => {}
             }
             let b = &e.budget;
-            // Nothing is reserved past the limit (a job costs at most what it reserved).
-            if b.spent_micros + b.reserved_micros + b.held_unknown_micros > b.limit_micros {
-                bail!("{at}: {} budget over limit: {:?}", e.id, b);
+            // Nothing is reserved past the limit (a job costs at most what it
+            // reserved). A lower limit may come after the spend (theseus-3pj),
+            // and a unit budget read in dollars may start over it (its spend is
+            // its session's recorded cost): the budget is then over the limit,
+            // and nothing new is reserved until it fits again.
+            let total = b.spent_micros + b.reserved_micros + b.held_unknown_micros;
+            let holds: BTreeSet<String> = b.reservations.keys().cloned().collect();
+            if total > b.limit_micros {
+                let lowered = match self.limits.get(&e.id) {
+                    Some(&was) => b.limit_micros < was,
+                    None => b.units_before.is_some(),
+                };
+                let still = self
+                    .over
+                    .get(&e.id)
+                    .is_some_and(|before| holds.is_subset(before));
+                if !(lowered || still) {
+                    bail!("{at}: {} budget over limit: {:?}", e.id, b);
+                }
+                self.over.insert(e.id.clone(), holds);
+            } else {
+                self.over.remove(&e.id);
+            }
+            // A limit of its own never changes; an open execution that
+            // follows the config has the config's; and each change is a
+            // `budget.limit_changed` row from the limit before to this one.
+            match self.pinned.get(&e.id) {
+                Some(&own) if b.limit_micros != own || !b.pinned => {
+                    bail!("{at}: {} opened with its own limit {own}: {:?}", e.id, b)
+                }
+                None if !e.state.is_terminal() && (b.pinned || b.limit_micros != self.limit) => {
+                    bail!(
+                        "{at}: {} follows the config's limit {}, and has {} (pinned: {})",
+                        e.id,
+                        self.limit,
+                        b.limit_micros,
+                        b.pinned
+                    )
+                }
+                _ => {}
+            }
+            let was = self.limits.insert(e.id.clone(), b.limit_micros);
+            match (was, changed.get(&e.id)) {
+                (Some(was), None) if was != b.limit_micros => bail!(
+                    "{at}: {}'s limit went from {was} to {} with no budget.limit_changed row",
+                    e.id,
+                    b.limit_micros
+                ),
+                (Some(was), Some(&row)) if row != (was, b.limit_micros) => bail!(
+                    "{at}: {}'s limit went from {was} to {}, and its row says {row:?}",
+                    e.id,
+                    b.limit_micros
+                ),
+                (None, Some(row)) => bail!(
+                    "{at}: {} is new, and already has a budget.limit_changed row {row:?}",
+                    e.id
+                ),
+                _ => {}
             }
             let sum: u64 = b.reservations.values().sum();
             if sum != b.reserved_micros {

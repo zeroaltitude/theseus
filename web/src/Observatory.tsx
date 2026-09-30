@@ -830,6 +830,8 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'budget.asked': return `at its limit: spent ${money(Number(g('spent_usd')))} of ${money(Number(g('limit_usd')))}, the call needs ${money(Number(g('needed_usd')))}`
     case r.kind === 'budget.reset': return `spend reset to $0 by ${s('by')} · it was ${money(Number(g('spent_before_usd')))} of ${money(Number(g('limit_usd')))} · reset ${s('resets')}`
     case r.kind === 'budget.migrated': return `unit budget read in dollars · ${s('state')} · spent ${money(Number(g('spent_usd')))} of ${money(Number(g('limit_usd')))}`
+    // theseus-3pj: an open session took the config's changed spend limit.
+    case r.kind === 'budget.limit_changed': return `limit ${money(Number(g('from_usd')))} → ${money(Number(g('to_usd')))} (the config's) · spent ${money(Number(g('spent_usd')))}, ${money(Number(g('available_usd')))} left${g('proceeds') ? ' · the waiting call proceeds' : ''}${g('withdrew') ? ' · its question withdrawn' : ''}`
     case r.kind.startsWith('budget.'): return `${s('units') ? `${s('units')} units · ` : ''}${s('purpose') || ''}${g('actual') != null ? `actual ${s('actual')}` : ''}${g('available_after') != null ? ` · ${s('available_after')} available` : ''}`
     case r.kind.startsWith('completion.'): return `${s('producer')} · ${s('outcome') || ''}${g('seen') ? ` · seen ${s('seen')}` : ''}`
     case r.kind === 'startup.step': return `${s('step')} ${s('name')}${g('requeued') ? ` · requeued ${s('requeued')}` : ''}${g('drained') != null ? ` · drained ${s('drained')}` : ''}`

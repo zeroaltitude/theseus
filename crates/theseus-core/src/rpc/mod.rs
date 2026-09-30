@@ -528,6 +528,10 @@ impl Core {
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);
+        // Under a config that may act, startup's step 2 gave the open
+        // sessions a changed spend limit (theseus-3pj); under a copy, the
+        // vault's confirmation does (`config_gate::confirm`).
+        core.said_limits_followed(&startup.limits_followed);
         Ok(core)
     }
 

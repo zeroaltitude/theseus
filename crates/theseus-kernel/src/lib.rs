@@ -23,8 +23,8 @@ mod tests;
 pub use clock::{Clock, RealClock, VirtualClock};
 pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{
-    Accepted, Evidence, Kernel, KernelConfig, KernelError, KernelStats, LegacySpend, NoEvidence,
-    Probe, ReconcileReport, StartupReport, TurnEnd, TurnGuard,
+    Accepted, Evidence, Kernel, KernelConfig, KernelError, KernelStats, LegacySpend, LimitFollowed,
+    NoEvidence, Probe, ReconcileReport, StartupReport, TurnEnd, TurnGuard,
 };
 pub use spool::Spool;
 pub use types::*;
