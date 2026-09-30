@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.53
+# The Ship of Theseus — v0.54
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -338,6 +338,12 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
 3. the allow list;
 4. the tool's posture.
 
+**A granted secret's posture** (theseus-dcy; built 2026-09-30). Each secret the broker hands out (§3.19) carries a posture: `[broker.secrets.<name>] posture`, `notify` by default. A call that the broker gives a secret runs at no looser a posture than that secret's. After the order above, the stricter wins, as a tightening does:
+- an `allow_argv` call that gets a `notify` secret is notified;
+- a secret whose posture is `approve` makes every call that gets it wait, and the confirm names the secret's setting.
+
+The call's tool line and its notice say what it was given ("gh got GH_TOKEN"). A spawn gives no secret whose posture is stricter than the one the call ran at.
+
 **Notices and records.** Every call, under any posture, is recorded on its tool-call node with the gate's decision, the posture, and the reason. A call that runs under `notify` is also ledgered (`tool.notified`) and shown on every surface as a notice: what ran, the setting that made it a notice, and the outcome. In the web UI and the CLI it is its own line. On Discord it is the call's line in its loop's tool message, `🔔 notified (<setting>)` and then its outcome, and a loop that overflows one message counts the notices on the line that folds its oldest calls. _(Amended 2026-09-29, theseus-w4f: a separate Discord embed per call is `[discord] notice_embeds`, off by default, because the DM's roughly 160 shell calls a day would each post one; Part III A4, item 3.)_ A call that waits is a confirm on every surface. A declined call is recorded as declined and never runs. Only a toollet's own input validation stops a call at the gate, and it does so as an error, not a refusal.
 
 **What the gate is not.** It judges what a call names, not what a program does once it runs, so it is not a sandbox. For arbitrary commands, the operator's control is `proc.run`'s posture, and the boundary is the environment (§7; L1 in M4).
@@ -364,6 +370,11 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
     and Discord never do. So an answer from a process under `theseusd` itself, with no live wrapper
     between, is refused too. The reason is `from a process under theseusd itself (pid <n>, <argv0>), which
     is a job's orphan`, and the `asker` names the daemon (`under_daemon`).
+  - *Any serving daemon's descendants* (theseus-6uo; built 2026-09-30). An asker under any other serving
+    `theseusd` is refused too: a scratch daemon's orphan, or a `--stdio` daemon's, which is a child
+    subreaper as well. A serving daemon is recognized by its command line: `theseusd` with no subcommand
+    after its options. The reason is `from a process under another serving theseusd (pid <n>, <argv0>; the
+    daemon is pid <d>), which counts as that daemon's job`, and the `asker` names it (`under_other_daemon`).
   - *A refusal is loud.* It is ledgered as `approval.refused`, with the reason `from a Theseus job's process
     (job <id>, pid <n>, <argv0>)`. It is narrated, and sent to the operator where approvals go. The CLI prints
     the reason and exits 1.
@@ -559,7 +570,16 @@ Native in-process calls of one response that only read run concurrently (§4.6).
   are registered as tokio's, and the sweep never reaps one. Nothing in the daemon waits for "any child"
   (`waitpid(-1)`), which would take tokio's.
 - The socket daemon is a child subreaper. A job can kill its own wrapper, and the job's processes are then
-  reparented to the daemon rather than to init. The sweep reaps them once they exit.
+  reparented to the daemon rather than to init. The sweep reaps them once they exit. `--stdio` is a child
+  subreaper too (theseus-6uo), so its jobs' orphans stay under it, where the answer rule finds them.
+- **A job that kills its own wrapper is a security event** (theseus-6uo; built 2026-09-30). The sweep may
+  take a wrapper that a signal ended while its action is still `dispatched`, with no completion in the
+  spool and no cancel state. Then:
+  - the action is marked `outcome_unknown` at once, instead of at its deadline;
+  - `job.wrapper_lost` is ledgered with the correlation id, the pid, and the signal;
+  - the narrative says so.
+
+  A cancel's own kill carries its cancel state, and is expected.
 - Once reaped, a wrapper's pid can belong to another process. So a wrapper is alive only while its pid's
   command line names its job, and a cancel never signals a pid that has become another process.
 - An exec restart keeps the pid and every child. The new image sets the subreaper flag again and learns its
@@ -670,6 +690,34 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
   - Health reports `secrets: resolving | ready | failed <names>`, with each failure's reason. The ledger
     records `secrets.resolved` and `secrets.failed`.
   _(Amended 2026-09-29, theseus-qa0: until then resolution ran before serving, and the process refused to start on a missing secret; Part III A3c.)_
+- **The secret broker** (theseus-dcy; built 2026-09-30). It is the one place that hands a resolved value to anything beyond the daemon's own consumers, and it never calls `op`.
+  - `[broker.programs.<program>] env = { VAR = "<secret>" }` gives a program a `[secrets]` value in an
+    environment variable, for example `[broker.programs.gh] env = { GH_TOKEN = "github_token" }`.
+  - **Direct argv only.** A grant applies when a job runs the program itself: `argv[0]`, resolved as
+    `exec` resolves it, is the file that the program's name resolves to on the daemon's PATH. A shell, an
+    interpreter, `env`, or `timeout` that runs the program gets nothing, since it would hand the variable
+    to every program it runs. The tool result says why, so the model learns to call the program directly.
+  - **At spawn**, the job's environment is `[tools].proc_env`, then the call's own `env`, then the grant.
+    The values come from the board. A secret that has not settled is waited for, bounded as a turn waits.
+    One that still has not, or that failed, is withheld, never replaced by a placeholder, and the result
+    says so.
+  - **A native toollet** reads a granted secret through its context (`ToolCtx::secret`), bound to the
+    call. The wiring grants each one (`grant_tool`): `web.search` its key (DD5). M4's run-time credential
+    requests will come here too, at the requesting tool's posture, and a fetch from 1Password itself always
+    waits (decision 15).
+  - A secret with no grant is never handed out, so the AWS keys stay behind the floor.
+  - **Never written.** A value goes to the job as its environment only. It is not in the wrapper's
+    arguments, the job record, the WAL, a node, the ledger, or a log.
+    - The ledger gets `secret.granted` (the program, the variable, the secret's name, and the call's
+      correlation id), and `secret.withheld` (the same, and why).
+    - Health and the Observatory list each grant with its uses.
+    - Output is scrubbed as every tool's is. The raw output file in the spool keeps what a program prints,
+      as for any job (`gh auth token` would put the token there); the node, the model, and every surface
+      get the scrubbed text.
+  - At L0 a job runs as the operator's user. So the broker keeps a value out of every record and every
+    other program's environment, but it is not a boundary against a hostile job of the same user, which
+    can read another job's `/proc/<pid>/environ`, or a program's own stored login (gh's `hosts.yml`). L1
+    is that boundary (M4).
 - **Mechanism.** The first version shells out to the `op` CLI (`op read op://…`) under the service-account token, because 1Password publishes no first-party Rust SDK; the community FFI wrappers around its C core exist and are the candidate for removing the `op` dependency later, once they are shown to build statically. The config note is read with one `op read`, beside the secrets' one `op inject`. The service account is read-only, so the config item is created by a human once; Theseus never writes to the vault.
 - **Configuration is documented by its template, and the template is tested.** `theseusd example-config` prints a hand-written annotated TOML in which every parameter the code reads appears exactly once, set to its default or commented out with its default shown, with a line saying what it does. Three tests keep it honest: it parses and validates; a copy with every comment un-commented also parses under `deny_unknown_fields`, so no stale or not-yet-honored key can survive in it; and every key the loader can read appears in it, so no field can be added without documenting it. The consequence is a rule: config keys are not defined before code honors them; work not yet built is recorded in Part III, never as inert config. `theseusd config` prints the config actually loaded and its source, references only.
 - **Token hygiene.** At startup Theseus checks the GitHub token against the API, logs its login, expiry, and days remaining, and warns when fewer than a configurable number of days remain (default 30). Never fatal.
@@ -2517,6 +2565,7 @@ Beside them, in the same chain:
 - O1: the native OTel exporter (theseus-hee), with theseus-gi7.
 - J1: a job cannot answer approvals (theseus-6qy).
 - Z1: the daemon reaps its job wrappers, and adopts a job's orphans (theseus-z4b).
+- B1: the secret broker (theseus-dcy), with theseus-6uo.
 
 Eddie's order (2026-09-29) is:
 1. F1, F2, F1b, and F3;
@@ -3222,6 +3271,98 @@ The lifecycle bench is unchanged within its noise: cold start p50 18.9 ms, again
   ones that stayed in the job's process group.
 - A wrapper killed before it reported leaves its action `dispatched` until its deadline, when the reconciler
   marks it unknown. theseus-6uo marks it at once.
+
+### Step B1. The secret broker, and any daemon's descendants refused (theseus-dcy, theseus-6uo; 2026-09-30, 00:12–00:57; 096aa10, 5857e21)
+
+**Why.**
+- `op` ran 125 times in the audit's 30 days (55 in the DM), and the floor makes each one wait for approval.
+  Eddie accepted the broker on 2026-09-29 at 09:39: "we don't want to continuously query op anyway, so this
+  might get broader use."
+- Z1's two follow-ups (theseus-6uo) were folded in, since both touch job spawning.
+- The first run started at 23:27 and was ended at 23:36 by a gateway stop, while it was still reading. It
+  wrote nothing. This entry is the second run.
+
+**What exists.**
+- **Config** (`theseus-core/src/broker.rs`, `config.rs`, the template).
+  - `[broker.programs.<program>] env = { VAR = "<secret>" }`, and `[broker.secrets.<name>] posture`,
+    `notify` when absent.
+  - Validation names each problem: a program name with a `/`, a bad variable name, a secret that is not a
+    `[secrets]` entry, an empty `env`, and an unknown key or posture.
+  - An empty broker is skipped, so a note without `[broker]` loads and prints as it did.
+- **Direct argv** (`Broker::program_for`), and the gate and the spawn: §3.19 and §3.9.
+- **Surfaces.** One `decision.granted` on the gate record reaches every surface:
+  - Discord's tool line (`🔑 gh got GH_TOKEN`), the notice card's Secrets field, and `policy.notified`;
+  - the web UI's pill, the Observatory's row, the CLI's notice line, and the confirm's reason.
+  - `tool.started` says what the job actually got, so a withheld secret replaces the gate's word.
+- **Never written.** The wrapper's arguments carry no value: the environment goes by `env_clear` and
+  `envs`. `WrapperArgs`' Debug prints names only, and the spawner's copies are zeroized after the launch.
+- **Toollets.** `ToolCtx::secret(name)` over a broker bound to the call (`Bound`), granted by wiring
+  (`grant_tool`). The M4 hook is a one-line comment above `secret_for_tool`.
+- **Health and the Observatory.** `health.broker[]` lists the kind, the target, the variable, the secret,
+  the posture, and the uses since start. `theseus health` prints `broker: gh gets GH_TOKEN (github_token,
+  notify), used 1 time`.
+- **theseus-6uo** (`peer.rs`, `job.rs`, `rpc/driver.rs`, the reaper): §3.9's "Any serving daemon's
+  descendants", and §3.16's two bullets. A drift test keeps the core's list of the daemon's value-taking
+  options equal to the CLI's, so `--config check` is not read as a subcommand.
+- **Test support.** The in-process wrapper now gives its command the job's environment, as a wrapper
+  process has it. Before, a core test's job saw the whole test process's environment.
+
+**How it is proven.** 382 tests in the gate, 14 of them new or extended:
+- the broker's unit tests: direct argv against `sh -c`, `env`, `bash -lc`, `./gh`, and a call-set PATH;
+  the bounded wait; the withheld secret; the posture at the gate and at the spawn; and a toollet's grant;
+- `a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does`, against the real daemon with stub
+  programs:
+  - the job's environment holds exactly one vault value, and no `AWS_` name;
+  - an `approve` secret waits;
+  - a failed secret is withheld;
+  - no file under the state dir, and not the log, holds the value;
+- `an_orphan_of_another_daemon_cannot_answer_this_one`: with the check disabled, a probe shows the answer
+  used to count;
+- `a_job_that_kills_its_wrapper_…`: one `job.wrapper_lost`, and the action unknown at once. A cancel's
+  kill gives none.
+
+**Reviewed** (Tabitha, 2026-09-30, 01:01 to 01:07).
+- The gate rerun passed: 382 tests, and all four bench phases within budget (cold start p50 36.3 ms).
+- On the release build, over a fresh copy of Eddie's store, with his note and the grant, and a shim `op`
+  that logs each run:
+  - a GLM turn's `["gh", "api", "user", "--jq", ".login"]` answered `zeroaltitude`, notified with
+    `🔑 gh got GH_TOKEN`, and never waited;
+  - **the token came from the broker.** With gh's own stored login hidden (`GH_CONFIG_DIR` set to an
+    empty directory), direct `gh` still answered `zeroaltitude`. `sh -c "gh …"` got the broker's note and
+    gh's exit 4, "To authenticate, please run `gh auth login`";
+  - `op` ran once in all, at startup;
+  - the ledger held 2 `secret.granted` rows and no confirm; health said `used 2 times`;
+  - the token's value was in none of the 6 files under the copy's state (the WAL segment, `index.redb`,
+    the manifest, and the three jobs' spool outputs), and in neither the log nor the CLI's output. The
+    control matched.
+- Eddie's unchanged note loads under the new binary.
+- Installed at 01:06.
+- **Taken at review:**
+  - The raw spool output keeps what a program prints (`gh auth token`). Filed as a follow-up: the wrapper
+    redacts its own granted values from its output file.
+  - DD5 adds one comment under the template's `[broker]`: a granted program passes its variable to what it
+    runs (gh's extensions and shell aliases, or a hook), so the posture is the control.
+  - Put to Eddie: gh's stored login authenticates any job's gh, broker or not, and whether
+    `github_token` should stay `notify`.
+
+**Divergence from Parts I and II, and from the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| `broker.secret_for_tool("web.search", name)` | That call, and `ToolCtx::secret(name)` over a `Bound` broker for the call | A toollet runs on a core and cannot wait, and needs the call's posture; the wiring grants the tool (`grant_tool`) | Keep |
+| Toollet grants in the config | Granted by wiring code, from the consumer's own `…_secret` key (DD5) | Config keys are not defined before code honors them, and no toollet needs one yet | DD5 adds the key |
+| "The tool line and the notice say gh got GH_TOKEN" | So do the web UI's pill, the CLI's notice, the Observatory's row, and the confirm's reason | One `decision.granted` on the gate record reaches every surface | Keep |
+| — | A spawn withholds a secret whose posture is stricter than the call ran at | The program's resolution could change between the gate and the spawn | Keep |
+| — | `secret.withheld` rows | A withheld grant is as auditable as a given one | Keep |
+| — | The in-process wrapper applies the job's environment | Core tests saw the test process's whole environment | Keep |
+
+**Known gaps.**
+- A granted program that runs other programs passes the variable on: gh's extensions and shell aliases
+  (`gh alias set --shell`), or git's hooks, if git were ever granted.
+- The spool's raw output file keeps whatever a program prints. The node, the model, and every surface get
+  the scrubbed text. The follow-up above closes it.
+- At L0 a job of the same user can read another job's `/proc/<pid>/environ`, and gh's own stored login
+  (`~/.config/gh/hosts.yml`) authenticates any job's gh, through a shell too. L1 (M4) closes both.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
