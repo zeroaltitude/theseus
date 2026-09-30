@@ -149,6 +149,10 @@ struct ToolLine {
     /// The setting that made it a notice (`enforcement = notify`) when a
     /// notify posture ran it.
     notice: Option<String>,
+    /// What the secret broker gave it, by name: `gh got GH_TOKEN`
+    /// (theseus-dcy). The gate says it first, and the job's start says what
+    /// it actually got.
+    granted: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -259,6 +263,10 @@ impl Renderer {
                     .pointer("/gate/decision/notify")
                     .filter(|n| n.is_object())
                     .map(|n| str_of(n, "setting"));
+                let granted = p
+                    .pointer("/gate/decision/granted")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 let line = ToolLine {
                     tool_use_id: str_of(p, "tool_use_id"),
                     tool: tool.to_string(),
@@ -266,6 +274,7 @@ impl Renderer {
                     correlation_id: None,
                     state,
                     notice,
+                    granted,
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
@@ -279,10 +288,27 @@ impl Renderer {
                     .get("correlation_id")
                     .and_then(Value::as_str)
                     .map(str::to_string);
+                // A job says what the broker actually gave it (theseus-dcy).
+                let got = p.get("granted").and_then(Value::as_str).map(str::to_string);
+                let withheld: Vec<&str> = p
+                    .get("withheld")
+                    .and_then(Value::as_array)
+                    .map(|w| w.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                let said = (got.is_some() || !withheld.is_empty()).then(|| {
+                    got.iter()
+                        .map(String::as_str)
+                        .chain(withheld.iter().copied())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                });
                 self.update_tool(turn_id, &str_of(p, "tool_use_id"), |l| {
                     l.state = ToolState::Running;
                     if corr.is_some() {
                         l.correlation_id = corr.clone();
+                    }
+                    if said.is_some() {
+                        l.granted = said.clone();
                     }
                 });
                 vec![]
@@ -345,7 +371,14 @@ impl Renderer {
                         ("What".into(), clip(&str_of(p, "summary"), 1000)),
                         ("Posture".into(), format!("`{}`", str_of(p, "setting"))),
                         ("Outcome".into(), "⏳ running".into()),
-                    ],
+                    ]
+                    .into_iter()
+                    .chain(
+                        p.get("granted")
+                            .and_then(Value::as_str)
+                            .map(|g| ("Secrets".to_string(), format!("🔑 {g}"))),
+                    )
+                    .collect(),
                     ask: None,
                 };
                 self.asked_on(&mut card, &call);
@@ -834,7 +867,11 @@ fn tool_lines(tools: &[ToolLine], reserve: usize) -> String {
                 Some(setting) => format!(" · 🔔 notified ({setting})"),
                 None => String::new(),
             };
-            let head = format!("`{}` {}{mark}", l.tool, l.summary);
+            let key = l
+                .granted
+                .as_deref()
+                .map_or_else(String::new, |g| format!(" · 🔑 {g}"));
+            let head = format!("`{}` {}{key}{mark}", l.tool, l.summary);
             match &l.state {
                 ToolState::Proposed => format!("▫️ {head}"),
                 ToolState::Running => format!("⏳ {head}"),
@@ -1388,6 +1425,54 @@ mod tests {
                 buttons: Buttons::Keep
             }]
         );
+    }
+
+    /// A call the secret broker gives a secret says so on its tool line
+    /// (theseus-dcy): the gate's word first, then what the job's start says it
+    /// actually got. A notice card gets a Secrets field.
+    #[test]
+    fn a_call_given_a_secret_says_so_on_its_tool_line() {
+        let mut r = Renderer::new(true);
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
+            "input": {"argv": ["gh", "api", "user"]}, "gate": {"result": {"gate": "allow"},
+            "decision": {"posture": "notify", "granted": "gh got GH_TOKEN", "notify": {"kind": "notify",
+            "setting": "enforcement = notify", "rule": "proc.run — notify (enforcement = notify)"}}}}));
+        let ops = r.on_notification("policy.notified", &json!({"session_id": "s", "turn_id": "t1",
+            "tool_use_id": "u1", "tool": "proc.run", "input": {"argv": ["gh", "api", "user"]},
+            "summary": "run `gh api user` in /w", "kind": "notify", "setting": "enforcement = notify",
+            "rule": "proc.run — notify (enforcement = notify)", "granted": "gh got GH_TOKEN"}));
+        let Op::Notice { card, .. } = &ops[0] else {
+            panic!("{ops:?}")
+        };
+        assert_eq!(
+            card.fields[3],
+            ("Secrets".into(), "🔑 gh got GH_TOKEN".into())
+        );
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "granted": "gh got GH_TOKEN", "withheld": []}),
+        );
+        let line = |r: &mut Renderer| match r.tick().first() {
+            Some(Op::Upsert { content, .. }) => content.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            line(&mut r),
+            "⏳ `proc.run` gh api user · 🔑 gh got GH_TOKEN · 🔔 notified (enforcement = notify)"
+        );
+        // A job that got nothing it was granted says so instead.
+        r.on_notification(
+            "tool.proposed",
+            &json!({"turn_id": "t1", "tool_use_id": "u2", "tool": "proc.run",
+            "input": {"argv": ["gh", "pr", "list"]}, "gate": {"decision": {"posture": "open",
+            "granted": "gh got GH_TOKEN"}}}),
+        );
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t1", "tool_use_id": "u2", "withheld": ["gh got no GH_TOKEN"]}),
+        );
+        assert!(line(&mut r).contains("⏳ `proc.run` gh pr list · 🔑 gh got no GH_TOKEN"));
     }
 
     fn asked(tool: &str, corr: Option<&str>) -> Asked {

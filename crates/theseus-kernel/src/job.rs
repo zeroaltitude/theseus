@@ -24,7 +24,7 @@ use crate::spool::Spool;
 use crate::types::{Action, Completion, Outcome};
 
 /// Arguments the wrapper mode receives.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WrapperArgs {
     pub spool_dir: PathBuf,
     pub correlation_id: String,
@@ -35,8 +35,25 @@ pub struct WrapperArgs {
     pub cwd: Option<PathBuf>,
     /// The complete environment of the wrapper and its command. The spawner
     /// clears everything else, so nothing the harness holds (the 1Password
-    /// service-account token above all) leaks into a job.
+    /// service-account token above all) leaks into a job. It may hold a
+    /// secret the broker granted (theseus-dcy): it goes to the wrapper as its
+    /// environment, never as an argument, and its Debug names only.
     pub env: Vec<(String, String)>,
+}
+
+impl std::fmt::Debug for WrapperArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<&str> = self.env.iter().map(|(k, _)| k.as_str()).collect();
+        f.debug_struct("WrapperArgs")
+            .field("spool_dir", &self.spool_dir)
+            .field("correlation_id", &self.correlation_id)
+            .field("deadline_ms", &self.deadline_ms)
+            .field("notify_socket", &self.notify_socket)
+            .field("argv", &self.argv)
+            .field("cwd", &self.cwd)
+            .field("env", &names)
+            .finish()
+    }
 }
 
 /// Start `self_exe` in wrapper mode, detached. Returns the wrapper's pid,
@@ -154,6 +171,13 @@ fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Resul
         .stderr(Stdio::from(err_file));
     if let Some(c) = &args.cwd {
         command.current_dir(c);
+    }
+    // A wrapper process has the job's environment as its own, as
+    // `spawn_detached` set it. In process, the command gets it here.
+    if matches!(reap, Reap::Command) {
+        command
+            .env_clear()
+            .envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     }
     let mut child = command.spawn();
     drop(command);

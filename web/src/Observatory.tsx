@@ -367,6 +367,14 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                 {!ch.subreaper && <span className="muted"> · not a subreaper</span>}
                 <span className="muted"> (an orphan is a job's process whose wrapper died; it cannot answer an approval)</span></div>
             )}
+            <div><span className="muted">secret broker</span>{' '}
+              {(health!.broker ?? []).length === 0
+                ? <span className="muted">no grants</span>
+                : (health!.broker ?? []).map((g, i) => (
+                  <span key={`${g.to}/${g.variable ?? g.secret}`}>{i > 0 && <span className="muted"> · </span>}
+                    <b>{g.to}</b> <span className="muted">gets</span> <b>{g.variable ?? g.secret}</b>
+                    <span className="muted"> ({g.secret}, {g.posture}), used {fmt(g.uses)}×</span></span>))}
+              <span className="muted"> (names only: a value never leaves the daemon but as the grant's variable)</span></div>
             <div><span className="muted">ledger rows</span> <b>{fmt(health!.ledger_rows)}</b> <span className="muted">· uptime</span> <b>{fmt(health!.uptime_secs)}</b><span className="muted"> s</span></div>
             {startup?.steps && (
               <div className="startup">
@@ -855,7 +863,10 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'context.compiled': return `${s('decision')}${g('trigger') ? ` (${s('trigger')})` : ''} · ${s('prefix_nodes')}+${s('tail_nodes')} nodes · ${s('messages')} msg · ~${s('est_tokens')} tok`
     case r.kind === 'context.recompiled': return `${s('trigger')} · ${s('strategy')} · ${s('includes')} node(s)${g('strip_thinking') ? ' · thinking stripped' : ''}`
     case r.kind === 'tool.denied': return `${s('tool')} · ${s('reason')}`
-    case r.kind === 'tool.notified': return `notified · ${s('tool')} · ${s('summary')} · ${s('setting')}`
+    case r.kind === 'tool.notified': return `notified · ${s('tool')} · ${s('summary')} · ${s('setting')}${g('granted') ? ` · 🔑 ${s('granted')}` : ''}`
+    case r.kind === 'secret.granted': return `${g('program') ? `${s('program')} got ${s('variable')}` : `${s('tool')} got`} (${s('secret')}) · ${s('correlation_id')}`
+    case r.kind === 'secret.withheld': return `${s('program')} got no ${s('variable')} (${s('secret')}): ${s('why')}`
+    case r.kind === 'job.wrapper_lost': return `${s('tool')} · job ${s('correlation_id')} lost its wrapper (pid ${s('pid')}, signal ${s('signal')}) before it reported · outcome unknown`
     case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`
     case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
     case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('via') ? ` via ${s('via')}` : ''}${g('note') ? ` · ${s('note')}` : ''}`

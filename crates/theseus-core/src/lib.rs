@@ -10,6 +10,7 @@ pub mod advancer;
 pub mod approval;
 pub mod attach;
 pub mod blobs;
+pub mod broker;
 pub mod bus;
 pub mod catalog;
 pub mod compiler;

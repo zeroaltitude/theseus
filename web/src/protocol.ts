@@ -37,6 +37,16 @@ export interface ChildrenStatus {
   reaped_wrappers: number; reaped_orphans: number
 }
 
+/// One grant of the secret broker (theseus-dcy): who gets which secret, how, and its uses. Never a value.
+export interface GrantStatus {
+  kind: 'program' | 'tool' | string
+  to: string
+  variable?: string
+  secret: string
+  posture: string
+  uses: number
+}
+
 export interface Health {
   name: string; version: string; protocol: string; uptime_secs: number
   sessions: number; turns: number; model: string; profile: string; provider: string; providers: string[]
@@ -44,6 +54,7 @@ export interface Health {
   usage_total: Usage; provider_errors: number; ledger_rows: number
   kernel: KernelStatus
   children?: ChildrenStatus
+  broker?: GrantStatus[]
   cost_usd_total?: number; catalog_version?: string
   bindings?: BindingStatus[]
   /// `narrative = true` in the config: The Narrative tab shows.

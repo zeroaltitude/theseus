@@ -4559,3 +4559,162 @@ async fn a_lowered_limit_makes_the_next_turn_over_it_ask() {
     let s: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
     assert_eq!(s.cost_usd, lifetime, "the lifetime cost is untouched");
 }
+
+/// A rig whose secrets are `pairs`, resolved, on the board the scrubber and
+/// the broker read (theseus-dcy).
+fn rig_secrets(
+    script: Vec<Scripted>,
+    tweak: impl FnOnce(&mut Config),
+    toollets: Vec<Arc<dyn theseus_tools::Tool>>,
+    pairs: &[(&str, &str)],
+) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let mut cfg = config(&root, dir.path());
+    tweak(&mut cfg);
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(script));
+    let board = crate::secrets::SecretBoard::new(
+        pairs.iter().map(|(n, _)| n.to_string()),
+        std::time::Instant::now(),
+    );
+    board.publish(
+        pairs
+            .iter()
+            .map(|(n, v)| {
+                (
+                    n.to_string(),
+                    Ok(crate::secrets::Secret::new(v.to_string())),
+                )
+            })
+            .collect(),
+        "test",
+    );
+    let core = Core::build(crate::rpc::Parts {
+        toollets,
+        secrets: board.clone(),
+        scrubber: Arc::new(crate::scrub::Scrubber::from_board(board)),
+        ..crate::rpc::Parts::for_tests(cfg, fake.clone(), store)
+    })
+    .unwrap();
+    Rig {
+        core,
+        fake,
+        root,
+        _dir: dir,
+    }
+}
+
+/// A test toollet that asks the broker for its key, and for a secret it was
+/// not granted, and says what it got: the key's length, never its value.
+struct Keyed;
+
+impl theseus_tools::Tool for Keyed {
+    fn name(&self) -> &'static str {
+        "test.keyed"
+    }
+    fn description(&self) -> &'static str {
+        "Reports the length of its key."
+    }
+    fn input_schema(&self) -> Value {
+        json!({"type": "object"})
+    }
+    fn class(&self) -> theseus_tools::ToolClass {
+        theseus_tools::ToolClass::Read
+    }
+    fn retry(&self) -> theseus_tools::Retry {
+        theseus_tools::Retry::SafeToRepeat
+    }
+    fn plan(&self, _: &Value, _: &theseus_tools::ToolCtx) -> Result<theseus_tools::Plan, String> {
+        Ok(theseus_tools::Plan {
+            summary: "report the key".into(),
+            ..Default::default()
+        })
+    }
+    fn run(
+        &self,
+        _: &Value,
+        ctx: &theseus_tools::ToolCtx,
+    ) -> Result<theseus_tools::ToolOutput, theseus_tools::ToolFailure> {
+        let key = ctx
+            .secret("search_key")
+            .map_err(theseus_tools::ToolFailure::new)?;
+        let other = ctx.secret("github_token").err().unwrap_or_default();
+        Ok(theseus_tools::ToolOutput {
+            text: format!("key length {}; github_token: {other}", key.len()),
+            meta: Value::Null,
+        })
+    }
+}
+
+/// A native toollet gets its secret through the broker (theseus-dcy), as
+/// DD5's `web.search` will get its key: only the secret the wiring granted
+/// it, at no looser a posture than the secret's (notify, over an open
+/// config), with a `secret.granted` row and a use in health. The value is in
+/// no node, ledger row, or WAL record.
+#[tokio::test]
+async fn a_toollet_gets_the_secret_granted_to_it_through_the_broker() {
+    let r = rig_secrets(
+        vec![
+            Scripted::tools("", &[("t1", "test_keyed", json!({}))]),
+            Scripted::text("It has its key."),
+        ],
+        |cfg| cfg.policy.enforcement = Posture::Open,
+        vec![Arc::new(Keyed)],
+        &[
+            ("search_key", "sk-test-5150-value"),
+            ("github_token", "gt-test-5150-value"),
+        ],
+    );
+    r.core.tools.broker.grant_tool("test.keyed", "search_key");
+    let (res, notices) = watched_turn(&r, "use your key").await;
+    assert_eq!(res.output, "It has its key.");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Ok, "{rs:?}");
+    assert_eq!(
+        rs[0].1,
+        format!(
+            "key length {}; github_token: test.keyed was not granted github_token",
+            "sk-test-5150-value".len()
+        )
+    );
+    assert_eq!(
+        notices.len(),
+        1,
+        "the secret's posture made it a notice: {notices:?}"
+    );
+    assert_eq!(
+        notices[0]["setting"],
+        "the broker's posture for search_key, notify by default"
+    );
+    assert_eq!(notices[0]["granted"], "test.keyed got search_key");
+    let rows = ledgered(&r, "secret.granted");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0]["tool"].as_str(), rows[0]["secret"].as_str()),
+        (Some("test.keyed"), Some("search_key"))
+    );
+    let grants = r.core.health().broker;
+    assert_eq!(grants.len(), 1, "{grants:?}");
+    assert_eq!((grants[0].to.as_str(), grants[0].uses), ("test.keyed", 1));
+    // Nowhere on disk: the WAL holds every node and ledger row.
+    let store = r._dir.path().join("store");
+    let mut stack = vec![store];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                let b = std::fs::read(&p).unwrap();
+                assert!(
+                    !b.windows(18).any(|w| w == b"sk-test-5150-value"),
+                    "{}",
+                    p.display()
+                );
+            }
+        }
+    }
+}

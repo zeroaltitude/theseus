@@ -300,6 +300,10 @@ pub struct HealthResult {
     /// and what waits to be reaped (theseus-z4b).
     #[serde(default)]
     pub children: ChildrenStatus,
+    /// The secret broker's grants, each with its uses (theseus-dcy). Names
+    /// only, never a value.
+    #[serde(default)]
+    pub broker: Vec<GrantStatus>,
     /// Dollars across every session, from the model catalog.
     #[serde(default)]
     pub cost_usd_total: f64,
@@ -792,6 +796,25 @@ pub struct ChildrenStatus {
     pub reaped_wrappers: u64,
     /// Orphans reaped since the daemon's image started.
     pub reaped_orphans: u64,
+}
+
+/// One grant of the secret broker (theseus-dcy): who gets which secret, how,
+/// and how often since the daemon started. Never a value.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GrantStatus {
+    /// `program`, for a job's program by its argv, or `tool`, for a toollet.
+    pub kind: String,
+    /// The program (`gh`) or the toollet (`web.search`).
+    pub to: String,
+    /// The environment variable a program gets it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variable: Option<String>,
+    /// The `[secrets]` name.
+    pub secret: String,
+    /// The secret's posture: a call given it runs at no looser one.
+    pub posture: String,
+    /// Times handed out since the daemon started.
+    pub uses: u64,
 }
 
 /// One execution as the protocol shows it (spec §3.15).

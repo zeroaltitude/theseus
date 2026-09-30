@@ -157,6 +157,14 @@ pub trait Cores: Send + Sync + std::fmt::Debug {
     fn try_spawn(&self, job: Box<dyn FnOnce() + Send>) -> bool;
 }
 
+/// A toollet's secrets (theseus-dcy): the secret broker, bound to one call of
+/// one tool. A toollet asks for a `[secrets]` name, and gets its value only
+/// when the broker granted that secret to the tool and it has resolved.
+pub trait Secrets: Send + Sync + std::fmt::Debug {
+    /// The value, or why this call does not get it (never a value).
+    fn secret(&self, name: &str) -> Result<zeroize::Zeroizing<String>, String>;
+}
+
 /// What every toollet gets: where it may work and how much it may return.
 #[derive(Debug, Clone)]
 pub struct ToolCtx {
@@ -173,6 +181,9 @@ pub struct ToolCtx {
     /// The daemon's free cores, when it lends them (`fs.grep` searches a big
     /// tree's files on them). `None`: every toollet runs on its own thread.
     pub cores: Option<Arc<dyn Cores>>,
+    /// The secrets this call's tool was granted, set per call by the runtime
+    /// (theseus-dcy). `None`: it was granted none.
+    pub secrets: Option<Arc<dyn Secrets>>,
 }
 
 impl ToolCtx {
@@ -186,6 +197,16 @@ impl ToolCtx {
             proc_timeout_secs: 60,
             proc_timeout_max_secs: 3600,
             cores: None,
+            secrets: None,
+        }
+    }
+
+    /// The value of the `[secrets]` entry `name`, if the broker granted it to
+    /// this call's tool (theseus-dcy); else why not.
+    pub fn secret(&self, name: &str) -> Result<zeroize::Zeroizing<String>, String> {
+        match &self.secrets {
+            Some(s) => s.secret(name),
+            None => Err(format!("this tool was granted no secret, so not {name}")),
         }
     }
 

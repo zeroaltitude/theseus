@@ -447,8 +447,13 @@ impl Core {
         }
         let bus = Arc::new(SessionBus::default());
         let narrator = Arc::new(Narrator::new(cfg.narrative));
-        let mut tools =
-            crate::toolrun::build_runtime(&cfg, Some(spool.clone()), scrubber, launcher)?;
+        let mut tools = crate::toolrun::build_runtime(
+            &cfg,
+            Some(spool.clone()),
+            scrubber,
+            launcher,
+            secrets.clone(),
+        )?;
         for t in toollets {
             tools.registry.register(t);
         }

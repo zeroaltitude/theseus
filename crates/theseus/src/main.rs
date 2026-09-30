@@ -877,6 +877,7 @@ async fn run(cli: Cli) -> Result<()> {
                 if let Some(line) = children_line(&h.children) {
                     println!("{line}");
                 }
+                println!("{}", broker_line(&h.broker));
                 println!(
                     "tokens total: in {} out {} cache-read {} cache-write {}",
                     h.usage_total.input_tokens,
@@ -1265,6 +1266,30 @@ fn children_line(c: &theseus_protocol::ChildrenStatus) -> Option<String> {
         );
     }
     Some(line)
+}
+
+/// `broker: gh gets GH_TOKEN (github_token, notify), used 3 times`
+/// (theseus-dcy): each grant of the secret broker, by name, with its uses.
+/// Never a value.
+fn broker_line(grants: &[theseus_protocol::GrantStatus]) -> String {
+    if grants.is_empty() {
+        return "broker: no grants".into();
+    }
+    let each: Vec<String> = grants
+        .iter()
+        .map(|g| {
+            let what = g.variable.as_deref().unwrap_or(&g.secret);
+            let times = match g.uses {
+                1 => "once".to_string(),
+                n => format!("{n} times"),
+            };
+            format!(
+                "{} gets {what} ({}, {}), used {times}",
+                g.to, g.secret, g.posture
+            )
+        })
+        .collect();
+    format!("broker: {}", each.join(" · "))
 }
 
 /// `context: 2 system files · persona theseus (1 file)` (theseus-c48): the
@@ -1995,8 +2020,12 @@ impl Printer {
                 self.settle();
                 let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
                 eprintln!(
-                    "  ! notified: {tool}: {}\n      ({}) · should have asked: theseus policy tighten {tool}{}",
+                    "  ! notified: {tool}: {}{}\n      ({}) · should have asked: theseus policy tighten {tool}{}",
                     p.get("summary").and_then(Value::as_str).unwrap_or(""),
+                    p.get("granted")
+                        .and_then(Value::as_str)
+                        .map(|g| format!(" · 🔑 {g}"))
+                        .unwrap_or_default(),
                     p.get("setting").and_then(Value::as_str).unwrap_or(""),
                     p.get("correlation_id")
                         .and_then(Value::as_str)
@@ -2167,6 +2196,35 @@ mod tests {
         assert_eq!(
             lingering_note(3),
             " · 3 job wrappers linger for what their commands left running"
+        );
+    }
+
+    /// The broker line names each grant and its uses, never a value
+    /// (theseus-dcy), and says when there is none.
+    #[test]
+    fn the_broker_line_names_each_grant_and_its_uses() {
+        use theseus_protocol::GrantStatus;
+        assert_eq!(broker_line(&[]), "broker: no grants");
+        let gh = GrantStatus {
+            kind: "program".into(),
+            to: "gh".into(),
+            variable: Some("GH_TOKEN".into()),
+            secret: "github_token".into(),
+            posture: "notify".into(),
+            uses: 3,
+        };
+        let search = GrantStatus {
+            kind: "tool".into(),
+            to: "web.search".into(),
+            variable: None,
+            secret: "brave_api_key".into(),
+            posture: "notify".into(),
+            uses: 1,
+        };
+        assert_eq!(
+            broker_line(&[gh, search]),
+            "broker: gh gets GH_TOKEN (github_token, notify), used 3 times · web.search gets \
+             brave_api_key (brave_api_key, notify), used once"
         );
     }
 

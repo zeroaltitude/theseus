@@ -132,6 +132,10 @@ pub struct Decision {
     /// 1Password CLI or token. No setting makes it run unasked.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub floor: bool,
+    /// What the secret broker gives the call, by name: `gh got GH_TOKEN`
+    /// (theseus-dcy). Its tool line and its notice say so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub granted: Option<String>,
 }
 
 impl Decision {
@@ -141,6 +145,45 @@ impl Decision {
             reason,
             notify: None,
             floor: false,
+            granted: None,
+        }
+    }
+
+    /// This decision at no looser a posture than `need` (theseus-dcy): a call
+    /// given a secret runs at least at the secret's posture, whatever chose
+    /// its own. `why` is the parenthesis of the new reason, and `setting` the
+    /// notice's setting. A decision as strict already is kept.
+    pub fn at_least(
+        self,
+        need: Posture,
+        why: &str,
+        setting: &str,
+        tool: &str,
+        summary: &str,
+    ) -> Self {
+        if need <= self.posture {
+            return self;
+        }
+        let reason = format!("{tool} — {} ({why})", need.as_str());
+        let granted = self.granted;
+        match need {
+            Posture::Approve => Decision {
+                granted,
+                ..Decision::new(need, format!("{summary}: {reason}"))
+            },
+            Posture::Notify => Decision {
+                notify: Some(Notice {
+                    kind: "notify".into(),
+                    setting: setting.into(),
+                    rule: reason.clone(),
+                }),
+                granted,
+                ..Decision::new(need, reason)
+            },
+            Posture::Open => Decision {
+                granted,
+                ..Decision::new(need, reason)
+            },
         }
     }
 }

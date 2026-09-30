@@ -26,8 +26,10 @@ use theseus_kernel::{
 };
 use theseus_protocol::{notify, ConfirmRequest};
 use theseus_store::Store as _;
-use theseus_tools::{Backend, JobSpec, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
+use theseus_tools::{Access, Backend, JobSpec, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
+use zeroize::Zeroize;
 
+use crate::broker::Broker;
 use crate::bus::EventSink;
 use crate::ledger::LedgerRow;
 use crate::narrative::{self, narrate_turn, Narrator};
@@ -195,6 +197,9 @@ pub struct ToolRuntime {
     /// The daemon's cores (theseus-a60): every in-process toollet runs under
     /// one of its permits.
     pub cpu: Arc<crate::cpu::CpuPool>,
+    /// The secret broker (theseus-dcy): what a job's program and a toollet
+    /// are given from the board.
+    pub broker: Arc<Broker>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -280,6 +285,44 @@ impl ToolRuntime {
             calls: Mutex::new(BTreeMap::new()),
             tightened: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
+            broker: Arc::new(Broker::empty()),
+        }
+    }
+
+    /// The daemon's PATH, as every job gets it unless the call sets its own.
+    fn proc_path(&self) -> Option<&str> {
+        self.proc_env
+            .iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// The gate's decision with what the broker would give the call
+    /// (theseus-dcy): it names the grant, and holds the call to no looser a
+    /// posture than each secret's.
+    fn brokered(&self, tool: &str, plan: &Plan, input: &Value, d: Decision) -> Decision {
+        let cwd = plan
+            .resources
+            .iter()
+            .find(|r| r.access == Access::Exec)
+            .map_or(self.ctx.cwd.as_path(), |r| r.path.as_path());
+        let path = input
+            .pointer("/env/PATH")
+            .and_then(Value::as_str)
+            .or_else(|| self.proc_path());
+        let grants = self.broker.at_gate(tool, plan.argv.as_deref(), cwd, path);
+        let (Some(granted), Some((need, setting))) =
+            (crate::broker::got(&grants), self.broker.need(&grants))
+        else {
+            return d;
+        };
+        let why = format!(
+            "{}: {setting}",
+            crate::broker::gets(&grants).unwrap_or_default()
+        );
+        Decision {
+            granted: Some(granted),
+            ..d.at_least(need, &why, &setting, tool, &plan.summary)
         }
     }
 
@@ -672,7 +715,8 @@ impl ToolRuntime {
         if g.decision.posture == Posture::Approve {
             return self.ask(tc, a, call, tool.name(), g);
         }
-        self.execute(tc, &a.correlation_id, tool, call).await
+        self.execute(tc, &a.correlation_id, tool, call, g.decision.posture)
+            .await
     }
 
     /// A notify posture runs the call and says so where the operator looks,
@@ -689,7 +733,7 @@ impl ToolRuntime {
         Some(json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
             "tool_use_id": call.id, "correlation_id": correlation_id, "tool": tool,
             "input": call.input, "summary": g.plan.summary, "kind": n.kind,
-            "setting": n.setting, "rule": n.rule}))
+            "setting": n.setting, "rule": n.rule, "granted": g.decision.granted}))
     }
 
     fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
@@ -752,6 +796,7 @@ impl ToolRuntime {
         let planned = tool.plan(&call.input, &self.ctx).map(|plan| {
             let t = tightened.as_ref().map(crate::tighten::as_tightened);
             let decision = self.policy.decide_with(tool, &plan, t);
+            let decision = self.brokered(tool.name(), &plan, &call.input, decision);
             (plan, decision)
         });
         let result = match &planned {
@@ -951,16 +996,26 @@ impl ToolRuntime {
     /// Run a dispatched action to a result (or a background placeholder).
     /// Dispatch is already durable: `plan_and_dispatch`, or `dispatch` for a
     /// call that was confirmed or authorized before a restart.
+    /// `ran_at` is the posture it runs at: the gate's, or `approve` for a call
+    /// the operator approved. The broker gives it no secret whose posture is
+    /// stricter (theseus-dcy).
     async fn execute(
         &self,
         tc: &TurnCtx<'_>,
         correlation_id: &str,
         tool: Arc<dyn Tool>,
         call: &ToolUse,
+        ran_at: Posture,
     ) -> Result<CallOutcome> {
         match tool.backend() {
-            Backend::Inproc => self.run_inproc(tc, correlation_id, tool, call).await,
-            Backend::Job => self.run_job(tc, correlation_id, tool.as_ref(), call).await,
+            Backend::Inproc => {
+                self.run_inproc(tc, correlation_id, tool, call, ran_at)
+                    .await
+            }
+            Backend::Job => {
+                self.run_job(tc, correlation_id, tool.as_ref(), call, ran_at)
+                    .await
+            }
         }
     }
 
@@ -971,12 +1026,29 @@ impl ToolRuntime {
         correlation_id: &str,
         tool: Arc<dyn Tool>,
         call: &ToolUse,
+        ran_at: Posture,
     ) -> Result<CallOutcome> {
         tc.sink.send(
             notify::TOOL_STARTED,
             json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "inproc"}),
         );
-        let (t, input, ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
+        let (t, input, mut ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
+        // A toollet granted a secret reads it through the broker, bound to
+        // this call (theseus-dcy). Its secrets settle first, as a turn's do,
+        // since a toollet runs on a core and cannot wait.
+        let bound = if self.broker.has_tool(tool.name()) {
+            self.broker.settle_for_tool(tool.name()).await;
+            let b = Arc::new(crate::broker::Bound {
+                broker: self.broker.clone(),
+                tool: tool.name().into(),
+                ran_at,
+                handed: Mutex::default(),
+            });
+            ctx.secrets = Some(b.clone());
+            Some(b)
+        } else {
+            None
+        };
         // A free core first (theseus-a60): the deadline counts the run, not
         // the wait for one. The call's time is its run's own, timed on its
         // core: its result may wait for the turn's task, busy with the frames
@@ -1052,6 +1124,15 @@ impl ToolRuntime {
             cost_micros: None,
             detail: Some(json!({"duration_ms": dur, "meta": meta})),
         };
+        for secret in bound
+            .iter()
+            .flat_map(|b| b.handed.lock().unwrap().split_off(0))
+        {
+            tc.ledger(
+                "secret.granted",
+                json!({"tool": tool.name(), "secret": secret, "correlation_id": correlation_id}),
+            );
+        }
         tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })
@@ -1065,6 +1146,7 @@ impl ToolRuntime {
         correlation_id: &str,
         tool: &dyn Tool,
         call: &ToolUse,
+        ran_at: Posture,
     ) -> Result<CallOutcome> {
         let spec: JobSpec = match tool.job(&call.input, &self.ctx) {
             Ok(s) => s,
@@ -1093,7 +1175,22 @@ impl ToolRuntime {
             env.retain(|(ek, _)| ek != k);
             env.push((k.clone(), v.clone()));
         }
-        let args = WrapperArgs {
+        // The broker's variables, from the board (theseus-dcy): a program run
+        // by its own argv gets its grant, and nothing stands in for a secret
+        // it does not get.
+        let path = env
+            .iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.clone());
+        let brokered = self
+            .broker
+            .for_job(&spec.argv, &spec.cwd, path.as_deref(), ran_at)
+            .await;
+        for (k, v) in &brokered.env {
+            env.retain(|(ek, _)| ek != k);
+            env.push((k.clone(), v.expose().to_string()));
+        }
+        let mut args = WrapperArgs {
             spool_dir: spool.dir().to_path_buf(),
             correlation_id: correlation_id.into(),
             deadline_ms: spec.timeout_secs * 1000,
@@ -1103,7 +1200,15 @@ impl ToolRuntime {
             env,
         };
         // Outbox: `dispatched` was durable before the process exists.
-        let pid = match self.launcher.launch(&spool, &args) {
+        let launched = self.launcher.launch(&spool, &args);
+        // The values went with the spawn, as its environment; the copies
+        // here are wiped.
+        for (k, v) in args.env.iter_mut() {
+            if brokered.env.iter().any(|(g, _)| g == k) {
+                v.zeroize();
+            }
+        }
+        let pid = match launched {
             Ok(p) => p,
             Err(e) => {
                 return self.settle_job_failure(
@@ -1115,17 +1220,38 @@ impl ToolRuntime {
                 );
             }
         };
+        let granted = crate::broker::got(&brokered.granted);
+        let withheld: Vec<String> = brokered
+            .withheld
+            .iter()
+            .map(|(g, _)| format!("{} got no {}", g.to, g.variable.as_deref().unwrap_or("")))
+            .collect();
         tc.sink.send(
             notify::TOOL_STARTED,
-            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "job", "pid": pid, "argv": spec.argv, "cwd": spec.cwd}),
+            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "job", "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "granted": granted, "withheld": withheld}),
         );
         tc.ledger("tool.job_started", json!({"correlation_id": correlation_id, "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "timeout_secs": spec.timeout_secs}));
+        for g in &brokered.granted {
+            tc.ledger(
+                "secret.granted",
+                json!({"program": g.to, "variable": g.variable, "secret": g.secret,
+                    "correlation_id": correlation_id, "tool": tool.name()}),
+            );
+        }
+        for (g, why) in &brokered.withheld {
+            tc.ledger(
+                "secret.withheld",
+                json!({"program": g.to, "variable": g.variable, "secret": g.secret,
+                    "correlation_id": correlation_id, "tool": tool.name(), "why": why}),
+            );
+        }
+        let note = brokered.note();
         let t0 = Instant::now();
         let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
         narrate_turn!(
             tc,
             Tool,
-            "{} started as job {} (pid {pid}); the turn waits up to {} \
+            "{} started as job {} (pid {pid}){}; the turn waits up to {} \
              for it.",
             self.scrubber
                 .scrub(&narrative::subject(
@@ -1136,14 +1262,20 @@ impl ToolRuntime {
                 ))
                 .0,
             narrative::short(correlation_id),
+            granted
+                .as_ref()
+                .map_or_else(String::new, |g| format!("; {g}")),
             narrative::duration(bound.as_millis() as u64)
         );
         loop {
             if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
-                let r = ResultNode {
+                let mut r = ResultNode {
                     duration_ms: Some(t0.elapsed().as_millis() as u64),
                     ..Self::job_result(tc, &done, &call.id, tool.name())
                 };
+                if let Some(n) = &note {
+                    r.text = format!("{n}\n{}", r.text);
+                }
                 return Ok(CallOutcome::Done {
                     status: self.answer(tc, r)?,
                 });
@@ -1153,10 +1285,13 @@ impl ToolRuntime {
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        let text = format!(
+        let mut text = format!(
             "Still running as background job {correlation_id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.",
             self.proc_sync_secs, spec.timeout_secs
         );
+        if let Some(n) = &note {
+            text.push_str(&format!("\n{n}"));
+        }
         self.answer(
             tc,
             ResultNode {
@@ -1468,7 +1603,7 @@ impl ToolRuntime {
                 // `action.confirm` announced the answer; this only acts on it.
                 narrate_turn!(tc, Approval, "{name}: approved; running it now.");
                 tc.kernel.dispatch(corr, None)?;
-                match self.execute(tc, corr, tool, u).await? {
+                match self.execute(tc, corr, tool, u, Posture::Approve).await? {
                     CallOutcome::Background { correlation_id } => Ok(Some(correlation_id)),
                     CallOutcome::AwaitingConfirm { .. } => {
                         unreachable!("an authorized action does not ask again")
@@ -1521,10 +1656,15 @@ impl ToolRuntime {
             "{name}: authorized before a restart; running it now."
         );
         tc.kernel.dispatch(&a.correlation_id, None)?;
-        Ok(match self.execute(tc, &a.correlation_id, tool, u).await? {
-            CallOutcome::Background { correlation_id } => Some(correlation_id),
-            _ => None,
-        })
+        Ok(
+            match self
+                .execute(tc, &a.correlation_id, tool, u, Posture::Approve)
+                .await?
+            {
+                CallOutcome::Background { correlation_id } => Some(correlation_id),
+                _ => None,
+            },
+        )
     }
 
     /// Dispatched before a restart: the job's settled result, a placeholder if
@@ -1762,12 +1902,14 @@ fn unanswered(nodes: &[(u64, Arc<Node>)]) -> Option<(&Node, Vec<ToolUse>)> {
 }
 
 /// The tool runtime from config: registry, canonical roots, policy, limits,
-/// and the job environment resolved once from the daemon's own.
+/// the job environment resolved once from the daemon's own, and the secret
+/// broker over the daemon's board.
 pub fn build_runtime(
     cfg: &crate::Config,
     spool: Option<Spool>,
     scrubber: Arc<Scrubber>,
     launcher: Arc<dyn JobLauncher>,
+    secrets: Arc<crate::secrets::SecretBoard>,
 ) -> Result<ToolRuntime> {
     let t = &cfg.tools;
     let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
@@ -1822,6 +1964,8 @@ pub fn build_runtime(
         .collect();
     let notify_socket = spool.as_ref().map(|s| s.dir().join("notify.sock"));
     let cpu = crate::cpu::CpuPool::for_host();
+    // A program's name is resolved on the daemon's own PATH (theseus-dcy).
+    let broker = Broker::new(&cfg.broker, secrets, std::env::var("PATH").ok());
     Ok(ToolRuntime {
         registry,
         policy: ToolPolicy {
@@ -1844,6 +1988,7 @@ pub fn build_runtime(
             proc_timeout_secs: t.proc_timeout_secs,
             proc_timeout_max_secs: t.proc_timeout_max_secs,
             cores: Some(cpu.clone()),
+            secrets: None,
         },
         spool,
         scrubber,
@@ -1856,6 +2001,7 @@ pub fn build_runtime(
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),
         cpu,
+        broker: Arc::new(broker),
     })
 }
 

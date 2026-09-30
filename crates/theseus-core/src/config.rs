@@ -41,6 +41,10 @@ pub struct Config {
     /// name → op:// reference. Every entry must resolve or the process refuses to start.
     #[serde(default)]
     pub secrets: BTreeMap<String, String>,
+    /// `[broker]`: which program gets which secret, in which variable, and
+    /// each secret's posture (theseus-dcy). Empty until a grant is added.
+    #[serde(default, skip_serializing_if = "BrokerConfig::is_empty")]
+    pub broker: BrokerConfig,
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
@@ -276,6 +280,46 @@ impl Default for ToolsConfig {
             proc_env: default_proc_env(),
         }
     }
+}
+
+/// `[broker]` (theseus-dcy): the secret broker's grants, and each secret's
+/// posture.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerConfig {
+    /// `[broker.programs.<program>]`: what a program gets when a job runs it
+    /// by its own argv.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub programs: BTreeMap<String, ProgramGrant>,
+    /// `[broker.secrets.<name>]`: a secret's posture.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secrets: BTreeMap<String, SecretPosture>,
+}
+
+impl BrokerConfig {
+    pub fn is_empty(&self) -> bool {
+        self.programs.is_empty() && self.secrets.is_empty()
+    }
+}
+
+/// One program's grant: each environment variable it gets, with the name of
+/// the `[secrets]` entry whose value it holds.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProgramGrant {
+    pub env: BTreeMap<String, String>,
+}
+
+/// A secret's posture: a call given the secret runs at no looser a posture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecretPosture {
+    #[serde(default = "default_secret_posture")]
+    pub posture: crate::policy::Posture,
+}
+
+fn default_secret_posture() -> crate::policy::Posture {
+    crate::policy::Posture::Notify
 }
 
 /// `[policy]`: the posture every tool and MCP inherits, the per-tool and
@@ -882,6 +926,41 @@ impl Config {
                 );
             }
         }
+        for (program, grant) in &self.broker.programs {
+            if program.is_empty() || program.contains('/') || program.contains(char::is_whitespace)
+            {
+                anyhow::bail!(
+                    "broker.programs.\"{program}\" must be a program's name as argv[0] gives it, \
+                     found on PATH, with no '/'"
+                );
+            }
+            if grant.env.is_empty() {
+                anyhow::bail!(
+                    "broker.programs.{program}.env grants nothing: name a variable and its \
+                     [secrets] entry, as env = {{ GH_TOKEN = \"github_token\" }}"
+                );
+            }
+            for (var, secret) in &grant.env {
+                let name = var.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                    && var.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                if !name {
+                    anyhow::bail!(
+                        "broker.programs.{program}.env: {var:?} is not an environment variable's name"
+                    );
+                }
+                if !self.secrets.contains_key(secret) {
+                    anyhow::bail!(
+                        "broker.programs.{program}.env.{var} = {secret:?} has no matching entry \
+                         under [secrets]"
+                    );
+                }
+            }
+        }
+        for name in self.broker.secrets.keys() {
+            if !self.secrets.contains_key(name) {
+                anyhow::bail!("broker.secrets.{name} has no matching entry under [secrets]");
+            }
+        }
         for (k, argv) in self
             .policy
             .allow_argv
@@ -1147,6 +1226,62 @@ mod tests {
             cfg.policy.mcp["some-server/dangerous-tool"],
             Posture::Approve
         );
+        // The broker's example grant and posture are real (theseus-dcy).
+        assert_eq!(cfg.broker.programs["gh"].env["GH_TOKEN"], "github_token");
+        assert_eq!(cfg.broker.secrets["github_token"].posture, Posture::Notify);
+    }
+
+    /// The broker is empty until a grant is added (theseus-dcy), so a note
+    /// without `[broker]` loads as it did. A grant names a program, a
+    /// variable, and a `[secrets]` entry; anything else fails to load, and
+    /// the error says which.
+    #[test]
+    fn a_broker_grant_names_a_program_a_variable_and_a_secret() {
+        assert!(Config::example().broker.is_empty());
+        let with = |broker: &str| {
+            Config::parse(&format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\ngithub_token = \"op://v/g/f\"\n\n{broker}\n"
+            ))
+            .map(|(c, _)| c)
+        };
+        let ok = with(
+            "[broker.programs.gh]\nenv = { GH_TOKEN = \"github_token\" }\n\
+             [broker.secrets.github_token]\nposture = \"approve\"",
+        )
+        .unwrap();
+        assert_eq!(ok.broker.secrets["github_token"].posture, Posture::Approve);
+        let default = with("[broker.secrets.github_token]").unwrap();
+        assert_eq!(
+            default.broker.secrets["github_token"].posture,
+            Posture::Notify
+        );
+        for (bad, says) in [
+            (
+                "[broker.programs.gh]\nenv = { GH_TOKEN = \"aws_key\" }",
+                "has no matching entry under [secrets]",
+            ),
+            (
+                "[broker.programs.\"/usr/bin/gh\"]\nenv = { GH_TOKEN = \"github_token\" }",
+                "with no '/'",
+            ),
+            (
+                "[broker.programs.gh]\nenv = { \"GH-TOKEN\" = \"github_token\" }",
+                "is not an environment variable's name",
+            ),
+            ("[broker.programs.gh]\nenv = {}", "grants nothing"),
+            (
+                "[broker.secrets.nope]",
+                "broker.secrets.nope has no matching entry",
+            ),
+            ("[broker.secrets.github_token]\nposture = \"never\"", "open"),
+            (
+                "[broker.programs.gh]\nenv = { GH_TOKEN = \"github_token\" }\nshell = true",
+                "shell",
+            ),
+        ] {
+            let e = format!("{:#}", with(bad).unwrap_err());
+            assert!(e.contains(says), "{bad}: {e}");
+        }
     }
 
     /// The template's [policy.tools] names every tool in the registry, one
@@ -1842,6 +1977,9 @@ mod tests {
             "[policy.mcp]",
             "default_persona =",
             "[personas.",
+            "[broker.programs.",
+            "[broker.secrets.",
+            "posture =",
         ] {
             assert!(
                 Config::EXAMPLE_TOML.contains(must),

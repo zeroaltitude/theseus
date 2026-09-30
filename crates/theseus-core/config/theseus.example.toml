@@ -115,6 +115,22 @@ aws_access_key_id = "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_ACCESS
 aws_secret_access_key = "op://Eddie-Tabitha/strata-jam-aws-key/notesPlain#AWS_SECRET_ACCESS_KEY"
 discord_bot_token = "op://Eddie-Tabitha/Theseus discord bot/notesPlain#bot_token"
 
+# ---------------------------------------------------------------- broker
+# The secret broker (theseus-dcy): a program a job runs gets a [secrets] value
+# in an environment variable, from the values resolved at startup, so it needs
+# no `op` call and no approval for one. Empty until you add a grant, and a
+# secret with no grant is never handed out.
+# A grant applies only when a job runs the program by its own argv (gh itself
+# as argv[0], found as exec finds it on the daemon's PATH), never through
+# `sh -c "gh ..."`: a shell would hand the variable to every program it runs,
+# and the tool result says so.
+# [broker.programs.gh]
+# env = { GH_TOKEN = "github_token" }   # variable = [secrets] name, never a value
+# A secret's posture, notify by default: a call given the secret runs at no
+# looser a posture, so "approve" makes each call that gets it wait for you.
+# [broker.secrets.github_token]
+# posture = "notify"
+
 # ---------------------------------------------------------------- server
 [server]
 state_dir = "~/.theseus"                # store (redb) and spool; flag: --state-dir / THESEUS_STATE_DIR
