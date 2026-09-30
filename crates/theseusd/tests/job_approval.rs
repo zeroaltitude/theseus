@@ -7,6 +7,8 @@
 //!   its double-forked grandchild, before and after the job's main process
 //!   has exited; the wrapper lingers for the grandchild; the operator's own
 //!   answer counts, and the call runs;
+//! - a job that kills its own wrapper leaves its grandchild to the daemon,
+//!   which adopts it, and that orphan's answer is refused (theseus-z4b);
 //! - a job may tighten a tool, and may not undo a tightening;
 //! - through the web UI, a job's WebSocket answer is refused, and the
 //!   operator's counts;
@@ -503,6 +505,120 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
     r.wait("the wrapper to exit", || (!alive(wrapper)).then_some(()));
     r.until("no lingering wrapper", |h| {
         h["kernel"]["lingering_wrappers"] == 0
+    });
+}
+
+/// A job that kills its own wrapper (`kill -9 $PPID`) leaves what it started
+/// to the daemon, which is a child subreaper (theseus-z4b). Its double-forked
+/// grandchild is reparented to `theseusd`, not to init, and its `theseus
+/// confirm --approve` for the call its session waits on is refused as a job's
+/// orphan's. Nothing moves, and the operator's own answer still counts. The
+/// daemon reaps the wrapper the job killed, the job's main process when it
+/// exits, and the grandchild when it ends.
+#[test]
+fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
+    let mut r = Rig::start(false);
+    let daemon = r.daemon.id();
+    // The grandchild waits until its parent, the job's main process, has
+    // exited, and it has been reparented past the wrapper the job killed.
+    let script = format!(
+        "{FIND_WAITING}echo \"$PPID\" > \"$O/wrapper.pid\"\n\
+         setsid sh -c '\n\
+         T=\"$1\"; S=\"$2\"; O=\"$3\"; id=\"$4\"; main=\"$5\"; w=\"$6\"\n\
+         echo $$ > \"$O/orphan.pid\"\n\
+         while [ -d \"$O\" ]; do\n\
+         \x20 p=$(cut -d\" \" -f4 /proc/$$/stat)\n\
+         \x20 [ \"$p\" != \"$main\" ] && [ \"$p\" != \"$w\" ] && break\n\
+         \x20 sleep 0.02\n\
+         done\n\
+         echo \"$p\" > \"$O/orphan.ppid\"\n\
+         {}\
+         while [ ! -e \"$O/release\" ] && [ -d \"$O\" ]; do sleep 0.02; done\n\
+         ' orphan \"$T\" \"$S\" \"$O\" \"$id\" \"$$\" \"$PPID\" > /dev/null 2>&1 < /dev/null &\n\
+         kill -9 \"$PPID\"\n\
+         echo \"the job killed its wrapper\"\n",
+        approve_into("orphan"),
+    );
+    r.asks(
+        "kill your own wrapper",
+        vec![
+            r.job(&script, &[]),
+            (
+                "fs_write",
+                json!({"path": "written.txt", "content": "approved\n"}),
+            ),
+        ],
+    );
+    let res = r.turn("kill your own wrapper");
+    let corr = res["awaiting_confirm"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the write waits: {res}\n{}", r.log()))
+        .to_string();
+
+    // The orphan's answer is refused, with its own reason.
+    let said = r.read_done("orphan");
+    assert!(
+        said.contains("does not count: from a process under theseusd itself (pid ")
+            && said.contains(", theseus), which is a job's orphan"),
+        "the orphan's answer: {said}"
+    );
+    assert!(said.trim_end().ends_with("exit=1"), "{said}");
+    let wrapper = r.pid("wrapper.pid");
+    let orphan = r.pid("orphan.pid");
+    r.owns(orphan);
+    assert_eq!(
+        r.pid("orphan.ppid"),
+        daemon,
+        "the orphan was reparented to theseusd, not to init"
+    );
+    assert!(!alive(wrapper), "the job killed its wrapper");
+    let refused = r.ledger("approval.refused");
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    let row = &refused[0];
+    assert_eq!(
+        (row["correlation_id"].as_str(), row["from_job"].as_bool()),
+        (Some(corr.as_str()), Some(true))
+    );
+    assert_eq!(
+        (&row["asker"]["under_daemon"], &row["asker"]["argv0"]),
+        (&json!(daemon), &json!("theseus"))
+    );
+    assert!(row["asker"]["job"].is_null(), "{row}");
+    let confirms = r.call("confirm.list", Value::Null).unwrap();
+    assert_eq!(confirms["confirms"][0]["correlation_id"], corr.as_str());
+    assert!(!r.path("projects/written.txt").exists());
+    // The daemon holds the orphan, and has reaped the wrapper the job killed
+    // and the job's main process.
+    let h = r.until("the adopted orphan", |h| {
+        let c = &h["children"];
+        c["orphans"] == 1 && c["reaped_wrappers"] == 1 && c["reaped_orphans"] == 1
+    });
+    assert_eq!(
+        (&h["children"]["subreaper"], &h["children"]["zombies"]),
+        (&json!(true), &json!(0))
+    );
+
+    if !test_is_inside_a_job() {
+        let ok = r.cli(&["confirm", "--approve", &corr, "--no-wait"]);
+        let out = String::from_utf8_lossy(&ok.stdout);
+        assert!(
+            ok.status.success(),
+            "{out}{}",
+            String::from_utf8_lossy(&ok.stderr)
+        );
+        assert!(out.contains(&format!("approved {corr}")), "{out}");
+        let written = r.wait("the approved write", || {
+            std::fs::read_to_string(r.path("projects/written.txt")).ok()
+        });
+        assert_eq!(written, "approved\n");
+    }
+
+    // The orphan ends, and the daemon reaps it.
+    std::fs::write(r.out("release"), "").unwrap();
+    r.wait("the orphan to exit", || (!alive(orphan)).then_some(()));
+    r.until("the orphan reaped", |h| {
+        let c = &h["children"];
+        c["orphans"] == 0 && c["zombies"] == 0 && c["reaped_orphans"] == 2
     });
 }
 

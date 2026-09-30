@@ -179,6 +179,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
   const shownActions = actions.filter((a) => !pickedExec || a.execution_id === pickedExec)
 
   const k = health?.kernel
+  const ch = health?.children
   const approval = health?.approval
   const approvalRows = ledger.filter((r) => r.kind.startsWith('approval.')).slice(0, 8)
   const startup = (k?.startup ?? null) as null | {
@@ -347,6 +348,15 @@ export default function Observatory({ client, health, tick, currentSession, onRe
             {!!k.lingering_wrappers && (
               <div><span className="muted">lingering job wrappers</span> <b>{k.lingering_wrappers}</b>
                 <span className="muted"> (a command exited and left processes running; each wrapper waits for them, so they stay under their job)</span></div>
+            )}
+            {ch && (
+              <div><span className="muted">children</span> <b>{ch.wrappers_running}</b> <span className="muted">job wrappers running</span>
+                {ch.wrappers_lingering > 0 && <>, <b>{ch.wrappers_lingering}</b> <span className="muted">lingering</span></>}
+                <span className="muted"> · adopted orphans</span> <b className={ch.orphans ? 'warn' : ''}>{ch.orphans}</b>
+                <span className="muted"> · zombies</span> <b className={ch.zombies ? 'warn' : ''}>{ch.zombies}</b>
+                <span className="muted"> · reaped {fmt(ch.reaped_wrappers)} wrappers, {fmt(ch.reaped_orphans)} orphans</span>
+                {!ch.subreaper && <span className="muted"> · not a subreaper</span>}
+                <span className="muted"> (an orphan is a job's process whose wrapper died; it cannot answer an approval)</span></div>
             )}
             <div><span className="muted">ledger rows</span> <b>{fmt(health!.ledger_rows)}</b> <span className="muted">· uptime</span> <b>{fmt(health!.uptime_secs)}</b><span className="muted"> s</span></div>
             {startup?.steps && (

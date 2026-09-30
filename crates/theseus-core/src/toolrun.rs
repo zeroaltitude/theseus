@@ -1551,7 +1551,7 @@ impl ToolRuntime {
                 .spool
                 .as_ref()
                 .and_then(|sp| sp.read_pid(corr))
-                .is_some_and(theseus_kernel::job::pid_alive);
+                .is_some_and(|pid| theseus_kernel::job::wrapper_alive(pid, corr));
         if alive {
             self.answer(tc, ResultNode { correlation_id: Some(corr), ..ResultNode::new(&u.id, &name, ResultStatus::Background, format!("Still running as background job {corr} (the harness restarted meanwhile). Its result will arrive in a later message.")) })?;
             return Ok(Some(corr.clone()));

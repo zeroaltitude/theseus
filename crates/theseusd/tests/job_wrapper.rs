@@ -220,7 +220,11 @@ fn a_cancel_kills_the_wrappers_process_group_as_before() {
             .ok()
             .filter(|c| c.trim() == "sleep")
     });
-    assert!(job::terminate(wrapper, Duration::from_secs(2)));
+    assert!(job::terminate(
+        wrapper,
+        "act_cancel",
+        Duration::from_secs(2)
+    ));
     for (what, pid) in [
         ("the wrapper", wrapper),
         ("the command", main),
@@ -239,4 +243,24 @@ fn a_cancel_kills_the_wrappers_process_group_as_before() {
         rig.spool.read_completion("act_cancel").unwrap().is_none(),
         "a killed wrapper reports nothing; the reconciler finds it gone"
     );
+}
+
+/// Once the daemon has reaped a wrapper, its pid may become another
+/// process's (theseus-z4b). A cancel then finds the wrapper gone and signals
+/// nothing, since that process's command line does not name the job: here, a
+/// `sleep` that leads its own process group, as a new wrapper would.
+#[test]
+fn a_cancel_leaves_a_process_that_took_the_wrappers_pid_alone() {
+    use std::os::unix::process::CommandExt;
+    let mut other = std::process::Command::new("sleep")
+        .arg("30")
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let pid = other.id();
+    assert!(!job::wrapper_alive(pid, "act_gone"));
+    assert!(job::terminate(pid, "act_gone", Duration::from_secs(2)));
+    assert!(alive(pid), "not the job's wrapper, so not signalled");
+    let _ = other.kill();
+    let _ = other.wait();
 }

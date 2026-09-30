@@ -874,6 +874,9 @@ async fn run(cli: Cli) -> Result<()> {
                     k.quarantined_completions,
                     lingering_note(k.lingering_wrappers)
                 );
+                if let Some(line) = children_line(&h.children) {
+                    println!("{line}");
+                }
                 println!(
                     "tokens total: in {} out {} cache-read {} cache-write {}",
                     h.usage_total.input_tokens,
@@ -1228,6 +1231,37 @@ fn lingering_note(n: u64) -> String {
         1 => " · 1 job wrapper lingers for what its command left running".into(),
         n => format!(" · {n} job wrappers linger for what their commands left running"),
     }
+}
+
+/// `children: 2 job wrappers running · 1 adopted orphan · 0 zombies · reaped
+/// 160 wrappers, 1 orphan` (theseus-z4b): what the daemon holds. Zombies stay
+/// 0 in steady state, so a count that grows is a leak. A daemon older than
+/// that says nothing.
+fn children_line(c: &theseus_protocol::ChildrenStatus) -> Option<String> {
+    if *c == theseus_protocol::ChildrenStatus::default() {
+        return None;
+    }
+    let n = |n: u64, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+    let mut line = format!(
+        "children: {} running",
+        n(c.wrappers_running, "job wrapper", "job wrappers")
+    );
+    if c.wrappers_lingering > 0 {
+        line.push_str(&format!(", {} lingering", c.wrappers_lingering));
+    }
+    line.push_str(&format!(
+        " · {} · {} · reaped {}, {}",
+        n(c.orphans, "adopted orphan", "adopted orphans"),
+        n(c.zombies, "zombie", "zombies"),
+        n(c.reaped_wrappers, "wrapper", "wrappers"),
+        n(c.reaped_orphans, "orphan", "orphans")
+    ));
+    if !c.subreaper {
+        line.push_str(
+            " · not a subreaper: a job that kills its wrapper leaves its orphans to init",
+        );
+    }
+    Some(line)
 }
 
 /// `config: vault (confirmed in 1034 ms)`, `config: confirming …`, or
@@ -2081,6 +2115,39 @@ mod tests {
         assert_eq!(
             lingering_note(3),
             " · 3 job wrappers linger for what their commands left running"
+        );
+    }
+
+    /// The children line says what the daemon holds and has reaped, and
+    /// nothing for a daemon older than theseus-z4b.
+    #[test]
+    fn the_children_line_counts_wrappers_orphans_and_zombies() {
+        use theseus_protocol::ChildrenStatus;
+        assert_eq!(children_line(&ChildrenStatus::default()), None);
+        let c = ChildrenStatus {
+            subreaper: true,
+            wrappers_running: 2,
+            wrappers_lingering: 1,
+            orphans: 1,
+            zombies: 0,
+            owned: 1,
+            reaped_wrappers: 160,
+            reaped_orphans: 2,
+        };
+        assert_eq!(
+            children_line(&c).unwrap(),
+            "children: 2 job wrappers running, 1 lingering · 1 adopted orphan · 0 zombies · \
+             reaped 160 wrappers, 2 orphans"
+        );
+        let stdio = ChildrenStatus {
+            reaped_wrappers: 1,
+            ..ChildrenStatus::default()
+        };
+        assert_eq!(
+            children_line(&stdio).unwrap(),
+            "children: 0 job wrappers running · 0 adopted orphans · 0 zombies · reaped 1 \
+             wrapper, 0 orphans · not a subreaper: a job that kills its wrapper leaves its \
+             orphans to init"
         );
     }
 

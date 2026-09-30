@@ -149,7 +149,7 @@ impl Core {
             match self.spool.read_pid(corr) {
                 Some(pid) => {
                     let _ = self.kernel.cancel_acknowledged(corr);
-                    if theseus_kernel::job::terminate(pid, Duration::from_secs(2)) {
+                    if theseus_kernel::job::terminate(pid, corr, Duration::from_secs(2)) {
                         let _ = self.kernel.cancel_verified(corr);
                     } else {
                         let _ = self.kernel.cancel_uncertain(corr);

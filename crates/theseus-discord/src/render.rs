@@ -961,13 +961,18 @@ pub fn job_refusal(p: &Value) -> String {
         _ => format!("answer the approval of `{tool}`"),
     };
     let a = p.get("asker").cloned().unwrap_or(Value::Null);
+    let argv0 = || clip(&str_of(&a, "argv0").replace('`', "'"), 40);
     let from = match (
         a.get("job").and_then(Value::as_str),
         a.get("pid").and_then(Value::as_u64),
+        a.get("under_daemon").and_then(Value::as_u64),
     ) {
-        (Some(job), Some(pid)) => format!(
-            "`{}` (pid {pid}), a process of job `{job}`",
-            clip(&str_of(&a, "argv0").replace('`', "'"), 40)
+        (Some(job), Some(pid), _) => format!("`{}` (pid {pid}), a process of job `{job}`", argv0()),
+        // A job's orphan, whose wrapper died (theseus-z4b).
+        (None, Some(pid), Some(daemon)) => format!(
+            "`{}` (pid {pid}), a process under theseusd itself (pid {daemon}), which is a job's \
+             orphan",
+            argv0()
         ),
         _ => format!(
             "a process that could not be traced ({}), which counts as a job's",
@@ -1099,6 +1104,18 @@ mod tests {
                 "a process that could not be traced (pid 9 has exited), which counts as a job's"
             ),
             "{lost}"
+        );
+        // A job's orphan, whose wrapper died, under the daemon (theseus-z4b).
+        let orphan = n(
+            "action.confirm",
+            "fs.write",
+            &json!({"pid": 4343, "argv0": "theseus", "under_daemon": 4000}),
+        );
+        assert_eq!(
+            orphan,
+            "🚨 Refused: `theseus` (pid 4343), a process under theseusd itself (pid 4000), which \
+             is a job's orphan, tried to answer the approval of `fs.write` through cli. A job \
+             cannot answer an approval. It keeps waiting for your answer."
         );
     }
     use serde_json::json;

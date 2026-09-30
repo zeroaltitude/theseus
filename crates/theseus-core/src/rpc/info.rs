@@ -24,6 +24,34 @@ impl Core {
         }
     }
 
+    /// The daemon's children (theseus-z4b): its job wrappers, running or
+    /// lingering (a wrapper whose `spool/lingering` mark names it), the
+    /// orphans it adopted, and its zombies, 0 in steady state.
+    pub fn children_status(&self) -> theseus_protocol::ChildrenStatus {
+        let c = theseus_kernel::children::census();
+        let marked: std::collections::HashSet<u32> = self
+            .spool
+            .lingering()
+            .into_iter()
+            .map(|(_, pid)| pid)
+            .collect();
+        let lingering = c
+            .wrappers
+            .iter()
+            .filter(|(pid, _)| marked.contains(pid))
+            .count() as u64;
+        theseus_protocol::ChildrenStatus {
+            subreaper: c.subreaper,
+            wrappers_running: c.wrappers.len() as u64 - lingering,
+            wrappers_lingering: lingering,
+            orphans: c.orphans,
+            zombies: c.zombies,
+            owned: c.owned,
+            reaped_wrappers: c.reaped_wrappers,
+            reaped_orphans: c.reaped_orphans,
+        }
+    }
+
     pub fn execution_info(e: &Execution) -> theseus_protocol::ExecutionInfo {
         use theseus_kernel::micros_to_usd as usd;
         let b = &e.budget;

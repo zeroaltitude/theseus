@@ -9,6 +9,11 @@
 //! child subreaper, so a double fork stays under it. A process that cannot
 //! be traced counts as a job's.
 //!
+//! A job can kill its own wrapper. Its orphans then go to the daemon, which
+//! is a child subreaper too (theseus-z4b), and nothing that answers an
+//! approval descends from the daemon: so an asker with the daemon above it is
+//! refused as well, as a job's orphan.
+//!
 //! This is a speed bump before M4's sandbox (L1: no route to localhost
 //! services), not a boundary. A job can still drive a process that is not
 //! its descendant: a user systemd unit, a tmux server already running, `at`
@@ -64,6 +69,9 @@ pub enum Traced {
         job: String,
         wrapper: u32,
     },
+    /// A process under the daemon itself, with no live wrapper between: a
+    /// job's orphan, whose wrapper died (theseus-z4b). The daemon's pid.
+    Orphan { asker: Asker, daemon: u32 },
     /// It could not be traced, which counts as a job's: why, and how long
     /// finding that out took, in µs.
     Untraceable { why: String, trace_us: u64 },
@@ -77,6 +85,10 @@ impl Traced {
             Self::NoProcess | Self::Outside(_) => None,
             Self::Job { asker, job, .. } => Some(format!(
                 "from a Theseus job's process (job {job}, pid {}, {})",
+                asker.pid, asker.argv0
+            )),
+            Self::Orphan { asker, .. } => Some(format!(
+                "from a process under theseusd itself (pid {}, {}), which is a job's orphan",
                 asker.pid, asker.argv0
             )),
             Self::Untraceable { why, .. } => Some(format!(
@@ -100,6 +112,10 @@ impl Traced {
             } => serde_json::json!({
                 "pid": asker.pid, "argv0": asker.argv0, "trace_us": asker.trace_us,
                 "job": job, "wrapper_pid": wrapper,
+            }),
+            Self::Orphan { asker, daemon } => serde_json::json!({
+                "pid": asker.pid, "argv0": asker.argv0, "trace_us": asker.trace_us,
+                "under_daemon": daemon,
             }),
             Self::Untraceable { why, trace_us } => {
                 serde_json::json!({"untraceable": why, "trace_us": trace_us})
@@ -134,16 +150,22 @@ impl Peer {
     }
 
     /// Trace the process that asked: the one on the other end, then each
-    /// parent up to pid 1, looking for a live job wrapper.
+    /// parent up to pid 1, looking for a live job wrapper, and for the daemon
+    /// once it is a child subreaper (`children::adopt`).
     pub fn trace(&self) -> Traced {
+        self.trace_under(theseus_kernel::children::daemon())
+    }
+
+    /// `trace`, where an asker with `daemon` above it is a job's orphan.
+    fn trace_under(&self, daemon: Option<u32>) -> Traced {
         let t0 = Instant::now();
         let us = || t0.elapsed().as_micros() as u64;
         let found = match self {
             Self::None => return Traced::NoProcess,
             Self::Unknown(why) => Err(why.clone()),
-            Self::Process { pid, start } => walk(*pid, Some(*start)),
+            Self::Process { pid, start } => walk(*pid, Some(*start), daemon),
             Self::Loopback { server, client } => {
-                loopback_owners(*server, *client).and_then(|pids| owners_verdict(&pids))
+                loopback_owners(*server, *client).and_then(|pids| owners_verdict(&pids, daemon))
             }
         };
         match found {
@@ -163,6 +185,10 @@ impl Peer {
                     wrapper,
                 }
             }
+            Ok(Found::Orphan { mut asker, daemon }) => {
+                asker.trace_us = us();
+                Traced::Orphan { asker, daemon }
+            }
             Err(why) => Traced::Untraceable {
                 why,
                 trace_us: us(),
@@ -179,16 +205,21 @@ enum Found {
         job: String,
         wrapper: u32,
     },
+    Orphan {
+        asker: Asker,
+        daemon: u32,
+    },
 }
 
 /// The deepest process tree a walk follows.
 const MAX_DEPTH: usize = 4096;
 
 /// From `pid` up the parent chain to pid 1: the first live job wrapper met,
-/// the asker itself included. `start` is the asker's start time when the
-/// connection was accepted. An ancestor that exits mid-walk has had its
-/// children reparented, so the walk starts again, at most three times.
-fn walk(pid: u32, start: Option<u64>) -> Result<Found, String> {
+/// the asker itself included, or else `daemon` met above the asker. `start`
+/// is the asker's start time when the connection was accepted. An ancestor
+/// that exits mid-walk has had its children reparented, so the walk starts
+/// again, at most three times.
+fn walk(pid: u32, start: Option<u64>, daemon: Option<u32>) -> Result<Found, String> {
     'again: for _ in 0..3 {
         let first = stat(pid).map_err(|why| format!("pid {pid}: {why}"))?;
         if first.exited() {
@@ -214,6 +245,9 @@ fn walk(pid: u32, start: Option<u64>) -> Result<Found, String> {
                     wrapper: p,
                 });
             }
+            if p != pid && daemon == Some(p) {
+                return Ok(Found::Orphan { asker, daemon: p });
+            }
             if s.ppid == 0 {
                 return Ok(Found::Outside(asker));
             }
@@ -232,14 +266,14 @@ fn walk(pid: u32, start: Option<u64>) -> Result<Found, String> {
     ))
 }
 
-/// The verdict over every process that holds a socket: a job's if any is,
-/// else the operator's if any could be traced.
-fn owners_verdict(pids: &[u32]) -> Result<Found, String> {
+/// The verdict over every process that holds a socket: a job's (or a job's
+/// orphan's) if any is, else the operator's if any could be traced.
+fn owners_verdict(pids: &[u32], daemon: Option<u32>) -> Result<Found, String> {
     let mut outside = None;
     let mut why = None;
     for &pid in pids {
-        match walk(pid, None) {
-            Ok(j @ Found::Job { .. }) => return Ok(j),
+        match walk(pid, None, daemon) {
+            Ok(j @ (Found::Job { .. } | Found::Orphan { .. })) => return Ok(j),
             Ok(Found::Outside(a)) => {
                 outside.get_or_insert(a);
             }
@@ -562,6 +596,81 @@ mod tests {
             Peer::process(s.wrapper).trace(),
             Traced::Job { wrapper, .. } if wrapper == s.wrapper
         ));
+    }
+
+    /// A process under the daemon itself, with no live wrapper between, is a
+    /// job's orphan, whose wrapper died (theseus-z4b), and is refused with its
+    /// own reason, on the socket and through the web UI. The daemon is not
+    /// under itself, and a wrapper met first still names the job. The test
+    /// process stands for the daemon here.
+    #[test]
+    fn a_process_under_the_daemon_is_a_jobs_orphan() {
+        use std::io::BufRead;
+        let me = std::process::id();
+        let mut sleep = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .unwrap();
+        let pid = sleep.id();
+        let t = Peer::process(pid).trace_under(Some(me));
+        let Traced::Orphan { asker, daemon } = &t else {
+            panic!("{t:?}");
+        };
+        assert_eq!(
+            (asker.pid, asker.argv0.as_str(), *daemon),
+            (pid, "sleep", me)
+        );
+        assert_eq!(
+            t.refusal().unwrap(),
+            format!(
+                "from a process under theseusd itself (pid {pid}, sleep), which is a job's orphan"
+            )
+        );
+        assert_eq!(t.json()["under_daemon"], me);
+        assert!(!matches!(
+            Peer::process(me).trace_under(Some(me)),
+            Traced::Orphan { .. }
+        ));
+        // A process that never adopted records no daemon.
+        if !inside_a_job() {
+            assert!(matches!(
+                Peer::process(pid).trace_under(None),
+                Traced::Outside(_)
+            ));
+        }
+        let s = Standin::start("act_under_daemon");
+        assert!(matches!(
+            Peer::process(s.child).trace_under(Some(me)),
+            Traced::Job { job, .. } if job == "act_under_daemon"
+        ));
+        // The web UI's client, a bash under the daemon holding its socket.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = listener.local_addr().unwrap();
+        let mut bash = std::process::Command::new("bash")
+            .args([
+                "-c",
+                &format!(
+                    "exec 3<>/dev/tcp/127.0.0.1/{}; echo $$; read -r _ <&3",
+                    server.port()
+                ),
+            ])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(bash.stdout.as_mut().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let (stream, client) = listener.accept().unwrap();
+        let t = Peer::Loopback { server, client }.trace_under(Some(me));
+        assert!(
+            matches!(&t, Traced::Orphan { asker, .. } if asker.pid.to_string() == line.trim() && asker.argv0 == "bash"),
+            "{t:?}"
+        );
+        drop(stream);
+        let _ = bash.wait();
+        let _ = sleep.kill();
+        let _ = sleep.wait();
     }
 
     /// The operator's own process is outside every job, and counts.

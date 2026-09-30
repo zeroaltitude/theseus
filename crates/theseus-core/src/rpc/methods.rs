@@ -58,6 +58,7 @@ impl Core {
             ledger_rows: self.store.ledger_len().unwrap_or(0),
             telemetry: self.telemetry_status(),
             kernel: self.kernel_status(),
+            children: self.children_status(),
             cost_usd_total: sessions.iter().map(|s| s.cost_usd).sum(),
             catalog_version: self.catalog.version.clone(),
             bindings: self.bindings.all(),

@@ -296,6 +296,10 @@ pub struct HealthResult {
     /// The durable kernel (M2): executions, actions, admission.
     #[serde(default)]
     pub kernel: KernelStatus,
+    /// The daemon's own children: its job wrappers, the orphans it adopted,
+    /// and what waits to be reaped (theseus-z4b).
+    #[serde(default)]
+    pub children: ChildrenStatus,
     /// Dollars across every session, from the model catalog.
     #[serde(default)]
     pub cost_usd_total: f64,
@@ -739,6 +743,34 @@ pub struct KernelStatus {
     /// descendants that outlived it (theseus-6qy).
     #[serde(default)]
     pub lingering_wrappers: u64,
+}
+
+/// The daemon's children (theseus-z4b): the job wrappers it spawned, the
+/// orphans it adopted, and what waits to be reaped. The daemon reaps each
+/// wrapper and orphan once it exits, and leaves the `op` processes to tokio,
+/// which waits for them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChildrenStatus {
+    /// The daemon is a child subreaper, so a job's descendant whose wrapper
+    /// died is reparented to it, not to init. Only the socket daemon is one.
+    pub subreaper: bool,
+    /// Job wrappers among its children whose command still runs.
+    pub wrappers_running: u64,
+    /// Job wrappers among its children whose command has exited, each
+    /// lingering for what it left running.
+    pub wrappers_lingering: u64,
+    /// Processes it adopted: a job's descendants whose wrapper died. None of
+    /// them may answer an approval.
+    pub orphans: u64,
+    /// Children that have exited and wait to be reaped: 0 in steady state, so
+    /// a count that grows is a leak.
+    pub zombies: u64,
+    /// Children that tokio waits for itself: the `op` processes.
+    pub owned: u64,
+    /// Job wrappers reaped since the daemon's image started.
+    pub reaped_wrappers: u64,
+    /// Orphans reaped since the daemon's image started.
+    pub reaped_orphans: u64,
 }
 
 /// One execution as the protocol shows it (spec §3.15).

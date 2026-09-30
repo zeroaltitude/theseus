@@ -359,3 +359,62 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
     assert!(why.contains("network down"), "{why}");
     r.stop(daemon);
 }
+
+/// A restart onto a changed note is an exec in the same process, which keeps
+/// every child (theseus-z4b). The daemon is a child subreaper again after it,
+/// and it reaps what the old image left. Here the vault answers the note at
+/// once, and takes 2 s over the secrets, so an `op inject` is still running
+/// when the daemon restarts: the old image's runtime kills that `op` as it
+/// stops, and the `sleep` the fake `op` was running comes to the daemon. The
+/// new image learns it as an orphan and reaps it, while its own `op` runs.
+#[test]
+fn after_a_restart_in_place_the_daemon_adopts_and_reaps_what_the_old_image_left() {
+    let r = Rig::new();
+    let op = r.path("bin").join("op");
+    std::fs::write(
+        &op,
+        format!(
+            "#!/bin/sh\n\
+             case \"$1\" in\n\
+             \x20 read) cat '{}' ;;\n\
+             \x20 inject) sleep 2; sed -e 's/{{{{ [^}}]* }}}}/test-secret-value-0000/g' ;;\n\
+             \x20 *) exit 1 ;;\n\
+             esac\n",
+            r.path("note.toml").display()
+        ),
+    )
+    .unwrap();
+    let changed = test_note(&r, 42.5);
+    std::fs::write(r.path("note.toml"), &changed).unwrap();
+    config_copy::write(
+        &config_copy::path(Some(&r.path("state"))),
+        NOTE_REF,
+        &test_note(&r, 100.0),
+    )
+    .unwrap();
+    let (mut daemon, _, _) = r.start();
+    let pid = daemon.id();
+    let h = r.until(&mut daemon, "the restart", |h| {
+        !h["config"]["restarted"].is_null()
+    });
+    assert!(daemon.try_wait().is_none(), "the same process: pid {pid}");
+    assert_eq!(h["children"]["subreaper"], true, "{}", h["children"]);
+    let h = r.until(&mut daemon, "what the old image left, reaped", |h| {
+        let c = &h["children"];
+        c["reaped_orphans"].as_u64() >= Some(1) && c["orphans"] == 0 && c["zombies"] == 0
+    });
+    assert_eq!(h["children"]["subreaper"], true);
+    let log = std::fs::read_to_string(r.path("theseusd.log")).unwrap();
+    assert!(
+        log.contains("children kept across the restart"),
+        "the new image learned its children:\n{}",
+        r.log()
+    );
+    // The new image's own `op` got its status: the secrets resolved by it.
+    let h = r.until(&mut daemon, "the secrets", |h| {
+        h["secrets"]["state"] == "ready"
+    });
+    assert_eq!(h["secrets"]["method"], "inject", "{}", h["secrets"]);
+    assert_eq!(h["children"]["zombies"], 0);
+    r.stop(daemon);
+}

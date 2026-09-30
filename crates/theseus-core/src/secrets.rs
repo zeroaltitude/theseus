@@ -215,6 +215,14 @@ impl OpReader {
         self.token_file.as_deref()
     }
 
+    /// Start `op`, registered as a child that tokio waits for, so the
+    /// daemon's reaper leaves it to tokio (theseus-z4b). This is the only place
+    /// the daemon starts a child that it waits for itself.
+    fn start(cmd: &mut tokio::process::Command) -> std::io::Result<tokio::process::Child> {
+        use theseus_kernel::children::{self, Kind};
+        children::spawn(Kind::Owned, || cmd.spawn(), tokio::process::Child::id)
+    }
+
     /// `op`, under the token and nothing else from our environment.
     fn op(&self) -> tokio::process::Command {
         let mut c = tokio::process::Command::new(&self.op_bin);
@@ -241,14 +249,15 @@ impl OpReader {
     async fn read_raw(&self, op_ref: &str) -> Result<Zeroizing<String>, String> {
         let mut cmd = self.op();
         cmd.arg("read").arg("--no-newline").arg(op_ref);
-        let out = match tokio::time::timeout(OP_TIMEOUT, cmd.output()).await {
+        let child = Self::start(&mut cmd).map_err(|e| format!("spawning op: {e}"))?;
+        let out = match tokio::time::timeout(OP_TIMEOUT, child.wait_with_output()).await {
             Err(_) => {
                 return Err(format!(
                     "op read did not answer within {} s",
                     OP_TIMEOUT.as_secs()
                 ))
             }
-            Ok(Err(e)) => return Err(format!("spawning op: {e}")),
+            Ok(Err(e)) => return Err(format!("running op read: {e}")),
             Ok(Ok(o)) => o,
         };
         if !out.status.success() {
@@ -277,9 +286,8 @@ impl OpReader {
         template.push_str(&format!("{boundary}end\n"));
         let mut cmd = self.op();
         cmd.arg("inject").stdin(Stdio::piped());
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| InjectFailed::Error(format!("spawning op: {e}")))?;
+        let mut child =
+            Self::start(&mut cmd).map_err(|e| InjectFailed::Error(format!("spawning op: {e}")))?;
         let run = async {
             if let Some(mut stdin) = child.stdin.take() {
                 stdin.write_all(template.as_bytes()).await?;

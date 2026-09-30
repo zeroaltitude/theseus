@@ -7,6 +7,9 @@
 //! (tmp+rename), then pokes the harness over a Unix socket if one is given.
 //! It is a child subreaper, so a descendant that a double fork orphans stays
 //! under it, and it lingers until the last one has exited (theseus-6qy).
+//! The daemon reaps each wrapper it spawned once it exits (`children`,
+//! theseus-z4b), so a wrapper's pid can be another process's afterwards: a
+//! wrapper is alive only while its pid's command line still names its job.
 //! Cancellation kills the wrapper's process group by correlation id and
 //! verifies the pid is gone; `WrapperEvidence` is what the reconciler asks.
 
@@ -82,10 +85,17 @@ pub fn spawn_detached(
             });
         }
     }
-    let child = cmd.spawn().context("spawning job wrapper")?;
+    // Registered as this job's wrapper as it is spawned, so the daemon's
+    // sweep reaps it by its pid once it exits (theseus-z4b).
+    let child = crate::children::spawn(
+        crate::children::Kind::Wrapper(&args.correlation_id),
+        || cmd.spawn(),
+        |c| Some(c.id()),
+    )
+    .context("spawning job wrapper")?;
     let pid = child.id();
     spool.write_pid(&args.correlation_id, pid)?;
-    // Do not wait on it; it is detached by design. Reap nothing here.
+    // Nothing waits here: it is detached by design, and the sweep reaps it.
     std::mem::forget(child);
     Ok(pid)
 }
@@ -104,7 +114,7 @@ pub const WRAPPER_MODE: &str = "job-wrapper";
 /// the command's result as `run_wrapper` does, then lingers until no
 /// descendant remains, and only then exits. It kills nothing.
 pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
-    let subreaper = set_subreaper();
+    let subreaper = crate::children::set_subreaper();
     let spool = run(args, Reap::Descendants, subreaper.err())?;
     linger(&spool, &args.correlation_id);
     Ok(())
@@ -217,25 +227,6 @@ fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Resul
     Ok(spool)
 }
 
-/// Become a child subreaper: an orphaned descendant is reparented here
-/// instead of to init. The error, when there is one, says why not.
-fn set_subreaper() -> std::result::Result<(), String> {
-    #[cfg(target_os = "linux")]
-    {
-        if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } == -1 {
-            return Err(format!(
-                "PR_SET_CHILD_SUBREAPER: {}",
-                std::io::Error::last_os_error()
-            ));
-        }
-        Ok(())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        Err("a child subreaper needs Linux".into())
-    }
-}
-
 /// Reap every child that has exited, orphans reparented here among them.
 /// The command's status, when it was one of them.
 fn reap_children(command: u32) -> std::io::Result<Option<std::process::ExitStatus>> {
@@ -341,8 +332,8 @@ pub fn notify(sock: &Path, correlation_id: &str) {
 pub fn notify(_: &Path, _: &str) {}
 
 /// Is a pid alive? It exists (`kill(pid, 0)`) and is not a zombie. A wrapper
-/// that has exited stays a zombie until its parent reaps it, and the daemon
-/// does not wait for its wrappers, so a cancel took a wrapper it had killed
+/// that has exited stays a zombie until its parent reaps it. Before the daemon
+/// reaped its wrappers (theseus-z4b), a cancel took a wrapper it had killed
 /// for alive, and settled `OutcomeUncertain` after its whole grace
 /// (theseus-6qy).
 pub fn pid_alive(pid: u32) -> bool {
@@ -368,17 +359,32 @@ fn exited(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
-/// Terminate a wrapper's whole process group: SIGTERM, wait up to `grace`,
-/// then SIGKILL. Returns true if the pid is gone afterwards.
-pub fn terminate(pid: u32, grace: Duration) -> bool {
+/// Is `pid` the live wrapper of `job`? Its command line names the job, which
+/// a zombie's (empty) does not, and no other process's can: the daemon reaps
+/// its wrappers (theseus-z4b), so a wrapper's pid may be reused once it has
+/// gone.
+pub fn wrapper_alive(pid: u32, job: &str) -> bool {
+    wrapper_job(pid).as_deref() == Some(job)
+}
+
+/// Terminate a job's wrapper and its whole process group: SIGTERM, wait up
+/// to `grace`, then SIGKILL. Returns true if the wrapper is gone afterwards.
+/// A group is signalled only while `pid` is still this job's wrapper, or no
+/// live process at all: while any process of the group lives, its id is not
+/// handed out again, but once the wrapper has been reaped and the group is
+/// empty, `pid` may be another process's, which is left alone.
+pub fn terminate(pid: u32, job: &str, grace: Duration) -> bool {
     #[cfg(unix)]
     {
+        if pid_alive(pid) && !wrapper_alive(pid, job) {
+            return true;
+        }
         unsafe {
             libc::kill(-(pid as i32), libc::SIGTERM);
         }
         let t0 = Instant::now();
         while t0.elapsed() < grace {
-            if !pid_alive(pid) {
+            if !wrapper_alive(pid, job) {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -388,16 +394,16 @@ pub fn terminate(pid: u32, grace: Duration) -> bool {
         }
         let t0 = Instant::now();
         while t0.elapsed() < Duration::from_millis(500) {
-            if !pid_alive(pid) {
+            if !wrapper_alive(pid, job) {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        !pid_alive(pid)
+        !wrapper_alive(pid, job)
     }
     #[cfg(not(unix))]
     {
-        let _ = (pid, grace);
+        let _ = (pid, job, grace);
         false
     }
 }
@@ -413,7 +419,7 @@ impl Evidence for WrapperEvidence {
             return Probe::Completed(c);
         }
         match self.spool.read_pid(&action.correlation_id) {
-            Some(pid) if pid_alive(pid) => Probe::StillRunning,
+            Some(pid) if wrapper_alive(pid, &action.correlation_id) => Probe::StillRunning,
             _ => Probe::Gone,
         }
     }

@@ -26,12 +26,24 @@ export interface KernelStatus {
   lingering_wrappers?: number
 }
 
+/// The daemon's children (theseus-z4b): its job wrappers, the orphans it adopted, and its zombies.
+export interface ChildrenStatus {
+  subreaper: boolean
+  wrappers_running: number; wrappers_lingering: number
+  orphans: number
+  /// Children that exited and wait to be reaped: 0 in steady state.
+  zombies: number
+  owned: number
+  reaped_wrappers: number; reaped_orphans: number
+}
+
 export interface Health {
   name: string; version: string; protocol: string; uptime_secs: number
   sessions: number; turns: number; model: string; profile: string; provider: string; providers: string[]
   secrets_resolved: string[]
   usage_total: Usage; provider_errors: number; ledger_rows: number
   kernel: KernelStatus
+  children?: ChildrenStatus
   cost_usd_total?: number; catalog_version?: string
   bindings?: BindingStatus[]
   /// `narrative = true` in the config: The Narrative tab shows.

@@ -155,6 +155,9 @@ fn main() -> Result<()> {
         return theseus_kernel::job::run_wrapper_process(&wa);
     }
     keep_name();
+    if cli.cmd.is_none() && !cli.stdio {
+        adopt_children();
+    }
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -184,6 +187,10 @@ enum Start {
 }
 
 async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
+    if cli.cmd.is_none() {
+        // The socket daemon and `--stdio` both spawn job wrappers.
+        tokio::spawn(reap_children());
+    }
     let op = Arc::new(OpReader::from_env(cli.op_token_file.as_deref())?);
     let startup = Arc::new(StartupLog::new(origin));
     let in_vault = cli.config.starts_with("op://");
@@ -461,6 +468,72 @@ fn exec_self(var: &str, value: &str) -> Result<()> {
         .env(var, value)
         .exec();
     Err(anyhow::Error::new(err).context("restarting: exec of /proc/self/exe failed"))
+}
+
+/// The socket daemon adopts a job's orphans (theseus-z4b): as a child
+/// subreaper, it is where a job's descendant goes when the job kills its own
+/// wrapper, instead of init, and no descendant of it may answer an approval.
+/// Set before any thread starts. After an exec restart, which keeps the pid
+/// and so every child, the flag is set again and the children are learned
+/// again: a live child whose command line is a wrapper's is that job's
+/// wrapper, and any other is an orphan.
+fn adopt_children() {
+    use theseus_kernel::children;
+    if let Err(why) = children::adopt() {
+        tracing::warn!(error = %why, "not a child subreaper: a job that kills its own wrapper leaves orphans to init");
+    }
+    let found = children::relearn();
+    if found != children::Relearned::default() {
+        tracing::info!(
+            wrappers = found.wrappers,
+            orphans = found.orphans,
+            zombies = found.zombies,
+            "children kept across the restart"
+        );
+    }
+}
+
+/// How often the reaper sweeps without a SIGCHLD.
+const SWEEP_EVERY: Duration = Duration::from_secs(10);
+
+/// Reap what this daemon holds (theseus-z4b): each job wrapper, and each
+/// orphan it adopted, once it exits. Woken by SIGCHLD, which every child's
+/// exit sends to its parent, and every `SWEEP_EVERY` besides. A sweep waits
+/// only for pids it names, never for tokio's `op` processes, which tokio
+/// waits for (`children`). tokio gives each listener of a signal its own
+/// wake, so this one takes nothing from tokio's.
+async fn reap_children() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigchld = match signal(SignalKind::child()) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::warn!(error = %e, "no SIGCHLD listener: children are reaped every {} s", SWEEP_EVERY.as_secs());
+            None
+        }
+    };
+    let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + SWEEP_EVERY, SWEEP_EVERY);
+    loop {
+        match tokio::task::spawn_blocking(theseus_kernel::children::sweep).await {
+            Ok(swept) => {
+                for (pid, job, status) in &swept.wrappers {
+                    tracing::debug!(pid, job = %job, status = %status, "reaped a job wrapper");
+                }
+                for (pid, status) in &swept.orphans {
+                    tracing::info!(pid, status = %status, "reaped an orphan a job left");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "the reaper's sweep failed"),
+        }
+        tokio::select! {
+            _ = async {
+                match &mut sigchld {
+                    Some(s) => { s.recv().await; }
+                    None => std::future::pending::<()>().await,
+                }
+            } => {}
+            _ = tick.tick() => {}
+        }
+    }
 }
 
 /// A daemon that restarted itself is the image `/proc/self/exe`, which the
