@@ -26,6 +26,14 @@ pub struct Config {
     /// Named model profiles. The implicit `default` profile is built from `[model]`.
     #[serde(default)]
     pub profiles: BTreeMap<String, ProfileConfig>,
+    /// `[context]`: the system level of context files, which every session
+    /// gets, and the persona in play (theseus-c48).
+    #[serde(default, skip_serializing_if = "ContextConfig::is_empty")]
+    pub context: ContextConfig,
+    /// `[personas.<name>]`: each persona's context files, added after the
+    /// system level's while it is in play (theseus-c48).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub personas: BTreeMap<String, PersonaConfig>,
     /// Additional Anthropic-Messages-compatible endpoints by name (e.g. `zai`).
     /// The implicit `anthropic` provider comes from `[model]` unless overridden here.
     #[serde(default)]
@@ -519,11 +527,6 @@ pub struct ProfileConfig {
     pub max_output_tokens: Option<u32>,
     #[serde(default)]
     pub system: Option<String>,
-    /// Files compiled into the system block after `system`, each under a
-    /// header naming it (theseus-58a): `~/` or absolute paths. Omitted:
-    /// `[model].context_files`; `[]`: none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_files: Option<Vec<String>>,
     /// For models that accept effort. Omitted: the model's default (Opus 5.5:
     /// medium; others: high).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -571,6 +574,39 @@ impl ProfileConfig {
     }
 }
 
+/// `[context]` (theseus-c48): context files in two levels. The system
+/// level, `files`, is every session's; the files of the persona in play come
+/// after it. Each is compiled into the system block under a header naming it
+/// and its level (spec §4.4). Paths are `~/` or absolute; nothing is read at
+/// load.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextConfig {
+    /// The system level: every session's files, before any persona's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+    /// The persona in play, a key of `[personas]`. Until Jev chooses one
+    /// from its ontology of personas (theseus-8kk, theseus-0j2), this is the
+    /// only choice. Absent: no persona, and the system level alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_persona: Option<String>,
+}
+
+impl ContextConfig {
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.default_persona.is_none()
+    }
+}
+
+/// `[personas.<name>]` (theseus-c48): a persona's context files, compiled
+/// after the system level's while the persona is in play.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PersonaConfig {
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelConfig {
@@ -589,9 +625,6 @@ pub struct ModelConfig {
     pub max_output_tokens: Option<u32>,
     #[serde(default)]
     pub system: Option<String>,
-    /// The context files of every profile that names none (theseus-58a).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub context_files: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<Effort>,
     #[serde(default)]
@@ -656,7 +689,6 @@ impl Default for ModelConfig {
             model: default_model(),
             max_output_tokens: None,
             system: None,
-            context_files: Vec::new(),
             effort: None,
             thinking_display: ThinkingDisplay::Summarized,
             max_loops: default_max_loops(),
@@ -750,6 +782,14 @@ impl Config {
                 if units.len() == 1 { "it" } else { "them" },
             ));
         }
+        if cfg.context.default_persona.is_none() && !cfg.personas.is_empty() {
+            warnings.push(format!(
+                "[personas] defines {}, but context.default_persona names none of them, so no \
+                 persona's files are compiled: until Jev chooses a persona (theseus-8kk), \
+                 context.default_persona is the only choice",
+                cfg.persona_names()
+            ));
+        }
         if let Some(a) = &cfg.approval {
             if a.channels.is_empty() {
                 warnings.push(
@@ -818,20 +858,27 @@ impl Config {
             }
         }
         // Paths only: the files are read when a turn compiles, never here.
-        let files = std::iter::once(("model".to_string(), &self.model.context_files)).chain(
-            self.profiles.iter().filter_map(|(name, p)| {
-                p.context_files
-                    .as_ref()
-                    .map(|f| (format!("profiles.{name}"), f))
-            }),
+        let files = std::iter::once(("context.files".to_string(), &self.context.files)).chain(
+            self.personas
+                .iter()
+                .map(|(name, p)| (format!("personas.{name}.files"), &p.files)),
         );
         for (key, list) in files {
             if let Some(f) = list
                 .iter()
                 .find(|f| !(f.starts_with('/') || f.starts_with("~/")))
             {
+                anyhow::bail!("{key} entry {f:?} must be an absolute path or start with ~/");
+            }
+        }
+        if let Some(name) = &self.context.default_persona {
+            if !self.personas.contains_key(name) {
                 anyhow::bail!(
-                    "{key}.context_files entry {f:?} must be an absolute path or start with ~/"
+                    "context.default_persona = {name:?} is not a persona: {}",
+                    match self.persona_names() {
+                        known if known.is_empty() => "no [personas.<name>] table is defined".into(),
+                        known => format!("the personas are {known}"),
+                    }
                 );
             }
         }
@@ -931,7 +978,6 @@ impl Config {
                 model: m.model.clone(),
                 max_output_tokens: m.max_output_tokens,
                 system: m.system.clone(),
-                context_files: None,
                 effort: m.effort,
                 thinking_display: m.thinking_display,
                 max_loops: m.max_loops,
@@ -974,11 +1020,36 @@ impl Config {
         })
     }
 
-    /// A profile's context files: its own list, else `[model].context_files`.
-    pub fn context_files_for<'a>(&'a self, prof: &'a ProfileConfig) -> &'a [String] {
-        prof.context_files
-            .as_deref()
-            .unwrap_or(&self.model.context_files)
+    /// The persona in play (theseus-c48): `[context].default_persona`, the
+    /// only choice until Jev chooses one (theseus-8kk, theseus-0j2).
+    pub fn persona(&self) -> Option<&str> {
+        self.context.default_persona.as_deref()
+    }
+
+    /// The context files a session gets while `persona` is in play, in the
+    /// order its system block carries them: the system level, then the
+    /// persona's.
+    pub fn context_paths(&self, persona: Option<&str>) -> Vec<crate::context_files::ContextPath> {
+        use crate::context_files::ContextPath;
+        let system = self.context.files.iter().map(|p| ContextPath {
+            path: p.clone(),
+            persona: None,
+        });
+        let own = persona
+            .and_then(|name| self.personas.get_key_value(name))
+            .into_iter()
+            .flat_map(|(name, p)| {
+                p.files.iter().map(|f| ContextPath {
+                    path: f.clone(),
+                    persona: Some(name.clone()),
+                })
+            });
+        system.chain(own).collect()
+    }
+
+    /// Every persona's name, comma-separated.
+    fn persona_names(&self) -> String {
+        self.personas.keys().cloned().collect::<Vec<_>>().join(", ")
     }
 
     /// Every provider by name, with the implicit `anthropic` one synthesized
@@ -1329,58 +1400,119 @@ mod tests {
         assert!(!Config::example().discord.notice_embeds);
     }
 
-    /// Context files (theseus-58a): a profile that names none takes
-    /// `[model].context_files`, `[]` names none, and a path must be absolute
-    /// or start with `~/`. Loading checks spelling only: nothing is read. The
-    /// template sets `[]` at `[model]`, keeps the profile's line and the
-    /// `roots` example commented, and every one of those lines parses.
+    /// Context files in two levels (theseus-c48): `[context] files`, which
+    /// every session gets, then the files of the persona in play,
+    /// `[personas.<name>] files`, chosen by `[context] default_persona`. Every
+    /// path must be absolute or start with `~/`, and the key is named when one
+    /// is not. Loading checks spelling only: nothing is read.
     #[test]
-    fn context_files_default_from_model_and_must_be_absolute_or_home_paths() {
+    fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
         let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
-                    [model]\ncontext_files = [\"~/w/SOUL.md\", \"/nowhere/USER.md\"]\n\n\
-                    [profiles.inherits]\nmodel = \"m\"\n\n\
-                    [profiles.own]\nmodel = \"m\"\ncontext_files = [\"/x/RULES.md\"]\n\n\
-                    [profiles.none]\nmodel = \"m\"\ncontext_files = []\n";
+                    [context]\nfiles = [\"~/w/USER.md\", \"/nowhere/RULES.md\"]\n\
+                    default_persona = \"theseus\"\n\n\
+                    [personas.theseus]\nfiles = [\"~/w/persona.md\"]\n\n\
+                    [personas.quiet]\n";
         let (cfg, warnings) = Config::parse(base).unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
-        let all = cfg.all_profiles();
-        let files = |p: &str| cfg.context_files_for(&all[p]).to_vec();
-        assert_eq!(files("default"), ["~/w/SOUL.md", "/nowhere/USER.md"]);
-        assert_eq!(files("inherits"), files("default"));
-        assert_eq!(files("own"), ["/x/RULES.md"]);
-        assert!(files("none").is_empty());
+        assert_eq!(cfg.persona(), Some("theseus"));
+        let paths = |persona: Option<&str>| -> Vec<(String, Option<String>)> {
+            cfg.context_paths(persona)
+                .into_iter()
+                .map(|p| (p.path, p.persona))
+                .collect()
+        };
+        let system = |p: &str| (p.to_string(), None);
+        assert_eq!(
+            paths(Some("theseus")),
+            [
+                system("~/w/USER.md"),
+                system("/nowhere/RULES.md"),
+                ("~/w/persona.md".to_string(), Some("theseus".to_string())),
+            ],
+            "the system level first, then the persona's"
+        );
+        assert_eq!(
+            paths(Some("quiet")),
+            [system("~/w/USER.md"), system("/nowhere/RULES.md")],
+            "a persona that names no files adds none"
+        );
+        assert_eq!(paths(None), paths(Some("quiet")));
         for (bad, key) in [
-            (
-                "[model]\ncontext_files = [\"SOUL.md\"]",
-                "model.context_files",
-            ),
-            (
-                "[profiles.p]\nmodel = \"m\"\ncontext_files = [\"~other/x\"]",
-                "profiles.p.context_files",
-            ),
-            ("[model]\ncontext_files = [\"\"]", "model.context_files"),
+            ("[context]\nfiles = [\"USER.md\"]", "context.files"),
+            ("[personas.p]\nfiles = [\"~other/x\"]", "personas.p.files"),
+            ("[context]\nfiles = [\"\"]", "context.files"),
         ] {
             let doc = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n{bad}\n");
             let e = format!("{:#}", Config::parse(&doc).unwrap_err());
             assert!(e.contains(key) && e.contains("absolute path"), "{e}");
         }
-        // A config that never names context files has none, and says nothing new.
+        // A profile no longer names context files, and neither does [model].
+        for old in [
+            "[model]\ncontext_files = []",
+            "[profiles.p]\nmodel = \"m\"\ncontext_files = []",
+        ] {
+            let doc = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n{old}\n");
+            let e = format!("{:#}", Config::parse(&doc).unwrap_err());
+            assert!(e.contains("unknown field `context_files`"), "{e}");
+        }
+        // A config that never names context files has none, says nothing new,
+        // and `theseusd config` shows neither table.
         let (plain, w) = Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
         assert!(w.is_empty(), "{w:?}");
-        assert!(plain
-            .all_profiles()
-            .values()
-            .all(|p| plain.context_files_for(p).is_empty()));
-        let shown = toml::to_string(&plain.model).unwrap();
-        assert!(!shown.contains("context_files"), "{shown}");
-        // The template.
+        assert!(plain.context_paths(plain.persona()).is_empty());
+        let shown = toml::to_string_pretty(&plain).unwrap();
+        assert!(
+            !shown.contains("[context]") && !shown.contains("personas"),
+            "{shown}"
+        );
+        let shown = toml::to_string_pretty(&cfg).unwrap();
+        assert!(
+            shown.contains("[context]") && shown.contains("[personas.theseus]"),
+            "{shown}"
+        );
+        // The template: an empty system level, and the persona commented.
         let t = Config::example();
-        assert!(t.model.context_files.is_empty() && t.tools.roots.is_empty());
-        assert!(t.profiles.values().all(|p| p.context_files.is_none()));
+        assert!(t.context.is_empty() && t.personas.is_empty() && t.tools.roots.is_empty());
         let has = |line: &str| Config::EXAMPLE_TOML.lines().any(|l| l.starts_with(line));
-        assert!(has("context_files = []"));
-        assert!(has("# context_files = []"));
+        assert!(has("[context]"));
+        assert!(has("files = []"));
+        assert!(has("# default_persona = \"theseus\""));
+        assert!(has("# [personas.theseus]"));
         assert!(has("# roots = [\"/home/zeroaltitude/reports\"]"));
+        assert!(!Config::EXAMPLE_TOML.contains("context_files"));
+    }
+
+    /// `[context] default_persona` must name a persona the config defines,
+    /// and the loader says which ones it does. Personas with no default are
+    /// never in play before Jev, and loading says so.
+    #[test]
+    fn an_unknown_default_persona_is_refused_naming_the_known_ones() {
+        let doc = |rest: &str| format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n{rest}\n");
+        let e = format!(
+            "{:#}",
+            Config::parse(&doc(
+                "[context]\ndefault_persona = \"thesues\"\n\n[personas.theseus]\n\n[personas.quiet]"
+            ))
+            .unwrap_err()
+        );
+        assert!(
+            e.contains("context.default_persona = \"thesues\" is not a persona: the personas are quiet, theseus"),
+            "{e}"
+        );
+        let e = format!(
+            "{:#}",
+            Config::parse(&doc("[context]\ndefault_persona = \"theseus\"")).unwrap_err()
+        );
+        assert!(e.contains("no [personas.<name>] table is defined"), "{e}");
+        let (cfg, w) = Config::parse(&doc("[personas.theseus]\nfiles = [\"~/p.md\"]")).unwrap();
+        assert_eq!(cfg.persona(), None);
+        assert!(
+            w.len() == 1
+                && w[0].starts_with(
+                    "[personas] defines theseus, but context.default_persona names none of them"
+                ),
+            "{w:?}"
+        );
     }
 
     /// `narrative` is a top-level key, off unless the config says true
@@ -1708,6 +1840,8 @@ mod tests {
             "otlp_endpoint =",
             "headers_secret =",
             "[policy.mcp]",
+            "default_persona =",
+            "[personas.",
         ] {
             assert!(
                 Config::EXAMPLE_TOML.contains(must),

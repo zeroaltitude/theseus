@@ -1835,7 +1835,7 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
     let mut path = String::new();
     let r = rig_with(vec![Scripted::text("Four. Theseus")], |cfg| {
         path = in_projects(cfg, "RULES.md");
-        cfg.model.context_files = vec![path.clone()];
+        cfg.context.files = vec![path.clone()];
     });
     assert_eq!(
         r.core.runner.context_files.reads(),
@@ -1846,7 +1846,7 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
     std::fs::write(&path, rule).unwrap();
     let res = turn(&r.core, None, "what is 2 + 2?").await;
     let system = system_of(&r, 0);
-    let header = format!("# Context file: {path}");
+    let header = format!("# Context file (system): {path}");
     let at = |needle: &str| {
         system
             .find(needle)
@@ -1865,6 +1865,7 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
         bytes: rule.len() as u64,
         cut: false,
         missing: None,
+        persona: None,
     };
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
     assert_eq!(comps[0].manifest.context_files, vec![want.clone()]);
@@ -1894,7 +1895,7 @@ async fn an_edited_context_file_recompiles_once_and_an_unchanged_one_appends() {
         ],
         |cfg| {
             path = in_projects(cfg, "RULES.md");
-            cfg.model.context_files = vec![path.clone()];
+            cfg.context.files = vec![path.clone()];
         },
     );
     std::fs::write(&path, "End every answer with 'Theseus'.\n").unwrap();
@@ -1952,7 +1953,7 @@ async fn a_missing_context_file_warns_once_and_the_turn_runs() {
         vec![Scripted::text("fine"), Scripted::text("still fine")],
         |cfg| {
             path = in_projects(cfg, "GONE.md");
-            cfg.model.context_files = vec![path.clone()];
+            cfg.context.files = vec![path.clone()];
         },
     );
     let first = turn(&r.core, None, "one").await;
@@ -1962,7 +1963,7 @@ async fn a_missing_context_file_warns_once_and_the_turn_runs() {
         ("fine", "still fine")
     );
     assert!(system_of(&r, 1).ends_with(&format!(
-        "# Context file: {path}\n\n[Missing: the file could not be read (not found).]"
+        "# Context file (system): {path}\n\n[Missing: the file could not be read (not found).]"
     )));
     assert_eq!(
         ledgered(&r, "context.file_missing"),
@@ -1998,7 +1999,7 @@ async fn a_context_file_over_the_cap_is_cut_and_marked_as_cut() {
     let mut path = String::new();
     let r = rig_with(vec![Scripted::text("ok")], |cfg| {
         path = in_projects(cfg, "BIG.md");
-        cfg.model.context_files = vec![path.clone()];
+        cfg.context.files = vec![path.clone()];
     });
     std::fs::write(&path, "y".repeat(MAX_BYTES + 1_000)).unwrap();
     let res = turn(&r.core, None, "hi").await;
@@ -2036,6 +2037,168 @@ async fn without_context_files_the_system_block_and_manifest_are_unchanged() {
         .is_none());
     assert!(ledgered(&r, "context.file_missing").is_empty());
     assert_eq!(r.core.runner.context_files.reads(), 0);
+}
+
+/// Two levels (theseus-c48): the system level's files, then the files of the
+/// persona in play (`[context] default_persona`), each under a header naming
+/// its level. The manifest records each file's level, the `context.compiled`
+/// row the persona, and health the persona in play with its files.
+#[tokio::test]
+async fn system_then_persona_files_compile_in_that_order_each_labeled_by_its_level() {
+    let (mut sys, mut own) = (String::new(), String::new());
+    let r = rig_with(vec![Scripted::text("Hello. Ithaca")], |cfg| {
+        sys = in_projects(cfg, "USER.md");
+        own = in_projects(cfg, "PERSONA.md");
+        cfg.context.files = vec![sys.clone()];
+        cfg.context.default_persona = Some("theseus".into());
+        cfg.personas.insert(
+            "theseus".into(),
+            crate::config::PersonaConfig {
+                files: vec![own.clone()],
+            },
+        );
+    });
+    std::fs::write(&sys, "The operator is Eddie.\n").unwrap();
+    std::fs::write(&own, "End every answer with 'Ithaca'.\n").unwrap();
+    let res = turn(&r.core, None, "hi").await;
+    let system = system_of(&r, 0);
+    let (a, b) = (
+        format!("# Context file (system): {sys}\n\nThe operator is Eddie."),
+        format!("# Context file (persona theseus): {own}\n\nEnd every answer with 'Ithaca'."),
+    );
+    assert!(
+        system.ends_with(&format!("{}\n\n{a}\n\n{b}", r.core.tools.system_note())),
+        "{system}"
+    );
+    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
+    let levels: Vec<(String, Option<String>)> = comps[0]
+        .manifest
+        .context_files
+        .iter()
+        .map(|f| (f.path.clone(), f.persona.clone()))
+        .collect();
+    assert_eq!(
+        levels,
+        [(sys.clone(), None), (own.clone(), Some("theseus".into()))]
+    );
+    let row = &ledgered(&r, "context.compiled")[0];
+    assert_eq!(row["persona"], "theseus");
+    assert_eq!(row["context_files"][1]["persona"], "theseus");
+    assert!(row["context_files"][0].get("persona").is_none(), "{row}");
+    let lines = narrated(&r, &res.session_id);
+    assert!(
+        said(
+            &lines,
+            "context",
+            "tokens, 2 context files, persona theseus."
+        ),
+        "{}",
+        dump(&lines)
+    );
+    let h = r.core.health().context;
+    assert_eq!(
+        (
+            h.system_files,
+            h.persona.as_deref(),
+            h.persona_files,
+            h.personas
+        ),
+        (
+            vec![sys],
+            Some("theseus"),
+            vec![own],
+            vec!["theseus".to_string()]
+        )
+    );
+}
+
+/// A persona that names no files adds nothing to the system block: it is
+/// the system level's alone, as without a persona, and says which persona
+/// is in play.
+#[tokio::test]
+async fn a_persona_that_names_no_files_adds_nothing_to_the_system_block() {
+    let mut sys = String::new();
+    let r = rig_with(vec![Scripted::text("one"), Scripted::text("two")], |cfg| {
+        sys = in_projects(cfg, "USER.md");
+        cfg.context.files = vec![sys.clone()];
+        cfg.context.default_persona = Some("quiet".into());
+        cfg.personas
+            .insert("quiet".into(), crate::config::PersonaConfig::default());
+    });
+    std::fs::write(&sys, "The operator is Eddie.\n").unwrap();
+    let res = turn(&r.core, None, "hi").await;
+    assert_eq!(
+        system_of(&r, 0),
+        format!(
+            "{}\n\n{}\n\n# Context file (system): {sys}\n\nThe operator is Eddie.",
+            crate::turn::PERSONA,
+            r.core.tools.system_note()
+        )
+    );
+    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
+    assert_eq!(comps[0].manifest.context_files.len(), 1);
+    let lines = narrated(&r, &res.session_id);
+    assert!(
+        said(&lines, "context", "tokens, 1 context file, persona quiet."),
+        "{}",
+        dump(&lines)
+    );
+    let h = r.core.health().context;
+    assert_eq!(
+        (h.persona.as_deref(), h.persona_files.len()),
+        (Some("quiet"), 0)
+    );
+}
+
+/// An edit to a persona's file is one `system_changed` recompile, as an edit
+/// to a system file is (theseus-58a), and an unchanged one appends.
+#[tokio::test]
+async fn an_edited_persona_file_recompiles_once_and_an_unchanged_one_appends() {
+    let mut own = String::new();
+    let r = rig_with(
+        vec![
+            Scripted::text("a"),
+            Scripted::text("b"),
+            Scripted::text("c"),
+        ],
+        |cfg| {
+            own = in_projects(cfg, "PERSONA.md");
+            cfg.context.default_persona = Some("theseus".into());
+            cfg.personas.insert(
+                "theseus".into(),
+                crate::config::PersonaConfig {
+                    files: vec![own.clone()],
+                },
+            );
+        },
+    );
+    std::fs::write(&own, "Speak plainly.\n").unwrap();
+    aged(&own, 60);
+    let sid = turn(&r.core, None, "one").await.session_id;
+    std::fs::write(&own, "Speak briefly.\n").unwrap();
+    aged(&own, 30);
+    turn(&r.core, Some(&sid), "two").await;
+    turn(&r.core, Some(&sid), "three").await;
+    let field = |kind: &str, key: &str| -> Vec<String> {
+        ledgered(&r, kind)
+            .iter()
+            .map(|d| d[key].as_str().unwrap_or("").to_string())
+            .collect()
+    };
+    assert_eq!(
+        field("context.recompiled", "trigger"),
+        ["new_session", "system_changed"]
+    );
+    assert_eq!(
+        field("context.compiled", "decision"),
+        ["recompile", "recompile", "append"]
+    );
+    assert!(system_of(&r, 1).ends_with("Speak briefly."));
+    let comps = r.core.store.session_compilations(&sid).unwrap();
+    assert_eq!(
+        comps[1].manifest.context_files[0].digest,
+        Some(sha16("Speak briefly.\n"))
+    );
 }
 
 // ---------------------------------------------------------------- attachments (theseus-9g2)

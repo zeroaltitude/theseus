@@ -36,12 +36,6 @@ model = "claude-sonnet-5-5"
 # Fable 5.1: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
 # max_output_tokens = 128000
 # system = "You are Theseus."           # appended to the built-in persona and tools note
-# Context files (~/ or absolute paths), for every profile that names none: each is compiled
-# into the system block after system, under a header that names it. A turn stats each file
-# and rereads it only when it changed, and an edit recompiles the next turn once. No tool
-# reads them, so nothing waits for approval. A missing file is noted in the block and warned
-# once per daemon run; a file over 64 KB is cut.
-context_files = []                      # e.g. ["~/.openclaw/workspace/SOUL.md", "~/.openclaw/workspace/USER.md"]
 # effort = "high"                       # low | medium | high | xhigh | max (models that take effort)
 thinking_display = "summarized"         # summarized | omitted | updates (Fable 5.x, Opus 5.5)
 max_loops = 40                          # tool loops per turn before the Advancer ends it
@@ -66,7 +60,6 @@ provider = "anthropic"
 model = "claude-sonnet-5-5"
 # max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5.5)
 # system = ""
-# context_files = []                    # omitted: [model].context_files; a list here replaces it, e.g. ["~/notes/sonnet.md"]
 # effort = "xhigh"                      # the recommended level for coding and agentic work
 thinking_display = "summarized"
 max_loops = 40
@@ -79,6 +72,24 @@ model = "glm-5.3-flash"
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
+
+# ---------------------------------------------------------------- context files
+# Files (~/ or absolute paths) compiled into every session's system block, after the
+# built-in persona, the tools note, and the profile's system, each under a header that
+# names it and its level. Two levels: the system level, which every session gets, then
+# the files of the persona in play. A turn stats each file and rereads it only when it
+# changed, and an edit recompiles the next turn once. No tool reads them, so nothing waits
+# for approval. A missing file is noted in the block and warned once per daemon run; a
+# file over 64 KB is cut.
+[context]
+files = []                              # the system level, e.g. ["~/.openclaw/workspace/USER.md"]
+# The persona in play: a key of [personas]. Until Jev chooses a persona from its ontology,
+# this is the only choice. Omitted: no persona, and the system level alone.
+# default_persona = "theseus"
+
+# A persona's files, compiled after the system level's while it is in play.
+# [personas.theseus]
+# files = ["~/.openclaw/workspace/contexts/theseus-persona-draft.md"]
 
 # ---------------------------------------------------------------- providers
 # Any endpoint that speaks the Anthropic Messages API. The implicit "anthropic"

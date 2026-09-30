@@ -63,6 +63,7 @@ impl Core {
             catalog_version: self.catalog.version.clone(),
             bindings: self.bindings.all(),
             narrative: self.narrator.on(),
+            context: self.context_status(),
             approval: self.approval_status(),
             tightenings: self.tools.tightened.all(),
         }

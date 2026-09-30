@@ -80,6 +80,10 @@ pub struct ContextFileRef {
     /// Why the file could not be read: `not found`, `permission denied`, …
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub missing: Option<String>,
+    /// The persona whose file this is (theseus-c48); absent: the system
+    /// level, which every session gets (and every file before theseus-c48).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -123,6 +127,9 @@ pub struct RequestSpec {
     pub system_text: String,
     /// The context files `system_text` carries, for the manifest.
     pub context_files: Vec<ContextFileRef>,
+    /// The persona in play when the spec was built (theseus-c48), whose
+    /// files follow the system level's in `system_text`.
+    pub persona: Option<String>,
     /// Wire tool definitions, sorted by name.
     pub tools: Vec<Value>,
     pub effort: Option<Effort>,
@@ -604,6 +611,7 @@ mod tests {
             max_tokens: 1000,
             system_text: system.into(),
             context_files: vec![],
+            persona: None,
             tools: vec![
                 json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
             ],

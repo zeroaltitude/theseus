@@ -48,6 +48,8 @@ export interface Health {
   bindings?: BindingStatus[]
   /// `narrative = true` in the config: The Narrative tab shows.
   narrative?: boolean
+  /// The context files every session gets, and the persona in play (theseus-c48).
+  context?: ContextStatus
   /// `[approval]`: who may answer a waiting call, and where (theseus-sgh).
   approval?: ApprovalStatus
   /// The tools that ask first because someone pressed "should have asked" (theseus-sgh).
@@ -253,9 +255,17 @@ export interface CompilationInfo {
   derived_from?: string | null; manifest: Record<string, unknown>; current: boolean
 }
 
-/** A context file the system block carried: `manifest.context_files[]` (theseus-58a). */
+/** A context file the system block carried: `manifest.context_files[]` (theseus-58a).
+ *  `persona` names the persona whose file it is; absent, it is the system level's (theseus-c48). */
 export interface ContextFileRef {
   path: string; digest?: string | null; bytes: number; cut?: boolean; missing?: string | null
+  persona?: string | null
+}
+
+/** The config's context files (theseus-c48): the system level, which every session gets,
+ *  and the persona in play (`[context] default_persona` until Jev chooses one) with its own. */
+export interface ContextStatus {
+  system_files: string[]; persona?: string | null; persona_files: string[]; personas: string[]
 }
 
 export interface CatalogModel { model: string; entry: Record<string, unknown>; profiles: string[] }

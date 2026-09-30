@@ -887,6 +887,9 @@ async fn run(cli: Cli) -> Result<()> {
                 if let Some(line) = config_line(&h.config) {
                     println!("{line}");
                 }
+                if let Some(line) = context_line(&h.context) {
+                    println!("{line}");
+                }
                 println!("{}", secrets_line(&h.secrets, &h.secrets_resolved));
                 if let Some(line) = startup_line(&h.startup) {
                     println!("{line}");
@@ -1262,6 +1265,28 @@ fn children_line(c: &theseus_protocol::ChildrenStatus) -> Option<String> {
         );
     }
     Some(line)
+}
+
+/// `context: 2 system files · persona theseus (1 file)` (theseus-c48): the
+/// context files every session gets, and the persona in play with its own.
+/// A config that names none, or a daemon older than that, says nothing.
+fn context_line(c: &theseus_protocol::ContextStatus) -> Option<String> {
+    if *c == theseus_protocol::ContextStatus::default() {
+        return None;
+    }
+    let files = |n: usize| format!("{n} file{}", if n == 1 { "" } else { "s" });
+    let persona = match (&c.persona, c.personas.is_empty()) {
+        (Some(p), _) => format!("persona {p} ({})", files(c.persona_files.len())),
+        (None, true) => "no persona".to_string(),
+        (None, false) => format!(
+            "no persona in play (defined: {}; set [context] default_persona)",
+            c.personas.join(", ")
+        ),
+    };
+    Some(format!(
+        "context: {} at the system level · {persona}",
+        files(c.system_files.len())
+    ))
 }
 
 /// `config: vault (confirmed in 1034 ms)`, `config: confirming …`, or
@@ -2065,6 +2090,33 @@ impl Printer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `theseus health`'s context line (theseus-c48).
+    #[test]
+    fn the_context_line_names_the_levels_and_the_persona_in_play() {
+        use theseus_protocol::ContextStatus;
+        assert_eq!(context_line(&ContextStatus::default()), None);
+        let c = ContextStatus {
+            system_files: vec!["~/a.md".into(), "~/b.md".into()],
+            persona: Some("theseus".into()),
+            persona_files: vec!["~/p.md".into()],
+            personas: vec!["theseus".into()],
+        };
+        assert_eq!(
+            context_line(&c).unwrap(),
+            "context: 2 files at the system level · persona theseus (1 file)"
+        );
+        let none = ContextStatus {
+            persona: None,
+            persona_files: vec![],
+            ..c
+        };
+        assert_eq!(
+            context_line(&none).unwrap(),
+            "context: 2 files at the system level · no persona in play (defined: theseus; set \
+             [context] default_persona)"
+        );
+    }
 
     fn tool(name: &str, policy: &str, config: &str, setting: &str) -> theseus_protocol::ToolInfo {
         theseus_protocol::ToolInfo {

@@ -312,6 +312,10 @@ pub struct HealthResult {
     /// shows its tab.
     #[serde(default)]
     pub narrative: bool,
+    /// The context files every session's system block carries, and the
+    /// persona in play with its own (theseus-c48).
+    #[serde(default)]
+    pub context: ContextStatus,
     /// Who may answer a waiting call, and through which channels (theseus-sgh).
     #[serde(default)]
     pub approval: ApprovalStatus,
@@ -368,6 +372,23 @@ impl SecretsStatus {
             s => s.into(),
         }
     }
+}
+
+/// The context files in the config (theseus-c48), as configured: the
+/// system level, which every session gets, and the persona in play, whose
+/// files follow the system level's. Until Jev chooses a persona, the persona
+/// in play is `[context].default_persona`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ContextStatus {
+    #[serde(default)]
+    pub system_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<String>,
+    #[serde(default)]
+    pub persona_files: Vec<String>,
+    /// Every persona the config defines.
+    #[serde(default)]
+    pub personas: Vec<String>,
 }
 
 /// Where the config came from, and whether it may act (theseus-2fo, spec

@@ -24,6 +24,21 @@ impl Core {
         }
     }
 
+    /// The context files every session gets, and the persona in play with
+    /// its own (theseus-c48), as the config names them.
+    pub fn context_status(&self) -> theseus_protocol::ContextStatus {
+        let persona = self.cfg.persona();
+        theseus_protocol::ContextStatus {
+            system_files: self.cfg.context.files.clone(),
+            persona: persona.map(str::to_string),
+            persona_files: persona
+                .and_then(|p| self.cfg.personas.get(p))
+                .map(|p| p.files.clone())
+                .unwrap_or_default(),
+            personas: self.cfg.personas.keys().cloned().collect(),
+        }
+    }
+
     /// The daemon's children (theseus-z4b): its job wrappers, running or
     /// lingering (a wrapper whose `spool/lingering` mark names it), the
     /// orphans it adopted, and its zombies, 0 in steady state.

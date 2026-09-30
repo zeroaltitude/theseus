@@ -60,8 +60,9 @@ pub struct Target {
     pub model: String,
     pub max_tokens: u32,
     pub system: Option<String>,
-    /// The profile's context files, as configured (theseus-58a).
-    pub context_files: Vec<String>,
+    /// The persona in play (theseus-c48): its context files follow the
+    /// system level's. `[context].default_persona` until Jev chooses one.
+    pub persona: Option<String>,
     pub effort: Option<Effort>,
     pub thinking_display: ThinkingDisplay,
     pub max_loops: u32,
@@ -409,7 +410,7 @@ impl TurnRunner {
             model,
             max_tokens,
             system: prof.system.clone(),
-            context_files: self.cfg.context_files_for(prof).to_vec(),
+            persona: self.cfg.persona().map(str::to_string),
             effort: prof.effort,
             thinking_display: prof.thinking_display,
             max_loops: prof.max_loops,
@@ -441,10 +442,11 @@ impl TurnRunner {
     }
 
     /// The system prompt: persona, the tools paragraph, the profile's own
-    /// text, then each context file under its header (theseus-58a).
-    /// Deterministic for a config and the files' contents; a change is a
-    /// `system_changed` recompile.
-    pub fn system_text(&self, target: &Target, files: &[Arc<ContextFile>]) -> String {
+    /// text, then each context file under its header (theseus-58a): the
+    /// system level's, then the persona's, each header naming its level
+    /// (theseus-c48). Deterministic for a config and the files' contents; a
+    /// change is a `system_changed` recompile.
+    pub fn system_text(&self, target: &Target, files: &[ContextFile]) -> String {
         let mut parts = vec![PERSONA.to_string()];
         let note = self.tools.system_note();
         if !note.is_empty() {
@@ -460,7 +462,8 @@ impl TurnRunner {
     /// The turn's request spec, fixed for all its loops, and the context
     /// files this daemon run finds unreadable for the first time.
     pub fn request_spec(&self, target: &Target) -> (RequestSpec, Vec<Unreadable>) {
-        let (files, unreadable) = self.context_files.load(&target.context_files);
+        let paths = self.cfg.context_paths(target.persona.as_deref());
+        let (files, unreadable) = self.context_files.load(&paths);
         let spec = RequestSpec {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
@@ -468,6 +471,7 @@ impl TurnRunner {
             max_tokens: target.max_tokens,
             system_text: self.system_text(target, &files),
             context_files: files.iter().map(|f| f.file.clone()).collect(),
+            persona: target.persona.clone(),
             tools: self.tools.definitions(),
             effort: target.effort,
             thinking_display: target.thinking_display,
@@ -1128,6 +1132,9 @@ impl TurnRunner {
         if !spec.context_files.is_empty() {
             summary["context_files"] = json!(spec.context_files);
         }
+        if let Some(p) = &spec.persona {
+            summary["persona"] = json!(p);
+        }
         t.trace
             .record("compile", "compile", c0, c1, summary.clone());
         t.tc.ledger("context.compiled", summary.clone());
@@ -1137,7 +1144,7 @@ impl TurnRunner {
             .iter()
             .filter(|f| f.missing.is_some())
             .count();
-        let files = match (spec.context_files.len() - missing, missing) {
+        let mut files = match (spec.context_files.len() - missing, missing) {
             (0, 0) => String::new(),
             (n, 0) => format!(
                 ", {}",
@@ -1148,6 +1155,9 @@ impl TurnRunner {
                 narrative::count(n as u64, "context file", "context files")
             ),
         };
+        if let Some(p) = &spec.persona {
+            files.push_str(&format!(", persona {p}"));
+        }
         let sizes = |c: &Compiled| {
             format!(
                 "prefix {} + tail {}, {}, about {} tokens{files}",

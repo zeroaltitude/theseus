@@ -215,6 +215,14 @@ export default function Observatory({ client, health, tick, currentSession, onRe
           A session's context is a <b>compilation</b> (a frozen prefix of nodes plus a manifest) and the <b>tail</b> of nodes written after it.
           Every loop decides <i>append</i> or <i>recompile</i>; only a new session, a model/system/tool change, overflow, or you trigger a recompile.
         </div>
+        {health?.context && (health.context.system_files.length > 0 || health.context.persona || health.context.personas.length > 0) && (
+          <div className="pad small" title="the config's context files: the system level, which every session gets, then the persona in play's; until Jev chooses one, the persona is [context] default_persona">
+            context files: <b>{health.context.system_files.length}</b> at the system level
+            {' · '}{health.context.persona
+              ? <>persona <b>{health.context.persona}</b> in play, with <b>{health.context.persona_files.length}</b></>
+              : <span className={health.context.personas.length ? 'warn' : 'muted'}>no persona in play{health.context.personas.length ? ` (defined: ${health.context.personas.join(', ')})` : ''}</span>}
+          </div>
+        )}
         {currentSession && (
           <div className="pad small">
             <button type="button" className="chip" onClick={() => void recompile('fresh')} title="the next turn starts from the current exchange only">recompile fresh</button>{' '}
@@ -270,11 +278,12 @@ export default function Observatory({ client, health, tick, currentSession, onRe
         )}
         {contextFiles.length > 0 && (
           <table className="obs-table" title="the files the current compilation's system block carries, in order; an edit changes the digest and recompiles the next turn">
-            <thead><tr><th>context file</th><th>digest</th><th>bytes</th></tr></thead>
+            <thead><tr><th>context file</th><th>level</th><th>digest</th><th>bytes</th></tr></thead>
             <tbody>
-              {contextFiles.map((f) => (
-                <tr key={f.path}>
+              {contextFiles.map((f, i) => (
+                <tr key={`${i}:${f.path}`}>
                   <td className="small"><code>{f.path}</code></td>
+                  <td className="muted small">{f.persona ? `persona ${f.persona}` : 'system'}</td>
                   <td className={f.missing ? 'warn small' : 'muted small'}>{f.missing ? `missing: ${f.missing}` : <code>{f.digest}</code>}</td>
                   <td className={f.cut ? 'warn small' : 'muted small'}>{f.missing ? '' : `${fmt(f.bytes)}${f.cut ? ' (cut)' : ''}`}</td>
                 </tr>

@@ -1,7 +1,8 @@
-//! Context files (theseus-58a): the files a profile names in `context_files`
-//! (or `[model].context_files` for a profile that names none), compiled into
-//! the system block after the persona, the tools note, and `system`, each
-//! under a header that names it (spec §4.4).
+//! Context files (theseus-58a; in two levels since theseus-c48): the system
+//! level, `[context] files`, which every session gets, then the files of the
+//! persona in play, `[personas.<name>] files`. They are compiled into the
+//! system block after the persona, the tools note, and `system`, each under a
+//! header that names it and its level (spec §4.4).
 //!
 //! The compiler reads them, not a tool, so no posture or approval applies.
 //! Their text is in the system block, so the system digest covers it: an
@@ -28,6 +29,14 @@ pub const MAX_BYTES: usize = 64 * 1024;
 
 /// A file changed this shortly before it was read is read again next time.
 const RACY: Duration = Duration::from_secs(2);
+
+/// A context file as the config names it, with its level (theseus-c48).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextPath {
+    pub path: String,
+    /// The persona whose file it is; None: the system level.
+    pub persona: Option<String>,
+}
 
 /// One file as the system block carries it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,10 +75,18 @@ impl Stamp {
     }
 }
 
+/// What a file held when it was last read, whatever its level: its record,
+/// and the text its section carries under the header.
+#[derive(Debug)]
+struct Held {
+    file: ContextFileRef,
+    body: String,
+}
+
 struct Entry {
     stamp: Stamp,
     racy: bool,
-    file: Arc<ContextFile>,
+    held: Arc<Held>,
 }
 
 /// The daemon's context files: what each file held when it was last read,
@@ -84,19 +101,19 @@ pub struct ContextFiles {
 impl ContextFiles {
     /// The sections for `paths`, in order, and the files this daemon run
     /// finds unreadable for the first time.
-    pub fn load(&self, paths: &[String]) -> (Vec<Arc<ContextFile>>, Vec<Unreadable>) {
+    pub fn load(&self, paths: &[ContextPath]) -> (Vec<ContextFile>, Vec<Unreadable>) {
         let mut files = Vec::with_capacity(paths.len());
         let mut unreadable = Vec::new();
         for p in paths {
-            let path = crate::config::expand(p);
+            let path = crate::config::expand(&p.path);
             let shown = path.display().to_string();
             let read = match std::fs::metadata(&path) {
                 Ok(m) if m.is_file() => self.read(&path, &shown, Stamp::of(&m)),
                 Ok(_) => Err("not a regular file".to_string()),
                 Err(e) => Err(reason(&e)),
             };
-            match read {
-                Ok(f) => files.push(f),
+            let held = match read {
+                Ok(h) => h,
                 Err(error) => {
                     if self.warned.lock().unwrap().insert(path) {
                         unreadable.push(Unreadable {
@@ -104,9 +121,16 @@ impl ContextFiles {
                             error: error.clone(),
                         });
                     }
-                    files.push(Arc::new(missing(&shown, &error)));
+                    Arc::new(missing(&shown, &error))
                 }
-            }
+            };
+            files.push(ContextFile {
+                file: ContextFileRef {
+                    persona: p.persona.clone(),
+                    ..held.file.clone()
+                },
+                section: format!("{}\n\n{}", header(&shown, p.persona.as_deref()), held.body),
+            });
         }
         (files, unreadable)
     }
@@ -116,10 +140,10 @@ impl ContextFiles {
         self.reads.load(Ordering::Relaxed)
     }
 
-    fn read(&self, path: &Path, shown: &str, stamp: Stamp) -> Result<Arc<ContextFile>, String> {
+    fn read(&self, path: &Path, shown: &str, stamp: Stamp) -> Result<Arc<Held>, String> {
         if let Some(e) = self.cache.lock().unwrap().get(path) {
             if e.stamp == stamp && !e.racy {
-                return Ok(e.file.clone());
+                return Ok(e.held.clone());
             }
         }
         let read_at = SystemTime::now();
@@ -128,7 +152,7 @@ impl ContextFiles {
             .and_then(|f| f.take(MAX_BYTES as u64 + 1).read_to_end(&mut buf))
             .map_err(|e| reason(&e))?;
         self.reads.fetch_add(1, Ordering::Relaxed);
-        let file = Arc::new(section(shown, buf));
+        let held = Arc::new(section(shown, buf));
         let racy = stamp
             .mtime
             .is_none_or(|t| !matches!(read_at.duration_since(t), Ok(age) if age >= RACY));
@@ -137,10 +161,10 @@ impl ContextFiles {
             Entry {
                 stamp,
                 racy,
-                file: file.clone(),
+                held: held.clone(),
             },
         );
-        Ok(file)
+        Ok(held)
     }
 }
 
@@ -152,12 +176,17 @@ fn reason(e: &std::io::Error) -> String {
     }
 }
 
-fn header(shown: &str) -> String {
-    format!("# Context file: {shown}")
+/// A file's header names it and its level, so a reader of the system block
+/// sees which files are every session's and which the persona's.
+fn header(shown: &str, persona: Option<&str>) -> String {
+    match persona {
+        None => format!("# Context file (system): {shown}"),
+        Some(name) => format!("# Context file (persona {name}): {shown}"),
+    }
 }
 
-/// A file's section from up to `MAX_BYTES + 1` bytes of it.
-fn section(shown: &str, mut buf: Vec<u8>) -> ContextFile {
+/// A file's record and text from up to `MAX_BYTES + 1` bytes of it.
+fn section(shown: &str, mut buf: Vec<u8>) -> Held {
     let cut = buf.len() > MAX_BYTES;
     if cut {
         buf.truncate(MAX_BYTES);
@@ -173,44 +202,54 @@ fn section(shown: &str, mut buf: Vec<u8>) -> ContextFile {
         use sha2::{Digest, Sha256};
         hex::encode(Sha256::digest(text.as_bytes()))[..16].to_string()
     };
-    let mut section = format!("{}\n\n{}", header(shown), text.trim_end());
+    let mut body = text.trim_end().to_string();
     if cut {
-        section.push_str(&format!(
+        body.push_str(&format!(
             "\n\n[Cut: only the first {} bytes of this file are included.]",
             crate::narrative::thousands(MAX_BYTES as u64)
         ));
     }
-    ContextFile {
+    Held {
         file: ContextFileRef {
             path: shown.to_string(),
             digest: Some(digest),
             bytes: text.len() as u64,
             cut,
             missing: None,
+            persona: None,
         },
-        section,
+        body,
     }
 }
 
-fn missing(shown: &str, error: &str) -> ContextFile {
-    ContextFile {
+fn missing(shown: &str, error: &str) -> Held {
+    Held {
         file: ContextFileRef {
             path: shown.to_string(),
             digest: None,
             bytes: 0,
             cut: false,
             missing: Some(error.to_string()),
+            persona: None,
         },
-        section: format!(
-            "{}\n\n[Missing: the file could not be read ({error}).]",
-            header(shown)
-        ),
+        body: format!("[Missing: the file could not be read ({error}).]"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The system level's paths.
+    fn system(paths: &[&Path]) -> Vec<ContextPath> {
+        paths
+            .iter()
+            .map(|p| ContextPath {
+                path: p.to_string_lossy().into_owned(),
+                persona: None,
+            })
+            .collect()
+    }
 
     fn aged(path: &std::path::Path, secs: u64) {
         let f = std::fs::File::options().write(true).open(path).unwrap();
@@ -225,13 +264,13 @@ mod tests {
         std::fs::write(&p, "one\n").unwrap();
         aged(&p, 60);
         let cf = ContextFiles::default();
-        let paths = vec![p.to_string_lossy().into_owned()];
+        let paths = system(&[&p]);
         let (a, w) = cf.load(&paths);
         assert!(w.is_empty());
         assert_eq!(cf.reads(), 1);
         let (b, _) = cf.load(&paths);
         assert_eq!(cf.reads(), 1, "a stat, and no read");
-        assert!(Arc::ptr_eq(&a[0], &b[0]));
+        assert_eq!(a, b);
         // Same size, older stamp: still a change.
         std::fs::write(&p, "two\n").unwrap();
         aged(&p, 30);
@@ -258,7 +297,7 @@ mod tests {
         // 'é' is two bytes; an odd prefix puts one across the cap.
         let text = format!("x{}", "é".repeat(MAX_BYTES));
         std::fs::write(&p, &text).unwrap();
-        let (f, _) = ContextFiles::default().load(&[p.to_string_lossy().into_owned()]);
+        let (f, _) = ContextFiles::default().load(&system(&[&p]));
         let f = &f[0];
         assert!(f.file.cut);
         assert_eq!(f.file.bytes, MAX_BYTES as u64 - 1);
@@ -272,10 +311,7 @@ mod tests {
     fn an_unreadable_file_says_it_is_missing_and_warns_once() {
         let dir = tempfile::tempdir().unwrap();
         let cf = ContextFiles::default();
-        let paths = vec![
-            dir.path().join("GONE.md").to_string_lossy().into_owned(),
-            dir.path().to_string_lossy().into_owned(),
-        ];
+        let paths = system(&[&dir.path().join("GONE.md"), dir.path()]);
         let (f, w) = cf.load(&paths);
         assert_eq!(f[0].file.missing.as_deref(), Some("not found"));
         assert_eq!(f[0].file.digest, None);
@@ -286,5 +322,41 @@ mod tests {
         assert_eq!(w.len(), 2);
         let (_, w) = cf.load(&paths);
         assert!(w.is_empty(), "once per file per daemon run: {w:?}");
+    }
+
+    /// The system level's files come first, then the persona's, each under a
+    /// header naming its level. A file named at both levels is read once and
+    /// carried twice, labeled each time; its record says which level named it.
+    #[test]
+    fn each_section_says_its_level_and_a_file_is_read_once_for_both() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("USER.md"), dir.path().join("PERSONA.md"));
+        std::fs::write(&a, "who\n").unwrap();
+        std::fs::write(&b, "voice\n").unwrap();
+        aged(&a, 60);
+        aged(&b, 60);
+        let at = |p: &Path, persona: Option<&str>| ContextPath {
+            path: p.to_string_lossy().into_owned(),
+            persona: persona.map(str::to_string),
+        };
+        let cf = ContextFiles::default();
+        let (f, _) = cf.load(&[
+            at(&a, None),
+            at(&b, Some("theseus")),
+            at(&a, Some("theseus")),
+        ]);
+        let sections: Vec<&str> = f.iter().map(|f| f.section.as_str()).collect();
+        assert_eq!(
+            sections,
+            [
+                format!("# Context file (system): {}\n\nwho", a.display()),
+                format!("# Context file (persona theseus): {}\n\nvoice", b.display()),
+                format!("# Context file (persona theseus): {}\n\nwho", a.display()),
+            ]
+        );
+        let levels: Vec<Option<&str>> = f.iter().map(|f| f.file.persona.as_deref()).collect();
+        assert_eq!(levels, [None, Some("theseus"), Some("theseus")]);
+        assert_eq!(f[0].file.digest, f[2].file.digest);
+        assert_eq!(cf.reads(), 2, "USER.md is read once");
     }
 }
