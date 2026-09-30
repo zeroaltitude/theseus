@@ -355,8 +355,9 @@ cache_write_per_mtok = 0.0
 # starts, and every continuation after a restart, runs the same path. It connects
 # only when the token secret resolves and the bindings file exists (print one with
 # `theseusd example-bindings`); otherwise health says "unconfigured". Only the
-# socket daemon binds; `--stdio` servers and instances with another state dir
-# (and so another bindings file) never do, so one bot token has one connection.
+# socket daemon binds; `--stdio` servers never do. A daemon answers messages and
+# commands only in the places its bindings file names, so two daemons may share
+# one bot token when their bindings name different places.
 [discord]
 enabled = true
 token_secret = "discord_bot_token"      # name of the [secrets] entry holding the bot token

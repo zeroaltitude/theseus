@@ -392,7 +392,8 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         return Ok(exit(&core));
     }
 
-    // Only the socket daemon binds Discord: one bot token, one gateway connection.
+    // Only the socket daemon binds Discord, never `--stdio`: one gateway
+    // connection per state dir, whose bindings file names its places.
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path));
     let served = serve_socket(core.clone(), socket_path, after_bind).await;
     flush_telemetry(&core).await;
