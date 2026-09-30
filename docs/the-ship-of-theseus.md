@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.54
+# The Ship of Theseus — v0.55
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -330,11 +330,22 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
 - `approve_argv` names commands, and `[tools].approve_paths` names paths, that wait for approval.
 - A path outside the workspace roots waits for approval too. The workspace itself is configuration (`[tools].projects_dir`, plus any more `roots`); nothing assumes where an operator keeps projects.
 
+**Private addresses** (theseus-yd6; built 2026-09-30).
+- A network call's URL is judged at step 2 of the order below, as a path outside the roots is. It waits for approval when its host is one of these, and the confirm names which:
+  - a loopback, private, link-local (the cloud metadata service's 169.254.169.254 included), unique-local, shared (100.64/10), unspecified, multicast, or reserved address;
+  - `localhost`.
+
+  An IPv4 address inside IPv6 is judged as itself.
+- A public name that resolves to such an address is refused at connect. The client's resolver checks the very answer the connection uses, so a rebinding name has no second answer to give. The result says so, and names the address to ask with. This refusal is the tool's, not the gate's: the gate never saw the address, so it could not ask.
+- Each redirect hop is judged the same way before it is followed.
+- An approval reaches only the private origin its URL named.
+- A proxy is never used, since it would resolve names past the check.
+
 **The floor** is Theseus's own state (store, spool, bindings file) and binary, and the 1Password CLI and its credentials, including the token file the daemon was given. The kernel is off limits to the agent (§3.21), and the vault holds every secret. A call that touches the floor waits for approval at every posture, `open` included, and its confirm says it is the floor. It is never refused and never silent. The floor is deterministic: no model judgment or Jev pack decides it. _(Until 2026-09-28 this also said that no hook decides it, and that the floor judges what a transform hook made of a proposal. The hook system is gone, §3.17.)_
 
 **Order.** The first match wins:
 1. the floor;
-2. the approve lists, and a path outside the roots;
+2. the approve lists, a path outside the roots, and a URL whose host is a private address;
 3. the allow list;
 4. the tool's posture.
 
@@ -797,7 +808,7 @@ Why this is a principle and not a taste. A `bash` string is opaque: the gate can
 | `fs.*` read, write, edit, glob, grep, stat, tree | cat, sed, find, rg | the `ignore` and `grep` crates ripgrep is built from |
 | `git.*` status, diff, log, blame, commit, branch, worktree | the git CLI | gitoxide |
 | `text.*` diff, patch, json, yaml, toml, regex, hash, count | jq, diff, sha256sum, wc | serde, similar |
-| `http.*` fetch, post | curl | reqwest |
+| `http.*` fetch, post | curl | reqwest; as built 2026-09-30, `fetch` only, as an async tool (theseus-yd6) |
 | `gh.*` issues, pull requests, checks, reviews | the gh CLI | the GitHub REST API |
 | `aws.*` per service | the aws CLI | the official Rust SDK |
 | `task.*`, `memory.*`, `extend.*` | — | the kernel |
@@ -844,6 +855,8 @@ Reviewed against Claude Code (about twenty tools, six of which do nearly all the
 | `extend` | `propose`, `promote` (§3.21) |
 
 _(As built 2026-09-29: `fs.read` returns text, and an image as an image block for a model with vision (theseus-9g2). A PDF is still reported as a binary file.)_
+
+_(As built 2026-09-30, theseus-yd6: `http.fetch { url, max_bytes? }` and `web.search { query, count? }` are async tools (`Backend::Async`), not toollets on a core. Each call is a future on the daemon's runtime, and holds no core while it waits. Only turning an HTML page of 16 KiB or more into text takes a core from the pool (§3.23). `http.fetch` is GET only. It follows up to 5 redirects, within a total timeout and a byte cap. It returns an HTML page as text, through a hand-written converter with no parser crate, and text, JSON, and XML as they are. Any other type is named with its size and not read, so a PDF is named, not read (decision 10). `web.search` is the Brave Search API, and its key is a broker grant (§3.19). Both are class `Read`, so the fetches and searches of one response run together. Each result node is marked external, with its URL (§5.2).)_
 
 **Rejected, with the need's new home:** free-form `bash` (→ `proc.run`); subagents, spawn, workflows (→ task sessions); todo and plan-mode tools (→ `task.*`); multi-action `message`, `browser`, `nodes` (→ `channel.*`; browser and device control are planks); fourteen memory tools (→ two); session, subagent, and automation tools (→ protocol requests, `wake.at`, `/cancel`); secrets, gateway, config, plugin tools (→ the operator's CLI and web UI, never the model); media generation, TTS, PDF, image viewing as tools (→ node types for input, planks for generation); skills as tools (→ roles and MCP prompts); notebook and worktree tools (→ `fs.edit`, `git.*`, snapshots).
 
@@ -3671,3 +3684,102 @@ Live, over a copy of Eddie's store and his real note through a shim `op`:
 - A lower limit makes theseus-kks likelier: a limit below one call's reservation asks again after every reset.
 - A persona switch by Jev will rewrite the whole cached prefix, until the files get their own breakpoint
   (theseus-ev1).
+
+### Item 5. `http.fetch` and `web.search` (theseus-yd6; 2026-09-30, 01:10–01:46 and 02:14–02:36; acb16f4, 28ac9d3)
+
+**Why.** In 30 days the DM made 59 `web_fetch`, 36 `web_search`, and 29 `curl` calls (the usage audit,
+section 6). Eddie chose the Brave Search API on 2026-09-29.
+
+**What exists.**
+- **Async tools.**
+  - `Backend::Async` and `Tool::run_async`: a call is `tokio::spawn` under the in-process deadline (120 s),
+    and holds no core while it waits. A panic is the call's error, not the turn's.
+  - It goes through the one in-process path: `tool.started` (`backend: async`), the bound broker, the
+    result node, and the completion.
+  - Both tools are class `Read`, so F3's `run_calls` polls the fetches of one response together.
+- **`http.fetch`** (`theseus-core/src/web/`).
+  - GET only. The client follows no redirect itself; the tool follows up to 5, judging each hop first.
+  - `[tools.web] timeout_secs` (30) over the whole call, and `max_bytes` (2 MiB) over the body.
+  - HTML becomes text: headings, paragraphs, list items, links as `text (url)`, and `pre` as it is.
+    Script, style, noscript, svg, and the like are dropped, and entities are decoded. The converter is
+    hand-written, about 510 lines, and reads tags one at a time, so broken or cut markup still gives
+    its text.
+  - A page of 16 KiB or more converts on the pool. The converter runs at about 210 MB/s, and a hop to
+    the pool costs 24 µs, so a smaller page converts on the call's own task in under 80 µs.
+  - Text, JSON, and XML come back as they are. Any other type is named with its size, and is not
+    downloaded when its size is given.
+  - Any response is a result, a 404 included. Only a call that got no response fails.
+- **Private addresses** wait at the gate, or are refused at connect (§3.9). Both clients use
+  `no_proxy()`. A test-only resolver (`net::Dns`, with a host map and addresses taken as public) lets
+  tests reach 127.0.0.1; no config key reaches it.
+- **`web.search`.**
+  - The Brave Search API gives rank, title, URL, and snippet, with the markup stripped.
+  - Its key is `brave_api_key`, granted with `grant_tool` and read through `ToolCtx::secret`, so each
+    search is at least `notify`, and health counts its uses.
+  - No key, a key held stricter than the call ran at, a 401, or a 429 is a result the model reads. Only
+    Brave's error code comes through, never its free text.
+- **External text.** A result node's `external { url }` has a serde default, so old records read
+  unchanged. An error result is never marked, since its text is Theseus's own. A redirect whose
+  `Location` is not a URL names the parse error, never the header (`28ac9d3`).
+- **Surfaces.** The URL or the quoted query shows on the Discord tool line, the web UI, and the notices.
+- **Config.** `[tools.web]` has defaults, so a note without it loads unchanged. The template has the
+  Brave `[secrets]` line, the table, and B1's comment under `[broker]`.
+
+**How it is proven.**
+- **Tests.** 402 in the gate, 20 of them new: the converter; every kind of non-public address, in every
+  spelling; the fetches against a local server (content, redirects, the caps, and the gate's five
+  URLs); Brave's fixture and its refusals; two fetches of one response at once; a declined loopback
+  fetch that never connects; and a search held to its key's posture.
+- **The step's live check** (02:23–02:27): the Mutex page's `lock`, the three right URLs for `ignore`'s
+  `WalkParallel`, `http://127.0.0.1:7433/` waiting and never starting once declined, and a name that
+  `/etc/hosts` maps to 127.0.0.1 refused at connect.
+- **The runs.** Run 1 (01:10–01:46) wrote the code. The provenance plugin then tainted its session: the
+  Bash heredoc that wrote its report held the word "links" followed by a space, and a placeholder URL,
+  and the plugin's exec rule for the `links` browser matched them (openclaw-provenance-fqu). Every later
+  exec, edit, and write was refused. Run 2 continued from the tree, and wrote every file with the Write
+  and Edit tools.
+
+**Reviewed** (Tabitha, 2026-09-30, 02:40 to 02:47).
+- The gate rerun passed: 402 tests, and all four bench phases within budget (cold start p95 46.5 ms).
+- On the release build, over a fresh copy of Eddie's store, with `proc.run` and the write tools pinned
+  to `approve`:
+  - one GLM response made two fetches, of the `HashMap` and `Vec` pages (196 KB and 953 KB). They were
+    dispatched 7 ms apart and succeeded at 262 and 311 ms, so they ran together. Both answers were
+    right: `entry` returns the `Entry` enum, and `with_capacity` makes an empty vector with at least that
+    capacity;
+  - a search found tokio's `JoinSet` page on docs.rs, from 5 results, and health said `used once`;
+  - `http://169.254.169.254/latest/meta-data/` waited ("169.254.169.254 is a link-local address, and a
+    private address waits for approval"). Declined, it was never dispatched, and the model tried nothing
+    else;
+  - the Brave key's value was in none of the copy's state files, the log, or the CLI's output. The
+    control matched.
+- Eddie's unchanged note loads under the new binary.
+- Installed at 02:46.
+- **Taken at review:**
+  - **Web text can now steer a session that acts at `notify`.** A page's text reaches the model, and in
+    Eddie's config `proc.run` and the write tools run at `notify`. Until provenance labels (§3.9) and
+    Jev exist, a deterministic rule closes the gap: once a session has read external text, a call that
+    acts waits for approval, until the operator clears it. Filed as theseus-9bp, and added to the chain
+    before Eddie's end-to-end test.
+  - The runtime's "the full output is stored" is wrong for an in-process result, which stores nothing.
+    It predates DD5. Filed as theseus-46v.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| "native toollets" (P5d, item 5) | Async tools on the runtime, not toollets on a core | They wait on the network: async for waiting, the pool for compute (F3) | Keep. §3.23's "a toollet computes on a core" still holds for toollets |
+| `http.*` fetch, post (§3.23) | `fetch` only | The audit's calls were GETs | `post` when a need shows |
+| External text is marked (§5.2) | `external { url }` on the result node | There are no provenance labels yet (§3.9). A field reads old records unchanged | The field is the mark until labels exist |
+| "a loopback or private address waits for approval" (P5d) | It waits when the URL names it, and is refused at connect when a name resolves to it | The gate sees the URL, and only the resolver sees the answer | Keep |
+| "text, image, PDF" (§3.24) | A PDF is named with its size, not read | Decision 10 | Held |
+
+**Known gaps.**
+- An approval can reach a private name only if it is `localhost`. A name like `printer.lan` looks public
+  to the gate, and its private answer is refused at connect. Asking by address breaks TLS and virtual
+  hosts. The fixes are to resolve at the gate and pin the answer, or an operator's list of private names.
+- A page's text is cut to `[tools] result_max_chars` (30,000) from its head, with no offset to read
+  further. §3.16's node reference with a range is the likely home.
+- Pages are read as UTF-8 only, with no gzip or brotli.
+- Not exercised live: the Discord and web UI tool lines, since Discord and the web UI stay off in a
+  scratch daemon. The Discord summary is unit-tested.
