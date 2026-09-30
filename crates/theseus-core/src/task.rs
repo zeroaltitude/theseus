@@ -157,10 +157,40 @@ impl Tool for TaskCreate {
 
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let i = input_of(input)?;
+        // The notice says so when the task will start a turn by itself (W1).
+        let how = if i.wake_parent {
+            "start a task whose report starts this conversation's next turn"
+        } else {
+            "start a task"
+        };
         Ok(Plan {
-            summary: format!("start a task: {}", title_from(&i.brief)),
+            summary: format!("{how}: {}", title_from(&i.brief)),
             ..Default::default()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the gate's notice says of a task start (W1): whether its report
+    /// starts the conversation's next turn.
+    #[test]
+    fn a_task_starts_notice_says_when_its_report_wakes_the_conversation() {
+        let ctx = ToolCtx::for_tests(&std::env::temp_dir());
+        let summary = |input: Value| TaskCreate.plan(&input, &ctx).unwrap().summary;
+        assert_eq!(
+            summary(json!({"brief": "Run the gate"})),
+            "start a task: Run the gate"
+        );
+        assert_eq!(
+            summary(json!({"brief": "Run the gate", "wake_parent": true})),
+            "start a task whose report starts this conversation's next turn: Run the gate"
+        );
+        assert!(TaskCreate
+            .plan(&json!({"brief": "x", "wake_parent": "yes"}), &ctx)
+            .is_err());
     }
 }
 
