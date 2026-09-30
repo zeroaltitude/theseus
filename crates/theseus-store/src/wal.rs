@@ -12,17 +12,27 @@
 //! write their frames back to back under a short lock, then one of them syncs
 //! the file once for everyone whose bytes are already written. A single
 //! writer sees exactly the old behaviour, one sync per frame. On recovery,
-//! every frame is verified; the first frame that fails (short, bad magic, bad
-//! crc) ends the log, and if it is in the last segment it is truncated as a
-//! torn write. A bad frame followed by good bytes in an earlier segment is
-//! corruption, not a torn tail, and recovery refuses to guess.
+//! the first frame that fails (short, bad magic, bad crc) ends the log, and if
+//! it is in the last segment it is truncated as a torn write. A bad frame
+//! followed by good bytes in an earlier segment is corruption, not a torn
+//! tail, and recovery refuses to guess.
+//!
+//! **What open checks** (theseus-8ni). Given where a known-good record lies
+//! (the index's checkpoint), `open_from` checks only the frames after it:
+//! the next position and a torn frame are both at the tail, and the
+//! checkpoint's own frame was synced before the index claimed it. The
+//! history before it was checked when it was written; `verify_history`
+//! checks it again after serving, and refuses reads from a corrupt frame.
+//! Without that record, or when the log there is not what the index says,
+//! open checks every segment, as it always did.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::record::{now_unix_ms, NewRecord, Record};
 
@@ -35,7 +45,7 @@ pub enum WalError {
     Io(#[from] io::Error),
     #[error("wal is full: {used} of {max} bytes used")]
     Full { used: u64, max: u64 },
-    #[error("corrupt frame in segment {segment} at offset {offset}: {reason} (not the last segment; refusing to truncate)")]
+    #[error("corrupt frame in segment {segment} at offset {offset}: {reason}")]
     Corrupt {
         segment: u32,
         offset: u64,
@@ -87,11 +97,34 @@ pub struct RecordLocation {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Recovery {
     pub last_position: u64,
+    /// Frames and records checked at open: the tail after the checkpoint,
+    /// or every one when open checked the whole log.
     pub frames: u64,
     pub records: u64,
     pub truncated_bytes: u64,
     pub segments: u32,
+    /// Where open began checking (segment, offset): the frame after the
+    /// checkpoint's record. `None` when it checked every segment.
+    pub checked_from: Option<(u32, u64)>,
+    /// The bytes before `checked_from`, left to `verify_history`.
+    pub history_bytes: u64,
 }
+
+/// What `verify_history` checked.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+pub struct History {
+    pub segments: u32,
+    pub frames: u64,
+    pub records: u64,
+    pub bytes: u64,
+    /// Time spent checking, pauses left out.
+    pub busy_ms: f64,
+    /// Open checked every segment, so there was no history to check.
+    pub checked_at_open: bool,
+}
+
+/// How much `verify_history` checks between two calls of its `pace`.
+const PACE_BYTES: usize = 4 << 20;
 
 struct Writer {
     dir: PathBuf,
@@ -125,6 +158,13 @@ pub struct Wal {
     /// is then one `pread`, where it was an open, a seek, a read, and a close
     /// (theseus-qa0: 10,000 executions read at startup cost 10,000 opens).
     readers: Mutex<HashMap<u32, Arc<File>>>,
+    /// Where the history open left unchecked ends: the checkpoint's position,
+    /// and the segment and offset of the frame after it.
+    history_end: Option<(u64, u32, u64)>,
+    /// A corrupt frame `verify_history` found (segment, from, to): reads of
+    /// its records are refused. `to` is the segment's end when the frame's
+    /// header cannot say where it ends.
+    bad: OnceLock<(u32, u64, u64)>,
 }
 
 fn segment_path(dir: &Path, n: u32) -> PathBuf {
@@ -234,37 +274,85 @@ pub fn decode_record(b: &[u8], i: usize) -> Option<(Record, usize)> {
 }
 
 impl Wal {
-    /// Open or create the log in `dir`, recovering to the last good frame.
-    /// Returns the WAL and, for each record found, its position and location
-    /// (so an index can be rebuilt from `replay_from`).
+    /// Open or create the log in `dir`, checking every segment and
+    /// recovering to the last good frame.
     pub fn open(dir: &Path, cfg: WalConfig) -> Result<Self, WalError> {
+        Ok(Self::open_from(dir, cfg, u64::MAX, None)?.0)
+    }
+
+    /// Open or create the log in `dir`, recovering to the last good frame,
+    /// and return, with their locations, the records after position `after`
+    /// (what an index whose checkpoint is `after` lacks).
+    ///
+    /// `at` is where the index says record `after` lies. Given it, open
+    /// checks only the frames that follow that record (theseus-8ni). When the
+    /// log there is not what the index says (the record is missing or
+    /// another, or a frame after it does not check), it checks every segment
+    /// instead, which alone tells a torn tail from corruption.
+    pub fn open_from(
+        dir: &Path,
+        cfg: WalConfig,
+        after: u64,
+        at: Option<RecordLocation>,
+    ) -> Result<(Self, Vec<(Record, RecordLocation)>), WalError> {
         fs::create_dir_all(dir)?;
         let segments = list_segments(dir)?;
-        let mut recovery = Recovery::default();
-        let mut expected_pos: u64 = 1;
-        let mut total_len: u64 = 0;
         let last_seg = segments.last().copied();
-
-        for &seg in &segments {
-            let path = segment_path(dir, seg);
-            let bytes = fs::read(&path)?;
-            let is_last = Some(seg) == last_seg;
-            let (good_len, frames, records, next_pos) =
-                verify_segment(&bytes, seg, expected_pos, is_last)?;
-            if good_len < bytes.len() as u64 {
-                // Torn tail in the last segment: cut it.
-                let f = OpenOptions::new().write(true).open(&path)?;
-                f.set_len(good_len)?;
-                f.sync_all()?;
-                recovery.truncated_bytes += bytes.len() as u64 - good_len;
+        let tail = match at {
+            Some(loc) if after > 0 => {
+                let t = tail_after(dir, &segments, after, loc)?;
+                if t.is_none() {
+                    tracing::warn!(
+                        checkpoint = after,
+                        segment = loc.segment,
+                        offset = loc.offset,
+                        "wal: the log after the index's checkpoint did not check; checking every segment"
+                    );
+                }
+                t
             }
-            recovery.frames += frames;
-            recovery.records += records;
-            expected_pos = next_pos;
-            total_len += good_len;
-        }
+            _ => None,
+        };
+        let (walk, total_len, mut recovery, history_end) = match tail {
+            Some(t) => t,
+            None => {
+                let mut walk = Walk::new(1, after);
+                let mut recovery = Recovery::default();
+                let mut total_len: u64 = 0;
+                for &seg in &segments {
+                    let path = segment_path(dir, seg);
+                    let bytes = fs::read(&path)?;
+                    let (good_len, bad) = walk.segment(&bytes, seg, 0);
+                    match bad {
+                        None => {}
+                        Some(Bad::Torn { .. }) if Some(seg) == last_seg => {
+                            // Torn tail in the last segment: cut it.
+                            let f = OpenOptions::new().write(true).open(&path)?;
+                            f.set_len(good_len)?;
+                            f.sync_all()?;
+                            recovery.truncated_bytes += bytes.len() as u64 - good_len;
+                        }
+                        Some(Bad::Torn { offset, reason }) => {
+                            return Err(WalError::Corrupt {
+                                segment: seg,
+                                offset,
+                                reason: format!(
+                                    "{reason} (not the last segment; refusing to truncate)"
+                                ),
+                            })
+                        }
+                        Some(Bad::Wrong(e)) => return Err(e),
+                    }
+                    total_len += good_len;
+                }
+                (walk, total_len, recovery, None)
+            }
+        };
+        recovery.frames = walk.frames;
+        recovery.records = walk.records;
         recovery.segments = segments.len() as u32;
-        recovery.last_position = expected_pos - 1;
+        recovery.last_position = walk.expected - 1;
+        let expected_pos = walk.expected;
 
         // Open (or create) the segment to append to.
         let (segment, file, segment_len) = match last_seg {
@@ -285,7 +373,7 @@ impl Wal {
                 (1, f, 0)
             }
         };
-        Ok(Self {
+        let wal = Self {
             w: Mutex::new(Writer {
                 dir: dir.to_path_buf(),
                 cfg,
@@ -306,7 +394,10 @@ impl Wal {
             frames: std::sync::atomic::AtomicU64::new(0),
             syncs: std::sync::atomic::AtomicU64::new(0),
             readers: Mutex::default(),
-        })
+            history_end,
+            bad: OnceLock::new(),
+        };
+        Ok((wal, walk.out))
     }
 
     pub fn recovery(&self) -> &Recovery {
@@ -467,8 +558,23 @@ impl Wal {
         self.syncs.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Read one record at a known location.
+    /// Read one record at a known location. A record in a corrupt frame
+    /// that `verify_history` found is refused: record reads check no crc of
+    /// their own.
     pub fn read_at(&self, loc: RecordLocation) -> Result<Record, WalError> {
+        if let Some(&(segment, from, to)) = self.bad.get() {
+            if loc.segment == segment && (from..to).contains(&loc.offset) {
+                return Err(WalError::Corrupt {
+                    segment,
+                    offset: from,
+                    reason: format!(
+                        "the record at offset {} is in a frame the history check found corrupt; \
+                         its reads are refused",
+                        loc.offset
+                    ),
+                });
+            }
+        }
         let f = self.reader(loc.segment)?;
         let mut buf = vec![0u8; loc.len as usize];
         f.read_exact_at(&mut buf, loc.offset)?;
@@ -532,6 +638,88 @@ impl Wal {
         Ok(out)
     }
 
+    /// Check what open did not (theseus-8ni): every frame from the log's
+    /// start to the frame after the index's checkpoint, with its crc, its
+    /// records, and the position sequence, which must end at the checkpoint.
+    /// Read-only. `pace` gets the time each stretch of `PACE_BYTES` took, so
+    /// a caller can keep to its share of a core. On a corrupt frame, reads
+    /// from it to its segment's end are refused from then on
+    /// (`read_at`), and the error names it.
+    pub fn verify_history(&self, mut pace: impl FnMut(Duration)) -> Result<History, WalError> {
+        let Some((last, end_seg, end_off)) = self.history_end else {
+            return Ok(History {
+                checked_at_open: true,
+                ..History::default()
+            });
+        };
+        let t0 = Instant::now();
+        let mut paused = Duration::ZERO;
+        let mut h = History::default();
+        let mut walk = Walk::new(1, u64::MAX);
+        let mut stretch = Instant::now();
+        let mut since = 0usize;
+        for seg in list_segments(&self.dir)?
+            .into_iter()
+            .filter(|s| *s <= end_seg)
+        {
+            let path = segment_path(&self.dir, seg);
+            let bytes = if seg == end_seg {
+                read_range(&path, 0, end_off)?
+            } else {
+                fs::read(&path)?
+            };
+            let mut off = 0usize;
+            while off < bytes.len() {
+                let before = walk.expected;
+                match check_frame(&bytes, off, seg, 0, &mut walk) {
+                    Ok(end) => {
+                        since += end - off;
+                        off = end;
+                        walk.frames += 1;
+                        walk.records += walk.expected - before;
+                    }
+                    // In the history a frame that does not check is corrupt:
+                    // a later frame was written after it.
+                    Err(bad) => {
+                        let _ = self.bad.set((seg, off as u64, frame_end(&bytes, off)));
+                        return Err(match bad {
+                            Bad::Torn { offset, reason } => WalError::Corrupt {
+                                segment: seg,
+                                offset,
+                                reason: reason.into(),
+                            },
+                            Bad::Wrong(e) => e,
+                        });
+                    }
+                }
+                if since >= PACE_BYTES {
+                    let p = Instant::now();
+                    pace(stretch.elapsed());
+                    paused += p.elapsed();
+                    stretch = Instant::now();
+                    since = 0;
+                }
+            }
+            h.segments += 1;
+            h.bytes += bytes.len() as u64;
+        }
+        if walk.expected != last + 1 {
+            // No frame to blame: reads are checked against their position.
+            return Err(WalError::Corrupt {
+                segment: end_seg,
+                offset: end_off,
+                reason: format!(
+                    "the history ends at position {}, but the index's checkpoint is {last}",
+                    walk.expected - 1
+                ),
+            });
+        }
+        h.frames = walk.frames;
+        h.records = walk.records;
+        h.busy_ms = t0.elapsed().saturating_sub(paused).as_secs_f64() * 1000.0;
+        Ok(h)
+    }
+
     /// Total bytes of all segments (as recovered plus appended).
     pub fn total_bytes(&self) -> u64 {
         self.w.lock().unwrap().total_len
@@ -542,82 +730,238 @@ impl Wal {
     }
 }
 
-/// Verify one segment. Returns (good_len, frames, records, next_expected_pos).
-/// A bad frame in the last segment ends the good region; anywhere else it is
-/// corruption.
-fn verify_segment(
-    bytes: &[u8],
-    seg: u32,
-    mut expected_pos: u64,
-    is_last: bool,
-) -> Result<(u64, u64, u64, u64), WalError> {
-    let mut off = 0usize;
-    let mut frames = 0u64;
-    let mut records = 0u64;
-    let fail = |off: usize, reason: &str| -> Result<(u64, u64, u64, u64), WalError> {
-        if is_last {
-            Ok((off as u64, 0, 0, 0)) // caller uses frames/records from outer scope below
-        } else {
-            Err(WalError::Corrupt {
-                segment: seg,
-                offset: off as u64,
-                reason: reason.into(),
-            })
+/// Why a frame does not check.
+enum Bad {
+    /// Short, bad magic, an absurd length, or a crc mismatch: a torn write
+    /// when it is the log's last frame, corruption anywhere else.
+    Torn { offset: u64, reason: &'static str },
+    /// A crc-valid frame that is still wrong (a record that does not decode,
+    /// a position out of sequence): never a torn write.
+    Wrong(WalError),
+}
+
+/// A walk over frames in position order: the next position expected, what
+/// it has counted, and the records after `keep` with their locations.
+struct Walk {
+    expected: u64,
+    keep: u64,
+    frames: u64,
+    records: u64,
+    out: Vec<(Record, RecordLocation)>,
+}
+
+impl Walk {
+    fn new(expected: u64, keep: u64) -> Self {
+        Self {
+            expected,
+            keep,
+            frames: 0,
+            records: 0,
+            out: Vec::new(),
         }
-    };
-    loop {
-        if off == bytes.len() {
-            break;
-        }
-        if off + FRAME_HEADER > bytes.len() {
-            return fail(off, "short frame header")
-                .map(|(g, _, _, _)| (g, frames, records, expected_pos));
-        }
-        if u32_at(bytes, off) != MAGIC {
-            return fail(off, "bad magic").map(|(g, _, _, _)| (g, frames, records, expected_pos));
-        }
-        let body_len = u32_at(bytes, off + 4) as usize;
-        let crc = u32_at(bytes, off + 8);
-        let body_start = off + FRAME_HEADER;
-        let Some(body_end) = body_start.checked_add(body_len) else {
-            return fail(off, "absurd body length")
-                .map(|(g, _, _, _)| (g, frames, records, expected_pos));
-        };
-        if body_end > bytes.len() {
-            return fail(off, "short frame body")
-                .map(|(g, _, _, _)| (g, frames, records, expected_pos));
-        }
-        let body = &bytes[body_start..body_end];
-        if crc32fast::hash(body) != crc {
-            return fail(off, "crc mismatch")
-                .map(|(g, _, _, _)| (g, frames, records, expected_pos));
-        }
-        // Frame is intact: positions inside must be the next in sequence.
-        let count = u32_at(body, 0) as usize;
-        let mut i = 4usize;
-        for _ in 0..count {
-            let Some((rec, used)) = decode_record(body, i) else {
-                return Err(WalError::Corrupt {
-                    segment: seg,
-                    offset: (body_start + i) as u64,
-                    reason: "record inside a crc-valid frame did not decode".into(),
-                });
-            };
-            if rec.position != expected_pos {
-                return Err(WalError::Sequence {
-                    expected: expected_pos,
-                    found: rec.position,
-                    segment: seg,
-                });
-            }
-            expected_pos += 1;
-            records += 1;
-            i += used;
-        }
-        frames += 1;
-        off = body_end;
     }
-    Ok((bytes.len() as u64, frames, records, expected_pos))
+
+    /// Every frame in `bytes`, which begin at offset `base` of segment
+    /// `seg`: how many bytes are whole frames, and the first frame that is
+    /// not, if any.
+    fn segment(&mut self, bytes: &[u8], seg: u32, base: u64) -> (u64, Option<Bad>) {
+        let mut off = 0usize;
+        while off < bytes.len() {
+            let before = self.expected;
+            match check_frame(bytes, off, seg, base, self) {
+                Ok(end) => {
+                    off = end;
+                    self.frames += 1;
+                    self.records += self.expected - before;
+                }
+                Err(bad) => return (off as u64, Some(bad)),
+            }
+        }
+        (off as u64, None)
+    }
+}
+
+/// Check the frame at `off` in `bytes` (which begin at offset `base` of
+/// segment `seg`): its magic, length, crc, and records, whose positions must
+/// be the walk's next. Returns the frame's end; on success the walk moves
+/// past its records and keeps those after `keep`.
+fn check_frame(
+    bytes: &[u8],
+    off: usize,
+    seg: u32,
+    base: u64,
+    walk: &mut Walk,
+) -> Result<usize, Bad> {
+    let torn = |reason: &'static str| {
+        Err(Bad::Torn {
+            offset: base + off as u64,
+            reason,
+        })
+    };
+    if off + FRAME_HEADER > bytes.len() {
+        return torn("short frame header");
+    }
+    if u32_at(bytes, off) != MAGIC {
+        return torn("bad magic");
+    }
+    let body_len = u32_at(bytes, off + 4) as usize;
+    let crc = u32_at(bytes, off + 8);
+    let body_start = off + FRAME_HEADER;
+    let Some(body_end) = body_start.checked_add(body_len) else {
+        return torn("absurd body length");
+    };
+    if body_end > bytes.len() {
+        return torn("short frame body");
+    }
+    let body = &bytes[body_start..body_end];
+    if crc32fast::hash(body) != crc {
+        return torn("crc mismatch");
+    }
+    let wrong = |at: usize, reason: &str| {
+        Err(Bad::Wrong(WalError::Corrupt {
+            segment: seg,
+            offset: base + at as u64,
+            reason: reason.into(),
+        }))
+    };
+    if body.len() < 4 {
+        return wrong(
+            body_start,
+            "a crc-valid frame too short for its record count",
+        );
+    }
+    // Frame is intact: positions inside must be the next in sequence.
+    let count = u32_at(body, 0) as usize;
+    let mut i = 4usize;
+    let mut next = walk.expected;
+    let mut kept = Vec::new();
+    for _ in 0..count {
+        let Some((rec, used)) = decode_record(body, i) else {
+            return wrong(
+                body_start + i,
+                "record inside a crc-valid frame did not decode",
+            );
+        };
+        if rec.position != next {
+            return Err(Bad::Wrong(WalError::Sequence {
+                expected: next,
+                found: rec.position,
+                segment: seg,
+            }));
+        }
+        if rec.position > walk.keep {
+            kept.push((
+                rec,
+                RecordLocation {
+                    segment: seg,
+                    offset: base + (body_start + i) as u64,
+                    len: used as u32,
+                },
+            ));
+        }
+        next += 1;
+        i += used;
+    }
+    walk.expected = next;
+    walk.out.extend(kept);
+    Ok(body_end)
+}
+
+/// Where a frame that did not check ends, as far as its header can say:
+/// its stated length when the header is whole and fits, else nowhere short
+/// of its segment's end.
+fn frame_end(bytes: &[u8], off: usize) -> u64 {
+    if off + FRAME_HEADER <= bytes.len() && u32_at(bytes, off) == MAGIC {
+        let end = off + FRAME_HEADER + u32_at(bytes, off + 4) as usize;
+        if end <= bytes.len() {
+            return end as u64;
+        }
+    }
+    u64::MAX
+}
+
+/// Bytes `from..to` of a file, in one read.
+fn read_range(path: &Path, from: u64, to: u64) -> io::Result<Vec<u8>> {
+    let f = File::open(path)?;
+    let mut buf = vec![0u8; to.saturating_sub(from) as usize];
+    f.read_exact_at(&mut buf, from)?;
+    Ok(buf)
+}
+
+/// What a tail-only open found: the walk, the log's length, the recovery,
+/// and where the unchecked history ends.
+type Tail = (Walk, u64, Recovery, Option<(u64, u32, u64)>);
+
+/// The log after record `after`, which the index says lies at `loc`:
+/// that record must be there, whole, with that position, and the frames
+/// after it must check to the log's end, but for a torn last frame, which is
+/// cut. Reads nothing before the record.
+///
+/// The record ends its frame: a checkpoint is taken with no append between
+/// its WAL write and its index write, so the position it claims is the last
+/// of a synced frame, and the index holds the location the WAL wrote it at.
+/// `None` when the log is not what the index says there (an index from
+/// another WAL), or when a frame before the last segment's end does not
+/// check: the caller then checks every segment, and says which it is.
+fn tail_after(
+    dir: &Path,
+    segments: &[u32],
+    after: u64,
+    loc: RecordLocation,
+) -> Result<Option<Tail>, WalError> {
+    if !segments.contains(&loc.segment) {
+        return Ok(None);
+    }
+    let path = segment_path(dir, loc.segment);
+    let len = fs::metadata(&path)?.len();
+    let end = loc.offset + u64::from(loc.len);
+    if end > len {
+        return Ok(None);
+    }
+    match decode_record(&read_range(&path, loc.offset, end)?, 0) {
+        Some((r, used)) if r.position == after && used as u64 == u64::from(loc.len) => {}
+        _ => return Ok(None),
+    }
+    let last_seg = segments.last().copied();
+    let mut walk = Walk::new(after + 1, after);
+    let mut recovery = Recovery::default();
+    let mut total_len = 0u64;
+    for &seg in segments {
+        let path = segment_path(dir, seg);
+        if seg < loc.segment {
+            let n = fs::metadata(&path)?.len();
+            total_len += n;
+            recovery.history_bytes += n;
+            continue;
+        }
+        let from = if seg == loc.segment { end } else { 0 };
+        let to = if seg == loc.segment {
+            len
+        } else {
+            fs::metadata(&path)?.len()
+        };
+        let (good, bad) = walk.segment(&read_range(&path, from, to)?, seg, from);
+        match bad {
+            None => {}
+            Some(Bad::Torn { .. }) if Some(seg) == last_seg => {
+                // Torn tail in the last segment: cut it.
+                let f = OpenOptions::new().write(true).open(&path)?;
+                f.set_len(from + good)?;
+                f.sync_all()?;
+                recovery.truncated_bytes += to - (from + good);
+            }
+            Some(_) => return Ok(None),
+        }
+        total_len += from + good;
+    }
+    recovery.history_bytes += end;
+    recovery.checked_from = Some((loc.segment, end));
+    Ok(Some((
+        walk,
+        total_len,
+        recovery,
+        Some((after, loc.segment, end)),
+    )))
 }
 
 #[cfg(test)]

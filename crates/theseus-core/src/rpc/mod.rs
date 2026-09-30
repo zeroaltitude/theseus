@@ -581,6 +581,61 @@ impl Core {
         }
     }
 
+    /// The WAL's history, which the store's open left unchecked
+    /// (theseus-8ni): checked once, after serving, on a thread of its own at
+    /// about 5 % of one core (it sleeps 19 times each stretch's work). The
+    /// background startup phase `store.verify` carries the outcome to health
+    /// and the Observatory. A corrupt frame is loud: an error in the log, a
+    /// `store.corrupt` ledger row, and its records' reads refused.
+    pub fn check_store_history(self: &Arc<Self>) -> Option<std::thread::JoinHandle<()>> {
+        let phase = self.startup_log.begin("store.verify", true, Instant::now());
+        let core = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("store-verify".into())
+            .spawn(move || {
+                let checked = core
+                    .store
+                    .inner()
+                    .verify_history(|took| std::thread::sleep(took * 19));
+                let detail = match checked {
+                    Ok(h) => json!({
+                        "outcome": "ok",
+                        "segments": h.segments,
+                        "frames": h.frames,
+                        "records": h.records,
+                        "bytes": h.bytes,
+                        "busy_ms": (h.busy_ms * 10.0).round() / 10.0,
+                        "checked_at_open": h.checked_at_open,
+                    }),
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            "store: the WAL's history does not check; reads from the corrupt frame on are refused"
+                        );
+                        let row = LedgerRow::new(
+                            "store.corrupt",
+                            None,
+                            None,
+                            json!({"error": e.to_string()}),
+                        );
+                        if let Err(e) = core.store.append_ledger(&row) {
+                            tracing::warn!(error = %e, "ledger append failed");
+                        }
+                        json!({"outcome": "corrupt", "error": e.to_string()})
+                    }
+                };
+                core.startup_log.end(phase, detail);
+            });
+        match spawned {
+            Ok(h) => Some(h),
+            Err(e) => {
+                self.startup_log
+                    .end(phase, json!({"outcome": "not run", "error": e.to_string()}));
+                None
+            }
+        }
+    }
+
     pub fn live_profile(&self) -> (String, String) {
         self.live.read().unwrap().clone()
     }

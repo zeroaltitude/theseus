@@ -330,7 +330,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         "store",
         false,
         t,
-        json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index}),
+        json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index, "history_bytes": st.history_bytes}),
     );
     tracing::info!(
         last_position = st.last_position,
@@ -669,6 +669,9 @@ async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<P
     let serving = core.startup_log.us(Instant::now());
     tracing::info!(serving_ms = serving / 1000, "serving");
     core.announce_serving(serving);
+    // What the store's open left unchecked, the WAL's history, is checked
+    // now, in the background (theseus-8ni).
+    core.check_store_history();
     if let Some(text) = keep {
         keep_copy(&core, &text);
     }

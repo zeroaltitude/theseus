@@ -1,5 +1,13 @@
 //! Records: the unit the kernel appends. Kind and schema version travel with
 //! every record so forward-only migrations can read old rows (§6).
+//!
+//! **The standing rule** (P5b, theseus-qa0 F4a): a change to what a kind's
+//! records hold bumps that kind's number in [`kinds::SCHEMAS`], on the same
+//! commit as the reader for the layout it replaces (serde defaults, or a
+//! reader such as `Execution::from_stored`), and a test that reads the old
+//! layout. The store records the newest schema written for each kind, and a
+//! build that finds one newer than it knows refuses to open the store, so an
+//! older binary never writes over a newer store.
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -39,6 +47,35 @@ pub mod kinds {
             _ => "unknown",
         }
     }
+
+    /// The schema this build writes for each kind, which is also the newest
+    /// it reads. Schema 1 is every record written before F4a (theseus-qa0),
+    /// read with serde's defaults. Schema 2 marks the kinds whose records
+    /// gained fields since the store's format 2 (M2), fields an older binary
+    /// would drop when it rewrote the record: the session's hold on external
+    /// text (T1), an execution's wakes, report wakes, and stop (DD8, W1).
+    /// Bump a kind here with the reader for the layout it replaces.
+    pub const SCHEMAS: [(RecordKind, u16); 10] = [
+        (SESSION, 2),
+        (LEDGER, 1),
+        (META, 1),
+        (EXECUTION, 2),
+        (ACTION, 2),
+        (COMPLETION, 2),
+        (NODE, 2),
+        (EDGE, 1),
+        (COMPILATION, 2),
+        (OUTBOX, 1),
+    ];
+
+    /// The schema this build writes for `k`, and the newest it reads; 0 for
+    /// a kind it does not know, whose records it can read at no schema.
+    pub fn schema(k: RecordKind) -> u16 {
+        SCHEMAS
+            .iter()
+            .find(|(kind, _)| *kind == k)
+            .map_or(0, |(_, s)| *s)
+    }
 }
 
 /// A record as it will be appended. The store assigns position and time.
@@ -63,23 +100,18 @@ impl NewRecord {
         self
     }
 
+    /// A record of `kind` at the schema this build writes for it.
     pub fn json<T: Serialize>(
         kind: RecordKind,
         key: Option<&str>,
         value: &T,
     ) -> anyhow::Result<Self> {
-        Ok(Self {
-            kind,
-            schema: 1,
-            key: key.map(str::to_string),
-            scope: None,
-            payload: serde_json::to_vec(value)?,
-        })
+        Ok(Self::bytes(kind, key, serde_json::to_vec(value)?))
     }
     pub fn bytes(kind: RecordKind, key: Option<&str>, payload: Vec<u8>) -> Self {
         Self {
             kind,
-            schema: 1,
+            schema: kinds::schema(kind).max(1),
             key: key.map(str::to_string),
             scope: None,
             payload,

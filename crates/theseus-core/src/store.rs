@@ -569,6 +569,7 @@ impl Store {
 mod tests {
     use super::*;
     use crate::ledger::LedgerRow;
+    use std::collections::BTreeMap;
 
     fn row(kind: &str) -> NewRecord {
         let r = LedgerRow::new(kind, Some("ses_t"), Some("turn_t"), serde_json::Value::Null);
@@ -745,5 +746,87 @@ mod tests {
         assert!(small.put_meta("b", &big).is_err(), "the WAL is full");
         let waiting = small.turn.as_ref().unwrap().waiting.lock().unwrap().len();
         assert_eq!(waiting, 1, "the row waits for the next frame");
+    }
+
+    /// A copy of the store an older binary wrote (460a35b, before F2; see the
+    /// fixture's README), in a temporary directory.
+    pub(crate) fn older_store() -> tempfile::TempDir {
+        let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/store-460a35b");
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("wal")).unwrap();
+        for f in ["MANIFEST.json", "index.redb", "wal/000000001.seg"] {
+            std::fs::copy(from.join(f), d.path().join(f)).unwrap();
+        }
+        d
+    }
+
+    /// The versioned-reader rule (P5b, theseus-qa0 F4a): today's binary
+    /// opens a store an older one wrote, as it is, and reads every record in
+    /// it into today's types: sessions, executions, actions, completions,
+    /// nodes, the compilation, and the ledger. Reading marks nothing.
+    #[test]
+    fn a_store_an_older_binary_wrote_reads_every_record() {
+        use theseus_kernel::{Action, Completion, Execution};
+        let d = older_store();
+        let store = Store::open(d.path()).unwrap();
+        let st = store.stats().unwrap();
+        assert_eq!(st.last_position, 121);
+        assert!(
+            store.inner.recovery().checked_from.is_some() && st.history_bytes > 0,
+            "the old index's checkpoint spares the open its history: {st:?}"
+        );
+        let all = store.inner.scan(1, None, usize::MAX).unwrap();
+        assert_eq!(all.len(), 121, "every position reads");
+        let mut by_kind: BTreeMap<&str, usize> = BTreeMap::new();
+        for r in &all {
+            assert_eq!(r.schema, 1, "{} at {}", kinds::name(r.kind), r.position);
+            let name = kinds::name(r.kind);
+            *by_kind.entry(name).or_default() += 1;
+            let read = match r.kind {
+                kinds::SESSION => r.decode::<crate::session::SessionRecord>().map(|_| ()),
+                kinds::LEDGER => r.decode::<LedgerRow>().map(|_| ()),
+                kinds::EXECUTION => Execution::from_stored(&r.payload, 100_000_000).map(|_| ()),
+                kinds::ACTION | kinds::OUTBOX => r.decode::<Action>().map(|_| ()),
+                kinds::COMPLETION => r.decode::<Completion>().map(|_| ()),
+                kinds::NODE => r.decode::<crate::node::Node>().map(|_| ()),
+                kinds::COMPILATION => r.decode::<crate::compiler::Compilation>().map(|_| ()),
+                _ => r.decode::<serde_json::Value>().map(|_| ()),
+            };
+            read.unwrap_or_else(|e| panic!("{name} at {}: {e:#}", r.position));
+        }
+        let want: BTreeMap<&str, usize> = [
+            ("session", 6),
+            ("ledger", 76),
+            ("execution", 17),
+            ("action", 14),
+            ("completion", 2),
+            ("node", 5),
+            ("compilation", 1),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(by_kind, want);
+
+        // Through the product's own reads: every session, and the turn's
+        // transcript.
+        let sessions: Vec<crate::session::SessionRecord> = store.list_sessions().unwrap();
+        assert_eq!(sessions.len(), 4);
+        let nodes: usize = sessions
+            .iter()
+            .map(|s| store.session_nodes(&s.session_id).unwrap().len())
+            .sum();
+        assert_eq!(nodes, 5, "every node belongs to a session");
+        assert!(store.recent_compilations(5).unwrap().len() == 1);
+        let kinds_seen: Vec<String> = store
+            .ledger_tail::<LedgerRow>(200)
+            .unwrap()
+            .into_iter()
+            .map(|(_, r)| r.kind)
+            .collect();
+        assert!(kinds_seen.iter().any(|k| k == "tool.job_started"));
+        let m: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
+                .unwrap();
+        assert_eq!(m["format"], 2, "reading marks nothing: {m}");
     }
 }

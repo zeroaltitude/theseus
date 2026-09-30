@@ -970,6 +970,9 @@ async fn run(cli: Cli) -> Result<()> {
                 if let Some(line) = startup_line(&h.startup) {
                     println!("{line}");
                 }
+                if let Some(line) = store_history_line(&h.startup) {
+                    println!("{line}");
+                }
                 for b in &h.bindings {
                     let places: Vec<String> = b
                         .places
@@ -1654,6 +1657,19 @@ fn startup_line(phases: &[theseus_protocol::StartupPhase]) -> Option<String> {
         line.push_str(&format!(" · after: {}", after.join(" · ")));
     }
     Some(line)
+}
+
+/// `store: CORRUPT …` when the history check after serving (theseus-8ni)
+/// found a frame that does not check; nothing while it is whole or running.
+fn store_history_line(phases: &[theseus_protocol::StartupPhase]) -> Option<String> {
+    let p = phases.iter().find(|p| p.name == "store.verify")?;
+    (p.detail["outcome"] == "corrupt").then(|| {
+        format!(
+            "store: CORRUPT history, {}; reads from there are refused (theseusd restore \
+             from a copy, or ask for help)",
+            p.detail["error"].as_str().unwrap_or("?")
+        )
+    })
 }
 
 /// A span's bar is drawn on this stretch of the turn: its start, its length,
@@ -3077,6 +3093,33 @@ mod tests {
              · after: secrets running"
         );
         assert!(startup_line(&[]).is_none());
+    }
+
+    /// `store: CORRUPT …` in `theseus health` when the history check after
+    /// serving (theseus-8ni) found a frame that does not check; nothing while
+    /// it runs or when the history is whole.
+    #[test]
+    fn health_is_loud_when_the_store_history_is_corrupt() {
+        let verify = |detail: Value, end: Option<u64>| theseus_protocol::StartupPhase {
+            name: "store.verify".into(),
+            background: true,
+            start_us: 1000,
+            end_us: end,
+            detail,
+        };
+        assert!(store_history_line(&[verify(Value::Null, None)]).is_none());
+        assert!(
+            store_history_line(&[verify(serde_json::json!({"outcome": "ok"}), Some(9))]).is_none()
+        );
+        let line = store_history_line(&[verify(
+            serde_json::json!({"outcome": "corrupt", "error": "corrupt frame in segment 1 at offset 0: crc mismatch"}),
+            Some(9),
+        )])
+        .unwrap();
+        assert!(
+            line.starts_with("store: CORRUPT history, corrupt frame in segment 1 at offset 0"),
+            "{line}"
+        );
     }
 
     /// `config:` in `theseus health` (theseus-2fo): a file, a read before
