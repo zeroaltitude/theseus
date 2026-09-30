@@ -194,12 +194,31 @@ impl Outbox {
 
     /// Run `f` on the index, reading it from the store first if this is the
     /// first use: every post, and the binding's place records.
+    ///
+    /// The store is read outside the lock, so nothing waits on it for the
+    /// read: every change comes after its own write and goes through the
+    /// index that is in place, and a read that finishes second is dropped.
     fn with<R>(&self, f: impl FnOnce(&mut Index) -> R) -> Result<R> {
-        let mut g = self.index.lock().unwrap();
-        if g.is_none() {
-            *g = Some(self.load()?);
+        if let Some(ix) = self.index.lock().unwrap().as_mut() {
+            return Ok(f(ix));
         }
-        Ok(f(g.as_mut().expect("loaded")))
+        let loaded = self.load()?;
+        let mut g = self.index.lock().unwrap();
+        Ok(f(g.get_or_insert(loaded)))
+    }
+
+    /// Run `f` on the index only when it is read already: health never pays
+    /// for reading it (FAST).
+    fn peek<R>(&self, f: impl FnOnce(&Index) -> R) -> Option<R> {
+        self.index.lock().unwrap().as_ref().map(f)
+    }
+
+    /// Read the index now: the daemon does this once it serves, so neither a
+    /// first answer nor a first turn waits for it.
+    pub fn warm(&self) {
+        if let Err(e) = self.with(|_| ()) {
+            tracing::warn!(error = %format!("{e:#}"), "outbox unreadable");
+        }
     }
 
     fn load(&self) -> Result<Index> {
@@ -563,9 +582,10 @@ impl Outbox {
         });
     }
 
-    /// A binding's outbox for health and the Observatory.
+    /// A binding's outbox for health and the Observatory; zeros until the
+    /// index is read (`warm`, just after serving).
     pub fn status(&self, binding: &str) -> OutboxStatus {
-        self.with(|ix| {
+        self.peek(|ix| {
             let open: Vec<&Open> = ix
                 .open
                 .values()

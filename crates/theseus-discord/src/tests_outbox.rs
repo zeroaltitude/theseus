@@ -259,6 +259,8 @@ fn a_crash_between_send_and_settle_leaves_one_message() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let core = core_at(d.path(), &fake, vec![], |_| {});
+        // As the daemon does once it serves.
+        core.outbox.warm();
         assert_eq!(pending(&core), 1, "the post is still dispatched");
         let _rpc = bind(&core, d.path(), &dm_only()).await;
         let c = core.clone();

@@ -313,21 +313,20 @@ impl Lane {
     }
 
     /// One post: planned into writes, dispatched, written, settled. An error
-    /// back means Discord is away and the post waits, dispatched; a refusal
-    /// settles it as failed, and the lane goes on.
+    /// back means Discord is away (or the store would not take the settle)
+    /// and the post waits, dispatched; a refusal settles it as failed, and the
+    /// lane goes on.
     async fn deliver(&mut self, a: &Action) -> Result<(), SendErr> {
         let t0 = std::time::Instant::now();
         let plan = match self.plan(a).await {
             Ok(p) => p,
             Err(e) if e.away => return Err(e),
             Err(e) => {
-                self.settle(a, Outcome::Failed, vec![], json!({"error": e.message}));
-                return Ok(());
+                return self.settle(a, Outcome::Failed, vec![], json!({"error": e.message}));
             }
         };
         if plan.writes.is_empty() {
-            self.settle(a, Outcome::Succeeded, vec![], plan.extra);
-            return Ok(());
+            return self.settle(a, Outcome::Succeeded, vec![], plan.extra);
         }
         let before = a.dispatched_at_ms;
         let dispatched = match self.shared.core.outbox.dispatch(&a.correlation_id) {
@@ -363,9 +362,7 @@ impl Lane {
                     tracing::info!(post = %a.correlation_id, key = %w.key, "the message to edit is gone");
                 }
                 Err(e) => {
-                    let msgs = messages;
-                    self.settle(a, Outcome::Failed, msgs, json!({"error": e.message}));
-                    return Ok(());
+                    return self.settle(a, Outcome::Failed, messages, json!({"error": e.message}));
                 }
             }
         }
@@ -374,30 +371,43 @@ impl Lane {
         if resend {
             extra["resent"] = json!(true);
         }
-        self.settle(a, Outcome::Succeeded, messages, extra);
-        Ok(())
+        self.settle(a, Outcome::Succeeded, messages, extra)
     }
 
+    /// Record how a post went. When the store will not take it, the post is
+    /// still open: the lane backs off and sends it again later, under the same
+    /// nonce, rather than taking it up again at once.
     fn settle(
         &mut self,
         a: &Action,
         outcome: Outcome,
         messages: Vec<(String, u64, u64)>,
         mut detail: Value,
-    ) {
-        self.unsure.remove(&a.correlation_id);
+    ) -> Result<(), SendErr> {
         let first = messages.first().map(|(_, _, m)| m.to_string());
         detail["messages"] = messages
             .iter()
             .map(|(k, c, m)| json!({"key": k, "channel": c.to_string(), "id": m.to_string()}))
             .collect();
-        if let Err(e) =
-            self.shared
-                .core
-                .outbox
-                .settle(&a.correlation_id, outcome, first, detail, "discord")
+        match self
+            .shared
+            .core
+            .outbox
+            .settle(&a.correlation_id, outcome, first, detail, "discord")
         {
-            tracing::warn!(error = %format!("{e:#}"), post = %a.correlation_id, "outbox settle failed");
+            Ok(_) => {
+                self.unsure.remove(&a.correlation_id);
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), post = %a.correlation_id, "outbox settle failed");
+                Err(SendErr {
+                    away: true,
+                    unsure: true,
+                    gone: false,
+                    message: format!("settle: {e:#}"),
+                })
+            }
         }
     }
 

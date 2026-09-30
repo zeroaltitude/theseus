@@ -680,6 +680,10 @@ async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<P
         quarantined = k.quarantined_completions,
         "kernel"
     );
+    // The outbox's index, read once the socket answers, so that no answer and
+    // no turn waits for it (theseus-q4v).
+    let outbox = core.outbox.clone();
+    tokio::task::spawn_blocking(move || outbox.warm());
     if !core.config_gate.opened().await {
         return;
     }
