@@ -48,7 +48,8 @@ pub const NONCE_KEY: &str = "discord.nonce";
 /// How a card's question closed, as its settle says.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Closed {
-    /// `approved`, `declined`, `superseded`, `withdrawn`, `ended`, or `closed`.
+    /// `approved`, `declined`, `superseded`, `withdrawn`, `ended`, `stopped`
+    /// (W1), or `closed`.
     pub how: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
@@ -95,6 +96,10 @@ impl Closed {
                 by: Some(by.into()),
                 note: (!note.is_empty()).then(|| note.to_string()),
             });
+        }
+        // `/stop` declined it (W1): it will not run, and the session goes on.
+        if let Some(by) = r.strip_prefix("stopped by ") {
+            return Some(Self::new("stopped", Some(by)));
         }
         let how = if r.starts_with("withdrawn") {
             "withdrawn"

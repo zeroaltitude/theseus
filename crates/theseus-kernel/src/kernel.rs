@@ -143,6 +143,33 @@ pub enum KernelError {
     /// An execution holds as many pending wakes as it may (DD8).
     #[error("this session already has {max} pending wakes, the most it may hold")]
     TooManyWakes { max: usize },
+    /// A `/stop` landed during the turn (W1): it plans nothing more.
+    #[error("execution {id} was stopped by {by}: this turn plans nothing more")]
+    Stopped { id: ExecutionId, by: String },
+    /// A task is stopped by its cancel, not by a stop (W1): nothing would
+    /// ever send a stopped task its next input.
+    #[error("execution {id} is a task: task.cancel stops it")]
+    StopTask { id: ExecutionId },
+}
+
+/// Refuse a transition that needs the turn `e`'s holder took: `e` must be
+/// running, and no stop may have landed during that turn (W1).
+pub(crate) fn require_turn(e: &Execution) -> Result<()> {
+    if e.state != ExecState::Running {
+        return Err(KernelError::NoTurn {
+            id: e.id.clone(),
+            state: e.state.as_str(),
+        }
+        .into());
+    }
+    if let Some(s) = &e.stopped {
+        return Err(KernelError::Stopped {
+            id: e.id.clone(),
+            by: s.by.clone(),
+        }
+        .into());
+    }
+    Ok(())
 }
 
 /// What accepting a completion did (§3.16: idempotent, quarantines strays).
@@ -597,6 +624,9 @@ impl Kernel {
             reports_to,
             reports: vec![],
             wakes: vec![],
+            wake_parent: false,
+            report_wakes: vec![],
+            stopped: None,
             turns: 0,
             interrupted: 0,
             resume_pending: false,
@@ -841,10 +871,35 @@ impl Kernel {
             drop(guard);
             return Ok(e);
         }
+        // A stop that landed during the turn (W1) wins over the Advancer too,
+        // but keeps the execution: it waits on its next input, whatever the
+        // turn would have waited on, and nothing queues it here. A wake of its
+        // own, or a task's report that asks for a turn, runs at the driver's
+        // next tick, as it would for any free execution.
+        if let Some(s) = e.stopped.take() {
+            e.state = ExecState::Waiting;
+            e.wake = Some(Wake::Input);
+            e.resume_pending = false;
+            e.updated_at_ms = now;
+            let mut frame = vec![
+                exec_record(&e)?,
+                self.ledger(
+                    "execution.waiting",
+                    Some(&e.session_id),
+                    json!({"execution_id": e.id, "turn": guard.turn, "turn_ms": now.saturating_sub(guard.started_at_ms),
+                           "wake": e.wake, "why": "stopped", "by": s.by}),
+                )?,
+            ];
+            frame.extend(extra(&e)?);
+            self.commit(&frame)?;
+            drop(guard);
+            return Ok(e);
+        }
         let kind;
         // Why a turn that would park is queued at once instead: a wake of its
-        // own came due while it ran, and it would wait where a wake may fire
-        // (DD8). The ledger row says so.
+        // own came due while it ran, or a task's report asked for a turn
+        // (W1), and it would wait where a wake may fire (DD8). The ledger row
+        // says so.
         let mut why = None;
         match end {
             TurnEnd::Complete { reason } => {
@@ -885,11 +940,16 @@ impl Kernel {
                     }
                     e.state = ExecState::Waiting;
                     e.wake = Some(wake);
-                    if crate::wakes::free(&e) && crate::wakes::wake_due(&e, now) {
+                    let reported = !e.report_wakes.is_empty();
+                    if crate::wakes::free(&e) && (crate::wakes::wake_due(&e, now) || reported) {
                         e.state = ExecState::Queued;
                         e.wake = None;
                         e.resume_pending = true;
-                        why = Some("wake");
+                        why = Some(if crate::wakes::wake_due(&e, now) {
+                            "wake"
+                        } else {
+                            "report"
+                        });
                         kind = "execution.queued";
                     } else {
                         kind = "execution.waiting";
@@ -1081,13 +1141,7 @@ impl Kernel {
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
-        if e.state != ExecState::Running {
-            return Err(KernelError::NoTurn {
-                id: e.id.clone(),
-                state: e.state.as_str(),
-            }
-            .into());
-        }
+        require_turn(&e)?;
         let now = self.now_ms();
         let mut frame = Vec::new();
         let mut reservation_id = None;
@@ -1178,13 +1232,7 @@ impl Kernel {
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
-        if e.state != ExecState::Running {
-            return Err(KernelError::NoTurn {
-                id: e.id.clone(),
-                state: e.state.as_str(),
-            }
-            .into());
-        }
+        require_turn(&e)?;
         let now = self.now_ms();
         let mut frame = Vec::new();
         if let Some(old) = e.budget.question.take() {
@@ -1616,22 +1664,32 @@ impl Kernel {
         let mut e = self
             .execution(&a.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(a.execution_id.clone()))?;
-        if e.state == ExecState::Cancelled {
-            // A cancel landed between plan and dispatch: the action never leaves.
+        if e.state == ExecState::Cancelled || e.stopped.is_some() {
+            // A cancel or a stop (W1) landed between plan and dispatch: the
+            // action never leaves.
+            let stopped = e.stopped.as_ref().map(|s| s.by.clone());
             a.state = ActionState::Cancelled;
             a.cancel = Some(CancelState::TerminationVerified);
             a.settled_at_ms = Some(self.now_ms());
+            let why = if stopped.is_some() {
+                "execution stopped before dispatch"
+            } else {
+                "execution cancelled before dispatch"
+            };
             self.commit(&[
                 action_record(&a)?,
                 self.ledger(
                     "action.cancelled",
                     Some(&a.session_id),
-                    json!({"correlation_id": a.correlation_id, "why": "execution cancelled before dispatch"}),
+                    json!({"correlation_id": a.correlation_id, "why": why}),
                 )?,
             ])?;
-            return Err(KernelError::NotRunnable {
-                id: e.id,
-                state: "cancelled",
+            return Err(match stopped {
+                Some(by) => KernelError::Stopped { id: e.id, by },
+                None => KernelError::NotRunnable {
+                    id: e.id,
+                    state: "cancelled",
+                },
             }
             .into());
         }
@@ -1944,6 +2002,8 @@ impl Kernel {
         e.cancel = Some(CancelState::Requested);
         e.ended_reason = Some(format!("cancelled by {by}"));
         e.wake = None;
+        e.stopped = None;
+        e.report_wakes.clear();
         e.updated_at_ms = now;
         let mut frame = Vec::new();
         // An open budget question closes with the execution: nothing waits on it now.
@@ -2020,6 +2080,12 @@ impl Kernel {
                     } else {
                         hold_reservation_in(&mut e.budget, r);
                     }
+                }
+                // A stop (W1) leaves the execution open: its next turn reads
+                // the call as cancelled, as it reads any late result. Nothing
+                // queues the execution for it.
+                if !e.state.is_terminal() && !e.queued_results.contains(&a.correlation_id) {
+                    e.queued_results.push(a.correlation_id.clone());
                 }
                 e.updated_at_ms = now;
                 frame.push(exec_record(&e)?);
@@ -2224,16 +2290,27 @@ impl Kernel {
             }
             let interrupted = e.state == ExecState::Running;
             if interrupted {
-                e.state = ExecState::Queued;
                 e.interrupted += 1;
-                e.resume_pending = true;
                 e.updated_at_ms = now;
+                // A turn a stop had already stopped (W1) is not resumed: its
+                // execution waits on its next input, as the turn's end would
+                // have left it.
+                let stopped = e.stopped.take();
+                if stopped.is_some() {
+                    e.state = ExecState::Waiting;
+                    e.wake = Some(Wake::Input);
+                    e.resume_pending = false;
+                } else {
+                    e.state = ExecState::Queued;
+                    e.resume_pending = true;
+                }
                 rows.insert(
                     0,
                     self.ledger(
                         "execution.interrupted",
                         Some(&e.session_id),
-                        json!({"execution_id": e.id, "interrupted": e.interrupted, "turn": e.turns}),
+                        json!({"execution_id": e.id, "interrupted": e.interrupted, "turn": e.turns,
+                               "stopped_by": stopped.map(|s| s.by)}),
                     )?,
                 );
             }
@@ -2247,7 +2324,9 @@ impl Kernel {
                 let mut frame = vec![exec_record(&e)?];
                 frame.extend(rows);
                 self.commit(&frame)?;
-                rep.requeued_interrupted.push(e.id.clone());
+                if e.state == ExecState::Queued {
+                    rep.requeued_interrupted.push(e.id.clone());
+                }
             } else if !rows.is_empty() {
                 migrated.push(exec_record(&e)?);
                 migrated.extend(rows);
@@ -2324,7 +2403,7 @@ impl Kernel {
 /// Release a reservation into what the call really cost, which is booked in
 /// full even past the reservation (a real cost is never hidden), or, with no
 /// cost known, into `held_unknown_micros`.
-fn settle_reservation_in(b: &mut Budget, reservation_id: &str, actual: Option<Micros>) {
+pub(crate) fn settle_reservation_in(b: &mut Budget, reservation_id: &str, actual: Option<Micros>) {
     let Some(reserved) = b.reservations.remove(reservation_id) else {
         return;
     };
@@ -2352,6 +2431,6 @@ fn decode_all<T: serde::de::DeserializeOwned>(rs: &[Record]) -> Result<Vec<T>> {
 pub(crate) fn exec_record(e: &Execution) -> Result<NewRecord> {
     Ok(NewRecord::json(kinds::EXECUTION, Some(&e.id), e)?.scoped(&e.session_id))
 }
-fn action_record(a: &Action) -> Result<NewRecord> {
+pub(crate) fn action_record(a: &Action) -> Result<NewRecord> {
     Ok(NewRecord::json(kinds::ACTION, Some(&a.correlation_id), a)?.scoped(&a.session_id))
 }

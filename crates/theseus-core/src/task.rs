@@ -19,7 +19,13 @@
 //!   and its last message is its report. The frame that ends it carries one
 //!   outbox post naming it; a failed turn or a cancel reports so, once. The
 //!   parent's next turn writes the report into the parent's session as a
-//!   node, before its new input. Nothing starts a parent turn.
+//!   node, before its new input.
+//! - **The report's wake** (W1, theseus-lji). With `wake_parent: true`, the
+//!   report also starts that turn: the frame that ends the task queues the
+//!   parent, as a due wake does, unless the task was cancelled. The turn runs
+//!   in the parent's session, under its authority and budget, and its reply
+//!   says which report started it (`📋 task a1b2c3 reported`). It is for a
+//!   chain: the parent reviews each result and starts the next.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -65,6 +71,9 @@ struct Input {
     brief: String,
     #[serde(default)]
     budget_usd: Option<f64>,
+    /// Its report starts this conversation's next turn (W1).
+    #[serde(default)]
+    wake_parent: bool,
 }
 
 fn input_of(input: &Value) -> Result<Input, String> {
@@ -102,7 +111,11 @@ impl Tool for TaskCreate {
          conversation, so write the brief as a complete instruction: what to do, where, and what \
          to report. Its budget is `budget_usd`, capped at what this session has left; without it, \
          a quarter of what is left. What it spends counts against this session. Its report \
-         arrives in a later turn of this conversation. A task cannot start tasks."
+         reaches the person at once, and you read it at this conversation's next turn. With \
+         `wake_parent: true`, the report starts that turn by itself, so you can review the result \
+         and act on it without waiting for the person: use it for a chain, where you review each \
+         task's result and start the next. Leave it off for work the person will ask about. A \
+         task cannot start tasks."
     }
 
     fn input_schema(&self) -> Value {
@@ -117,6 +130,10 @@ impl Tool for TaskCreate {
                     "type": "number",
                     "exclusiveMinimum": 0,
                     "description": "Its spend limit in US dollars, capped at what this session has left (default: a quarter of that)."
+                },
+                "wake_parent": {
+                    "type": "boolean",
+                    "description": "When the task finishes or fails, its report starts this conversation's next turn, so you review it and start the next step of a chain (default: false; a cancelled task wakes nothing)."
                 }
             },
             "required": ["brief"],
@@ -186,9 +203,13 @@ pub fn create(
     let title = title_from(&i.brief);
     let (_, task_session) = task_ids(correlation_id);
     let text = brief_text(&task_session, tc.session_id, &i.brief);
-    let opened = tc
-        .kernel
-        .open_task(tc.guard, correlation_id, want, target.clone(), |task| {
+    let opened = tc.kernel.open_task(
+        tc.guard,
+        correlation_id,
+        want,
+        target.clone(),
+        i.wake_parent,
+        |task| {
             let mut rec = SessionRecord::with_id(
                 task.session_id.clone(),
                 SessionKind::Task,
@@ -222,7 +243,8 @@ pub fn create(
                 records.push(tc.outbox.task_record(&task.session_id, t)?);
             }
             Ok(records)
-        });
+        },
+    );
     let opened = match opened {
         Ok(o) => o,
         Err(e) => {
@@ -267,7 +289,14 @@ pub fn create(
     } else {
         usd(limit)
     };
-    let text = if opened.opened {
+    let text = if opened.opened && task.wake_parent {
+        format!(
+            "Started task {s} (\"{title}\") with a budget of {budget}. It works on its own and \
+             reports here when it finishes, and its report starts this conversation's next turn, \
+             so you read it then without waiting for the person. Its id is {}.",
+            task.session_id
+        )
+    } else if opened.opened {
         format!(
             "Started task {s} (\"{title}\") with a budget of {budget}. It works on its own and \
              reports here when it finishes; its report reaches a later turn of this \
@@ -290,6 +319,7 @@ pub fn create(
         "left_usd": micros_to_usd(opened.available_before),
         "capped": capped,
         "opened": opened.opened,
+        "wake_parent": task.wake_parent,
     });
     Ok((text, meta))
 }
@@ -326,6 +356,14 @@ pub struct Report {
     pub limit_micros: Micros,
     pub turns: u64,
     pub elapsed_ms: u64,
+    /// Where it reports: where its parent posted when it started.
+    pub target: Option<String>,
+}
+
+/// The line a turn that a report started shows above its reply (W1), as a
+/// wake's turn shows its wake's line.
+pub fn woke_line(short: &str) -> String {
+    format!("📋 task {short} reported")
 }
 
 impl Report {
@@ -355,6 +393,7 @@ impl Report {
             limit_micros: e.budget.limit_micros,
             turns: e.turns,
             elapsed_ms: e.updated_at_ms.saturating_sub(e.created_at_ms),
+            target: None,
         }
     }
 
@@ -435,7 +474,11 @@ pub fn load_report(
     } else {
         None
     };
-    Ok(Some(Report::new(&e, rec.and_then(|r| r.title), last)))
+    let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
+    Ok(Some(Report {
+        target,
+        ..Report::new(&e, rec.and_then(|r| r.title), last)
+    }))
 }
 
 /// A session's task, for the questions it asks: a card names it (DD7).
@@ -476,6 +519,7 @@ pub fn info(
         ended_reason: e.ended_reason.clone(),
         created_at_ms: e.created_at_ms,
         updated_at_ms: e.updated_at_ms,
+        wake_parent: e.wake_parent,
     }
 }
 

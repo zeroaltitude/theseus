@@ -499,11 +499,11 @@ impl Lane {
         let texts = self.shared.core.outbox.reply_texts(body);
         let result: Option<TurnSubmitResult> = serde_json::from_value(body["result"].clone()).ok();
         let mut parts = render::reply_parts(&turn_id, &texts, result.as_ref());
-        // A wake's turn says which wake woke it (DD8).
-        let wakes: Vec<String> = body["wakes"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        // A wake's turn says which wake woke it (DD8), and a turn a task's
+        // report started says which report did (W1).
+        let wakes: Vec<String> = ["wakes", "reports"]
+            .iter()
+            .flat_map(|k| body[*k].as_array().into_iter().flatten())
             .filter_map(|w| w["text"].as_str().map(str::to_string))
             .collect();
         render::wake_header(&mut parts, &wakes);

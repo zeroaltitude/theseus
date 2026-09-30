@@ -1483,8 +1483,13 @@ impl ToolRuntime {
         let a = kernel
             .action(correlation_id)?
             .ok_or_else(|| anyhow!("action {correlation_id} vanished"))?;
+        // A job a stop or a cancel killed is settled too: the turn waiting on
+        // it hears so at once, not at its bound (W1).
         Ok(match a.state {
-            ActionState::Succeeded | ActionState::Failed | ActionState::OutcomeUnknown => Some(a),
+            ActionState::Succeeded
+            | ActionState::Failed
+            | ActionState::OutcomeUnknown
+            | ActionState::Cancelled => Some(a),
             _ => None,
         })
     }
@@ -1515,6 +1520,7 @@ impl ToolRuntime {
         let status = match a.state {
             ActionState::Succeeded => ResultStatus::Ok,
             ActionState::Failed => ResultStatus::Error,
+            ActionState::Cancelled => ResultStatus::Cancelled,
             _ => ResultStatus::Unknown,
         };
         let header = match (
@@ -1523,6 +1529,13 @@ impl ToolRuntime {
             detail.get("timed_out").and_then(Value::as_bool),
         ) {
             (_, _, Some(true)) => "[timed out and killed]\n".to_string(),
+            // A `/stop` killed it (W1), or a cancel did.
+            (ResultStatus::Cancelled, _, _) => format!(
+                "[cancelled: {}]\n",
+                a.resolution
+                    .as_deref()
+                    .unwrap_or("its execution was cancelled")
+            ),
             (ResultStatus::Unknown, _, _) => {
                 "[outcome unknown: the harness could not establish whether this finished]\n"
                     .to_string()

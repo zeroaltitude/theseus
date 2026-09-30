@@ -162,22 +162,7 @@ impl Core {
         if let Some(post) = report {
             self.outbox.posted(&post);
         }
-        for corr in &to_kill {
-            match self.spool.read_pid(corr) {
-                Some(pid) => {
-                    let _ = self.kernel.cancel_acknowledged(corr);
-                    if theseus_kernel::job::terminate(pid, corr, Duration::from_secs(2)) {
-                        let _ = self.kernel.cancel_verified(corr);
-                    } else {
-                        let _ = self.kernel.cancel_uncertain(corr);
-                    }
-                }
-                None => {
-                    // In-process or already gone: nothing to reach.
-                    let _ = self.kernel.cancel_unsupported(corr);
-                }
-            }
-        }
+        self.terminate_all(&to_kill);
         self.admission.notify_waiters();
         let e = self
             .kernel
@@ -194,6 +179,119 @@ impl Core {
             e.state.as_str()
         );
         Ok((e, to_kill))
+    }
+
+    /// Terminate the backends of actions a cancel or a stop told to stop,
+    /// and walk each one's cancel: a job's wrapper through the spool, and an
+    /// in-process call, which nothing can reach, as unsupported.
+    fn terminate_all(&self, to_kill: &[String]) {
+        for corr in to_kill {
+            match self.spool.read_pid(corr) {
+                Some(pid) => {
+                    let _ = self.kernel.cancel_acknowledged(corr);
+                    if theseus_kernel::job::terminate(pid, corr, Duration::from_secs(2)) {
+                        let _ = self.kernel.cancel_verified(corr);
+                    } else {
+                        let _ = self.kernel.cancel_uncertain(corr);
+                    }
+                }
+                None => {
+                    // In-process or already gone: nothing to reach.
+                    let _ = self.kernel.cancel_unsupported(corr);
+                }
+            }
+        }
+    }
+
+    /// `/stop` (W1, theseus-lji): halt a conversation's work and keep the
+    /// conversation. The kernel tells its running jobs and calls to stop and
+    /// declines what waits on the operator (`Kernel::stop_execution`); here
+    /// each job's backend is terminated, and each declined question's card
+    /// settles where it was posted. A running turn ends at its next step.
+    /// The session's tasks and pending wakes go on.
+    pub fn stop_execution(
+        &self,
+        id: &str,
+        by: &str,
+    ) -> Result<theseus_protocol::ExecutionStopResult> {
+        let stop = self.kernel.stop_execution(id, by)?;
+        let Some(stop) = stop else {
+            let e = self
+                .kernel
+                .execution(id)?
+                .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+            return Ok(theseus_protocol::ExecutionStopResult {
+                execution: Self::execution_info(&e),
+                stopped: false,
+                stopped_actions: vec![],
+                declined: vec![],
+                turn_running: false,
+                tasks_running: 0,
+                wakes_pending: 0,
+            });
+        };
+        let sink = EventSink::new(self.bus.clone(), &stop.execution.session_id, None);
+        for a in &stop.declined {
+            if let Err(e) = self.outbox.closed(
+                &a.correlation_id,
+                crate::outbox::Closed::new("stopped", Some(by)),
+            ) {
+                tracing::warn!(error = %format!("{e:#}"), "a stopped question's settle was not written");
+            }
+            sink.send(
+                theseus_protocol::notify::CONFIRM_RESOLVED,
+                serde_json::json!({"session_id": a.session_id, "correlation_id": a.correlation_id,
+                    "approved": false, "stopped": true, "by": by}),
+            );
+        }
+        self.terminate_all(&stop.to_kill);
+        self.admission.notify_waiters();
+        let e = self
+            .kernel
+            .execution(id)?
+            .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+        let tasks_running = self
+            .kernel
+            .tasks(Some(id))?
+            .iter()
+            .filter(|t| !t.state.is_terminal())
+            .count() as u32;
+        narrate!(
+            self.narrator,
+            Session,
+            Some(&e.session_id),
+            None,
+            "Stopped by {by}: {} told to stop, {} declined{}; the session goes on, waiting on its \
+             next input{}.",
+            crate::narrative::count(stop.to_kill.len() as u64, "action", "actions"),
+            crate::narrative::count(stop.declined.len() as u64, "question", "questions"),
+            if stop.turn_running {
+                ", and the running turn ends at its next step"
+            } else {
+                ""
+            },
+            match (tasks_running, e.wakes.len()) {
+                (0, 0) => String::new(),
+                (t, w) => format!(
+                    " ({} and {} go on)",
+                    crate::narrative::count(t as u64, "task", "tasks"),
+                    crate::narrative::count(w as u64, "wake", "wakes")
+                ),
+            }
+        );
+        Ok(theseus_protocol::ExecutionStopResult {
+            execution: Self::execution_info(&e),
+            stopped: true,
+            stopped_actions: stop.to_kill,
+            declined: stop
+                .declined
+                .iter()
+                .map(|a| a.correlation_id.clone())
+                .collect(),
+            turn_running: stop.turn_running,
+            tasks_running,
+            wakes_pending: e.wakes.len() as u32,
+        })
     }
 
     /// A job wrapper the reaper took, which a signal ended (theseus-6uo). One

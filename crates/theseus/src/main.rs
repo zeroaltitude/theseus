@@ -38,6 +38,7 @@ Quick start:
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
   theseus wakes                              pending wakes (wake.at): session, due time, and note
   theseus cancel <id>                        stop a task and its jobs, or cancel a wake (its last six characters are enough)
+  theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
   theseus catalog                            models, context windows, and prices
@@ -199,6 +200,14 @@ enum Cmd {
     Cancel {
         #[arg(value_name = "ID")]
         name: String,
+    },
+    /// Halt what a session is doing, as Discord's `/stop` does: its running turn, its jobs, and
+    /// what waits on you. The conversation goes on: the next `ask -s` continues it, and its tasks
+    /// and wakes go on too (`theseus cancel <id>` stops one). SESSION is its id, or at least its
+    /// last four characters.
+    Stop {
+        #[arg(value_name = "SESSION")]
+        session: String,
     },
     /// Model profiles: list, or switch the live one (`theseus profile use glm`).
     Profile {
@@ -1091,6 +1100,30 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
         },
+        Cmd::Stop { session } => {
+            // The session's open execution: one per session (W1).
+            let l: theseus_protocol::ExecutionListResult = serde_json::from_value(
+                conn.call(method::EXECUTION_LIST, Value::Null, |_, _| {})
+                    .await?,
+            )?;
+            let exec = stop_target(&l.executions, &session)?;
+            let v = conn
+                .call(
+                    method::EXECUTION_STOP,
+                    serde_json::to_value(theseus_protocol::ExecutionStopParams {
+                        execution_id: exec,
+                        author: None,
+                    })?,
+                    |_, _| {},
+                )
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                let r: theseus_protocol::ExecutionStopResult = serde_json::from_value(v)?;
+                println!("{}", stop_line(&r));
+            }
+        }
         Cmd::Tasks { session } => {
             let v = conn
                 .call(
@@ -1886,6 +1919,63 @@ fn call_message(e: &anyhow::Error) -> String {
         .map_or_else(|| e.to_string(), |c| c.message.clone())
 }
 
+/// The execution `theseus stop SESSION` stops (W1): the one of the session
+/// named by its id, or by the end of it (four characters at least), when
+/// exactly one session matches.
+fn stop_target(execs: &[theseus_protocol::ExecutionInfo], session: &str) -> Result<String> {
+    let s = session.trim().trim_start_matches('…');
+    if s.len() < 4 {
+        anyhow::bail!(
+            "`{session}` is too short to name a session: give at least four characters of its id"
+        );
+    }
+    let exact: Vec<_> = execs.iter().filter(|e| e.session_id == s).collect();
+    let found = if exact.is_empty() {
+        execs.iter().filter(|e| e.session_id.ends_with(s)).collect()
+    } else {
+        exact
+    };
+    let mut sessions: Vec<&str> = found.iter().map(|e| e.session_id.as_str()).collect();
+    sessions.dedup();
+    match (found.as_slice(), sessions.len()) {
+        ([], _) => anyhow::bail!("no session is named `{session}`"),
+        (_, 1) => Ok(found
+            .iter()
+            .find(|e| e.kind != "task")
+            .map_or_else(|| found[0].execution_id.clone(), |e| e.execution_id.clone())),
+        (_, n) => anyhow::bail!("`{session}` names {n} sessions: give more of its id"),
+    }
+}
+
+/// What `theseus stop` prints (W1): what stopped, and what goes on.
+fn stop_line(r: &theseus_protocol::ExecutionStopResult) -> String {
+    if !r.stopped {
+        return format!(
+            "nothing to stop: execution {} has ended ({})",
+            r.execution.execution_id, r.execution.state
+        );
+    }
+    let mut out = format!(
+        "stopped session {}'s work · {} action(s) told to stop · {} declined{} · the conversation \
+         goes on",
+        r.execution.session_id,
+        r.stopped_actions.len(),
+        r.declined.len(),
+        if r.turn_running {
+            " · its running turn ends at its next step"
+        } else {
+            ""
+        }
+    );
+    if r.tasks_running > 0 || r.wakes_pending > 0 {
+        out.push_str(&format!(
+            " · {} task(s) and {} wake(s) go on (theseus cancel <id>)",
+            r.tasks_running, r.wakes_pending
+        ));
+    }
+    out
+}
+
 /// `in 9m`, `in 2h`, or `due 3m ago` (a wake waiting for its busy session).
 fn until_due(due_ms: u64, now_ms: u64) -> String {
     let words = |ms: u64| {
@@ -1956,10 +2046,14 @@ fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> String {
         Some(w) => format!("{} on {w}", t.state),
         None => t.state.clone(),
     };
-    let asks = match t.pending_confirms {
+    let mut asks = match t.pending_confirms {
         0 => String::new(),
         n => format!(" · {n} waiting for you (theseus confirm)"),
     };
+    // Its report starts its parent's next turn (W1).
+    if t.wake_parent {
+        asks.push_str(" · wakes its parent");
+    }
     format!(
         "{}\t{state}\t${:.4} of ${:.2}\t{} turn{}\t{age}\t{}\tfrom {}{asks}{}",
         t.short,
@@ -2402,6 +2496,53 @@ impl Printer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `theseus stop SESSION` (W1): the session named by its id or its end,
+    /// its conversation's execution, and what the line says.
+    #[test]
+    fn stop_names_a_session_by_its_end_and_says_what_goes_on() {
+        let e = |exe: &str, ses: &str, kind: &str| theseus_protocol::ExecutionInfo {
+            execution_id: exe.into(),
+            session_id: ses.into(),
+            kind: kind.into(),
+            state: "waiting".into(),
+            turns: 1,
+            interrupted: 0,
+            outstanding: 0,
+            queued_results: 0,
+            budget: Default::default(),
+            wake: Value::Null,
+            reports_to: None,
+            ended_reason: None,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        };
+        let execs = [
+            e("exe_a1b2c3", "ses_a1b2c3", "conversation"),
+            e("exe_d4e5f6", "ses_d4e5f6", "task"),
+            e("exe_99e5f6", "ses_99e5f6", "conversation"),
+        ];
+        assert_eq!(stop_target(&execs, "a1b2c3").unwrap(), "exe_a1b2c3");
+        assert_eq!(stop_target(&execs, "ses_99e5f6").unwrap(), "exe_99e5f6");
+        let many = stop_target(&execs, "e5f6").unwrap_err().to_string();
+        assert!(many.contains("names 2 sessions"), "{many}");
+        assert!(stop_target(&execs, "zzzz").is_err());
+        assert!(stop_target(&execs, "c3").is_err(), "too short");
+        let r = theseus_protocol::ExecutionStopResult {
+            execution: execs[0].clone(),
+            stopped: true,
+            stopped_actions: vec!["act_1".into()],
+            declined: vec![],
+            turn_running: false,
+            tasks_running: 1,
+            wakes_pending: 0,
+        };
+        assert_eq!(
+            stop_line(&r),
+            "stopped session ses_a1b2c3's work · 1 action(s) told to stop · 0 declined · the \
+             conversation goes on · 1 task(s) and 0 wake(s) go on (theseus cancel <id>)"
+        );
+    }
 
     /// `theseus wakes` and health's wakes line (DD8).
     #[test]

@@ -782,6 +782,31 @@ impl Core {
         })
     }
 
+    /// `execution.stop` (W1): `/stop`, which halts the work and keeps the
+    /// conversation. A task is refused: `task.cancel` stops it.
+    pub(super) fn execution_stop(
+        &self,
+        p: theseus_protocol::ExecutionStopParams,
+        conn: Conn<'_>,
+    ) -> Result<theseus_protocol::ExecutionStopResult, RpcFailure> {
+        if self.kernel.execution(&p.execution_id)?.is_none() {
+            return Err(RpcFailure::new(
+                error_code::NOT_FOUND,
+                format!("no execution {}", p.execution_id),
+            ));
+        }
+        let by = conn.actor(p.author.as_deref());
+        match self.stop_execution(&p.execution_id, &by) {
+            Ok(r) => Ok(r),
+            Err(e) => match e.downcast_ref::<theseus_kernel::KernelError>() {
+                Some(theseus_kernel::KernelError::StopTask { .. }) => {
+                    Err(RpcFailure::new(error_code::REFUSED, e.to_string()))
+                }
+                _ => Err(e.into()),
+            },
+        }
+    }
+
     pub(super) fn ledger_tail(&self, p: LedgerTailParams) -> Result<LedgerTailResult, RpcFailure> {
         let n = p.n.unwrap_or(20).min(1000);
         let scan = if p.kind.is_some() || p.session_id.is_some() {

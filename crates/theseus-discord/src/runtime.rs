@@ -410,18 +410,19 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
     }
 }
 
-/// The slash commands every place answers. `/cancel` names a task (DD7) or a
-/// pending wake (DD8), by one option, `id`: `/stop` stops this session's own
-/// work.
+/// The slash commands every place answers, one effect each (Eddie's rule):
+/// `/stop` halts this session's own work and keeps the conversation (W1),
+/// `/new` alone starts a fresh session, and `/cancel` names a task (DD7) or a
+/// pending wake (DD8), by one option, `id`.
 fn commands() -> Vec<twilight_model::application::command::Command> {
     let mut cmds: Vec<_> = [
         (
             "stop",
-            "Stop what Theseus is doing here (cancels this session's work) and start fresh",
+            "Stop what Theseus is doing here: its turn, jobs, and queued messages. The conversation goes on",
         ),
         (
             "new",
-            "Start a new session here; the old one stays in the web UI",
+            "Start a fresh session here; the old one stays in the web UI",
         ),
         (
             "status",
@@ -552,6 +553,52 @@ enum Control {
     Wakes,
     /// Cancel the wake or stop the task named; None asks which.
     Cancel(Option<String>),
+}
+
+/// What a place says when it is bound to a fresh session: how to talk, and
+/// each control with its one effect (W1: `/stop` keeps the conversation).
+fn bind_notice(session_id: &str, mention_only: bool) -> String {
+    let how = if mention_only {
+        "@mention me or reply to one of my messages to talk"
+    } else {
+        "Talk to me in this place"
+    };
+    format!(
+        "🔗 Theseus is bound here (session `{session_id}`). {how}. `/stop` halts what I am doing \
+         and keeps the conversation, `/new` starts a fresh one, and `/status`, `/tasks` and \
+         `/wakes` show this place's; everything shows in the web UI."
+    )
+}
+
+/// What `/stop` answers (W1): what stopped, and that the conversation goes
+/// on; and, when there are any, the tasks and wakes it left running, each of
+/// which `/cancel <id>` stops.
+fn stop_answer(r: &theseus_protocol::ExecutionStopResult) -> String {
+    if !r.stopped {
+        return format!(
+            "Nothing to stop: this session's execution has ended ({}). `/new` starts a fresh one.",
+            r.execution.state
+        );
+    }
+    let mut out = format!(
+        "⏹️ Stopped this session's work ({} running action(s) told to stop). The conversation \
+         goes on; `/new` starts a fresh one.",
+        r.stopped_actions.len()
+    );
+    let mut going = Vec::new();
+    if r.tasks_running > 0 {
+        going.push(format!("{} task(s)", r.tasks_running));
+    }
+    if r.wakes_pending > 0 {
+        going.push(format!("{} wake(s)", r.wakes_pending));
+    }
+    if !going.is_empty() {
+        out.push_str(&format!(
+            " Its {} go on: `/tasks` and `/wakes` list them, and `/cancel <id>` stops one.",
+            going.join(" and ")
+        ));
+    }
+    out
 }
 
 fn parse_control(text: &str) -> Option<Control> {
@@ -783,23 +830,14 @@ impl Shared {
             inflight: false,
             queued: Vec::new(),
             saw_failure: false,
+            stopped_turn: None,
+            stopping: false,
             last_activity_ms: 0,
             tx,
         };
         place.report();
         if fresh {
-            let how = if mention_only {
-                "@mention me or reply to one of my messages to talk"
-            } else {
-                "talk to me in this place"
-            };
-            place.say(
-                &format!(
-                    "🔗 Theseus is bound here (session `{}`). {how}; `/status`, `/new` and `/stop` work too, and everything shows in the web UI.",
-                    place.session_id
-                ),
-                None,
-            );
+            place.say(&bind_notice(&place.session_id, mention_only), None);
         }
         tokio::spawn(place.run(rx));
         Ok(())
@@ -1630,6 +1668,12 @@ struct Place {
     /// Messages that arrived mid-turn, for the next turn.
     queued: Vec<Inbound>,
     saw_failure: bool,
+    /// The turn a `/stop` stopped (W1): its stream and new calls show no
+    /// more here, until its end.
+    stopped_turn: Option<String>,
+    /// A `/stop` came while our `turn.submit` was outstanding: its end says
+    /// nothing more, since the stop's answer did.
+    stopping: bool,
     last_activity_ms: u64,
     tx: mpsc::UnboundedSender<PlaceMsg>,
 }
@@ -1649,7 +1693,7 @@ impl Place {
                     self.apply(ops);
                 }
                 _ = typing.tick() => {
-                    if self.inflight || self.renderer.busy() {
+                    if (self.inflight && !self.stopping) || self.renderer.busy() {
                         self.apply(vec![crate::render::Op::Typing]);
                     }
                 }
@@ -1682,14 +1726,31 @@ impl Place {
                 self.report();
             }
             PlaceMsg::Event(n) => {
-                if n.method == theseus_protocol::notify::TURN_FAILED {
+                use theseus_protocol::notify;
+                if n.method == notify::TURN_FAILED {
                     self.saw_failure = true;
+                }
+                // The turn a `/stop` stopped (W1) streams no more here, and
+                // what it proposes will not run; its tool messages still
+                // take their last state, and its end clears it.
+                let turn = n.params.get("turn_id").and_then(Value::as_str);
+                if turn.is_some() && turn == self.stopped_turn.as_deref() {
+                    match n.method.as_str() {
+                        notify::MODEL_DELTA | notify::MODEL_THINKING | notify::TOOL_PROPOSED => {
+                            return
+                        }
+                        notify::TURN_ENDED | notify::TURN_FAILED => self.stopped_turn = None,
+                        _ => {}
+                    }
                 }
                 let ops = self.renderer.on_notification(&n.method, &n.params);
                 self.apply(ops);
             }
             PlaceMsg::SubmitDone(r) => {
                 self.inflight = false;
+                // The stop's answer said what stopped (W1).
+                let stopping = std::mem::take(&mut self.stopping);
+                let r = if stopping { Ok(()) } else { r };
                 if let Err(e) = r {
                     let class = e
                         .data
@@ -1835,43 +1896,40 @@ impl Place {
                 Err(e) => format!("⚠️ Could not open a new session: {e}"),
             },
             Control::Stop => {
-                let exec = self
+                // W1: halt this session's work and keep the conversation. The
+                // messages queued for the next turn go too; the next message
+                // continues this session. Its tasks and wakes are untouched.
+                self.queued.clear();
+                self.stopping = self.inflight;
+                // The stopped turn's stream stops here, where Discord last
+                // saw it; it posts no reply.
+                if let Some(turn) = self.renderer.running_turn() {
+                    let ops = self.renderer.stop(&turn);
+                    self.apply(ops);
+                    self.stopped_turn = Some(turn);
+                }
+                let Some(eid) = self
                     .shared
                     .session_info(&self.session_id)
                     .await
-                    .and_then(|s| s.execution_id);
-                let mut said = String::new();
-                if let Some(eid) = exec {
-                    match self
-                        .shared
-                        .rpc
-                        .call::<_, theseus_protocol::ExecutionCancelResult>(
-                            theseus_protocol::method::EXECUTION_CANCEL,
-                            theseus_protocol::ExecutionCancelParams {
-                                execution_id: eid,
-                                author: Some(by.to_string()),
-                            },
-                        )
-                        .await
-                    {
-                        Ok(r) => {
-                            said = format!(
-                                "⏹️ Stopped: cancelled this session's work ({} running action(s) told to stop).",
-                                r.cancelled_actions.len()
-                            )
-                        }
-                        Err(e) => said = format!("⚠️ Could not cancel: {e}."),
-                    }
-                }
-                self.queued.clear();
-                match self.rebind().await {
-                    Ok(()) => format!(
-                        "{said} Your next message starts a new session (`{}`); the old one stays in the web UI.",
-                        self.session_id
+                    .and_then(|s| s.execution_id)
+                else {
+                    return "Nothing to stop: this session has taken no turn yet.".into();
+                };
+                match self
+                    .shared
+                    .rpc
+                    .call::<_, theseus_protocol::ExecutionStopResult>(
+                        theseus_protocol::method::EXECUTION_STOP,
+                        theseus_protocol::ExecutionStopParams {
+                            execution_id: eid,
+                            author: Some(by.to_string()),
+                        },
                     )
-                    .trim_start()
-                    .to_string(),
-                    Err(e) => format!("{said} Could not open a new session: {e}"),
+                    .await
+                {
+                    Ok(r) => stop_answer(&r),
+                    Err(e) => format!("⚠️ Could not stop: {e}."),
                 }
             }
             Control::Tasks => {
@@ -1911,8 +1969,8 @@ impl Place {
                 }
             }
             Control::Cancel(None) => "Which one? `/cancel <id>` stops a task or cancels a wake, \
-                                      by the id `/tasks` or `/wakes` shows. `/stop` stops this \
-                                      session's own work."
+                                      by the id `/tasks` or `/wakes` shows. `/stop` halts this \
+                                      session's own work and keeps the conversation."
                 .to_string(),
             Control::Cancel(Some(name)) => {
                 // A pending wake first (DD8), then a task; the core refuses a
@@ -2072,6 +2130,80 @@ mod tests {
         assert_eq!(cancel.options[0].name, "id");
         assert_eq!(cancel.options[0].required, Some(true));
         assert!(cancel.description.contains("cancel a wake"));
+        // One command, one effect (W1): `/stop` halts and keeps the
+        // conversation; `/new` alone starts fresh.
+        let desc = |n: &str| {
+            cmds.iter()
+                .find(|c| c.name == n)
+                .unwrap()
+                .description
+                .clone()
+        };
+        assert_eq!(
+            desc("stop"),
+            "Stop what Theseus is doing here: its turn, jobs, and queued messages. The \
+             conversation goes on"
+        );
+        assert_eq!(
+            desc("new"),
+            "Start a fresh session here; the old one stays in the web UI"
+        );
+        // Discord refuses a description over 100 characters.
+        assert!(cmds.iter().all(|c| c.description.chars().count() <= 100));
+    }
+
+    /// What a bound place says first, and what `/stop` answers (W1).
+    #[test]
+    fn the_bind_notice_and_the_stops_answer_name_each_control_with_its_one_effect() {
+        assert_eq!(
+            bind_notice("ses_1", false),
+            "🔗 Theseus is bound here (session `ses_1`). Talk to me in this place. `/stop` halts \
+             what I am doing and keeps the conversation, `/new` starts a fresh one, and \
+             `/status`, `/tasks` and `/wakes` show this place's; everything shows in the web UI."
+        );
+        assert!(bind_notice("ses_1", true).contains(". @mention me or reply"));
+        let exec = theseus_protocol::ExecutionInfo {
+            execution_id: "exe_1".into(),
+            session_id: "ses_1".into(),
+            kind: "conversation".into(),
+            state: "waiting".into(),
+            turns: 2,
+            interrupted: 0,
+            outstanding: 0,
+            queued_results: 0,
+            budget: Default::default(),
+            wake: Value::Null,
+            reports_to: None,
+            ended_reason: None,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        };
+        let mut r = theseus_protocol::ExecutionStopResult {
+            execution: exec,
+            stopped: true,
+            stopped_actions: vec!["act_1".into()],
+            declined: vec![],
+            turn_running: true,
+            tasks_running: 0,
+            wakes_pending: 0,
+        };
+        assert_eq!(
+            stop_answer(&r),
+            "⏹️ Stopped this session's work (1 running action(s) told to stop). The conversation \
+             goes on; `/new` starts a fresh one."
+        );
+        (r.tasks_running, r.wakes_pending) = (2, 1);
+        assert!(stop_answer(&r).ends_with(
+            " Its 2 task(s) and 1 wake(s) go on: `/tasks` and `/wakes` list them, and \
+             `/cancel <id>` stops one."
+        ));
+        r.stopped = false;
+        r.execution.state = "cancelled".into();
+        assert_eq!(
+            stop_answer(&r),
+            "Nothing to stop: this session's execution has ended (cancelled). `/new` starts a \
+             fresh one."
+        );
     }
 
     #[test]
@@ -2254,6 +2386,157 @@ mod tests {
             toollets: vec![],
         })
         .unwrap()
+    }
+
+    /// A core whose model answers from `script`, whose tools ask first, and
+    /// whose Discord REST points at a port nothing listens on.
+    fn core_scripted(
+        dir: &std::path::Path,
+        script: Vec<theseus_core::provider::Scripted>,
+    ) -> Arc<Core> {
+        let mut cfg = theseus_core::Config::example();
+        cfg.server.state_dir = dir.to_string_lossy().into_owned();
+        let work = dir.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
+        cfg.tools.roots = vec![];
+        cfg.policy.enforcement = theseus_core::policy::Posture::Approve;
+        cfg.discord.rest_proxy = Some("127.0.0.1:9".into());
+        cfg.discord.gateway_proxy = Some("ws://127.0.0.1:9".into());
+        let store = theseus_core::store::Store::open(&dir.join("store")).unwrap();
+        let fake: Arc<dyn theseus_core::provider::Provider> =
+            Arc::new(theseus_core::provider::FakeProvider::scripted(script));
+        let providers = [(cfg.model.provider.clone(), fake)].into_iter().collect();
+        Core::build(theseus_core::rpc::Parts {
+            cfg,
+            providers,
+            store,
+            secrets: theseus_core::secrets::SecretBoard::empty(),
+            startup_log: Arc::default(),
+            telemetry: Some(theseus_core::telemetry::Telemetry::disabled()),
+            scrubber: Arc::new(theseus_core::scrub::Scrubber::default()),
+            launcher: Arc::new(theseus_core::toolrun::InlineLauncher),
+            config_gate: theseus_core::config_gate::ConfigGate::file("test"),
+            toollets: vec![],
+        })
+        .unwrap()
+    }
+
+    /// A DM place on `core`'s session `sid`, driven directly: the gateway is
+    /// not faked, so a test calls its handlers. Its mailbox comes back with it.
+    fn place_for_tests(core: &Arc<Core>, sid: &str) -> (Place, mpsc::UnboundedReceiver<PlaceMsg>) {
+        let shared = shared_for_tests(core);
+        let (tx, rx) = mpsc::unbounded_channel();
+        let (lane, _) = mpsc::unbounded_channel();
+        shared
+            .routes
+            .lock()
+            .unwrap()
+            .by_session
+            .insert(sid.to_string(), tx.clone());
+        let place = Place {
+            renderer: shared.renderer(),
+            shared,
+            key: "dm:42".into(),
+            target: "discord:dm:42".into(),
+            kind: "dm",
+            label: "eddie".into(),
+            channel: None,
+            users: vec![42],
+            mention_only: false,
+            session_id: sid.to_string(),
+            lane,
+            inflight: false,
+            queued: Vec::new(),
+            saw_failure: false,
+            stopped_turn: None,
+            stopping: false,
+            last_activity_ms: 0,
+            tx,
+        };
+        (place, rx)
+    }
+
+    /// `/stop` (W1) halts the session's work and keeps the place on the same
+    /// session: the approval it waited on is declined, and the next message
+    /// continues it. `/new` alone starts a fresh session.
+    #[tokio::test]
+    async fn stop_keeps_the_places_session_and_new_alone_starts_a_fresh_one() {
+        use theseus_core::provider::Scripted;
+        let d = tempfile::tempdir().unwrap();
+        let core = core_scripted(
+            d.path(),
+            vec![
+                Scripted::tools(
+                    "Writing.",
+                    &[("w1", "fs_write", json!({"path": "a.txt", "content": "x\n"}))],
+                ),
+                Scripted::text("Understood: not written."),
+            ],
+        );
+        let rec = theseus_core::session::SessionRecord::new(
+            theseus_protocol::SessionKind::Conversation,
+            None,
+        );
+        let sid = rec.session_id.clone();
+        core.store.put_session(&sid, &rec).unwrap();
+        core.outbox.bind_place("dm:42", &sid).unwrap();
+        let (rpc, _notes) = RpcClient::connect(core.clone(), Client::new("test", Surface::Cli));
+        let first: TurnSubmitResult = rpc
+            .call(
+                theseus_protocol::method::TURN_SUBMIT,
+                TurnSubmitParams {
+                    session_id: Some(sid.clone()),
+                    input: "FIRST write a file".into(),
+                    profile: None,
+                    provider: None,
+                    model: None,
+                    author: Some("test".into()),
+                    attachments: vec![],
+                    reply_to: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(first.awaiting_confirm.is_some(), "it asks first");
+        let (mut place, mut rx) = place_for_tests(&core, &sid);
+        let answer = place.control(Control::Stop, "discord:eddie").await;
+        assert_eq!(
+            answer,
+            "⏹️ Stopped this session's work (0 running action(s) told to stop). The \
+             conversation goes on; `/new` starts a fresh one."
+        );
+        assert_eq!(place.session_id, sid, "the same session");
+        assert!(core.kernel.pending_confirms().unwrap().is_empty());
+        // The next message continues it.
+        place.submit(vec![Inbound {
+            author: "eddie".into(),
+            author_id: 42,
+            text: "SECOND never mind".into(),
+            files: None,
+            message: Id::new(7),
+        }]);
+        let done = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(PlaceMsg::SubmitDone(r)) = rx.recv().await {
+                    break r;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        done.unwrap();
+        let rec: theseus_core::session::SessionRecord =
+            core.store.get_session(&sid).unwrap().unwrap();
+        assert_eq!(rec.turns, 2, "both turns in the one session");
+        // `/new` alone starts a fresh one.
+        let answer = place.control(Control::New, "discord:eddie").await;
+        assert_ne!(place.session_id, sid);
+        assert!(answer.starts_with("🆕 New session"), "{answer}");
+        assert_eq!(
+            core.outbox.place_session("dm:42").unwrap().as_deref(),
+            Some(place.session_id.as_str())
+        );
     }
 
     /// Fail closed (theseus-qa0): with its token resolving the binding

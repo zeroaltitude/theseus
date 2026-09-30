@@ -39,6 +39,8 @@ pub mod method {
     pub const PROFILE_USE: &str = "profile.use";
     pub const EXECUTION_LIST: &str = "execution.list";
     pub const EXECUTION_CANCEL: &str = "execution.cancel";
+    /// `/stop` (W1): halt a conversation's work, and keep the conversation.
+    pub const EXECUTION_STOP: &str = "execution.stop";
     pub const ACTION_LIST: &str = "action.list";
     pub const ACTION_CONFIRM: &str = "action.confirm";
     /// Every question waiting for the operator, across sessions.
@@ -74,7 +76,7 @@ pub mod method {
     pub const WAKE_CANCEL: &str = "wake.cancel";
 
     /// Every method, so a server can say which only read (theseus-2fo).
-    pub const ALL: [&str; 29] = [
+    pub const ALL: [&str; 30] = [
         HEALTH,
         SESSION_OPEN,
         SESSION_LIST,
@@ -84,6 +86,7 @@ pub mod method {
         PROFILE_USE,
         EXECUTION_LIST,
         EXECUTION_CANCEL,
+        EXECUTION_STOP,
         ACTION_LIST,
         ACTION_CONFIRM,
         CONFIRM_LIST,
@@ -973,6 +976,37 @@ pub struct ExecutionCancelResult {
     pub cancelled_actions: Vec<String>,
 }
 
+/// `execution.stop` (W1, theseus-lji; `/stop`): halt a conversation's work
+/// and keep the conversation. Its running jobs and calls are told to stop,
+/// what waits on the operator is declined, and a running turn plans nothing
+/// more; the execution then waits on its next input. A task is refused:
+/// `task.cancel` stops one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionStopParams {
+    pub execution_id: String,
+    /// Who asked, as a label in the ledger (e.g. `discord:eddie`). Default:
+    /// the surface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionStopResult {
+    pub execution: ExecutionInfo,
+    /// False when the execution had ended already: nothing was stopped.
+    pub stopped: bool,
+    /// Running jobs and calls whose backends were asked to stop.
+    pub stopped_actions: Vec<String>,
+    /// Planned calls, approvals, and a budget question that will not run.
+    pub declined: Vec<String>,
+    /// A turn was running: it ends at its next step.
+    pub turn_running: bool,
+    /// What goes on, which `/cancel <id>` stops one by one: the session's
+    /// running tasks and its pending wakes.
+    pub tasks_running: u32,
+    pub wakes_pending: u32,
+}
+
 /// A task (DD7, theseus-qn2): a child session a conversation opened with
 /// `task.create`, which works on its own and reports back to the place.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1010,6 +1044,9 @@ pub struct TaskInfo {
     pub ended_reason: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
+    /// Its report starts its parent's next turn (W1, `wake_parent`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wake_parent: bool,
 }
 
 /// `task.list`: every task, the newest first, or only one session's, or

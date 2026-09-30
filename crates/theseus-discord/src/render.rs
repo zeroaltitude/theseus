@@ -213,6 +213,28 @@ impl Renderer {
         self.turns.back().is_some_and(|t| !t.ended)
     }
 
+    /// The turn running now, if one is (W1: the one a `/stop` stops).
+    pub fn running_turn(&self) -> Option<String> {
+        self.turns
+            .back()
+            .filter(|t| !t.ended)
+            .map(|t| t.turn_id.clone())
+    }
+
+    /// A `/stop` stopped this turn (W1): its text stops streaming where
+    /// Discord last saw it, as at a turn's end, and its tool messages still
+    /// take their last state.
+    pub fn stop(&mut self, turn_id: &str) -> Vec<Op> {
+        match self.turn_mut(turn_id) {
+            Some(t) if !t.ended => {
+                t.ended = true;
+                t.dirty = true;
+                self.tick()
+            }
+            _ => vec![],
+        }
+    }
+
     /// Feed one notification for this session; returns what to do right away.
     /// Streamed text and tool lines wait for [`Renderer::tick`].
     pub fn on_notification(&mut self, method: &str, p: &Value) -> Vec<Op> {
@@ -667,7 +689,8 @@ pub fn reply_parts(
 }
 
 /// A wake's turn (DD8): its reply opens with each wake's line, so the place
-/// sees why Theseus spoke unasked. The lines ride on the first part when
+/// sees why Theseus spoke unasked, and so does a turn a task's report started
+/// (W1: `📋 task a1b2c3 reported`). The lines ride on the first part when
 /// they fit; the session's history has them either way.
 pub fn wake_header(parts: &mut [(String, String)], wakes: &[String]) {
     if wakes.is_empty() {
@@ -818,6 +841,8 @@ pub fn settled(closed: &Closed, line: &str, budget: bool) -> String {
         "approved" => format!("✅ **Approved** by {by} · {line}"),
         "withdrawn" => format!("↩️ **Withdrawn**: {note} · {line}"),
         "ended" => format!("⏹️ **Closed**: the session's work ended · {line}"),
+        // `/stop` (W1): the question closed, and the conversation goes on.
+        "stopped" => format!("⏹️ **Not run**: {by} stopped this session's work · {line}"),
         _ if note.is_empty() => format!("⏹️ **Closed** · {line}"),
         _ => format!("⏹️ **Closed**: {} · {line}", clip(note, 200)),
     }
@@ -2083,6 +2108,15 @@ mod tests {
         assert_eq!(
             settled(&Closed::new("ended", None), "`fs.write` a", false),
             "⏹️ **Closed**: the session's work ended · `fs.write` a"
+        );
+        // `/stop` (W1): the question closed, and the conversation goes on.
+        assert_eq!(
+            settled(
+                &Closed::new("stopped", Some("discord:eddie")),
+                "`fs.write` a",
+                false
+            ),
+            "⏹️ **Not run**: discord:eddie stopped this session's work · `fs.write` a"
         );
         let other = Closed {
             how: "closed".into(),

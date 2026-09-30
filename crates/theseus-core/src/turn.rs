@@ -219,6 +219,10 @@ struct Turn<'a> {
     /// Where the first of them was set from, for a reply whose session posts
     /// nowhere now.
     wake_target: Option<String>,
+    /// The task reports that started this turn (W1, `wake_parent`): each
+    /// one's task and line, which the reply's post shows above it, as a
+    /// wake's.
+    woke_by: Vec<Value>,
 }
 
 /// What became of a loop's provider call.
@@ -233,6 +237,20 @@ enum Called {
         spent: Micros,
         limit: Micros,
     },
+    /// A `/stop` landed (W1): the kernel planned no call, and the turn ends.
+    Stopped {
+        by: String,
+    },
+}
+
+/// Who stopped the turn `tc` runs, if a `/stop` landed during it (W1): the
+/// execution's stop mark, which the turn's end clears.
+fn stopped_by(tc: &TurnCtx<'_>) -> Result<Option<String>> {
+    Ok(tc
+        .kernel
+        .execution(tc.execution_id)?
+        .and_then(|e| e.stopped)
+        .map(|s| s.by))
 }
 
 impl<'a> Turn<'a> {
@@ -272,6 +290,7 @@ impl<'a> Turn<'a> {
             reply_to: None,
             wakes: Vec::new(),
             wake_target: None,
+            woke_by: Vec::new(),
         }
     }
 
@@ -815,6 +834,15 @@ impl TurnRunner {
             Err(_) => (TurnEnd::Wait { wake: Wake::Input }, false),
         };
         let exec_id = guard.execution_id.clone();
+        // A turn a `/stop` ended (W1): its end parks the execution on input,
+        // and it says nothing of its own, since the stop's answer did.
+        let stopped = frames
+            .kernel
+            .execution(&exec_id)
+            .ok()
+            .flatten()
+            .and_then(|e| e.stopped)
+            .map(|s| s.by);
         let parked = self.narrator.on().then(|| self.park_sentence(&end));
         // A task's report rides in the frame that ends it, and only in a
         // frame that does: a turn that ends after a cancel landed writes
@@ -874,7 +902,15 @@ impl TurnRunner {
         }
         if let Err(e) = &r {
             let te = e.downcast_ref::<TurnError>();
-            if te.is_none() {
+            if let Some(by) = &stopped {
+                narrate!(
+                    self.narrator,
+                    Turn,
+                    sid.as_deref(),
+                    None,
+                    "Stopped by {by}, the turn ended at its next step, which the stop refused."
+                );
+            } else if te.is_none() {
                 // A fault, not a failure the turn reports itself (`fail`).
                 narrate!(
                     self.narrator,
@@ -889,13 +925,17 @@ impl TurnRunner {
                 turn_id: te.map(|t| t.turn_id.clone()).filter(|t| !t.is_empty()),
                 execution_id: Some(exec_id.clone()),
                 continuation,
-                class: te.map(|t| t.class.clone()),
+                class: match &stopped {
+                    Some(_) => Some("stopped".into()),
+                    None => te.map(|t| t.class.clone()),
+                },
                 // The class and the turn ride beside it: the cause, once.
                 error: te.map_or_else(|| format!("{e:#}"), |t| format!("{:#}", t.source)),
             };
             // A failed turn must be seen where its reply would have gone. A
-            // task's report says it failed instead (DD7).
-            if task_of.is_none() {
+            // task's report says it failed instead (DD7), and a stopped
+            // turn's stop said it (W1).
+            if task_of.is_none() && stopped.is_none() {
                 let mut body = serde_json::to_value(&failed).unwrap_or_default();
                 body["kind"] = json!("failed");
                 if let Err(e) = self.outbox.post_for(&failed.session_id, &exec_id, body) {
@@ -904,7 +944,7 @@ impl TurnRunner {
             }
             failure_sink.send(notify::TURN_FAILED, failed);
         }
-        if rewake {
+        if rewake && stopped.is_none() {
             // A background result landed while the turn ran; the model has not
             // read it yet, so the driver takes another turn.
             let _ = self.kernel.wake(&exec_id, "late_result");
@@ -1052,6 +1092,11 @@ impl TurnRunner {
         };
         let mut force = recompile.or(asked);
         while run_model {
+            // A `/stop` that landed (W1): the turn plans nothing more.
+            if let Some(by) = stopped_by(&t.tc)? {
+                Self::stopped(&mut t, &by);
+                break;
+            }
             let i = t.loops;
             t.loops += 1;
             narrate_turn!(
@@ -1080,8 +1125,29 @@ impl TurnRunner {
                     t.trace.exit(json!({"decision": "budget"}));
                     break;
                 }
+                Called::Stopped { by } => {
+                    t.trace.exit(json!({"decision": "stopped"}));
+                    Self::stopped(&mut t, &by);
+                    break;
+                }
             };
             let uses = resp.tool_uses();
+            // A stop that landed while the model answered (W1): its answer is
+            // kept, and none of its calls run.
+            if let Some(by) = stopped_by(&t.tc)? {
+                let why = format!("the operator stopped this turn (/stop, by {by})");
+                let tc = TurnCtx {
+                    loop_index: Some(i),
+                    ..t.tc
+                };
+                for u in &uses {
+                    self.tools.not_run(&tc, u, &why)?;
+                }
+                t.trace.exit(json!({"decision": "stopped"}));
+                t.last = Some(resp);
+                Self::stopped(&mut t, &by);
+                break;
+            }
             let answered = self.run_tools(&mut t, &resp, &uses, &node, i).await?;
             run_model = Self::advance(&mut t, &resp, uses.len(), answered, i);
             t.last = Some(resp);
@@ -1112,7 +1178,7 @@ impl TurnRunner {
         let resumed = self.tools.resume(&t.tc, has_input).await?;
         // The reports of this session's tasks that ended since its last turn
         // (DD7), after the calls above and before the new input.
-        let reported = self.read_reports(&t.tc)?;
+        let reported = self.read_reports(t)?;
         // Its wakes that are due (DD8), last: each is this turn's input, or
         // comes before the input that arrived with it.
         let woke = Self::read_wakes(t)?;
@@ -1177,6 +1243,18 @@ impl TurnRunner {
         Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported + woke)
     }
 
+    /// A `/stop` by `by` ended the turn's loops (W1): its stop reason says so,
+    /// and it posts no reply. Its end parks the execution on input.
+    fn stopped(t: &mut Turn<'_>, by: &str) {
+        t.stop_reason = "stopped".into();
+        narrate_turn!(
+            t.tc,
+            Turn,
+            "Stopped by {by}: the turn plans nothing more, posts no reply, and the session \
+             waits on its next input."
+        );
+    }
+
     /// The session's wakes that are due (DD8): each becomes a node the model
     /// reads as the user's, `⏰ wake (set 13:05): <note>`, written in the one
     /// frame that removes them from the execution, so none runs twice. None
@@ -1229,9 +1307,14 @@ impl TurnRunner {
     /// last turn (DD7): each becomes a node in this session, read by the
     /// model with whatever came with this turn. One frame clears them from
     /// the execution and writes their nodes; none, and nothing is written.
-    fn read_reports(&self, tc: &TurnCtx<'_>) -> Result<u32> {
+    /// Those that asked for this turn (W1, `wake_parent`) are named on its
+    /// reply's post, and a reply whose session posts nowhere now goes where
+    /// the first of them reported.
+    fn read_reports(&self, t: &mut Turn<'_>) -> Result<u32> {
+        let tc = &t.tc;
         let mut nodes = Vec::new();
-        tc.kernel.take_reports(tc.guard, |ids| {
+        let mut reports = Vec::new();
+        let taken = tc.kernel.take_reports(tc.guard, |ids| {
             let mut records = Vec::new();
             for id in ids {
                 let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)? else {
@@ -1246,11 +1329,30 @@ impl TurnRunner {
                 );
                 records.push(n.record()?);
                 nodes.push(n);
+                reports.push(r);
             }
             Ok(records)
         })?;
         for n in &nodes {
             tc.node_written(n);
+        }
+        for r in reports
+            .iter()
+            .filter(|r| taken.woke.contains(&r.execution_id))
+        {
+            narrate_turn!(
+                tc,
+                Session,
+                "Task {}'s report started this turn (wake_parent): \"{}\" {}.",
+                r.short,
+                r.title.as_deref().unwrap_or("its brief"),
+                r.outcome
+            );
+            t.woke_by.push(json!({"task": r.task, "short": r.short,
+                "text": crate::task::woke_line(&r.short), "outcome": r.outcome}));
+            if t.wake_target.is_none() {
+                t.wake_target = r.target.clone();
+            }
         }
         Ok(nodes.len() as u32)
     }
@@ -1492,6 +1594,9 @@ impl TurnRunner {
                         spent: *spent,
                         limit: *limit,
                     });
+                }
+                if let Some(KernelError::Stopped { by, .. }) = e.downcast_ref::<KernelError>() {
+                    return Ok(Called::Stopped { by: by.clone() });
                 }
                 narrate_turn!(
                     t.tc,
@@ -2190,8 +2295,9 @@ impl TurnRunner {
             json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "cost_usd": result.cost_usd, "tool_calls": result.tool_calls, "session_usage": session.usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model, "awaiting_confirm": result.awaiting_confirm, "continuation": result.continuation, "late_results": late}),
         );
         // A task's turns post nothing to the place: its report does, once,
-        // when it ends (DD7).
-        if t.tc.task.is_none() {
+        // when it ends (DD7). A stopped turn posts nothing either (W1): the
+        // stop's answer says what stopped.
+        if t.tc.task.is_none() && result.stop_reason != "stopped" {
             self.stage_reply(&t, &result)?;
         }
         result.trace = Some(t.trace.finish(json!({
@@ -2225,7 +2331,9 @@ impl TurnRunner {
             },
             None => self.park(t.tc.execution_id, t.awaiting, &t.background)?,
         };
-        let mut again = late > 0;
+        // A stopped turn takes no other by itself (W1), even for a result
+        // that landed during it: the next input's turn reads it.
+        let mut again = late > 0 && stop != "stopped";
         // A task that has nothing left to wait on is done (DD7): its last
         // message is its report, which the frame that ends it carries. One
         // with results its model has not read (late ones, or a turn stopped at
@@ -2274,6 +2382,9 @@ impl TurnRunner {
         });
         if !t.wakes.is_empty() {
             body["wakes"] = json!(t.wakes);
+        }
+        if !t.woke_by.is_empty() {
+            body["reports"] = json!(t.woke_by);
         }
         let (post, records) =
             self.outbox

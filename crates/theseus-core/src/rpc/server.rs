@@ -216,6 +216,7 @@ impl Core {
             method::EXECUTION_LIST => reply(self.execution_list()?),
             method::ACTION_LIST => route(params, |p| self.action_list(p)),
             method::EXECUTION_CANCEL => route(params, |p| self.execution_cancel(p, conn)),
+            method::EXECUTION_STOP => route(params, |p| self.execution_stop(p, conn)),
             method::TASK_LIST => {
                 // Its filters are optional: no params lists every task.
                 let params = if params.is_null() { json!({}) } else { params };
@@ -251,7 +252,7 @@ impl Core {
 /// vault confirms the config a start served from, each waits at the gate,
 /// bounded like the secrets, then fails with `config_unconfirmed`. Every
 /// other method only reads, and answers at once; `shutdown` works too.
-pub const ACTS: [&str; 10] = [
+pub const ACTS: [&str; 11] = [
     method::TURN_SUBMIT,
     method::SESSION_OPEN,
     method::PROFILE_USE,
@@ -260,6 +261,7 @@ pub const ACTS: [&str; 10] = [
     method::POLICY_TIGHTEN,
     method::POLICY_UNTIGHTEN,
     method::EXECUTION_CANCEL,
+    method::EXECUTION_STOP,
     method::TASK_CANCEL,
     method::WAKE_CANCEL,
 ];

@@ -63,10 +63,12 @@ pub fn wake_due(e: &Execution, now_ms: u64) -> bool {
 }
 
 /// Whether the due scan queues `e` at `now_ms`: it waits on a due time that
-/// has come, or it is free and one of its wakes is due.
+/// has come, or it is free and one of its wakes is due, or a task's report
+/// asked for a turn (W1; the task's end queues a free parent itself, so this
+/// catches one that was freed without a turn, such as by a stop).
 pub fn due_now(e: &Execution, now_ms: u64) -> bool {
     matches!((e.state, &e.wake), (ExecState::Waiting, Some(Wake::DueAt { at_ms })) if *at_ms <= now_ms)
-        || (free(e) && wake_due(e, now_ms))
+        || (free(e) && (wake_due(e, now_ms) || !e.report_wakes.is_empty()))
 }
 
 /// What `set_wake` did.
@@ -117,13 +119,7 @@ impl Kernel {
                 pending: e.wakes.len(),
             });
         }
-        if e.state != ExecState::Running {
-            return Err(KernelError::NoTurn {
-                id: e.id.clone(),
-                state: e.state.as_str(),
-            }
-            .into());
-        }
+        crate::kernel::require_turn(&e)?;
         if e.wakes.len() >= MAX_PENDING {
             return Err(KernelError::TooManyWakes { max: MAX_PENDING }.into());
         }
@@ -252,12 +248,18 @@ impl Kernel {
             .filter(|w| w.due_at_ms <= now)
             .map(|w| w.id.as_str())
             .collect();
-        let why = if wakes.is_empty() { "due" } else { "wake" };
-        let row = self.ledger(
-            "execution.queued",
-            Some(&e.session_id),
-            json!({"execution_id": e.id, "why": why, "wakes": wakes}),
-        )?;
+        let why = if !wakes.is_empty() {
+            "wake"
+        } else if free(&e) && !e.report_wakes.is_empty() {
+            "report"
+        } else {
+            "due"
+        };
+        let mut body = json!({"execution_id": e.id, "why": why, "wakes": wakes});
+        if why == "report" {
+            body["tasks"] = json!(e.report_wakes);
+        }
+        let row = self.ledger("execution.queued", Some(&e.session_id), body)?;
         e.state = ExecState::Queued;
         e.wake = None;
         e.resume_pending = true;

@@ -4,7 +4,11 @@
 //! and its model to a stand-in for the Messages API. Nothing reaches Discord.
 //! - `kill -9` while a task's job runs, then a restart: the job's result
 //!   arrives, the task finishes, and its report posts once;
-//! - a cancel stops the task and kills its job's wrapper, and reports once.
+//! - a cancel stops the task and kills its job's wrapper, and reports once;
+//! - a task with `wake_parent` starts its parent's turn, whose reply posts
+//!   under the report's line (W1, theseus-lji);
+//! - `execution.stop` (`/stop`) kills the session's job and keeps the session,
+//!   whose next message continues it (W1).
 
 mod common;
 
@@ -375,4 +379,124 @@ fn a_cancel_stops_the_task_and_its_job_and_reports_once() {
     assert!(again["cancelled_actions"].as_array().unwrap().is_empty());
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(r.reports().len(), 1, "reported once");
+}
+
+/// A session's executions, by the list's rows (W1).
+fn execution_of(r: &Rig, sid: &str) -> Value {
+    r.call("execution.list", Value::Null).unwrap()["executions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["session_id"] == sid)
+        .cloned()
+        .unwrap()
+}
+
+/// A task with `wake_parent` (W1): its report starts the parent's turn by
+/// itself, and that turn's reply reaches the fake once, under the report's
+/// line, after the report.
+#[test]
+fn a_task_with_wake_parent_starts_its_parents_turn_and_the_reply_posts_under_its_line() {
+    let r = Rig::new(vec![(
+        "Start the chain",
+        vec![(
+            "task_create",
+            json!({"brief": "Say one word.", "wake_parent": true}),
+        )],
+    )]);
+    let _daemon = r.spawn();
+    let sid = r.session();
+    r.ask(&sid, "Start the chain");
+    let task = r.wait("the task complete", || {
+        r.tasks().into_iter().find(|t| t["state"] == "complete")
+    });
+    assert_eq!(task["wake_parent"], true, "{task}");
+    let short = task["short"].as_str().unwrap().to_string();
+    let line = format!("-# 📋 task {short} reported\n");
+    let reply = r.wait("the report's turn's reply", || {
+        r.fake
+            .messages(DM)
+            .into_iter()
+            .find(|m| m.content.starts_with(&line))
+    });
+    assert!(
+        reply.content.contains("Nothing to do."),
+        "{}",
+        reply.content
+    );
+    let exec = r.wait("the parent's second turn ended", || {
+        let e = execution_of(&r, &sid);
+        (e["turns"] == 2 && e["state"] == "waiting").then_some(e)
+    });
+    assert_eq!(exec["turns"], 2);
+    assert_eq!(r.report_nodes(&sid).len(), 1, "its input was the report");
+    // The report came first, then the reply, once each.
+    std::thread::sleep(Duration::from_millis(500));
+    let msgs = r.fake.messages(DM);
+    let at = |f: &dyn Fn(&Msg) -> bool| msgs.iter().position(f).unwrap();
+    assert!(
+        at(&|m| m.content.contains(&format!("**Task `{short}` finished**")))
+            < at(&|m| m.content.starts_with(&line))
+    );
+    assert_eq!(
+        msgs.iter().filter(|m| m.content.starts_with(&line)).count(),
+        1
+    );
+    assert_eq!(r.reports().len(), 1);
+}
+
+/// `execution.stop` (`/stop`, W1) kills the job the session waits on, keeps
+/// the session, and its next message continues it: the same execution, and
+/// the job's result reads as stopped.
+#[test]
+fn a_stop_kills_the_sessions_job_and_the_next_message_continues_the_session() {
+    let r = Rig::new(vec![(
+        "Run the long build",
+        vec![(
+            "proc_run",
+            json!({"argv": ["sleep", "30"], "timeout_secs": 60}),
+        )],
+    )]);
+    let _daemon = r.spawn();
+    let sid = r.session();
+    r.ask(&sid, "Run the long build");
+    let exec = r.wait("the session waiting on its job", || {
+        let e = execution_of(&r, &sid);
+        (e["state"] == "waiting" && e["outstanding"] == 1).then_some(e)
+    });
+    let eid = exec["execution_id"].as_str().unwrap().to_string();
+    let res = r
+        .call(
+            "execution.stop",
+            json!({"execution_id": eid, "author": "test"}),
+        )
+        .unwrap();
+    assert_eq!(res["stopped"], true, "{res}");
+    assert_eq!(res["execution"]["state"], "waiting", "{res}");
+    let job = res["stopped_actions"][0].as_str().unwrap().to_string();
+    let a = r.call("action.list", json!({"execution_id": eid})).unwrap()["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["correlation_id"] == job.as_str())
+        .cloned()
+        .unwrap();
+    assert_eq!(a["state"], "cancelled", "{a}");
+    assert_eq!(a["cancel"], "termination_verified", "{a}");
+    // The next message continues the same session, and reads the job as stopped.
+    let next = r.ask(&sid, "What happened to the build?");
+    assert_eq!(next["session_id"], sid.as_str(), "{next}");
+    assert_eq!(next["execution_id"], eid.as_str(), "{next}");
+    let h = r
+        .call("session.history", json!({"session_id": sid}))
+        .unwrap();
+    let nodes = h["nodes"].as_array().unwrap();
+    assert!(
+        nodes.iter().any(|n| n["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("[cancelled: stopped by test]"))),
+        "the job's late result says it was stopped: {}",
+        serde_json::to_string(&nodes).unwrap()
+    );
+    assert_eq!(execution_of(&r, &sid)["turns"], 2);
 }

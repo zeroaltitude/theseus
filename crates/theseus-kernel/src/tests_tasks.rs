@@ -15,7 +15,9 @@ fn with_task(w: &World, want: Micros) -> (Execution, TurnGuard, Execution, Strin
     let call = new_id("act");
     let t = w
         .kernel
-        .open_task(&g, &call, want, Some("discord:dm:1".into()), |_| Ok(vec![]))
+        .open_task(&g, &call, want, Some("discord:dm:1".into()), false, |_| {
+            Ok(vec![])
+        })
         .unwrap();
     assert!(t.opened);
     (parent, g, t.task, call)
@@ -81,7 +83,7 @@ fn a_request_for_more_than_the_parent_has_left_is_capped() {
     assert_eq!(task.budget.limit_micros, 60_000);
     let second = w
         .kernel
-        .open_task(&g, &new_id("act"), 500_000, None, |_| Ok(vec![]))
+        .open_task(&g, &new_id("act"), 500_000, None, false, |_| Ok(vec![]))
         .unwrap();
     assert_eq!(second.available_before, 40_000);
     assert_eq!(second.task.budget.limit_micros, 40_000, "capped");
@@ -89,7 +91,7 @@ fn a_request_for_more_than_the_parent_has_left_is_capped() {
     let before = w.kernel.store().last_position();
     let err = w
         .kernel
-        .open_task(&g, &new_id("act"), 1, None, |_| Ok(vec![]))
+        .open_task(&g, &new_id("act"), 1, None, false, |_| Ok(vec![]))
         .unwrap_err();
     assert!(
         matches!(
@@ -110,7 +112,7 @@ fn the_same_call_opens_its_task_once() {
     let before = w.kernel.store().last_position();
     let again = w
         .kernel
-        .open_task(&g, &call, 30_000, None, |_| panic!("no records"))
+        .open_task(&g, &call, 30_000, None, false, |_| panic!("no records"))
         .unwrap();
     assert!(!again.opened);
     assert_eq!(again.task, task);
@@ -127,7 +129,7 @@ fn a_task_cannot_start_tasks() {
     let before = w.kernel.store().last_position();
     let err = w
         .kernel
-        .open_task(&tg, &new_id("act"), 1_000, None, |_| Ok(vec![]))
+        .open_task(&tg, &new_id("act"), 1_000, None, false, |_| Ok(vec![]))
         .unwrap_err();
     assert!(
         matches!(
@@ -255,8 +257,9 @@ fn a_task_that_ends_reports_to_its_parent_once() {
             )?])
         })
         .unwrap();
-    assert_eq!(ids, vec![task.id]);
-    assert_eq!(built, ids);
+    assert_eq!(ids.ids, vec![task.id]);
+    assert!(ids.woke.is_empty(), "it asked for no turn");
+    assert_eq!(built, ids.ids);
     assert!(exec(&w, &parent.id).reports.is_empty());
     assert!(
         w.kernel
@@ -271,6 +274,7 @@ fn a_task_that_ends_reports_to_its_parent_once() {
         .kernel
         .take_reports(&g, |_| panic!("no reports"))
         .unwrap()
+        .ids
         .is_empty());
     assert_eq!(w.kernel.store().last_position(), before, "none: no frame");
 }
@@ -357,6 +361,225 @@ fn a_task_and_its_carve_survive_a_crash() {
     let t = exec(&w, &task.id);
     assert_eq!((t.state, t.resume_pending), (ExecState::Queued, true));
     assert_eq!(carved(&w, &parent.id, &task.id), Some(30_000));
+}
+
+// ------------------------------------------------------------ the report's wake (W1)
+
+/// A parent waiting on input, with a task opened with `wake_parent`.
+fn waiting_with_waking_task(w: &World) -> (Execution, Execution) {
+    let (_, parent, g) = running(w);
+    let t = w
+        .kernel
+        .open_task(&g, &new_id("act"), 20_000, None, true, |_| Ok(vec![]))
+        .unwrap()
+        .task;
+    assert!(t.wake_parent);
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    (parent, t)
+}
+
+fn finish(w: &World, task: &str) -> Execution {
+    let tg = w.kernel.admit(task).unwrap();
+    w.kernel
+        .end_turn(
+            tg,
+            TurnEnd::Complete {
+                reason: "reported".into(),
+            },
+        )
+        .unwrap()
+}
+
+/// A task opened with `wake_parent` that finishes queues its free parent for
+/// the driver in the frame that ends it, ledgered as the report's wake. The
+/// parent's turn reads the report and clears the ask, and its end parks as
+/// usual.
+#[test]
+fn a_task_with_wake_parent_queues_its_free_parent_in_the_frame_that_ends_it() {
+    let w = world();
+    let (parent, task) = waiting_with_waking_task(&w);
+    let frames = w.kernel.store().stats().unwrap().frames_appended;
+    finish(&w, &task.id);
+    assert_eq!(
+        w.kernel.store().stats().unwrap().frames_appended,
+        frames + 2,
+        "the admit, then one frame for the end and the wake"
+    );
+    let p = exec(&w, &parent.id);
+    assert_eq!(
+        (p.state, p.wake.clone(), p.resume_pending),
+        (ExecState::Queued, None, true)
+    );
+    assert_eq!(p.reports, vec![task.id.clone()]);
+    assert_eq!(p.report_wakes, vec![task.id.clone()]);
+    let row = &rows(&w, &parent.session_id, "task.report_wake")[0];
+    assert_eq!(row["task"], task.id);
+    assert_eq!(row["execution_id"], parent.id);
+    assert_eq!(row["queued"], true);
+    let q = rows(&w, &parent.session_id, "execution.queued");
+    assert_eq!(q.last().unwrap()["why"], "report");
+    assert_eq!(q.last().unwrap()["tasks"][0], task.id);
+    // The parent's turn reads it, and asks for nothing more.
+    let g = w.kernel.admit(&parent.id).unwrap();
+    let taken = w.kernel.take_reports(&g, |_| Ok(vec![])).unwrap();
+    assert_eq!(taken.ids, vec![task.id.clone()]);
+    assert_eq!(taken.woke, vec![task.id.clone()]);
+    let read = rows(&w, &parent.session_id, "task.reports_read");
+    assert_eq!(read[0]["woke"][0], task.id);
+    let p = w
+        .kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    assert_eq!(p.state, ExecState::Waiting);
+    assert!(p.report_wakes.is_empty() && p.reports.is_empty());
+}
+
+/// Without `wake_parent`, a report starts no turn: the parent waits on input
+/// with the report on its list, as before.
+#[test]
+fn without_wake_parent_a_report_starts_no_turn() {
+    let w = world();
+    let (_, parent, g) = running(&w);
+    let t = w
+        .kernel
+        .open_task(&g, &new_id("act"), 20_000, None, false, |_| Ok(vec![]))
+        .unwrap()
+        .task;
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    finish(&w, &t.id);
+    let p = exec(&w, &parent.id);
+    assert_eq!(
+        (p.state, p.wake.clone()),
+        (ExecState::Waiting, Some(Wake::Input))
+    );
+    assert_eq!(p.reports, vec![t.id]);
+    assert!(p.report_wakes.is_empty());
+    assert!(!crate::wakes::due_now(&p, w.kernel.now_ms()));
+    assert!(rows(&w, &parent.session_id, "task.report_wake").is_empty());
+}
+
+/// Two reports that land together start one turn, which reads them both.
+#[test]
+fn two_reports_that_land_together_start_one_turn() {
+    let w = world();
+    let (_, parent, g) = running(&w);
+    let open = |g: &TurnGuard| {
+        w.kernel
+            .open_task(g, &new_id("act"), 20_000, None, true, |_| Ok(vec![]))
+            .unwrap()
+            .task
+    };
+    let (a, b) = (open(&g), open(&g));
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    finish(&w, &a.id);
+    finish(&w, &b.id);
+    let p = exec(&w, &parent.id);
+    assert_eq!(p.state, ExecState::Queued, "queued once, by the first");
+    assert_eq!(p.report_wakes, vec![a.id.clone(), b.id.clone()]);
+    let queued: Vec<_> = rows(&w, &parent.session_id, "execution.queued")
+        .into_iter()
+        .filter(|r| r["why"] == "report")
+        .collect();
+    assert_eq!(queued.len(), 1, "the second found it queued");
+    let g = w.kernel.admit(&parent.id).unwrap();
+    let taken = w.kernel.take_reports(&g, |_| Ok(vec![])).unwrap();
+    assert_eq!(taken.ids, vec![a.id.clone(), b.id.clone()]);
+    assert_eq!(taken.woke, vec![a.id, b.id]);
+    let p = w
+        .kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    assert_eq!(p.state, ExecState::Waiting, "one turn read them both");
+}
+
+/// A parent that is busy when the report lands keeps the ask, and the frame
+/// that ends its turn queues it. A failed task wakes its parent too.
+#[test]
+fn a_busy_parent_takes_the_reports_turn_when_its_own_turn_ends() {
+    let w = world();
+    let (_, parent, g) = running(&w);
+    let t = w
+        .kernel
+        .open_task(&g, &new_id("act"), 20_000, None, true, |_| Ok(vec![]))
+        .unwrap()
+        .task;
+    let tg = w.kernel.admit(&t.id).unwrap();
+    w.kernel
+        .end_turn(
+            tg,
+            TurnEnd::Fail {
+                reason: "provider:overloaded".into(),
+            },
+        )
+        .unwrap();
+    let p = exec(&w, &parent.id);
+    assert_eq!(p.state, ExecState::Running, "busy: its own turn runs");
+    assert_eq!(p.report_wakes, vec![t.id]);
+    assert_eq!(
+        rows(&w, &parent.session_id, "task.report_wake")[0]["queued"],
+        false
+    );
+    let p = w
+        .kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    assert_eq!((p.state, p.resume_pending), (ExecState::Queued, true));
+    let ended = rows(&w, &parent.session_id, "execution.queued");
+    assert_eq!(ended.last().unwrap()["why"], "report");
+}
+
+/// A cancelled task wakes nothing: whoever cancelled it is there, and its
+/// report, which the parent's next turn still reads, says who did.
+#[test]
+fn a_cancelled_task_wakes_nothing() {
+    let w = world();
+    let (parent, task) = waiting_with_waking_task(&w);
+    w.kernel
+        .cancel_execution(&task.id, "discord:eddie")
+        .unwrap();
+    let p = exec(&w, &parent.id);
+    assert_eq!(
+        (p.state, p.wake.clone()),
+        (ExecState::Waiting, Some(Wake::Input))
+    );
+    assert_eq!(p.reports, vec![task.id]);
+    assert!(p.report_wakes.is_empty());
+    assert!(rows(&w, &parent.session_id, "task.report_wake").is_empty());
+}
+
+/// A report that asked for a turn while its parent's turn was being stopped
+/// is not lost: the stopped turn parks on input, and the due scan queues the
+/// parent at its next tick, `why: report`.
+#[test]
+fn a_reports_wake_outlives_a_stop_of_its_parents_turn() {
+    let w = world();
+    let (_, parent, g) = running(&w);
+    let t = w
+        .kernel
+        .open_task(&g, &new_id("act"), 20_000, None, true, |_| Ok(vec![]))
+        .unwrap()
+        .task;
+    w.kernel
+        .stop_execution(&parent.id, "discord:eddie")
+        .unwrap()
+        .unwrap();
+    finish(&w, &t.id);
+    let p = w
+        .kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    assert_eq!(p.state, ExecState::Waiting, "a stop parks it");
+    assert!(crate::wakes::due_now(&p, w.kernel.now_ms()));
+    let q = w.kernel.fire_due(&parent.id).unwrap().expect("queued");
+    assert_eq!((q.state, q.resume_pending), (ExecState::Queued, true));
+    let row = rows(&w, &parent.session_id, "execution.queued");
+    assert_eq!(row.last().unwrap()["why"], "report");
 }
 
 // ------------------------------------------------------------ races
@@ -469,7 +692,7 @@ fn opening_a_task_and_the_parents_reservation_never_lose_each_other() {
         &w.kernel,
         &p,
         (kinds::EXECUTION, &parent.id, 1),
-        |k| k.open_task(&g, &call, 30_000, None, |_| Ok(vec![])),
+        |k| k.open_task(&g, &call, 30_000, None, false, |_| Ok(vec![])),
         |k| {
             k.plan_and_dispatch(
                 &g,

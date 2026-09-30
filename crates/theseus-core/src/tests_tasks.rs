@@ -183,6 +183,32 @@ fn start(brief: &str, budget_usd: Option<f64>) -> Scripted {
     Scripted::tools("Starting it.", &[("t_task", "task_create", input)])
 }
 
+/// `task.create { brief, wake_parent: true }` (W1), with a budget.
+fn start_waking(briefs: &[&str], budget_usd: f64) -> Scripted {
+    let calls: Vec<(String, &str, Value)> = briefs
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            (
+                format!("t_task{i}"),
+                "task_create",
+                json!({"brief": b, "budget_usd": budget_usd, "wake_parent": true}),
+            )
+        })
+        .collect();
+    let calls: Vec<(&str, &str, Value)> = calls
+        .iter()
+        .map(|(id, n, v)| (id.as_str(), *n, v.clone()))
+        .collect();
+    Scripted::tools("Starting.", &calls)
+}
+
+/// The parent's execution, by its session.
+fn parent_exec(core: &Core, sid: &str) -> Execution {
+    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
+    exec(core, rec.execution_id.as_deref().unwrap())
+}
+
 /// The one task of `parent`'s execution.
 fn only_task(core: &Core, parent_sid: &str) -> Execution {
     let rec: SessionRecord = core.store.get_session(parent_sid).unwrap().unwrap();
@@ -300,8 +326,12 @@ async fn a_task_runs_on_its_own_and_reports_once_to_the_place_and_the_parent() {
         report_nodes(&r.core, &parent).is_empty(),
         "nothing is written into the parent until its next turn"
     );
-    // Nothing started a parent turn.
+    // Nothing started a parent turn: the task asked for none (W1), and the
+    // driver's ticks since took none.
     assert_eq!(pe.state, ExecState::Waiting);
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let pe = exec(&r.core, &pe.id);
+    assert_eq!((pe.state, pe.turns), (ExecState::Waiting, 2));
     // The parent's next turn reads it, once.
     let third = turn(&r.core, &parent, "THIRD what did the task find?").await;
     assert_eq!(third.output, "It counted to three.");
@@ -556,4 +586,377 @@ async fn a_cancel_stops_the_task_and_reports_once() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+// ---------------------------------------------------------------- the report's wake (W1, theseus-lji)
+
+/// The ledger's rows of one kind, oldest first.
+fn rows(core: &Core, kind: &str) -> Vec<Value> {
+    core.store
+        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.is_kind(kind))
+        .map(|(_, r)| r.data)
+        .collect()
+}
+
+/// A task opened with `wake_parent` starts one parent turn when it reports:
+/// the turn runs by itself, its input is the report, and its reply, posted
+/// where the parent posts, says which report started it. No turn follows.
+#[tokio::test]
+async fn a_task_with_wake_parent_starts_one_parent_turn_that_reads_its_report() {
+    let r = rig(
+        |req| {
+            let (first, last) = (first_user(req), last_user(req));
+            if first.contains("CHILD: count") {
+                return Scripted::text("One, two, three. Counted to three.");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started it; its report starts my next turn.");
+            }
+            if last.starts_with("START") {
+                return start_waking(&["CHILD: count to three"], 1.5);
+            }
+            Scripted::text("The task counted to three; the next step is four.")
+        },
+        |_| {},
+    );
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, "START a chain").await;
+    let task = only_task(&r.core, &parent);
+    assert!(task.wake_parent);
+    let pid = task.parent.clone().unwrap();
+    until("the report's turn ended", || {
+        let p = exec(&r.core, &pid);
+        p.turns == 2 && p.state == ExecState::Waiting
+    })
+    .await;
+    // Its input was the report.
+    let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
+    let last = last_user(&req);
+    assert!(last.contains("[Report from task"), "{last}");
+    assert!(
+        last.contains("One, two, three. Counted to three."),
+        "{last}"
+    );
+    assert_eq!(report_nodes(&r.core, &parent).len(), 1);
+    // Its reply goes where the parent posts, under the report's line.
+    let replies: Vec<_> = posts(&r.core, "reply")
+        .into_iter()
+        .filter(|a| a.session_id == parent)
+        .collect();
+    assert_eq!(replies.len(), 2, "the first turn's, and the report's");
+    assert_eq!(crate::outbox::target_of(&replies[1]), TARGET);
+    let body = crate::outbox::body_of(&replies[1]);
+    let short = crate::task::short(&task.session_id);
+    assert_eq!(
+        body["reports"][0]["text"],
+        format!("📋 task {short} reported")
+    );
+    assert_eq!(body["result"]["continuation"], true);
+    assert!(crate::outbox::body_of(&replies[0]).get("reports").is_none());
+    // The ledger names the report's wake, with the task and the parent.
+    let wake = &rows(&r.core, "task.report_wake")[0];
+    assert_eq!(wake["task"], task.id);
+    assert_eq!(wake["execution_id"], pid);
+    assert!(rows(&r.core, "execution.queued")
+        .iter()
+        .any(|q| q["why"] == "report" && q["execution_id"] == pid));
+    assert_eq!(rows(&r.core, "task.reports_read")[0]["woke"][0], task.id);
+    // One turn, and none follows.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(exec(&r.core, &pid).turns, 2);
+}
+
+/// Two reports that land together start one parent turn, which reads both.
+/// The parent is busy when they land, and the frame that ends its turn
+/// queues it once.
+#[tokio::test]
+async fn two_reports_that_land_together_start_one_parent_turn() {
+    let mut r = rig(
+        |req| {
+            let (first, last) = (first_user(req), last_user(req));
+            if first.contains("CHILD: one") {
+                return Scripted::text("Report one.");
+            }
+            if first.contains("CHILD: two") {
+                return Scripted::text("Report two.");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started both.");
+            }
+            if last.starts_with("PARENT") {
+                return start_waking(&["CHILD: one", "CHILD: two"], 1.5);
+            }
+            Scripted::text("Both reported.")
+        },
+        |_| {},
+    );
+    *r.model.hold.lock().unwrap() = Some("PARENT".into());
+    let parent = parent_session(&r.core);
+    r.model.gate.add_permits(1);
+    let (core, sid) = (r.core.clone(), parent.clone());
+    let first = tokio::spawn(async move { turn(&core, &sid, "PARENT start two tasks").await });
+    // Its first call passes; its second, which reads the two ids, waits.
+    r.entered.recv().await.unwrap();
+    r.entered.recv().await.unwrap();
+    let pid = parent_exec(&r.core, &parent).id;
+    let tasks = r.core.kernel.tasks(Some(&pid)).unwrap();
+    assert_eq!(tasks.len(), 2);
+    until("both tasks complete", || {
+        tasks
+            .iter()
+            .all(|t| exec(&r.core, &t.id).state == ExecState::Complete)
+    })
+    .await;
+    let busy = exec(&r.core, &pid);
+    assert_eq!(busy.state, ExecState::Running);
+    assert_eq!(
+        busy.report_wakes.len(),
+        2,
+        "the busy parent keeps both asks"
+    );
+    r.model.gate.add_permits(1);
+    first.await.unwrap();
+    // The one report turn: its call waits at the gate too.
+    r.entered.recv().await.unwrap();
+    r.model.gate.add_permits(1);
+    until("the report's turn ended", || {
+        let p = exec(&r.core, &pid);
+        p.turns == 2 && p.state == ExecState::Waiting
+    })
+    .await;
+    let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
+    let last = last_user(&req);
+    assert!(
+        last.contains("Report one.") && last.contains("Report two."),
+        "{last}"
+    );
+    assert_eq!(report_nodes(&r.core, &parent).len(), 2);
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(exec(&r.core, &pid).turns, 2, "one turn read both");
+}
+
+/// A parent at its limit, when a report starts its turn, asks as any turn
+/// does: the turn reads the report, and its call waits on the budget.
+#[tokio::test]
+async fn a_report_that_starts_a_turn_at_the_parents_limit_asks() {
+    let mut r = rig(
+        |req| {
+            let (first, last) = (first_user(req), last_user(req));
+            if first.contains("CHILD: spend") {
+                // About $1.45 out, which the parent's spend counts.
+                return Scripted::text(&"word ".repeat(145_000));
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started.");
+            }
+            if last.starts_with("START") {
+                return start_waking(&["CHILD: spend"], 1.35);
+            }
+            Scripted::text("this call does not fit")
+        },
+        |c| c.kernel.spend_limit_usd = 2.70,
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD".into());
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, "START").await;
+    let task = only_task(&r.core, &parent);
+    let pid = task.parent.clone().unwrap();
+    r.entered.recv().await.unwrap();
+    r.model.gate.add_permits(1);
+    until("the parent waits on its budget", || {
+        matches!(exec(&r.core, &pid).wake, Some(Wake::Budget { .. }))
+    })
+    .await;
+    let p = exec(&r.core, &pid);
+    assert_eq!(p.turns, 2, "the report's turn ran");
+    assert_eq!(
+        report_nodes(&r.core, &parent).len(),
+        1,
+        "it read the report first"
+    );
+    let q = p.budget.question.expect("a budget question");
+    assert!(posts(&r.core, "card")
+        .iter()
+        .any(|c| crate::outbox::body_of(c)["question"] == q.as_str()));
+    assert!(
+        r.model
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|q| !last_user(q).contains("[Report from task")),
+        "the call that did not fit was not made"
+    );
+}
+
+/// A cancelled task wakes nothing: its report reaches the place and, at the
+/// parent's next turn, the parent; no turn starts for it.
+#[tokio::test]
+async fn a_cancelled_task_with_wake_parent_wakes_nothing() {
+    let mut r = rig(
+        |req| {
+            if first_user(req).contains("CHILD") {
+                return Scripted::text("finished anyway");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started.");
+            }
+            start_waking(&["CHILD: wait"], 1.5)
+        },
+        |_| {},
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD".into());
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, "START").await;
+    let task = only_task(&r.core, &parent);
+    r.entered.recv().await.unwrap();
+    r.core
+        .task_cancel_by(&task.session_id, "discord:eddie")
+        .unwrap();
+    r.model.gate.add_permits(1);
+    until("the held turn ended", || !r.core.kernel.is_held(&task.id)).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let p = exec(&r.core, &task.parent.clone().unwrap());
+    assert_eq!(
+        (p.state, p.turns),
+        (ExecState::Waiting, 1),
+        "no turn started"
+    );
+    assert_eq!(p.reports, vec![task.id.clone()]);
+    assert!(p.report_wakes.is_empty());
+    assert!(rows(&r.core, "task.report_wake").is_empty());
+    assert_eq!(posts(&r.core, "report").len(), 1, "the place heard it");
+}
+
+// ---------------------------------------------------------------- `/stop` keeps the conversation (W1)
+
+/// `/stop` while the model answers: the turn keeps the answer, runs none of
+/// its calls, posts no reply, and parks the same execution on input. The
+/// next message continues the same session, and its history is compiled.
+#[tokio::test]
+async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
+    let mut r = rig(
+        |req| {
+            if last_user(req).starts_with("SECOND") {
+                return Scripted::text("You stopped me before the file was written.");
+            }
+            Scripted::tools(
+                "I will write it.",
+                &[("w1", "fs_write", json!({"path": "a.txt", "content": "x\n"}))],
+            )
+        },
+        |_| {},
+    );
+    *r.model.hold.lock().unwrap() = Some("FIRST".into());
+    let sid = parent_session(&r.core);
+    let (core, s) = (r.core.clone(), sid.clone());
+    let first = tokio::spawn(async move { turn(&core, &s, "FIRST write a file").await });
+    r.entered.recv().await.unwrap();
+    let eid = parent_exec(&r.core, &sid).id;
+    let stop = r.core.stop_execution(&eid, "discord:eddie").unwrap();
+    assert!(stop.stopped && stop.turn_running, "{stop:?}");
+    assert!(stop.stopped_actions.is_empty(), "the model call finishes");
+    r.model.gate.add_permits(1);
+    let res = first.await.unwrap();
+    assert_eq!(res.stop_reason, "stopped");
+    // Its call did not run, and says why.
+    let not_run = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult {
+                tool,
+                status,
+                content,
+                ..
+            } if tool == "fs.write" => Some((status, content)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(not_run.0, ResultStatus::Cancelled);
+    assert!(
+        not_run
+            .1
+            .contains("stopped this turn (/stop, by discord:eddie)"),
+        "{}",
+        not_run.1
+    );
+    let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
+    assert!(!root.join("a.txt").exists(), "nothing was written");
+    assert!(
+        posts(&r.core, "reply").is_empty(),
+        "a stopped turn posts no reply"
+    );
+    assert!(posts(&r.core, "failed").is_empty(), "nor a failure");
+    let e = parent_exec(&r.core, &sid);
+    assert_eq!(
+        (e.id.as_str(), e.state, e.wake.clone(), e.stopped.clone()),
+        (eid.as_str(), ExecState::Waiting, Some(Wake::Input), None)
+    );
+    // The next message: the same session and execution, its history compiled.
+    *r.model.hold.lock().unwrap() = None;
+    let second = turn(&r.core, &sid, "SECOND what happened?").await;
+    assert_eq!(second.session_id, sid);
+    assert_eq!(second.execution_id.as_deref(), Some(eid.as_str()));
+    assert_eq!(second.output, "You stopped me before the file was written.");
+    let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
+    let seen = serde_json::to_string(&req.messages).unwrap();
+    assert!(seen.contains("FIRST write a file"), "{seen}");
+    assert!(seen.contains("I will write it."), "{seen}");
+    assert!(seen.contains("/stop, by discord:eddie"), "{seen}");
+    assert_eq!(posts(&r.core, "reply").len(), 1);
+}
+
+/// `/stop` between turns declines an approval that waits: its card settles
+/// as stopped, nothing waits for the operator, and the next message's turn
+/// hears that the call was not run.
+#[tokio::test]
+async fn a_stop_declines_a_waiting_approval_and_the_next_turn_hears_it() {
+    let r = rig(
+        |req| {
+            if last_user(req).starts_with("SECOND") {
+                return Scripted::text("Understood: not written.");
+            }
+            Scripted::tools(
+                "Writing.",
+                &[("w1", "fs_write", json!({"path": "a.txt", "content": "x\n"}))],
+            )
+        },
+        |c| c.policy.enforcement = Posture::Approve,
+    );
+    let sid = parent_session(&r.core);
+    let res = turn(&r.core, &sid, "FIRST write a file").await;
+    let q = res.awaiting_confirm.clone().expect("it asks");
+    let eid = parent_exec(&r.core, &sid).id;
+    let stop = r.core.stop_execution(&eid, "discord:eddie").unwrap();
+    assert!(stop.stopped && !stop.turn_running, "{stop:?}");
+    assert_eq!(stop.declined, vec![q.clone()]);
+    let settles: Vec<_> = posts(&r.core, "settle")
+        .into_iter()
+        .filter(|a| crate::outbox::body_of(a)["question"] == q.as_str())
+        .collect();
+    assert_eq!(settles.len(), 1);
+    assert_eq!(
+        crate::outbox::body_of(&settles[0])["closed"]["how"],
+        "stopped"
+    );
+    assert!(r.core.kernel.pending_confirms().unwrap().is_empty());
+    let e = parent_exec(&r.core, &sid);
+    assert_eq!(
+        (e.state, e.wake.clone()),
+        (ExecState::Waiting, Some(Wake::Input))
+    );
+    let second = turn(&r.core, &sid, "SECOND never mind").await;
+    assert_eq!(second.output, "Understood: not written.");
+    let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
+    let seen = serde_json::to_string(&req.messages).unwrap();
+    assert!(seen.contains("stopped by discord:eddie"), "{seen}");
+    let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
+    assert!(!root.join("a.txt").exists());
 }

@@ -16,12 +16,15 @@ pub mod kernel;
 mod locks;
 pub mod outbox;
 pub mod spool;
+pub mod stops;
 pub mod tasks;
 pub mod types;
 pub mod wakes;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_stops;
 #[cfg(test)]
 mod tests_tasks;
 #[cfg(test)]
@@ -35,6 +38,7 @@ pub use kernel::{
 };
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
 pub use spool::Spool;
-pub use tasks::{carve_key, task_ids, TaskOpen};
+pub use stops::Stop;
+pub use tasks::{carve_key, task_ids, TakenReports, TaskOpen};
 pub use types::*;
 pub use wakes::{wake_id, FiredWake, WakeSet, MAX_PENDING};

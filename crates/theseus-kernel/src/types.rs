@@ -146,6 +146,18 @@ pub struct PendingWake {
     pub target: Option<String>,
 }
 
+/// A `/stop` that landed while a turn held its execution (W1, theseus-lji):
+/// that turn plans nothing more, and its end parks the execution on input
+/// instead of where the turn would have waited.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stopped {
+    /// Who stopped it: the surface or the person (`Conn::actor`).
+    pub by: String,
+    pub at_ms: u64,
+    /// The turn it stopped.
+    pub turn: u64,
+}
+
 /// The authority an execution acts under (§3.9), inherited never widened.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Authority {
@@ -280,6 +292,20 @@ pub struct Execution {
     /// its due times at once (`wakes.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<PendingWake>,
+    /// A task whose report starts its parent's next turn (W1, theseus-lji:
+    /// `task.create { wake_parent: true }`), unless it was cancelled.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wake_parent: bool,
+    /// The tasks among `reports` whose reports start this execution's next
+    /// turn (W1). While any is here and the execution is free, the driver
+    /// takes a turn, which reads every report (`take_reports` clears both).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub report_wakes: Vec<ExecutionId>,
+    /// A stop that landed while a turn held this execution (W1): that turn
+    /// plans nothing more, and its end, or startup after a crash, parks the
+    /// execution on input and clears this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<Stopped>,
     /// Turns taken (lock acquisitions).
     pub turns: u64,
     /// Recovery counter: how many times a crash interrupted a running turn.

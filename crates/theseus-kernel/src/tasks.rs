@@ -17,7 +17,15 @@
 //! - **Depth one.** A task cannot open tasks.
 //! - **The end.** The frame that ends a task (its last turn, a failed turn, a
 //!   cancel) puts it on the parent's `reports`, and the parent's next turn
-//!   reads them (`take_reports`). Nothing wakes the parent.
+//!   reads them (`take_reports`).
+//! - **The report's wake** (W1, theseus-lji). A task opened with
+//!   `wake_parent` that finishes or fails also asks for that turn: the same
+//!   frame puts it on the parent's `report_wakes`, and queues the parent for
+//!   the driver when it is free, as a due wake does (`wakes::free`). A busy
+//!   parent keeps the ask, and the frame that frees it queues it. Reports
+//!   that land together start one turn, which reads them all. A cancelled
+//!   task wakes nothing: whoever cancelled it is already there, and its
+//!   report says who did.
 //! - **Locks.** Every transition that writes both takes both locks, in id
 //!   order (`lock_two`), so the parent's own writers and its task's never lose
 //!   each other's update.
@@ -54,12 +62,21 @@ pub struct TaskOpen {
     pub available_before: Micros,
 }
 
+/// What `take_reports` took.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TakenReports {
+    /// The tasks whose reports the turn reads, oldest first.
+    pub ids: Vec<ExecutionId>,
+    /// Those among them that asked for this turn (W1, `wake_parent`).
+    pub woke: Vec<ExecutionId>,
+}
+
 impl Kernel {
     /// Open a task for the tool call `correlation_id` of the turn `guard`
     /// holds (DD7), in one frame under both locks:
     /// - the task: queued for the driver, its limit pinned at `want_micros`
     ///   capped at what the parent has left, the parent's authority, `parent`,
-    ///   and `reports_to`;
+    ///   `reports_to`, and `wake_parent` (W1);
     /// - the parent's carve, a reservation of that limit;
     /// - `extra`, the core's records for the task (its session record, its
     ///   brief as the first node, where it reports);
@@ -75,6 +92,7 @@ impl Kernel {
         correlation_id: &str,
         want_micros: Micros,
         reports_to: Option<String>,
+        wake_parent: bool,
         extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
     ) -> Result<TaskOpen> {
         self.require_accepting()?;
@@ -94,13 +112,7 @@ impl Kernel {
         if parent.parent.is_some() || parent.kind == SessionKind::Task {
             return Err(KernelError::TaskDepth { id: parent.id }.into());
         }
-        if parent.state != ExecState::Running {
-            return Err(KernelError::NoTurn {
-                id: parent.id.clone(),
-                state: parent.state.as_str(),
-            }
-            .into());
-        }
+        crate::kernel::require_turn(&parent)?;
         let limit = want_micros.min(available_before);
         if limit == 0 {
             return Err(KernelError::NothingToCarve {
@@ -130,6 +142,9 @@ impl Kernel {
             reports_to,
             reports: vec![],
             wakes: vec![],
+            wake_parent,
+            report_wakes: vec![],
+            stopped: None,
             turns: 0,
             interrupted: 0,
             resume_pending: true,
@@ -150,7 +165,8 @@ impl Kernel {
             "execution.opened",
             Some(&task.session_id),
             json!({"execution_id": task.id, "kind": task.kind, "limit_usd": micros_to_usd(limit),
-                   "parent": parent.id, "reports_to": task.reports_to, "by": correlation_id}),
+                   "parent": parent.id, "reports_to": task.reports_to, "by": correlation_id,
+                   "wake_parent": wake_parent}),
         )?);
         frame.push(self.ledger(
             "budget.carved",
@@ -176,37 +192,45 @@ impl Kernel {
     /// The reports of the tasks that ended since the turn `guard` holds last
     /// read them, oldest first (DD7). They are cleared in one frame with the
     /// records `extra` builds from them (their nodes in the session), and the
-    /// row `task.reports_read`. When there are none, nothing is written: a
-    /// plain turn pays one read.
+    /// row `task.reports_read`, and so are the reports' wakes (W1): this turn
+    /// reads every report, whichever asked for it. When there are none,
+    /// nothing is written: a plain turn pays one read.
     pub fn take_reports(
         &self,
         guard: &TurnGuard,
         extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
-    ) -> Result<Vec<ExecutionId>> {
+    ) -> Result<TakenReports> {
         let _w = self.locks().lock(&guard.execution_id);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
-        if e.reports.is_empty() {
-            return Ok(vec![]);
+        if e.reports.is_empty() && e.report_wakes.is_empty() {
+            return Ok(TakenReports::default());
         }
         let ids = std::mem::take(&mut e.reports);
+        let woke = std::mem::take(&mut e.report_wakes);
         e.updated_at_ms = self.now_ms();
         let mut frame = vec![exec_record(&e)?];
         frame.extend(extra(&ids)?);
         frame.push(self.ledger(
             "task.reports_read",
             Some(&e.session_id),
-            json!({"execution_id": e.id, "tasks": ids}),
+            json!({"execution_id": e.id, "tasks": ids, "woke": woke, "turn": guard.turn}),
         )?);
         self.commit(&frame)?;
-        Ok(ids)
+        Ok(TakenReports { ids, woke })
     }
 
     /// A task ended in the frame being built: the parent's carve keeps only
     /// what the task still has in flight or unknown, and the task joins the
     /// parent's `reports`, with a `task.ended` row. The caller holds both
     /// locks (`lock_family`). Nothing for an execution with no parent.
+    ///
+    /// A task opened with `wake_parent` that did not end by a cancel also
+    /// asks for the parent's next turn (W1): it joins `report_wakes`, with a
+    /// `task.report_wake` row, and a parent that is free (`wakes::free`) is
+    /// queued for the driver in this frame, `why: report`. A busy one keeps
+    /// the ask for the frame that frees it (`end_turn_with`).
     pub(crate) fn task_ended(&self, e: &Execution, frame: &mut Vec<NewRecord>) -> Result<()> {
         let Some(pid) = &e.parent else {
             return Ok(());
@@ -221,7 +245,31 @@ impl Kernel {
         if !parent.reports.contains(&e.id) {
             parent.reports.push(e.id.clone());
         }
-        parent.updated_at_ms = self.now_ms();
+        let now = self.now_ms();
+        let mut woke = Vec::new();
+        if e.wake_parent && e.state != ExecState::Cancelled && !parent.state.is_terminal() {
+            if !parent.report_wakes.contains(&e.id) {
+                parent.report_wakes.push(e.id.clone());
+            }
+            let queued = crate::wakes::free(&parent);
+            woke.push(self.ledger(
+                "task.report_wake",
+                Some(&parent.session_id),
+                json!({"execution_id": parent.id, "task": e.id, "task_session": e.session_id,
+                       "state": e.state, "parent_state": parent.state, "queued": queued}),
+            )?);
+            if queued {
+                parent.state = ExecState::Queued;
+                parent.wake = None;
+                parent.resume_pending = true;
+                woke.push(self.ledger(
+                    "execution.queued",
+                    Some(&parent.session_id),
+                    json!({"execution_id": parent.id, "why": "report", "tasks": parent.report_wakes}),
+                )?);
+            }
+        }
+        parent.updated_at_ms = now;
         frame.push(exec_record(&parent)?);
         frame.push(self.ledger(
             "task.ended",
@@ -232,6 +280,7 @@ impl Kernel {
                    "released_usd": micros_to_usd(carved.saturating_sub(kept)),
                    "still_reserved_usd": micros_to_usd(kept)}),
         )?);
+        frame.extend(woke);
         Ok(())
     }
 
