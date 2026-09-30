@@ -22,5 +22,8 @@ shellexpand.workspace = true
 # SIGPIPE back to its default so `theseus history | head` ends quietly.
 libc = "0.2"
 
+[dev-dependencies]
+tempfile = "3"
+
 [lints]
 workspace = true

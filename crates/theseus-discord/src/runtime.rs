@@ -1048,6 +1048,30 @@ impl Shared {
             .map(|d| (*d).clone())
     }
 
+    /// A Theseus job's process tried to answer an approval and was refused
+    /// (theseus-6qy): a security event, said where approvals go. A trusted
+    /// user's DM first; without one, the place of the session that asked;
+    /// without that, the log alone, beside the ledger and the narrative.
+    fn job_refusal(&self, p: &Value) {
+        let text = crate::render::job_refusal(p);
+        if let Some((user, _)) = self.approval_dm(None) {
+            self.to_dm(user, PlaceMsg::Notice(text));
+            return;
+        }
+        let place = p
+            .get("session_id")
+            .and_then(Value::as_str)
+            .and_then(|s| self.routes.lock().unwrap().by_session.get(s).cloned());
+        match place {
+            Some(tx) => {
+                let _ = tx.send(PlaceMsg::Notice(text));
+            }
+            None => {
+                tracing::warn!(notice = %text, "no DM or place to tell of a job's refused answer")
+            }
+        }
+    }
+
     /// Hand an approval card to the DM place of `user`.
     fn to_dm(&self, user: u64, card: PlaceMsg) {
         let tx = self.routes.lock().unwrap().by_dm_user.get(&user).cloned();
@@ -1374,6 +1398,10 @@ fn confirm_buttons(corr: &str) -> Vec<Component> {
 /// holds for every session, so every place gets it (theseus-sgh).
 async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notification>) {
     while let Some(n) = notes.recv().await {
+        if n.method == theseus_protocol::notify::APPROVAL_REFUSED {
+            shared.job_refusal(&n.params);
+            continue;
+        }
         if everywhere(&n.method) {
             let places: Vec<mpsc::UnboundedSender<PlaceMsg>> = shared
                 .routes

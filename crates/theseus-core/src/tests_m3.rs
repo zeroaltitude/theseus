@@ -4048,3 +4048,274 @@ mod parallel {
         assert!(e.outstanding.is_empty(), "{:?}", e.outstanding);
     }
 }
+
+/// A connection accepted as `surface`, whose peer is `pid`, as a listener
+/// reads it (theseus-6qy).
+fn surface_of(label: &str, s: crate::approval::Surface, pid: u32) -> crate::approval::Client {
+    surface(label, s).with_peer(crate::peer::Peer::process(pid))
+}
+
+/// An answer over a real protocol connection accepted as `client`.
+async fn answer(
+    core: &Arc<Core>,
+    client: crate::approval::Client,
+    corr: &str,
+    approve: bool,
+) -> Result<Value, theseus_protocol::RpcError> {
+    let params = theseus_protocol::ActionConfirmParams {
+        correlation_id: corr.into(),
+        approve,
+        note: None,
+        watch: false,
+        author: None,
+        discord: None,
+    };
+    rpc_as(
+        core,
+        client,
+        theseus_protocol::method::ACTION_CONFIRM,
+        serde_json::to_value(params).unwrap(),
+    )
+    .await
+}
+
+/// A Theseus job's process cannot answer an approval (theseus-6qy). With no
+/// `[approval]` section, so that the CLI and the web UI answer as before, an
+/// approval and a decline from a process under a live job wrapper, through
+/// the CLI and through the web UI, are each refused with the job, the pid,
+/// and the program. Each is ledgered as `approval.refused` with the asker,
+/// narrated as a security event, and announced to every connection, and
+/// nothing moves. Then the operator's own answer counts, recorded with its
+/// process, and the write runs.
+#[tokio::test]
+async fn a_jobs_process_cannot_answer_an_approval() {
+    use crate::approval::Surface::{Cli, Web};
+    let job = crate::peer::Standin::start("act_standin");
+    let r = rig(write_script());
+    let (sid, mut rx) = watched_session(&r);
+    let res = turn(&r.core, Some(&sid), "write out.txt").await;
+    let corr = res.awaiting_confirm.clone().expect("the write waits");
+    let exec = res.execution_id.clone().unwrap();
+    let reason = format!(
+        "from a Theseus job's process (job act_standin, pid {}, sleep)",
+        job.child
+    );
+    for (client, approve, via) in [
+        (surface_of("sock#7", Cli, job.child), true, "cli"),
+        (surface_of("sock#8", Cli, job.child), false, "cli"),
+        (surface_of("web#2", Web, job.child), true, "web"),
+    ] {
+        let e = answer(&r.core, client, &corr, approve)
+            .await
+            .expect_err("refused");
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
+        assert!(e.message.contains(&reason), "{}", e.message);
+        assert_eq!(
+            (e.data["why"].as_str(), e.data["via"].as_str()),
+            (Some(reason.as_str()), Some(via))
+        );
+    }
+    // Nothing moved.
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Planned);
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(e.state.as_str(), "waiting");
+    assert_eq!(r.core.pending_confirms(&sid).unwrap().len(), 1);
+    assert!(!r.root.join("out.txt").exists());
+    assert!(ledgered(&r, "action.confirm_answered").is_empty());
+    // Loud: the ledger, every connection, the narrative.
+    let rows = ledgered(&r, "approval.refused");
+    assert_eq!(rows.len(), 3);
+    for row in &rows {
+        assert_eq!(row["why"], reason.as_str());
+        assert_eq!(row["from_job"], true);
+        assert_eq!(
+            (row["asker"]["job"].as_str(), row["asker"]["pid"].as_u64()),
+            (Some("act_standin"), Some(job.child as u64))
+        );
+        assert_eq!(row["asker"]["wrapper_pid"], job.wrapper);
+    }
+    assert_eq!(rows[1]["approve"], false);
+    let told = sent(&mut rx, theseus_protocol::notify::APPROVAL_REFUSED);
+    assert_eq!(told.len(), 3);
+    assert_eq!(
+        (
+            told[0]["act"].as_str(),
+            told[0]["session_id"].as_str(),
+            told[0]["tool"].as_str()
+        ),
+        (Some("action.confirm"), Some(sid.as_str()), Some("fs.write"))
+    );
+    assert!(sent(&mut rx, theseus_protocol::notify::CONFIRM_RESOLVED).is_empty());
+    let lines = narrated(&r, &sid);
+    assert!(
+        said(
+            &lines,
+            "approval",
+            &format!("Refused an answer to fs.write {reason} through cli: a job's process cannot answer an approval")
+        ),
+        "{}",
+        dump(&lines)
+    );
+
+    // The operator, outside every job.
+    if crate::peer::tests_support::inside_a_job() {
+        return;
+    }
+    let ok = answer(
+        &r.core,
+        surface_of("sock#1", Cli, std::process::id()),
+        &corr,
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(ok["approved"], true);
+    let answered = ledgered(&r, "action.confirm_answered");
+    assert_eq!(answered[0]["asker"]["pid"], std::process::id());
+    assert!(answered[0]["asker"]["job"].is_null());
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.output, "Written.");
+    assert_eq!(
+        std::fs::read_to_string(r.root.join("out.txt")).unwrap(),
+        "approved\n"
+    );
+}
+
+/// The spend reset from a Theseus job's process is refused, and the session
+/// keeps waiting on its budget; the operator's reset counts (theseus-6qy).
+#[tokio::test]
+async fn a_jobs_process_cannot_reset_the_spend() {
+    use crate::approval::Surface::Cli;
+    use theseus_kernel::ExecState;
+    let job = crate::peer::Standin::start("act_spender");
+    let script = vec![
+        Scripted::tools(
+            &"word ".repeat(30_000),
+            &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
+        ),
+        Scripted::text("The diff is one line."),
+    ];
+    let r = rig_with(script, |c| c.kernel.spend_limit_usd = 1.40);
+    let res = turn(&r.core, None, "diff these").await;
+    assert_eq!(res.stop_reason, "budget");
+    let q = res.awaiting_confirm.clone().unwrap();
+    let exec = res.execution_id.clone().unwrap();
+    let spent = r
+        .core
+        .kernel
+        .execution(&exec)
+        .unwrap()
+        .unwrap()
+        .budget
+        .spent_micros;
+    let e = answer(&r.core, surface_of("sock#4", Cli, job.child), &q, true)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
+    assert!(
+        e.message
+            .contains("from a Theseus job's process (job act_spender"),
+        "{}",
+        e.message
+    );
+    let x = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (x.state, x.budget.spent_micros, x.budget.resets),
+        (ExecState::Waiting, spent, 0),
+        "nothing was reset"
+    );
+    assert!(ledgered(&r, "budget.reset").is_empty());
+    let refused = ledgered(&r, "approval.refused");
+    assert_eq!(
+        (
+            refused[0]["tool"].as_str(),
+            refused[0]["asker"]["job"].as_str()
+        ),
+        (Some("budget.reset"), Some("act_spender"))
+    );
+    if crate::peer::tests_support::inside_a_job() {
+        return;
+    }
+    let ok = answer(
+        &r.core,
+        surface_of("sock#1", Cli, std::process::id()),
+        &q,
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(ok["resumes"], true);
+    let x = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!((x.budget.spent_micros, x.budget.resets), (0, 1));
+    assert_eq!(
+        ledgered(&r, "action.confirm_answered")[0]["asker"]["pid"],
+        std::process::id()
+    );
+}
+
+/// The undo of a tightening loosens, so it is refused from a Theseus job's
+/// process, and the tool keeps asking; a "should have asked" press only
+/// makes things stricter, so it is accepted from one (theseus-6qy).
+#[tokio::test]
+async fn a_jobs_process_can_tighten_but_not_undo_a_tightening() {
+    use crate::approval::Surface::Cli;
+    let job = crate::peer::Standin::start("act_policy");
+    let r = rig(vec![]);
+    let press = |tool: &str| json!({"tool": tool});
+    let pressed = rpc_as(
+        &r.core,
+        surface_of("sock#5", Cli, job.child),
+        theseus_protocol::method::POLICY_TIGHTEN,
+        press("fs.patch"),
+    )
+    .await
+    .expect("a press from a job's process counts");
+    assert_eq!(pressed["tool"], "fs.patch");
+    assert!(r.core.tools.tightened.get("fs.patch").is_some());
+    let e = rpc_as(
+        &r.core,
+        surface_of("sock#6", Cli, job.child),
+        theseus_protocol::method::POLICY_UNTIGHTEN,
+        press("fs.patch"),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
+    assert!(
+        e.message
+            .contains("from a Theseus job's process (job act_policy"),
+        "{}",
+        e.message
+    );
+    assert!(
+        e.message.contains("fs.patch keeps asking first"),
+        "{}",
+        e.message
+    );
+    assert!(
+        r.core.tools.tightened.get("fs.patch").is_some(),
+        "still tightened"
+    );
+    let refused = ledgered(&r, "approval.refused");
+    assert_eq!(
+        (refused[0]["act"].as_str(), refused[0]["from_job"].as_bool()),
+        (Some("policy.untighten"), Some(true))
+    );
+    if crate::peer::tests_support::inside_a_job() {
+        return;
+    }
+    rpc_as(
+        &r.core,
+        surface_of("sock#1", Cli, std::process::id()),
+        theseus_protocol::method::POLICY_UNTIGHTEN,
+        press("fs.patch"),
+    )
+    .await
+    .expect("the operator's undo counts");
+    assert!(r.core.tools.tightened.get("fs.patch").is_none());
+    assert_eq!(
+        ledgered(&r, "policy.untightened")[0]["asker"]["pid"],
+        std::process::id()
+    );
+}

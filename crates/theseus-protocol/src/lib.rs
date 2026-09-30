@@ -125,6 +125,12 @@ pub mod notify {
     /// holds for every session. The params are a `TightenResult`.
     pub const POLICY_TIGHTENED: &str = "policy.tightened";
     pub const POLICY_UNTIGHTENED: &str = "policy.untightened";
+    /// A Theseus job's process tried to answer an approval, reset the spend,
+    /// or undo a tightening, and was refused (theseus-6qy): a security event,
+    /// to every connection. The params are the `approval.refused` ledger
+    /// row's, with `act` and `session_id`; `asker` names the process and its
+    /// job.
+    pub const APPROVAL_REFUSED: &str = "approval.refused";
     /// One line of the narrative, to every `narrative.watch` subscriber.
     /// Unlike the others it is not a ledger row: the narrative is never stored.
     pub const NARRATIVE_LINE: &str = "narrative.line";

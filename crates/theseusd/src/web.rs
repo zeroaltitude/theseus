@@ -1,7 +1,9 @@
 //! The localhost web UI (spec §3.14, first form). Serves the built Vite/React
 //! app embedded in the binary and bridges a WebSocket to the protocol: each
 //! text frame is one JSON-RPC line, so the browser is just another client
-//! with no privileged path into the kernel. Loopback only; no auth yet.
+//! with no privileged path into the kernel. Loopback only; no auth yet. Each
+//! connection keeps its two addresses, so that a judged act can find the
+//! process that holds the client's end (theseus-6qy).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -10,8 +12,9 @@ use anyhow::{Context, Result};
 use axum::{
     body::Body,
     extract::{
+        connect_info::Connected,
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
-        Path, State,
+        ConnectInfo, Path, State,
     },
     http::{header, StatusCode},
     response::{IntoResponse, Response},
@@ -20,7 +23,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
-use theseus_core::approval::{Client, Surface};
+use theseus_core::approval::{Client, Peer, Surface};
 use theseus_core::Core;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -48,10 +51,43 @@ pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
         .with_context(|| format!("binding web UI on {addr}"))?;
     tracing::info!(url = %format!("http://{addr}/"), "web UI listening (loopback only)");
     let shutdown = async move { core.shutdown.notified().await };
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<Ends>())
         .with_graceful_shutdown(shutdown)
         .await?;
     Ok(())
+}
+
+/// A TCP connection's two ends, as it was accepted.
+#[derive(Clone, Copy, Debug)]
+struct Ends {
+    server: Option<SocketAddr>,
+    client: SocketAddr,
+}
+
+impl Connected<axum::serve::IncomingStream<'_, tokio::net::TcpListener>> for Ends {
+    fn connect_info(s: axum::serve::IncomingStream<'_, tokio::net::TcpListener>) -> Self {
+        Self {
+            server: s.io().local_addr().ok(),
+            client: *s.remote_addr(),
+        }
+    }
+}
+
+impl Ends {
+    /// The process on the other end, looked up only when a judged act
+    /// arrives (theseus-6qy).
+    fn peer(self) -> Peer {
+        match self.server {
+            Some(server) => Peer::Loopback {
+                server,
+                client: self.client,
+            },
+            None => Peer::Unknown(format!(
+                "the web UI's connection from {} had no local address",
+                self.client
+            )),
+        }
+    }
 }
 
 async fn index() -> Response {
@@ -92,13 +128,17 @@ fn serve_embedded(path: &str) -> Response {
     }
 }
 
-async fn ws_upgrade(ws: WebSocketUpgrade, State(core): State<Arc<Core>>) -> Response {
-    ws.on_upgrade(move |socket| bridge(socket, core))
+async fn ws_upgrade(
+    ws: WebSocketUpgrade,
+    ConnectInfo(ends): ConnectInfo<Ends>,
+    State(core): State<Arc<Core>>,
+) -> Response {
+    ws.on_upgrade(move |socket| bridge(socket, core, ends.peer()))
 }
 
 /// WebSocket ⇄ protocol connection. The core serves one end of an in-memory
 /// duplex exactly as it would a Unix socket; this task pumps frames.
-async fn bridge(socket: WebSocket, core: Arc<Core>) {
+async fn bridge(socket: WebSocket, core: Arc<Core>, peer: Peer) {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let client = format!("web#{n}");
@@ -109,7 +149,7 @@ async fn bridge(socket: WebSocket, core: Arc<Core>) {
     let server = tokio::spawn(core.serve_connection(
         core_r,
         core_w,
-        Client::new(client.clone(), Surface::Web),
+        Client::new(client.clone(), Surface::Web).with_peer(peer),
     ));
 
     let (from_core, mut to_core) = tokio::io::split(ours);

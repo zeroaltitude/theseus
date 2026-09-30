@@ -23,6 +23,7 @@ pub mod harness;
 pub mod ledger;
 pub mod narrative;
 pub mod node;
+pub mod peer;
 pub mod policy;
 pub mod provider;
 pub mod restore;

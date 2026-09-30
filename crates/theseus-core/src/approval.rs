@@ -20,6 +20,7 @@ use std::sync::RwLock;
 use theseus_protocol::{ApprovalChannel, ApprovalStatus, DiscordOrigin};
 
 use crate::config::ApprovalConfig;
+pub use crate::peer::Peer;
 
 /// Where a protocol connection comes from, as the listener that accepted it
 /// knows.
@@ -57,11 +58,13 @@ impl Surface {
 }
 
 /// A protocol connection: the label that names it in logs and the ledger
-/// (`sock#3`, `web#1`, `discord`), and its surface.
+/// (`sock#3`, `web#1`, `discord`), its surface, and the process on the other
+/// end when the listener knows one (theseus-6qy).
 #[derive(Debug, Clone)]
 pub struct Client {
     pub label: String,
     pub surface: Surface,
+    pub peer: Peer,
 }
 
 impl Client {
@@ -69,7 +72,14 @@ impl Client {
         Self {
             label: label.into(),
             surface,
+            peer: Peer::None,
         }
+    }
+
+    /// With the process on the other end, as the listener read it.
+    pub fn with_peer(mut self, peer: Peer) -> Self {
+        self.peer = peer;
+        self
     }
 }
 
@@ -95,6 +105,8 @@ pub struct Answerer {
     pub surface: Surface,
     /// What the Discord binding read off the button press.
     pub discord: Option<DiscordOrigin>,
+    /// The process that asked, as the connection knows it (theseus-6qy).
+    pub peer: Peer,
 }
 
 /// A bare label (a test, an in-process caller) answers through no surface
@@ -105,6 +117,7 @@ impl From<&str> for Answerer {
             label: label.to_string(),
             surface: Surface::Unnamed,
             discord: None,
+            peer: Peer::None,
         }
     }
 }
@@ -552,6 +565,7 @@ mod tests {
             label: "sock#3".into(),
             surface,
             discord: None,
+            peer: Peer::None,
         }
     }
 
@@ -564,6 +578,7 @@ mod tests {
                 channel_id: channel.into(),
                 guild_id: guild.map(str::to_string),
             }),
+            peer: Peer::None,
         }
     }
 

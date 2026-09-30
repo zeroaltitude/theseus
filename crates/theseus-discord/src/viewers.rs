@@ -288,6 +288,7 @@ mod tests {
                 channel_id: channel.to_string(),
                 guild_id: Some(GUILD.to_string()),
             }),
+            peer: Default::default(),
         };
         let why = a.judge(&from_there).unwrap_err().why;
         assert!(

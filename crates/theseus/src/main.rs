@@ -135,6 +135,9 @@ enum Cmd {
     /// Without an id, list everything waiting.
     Confirm {
         correlation_id: Option<String>,
+        /// Approve, which is what an answer does unless --decline says otherwise.
+        #[arg(long, conflicts_with = "decline")]
+        approve: bool,
         /// Decline instead of approve (the model is told, and carries on without it; a
         /// session at its limit keeps waiting, and its next message asks again).
         #[arg(long, alias = "deny")]
@@ -592,6 +595,7 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Confirm {
             correlation_id,
+            approve: _,
             decline,
             note,
             no_wait,
@@ -1203,6 +1207,17 @@ fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> String
         line.push_str(&format!("\n  fetched again in {:.0} s", ms as f64 / 1000.0));
     }
     line
+}
+
+/// A Theseus job's process tried to answer an approval and was refused
+/// (theseus-6qy), as `theseus watch` says it.
+fn job_refusal_line(p: &Value) -> String {
+    let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("?");
+    let what = match s("act") {
+        method::POLICY_UNTIGHTEN => format!("the undo of {}'s tightening", s("tool")),
+        _ => format!("an answer to {}", s("tool")),
+    };
+    format!("refused {what} {} through {}", s("why"), s("via"))
 }
 
 /// The kernel line's note of job wrappers that linger for descendants their
@@ -1937,6 +1952,10 @@ impl Printer {
                     eprintln!("  🔒 {}", tightened_line(&r, m == notify::POLICY_TIGHTENED));
                 }
             }
+            notify::APPROVAL_REFUSED => {
+                self.settle();
+                eprintln!("  🚨 {}", job_refusal_line(p));
+            }
             notify::CONFIRM_RESOLVED => {
                 self.settle();
                 let ok = p.get("approved").and_then(Value::as_bool).unwrap_or(false);
@@ -2029,6 +2048,25 @@ mod tests {
             input_schema: Value::Null,
             calls: 0,
         }
+    }
+
+    /// `theseus watch` says what a job's process tried, and why it was
+    /// refused (theseus-6qy).
+    #[test]
+    fn a_jobs_refused_answer_is_one_line() {
+        let why = "from a Theseus job's process (job act_j, pid 42, theseus)";
+        assert_eq!(
+            job_refusal_line(
+                &serde_json::json!({"act": "action.confirm", "tool": "fs.write", "via": "cli", "why": why})
+            ),
+            format!("refused an answer to fs.write {why} through cli")
+        );
+        assert_eq!(
+            job_refusal_line(
+                &serde_json::json!({"act": "policy.untighten", "tool": "fs.edit", "via": "web", "why": why})
+            ),
+            format!("refused the undo of fs.edit's tightening {why} through web")
+        );
     }
 
     /// The kernel line counts the job wrappers that linger, and says nothing

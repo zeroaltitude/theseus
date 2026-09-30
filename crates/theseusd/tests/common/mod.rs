@@ -72,3 +72,5 @@ pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> Stri
     table(&mut t, "kernel").insert("spend_limit_usd".into(), spend_limit_usd.into());
     toml::to_string(&t).unwrap()
 }
+
+pub mod model;

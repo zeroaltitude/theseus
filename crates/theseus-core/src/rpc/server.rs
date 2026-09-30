@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::mpsc;
 
 use super::Core;
-use crate::approval::{Answerer, Client, Surface};
+use crate::approval::{Answerer, Client, Peer, Surface};
 
 /// The connection a request came in on: who it is, the surface its listener
 /// named, and where its notifications go.
@@ -19,6 +19,8 @@ use crate::approval::{Answerer, Client, Surface};
 pub(super) struct Conn<'a> {
     pub client: &'a str,
     pub surface: Surface,
+    /// The process on the other end, as the listener read it (theseus-6qy).
+    pub peer: &'a Peer,
     pub tx: &'a mpsc::UnboundedSender<Message>,
     /// When the request arrived, and how long it waited at the config gate
     /// (theseus-2fo): a turn's trace starts at the arrival.
@@ -29,9 +31,10 @@ pub(super) struct Conn<'a> {
 impl Conn<'_> {
     /// Who makes an approval-like act on this connection (an answer, a
     /// "should have asked" press, an undo), as the connection knows it: the
-    /// label names, and the surface and the binding's Discord ids decide
-    /// (theseus-sgh). Every such method builds it here, so whatever judges
-    /// an answer judges the others the same way.
+    /// label names, and the surface, the binding's Discord ids, and the
+    /// process on the other end decide (theseus-sgh, theseus-6qy). Every
+    /// such method builds it here, so whatever judges an answer judges the
+    /// others the same way.
     pub fn answerer(
         &self,
         author: Option<String>,
@@ -41,6 +44,7 @@ impl Conn<'_> {
             label: author.unwrap_or_else(|| self.client.to_string()),
             surface: self.surface,
             discord,
+            peer: self.peer.clone(),
         }
     }
 }
@@ -62,6 +66,7 @@ impl Core {
         let Client {
             label: client,
             surface,
+            peer,
         } = client;
         // One ordered outbound queue: notifications and responses share it, so a
         // turn's events always precede its response on the wire.
@@ -108,8 +113,9 @@ impl Core {
                     let tx = tx.clone();
                     let resp_tx = resp_tx.clone();
                     let client = client.clone();
+                    let peer = peer.clone();
                     tokio::spawn(async move {
-                        let resp = core.handle(req, tx, &client, surface).await;
+                        let resp = core.handle(req, tx, &client, surface, &peer).await;
                         let _ = resp_tx.send(Message::Response(resp));
                     });
                 }
@@ -133,9 +139,10 @@ impl Core {
         tx: mpsc::UnboundedSender<Message>,
         client: &str,
         surface: Surface,
+        peer: &Peer,
     ) -> Response {
         let id = req.id.clone();
-        match self.dispatch(req, tx, client, surface).await {
+        match self.dispatch(req, tx, client, surface, peer).await {
             Ok(v) => Response::ok(id, v),
             Err(f) => Response::err_with(id, f.code, f.message, f.data),
         }
@@ -150,6 +157,7 @@ impl Core {
         tx: mpsc::UnboundedSender<Message>,
         client: &str,
         surface: Surface,
+        peer: &Peer,
     ) -> Result<Value, RpcFailure> {
         let arrived = std::time::Instant::now();
         let mut config_wait_us = 0;
@@ -164,6 +172,7 @@ impl Core {
         let conn = Conn {
             client,
             surface,
+            peer,
             tx: &tx,
             arrived,
             config_wait_us,

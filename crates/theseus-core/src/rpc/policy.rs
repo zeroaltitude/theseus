@@ -123,13 +123,15 @@ impl Core {
     }
 
     /// Undo a tightening: `tool` goes back to what the config says. It
-    /// loosens, so it is judged as an answer is.
+    /// loosens, so it is judged as an answer is: never from a Theseus job's
+    /// process (theseus-6qy), and under `[approval]`, only from a trusted
+    /// user through a trusted channel.
     pub fn untighten(&self, tool: &str, by: impl Into<Answerer>) -> Result<TightenResult> {
         let who = by.into();
         let Some(t) = self.tools.tightened.get(tool) else {
             bail!("{tool} is not tightened, so there is nothing to undo");
         };
-        self.judge_act(&who, Act::Untighten { tool })?;
+        let asker = self.judge_act(&who, Act::Untighten { tool })?;
         let before = self.tools.posture_now(tool);
         let after = self.tools.policy.posture_now(tool, None);
         let changed = after.posture != before.posture;
@@ -141,7 +143,7 @@ impl Core {
                    "tightened_by": t.by, "tightened_at_ms": t.at_ms,
                    "correlation_id": t.correlation_id, "digest": t.digest,
                    "posture": after.posture.as_str(), "setting": after.setting,
-                   "changed": changed}),
+                   "changed": changed, "asker": asker.json()}),
         );
         if !self.tools.tightened.remove(&self.store, tool, &row)? {
             bail!("{tool} is not tightened, so there is nothing to undo");

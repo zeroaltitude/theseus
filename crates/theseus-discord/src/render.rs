@@ -950,6 +950,40 @@ pub fn summarize(tool: &str, input: &Value) -> String {
     clip(&text.replace('`', "'").replace('\n', " "), 90)
 }
 
+/// The notice for a refusal of a Theseus job's process (theseus-6qy), from
+/// the `approval.refused` notification: what it tried, from which process
+/// of which job, and that nothing moved. It goes where approvals go.
+pub fn job_refusal(p: &Value) -> String {
+    let tool = str_of(p, "tool");
+    let what = match str_of(p, "act").as_str() {
+        theseus_protocol::method::POLICY_UNTIGHTEN => format!("undo the tightening of `{tool}`"),
+        _ if tool == theseus_protocol::BUDGET_TOOL => "answer the spend reset".to_string(),
+        _ => format!("answer the approval of `{tool}`"),
+    };
+    let a = p.get("asker").cloned().unwrap_or(Value::Null);
+    let from = match (
+        a.get("job").and_then(Value::as_str),
+        a.get("pid").and_then(Value::as_u64),
+    ) {
+        (Some(job), Some(pid)) => format!(
+            "`{}` (pid {pid}), a process of job `{job}`",
+            clip(&str_of(&a, "argv0").replace('`', "'"), 40)
+        ),
+        _ => format!(
+            "a process that could not be traced ({}), which counts as a job's",
+            clip(&str_of(&a, "untraceable").replace('`', "'"), 160)
+        ),
+    };
+    let then = match str_of(p, "act").as_str() {
+        theseus_protocol::method::POLICY_UNTIGHTEN => "It keeps asking first.",
+        _ => "It keeps waiting for your answer.",
+    };
+    format!(
+        "🚨 Refused: {from}, tried to {what} through {}. A job cannot answer an approval. {then}",
+        str_of(p, "via")
+    )
+}
+
 /// Dollars as the narrative says them: `$100`, `$0.45`, `$0.0045`.
 fn dollars(usd: f64) -> String {
     theseus_core::narrative::dollars((usd.max(0.0) * 1e6).round() as u64)
@@ -1030,6 +1064,43 @@ fn open_fence(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refusal of a Theseus job's process goes to the DM as one line: what
+    /// it tried, from which process of which job, and that nothing moved
+    /// (theseus-6qy).
+    #[test]
+    fn a_jobs_refused_answer_is_one_notice() {
+        let asker = json!({"pid": 4242, "argv0": "theseus", "job": "act_job", "wrapper_pid": 4200});
+        let n = |act: &str, tool: &str, asker: &Value| {
+            job_refusal(&json!({"act": act, "tool": tool, "via": "cli", "asker": asker}))
+        };
+        assert_eq!(
+            n("action.confirm", "fs.write", &asker),
+            "🚨 Refused: `theseus` (pid 4242), a process of job `act_job`, tried to answer the \
+             approval of `fs.write` through cli. A job cannot answer an approval. It keeps \
+             waiting for your answer."
+        );
+        assert!(
+            n("action.confirm", "budget.reset", &asker).contains("tried to answer the spend reset")
+        );
+        let undo = n("policy.untighten", "fs.edit", &asker);
+        assert!(
+            undo.contains("tried to undo the tightening of `fs.edit`"),
+            "{undo}"
+        );
+        assert!(undo.ends_with("It keeps asking first."), "{undo}");
+        let lost = n(
+            "action.confirm",
+            "fs.write",
+            &json!({"untraceable": "pid 9 has exited"}),
+        );
+        assert!(
+            lost.contains(
+                "a process that could not be traced (pid 9 has exited), which counts as a job's"
+            ),
+            "{lost}"
+        );
+    }
     use serde_json::json;
 
     fn upserts(ops: &[Op]) -> Vec<(String, String)> {

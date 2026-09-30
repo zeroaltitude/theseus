@@ -12,6 +12,7 @@ use crate::approval::{Answerer, Refusal};
 use crate::ledger::LedgerRow;
 use crate::narrative::narrate;
 use crate::node::{Body, Node};
+use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::{Action, BUDGET_TOOL};
@@ -161,6 +162,8 @@ impl Core {
     /// an answer that does not count is refused with the reason, ledgered as
     /// `approval.refused`, and narrated, and the question keeps waiting. `by`
     /// is who answered and through what; a bare label is no known surface.
+    /// The process that answered, when the connection knows one, is recorded
+    /// with the answer (theseus-6qy).
     pub fn confirm_action(
         &self,
         correlation_id: &str,
@@ -173,7 +176,7 @@ impl Core {
             .kernel
             .action(correlation_id)?
             .ok_or_else(|| anyhow::anyhow!("no action {correlation_id}"))?;
-        self.judge_act(
+        let asker = self.judge_act(
             &who,
             Act::Answer {
                 action: &a,
@@ -189,7 +192,7 @@ impl Core {
         }
         let via = who.via();
         if a.tool == BUDGET_TOOL {
-            return self.answer_budget(&a, approve, note, by, &via);
+            return self.answer_budget(&a, approve, note, by, &via, &asker);
         }
         if approve {
             let proposal = crate::toolrun::confirm_proposal(&self.store, &a, None)?;
@@ -206,7 +209,8 @@ impl Core {
             "action.confirm_answered",
             Some(&a.session_id),
             None,
-            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via}),
+            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via,
+                   "asker": asker.json()}),
         ))?;
         narrate!(
             self.narrator,
@@ -258,29 +262,50 @@ impl Core {
     }
 
     /// The one judgment of every approval-like act (theseus-sgh): an answer
-    /// to a waiting call, a "should have asked" press, and its undo. An
-    /// answer and an undo take the whole `[approval]` rule; a press only
-    /// makes calls ask, so any surface that can answer an approval may make
-    /// one. A refusal is ledgered as `approval.refused` (who, through what,
-    /// and why) and narrated, and it is the error, a `Refusal`. Nothing else
-    /// changes.
-    pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<()> {
-        let verdict = match act {
-            Act::Tighten { .. } => self.approval.judge_tighten(who),
-            Act::Answer { .. } | Act::Untighten { .. } => self.approval.judge(who),
+    /// to a waiting call (the spend reset among them), a "should have asked"
+    /// press, and its undo.
+    ///
+    /// An answer and an undo first trace the process that asked (theseus-6qy):
+    /// one that descends from a live Theseus job wrapper, or that cannot be
+    /// traced, is refused, with or without `[approval]`. Then they take the
+    /// whole `[approval]` rule. A press only makes calls ask, so any surface
+    /// that can answer an approval may make one, a job's process included,
+    /// and it is not traced.
+    ///
+    /// A refusal is ledgered as `approval.refused` (who, through what, and
+    /// why) and narrated, and it is the error, a `Refusal`; one from a job's
+    /// process is a security event, announced to every connection as well.
+    /// Nothing else changes. What the trace found is returned, to be
+    /// recorded with the act.
+    pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<Traced> {
+        let traced = match act {
+            Act::Tighten { .. } => Traced::NoProcess,
+            Act::Answer { .. } | Act::Untighten { .. } => who.peer.trace(),
+        };
+        let verdict = match (act, traced.refusal()) {
+            (_, Some(why)) => Err(Refusal {
+                who: who.who(),
+                via: who.via(),
+                why,
+            }),
+            (Act::Tighten { .. }, None) => self.approval.judge_tighten(who),
+            (_, None) => self.approval.judge(who),
         };
         let Err(r) = verdict else {
-            return Ok(());
+            return Ok(traced);
         };
-        self.refused(act, who, &r)?;
+        self.refused(act, who, &r, &traced)?;
         Err(r.into())
     }
 
-    /// An act that does not count: ledgered with who, where, and why, and
-    /// narrated. A refused answer leaves the action and its execution
-    /// waiting; a refused undo leaves the tool asking.
-    fn refused(&self, act: Act<'_>, who: &Answerer, r: &Refusal) -> Result<()> {
-        let (session, data) = match act {
+    /// An act that does not count: ledgered with who, where, why, and the
+    /// process that asked, and narrated. A refused answer leaves the action
+    /// and its execution waiting; a refused undo leaves the tool asking. One
+    /// from a Theseus job's process (theseus-6qy) is narrated as the security
+    /// event it is, and announced as `approval.refused` to every connection,
+    /// so the Discord binding tells the operator where approvals go.
+    fn refused(&self, act: Act<'_>, who: &Answerer, r: &Refusal, traced: &Traced) -> Result<()> {
+        let (session, mut data) = match act {
             Act::Answer { action: a, approve } => (
                 Some(a.session_id.as_str()),
                 json!({"correlation_id": a.correlation_id, "tool": a.tool, "approve": approve,
@@ -292,8 +317,23 @@ impl Core {
                        "why": r.why, "by": who.label}),
             ),
         };
-        self.store
-            .append_ledger(&LedgerRow::new("approval.refused", session, None, data))?;
+        if *traced != Traced::NoProcess {
+            data["asker"] = traced.json();
+        }
+        let from_job = traced.refusal().is_some();
+        if from_job {
+            data["from_job"] = json!(true);
+        }
+        self.store.append_ledger(&LedgerRow::new(
+            "approval.refused",
+            session,
+            None,
+            data.clone(),
+        ))?;
+        if from_job {
+            self.refused_from_job(act, r, session, data);
+            return Ok(());
+        }
         match act {
             Act::Answer { action: a, .. } => narrate!(
                 self.narrator,
@@ -332,6 +372,46 @@ impl Core {
         Ok(())
     }
 
+    /// A refusal of a Theseus job's process, or of one that cannot be traced
+    /// (theseus-6qy): a security event. The narrative says so, and every
+    /// connection hears of it (`approval.refused`, with the ledger row's
+    /// fields), the Discord binding among them, which tells the operator in
+    /// the DM where approvals go.
+    fn refused_from_job(
+        &self,
+        act: Act<'_>,
+        r: &Refusal,
+        session: Option<&str>,
+        mut data: serde_json::Value,
+    ) {
+        let what = match act {
+            Act::Answer { action: a, .. } => format!("an answer to {}", a.tool),
+            Act::Untighten { tool } => format!("the undo of {tool}'s tightening"),
+            Act::Tighten { tool } => format!("\"should have asked\" for {tool}"),
+        };
+        let then = match act {
+            Act::Answer { .. } => "It keeps waiting for the operator's answer.",
+            Act::Untighten { .. } => "It keeps asking first.",
+            Act::Tighten { .. } => "Nothing changed.",
+        };
+        narrate!(
+            self.narrator,
+            Approval,
+            session,
+            None,
+            "Refused {what} {} through {}: a job's process cannot answer an approval. {then}",
+            r.why,
+            r.via
+        );
+        data["act"] = json!(act.method());
+        data["session_id"] = json!(session);
+        self.bus
+            .publish_all(&Message::Notification(theseus_protocol::Notification::new(
+                notify::APPROVAL_REFUSED,
+                data,
+            )));
+    }
+
     /// Answer a budget question (theseus-0sg). Approve: the execution's spend
     /// goes back to $0 and the driver makes the waiting call; the session's
     /// lifetime cost is untouched. Decline: the question closes and the
@@ -344,6 +424,7 @@ impl Core {
         note: Option<&str>,
         by: &str,
         via: &str,
+        asker: &Traced,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let correlation_id = q.correlation_id.as_str();
         if approve {
@@ -376,7 +457,8 @@ impl Core {
             "action.confirm_answered",
             Some(&q.session_id),
             None,
-            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via, "tool": q.tool}),
+            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via, "tool": q.tool,
+                   "asker": asker.json()}),
         ))?;
         self.bus.publish(
             &q.session_id,
