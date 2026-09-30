@@ -666,6 +666,55 @@ pub fn reply_parts(
     out
 }
 
+/// A wake's turn (DD8): its reply opens with each wake's line, so the place
+/// sees why Theseus spoke unasked. The lines ride on the first part when
+/// they fit; the session's history has them either way.
+pub fn wake_header(parts: &mut [(String, String)], wakes: &[String]) {
+    if wakes.is_empty() {
+        return;
+    }
+    let head = wakes
+        .iter()
+        .map(|w| format!("-# {}", clip(w, 300)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some((_, first)) = parts.first_mut() {
+        if first.len() + head.len() < DISCORD_LIMIT {
+            *first = format!("{head}\n{first}");
+        }
+    }
+}
+
+/// This place's pending wakes (DD8), as `/wakes` lists them: the soonest
+/// ten, each with its time in the reader's own zone and its note.
+pub fn wakes(wakes: &[theseus_protocol::WakeInfo]) -> String {
+    if wakes.is_empty() {
+        return "No wakes pending here. Ask for one: \"remind me in 10 minutes to …\".".into();
+    }
+    let mut lines = vec![format!("**Wakes here** ({})", wakes.len())];
+    for w in wakes.iter().take(10) {
+        let at = w.due_at_ms / 1000;
+        let note = w.note.lines().next().unwrap_or_default();
+        let busy = match w.state.as_str() {
+            "running" | "queued" => " · runs when the current turn ends",
+            _ => "",
+        };
+        lines.push(format!(
+            "• `{}` <t:{at}:t> (<t:{at}:R>){busy} · {}",
+            w.short,
+            clip(note, 120)
+        ));
+    }
+    if wakes.len() > 10 {
+        lines.push(format!(
+            "-# and {} later; `theseus wakes` lists them all",
+            wakes.len() - 10
+        ));
+    }
+    lines.push("-# `/cancel <id>` cancels one.".into());
+    lines.join("\n")
+}
+
 /// A card's text for the route it takes: `elsewhere` is where else it can be
 /// answered ("" for nowhere).
 pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
@@ -1125,7 +1174,7 @@ fn str_of(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
-fn clip(s: &str, max: usize) -> String {
+pub(crate) fn clip(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }
@@ -2243,5 +2292,53 @@ mod tests {
              -# `/cancel <task>` stops one."
         );
         assert!(tasks(&[], 0).starts_with("No tasks here yet"));
+    }
+
+    /// `/wakes` (DD8): each wake by its short id, its time in the reader's
+    /// zone, and its note's first line; one waiting for a busy turn says so.
+    #[test]
+    fn slash_wakes_lists_each_with_its_time_and_note() {
+        let w = |short: &str, state: &str| theseus_protocol::WakeInfo {
+            short: short.into(),
+            due_at_ms: 1_790_798_700_000,
+            note: "check the build\nthen the tests".into(),
+            state: state.into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            wakes(&[w("3f9a1c", "waiting"), w("b4f566", "running")]),
+            "**Wakes here** (2)\n\
+             • `3f9a1c` <t:1790798700:t> (<t:1790798700:R>) · check the build\n\
+             • `b4f566` <t:1790798700:t> (<t:1790798700:R>) · runs when the current turn ends · \
+             check the build\n\
+             -# `/cancel <id>` cancels one."
+        );
+        assert!(wakes(&[]).starts_with("No wakes pending here"));
+    }
+
+    /// A wake's turn's reply opens with the wake's line, on its first part;
+    /// a part with no room left keeps its text.
+    #[test]
+    fn a_wakes_reply_opens_with_the_wakes_line() {
+        let mut parts = vec![
+            ("t1:L0:p0".to_string(), "The build is green.".to_string()),
+            ("t1:footer".to_string(), "-# glm".to_string()),
+        ];
+        wake_header(
+            &mut parts,
+            &["⏰ wake (set 13:05): check the build".to_string()],
+        );
+        assert_eq!(
+            parts[0].1,
+            "-# ⏰ wake (set 13:05): check the build\nThe build is green."
+        );
+        assert_eq!(parts[1].1, "-# glm");
+        let full = "x".repeat(1_990);
+        let mut parts = vec![("t2:L0:p0".to_string(), full.clone())];
+        wake_header(&mut parts, &["⏰ wake (set 13:05): n".to_string()]);
+        assert_eq!(parts[0].1, full, "no room: the text as it was");
+        let mut none = vec![("t3:L0:p0".to_string(), "hi".to_string())];
+        wake_header(&mut none, &[]);
+        assert_eq!(none[0].1, "hi");
     }
 }

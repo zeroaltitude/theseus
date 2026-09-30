@@ -410,8 +410,9 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
     }
 }
 
-/// The slash commands every place answers. `/cancel` names a task (DD7):
-/// `/stop` stops this session's own work.
+/// The slash commands every place answers. `/cancel` names a task (DD7) or a
+/// pending wake (DD8), by one option, `id`: `/stop` stops this session's own
+/// work.
 fn commands() -> Vec<twilight_model::application::command::Command> {
     let mut cmds: Vec<_> = [
         (
@@ -430,6 +431,10 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
             "tasks",
             "This place's background tasks: state, spend, and what each waits on",
         ),
+        (
+            "wakes",
+            "This place's pending wakes: when each is due, and its note",
+        ),
     ]
     .into_iter()
     .map(|(n, d)| CommandBuilder::new(n, d, CommandType::ChatInput).build())
@@ -437,13 +442,13 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     cmds.push(
         CommandBuilder::new(
             "cancel",
-            "Stop a background task and its jobs; /tasks lists them",
+            "Stop a background task and its jobs, or cancel a wake; /tasks and /wakes list them",
             CommandType::ChatInput,
         )
         .option(
             twilight_util::builder::command::StringBuilder::new(
-                "task",
-                "The task's id, or its last six characters, as /tasks shows it",
+                "id",
+                "The task's or wake's id, or its last six characters, as /tasks and /wakes show it",
             )
             .required(true),
         )
@@ -543,7 +548,9 @@ enum Control {
     Status,
     /// This place's tasks (DD7).
     Tasks,
-    /// Stop the task named; None asks which.
+    /// This place's pending wakes (DD8).
+    Wakes,
+    /// Cancel the wake or stop the task named; None asks which.
     Cancel(Option<String>),
 }
 
@@ -555,6 +562,7 @@ fn parse_control(text: &str) -> Option<Control> {
         "/new" => Some(Control::New),
         "/status" => Some(Control::Status),
         "/tasks" => Some(Control::Tasks),
+        "/wakes" => Some(Control::Wakes),
         _ => None,
     }
 }
@@ -1106,11 +1114,12 @@ impl Shared {
             Some(InteractionData::ApplicationCommand(c)) => {
                 let cmd = match c.name.as_str() {
                     "stop" => Control::Stop,
-                    // `/cancel task:<id>` (DD7).
+                    // `/cancel id:<id>` (DD8), a task's or a wake's; a
+                    // client that still has DD7's `task:` option sends that.
                     "cancel" => Control::Cancel(c.options.iter().find_map(|o| {
                         match (&*o.name, &o.value) {
                             (
-                                "task",
+                                "id" | "task",
                                 twilight_model::application::interaction::application_command::CommandOptionValue::String(s),
                             ) => Some(s.clone()),
                             _ => None,
@@ -1118,6 +1127,7 @@ impl Shared {
                     })),
                     "new" => Control::New,
                     "tasks" => Control::Tasks,
+                    "wakes" => Control::Wakes,
                     _ => Control::Status,
                 };
                 self.respond(
@@ -1882,32 +1892,86 @@ impl Place {
                     Err(e) => format!("⚠️ Could not list the tasks: {e}."),
                 }
             }
-            Control::Cancel(None) => "Which task? `/cancel <task>` stops one, by the id `/tasks` \
-                                      shows. `/stop` stops this session's own work."
+            Control::Wakes => {
+                // The wakes whose turns post here (DD8), the soonest first.
+                match self
+                    .shared
+                    .rpc
+                    .call::<_, theseus_protocol::WakeListResult>(
+                        theseus_protocol::method::WAKE_LIST,
+                        theseus_protocol::WakeListParams {
+                            session_id: None,
+                            target: Some(self.target.clone()),
+                        },
+                    )
+                    .await
+                {
+                    Ok(l) => crate::render::wakes(&l.wakes),
+                    Err(e) => format!("⚠️ Could not list the wakes: {e}."),
+                }
+            }
+            Control::Cancel(None) => "Which one? `/cancel <id>` stops a task or cancels a wake, \
+                                      by the id `/tasks` or `/wakes` shows. `/stop` stops this \
+                                      session's own work."
                 .to_string(),
-            Control::Cancel(Some(task)) => match self
-                .shared
-                .rpc
-                .call::<_, theseus_protocol::TaskCancelResult>(
-                    theseus_protocol::method::TASK_CANCEL,
-                    theseus_protocol::TaskCancelParams {
-                        task,
-                        author: Some(by.to_string()),
-                    },
-                )
-                .await
-            {
-                Ok(r) if r.cancelled_actions.is_empty() && r.task.state != "cancelled" => format!(
-                    "Task `{}` had already ended ({}).",
-                    r.task.short, r.task.state
-                ),
-                Ok(r) => format!(
-                    "⏹️ Task `{}` stopped ({} running action(s) told to stop). Its report says so here.",
-                    r.task.short,
-                    r.cancelled_actions.len()
-                ),
-                Err(e) => format!("⚠️ Could not cancel: {e}."),
-            },
+            Control::Cancel(Some(name)) => {
+                // A pending wake first (DD8), then a task; the core refuses a
+                // name that means both.
+                let no_wake = match self
+                    .shared
+                    .rpc
+                    .call::<_, theseus_protocol::WakeCancelResult>(
+                        theseus_protocol::method::WAKE_CANCEL,
+                        theseus_protocol::WakeCancelParams {
+                            wake: name.clone(),
+                            author: Some(by.to_string()),
+                        },
+                    )
+                    .await
+                {
+                    Ok(r) => {
+                        return format!(
+                            "⏹️ Wake `{}` cancelled: it will not run. It was due <t:{}:t>: {}",
+                            r.wake.short,
+                            r.wake.due_at_ms / 1000,
+                            crate::render::clip(r.wake.note.lines().next().unwrap_or_default(), 200)
+                        )
+                    }
+                    Err(e) if e.code == theseus_protocol::error_code::NOT_FOUND => e.message,
+                    Err(e) => return format!("⚠️ Could not cancel: {e}."),
+                };
+                self.cancel_task(name, by, &no_wake).await
+            }
+        }
+    }
+
+    /// `/cancel <id>` for a task (DD7), once no wake had the name.
+    async fn cancel_task(&self, task: String, by: &str, no_wake: &str) -> String {
+        match self
+            .shared
+            .rpc
+            .call::<_, theseus_protocol::TaskCancelResult>(
+                theseus_protocol::method::TASK_CANCEL,
+                theseus_protocol::TaskCancelParams {
+                    task,
+                    author: Some(by.to_string()),
+                },
+            )
+            .await
+        {
+            Ok(r) if r.cancelled_actions.is_empty() && r.task.state != "cancelled" => format!(
+                "Task `{}` had already ended ({}).",
+                r.task.short, r.task.state
+            ),
+            Ok(r) => format!(
+                "⏹️ Task `{}` stopped ({} running action(s) told to stop). Its report says so here.",
+                r.task.short,
+                r.cancelled_actions.len()
+            ),
+            Err(e) if e.code == theseus_protocol::error_code::NOT_FOUND => {
+                format!("⚠️ Nothing to cancel: {e}, and {no_wake}.")
+            }
+            Err(e) => format!("⚠️ Could not cancel: {e}."),
         }
     }
 
@@ -1998,14 +2062,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_slash_commands_list_tasks_and_cancel_one_by_name() {
+    fn the_slash_commands_list_tasks_and_wakes_and_cancel_one_by_name() {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, ["stop", "new", "status", "tasks", "cancel"]);
+        assert_eq!(names, ["stop", "new", "status", "tasks", "wakes", "cancel"]);
+        // One required option names a task or a wake (DD8; DD7 called it `task`).
         let cancel = cmds.iter().find(|c| c.name == "cancel").unwrap();
         assert_eq!(cancel.options.len(), 1);
-        assert_eq!(cancel.options[0].name, "task");
+        assert_eq!(cancel.options[0].name, "id");
         assert_eq!(cancel.options[0].required, Some(true));
+        assert!(cancel.description.contains("cancel a wake"));
     }
 
     #[test]
@@ -2018,6 +2084,7 @@ mod tests {
         );
         assert_eq!(parse_control("/cancel"), Some(Control::Cancel(None)));
         assert_eq!(parse_control("/tasks"), Some(Control::Tasks));
+        assert_eq!(parse_control("/wakes"), Some(Control::Wakes));
         assert_eq!(parse_control("/new"), Some(Control::New));
         assert_eq!(parse_control("/status"), Some(Control::Status));
         assert_eq!(parse_control("please /stop"), None);

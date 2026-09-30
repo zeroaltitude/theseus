@@ -47,6 +47,26 @@ export interface GrantStatus {
   uses: number
 }
 
+/// A pending wake (DD8): a conversation asked, with `wake.at`, for a turn at a time, whose
+/// input is its note. `wake.cancel` clears it, and nothing fires.
+export interface WakeInfo {
+  wake_id: string
+  /// The last six characters of its id, which is how people name it.
+  short: string
+  session_id: string
+  execution_id: string
+  session_title?: string
+  due_at_ms: number
+  /// The due time on the daemon's clock (`2026-09-30 13:15:00 -07:00`).
+  due_local: string
+  note: string
+  set_at_ms: number
+  /// Where its turn's reply goes (`discord:dm:<user>`), if anywhere.
+  target?: string
+  /// Its session's execution state: a wake waits for a busy session.
+  state: string
+}
+
 export interface Health {
   name: string; version: string; protocol: string; uptime_secs: number
   sessions: number; turns: number; model: string; profile: string; provider: string; providers: string[]
@@ -65,6 +85,8 @@ export interface Health {
   approval?: ApprovalStatus
   /// The tools that ask first because someone pressed "should have asked" (theseus-sgh).
   tightenings?: Tightening[]
+  /// The wakes conversations set with `wake.at` that have not run yet, soonest first (DD8).
+  wakes?: WakeInfo[]
   /// Where the vault's secrets stand: the daemon serves before they resolve (theseus-qa0).
   secrets?: SecretsStatus
   /// Where the config came from, and whether the vault has confirmed the copy this start

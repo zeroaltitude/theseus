@@ -36,7 +36,8 @@ Quick start:
   theseus watch [session]                    follow a session live (turns started anywhere)
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
-  theseus cancel <task>                      stop a task and its jobs (its last six characters are enough)
+  theseus wakes                              pending wakes (wake.at): session, due time, and note
+  theseus cancel <id>                        stop a task and its jobs, or cancel a wake (its last six characters are enough)
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
   theseus catalog                            models, context windows, and prices
@@ -185,9 +186,20 @@ enum Cmd {
         #[arg(long, short)]
         session: Option<String>,
     },
-    /// Stop a task and its jobs, as `executions cancel` does; its place hears it once. TASK is
-    /// its id or its last six characters, as `theseus tasks` shows it.
-    Cancel { task: String },
+    /// Wakes: the turns conversations asked for at a time with wake.at that have not run yet,
+    /// soonest first, with session, due time, and note.
+    Wakes {
+        /// Only this session's wakes.
+        #[arg(long, short)]
+        session: Option<String>,
+    },
+    /// Cancel a pending wake, so nothing fires; or stop a task and its jobs, as `executions
+    /// cancel` does, and its place hears it once. ID is its id or its last six characters, as
+    /// `theseus wakes` and `theseus tasks` show it.
+    Cancel {
+        #[arg(value_name = "ID")]
+        name: String,
+    },
     /// Model profiles: list, or switch the live one (`theseus profile use glm`).
     Profile {
         #[command(subcommand)]
@@ -945,6 +957,9 @@ async fn run(cli: Cli) -> Result<()> {
                     }
                 }
                 print_approval(&h.approval);
+                if let Some(line) = wakes_line(&h.wakes, theseus_protocol::now_unix_ms()) {
+                    println!("{line}");
+                }
                 if !h.tightenings.is_empty() {
                     let t: Vec<String> = h
                         .tightenings
@@ -1100,17 +1115,78 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
         }
-        Cmd::Cancel { task } => {
+        Cmd::Wakes { session } => {
             let v = conn
                 .call(
-                    method::TASK_CANCEL,
-                    serde_json::to_value(theseus_protocol::TaskCancelParams {
-                        task,
-                        author: None,
+                    method::WAKE_LIST,
+                    serde_json::to_value(theseus_protocol::WakeListParams {
+                        session_id: session,
+                        target: None,
                     })?,
                     |_, _| {},
                 )
                 .await?;
+            if json {
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                let l: theseus_protocol::WakeListResult = serde_json::from_value(v)?;
+                if l.wakes.is_empty() {
+                    println!("no pending wakes");
+                }
+                let now = theseus_protocol::now_unix_ms();
+                for w in l.wakes {
+                    println!("{}", wake_line(&w, now));
+                }
+            }
+        }
+        Cmd::Cancel { name } => {
+            // A pending wake first (DD8), then a task: each is named by the
+            // end of its id, and the daemon refuses a name that means both.
+            let wake = conn
+                .call(
+                    method::WAKE_CANCEL,
+                    serde_json::to_value(theseus_protocol::WakeCancelParams {
+                        wake: name.clone(),
+                        author: None,
+                    })?,
+                    |_, _| {},
+                )
+                .await;
+            let no_wake = match wake {
+                Ok(v) => {
+                    if json {
+                        println!("{}", serde_json::to_string(&v)?);
+                    } else {
+                        let r: theseus_protocol::WakeCancelResult = serde_json::from_value(v)?;
+                        println!(
+                            "wake {} cancelled: it was due {}: {}",
+                            r.wake.short, r.wake.due_local, r.wake.note
+                        );
+                    }
+                    return Ok(());
+                }
+                Err(e) if not_found(&e) => e.to_string(),
+                Err(e) => return Err(e),
+            };
+            let v = match conn
+                .call(
+                    method::TASK_CANCEL,
+                    serde_json::to_value(theseus_protocol::TaskCancelParams {
+                        task: name.clone(),
+                        author: None,
+                    })?,
+                    |_, _| {},
+                )
+                .await
+            {
+                Ok(v) => v,
+                Err(e) if not_found(&e) => {
+                    return Err(anyhow!(
+                        "`{name}` names no task and no pending wake: {e}; {no_wake}"
+                    ))
+                }
+                Err(e) => return Err(e),
+            };
             if json {
                 println!("{}", serde_json::to_string(&v)?);
             } else {
@@ -1788,6 +1864,70 @@ fn print_node(n: &NodeInfo, full: bool) {
 /// One task, as `theseus tasks` lists it (DD7): its short id, its state and
 /// what it waits on, its spend of its carved limit, its age, its title, and
 /// the session that started it.
+/// The daemon said no such thing (`NOT_FOUND`).
+fn not_found(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<CallError>()
+        .is_some_and(|c| c.code == theseus_protocol::error_code::NOT_FOUND)
+}
+
+/// `in 9m`, `in 2h`, or `due 3m ago` (a wake waiting for its busy session).
+fn until_due(due_ms: u64, now_ms: u64) -> String {
+    let words = |ms: u64| {
+        let s = ms / 1000;
+        match s {
+            0..=59 => format!("{s}s"),
+            60..=3599 => format!("{}m", s / 60),
+            3600..=86_399 => format!("{}h", s / 3600),
+            _ => format!("{}d", s / 86_400),
+        }
+    };
+    if due_ms >= now_ms {
+        format!("in {}", words(due_ms - now_ms))
+    } else {
+        format!("due {} ago", words(now_ms - due_ms))
+    }
+}
+
+/// One pending wake, as `theseus wakes` lists it (DD8): its short id, when
+/// it is due, its session and its state, and its note's first line.
+fn wake_line(w: &theseus_protocol::WakeInfo, now_ms: u64) -> String {
+    let note = w.note.lines().next().unwrap_or_default();
+    let note: String = note.chars().take(100).collect();
+    format!(
+        "{}\t{} ({})\tsession {} ({}){}\t{note}",
+        w.short,
+        w.due_local,
+        until_due(w.due_at_ms, now_ms),
+        w.session_id,
+        w.state,
+        w.target
+            .as_deref()
+            .map(|t| format!(" → {t}"))
+            .unwrap_or_default()
+    )
+}
+
+/// `wakes: 2 pending · next 3f9a1c 2026-09-30 13:15:00 -07:00 (in 9m): check
+/// the build`, or nothing when none is pending.
+fn wakes_line(wakes: &[theseus_protocol::WakeInfo], now_ms: u64) -> Option<String> {
+    let next = wakes.iter().min_by_key(|w| w.due_at_ms)?;
+    let note: String = next
+        .note
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .take(60)
+        .collect();
+    Some(format!(
+        "wakes: {} pending · next {} {} ({}): {note} · theseus wakes, theseus cancel <id>",
+        wakes.len(),
+        next.short,
+        next.due_local,
+        until_due(next.due_at_ms, now_ms)
+    ))
+}
+
 fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> String {
     let age = now_ms.saturating_sub(t.created_at_ms) / 1000;
     let age = match age {
@@ -2246,6 +2386,41 @@ impl Printer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `theseus wakes` and health's wakes line (DD8).
+    #[test]
+    fn a_wake_lists_its_due_time_session_and_note() {
+        let w = theseus_protocol::WakeInfo {
+            wake_id: "wak_0199aaaa3f9a1c".into(),
+            short: "3f9a1c".into(),
+            session_id: "ses_1".into(),
+            execution_id: "exe_1".into(),
+            session_title: None,
+            due_at_ms: 1_000_000 + 540_000,
+            due_local: "2026-09-30 13:15:00 -07:00".into(),
+            note: "check the build\nand the tests".into(),
+            set_at_ms: 1_000_000,
+            target: Some("discord:dm:42".into()),
+            state: "waiting".into(),
+        };
+        assert_eq!(
+            wake_line(&w, 1_000_000),
+            "3f9a1c\t2026-09-30 13:15:00 -07:00 (in 9m)\tsession ses_1 (waiting) → discord:dm:42\t\
+             check the build"
+        );
+        assert_eq!(until_due(1_000, 181_000), "due 3m ago");
+        assert_eq!(wakes_line(&[], 0), None);
+        let later = theseus_protocol::WakeInfo {
+            short: "b4f566".into(),
+            due_at_ms: w.due_at_ms + 3_600_000,
+            ..w.clone()
+        };
+        assert_eq!(
+            wakes_line(&[later, w], 1_000_000).unwrap(),
+            "wakes: 2 pending · next 3f9a1c 2026-09-30 13:15:00 -07:00 (in 9m): check the build · \
+             theseus wakes, theseus cancel <id>"
+        );
+    }
 
     /// `theseus health`'s context line (theseus-c48).
     #[test]

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList, WakeInfo } from './protocol'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -21,6 +21,12 @@ const short = (id: string) => id.length > 14 ? `${id.slice(0, 4)}…${id.slice(-
 const ago = (ms: number, now: number) => {
   const s = Math.max(0, Math.round((now - ms) / 1000))
   return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`
+}
+/// A wake's time from now: `in 9m`, or `due 3m ago` while its session is busy (DD8).
+const until = (ms: number, now: number) => {
+  const s = Math.round(Math.abs(ms - now) / 1000)
+  const t = s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : s < 86_400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86_400)}d`
+  return ms >= now ? `in ${t}` : `due ${t} ago`
 }
 
 const STATE_CLASS: Record<string, string> = {
@@ -165,6 +171,17 @@ export default function Observatory({ client, health, tick, currentSession, onRe
   }, [client, refresh])
   const tightenings = health?.tightenings ?? []
   const isTightened = (tool: string) => tightenings.some((t) => t.tool === tool)
+
+  // Pending wakes (DD8): health lists them; a cancel is `wake.cancel`, and
+  // its author is the web UI.
+  const wakes: WakeInfo[] = health?.wakes ?? []
+  const cancelWake = useCallback(async (w: WakeInfo) => {
+    if (!confirm(`Cancel wake ${w.short}, due ${w.due_local}? Its turn will not run: "${w.note}"`)) return
+    try {
+      await client.call('wake.cancel', { wake: w.wake_id })
+      await refresh()
+    } catch (err) { setError((err as { message?: string }).message ?? String(err)) }
+  }, [client, refresh])
 
   const sessionOf = useMemo(() => {
     const m = new Map<string, string>()
@@ -499,6 +516,26 @@ export default function Observatory({ client, health, tick, currentSession, onRe
               </table>
             )}
           </>
+        )}
+      </ObsSection>
+
+      <ObsSection id="wakes" title="Wakes" open={open.wakes ?? true} onToggle={() => toggle('wakes')} count={`${wakes.length} pending`}>
+        {wakes.length === 0 ? <div className="muted pad">none pending: a conversation sets one with <code>wake.at</code> ("remind me in 10 minutes to check the build"), and at its time the session gets a turn whose input is the note</div> : (
+          <table className="obs-table">
+            <thead><tr><th>wake</th><th>due</th><th>session</th><th>note</th><th></th></tr></thead>
+            <tbody>
+              {wakes.map((w) => (
+                <tr key={w.wake_id} className={w.session_id === currentSession ? 'mine' : ''}
+                  title={`${w.wake_id}\nset ${clock(w.set_at_ms)}${w.target ? `\nits reply goes to ${w.target}` : ''}`}>
+                  <td><code>{w.short}</code></td>
+                  <td title={w.due_local}>{clock(w.due_at_ms).slice(0, 8)} <span className={w.due_at_ms < now ? 'warn small' : 'muted small'}>{until(w.due_at_ms, now)}</span></td>
+                  <td><button type="button" className="link" onClick={() => onPickSession?.(w.session_id)}>{w.session_title ?? short(w.session_id)}</button> <State s={w.state} /></td>
+                  <td>{w.note}</td>
+                  <td><button type="button" className="link danger" onClick={() => void cancelWake(w)}>cancel</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </ObsSection>
 

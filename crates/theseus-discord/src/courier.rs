@@ -498,7 +498,15 @@ impl Lane {
         let turn_id = body["turn_id"].as_str().unwrap_or("").to_string();
         let texts = self.shared.core.outbox.reply_texts(body);
         let result: Option<TurnSubmitResult> = serde_json::from_value(body["result"].clone()).ok();
-        let parts = render::reply_parts(&turn_id, &texts, result.as_ref());
+        let mut parts = render::reply_parts(&turn_id, &texts, result.as_ref());
+        // A wake's turn says which wake woke it (DD8).
+        let wakes: Vec<String> = body["wakes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|w| w["text"].as_str().map(str::to_string))
+            .collect();
+        render::wake_header(&mut parts, &wakes);
         // Replying to the turn's message once: only when the stream posted
         // nothing of it.
         let prefix = format!("{turn_id}:");
