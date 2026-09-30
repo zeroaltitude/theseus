@@ -53,6 +53,10 @@ pub enum Backend {
     /// A future on the daemon's runtime (`run_async`): a tool that waits on
     /// the network (DD5), so it holds no core while it waits.
     Async,
+    /// The harness itself runs it, inside the turn that calls it: a verb over
+    /// Theseus's own state (`task.create`, DD7), which needs the turn's kernel
+    /// and store, not the world. The toollet only plans it.
+    Harness,
 }
 
 impl Backend {
@@ -61,6 +65,7 @@ impl Backend {
             Backend::Inproc => "inproc",
             Backend::Job => "job",
             Backend::Async => "async",
+            Backend::Harness => "harness",
         }
     }
 }

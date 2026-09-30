@@ -669,6 +669,13 @@ pub fn reply_parts(
 /// A card's text for the route it takes: `elsewhere` is where else it can be
 /// answered ("" for nowhere).
 pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
+    // A task's question names the task (DD7), on the card, its note, and its
+    // settle, which all carry the line.
+    let task = req
+        .task
+        .as_ref()
+        .map(|t| format!("task `{}`: ", t.short))
+        .unwrap_or_default();
     if let Some(b) = &req.budget {
         let also = match elsewhere {
             "" => String::new(),
@@ -687,14 +694,14 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
                 dollars(b.lifetime_usd)
             ),
             line: format!(
-                "spend reset ({} of the {} limit)",
+                "{task}spend reset ({} of the {} limit)",
                 dollars(b.spent_usd),
                 dollars(b.limit_usd)
             ),
             budget: true,
         };
     }
-    let line = format!("`{}` {}", req.tool, summarize(&req.tool, &req.input));
+    let line = format!("{task}`{}` {}", req.tool, summarize(&req.tool, &req.input));
     let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });
     if !req.reason.is_empty() {
         content.push_str(&format!("\n{}", clip(&req.reason, 300)));
@@ -779,6 +786,63 @@ pub fn settled_note(content: &str, dm: Option<&str>) -> String {
 /// A turn that failed, as its notice says it.
 pub fn failed(class: &str, error: &str) -> String {
     format!("⚠️ **Turn failed** ({class}): {}", clip(error, 600))
+}
+
+/// A task's report (DD7), as one message: the task by its short id and
+/// title, how it ended, its last message (clipped to fit), and what it spent.
+pub fn report(body: &Value, said: Option<&str>) -> String {
+    let short = body["short"].as_str().unwrap_or("?");
+    let title = body["title"]
+        .as_str()
+        .map(|t| format!(" · {}", clip(t, 80)))
+        .unwrap_or_default();
+    let reason = body["reason"].as_str().unwrap_or("");
+    let head = match body["outcome"].as_str() {
+        Some("complete") => format!("📋 **Task `{short}` finished**{title}"),
+        Some("cancelled") => format!(
+            "⏹️ **Task `{short}` stopped**{title}: {}",
+            clip(
+                if reason.is_empty() {
+                    "cancelled"
+                } else {
+                    reason
+                },
+                200
+            )
+        ),
+        _ => format!(
+            "⚠️ **Task `{short}` failed**{title}: {}",
+            clip(
+                if reason.is_empty() {
+                    "its turn failed"
+                } else {
+                    reason
+                },
+                400
+            )
+        ),
+    };
+    let turns = body["turns"].as_u64().unwrap_or(0);
+    let secs = body["elapsed_ms"].as_u64().unwrap_or(0) as f64 / 1000.0;
+    let took = if secs < 60.0 {
+        format!("{secs:.1} s")
+    } else {
+        format!("{} min {} s", secs as u64 / 60, secs as u64 % 60)
+    };
+    let facts = format!(
+        "-# {turns} turn{} · {} of {} · {took}",
+        if turns == 1 { "" } else { "s" },
+        dollars(body["spent_usd"].as_f64().unwrap_or(0.0)),
+        dollars(body["limit_usd"].as_f64().unwrap_or(0.0)),
+    );
+    // One message: what it said gets the room the rest leaves.
+    let room = DISCORD_LIMIT
+        .saturating_sub(head.chars().count() + facts.chars().count() + 8)
+        .min(1_700);
+    match said {
+        Some(s) if !s.trim().is_empty() => format!("{head}\n{}\n{facts}", clip(s.trim(), room)),
+        _ => format!("{head}\n{facts}"),
+    }
 }
 
 /// The line after a restart onto the vault's changed config note (theseus-2fo).
@@ -2051,5 +2115,56 @@ mod tests {
             ),
             "\"ignore WalkParallel\""
         );
+    }
+
+    /// A task's report (DD7) is one message that names the task: a long last
+    /// message is clipped to fit, and a cancel or a failure says so.
+    #[test]
+    fn a_tasks_report_is_one_message_that_names_it() {
+        let body = |outcome: &str, reason: Option<&str>| {
+            json!({"kind": "report", "task": "ses_x", "short": "a1b2c3", "title": "Run the gate",
+                   "outcome": outcome, "reason": reason, "spent_usd": 0.0123, "limit_usd": 2.5,
+                   "turns": 3, "elapsed_ms": 64_000})
+        };
+        let done = report(&body("complete", None), Some("The gate passed."));
+        assert_eq!(
+            done,
+            "📋 **Task `a1b2c3` finished** · Run the gate\nThe gate passed.\n\
+             -# 3 turns · $0.0123 of $2.50 · 1 min 4 s"
+        );
+        let long = report(&body("complete", None), Some(&"word ".repeat(2_000)));
+        assert!(long.chars().count() <= DISCORD_LIMIT, "{}", long.len());
+        assert!(long.ends_with("-# 3 turns · $0.0123 of $2.50 · 1 min 4 s"));
+        let stopped = report(&body("cancelled", Some("cancelled by discord:eddie")), None);
+        assert!(
+            stopped.starts_with(
+                "⏹️ **Task `a1b2c3` stopped** · Run the gate: cancelled by discord:eddie\n-# 3 turns"
+            ),
+            "{stopped}"
+        );
+        let failed = report(&body("failed", Some("provider_overloaded (529)")), None);
+        assert!(
+            failed.starts_with("⚠️ **Task `a1b2c3` failed** · Run the gate: provider_overloaded"),
+            "{failed}"
+        );
+    }
+
+    /// A task's question names the task on its card, and so on its settle.
+    #[test]
+    fn a_tasks_card_names_the_task() {
+        let req = request(json!({
+            "correlation_id": "act_1", "session_id": "ses_x", "execution_id": "exe_x",
+            "tool": "proc.run", "input": {"argv": ["cargo", "test"]}, "reason": "run cargo test",
+            "by": "operator", "requested_at_ms": 1, "expires_at_ms": 60_000,
+            "task": {"task_id": "ses_xa1b2c3", "short": "a1b2c3", "title": "Run the gate"}
+        }));
+        let card = card(&req, &Route::Here, "");
+        assert!(
+            card.content
+                .contains("task `a1b2c3`: `proc.run` cargo test"),
+            "{}",
+            card.content
+        );
+        assert_eq!(card.line, "task `a1b2c3`: `proc.run` cargo test");
     }
 }

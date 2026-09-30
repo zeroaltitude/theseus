@@ -150,8 +150,18 @@ impl Core {
 
     /// `/cancel <execution>`: deterministic control path. Terminates wrapper
     /// processes the spool knows about and walks each action's cancel lifecycle.
+    /// A task says it was cancelled where it reports, once, in the cancel's
+    /// frame (DD7).
     pub fn cancel_execution(&self, id: &str, by: &str) -> Result<(Execution, Vec<String>)> {
-        let to_kill = self.kernel.cancel_execution(id, by)?;
+        let mut report = None;
+        let to_kill = self.kernel.cancel_execution_with(id, by, |e| {
+            let (records, post) = crate::task::cancelled_report(&self.outbox, &self.store, e)?;
+            report = post;
+            Ok(records)
+        })?;
+        if let Some(post) = report {
+            self.outbox.posted(&post);
+        }
         for corr in &to_kill {
             match self.spool.read_pid(corr) {
                 Some(pid) => {

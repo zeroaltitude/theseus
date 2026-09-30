@@ -35,6 +35,7 @@ pub mod secrets;
 pub mod session;
 pub mod startup;
 pub mod store;
+pub mod task;
 pub mod telemetry;
 pub mod tighten;
 pub mod toolrun;
@@ -56,3 +57,5 @@ pub fn new_id(prefix: &str) -> String {
 mod tests_config;
 #[cfg(test)]
 mod tests_m3;
+#[cfg(test)]
+mod tests_tasks;

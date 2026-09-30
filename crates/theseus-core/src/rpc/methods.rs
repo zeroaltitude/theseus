@@ -166,15 +166,96 @@ impl Core {
         waiting: &std::collections::BTreeMap<String, u32>,
     ) -> theseus_protocol::SessionInfo {
         let mut i = r.info();
-        i.execution_state = r
+        let e = r
             .execution_id
             .as_deref()
-            .and_then(|id| self.kernel.execution(id).ok().flatten())
-            .map(|e| e.state.as_str().to_string());
+            .and_then(|id| self.kernel.execution(id).ok().flatten());
+        i.execution_state = e.as_ref().map(|e| e.state.as_str().to_string());
         if let Some(exec) = r.execution_id.as_deref() {
             i.pending_confirms = waiting.get(exec).copied().unwrap_or(0);
         }
+        // A task (DD7): its parent, for the tree, and its carved limit.
+        if let Some(t) = &r.task {
+            i.parent_session_id = Some(t.parent_session.clone());
+            i.limit_usd = e
+                .as_ref()
+                .map(|e| theseus_kernel::micros_to_usd(e.budget.limit_micros));
+        }
         i
+    }
+
+    /// Tasks (DD7), the newest first: every one, or only those `session`
+    /// started, or only those that report to `target`.
+    pub fn tasks(
+        &self,
+        session: Option<&str>,
+        target: Option<&str>,
+    ) -> Result<Vec<theseus_protocol::TaskInfo>> {
+        let parent = match session {
+            Some(s) => match self.store.get_session::<SessionRecord>(s)? {
+                Some(SessionRecord {
+                    execution_id: Some(e),
+                    ..
+                }) => Some(e),
+                _ => return Ok(vec![]),
+            },
+            None => None,
+        };
+        let waiting = waiting_by_execution(&self.kernel.pending_confirms()?);
+        let mut out = Vec::new();
+        for e in self.kernel.tasks(parent.as_deref())? {
+            let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
+            let info =
+                crate::task::info(&e, rec.as_ref(), waiting.get(&e.id).copied().unwrap_or(0));
+            if target.is_some_and(|t| info.target.as_deref() != Some(t)) {
+                continue;
+            }
+            out.push(info);
+        }
+        out.reverse();
+        Ok(out)
+    }
+
+    pub(super) fn task_list(
+        &self,
+        p: theseus_protocol::TaskListParams,
+    ) -> Result<theseus_protocol::TaskListResult, RpcFailure> {
+        Ok(theseus_protocol::TaskListResult {
+            tasks: self.tasks(p.session_id.as_deref(), p.target.as_deref())?,
+        })
+    }
+
+    /// Stop a task and its jobs, as `execution.cancel` does; the place hears
+    /// it once (DD7). A task that has ended already is left as it is.
+    pub(super) fn task_cancel(
+        &self,
+        p: theseus_protocol::TaskCancelParams,
+        conn: Conn<'_>,
+    ) -> Result<theseus_protocol::TaskCancelResult, RpcFailure> {
+        self.task_cancel_by(&p.task, p.author.as_deref().unwrap_or(conn.client))
+            .map_err(|e| match e.downcast::<crate::task::NoSuchTask>() {
+                Ok(n) => RpcFailure::new(error_code::NOT_FOUND, n.0),
+                Err(e) => RpcFailure::invalid(e),
+            })
+    }
+
+    /// Cancel the task `name` names (its id, or the end of it), for `by`.
+    pub fn task_cancel_by(
+        &self,
+        name: &str,
+        by: &str,
+    ) -> Result<theseus_protocol::TaskCancelResult> {
+        let tasks = self.kernel.tasks(None)?;
+        let id = crate::task::resolve(&tasks, name)
+            .map_err(crate::task::NoSuchTask)?
+            .id
+            .clone();
+        let (e, cancelled) = self.cancel_execution(&id, by)?;
+        let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
+        Ok(theseus_protocol::TaskCancelResult {
+            task: crate::task::info(&e, rec.as_ref(), 0),
+            cancelled_actions: cancelled,
+        })
     }
 
     /// Run one turn for a client, streaming its events to that connection.

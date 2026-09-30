@@ -10,13 +10,15 @@
 //! - a notice the operator must see: a refused answer from a job's process, a
 //!   restart onto a changed config, a failed turn, and the binding's own notes.
 //!
-//! A task's report will be one (DD7). Live progress is not: typing, and the
+//! A task's report is one too (DD7). Live progress is not: typing, and the
 //! edits of a reply while its turn runs, stay the binding's, best-effort and
 //! never replayed.
 //!
 //! A session's posts go to the place whose record names it (the Discord
-//! binding's `discord.session.<place>` meta): `discord:<place>`. And
-//! `discord:operator` is wherever approvals go.
+//! binding's `discord.session.<place>` meta): `discord:<place>`. A task's go
+//! where its parent's went when it started (`task.place.<task session>`),
+//! even after that place moves to a new session. And `discord:operator` is
+//! wherever approvals go.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -35,6 +37,9 @@ use crate::store::Store;
 /// The Discord binding's place records: `discord.session.<place>` names the
 /// session a place runs on (M3c).
 pub const PLACE_META_PREFIX: &str = "discord.session.";
+/// A task's record of where it reports (DD7): `task.place.<task session>`
+/// names its parent's target when it started.
+pub const TASK_META_PREFIX: &str = "task.place.";
 /// Where approvals go, whichever DM that is.
 pub const OPERATOR_TARGET: &str = "discord:operator";
 /// The downstream key of a post that creates messages: Discord's nonce.
@@ -135,6 +140,9 @@ struct Index {
     open: BTreeMap<String, Open>,
     /// Session id → where its posts go.
     targets: HashMap<String, String>,
+    /// Task session id → where it reports (DD7). Kept apart from `targets`,
+    /// which a rebound place prunes.
+    tasks: HashMap<String, String>,
     /// Question id → its card, until the card's settle is written.
     cards: HashMap<String, Card>,
     /// Every question that has a card post, settled or not.
@@ -269,11 +277,14 @@ impl Outbox {
             ix.cards.remove(&q);
         }
         for r in self.store.inner().latest_of_kind(kinds::META)? {
-            let Some(place) = r
-                .key
-                .as_deref()
-                .and_then(|k| k.strip_prefix(PLACE_META_PREFIX))
-            else {
+            let key = r.key.as_deref().unwrap_or("");
+            if let Some(task) = key.strip_prefix(TASK_META_PREFIX) {
+                if let Ok(target) = r.decode::<String>() {
+                    ix.tasks.insert(task.to_string(), target);
+                }
+                continue;
+            }
+            let Some(place) = key.strip_prefix(PLACE_META_PREFIX) else {
                 continue;
             };
             if let Ok(sid) = r.decode::<String>() {
@@ -301,9 +312,15 @@ impl Outbox {
 
     // ------------------------------------------------------------ places
 
-    /// Where a session's posts go, if anywhere.
+    /// Where a session's posts go, if anywhere: its place's, or, for a task,
+    /// where it reports (DD7).
     pub fn target(&self, session_id: &str) -> Option<String> {
-        match self.with(|ix| ix.targets.get(session_id).cloned()) {
+        match self.with(|ix| {
+            ix.targets
+                .get(session_id)
+                .or_else(|| ix.tasks.get(session_id))
+                .cloned()
+        }) {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "outbox unreadable: a post has nowhere to go");
@@ -330,6 +347,27 @@ impl Outbox {
             ix.targets.retain(|_, t| *t != target);
             ix.targets.insert(session_id.to_string(), target);
         })
+    }
+
+    /// A task's record of where it reports, for the frame that opens it
+    /// (DD7); `task_bound` once that frame is written.
+    pub fn task_record(&self, task_session: &str, target: &str) -> Result<NewRecord> {
+        NewRecord::json(
+            kinds::META,
+            Some(&format!("{TASK_META_PREFIX}{task_session}")),
+            &target,
+        )
+    }
+
+    /// A task's record is written: its posts go to `target` from now on.
+    pub fn task_bound(&self, task_session: &str, target: &str) {
+        let r = self.with(|ix| {
+            ix.tasks
+                .insert(task_session.to_string(), target.to_string())
+        });
+        if let Err(e) = r {
+            tracing::warn!(error = %format!("{e:#}"), "outbox index unreadable; the task's record is in the store");
+        }
     }
 
     // ------------------------------------------------------------ writing
@@ -650,21 +688,29 @@ impl Outbox {
             let (Some(i), Some(id)) = (l[0].as_u64(), l[1].as_str()) else {
                 continue;
             };
-            let node = self
-                .store
-                .inner()
-                .latest_by_key(kinds::NODE, id)
-                .ok()
-                .flatten()
-                .and_then(|r| r.decode::<crate::node::Node>().ok());
-            if let Some(crate::node::Body::AssistantMessage { blocks, .. }) = node.map(|n| n.body) {
-                let text = crate::provider::text_of(&blocks);
-                if !text.is_empty() {
-                    out.push((i as u32, text));
-                }
+            if let Some(text) = self.said(id) {
+                out.push((i as u32, text));
             }
         }
         out
+    }
+
+    /// What an assistant node said, by its id: its text, when it has any.
+    /// A task's report names its last message so (DD7).
+    pub fn said(&self, node_id: &str) -> Option<String> {
+        let node = self
+            .store
+            .inner()
+            .latest_by_key(kinds::NODE, node_id)
+            .ok()
+            .flatten()
+            .and_then(|r| r.decode::<crate::node::Node>().ok())?;
+        match node.body {
+            crate::node::Body::AssistantMessage { blocks, .. } => {
+                Some(crate::provider::text_of(&blocks)).filter(|t| !t.is_empty())
+            }
+            _ => None,
+        }
     }
 }
 

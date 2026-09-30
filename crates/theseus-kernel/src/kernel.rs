@@ -805,6 +805,19 @@ impl Kernel {
     /// same frame (DD7): the carve is released but for what the task still
     /// has in flight, and the task joins the parent's `reports`.
     pub fn end_turn(&self, guard: TurnGuard, end: TurnEnd) -> Result<Execution> {
+        self.end_turn_with(guard, end, |_| Ok(vec![]))
+    }
+
+    /// `end_turn`, with records `extra` builds from the execution as the
+    /// frame writes it: a task's report (DD7). `extra` runs only when this
+    /// call writes a frame; a turn that ends after a cancel landed writes
+    /// nothing, so its report is the cancel's alone.
+    pub fn end_turn_with(
+        &self,
+        guard: TurnGuard,
+        end: TurnEnd,
+        extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
+    ) -> Result<Execution> {
         let _w = self.lock_family(&guard.execution_id)?;
         let mut e = self
             .execution(&guard.execution_id)?
@@ -842,7 +855,7 @@ impl Kernel {
                             e.state = ExecState::Queued;
                             e.wake = None;
                             e.updated_at_ms = now;
-                            let frame = vec![
+                            let mut frame = vec![
                                 exec_record(&e)?,
                                 self.ledger(
                                     "execution.queued",
@@ -850,6 +863,7 @@ impl Kernel {
                                     json!({"execution_id": e.id, "why": "wake_actions_already_settled"}),
                                 )?,
                             ];
+                            frame.extend(extra(&e)?);
                             self.commit(&frame)?;
                             drop(guard);
                             return Ok(e);
@@ -917,6 +931,7 @@ impl Kernel {
             }
             self.task_ended(&e, &mut frame)?;
         }
+        frame.extend(extra(&e)?);
         self.commit(&frame)?;
         drop(guard);
         Ok(e)
@@ -1689,15 +1704,41 @@ impl Kernel {
                     "late completion after cancel: {:?} from {}",
                     c.outcome, c.producer
                 ));
-                self.commit(&[
-                    completion_rec,
-                    action_record(&a)?,
-                    self.ledger(
-                        "completion.late_after_cancel",
-                        Some(&a.session_id),
-                        json!({"correlation_id": a.correlation_id, "outcome": c.outcome, "producer": c.producer}),
-                    )?,
-                ])?;
+                let mut frame = vec![completion_rec, action_record(&a)?];
+                // A reservation the cancel held as unknown (its backend could
+                // not be stopped) is reconciled by the cost this first late
+                // completion brings: booked as spent, and the hold released
+                // (DD7: else a cancelled task keeps it carved from its parent).
+                let held = matches!(
+                    a.cancel,
+                    Some(CancelState::Unsupported | CancelState::OutcomeUncertain)
+                );
+                if held
+                    && a.reservation_id.is_some()
+                    && a.completions_seen == 1
+                    && c.outcome != Outcome::Unknown
+                {
+                    if let Some(mut e) = self.execution(&a.execution_id)? {
+                        let spent_before = e.budget.spent_micros;
+                        e.budget.held_unknown_micros = e
+                            .budget
+                            .held_unknown_micros
+                            .saturating_sub(a.reserved_micros);
+                        e.budget.spent_micros = e
+                            .budget
+                            .spent_micros
+                            .saturating_add(c.cost_micros.unwrap_or(a.reserved_micros));
+                        e.updated_at_ms = now;
+                        frame.push(exec_record(&e)?);
+                        self.carry_to_parent(&e, spent_before, &mut frame)?;
+                    }
+                }
+                frame.push(self.ledger(
+                    "completion.late_after_cancel",
+                    Some(&a.session_id),
+                    json!({"correlation_id": a.correlation_id, "outcome": c.outcome, "producer": c.producer, "cost_usd": c.cost_micros.map(micros_to_usd)}),
+                )?);
+                self.commit(&frame)?;
                 return Ok(Accepted::LateAfterCancel {
                     correlation_id: a.correlation_id,
                 });

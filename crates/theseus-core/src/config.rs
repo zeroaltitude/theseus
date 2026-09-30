@@ -1293,7 +1293,8 @@ mod tests {
         // The commented tool lines and the [policy.mcp] example are real too.
         assert_eq!(cfg.policy.tools["proc.run"], Posture::Approve);
         assert_eq!(cfg.policy.tools["http.fetch"], Posture::Notify);
-        assert_eq!(cfg.policy.tools.len(), 13);
+        assert_eq!(cfg.policy.tools["task.create"], Posture::Notify);
+        assert_eq!(cfg.policy.tools.len(), 14);
         assert_eq!(cfg.policy.mcp["some-server"], Posture::Notify);
         assert_eq!(cfg.policy.mcp["some-server/read-only-tool"], Posture::Open);
         assert_eq!(
@@ -1378,6 +1379,7 @@ mod tests {
             .all()
             .map(|t| t.name().to_string())
             .chain(crate::web::NAMES.map(String::from))
+            .chain(crate::task::NAMES.map(String::from))
             .collect();
         for t in &tools {
             assert!(

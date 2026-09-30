@@ -790,14 +790,49 @@ impl TurnRunner {
             store,
             posts: Default::default(),
         };
+        // A task (DD7): where it reports, and its title, for its report.
+        let task_of = req.session.task.clone();
+        let task_title = req.session.title.clone();
         let r = self.run_inner(&guard, &frames, req, arrived, waits).await;
         let (end, rewake) = match &r {
             Ok((_, end, rewake)) => (end.clone(), *rewake),
+            // No one waits on a task's input: a failed turn ends it, and it
+            // reports that it failed.
+            Err(e) if task_of.is_some() => (
+                TurnEnd::Fail {
+                    reason: failure_reason(e),
+                },
+                false,
+            ),
             Err(_) => (TurnEnd::Wait { wake: Wake::Input }, false),
         };
         let exec_id = guard.execution_id.clone();
         let parked = self.narrator.on().then(|| self.park_sentence(&end));
-        if let Err(e) = frames.kernel.end_turn(guard, end) {
+        // A task's report rides in the frame that ends it, and only in a
+        // frame that does: a turn that ends after a cancel landed writes
+        // none, and the cancel reports (DD7).
+        let reported = std::sync::Mutex::new(None);
+        let ended = frames.kernel.end_turn_with(guard, end, |e| {
+            let Some(task) = task_of.as_ref().filter(|_| e.state.is_terminal()) else {
+                return Ok(vec![]);
+            };
+            let last = if e.state == ExecState::Complete {
+                let nodes = frames.store.transcript(&e.session_id)?;
+                crate::task::last_message(nodes.iter().map(|(_, n)| &**n))
+            } else {
+                None
+            };
+            let report = crate::task::Report::new(e, task_title.clone(), last);
+            let Some(target) = &task.target else {
+                return Ok(vec![]);
+            };
+            let (post, records) =
+                self.outbox
+                    .stage(&e.session_id, &e.id, target, report.post_body())?;
+            *reported.lock().unwrap() = Some(post);
+            Ok(records)
+        });
+        if let Err(e) = ended {
             tracing::warn!(error = %e, "end_turn failed");
         }
         // Rows still waiting when the turn's last frame failed or wrote none.
@@ -805,6 +840,9 @@ impl TurnRunner {
             // The turn's posts rode in its last frame: now a binding may send them.
             Ok(()) => {
                 for a in frames.posts.lock().unwrap().drain(..) {
+                    self.outbox.posted(&a);
+                }
+                if let Some(a) = reported.lock().unwrap().take() {
                     self.outbox.posted(&a);
                 }
             }
@@ -847,11 +885,14 @@ impl TurnRunner {
                 // The class and the turn ride beside it: the cause, once.
                 error: te.map_or_else(|| format!("{e:#}"), |t| format!("{:#}", t.source)),
             };
-            // A failed turn must be seen where its reply would have gone.
-            let mut body = serde_json::to_value(&failed).unwrap_or_default();
-            body["kind"] = json!("failed");
-            if let Err(e) = self.outbox.post_for(&failed.session_id, &exec_id, body) {
-                tracing::warn!(error = %format!("{e:#}"), "the failed turn's notice was not written");
+            // A failed turn must be seen where its reply would have gone. A
+            // task's report says it failed instead (DD7).
+            if task_of.is_none() {
+                let mut body = serde_json::to_value(&failed).unwrap_or_default();
+                body["kind"] = json!("failed");
+                if let Err(e) = self.outbox.post_for(&failed.session_id, &exec_id, body) {
+                    tracing::warn!(error = %format!("{e:#}"), "the failed turn's notice was not written");
+                }
             }
             failure_sink.send(notify::TURN_FAILED, failed);
         }
@@ -908,6 +949,7 @@ impl TurnRunner {
         }
         let sid = session.session_id.clone();
         let turn_id = crate::new_id("turn");
+        let task_of = session.task.clone();
         let tc = TurnCtx {
             kernel: &frames.kernel,
             store: &frames.store,
@@ -921,6 +963,8 @@ impl TurnRunner {
             narrator: &self.narrator,
             outbox: &self.outbox,
             posts: &frames.posts,
+            target: Some(&target),
+            task: task_of.as_ref(),
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             narrate!(
@@ -1058,12 +1102,15 @@ impl TurnRunner {
         };
         let (reset, raised) = (budget(true), budget(false));
         let resumed = self.tools.resume(&t.tc, has_input).await?;
+        // The reports of this session's tasks that ended since its last turn
+        // (DD7), after the calls above and before the new input.
+        let reported = self.read_reports(&t.tc)?;
         t.trace.record(
             "continuation",
             "tool",
             t0,
             t.trace.now_us(),
-            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background, "budget_reset": reset, "limit_raised": raised}),
+            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background, "budget_reset": reset, "limit_raised": raised, "task_reports": reported}),
         );
         if t.tc.narrator.on() {
             let mut done = Vec::new();
@@ -1093,6 +1140,12 @@ impl TurnRunner {
             if resumed.awaiting.is_some() {
                 done.push("a call still waits for approval".into());
             }
+            if reported > 0 {
+                done.push(format!(
+                    "{} read",
+                    narrative::count(reported as u64, "task report", "task reports")
+                ));
+            }
             if !done.is_empty() {
                 narrate_turn!(
                     t.tc,
@@ -1104,7 +1157,37 @@ impl TurnRunner {
         }
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
-        Ok(absorbed + resumed.wrote + u32::from(reset || raised))
+        Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported)
+    }
+
+    /// The reports of the tasks this session started that ended since its
+    /// last turn (DD7): each becomes a node in this session, read by the
+    /// model with whatever came with this turn. One frame clears them from
+    /// the execution and writes their nodes; none, and nothing is written.
+    fn read_reports(&self, tc: &TurnCtx<'_>) -> Result<u32> {
+        let mut nodes = Vec::new();
+        tc.kernel.take_reports(tc.guard, |ids| {
+            let mut records = Vec::new();
+            for id in ids {
+                let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)? else {
+                    continue;
+                };
+                let n = Node::relayed(
+                    tc.session_id,
+                    Some(tc.turn_id),
+                    crate::node::Origin::Harness,
+                    &format!("task:{}", r.short),
+                    &r.node_text(),
+                );
+                records.push(n.record()?);
+                nodes.push(n);
+            }
+            Ok(records)
+        })?;
+        for n in &nodes {
+            tc.node_written(n);
+        }
+        Ok(nodes.len() as u32)
     }
 
     /// Does the model have anything new to read: input or results it has not
@@ -1129,7 +1212,13 @@ impl TurnRunner {
             .iter()
             .rev()
             .find(|(_, n)| !matches!(n.body, Body::ToolCall { .. }));
-        let awaiting_reply = matches!(last.map(|(_, n)| &n.body), Some(Body::UserMessage { .. }));
+        let awaiting_reply = match last.map(|(_, n)| &n.body) {
+            Some(Body::UserMessage { .. }) => true,
+            // A task goes on by itself (DD7): results its model has not read
+            // yet (a turn that stopped at its loop cap) are its next input.
+            Some(Body::ToolResult { .. }) => t.tc.task.is_some(),
+            _ => false,
+        };
         if !awaiting_reply {
             t.stop_reason = "nothing_new".into();
             narrate_turn!(
@@ -1465,8 +1554,12 @@ impl TurnRunner {
             t.tc.posts.lock().unwrap().push(post);
         }
         let lifetime = session.cost_usd + t.cost.unwrap_or(0.0);
+        let who = match session.task {
+            Some(_) => format!("Task {}", crate::task::short(t.tc.session_id)),
+            None => "This session".to_string(),
+        };
         let question = format!(
-            "This session has spent {} of its {} limit. Reset its spend to $0 and continue?",
+            "{who} has spent {} of its {} limit. Reset its spend to $0 and continue?",
             narrative::dollars(spent),
             narrative::dollars(limit)
         );
@@ -1489,6 +1582,7 @@ impl TurnRunner {
                 needed_usd: micros_to_usd(needed),
                 lifetime_usd: lifetime,
             }),
+            task: crate::task::task_ref(session),
         };
         t.tc.sink.send(notify::CONFIRM_REQUESTED, &req);
         t.tc.sink.send(
@@ -2030,7 +2124,11 @@ impl TurnRunner {
             "turn.ended",
             json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "cost_usd": result.cost_usd, "tool_calls": result.tool_calls, "session_usage": session.usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model, "awaiting_confirm": result.awaiting_confirm, "continuation": result.continuation, "late_results": late}),
         );
-        self.stage_reply(&t, &result)?;
+        // A task's turns post nothing to the place: its report does, once,
+        // when it ends (DD7).
+        if t.tc.task.is_none() {
+            self.stage_reply(&t, &result)?;
+        }
         result.trace = Some(t.trace.finish(json!({
             "outcome": "complete",
             "loops": result.loops,
@@ -2054,13 +2152,33 @@ impl TurnRunner {
             narrative::money(result.cost_usd),
             narrative::end_phrase(&result.stop_reason)
         );
+        let is_task = t.tc.task.is_some();
+        let stop = result.stop_reason.clone();
         let end = match t.budget_question {
             Some(q) => TurnEnd::Wait {
                 wake: Wake::Budget { correlation_id: q },
             },
             None => self.park(t.tc.execution_id, t.awaiting, &t.background)?,
         };
-        Ok((result, end, late > 0))
+        let mut again = late > 0;
+        // A task that has nothing left to wait on is done (DD7): its last
+        // message is its report, which the frame that ends it carries. One
+        // with results its model has not read (late ones, or a turn stopped at
+        // its loop cap) takes another turn instead: no one else will wake it.
+        let end = match end {
+            TurnEnd::Wait { wake: Wake::Input } if is_task => {
+                if again || stop == "max_loops" {
+                    again = true;
+                    TurnEnd::Wait { wake: Wake::Input }
+                } else {
+                    TurnEnd::Complete {
+                        reason: "reported".into(),
+                    }
+                }
+            }
+            end => end,
+        };
+        Ok((result, end, again))
     }
 
     /// The turn's reply as an outbox post, when its session posts somewhere
@@ -2224,6 +2342,16 @@ pub struct TurnError {
     pub tool_calls: u32,
     #[source]
     pub source: anyhow::Error,
+}
+
+/// Why a task's turn failed, as its report says it (DD7): the class and the
+/// cause, clipped.
+fn failure_reason(e: &anyhow::Error) -> String {
+    let why = match e.downcast_ref::<TurnError>() {
+        Some(t) => format!("{} ({:#})", t.class, t.source),
+        None => format!("an internal error ({e:#})"),
+    };
+    crate::toolrun::cap(&why, 400).0
 }
 
 pub fn add_usage(into: &mut Usage, u: &Usage) {

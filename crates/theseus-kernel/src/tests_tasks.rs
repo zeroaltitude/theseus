@@ -299,6 +299,51 @@ fn a_cancelled_task_reports_once_and_releases_its_carve() {
     assert_eq!(p.budget.available(), 100_000);
 }
 
+/// A call a cancel could not stop holds its reservation as unknown, so the
+/// parent's carve keeps it; the call's late completion brings its real cost,
+/// which is booked in the task and the parent, and the hold and the carve go.
+#[test]
+fn a_cancelled_tasks_late_completion_reconciles_what_it_held() {
+    let w = world();
+    let (parent, _g, task, _) = with_task(&w, 30_000);
+    let tg = w.kernel.admit(&task.id).unwrap();
+    let call = dispatched(&w, &tg, "provider.messages", 10_000);
+    let stop = w.kernel.cancel_execution(&task.id, "operator").unwrap();
+    assert_eq!(stop, vec![call.correlation_id.clone()]);
+    w.kernel.cancel_unsupported(&call.correlation_id).unwrap();
+    assert_eq!(exec(&w, &task.id).budget.held_unknown_micros, 10_000);
+    assert_eq!(carved(&w, &parent.id, &task.id), Some(10_000), "still held");
+    let late = w
+        .kernel
+        .accept_completion(&completion(
+            &call.correlation_id,
+            Outcome::Succeeded,
+            Some(3_000),
+        ))
+        .unwrap();
+    assert!(matches!(late, Accepted::LateAfterCancel { .. }));
+    let t = exec(&w, &task.id);
+    assert_eq!(t.state, ExecState::Cancelled, "not revived");
+    assert_eq!(
+        (t.budget.held_unknown_micros, t.budget.spent_micros),
+        (0, 3_000)
+    );
+    let p = exec(&w, &parent.id);
+    assert_eq!(p.budget.spent_micros, 3_000);
+    assert_eq!(carved(&w, &parent.id, &task.id), None);
+    assert_eq!(p.budget.reserved_micros, 0);
+    // A second copy of it changes nothing.
+    w.kernel
+        .accept_completion(&completion(
+            &call.correlation_id,
+            Outcome::Succeeded,
+            Some(3_000),
+        ))
+        .unwrap();
+    assert_eq!(exec(&w, &parent.id).budget.spent_micros, 3_000);
+    drop(tg);
+}
+
 /// A crash keeps everything: the task stays queued for the driver, a task
 /// mid-turn is requeued as any execution is, and the carve stays reserved.
 #[test]

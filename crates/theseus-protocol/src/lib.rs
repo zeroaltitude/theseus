@@ -62,9 +62,14 @@ pub mod method {
     /// Undo a tightening: the tool goes back to what the config says. It
     /// loosens, so it takes the same trusted answer as an approval.
     pub const POLICY_UNTIGHTEN: &str = "policy.untighten";
+    /// Tasks (DD7): the child sessions conversations started, with state and
+    /// spend.
+    pub const TASK_LIST: &str = "task.list";
+    /// Stop a task and its jobs; the place hears it once.
+    pub const TASK_CANCEL: &str = "task.cancel";
 
     /// Every method, so a server can say which only read (theseus-2fo).
-    pub const ALL: [&str; 25] = [
+    pub const ALL: [&str; 27] = [
         HEALTH,
         SESSION_OPEN,
         SESSION_LIST,
@@ -90,6 +95,8 @@ pub mod method {
         NARRATIVE_UNWATCH,
         POLICY_TIGHTEN,
         POLICY_UNTIGHTEN,
+        TASK_LIST,
+        TASK_CANCEL,
     ];
 }
 
@@ -955,6 +962,90 @@ pub struct ExecutionCancelResult {
     pub cancelled_actions: Vec<String>,
 }
 
+/// A task (DD7, theseus-qn2): a child session a conversation opened with
+/// `task.create`, which works on its own and reports back to the place.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskInfo {
+    /// Its session's id (`ses_…`).
+    pub task_id: String,
+    /// The last six characters of its id, which is how people name it
+    /// (`/cancel a1b2c3`).
+    pub short: String,
+    pub execution_id: String,
+    pub parent_session_id: String,
+    pub parent_execution_id: String,
+    /// The brief's first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Its execution's state: `queued`, `running`, `waiting`, `complete`, …
+    pub state: String,
+    /// What it waits on, while it waits: `actions` (a job), `confirm`,
+    /// `budget`, or `input`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_on: Option<String>,
+    /// Its spend under its carved limit (since any reset), and that limit.
+    pub spent_usd: f64,
+    pub limit_usd: f64,
+    /// What its session has cost in all, resets included.
+    pub cost_usd: f64,
+    pub turns: u64,
+    /// Questions it asks the operator now.
+    #[serde(default)]
+    pub pending_confirms: u32,
+    /// Where its cards and report go (`discord:dm:<user>`), if anywhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_reason: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+
+/// `task.list`: every task, the newest first, or only one session's, or
+/// only those that report to one place.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskListParams {
+    /// Only the tasks this session started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Only the tasks that report to this place (`discord:dm:<user>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskListResult {
+    pub tasks: Vec<TaskInfo>,
+}
+
+/// `task.cancel`: stop a task and its jobs, as `execution.cancel` does; the
+/// place hears that it was cancelled, once.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskCancelParams {
+    /// Its id, its execution's id, or the end of either (`a1b2c3`), as long
+    /// as one task matches.
+    pub task: String,
+    /// Who asked, as a label in the ledger. Default: the connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskCancelResult {
+    pub task: TaskInfo,
+    /// Dispatched actions whose backends were asked to stop.
+    pub cancelled_actions: Vec<String>,
+}
+
+/// A question's task, when a task asks it (DD7): the card names it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskRef {
+    pub task_id: String,
+    pub short: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
 /// Also the kernel's: an execution stores it (`theseus_kernel::SessionKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1014,6 +1105,12 @@ pub struct SessionInfo {
     /// Tool calls in this session waiting for the operator's confirmation.
     #[serde(default)]
     pub pending_confirms: u32,
+    /// A task session's parent (DD7): the session that started it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_session_id: Option<String>,
+    /// A task's carved limit, in US dollars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit_usd: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1363,6 +1460,9 @@ pub struct ConfirmRequest {
     /// asks about. `reason` is the question in words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<BudgetAsk>,
+    /// The task that asks, when a task does (DD7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<TaskRef>,
 }
 
 /// What a budget question asks about (theseus-0sg): the session reached its

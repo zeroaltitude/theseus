@@ -47,13 +47,36 @@ pub struct SessionRecord {
     /// An operator asked for a recompile; the next turn applies it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_recompile: Option<crate::compiler::Recompile>,
+    /// A task session's origin (DD7): the session and the call that started
+    /// it, and where it reports. Written once, when the task opens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<TaskOf>,
+}
+
+/// Where a task session came from, and where it reports (DD7, theseus-qn2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskOf {
+    pub parent_session: String,
+    pub parent_execution: String,
+    /// The `task.create` call that opened it.
+    pub by: String,
+    /// Where its cards and its report go: the place its parent posted to
+    /// when it started, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 impl SessionRecord {
     pub fn new(kind: SessionKind, label: Option<String>) -> Self {
+        Self::with_id(crate::new_id("ses"), kind, label)
+    }
+
+    /// A record for a session whose id is decided elsewhere: a task's comes
+    /// from the call that opens it (DD7).
+    pub fn with_id(session_id: String, kind: SessionKind, label: Option<String>) -> Self {
         let now = theseus_protocol::now_unix_ms();
         Self {
-            session_id: crate::new_id("ses"),
+            session_id,
             kind,
             label,
             created_at_unix_ms: now,
@@ -68,6 +91,7 @@ impl SessionRecord {
             tool_calls: 0,
             title: None,
             pending_recompile: None,
+            task: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it
@@ -109,6 +133,8 @@ impl SessionRecord {
             compilation_id: self.compilation_id.clone(),
             title: self.title.clone(),
             pending_confirms: 0,
+            parent_session_id: self.task.as_ref().map(|t| t.parent_session.clone()),
+            limit_usd: None,
         }
     }
 }

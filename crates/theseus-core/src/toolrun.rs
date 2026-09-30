@@ -90,6 +90,11 @@ pub struct TurnCtx<'a> {
     /// Posts whose records wait in `store` for the turn's next frame: the
     /// turn indexes them once that is written.
     pub posts: &'a std::sync::Mutex<Vec<Action>>,
+    /// What the turn runs against: a task it starts runs on it too (DD7).
+    pub target: Option<&'a crate::turn::Target>,
+    /// Where this session came from, when it is a task (DD7): its notices
+    /// name it, and it starts no tasks.
+    pub task: Option<&'a crate::session::TaskOf>,
 }
 
 impl TurnCtx<'_> {
@@ -740,10 +745,15 @@ impl ToolRuntime {
         g: &Gated,
     ) -> Option<Value> {
         let n = g.decision.notify.as_ref()?;
-        Some(json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
+        let mut v = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
             "tool_use_id": call.id, "correlation_id": correlation_id, "tool": tool,
             "input": call.input, "summary": g.plan.summary, "kind": n.kind,
-            "setting": n.setting, "rule": n.rule, "granted": g.decision.granted}))
+            "setting": n.setting, "rule": n.rule, "granted": g.decision.granted});
+        // A task's notice names the task (DD7).
+        if tc.task.is_some() {
+            v["task"] = json!(crate::task::short(tc.session_id));
+        }
+        Some(v)
     }
 
     fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
@@ -1008,6 +1018,11 @@ impl ToolRuntime {
             expires_at_ms: now + tc.confirm_ttl_ms,
             floor: g.decision.floor,
             budget: None,
+            task: tc.task.map(|_| theseus_protocol::TaskRef {
+                task_id: tc.session_id.into(),
+                short: crate::task::short(tc.session_id),
+                title: None,
+            }),
         };
         tc.ledger("tool.confirm_requested", serde_json::to_value(&req)?);
         tc.sink.send(notify::CONFIRM_REQUESTED, &req);
@@ -1018,7 +1033,7 @@ impl ToolRuntime {
 
     fn deadline_ms(&self, tool: &dyn Tool, input: &Value) -> u64 {
         match tool.backend() {
-            Backend::Inproc | Backend::Async => INPROC_DEADLINE_MS,
+            Backend::Inproc | Backend::Async | Backend::Harness => INPROC_DEADLINE_MS,
             Backend::Job => {
                 let t = input
                     .get("timeout_secs")
@@ -1053,7 +1068,64 @@ impl ToolRuntime {
                 self.run_job(tc, correlation_id, tool.as_ref(), call, ran_at)
                     .await
             }
+            Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call),
         }
+    }
+
+    /// A tool the harness runs itself, in the turn's own task (`task.create`,
+    /// DD7): its result node rides in its completion's frame, as an
+    /// in-process tool's does. Run again after a restart, it finds what it did
+    /// the first time instead of doing it twice.
+    fn run_harness(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: &dyn Tool,
+        call: &ToolUse,
+    ) -> Result<CallOutcome> {
+        tc.sink.send(
+            notify::TOOL_STARTED,
+            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": tool.backend().as_str()}),
+        );
+        let started = theseus_protocol::now_unix_ms();
+        let t0 = Instant::now();
+        let done = match tool.name() {
+            crate::task::CREATE => crate::task::create(tc, &call.input, correlation_id),
+            other => Err(format!("{other} is not a tool the harness runs")),
+        };
+        let dur = t0.elapsed().as_millis() as u64;
+        let (status, text, meta) = match done {
+            Ok((text, meta)) => (ResultStatus::Ok, text, meta),
+            Err(why) => (ResultStatus::Error, why, Value::Null),
+        };
+        let node = self.result_node(
+            tc,
+            ResultNode {
+                correlation_id: Some(correlation_id),
+                duration_ms: Some(dur),
+                meta: meta.clone(),
+                ..ResultNode::new(&call.id, tool.name(), status, text)
+            },
+        );
+        let c = Completion {
+            correlation_id: correlation_id.into(),
+            outcome: if status == ResultStatus::Ok {
+                Outcome::Succeeded
+            } else {
+                Outcome::Failed
+            },
+            result_ref: Some(node.id.clone()),
+            external_op_id: None,
+            started_at_ms: started,
+            finished_at_ms: theseus_protocol::now_unix_ms(),
+            producer: format!("harness:{}", tool.name()),
+            signature: None,
+            cost_micros: None,
+            detail: Some(json!({"duration_ms": dur, "meta": meta})),
+        };
+        tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
+        Self::announce_end(tc, &node);
+        Ok(CallOutcome::Done { status })
     }
 
     /// An in-process tool: its result node rides in its completion's frame.
@@ -1742,6 +1814,11 @@ impl ToolRuntime {
     ) -> Result<Option<String>> {
         let (tool, name) = self.tool_of(u);
         let corr = &a.correlation_id;
+        // A harness tool run again finds what it did (DD7's task ids).
+        if let Some(t) = tool.as_ref().filter(|t| t.backend() == Backend::Harness) {
+            self.run_harness(tc, corr, t.as_ref(), u)?;
+            return Ok(None);
+        }
         let is_job = tool.as_ref().is_some_and(|t| t.backend() == Backend::Job);
         let settled = match &self.spool {
             Some(sp) if is_job => Self::job_settled(tc.kernel, sp, corr)?,
@@ -1770,6 +1847,16 @@ impl ToolRuntime {
     /// in the spool; an in-process call's is gone.
     fn answer_settled(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<()> {
         let (tool, name) = self.tool_of(u);
+        // A harness call the reconciler marked unknown (the daemon was down
+        // past its deadline) runs again, and finds what it did (DD7).
+        if let Some(t) = tool
+            .as_ref()
+            .filter(|t| t.backend() == Backend::Harness)
+            .filter(|_| a.state == ActionState::OutcomeUnknown)
+        {
+            self.run_harness(tc, &a.correlation_id, t.as_ref(), u)?;
+            return Ok(());
+        }
         let r = if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
             Self::job_result(tc, a, &u.id, &name)
         } else {
@@ -2027,6 +2114,8 @@ pub fn build_runtime(
         for tool in web.tools() {
             r.register(tool);
         }
+        // Task sessions (DD7): the harness runs it.
+        r.register(Arc::new(crate::task::TaskCreate));
         r
     } else {
         Registry::new()

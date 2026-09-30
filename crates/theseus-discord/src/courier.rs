@@ -454,6 +454,20 @@ impl Lane {
                     extra: json!({}),
                 })
             }
+            "report" => {
+                // A task's report (DD7): one message, in the place the task
+                // reports to, under a key of its own, so it posts once.
+                let channel = self.place_channel().await?;
+                let said = body["node"]
+                    .as_str()
+                    .and_then(|n| self.shared.core.outbox.said(n));
+                let t = render::report(&body, said.as_deref());
+                let key = format!("report:{}", body["task"].as_str().unwrap_or(corr));
+                Ok(Plan {
+                    writes: vec![text(t, key, channel, None)],
+                    extra: json!({"task": body["task"]}),
+                })
+            }
             "refusal" | "restarted" => {
                 let t = if kind_of(a) == "refusal" {
                     render::job_refusal(&body["params"])

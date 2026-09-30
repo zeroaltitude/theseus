@@ -59,6 +59,7 @@ impl Core {
             expires_at_ms: a.planned_at_ms + self.kernel.config().confirm_ttl_ms,
             floor: gate["decision"]["floor"].as_bool().unwrap_or(false),
             budget: None,
+            task: crate::task::task_ref(session),
         })
     }
 
@@ -78,7 +79,11 @@ impl Core {
             input: json!({"spent_usd": usd(b.spent_micros), "limit_usd": usd(b.limit_micros), "needed_usd": needed}),
             resource: None,
             reason: format!(
-                "This session has spent {} of its {} limit. Reset its spend to $0 and continue?",
+                "{} has spent {} of its {} limit. Reset its spend to $0 and continue?",
+                match &session.task {
+                    Some(_) => format!("Task {}", crate::task::short(&session.session_id)),
+                    None => "This session".to_string(),
+                },
                 crate::narrative::dollars(b.spent_micros),
                 crate::narrative::dollars(b.limit_micros)
             ),
@@ -92,6 +97,7 @@ impl Core {
                 needed_usd: needed,
                 lifetime_usd: session.cost_usd,
             }),
+            task: crate::task::task_ref(session),
         })
     }
 

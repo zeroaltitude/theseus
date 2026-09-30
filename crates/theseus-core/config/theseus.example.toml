@@ -229,6 +229,9 @@ approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"]
 # URL (a GET's URL can carry data out); web.search also takes its key's posture
 # "http.fetch" = "notify"
 # "web.search" = "notify"
+# a background task (DD7): inherits enforcement, so each start is a notice; the
+# task's own calls are gated as usual, and it spends from this session's limit
+# "task.create" = "notify"
 
 # Per-MCP postures, for when MCP servers land (M7): "server" covers every tool
 # from that server, "server/tool" one tool. An MCP tool's posture comes from

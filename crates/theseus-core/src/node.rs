@@ -244,6 +244,30 @@ impl Node {
         n
     }
 
+    /// A message the model reads as the user's that no operator typed (DD7):
+    /// a task's brief, written by its parent's model (`Agent`), or a task's
+    /// report in its parent's session, written by the harness (`Harness`).
+    pub fn relayed(
+        session_id: &str,
+        turn_id: Option<&str>,
+        origin: Origin,
+        author: &str,
+        text: &str,
+    ) -> Self {
+        let mut n = Self::new(
+            "msg",
+            session_id,
+            turn_id,
+            origin,
+            Body::UserMessage {
+                text: text.into(),
+                attachments: Vec::new(),
+            },
+        );
+        n.author = Some(author.into());
+        n
+    }
+
     pub fn assistant(session_id: &str, turn_id: &str, loop_index: u32, body: Body) -> Self {
         let mut n = Self::new("msg", session_id, Some(turn_id), Origin::Agent, body);
         n.loop_index = Some(loop_index);

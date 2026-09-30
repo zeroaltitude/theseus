@@ -204,6 +204,12 @@ impl Core {
             method::EXECUTION_LIST => reply(self.execution_list()?),
             method::ACTION_LIST => route(params, |p| self.action_list(p)),
             method::EXECUTION_CANCEL => route(params, |p| self.execution_cancel(p, conn)),
+            method::TASK_LIST => {
+                // Its filters are optional: no params lists every task.
+                let params = if params.is_null() { json!({}) } else { params };
+                route(params, |p| self.task_list(p))
+            }
+            method::TASK_CANCEL => route(params, |p| self.task_cancel(p, conn)),
             method::LEDGER_TAIL => route(params, |p| self.ledger_tail(p)),
             method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
                 Err(RpcFailure::new(
@@ -227,7 +233,7 @@ impl Core {
 /// vault confirms the config a start served from, each waits at the gate,
 /// bounded like the secrets, then fails with `config_unconfirmed`. Every
 /// other method only reads, and answers at once; `shutdown` works too.
-pub const ACTS: [&str; 8] = [
+pub const ACTS: [&str; 9] = [
     method::TURN_SUBMIT,
     method::SESSION_OPEN,
     method::PROFILE_USE,
@@ -236,6 +242,7 @@ pub const ACTS: [&str; 8] = [
     method::POLICY_TIGHTEN,
     method::POLICY_UNTIGHTEN,
     method::EXECUTION_CANCEL,
+    method::TASK_CANCEL,
 ];
 
 /// A failed request: JSON-RPC code, human message, structured data.
