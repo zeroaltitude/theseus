@@ -1165,7 +1165,7 @@ async fn run(cli: Cli) -> Result<()> {
                     }
                     return Ok(());
                 }
-                Err(e) if not_found(&e) => e.to_string(),
+                Err(e) if not_found(&e) => call_message(&e),
                 Err(e) => return Err(e),
             };
             let v = match conn
@@ -1181,9 +1181,19 @@ async fn run(cli: Cli) -> Result<()> {
             {
                 Ok(v) => v,
                 Err(e) if not_found(&e) => {
-                    return Err(anyhow!(
-                        "`{name}` names no task and no pending wake: {e}; {no_wake}"
-                    ))
+                    // Why each lookup failed, unless it only says so.
+                    let why: Vec<String> = [call_message(&e), no_wake]
+                        .into_iter()
+                        .filter(|m| {
+                            !m.starts_with("no task is named")
+                                && !m.starts_with("no pending wake is named")
+                        })
+                        .collect();
+                    let why = match why.as_slice() {
+                        [] => String::new(),
+                        w => format!(": {}", w.join("; ")),
+                    };
+                    return Err(anyhow!("`{name}` names no task and no pending wake{why}"));
                 }
                 Err(e) => return Err(e),
             };
@@ -1868,6 +1878,12 @@ fn print_node(n: &NodeInfo, full: bool) {
 fn not_found(e: &anyhow::Error) -> bool {
     e.downcast_ref::<CallError>()
         .is_some_and(|c| c.code == theseus_protocol::error_code::NOT_FOUND)
+}
+
+/// What the daemon said, without its code.
+fn call_message(e: &anyhow::Error) -> String {
+    e.downcast_ref::<CallError>()
+        .map_or_else(|| e.to_string(), |c| c.message.clone())
 }
 
 /// `in 9m`, `in 2h`, or `due 3m ago` (a wake waiting for its busy session).

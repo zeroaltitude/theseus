@@ -2042,16 +2042,18 @@ impl Kernel {
     /// actions past their deadline are checked against evidence and settled
     /// or marked unknown; unknowns are re-probed. Cost scales with open work.
     pub fn reconcile(&self, evidence: &dyn Evidence) -> Result<ReconcileReport> {
-        self.reconcile_with(evidence, None)
+        self.reconcile_with(evidence, None, true)
     }
 
     /// `reconcile`, over open executions already in hand (`Some`: startup's
     /// step 2 read every one, and nothing since changed them; theseus-qa0),
-    /// or read afresh.
+    /// or read afresh; `due`: whether due wakes fire in this pass (startup's
+    /// pass leaves them to the driver, DD8).
     fn reconcile_with(
         &self,
         evidence: &dyn Evidence,
         open: Option<Vec<Execution>>,
+        due: bool,
     ) -> Result<ReconcileReport> {
         let t0 = std::time::Instant::now();
         let now = self.now_ms();
@@ -2061,14 +2063,11 @@ impl Kernel {
             None => self.open_executions()?,
         };
         rep.open_executions = execs.len() as u64;
-        for e in execs {
-            // A due time it waits on, or a wake of its own (DD8). The scan
-            // may be a frame stale: `fire_due` decides again from a read
-            // under the lock (a cancel may have landed since), and queues it
-            // for the driver.
-            if !crate::wakes::due_now(&e, now) {
-                continue;
-            }
+        // A due time it waits on, or a wake of its own (DD8). The scan may be
+        // a frame stale: `fire_due` decides again from a read under the lock
+        // (a cancel may have landed since), and queues it for the driver.
+        let due_now = |e: &Execution| due && crate::wakes::due_now(e, now);
+        for e in execs.iter().filter(|e| due_now(e)) {
             if let Some(e) = self.fire_due(&e.id)? {
                 rep.woke_due.push(e.id);
             }
@@ -2296,7 +2295,10 @@ impl Kernel {
                 .filter(|e| !e.state.is_terminal())
                 .collect()
         });
-        rep.reconcile = self.reconcile_with(evidence, open)?;
+        // Due wakes are left to the driver's first tick and the heartbeat
+        // (DD8): queueing one here would write before the socket serves, and
+        // its turn waits for the vault's word on the config anyway.
+        rep.reconcile = self.reconcile_with(evidence, open, false)?;
         step_rows.push(self.ledger(
             "startup.step",
             None,

@@ -298,7 +298,12 @@ async fn a_wake_after_two_seconds_runs_a_turn_with_its_note_and_not_before() {
         .unwrap();
     assert!(result.starts_with("Set wake "), "{result}");
     assert!(result.contains("⏰ wake (set "), "{result}");
-    assert!(result.contains("1 of 5 wakes pending"), "{result}");
+    assert!(result.contains("1 of 5 wakes are pending"), "{result}");
+    assert!(
+        result.contains("whose input is this line:\n⏰ wake (set ")
+            && result.ends_with("): check the build"),
+        "the line ends the result, with the note as it was: {result}"
+    );
 
     until("the wake's turn", 10, || {
         !wake_nodes(&l.core, &sid).is_empty()
@@ -402,7 +407,7 @@ async fn a_wake_due_while_the_daemon_was_down_runs_after_startup_marked_late() {
     .await;
     let text = node_text(&wake_nodes(&l.core, &sid)[0]).to_string();
     let set = crate::wake::local(w.set_at_ms).hm();
-    let due = crate::wake::local(w.due_at_ms).hm();
+    let due = crate::wake::local(w.due_at_ms).hms();
     assert!(
         text.starts_with(&format!("⏰ wake (set {set}, due {due}, ")),
         "{text}"

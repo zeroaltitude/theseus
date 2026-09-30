@@ -227,12 +227,13 @@ pub fn set(
     }
     let text = if set.set {
         format!(
-            "Set wake {s} for {when}. This conversation gets a turn then, whose input is: \
-             ⏰ wake (set {}): {}. It has {} of {MAX_PENDING} wakes pending. Its id is {}.",
-            local(w.set_at_ms).hm(),
-            w.note,
+            "Set wake {s} for {when}; {} of {MAX_PENDING} wakes are pending, and its id is {}. \
+             This conversation gets a turn then, whose input is this line:\n\
+             ⏰ wake (set {}): {}",
             set.pending,
-            w.id
+            w.id,
+            local(w.set_at_ms).hm(),
+            w.note
         )
     } else {
         format!(
@@ -286,7 +287,7 @@ pub fn fired_text(f: &FiredWake) -> String {
         } else {
             ""
         };
-        format!(", due {}, {} late{why}", due.hm_on(&set), span(f.late_ms))
+        format!(", due {}, {} late{why}", due.hms_on(&set), span(f.late_ms))
     } else {
         String::new()
     };
@@ -519,16 +520,20 @@ impl Local {
     pub fn hm(&self) -> String {
         format!("{:02}:{:02}", self.hour, self.minute)
     }
-    /// `13:05` on the same day as `other`, else `Sep 30 13:05`.
-    pub fn hm_on(&self, other: &Local) -> String {
+    /// `13:05:07`.
+    pub fn hms(&self) -> String {
+        format!("{:02}:{:02}:{:02}", self.hour, self.minute, self.second)
+    }
+    /// `13:05:07` on the same day as `other`, else `Sep 30 13:05:07`.
+    pub fn hms_on(&self, other: &Local) -> String {
         if (self.year, self.month, self.day) == (other.year, other.month, other.day) {
-            self.hm()
+            self.hms()
         } else {
             format!(
                 "{} {} {}",
                 MONTHS[(self.month.clamp(1, 12) - 1) as usize],
                 self.day,
-                self.hm()
+                self.hms()
             )
         }
     }
@@ -747,7 +752,7 @@ mod tests {
             late_ms: 36_000,
             while_down: true,
         };
-        let due = local(set_at + 60_000).hm();
+        let due = local(set_at + 60_000).hms();
         assert_eq!(
             fired_text(&late),
             format!(

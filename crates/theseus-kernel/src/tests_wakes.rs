@@ -259,8 +259,10 @@ fn a_wake_survives_a_restart_and_fires_once() {
     assert_eq!(rows(&w, &e.session_id, "wake.fired").len(), 1);
 }
 
-/// A wake that fell due while the daemon was down is queued by startup and
-/// runs late, by how much, and says the daemon was not running.
+/// A wake that fell due while the daemon was down runs after startup: not in
+/// startup's own pass, which writes nothing for it before the socket serves,
+/// but in the first due scan after it. It runs late, by how much, and says
+/// the daemon was not running.
 #[test]
 fn a_wake_due_while_the_daemon_was_down_runs_after_startup_marked_late() {
     let w = world();
@@ -269,11 +271,19 @@ fn a_wake_due_while_the_daemon_was_down_runs_after_startup_marked_late() {
     // old kernel does nothing while the clock moves, and the next one starts
     // after it.
     w.clock.advance(90_000);
+    let before = w.kernel.store().last_position();
     let (w, rep) = crash(w, KernelConfig::default());
+    assert!(rep.reconcile.woke_due.is_empty(), "startup leaves it");
+    assert_eq!(exec(&w, &e.id).state, ExecState::Waiting);
+    let startup_records = w.kernel.store().last_position() - before;
     assert_eq!(
-        rep.reconcile.woke_due,
+        w.kernel.reconcile(&NoEvidence).unwrap().woke_due,
         vec![e.id.clone()],
-        "startup queues it"
+        "the first due scan queues it"
+    );
+    assert!(
+        startup_records <= 5,
+        "a clean start's records only: {startup_records}"
     );
     let (_g, fired) = take(&w, &e.id);
     assert_eq!(fired[0].wake.id, wid);
