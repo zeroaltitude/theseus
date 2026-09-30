@@ -127,6 +127,25 @@ pub enum Wake {
     Budget { correlation_id: CorrelationId },
 }
 
+/// A wake a conversation set for itself with `wake.at` (DD8, theseus-cff): at
+/// `due_at_ms` its session gets a turn whose input is `note`. One-shot: the
+/// turn that takes it removes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingWake {
+    /// `wak_…`, from the id of the call that set it (`wake_id`).
+    pub id: String,
+    pub due_at_ms: u64,
+    pub note: String,
+    pub set_at_ms: u64,
+    /// The `wake.at` call that set it.
+    pub by: CorrelationId,
+    /// Where its session posted when it was set (`discord:dm:<user>`): its
+    /// turn's reply goes there if the session posts nowhere by then (a place
+    /// that moved on to a new session).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
 /// The authority an execution acts under (§3.9), inherited never widened.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Authority {
@@ -255,6 +274,12 @@ pub struct Execution {
     /// the session.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reports: Vec<ExecutionId>,
+    /// Wakes this execution set for itself that have not run yet (DD8,
+    /// theseus-cff), soonest first. They sit beside `wake`, which says what
+    /// the last turn parked on: a conversation waits on its next input and on
+    /// its due times at once (`wakes.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wakes: Vec<PendingWake>,
     /// Turns taken (lock acquisitions).
     pub turns: u64,
     /// Recovery counter: how many times a crash interrupted a running turn.

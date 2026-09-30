@@ -113,7 +113,24 @@ pub async fn drive(core: Arc<Core>) {
         let Ok(execs) = core.kernel.open_executions() else {
             continue;
         };
+        let now = core.kernel.now_ms();
         for e in execs {
+            // A due time that has come, or a wake of its own that is due
+            // while it is free (DD8): queue it here, so a wake runs within a
+            // tick of its time, not a heartbeat. The heartbeat's reconciler
+            // catches any this misses. It writes only when one is due.
+            let e = if theseus_kernel::wakes::due_now(&e, now) {
+                match core.kernel.fire_due(&e.id) {
+                    Ok(Some(queued)) => queued,
+                    Ok(None) => continue,
+                    Err(err) => {
+                        tracing::warn!(execution_id = %e.id, error = %format!("{err:#}"), "a due wake could not be queued");
+                        continue;
+                    }
+                }
+            } else {
+                e
+            };
             if e.state != theseus_kernel::ExecState::Queued
                 || !(e.resume_pending || !e.queued_results.is_empty())
             {

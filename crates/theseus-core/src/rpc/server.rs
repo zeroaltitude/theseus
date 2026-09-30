@@ -29,6 +29,18 @@ pub(super) struct Conn<'a> {
 }
 
 impl Conn<'_> {
+    /// Who a cancel names (DD8): the author the request gives (the Discord
+    /// binding gives the person), else the surface (`the CLI`, `the web
+    /// UI`), else, on a surface no listener named, the connection's label.
+    /// A connection's own label (`sock#13`) names no one a reader knows.
+    pub fn actor(&self, author: Option<&str>) -> String {
+        match (author, self.surface) {
+            (Some(a), _) => a.to_string(),
+            (None, Surface::Unnamed) => self.client.to_string(),
+            (None, s) => s.name().to_string(),
+        }
+    }
+
     /// Who makes an approval-like act on this connection (an answer, a
     /// "should have asked" press, an undo), as the connection knows it: the
     /// label names, and the surface, the binding's Discord ids, and the
@@ -210,6 +222,12 @@ impl Core {
                 route(params, |p| self.task_list(p))
             }
             method::TASK_CANCEL => route(params, |p| self.task_cancel(p, conn)),
+            method::WAKE_LIST => {
+                // Its filters are optional: no params lists every wake.
+                let params = if params.is_null() { json!({}) } else { params };
+                route(params, |p| self.wake_list(p))
+            }
+            method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
             method::LEDGER_TAIL => route(params, |p| self.ledger_tail(p)),
             method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
                 Err(RpcFailure::new(
@@ -233,7 +251,7 @@ impl Core {
 /// vault confirms the config a start served from, each waits at the gate,
 /// bounded like the secrets, then fails with `config_unconfirmed`. Every
 /// other method only reads, and answers at once; `shutdown` works too.
-pub const ACTS: [&str; 9] = [
+pub const ACTS: [&str; 10] = [
     method::TURN_SUBMIT,
     method::SESSION_OPEN,
     method::PROFILE_USE,
@@ -243,6 +261,7 @@ pub const ACTS: [&str; 9] = [
     method::POLICY_UNTIGHTEN,
     method::EXECUTION_CANCEL,
     method::TASK_CANCEL,
+    method::WAKE_CANCEL,
 ];
 
 /// A failed request: JSON-RPC code, human message, structured data.

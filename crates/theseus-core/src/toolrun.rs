@@ -1091,6 +1091,7 @@ impl ToolRuntime {
         let t0 = Instant::now();
         let done = match tool.name() {
             crate::task::CREATE => crate::task::create(tc, &call.input, correlation_id),
+            crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
             other => Err(format!("{other} is not a tool the harness runs")),
         };
         let dur = t0.elapsed().as_millis() as u64;
@@ -2114,8 +2115,9 @@ pub fn build_runtime(
         for tool in web.tools() {
             r.register(tool);
         }
-        // Task sessions (DD7): the harness runs it.
+        // Task sessions (DD7) and wakes (DD8): the harness runs them.
         r.register(Arc::new(crate::task::TaskCreate));
+        r.register(Arc::new(crate::wake::WakeAt));
         r
     } else {
         Registry::new()

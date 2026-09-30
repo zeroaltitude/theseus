@@ -81,6 +81,7 @@ fn parked_session(k: u64) -> Result<Vec<NewRecord>> {
         parent: None,
         reports_to: None,
         reports: vec![],
+        wakes: vec![],
         turns: 1,
         interrupted: 0,
         resume_pending: false,

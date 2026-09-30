@@ -14,6 +14,7 @@
 //! (theseus-id9, `locks.rs`).
 
 use std::collections::{BTreeMap, HashSet};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -139,6 +140,9 @@ pub enum KernelError {
         spent: Micros,
         limit: Micros,
     },
+    /// An execution holds as many pending wakes as it may (DD8).
+    #[error("this session already has {max} pending wakes, the most it may hold")]
+    TooManyWakes { max: usize },
 }
 
 /// What accepting a completion did (§3.16: idempotent, quarantines strays).
@@ -311,6 +315,9 @@ pub struct Kernel {
     /// 0..=4 while starting; 5 once accepting events. Shared with every view.
     phase: Arc<Mutex<u8>>,
     legacy_spend: Option<LegacySpend>,
+    /// When this process's startup began (0 before it): a wake due before
+    /// then fell due while the daemon was down (DD8). Shared with every view.
+    pub(crate) started_at_ms: Arc<AtomicU64>,
 }
 
 const QUARANTINE_PREFIX: &str = "quarantine:";
@@ -327,6 +334,7 @@ impl Kernel {
             locks: Arc::default(),
             phase: Arc::new(Mutex::new(0)),
             legacy_spend: None,
+            started_at_ms: Arc::default(),
         }
     }
 
@@ -344,6 +352,7 @@ impl Kernel {
             locks: self.locks.clone(),
             phase: self.phase.clone(),
             legacy_spend: self.legacy_spend.clone(),
+            started_at_ms: self.started_at_ms.clone(),
         }
     }
 
@@ -587,6 +596,7 @@ impl Kernel {
             parent: None,
             reports_to,
             reports: vec![],
+            wakes: vec![],
             turns: 0,
             interrupted: 0,
             resume_pending: false,
@@ -832,6 +842,10 @@ impl Kernel {
             return Ok(e);
         }
         let kind;
+        // Why a turn that would park is queued at once instead: a wake of its
+        // own came due while it ran, and it would wait where a wake may fire
+        // (DD8). The ledger row says so.
+        let mut why = None;
         match end {
             TurnEnd::Complete { reason } => {
                 e.state = ExecState::Complete;
@@ -871,7 +885,15 @@ impl Kernel {
                     }
                     e.state = ExecState::Waiting;
                     e.wake = Some(wake);
-                    kind = "execution.waiting";
+                    if crate::wakes::free(&e) && crate::wakes::wake_due(&e, now) {
+                        e.state = ExecState::Queued;
+                        e.wake = None;
+                        e.resume_pending = true;
+                        why = Some("wake");
+                        kind = "execution.queued";
+                    } else {
+                        kind = "execution.waiting";
+                    }
                 }
             }
             TurnEnd::Requeue => {
@@ -891,13 +913,13 @@ impl Kernel {
             }
         }
         e.updated_at_ms = now;
+        let mut row = json!({"execution_id": e.id, "turn": guard.turn, "turn_ms": now.saturating_sub(guard.started_at_ms), "wake": e.wake, "reason": e.ended_reason});
+        if let Some(w) = why {
+            row["why"] = json!(w);
+        }
         let mut frame = vec![
             exec_record(&e)?,
-            self.ledger(
-                kind,
-                Some(&e.session_id),
-                json!({"execution_id": e.id, "turn": guard.turn, "turn_ms": now.saturating_sub(guard.started_at_ms), "wake": e.wake, "reason": e.ended_reason}),
-            )?,
+            self.ledger(kind, Some(&e.session_id), row)?,
         ];
         // Ending with work still outstanding is a cancel of that work: the
         // actions get `cancel_requested` in the same frame and the harness
@@ -914,6 +936,12 @@ impl Kernel {
                         frame.push(action_record(&q)?);
                     }
                 }
+                frame[0] = exec_record(&e)?;
+            }
+            // Its wakes end with it (DD8).
+            if !e.wakes.is_empty() {
+                let why = format!("the execution ended ({})", e.state.as_str());
+                self.drop_wakes(&mut e, "the harness", &why, &mut frame)?;
                 frame[0] = exec_record(&e)?;
             }
             for c in &e.outstanding {
@@ -1930,6 +1958,8 @@ impl Kernel {
                 }
             }
         }
+        // Its wakes end with it (DD8): `/stop` and a cancel clear them.
+        self.drop_wakes(&mut e, by, "the execution was cancelled", &mut frame)?;
         frame.insert(0, exec_record(&e)?);
         let mut to_kill = Vec::new();
         for c in &e.outstanding {
@@ -2031,32 +2061,17 @@ impl Kernel {
             None => self.open_executions()?,
         };
         rep.open_executions = execs.len() as u64;
-        let due = |e: &Execution| matches!((e.state, &e.wake), (ExecState::Waiting, Some(Wake::DueAt { at_ms })) if *at_ms <= now);
         for e in execs {
-            if !due(&e) {
+            // A due time it waits on, or a wake of its own (DD8). The scan
+            // may be a frame stale: `fire_due` decides again from a read
+            // under the lock (a cancel may have landed since), and queues it
+            // for the driver.
+            if !crate::wakes::due_now(&e, now) {
                 continue;
             }
-            // The scan found it due, and may be a frame stale: decide again
-            // from a read under the lock (a cancel may have landed since).
-            let _w = self.locks.lock(&e.id);
-            let Some(mut e) = self.execution(&e.id)? else {
-                continue;
-            };
-            if !due(&e) {
-                continue;
+            if let Some(e) = self.fire_due(&e.id)? {
+                rep.woke_due.push(e.id);
             }
-            e.state = ExecState::Queued;
-            e.wake = None;
-            e.updated_at_ms = now;
-            self.commit(&[
-                exec_record(&e)?,
-                self.ledger(
-                    "execution.queued",
-                    Some(&e.session_id),
-                    json!({"execution_id": e.id, "why": "due"}),
-                )?,
-            ])?;
-            rep.woke_due.push(e.id.clone());
         }
         let actions = self.open_actions()?;
         rep.open_actions = actions.len() as u64;
@@ -2147,6 +2162,8 @@ impl Kernel {
         // 1. store
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 1;
+        self.started_at_ms
+            .store(self.now_ms(), std::sync::atomic::Ordering::Relaxed);
         let st = self.store.stats()?;
         step_rows.push(self.ledger(
             "startup.step",

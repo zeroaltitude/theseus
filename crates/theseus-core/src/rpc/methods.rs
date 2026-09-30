@@ -75,6 +75,7 @@ impl Core {
             context: self.context_status(),
             approval: self.approval_status(),
             tightenings: self.tools.tightened.all(),
+            wakes: self.wakes(None, None).unwrap_or_default(),
         }
     }
 
@@ -232,11 +233,104 @@ impl Core {
         p: theseus_protocol::TaskCancelParams,
         conn: Conn<'_>,
     ) -> Result<theseus_protocol::TaskCancelResult, RpcFailure> {
-        self.task_cancel_by(&p.task, p.author.as_deref().unwrap_or(conn.client))
+        self.task_cancel_by(&p.task, &conn.actor(p.author.as_deref()))
             .map_err(|e| match e.downcast::<crate::task::NoSuchTask>() {
                 Ok(n) => RpcFailure::new(error_code::NOT_FOUND, n.0),
                 Err(e) => RpcFailure::invalid(e),
             })
+    }
+
+    /// Pending wakes (DD8), soonest first: every one, or only `session`'s, or
+    /// only those whose turns post to `target`.
+    pub fn wakes(
+        &self,
+        session: Option<&str>,
+        target: Option<&str>,
+    ) -> Result<Vec<theseus_protocol::WakeInfo>> {
+        let mut out = Vec::new();
+        for (e, w) in self.kernel.pending_wakes()? {
+            if session.is_some_and(|s| s != e.session_id) {
+                continue;
+            }
+            let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
+            let info = crate::wake::info(
+                &e,
+                &w,
+                rec.and_then(|r| r.title),
+                self.outbox.target(&e.session_id),
+            );
+            if target.is_some_and(|t| info.target.as_deref() != Some(t)) {
+                continue;
+            }
+            out.push(info);
+        }
+        Ok(out)
+    }
+
+    pub(super) fn wake_list(
+        &self,
+        p: theseus_protocol::WakeListParams,
+    ) -> Result<theseus_protocol::WakeListResult, RpcFailure> {
+        Ok(theseus_protocol::WakeListResult {
+            wakes: self.wakes(p.session_id.as_deref(), p.target.as_deref())?,
+        })
+    }
+
+    /// Cancel a pending wake, so nothing fires (DD8).
+    pub(super) fn wake_cancel(
+        &self,
+        p: theseus_protocol::WakeCancelParams,
+        conn: Conn<'_>,
+    ) -> Result<theseus_protocol::WakeCancelResult, RpcFailure> {
+        self.wake_cancel_by(&p.wake, &conn.actor(p.author.as_deref()))
+            .map_err(|e| match e.downcast::<crate::wake::NoSuchWake>() {
+                Ok(n) => RpcFailure::new(error_code::NOT_FOUND, n.0),
+                Err(e) => RpcFailure::invalid(e),
+            })
+    }
+
+    /// Cancel the pending wake `name` names (its id, or the end of it), for
+    /// `by`. A name that also names a task is refused, so a cancel never
+    /// stops the wrong thing.
+    pub fn wake_cancel_by(
+        &self,
+        name: &str,
+        by: &str,
+    ) -> Result<theseus_protocol::WakeCancelResult> {
+        let pending = self.kernel.pending_wakes()?;
+        let (e, w) = crate::wake::resolve(&pending, name).map_err(crate::wake::NoSuchWake)?;
+        let tasks = self.kernel.tasks(None)?;
+        if let Ok(t) = crate::task::resolve(&tasks, name) {
+            anyhow::bail!(
+                "`{name}` names a wake ({}) and a task ({}): give more of its id",
+                crate::task::short(&w.id),
+                crate::task::short(&t.session_id)
+            );
+        }
+        let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
+        let info = crate::wake::info(
+            e,
+            w,
+            rec.and_then(|r| r.title),
+            self.outbox.target(&e.session_id),
+        );
+        if self.kernel.cancel_wake(&e.id, &w.id, by)?.is_none() {
+            return Err(crate::wake::NoSuchWake(format!(
+                "wake {} is no longer pending: it ran, or was cancelled, just now",
+                info.short
+            ))
+            .into());
+        }
+        crate::narrative::narrate!(
+            self.narrator,
+            Session,
+            Some(&e.session_id),
+            None,
+            "Wake {} cancelled by {by}: \"{}\" will not run.",
+            info.short,
+            crate::session::title_from(&w.note)
+        );
+        Ok(theseus_protocol::WakeCancelResult { wake: info })
     }
 
     /// Cancel the task `name` names (its id, or the end of it), for `by`.
@@ -691,7 +785,7 @@ impl Core {
             ));
         }
         let (e, cancelled) =
-            self.cancel_execution(&p.execution_id, p.author.as_deref().unwrap_or(conn.client))?;
+            self.cancel_execution(&p.execution_id, &conn.actor(p.author.as_deref()))?;
         Ok(theseus_protocol::ExecutionCancelResult {
             execution: Self::execution_info(&e),
             cancelled_actions: cancelled,

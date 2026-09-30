@@ -129,6 +129,7 @@ impl Kernel {
             parent: Some(parent.id.clone()),
             reports_to,
             reports: vec![],
+            wakes: vec![],
             turns: 0,
             interrupted: 0,
             resume_pending: true,

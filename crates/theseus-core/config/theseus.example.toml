@@ -232,6 +232,9 @@ approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"]
 # a background task (DD7): inherits enforcement, so each start is a notice; the
 # task's own calls are gated as usual, and it spends from this session's limit
 # "task.create" = "notify"
+# a wake into this conversation later (DD8): inherits enforcement, so each one
+# set is a notice with its time; its turn spends from this session's limit
+# "wake.at" = "notify"
 
 # Per-MCP postures, for when MCP servers land (M7): "server" covers every tool
 # from that server, "server/tool" one tool. An MCP tool's posture comes from

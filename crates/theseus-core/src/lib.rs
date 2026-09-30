@@ -41,6 +41,7 @@ pub mod tighten;
 pub mod toolrun;
 pub mod trace;
 pub mod turn;
+pub mod wake;
 pub mod web;
 
 pub use config::Config;
@@ -59,3 +60,5 @@ mod tests_config;
 mod tests_m3;
 #[cfg(test)]
 mod tests_tasks;
+#[cfg(test)]
+mod tests_wakes;

@@ -67,9 +67,14 @@ pub mod method {
     pub const TASK_LIST: &str = "task.list";
     /// Stop a task and its jobs; the place hears it once.
     pub const TASK_CANCEL: &str = "task.cancel";
+    /// Wakes (DD8): the turns conversations asked for at a time, with
+    /// `wake.at`, that have not run yet.
+    pub const WAKE_LIST: &str = "wake.list";
+    /// Cancel a pending wake: nothing fires.
+    pub const WAKE_CANCEL: &str = "wake.cancel";
 
     /// Every method, so a server can say which only read (theseus-2fo).
-    pub const ALL: [&str; 27] = [
+    pub const ALL: [&str; 29] = [
         HEALTH,
         SESSION_OPEN,
         SESSION_LIST,
@@ -97,6 +102,8 @@ pub mod method {
         POLICY_UNTIGHTEN,
         TASK_LIST,
         TASK_CANCEL,
+        WAKE_LIST,
+        WAKE_CANCEL,
     ];
 }
 
@@ -334,6 +341,10 @@ pub struct HealthResult {
     /// (theseus-sgh), oldest first. They are stored, not configured.
     #[serde(default)]
     pub tightenings: Vec<Tightening>,
+    /// The wakes conversations set with `wake.at` that have not run yet,
+    /// soonest first (DD8).
+    #[serde(default)]
+    pub wakes: Vec<WakeInfo>,
 }
 
 /// Where the vault's secrets stand (theseus-qa0, spec §2 FAST): the daemon
@@ -1025,7 +1036,9 @@ pub struct TaskCancelParams {
     /// Its id, its execution's id, or the end of either (`a1b2c3`), as long
     /// as one task matches.
     pub task: String,
-    /// Who asked, as a label in the ledger. Default: the connection.
+    /// Who asked, as the ledger names them. Default: the surface (`the CLI`,
+    /// `the web UI`; DD8), or the connection's label on a surface no
+    /// listener named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
 }
@@ -1035,6 +1048,66 @@ pub struct TaskCancelResult {
     pub task: TaskInfo,
     /// Dispatched actions whose backends were asked to stop.
     pub cancelled_actions: Vec<String>,
+}
+
+/// A pending wake (DD8, theseus-cff): a conversation asked, with `wake.at`,
+/// for a turn at a time, whose input is its note. It has not run yet.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WakeInfo {
+    /// `wak_…`.
+    pub wake_id: String,
+    /// The last six characters of its id, which is how people name it
+    /// (`/cancel a1b2c3`).
+    pub short: String,
+    pub session_id: String,
+    pub execution_id: String,
+    /// The session's title, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_title: Option<String>,
+    pub due_at_ms: u64,
+    /// The due time on the daemon's clock, as people read it
+    /// (`2026-09-30 13:15:00 -07:00`).
+    pub due_local: String,
+    pub note: String,
+    pub set_at_ms: u64,
+    /// Where its turn's reply goes (`discord:dm:<user>`), if anywhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// Its session's execution state now: a wake waits for a busy session.
+    pub state: String,
+}
+
+/// `wake.list`: every pending wake, soonest first, or only one session's, or
+/// only those whose turns post to one place.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WakeListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Only the wakes whose turns post to this place (`discord:dm:<user>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WakeListResult {
+    pub wakes: Vec<WakeInfo>,
+}
+
+/// `wake.cancel`: cancel a pending wake, so nothing fires.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WakeCancelParams {
+    /// Its id, or the end of it (`a1b2c3`), as long as one wake matches.
+    pub wake: String,
+    /// Who asked, as the ledger names them. Default: the surface (`the CLI`,
+    /// `the web UI`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WakeCancelResult {
+    /// The wake as it was before the cancel.
+    pub wake: WakeInfo,
 }
 
 /// A question's task, when a task asks it (DD7): the card names it.

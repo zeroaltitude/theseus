@@ -213,6 +213,12 @@ struct Turn<'a> {
     said: Vec<(u32, String)>,
     /// The surface's message the turn answers (a Discord message id).
     reply_to: Option<String>,
+    /// The wakes this turn took (DD8): each one's id and line, which the
+    /// reply's post shows above it.
+    wakes: Vec<Value>,
+    /// Where the first of them was set from, for a reply whose session posts
+    /// nowhere now.
+    wake_target: Option<String>,
 }
 
 /// What became of a loop's provider call.
@@ -264,6 +270,8 @@ impl<'a> Turn<'a> {
             stop_reason: String::new(),
             said: Vec::new(),
             reply_to: None,
+            wakes: Vec::new(),
+            wake_target: None,
         }
     }
 
@@ -1105,12 +1113,15 @@ impl TurnRunner {
         // The reports of this session's tasks that ended since its last turn
         // (DD7), after the calls above and before the new input.
         let reported = self.read_reports(&t.tc)?;
+        // Its wakes that are due (DD8), last: each is this turn's input, or
+        // comes before the input that arrived with it.
+        let woke = Self::read_wakes(t)?;
         t.trace.record(
             "continuation",
             "tool",
             t0,
             t.trace.now_us(),
-            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background, "budget_reset": reset, "limit_raised": raised, "task_reports": reported}),
+            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background, "budget_reset": reset, "limit_raised": raised, "task_reports": reported, "wakes": woke}),
         );
         if t.tc.narrator.on() {
             let mut done = Vec::new();
@@ -1146,6 +1157,12 @@ impl TurnRunner {
                     narrative::count(reported as u64, "task report", "task reports")
                 ));
             }
+            if woke > 0 {
+                done.push(format!(
+                    "{} came due",
+                    narrative::count(woke as u64, "wake", "wakes")
+                ));
+            }
             if !done.is_empty() {
                 narrate_turn!(
                     t.tc,
@@ -1157,7 +1174,55 @@ impl TurnRunner {
         }
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
-        Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported)
+        Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported + woke)
+    }
+
+    /// The session's wakes that are due (DD8): each becomes a node the model
+    /// reads as the user's, `⏰ wake (set 13:05): <note>`, written in the one
+    /// frame that removes them from the execution, so none runs twice. None
+    /// due, and nothing is written. The reply names them, and goes where the
+    /// first of them was set from if the session posts nowhere now.
+    fn read_wakes(t: &mut Turn<'_>) -> Result<u32> {
+        let tc = &t.tc;
+        let mut nodes = Vec::new();
+        let fired = tc.kernel.take_wakes(tc.guard, |due| {
+            let mut records = Vec::new();
+            for f in due {
+                let n = Node::relayed(
+                    tc.session_id,
+                    Some(tc.turn_id),
+                    crate::node::Origin::Harness,
+                    &format!("wake:{}", crate::task::short(&f.wake.id)),
+                    &crate::wake::fired_text(f),
+                );
+                records.push(n.record()?);
+                nodes.push(n);
+            }
+            Ok(records)
+        })?;
+        for n in &nodes {
+            tc.node_written(n);
+        }
+        for f in &fired {
+            narrate_turn!(
+                tc,
+                Session,
+                "Wake {} came due{}: \"{}\" is this turn's input.",
+                crate::task::short(&f.wake.id),
+                if f.late_ms > crate::wake::LATE_AFTER_MS {
+                    format!(", {} late", crate::wake::span(f.late_ms))
+                } else {
+                    String::new()
+                },
+                crate::session::title_from(&f.wake.note)
+            );
+        }
+        t.wake_target = fired.iter().find_map(|f| f.wake.target.clone());
+        t.wakes = fired
+            .iter()
+            .map(|f| json!({"wake_id": f.wake.id, "text": crate::wake::fired_text(f), "late_ms": f.late_ms}))
+            .collect();
+        Ok(fired.len() as u32)
     }
 
     /// The reports of the tasks this session started that ended since its
@@ -2186,7 +2251,13 @@ impl TurnRunner {
     /// It rides in the frame that ends the turn, so a turn that ended has its
     /// reply written, whether or not a binding is connected.
     fn stage_reply(&self, t: &Turn<'_>, result: &TurnSubmitResult) -> Result<()> {
-        let Some(target) = self.outbox.target(t.tc.session_id) else {
+        // A wake's turn in a session its place has moved on from (`/new`)
+        // still answers where the wake was set (DD8).
+        let Some(target) = self
+            .outbox
+            .target(t.tc.session_id)
+            .or_else(|| t.wake_target.clone())
+        else {
             return Ok(());
         };
         let footer = TurnSubmitResult {
@@ -2194,13 +2265,16 @@ impl TurnRunner {
             trace: None,
             ..result.clone()
         };
-        let body = json!({
+        let mut body = json!({
             "kind": "reply",
             "turn_id": result.turn_id,
             "loops": t.said,
             "result": footer,
             "reply_to": t.reply_to,
         });
+        if !t.wakes.is_empty() {
+            body["wakes"] = json!(t.wakes);
+        }
         let (post, records) =
             self.outbox
                 .stage(t.tc.session_id, t.tc.execution_id, &target, body)?;

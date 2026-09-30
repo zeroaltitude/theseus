@@ -2907,6 +2907,7 @@ dependencies = [
  "base64 0.22.1",
  "futures-util",
  "hex",
+ "libc",
  "opentelemetry-proto",
  "reqwest",
  "serde",

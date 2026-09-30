@@ -47,7 +47,7 @@ impl Surface {
     }
 
     /// The surface in a sentence.
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Cli => "the CLI",
             Self::Web => "the web UI",
