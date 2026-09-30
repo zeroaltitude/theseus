@@ -253,12 +253,7 @@ impl Core {
                 continue;
             }
             let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
-            let info = crate::wake::info(
-                &e,
-                &w,
-                rec.and_then(|r| r.title),
-                self.outbox.target(&e.session_id),
-            );
+            let info = crate::wake::info(&e, &w, rec.and_then(|r| r.title));
             if target.is_some_and(|t| info.target.as_deref() != Some(t)) {
                 continue;
             }
@@ -308,12 +303,7 @@ impl Core {
             );
         }
         let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
-        let info = crate::wake::info(
-            e,
-            w,
-            rec.and_then(|r| r.title),
-            self.outbox.target(&e.session_id),
-        );
+        let info = crate::wake::info(e, w, rec.and_then(|r| r.title));
         if self.kernel.cancel_wake(&e.id, &w.id, by)?.is_none() {
             return Err(crate::wake::NoSuchWake(format!(
                 "wake {} is no longer pending: it ran, or was cancelled, just now",

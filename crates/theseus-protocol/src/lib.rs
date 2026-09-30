@@ -1070,7 +1070,8 @@ pub struct WakeInfo {
     pub due_local: String,
     pub note: String,
     pub set_at_ms: u64,
-    /// Where its turn's reply goes (`discord:dm:<user>`), if anywhere.
+    /// The place it was set from (`discord:dm:<user>`), where its turn's
+    /// reply goes, if anywhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
     /// Its session's execution state now: a wake waits for a busy session.

@@ -295,13 +295,9 @@ pub fn fired_text(f: &FiredWake) -> String {
 }
 
 /// A pending wake as the protocol shows it (`wake.list`, health, `/wakes`,
-/// the Observatory).
-pub fn info(
-    e: &Execution,
-    w: &PendingWake,
-    title: Option<String>,
-    target: Option<String>,
-) -> theseus_protocol::WakeInfo {
+/// the Observatory). Its target is the place it was set from, which it
+/// records: health only peeks, and never warms the outbox's index for it.
+pub fn info(e: &Execution, w: &PendingWake, title: Option<String>) -> theseus_protocol::WakeInfo {
     theseus_protocol::WakeInfo {
         wake_id: w.id.clone(),
         short: crate::task::short(&w.id),
@@ -312,7 +308,7 @@ pub fn info(
         due_local: local(w.due_at_ms).full(),
         note: w.note.clone(),
         set_at_ms: w.set_at_ms,
-        target: target.or_else(|| w.target.clone()),
+        target: w.target.clone(),
         state: e.state.as_str().into(),
     }
 }
