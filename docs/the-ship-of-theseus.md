@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.60
+# The Ship of Theseus — v0.61
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -1181,9 +1181,9 @@ theseus (core)                          theseus --tender <role>  (children of th
 
 - **The logical graph is permanent; the resident graph is a bounded cache over durable history.** Nothing about append-only requires anything to stay in RAM. Resident memory scales with the active working set, not lifetime traffic.
 - **Arena.** Nodes by monotonic id; edge storage as immutable sorted segments per edge type with an in-memory delta, compacted in the background (compressed-sparse-row columns are a benchmark candidate for cold segments, not a commitment); per-channel logs as segments in a shared append file with an allocation index. Cold nodes leave RAM entirely, metadata and adjacency included, represented only by their id in a compact presence filter, and rehydrate from the SSD index on demand. Memory targets (§9) cover the whole process tree including tenders and loaded embedding weights.
-- **Storage kernel (built in M1; Part III A1).** Two layers, one contract. The **WAL** is the truth: segment files of checksummed frames, one frame per append, one `fdatasync` per frame; a frame holding several records is atomic, which is how `settle(completion, continuation)` commits both or neither. Recovery verifies every frame, truncates a torn tail in the last segment, and refuses to guess at corruption anywhere else. The **index** is a rebuildable projection of the WAL in a pure-Rust embedded store, `redb` (the M1 benchmark's pick; `fjall`, the other candidate, was removed in batch C, theseus-0g4): position → location, (kind, key) → latest position, (kind, position) for per-kind scans, and a checkpoint position. Index writes are non-durable; a checkpoint makes them durable; open replays the WAL past the checkpoint, so deleting the index entirely loses nothing. The arena remains the cache over this, never a second source of truth. Pure Rust keeps the static musl build honest.
+- **Storage kernel (built in M1; Part III A1).** Two layers, one contract. The **WAL** is the truth: segment files of checksummed frames, one frame per append, one `fdatasync` per frame; a frame holding several records is atomic, which is how `settle(completion, continuation)` commits both or neither. Recovery checks the WAL from the frame after the index's checkpoint to its end, where the next position and any torn frame are, and truncates a torn tail in the last segment. When the log there is not what the index says, it checks every segment, as it always did, and refuses to guess at corruption anywhere else. The history before the checkpoint is checked after serving, by a thread using about 5 % of a core. A corrupt frame there is an error in the log, a `store.corrupt` ledger row, and a refusal of that frame's reads, since record reads check no checksum of their own. A checkpoint is taken with no append between its WAL write and its index write, so the position it claims is synced and indexed. Every record carries its kind and its kind's schema number. `MANIFEST.json` (format 3) names the newest schema written for each kind, and a build that finds one newer than it reads, or a kind it does not know, refuses to open the store and says to install the newer build. The manifest is marked, durably and before the record, the first time a build appends a record newer than it says, so a start never writes it. _(Since F4a, theseus-qa0 and theseus-8ni; Part III A3c.)_ The **index** is a rebuildable projection of the WAL in a pure-Rust embedded store, `redb` (the M1 benchmark's pick; `fjall`, the other candidate, was removed in batch C, theseus-0g4): position → location, (kind, key) → latest position, (kind, position) for per-kind scans, and a checkpoint position. Index writes are non-durable; a checkpoint makes them durable; open replays the WAL past the checkpoint, so deleting the index entirely loses nothing. The arena remains the cache over this, never a second source of truth. Pure Rust keeps the static musl build honest.
 - **The turn lock and eventual durability.** "Speed first" is preserved by *where* the time goes, not by skipping durability. Within a channel exactly one turn advances at a time; that lock is held only while the core is doing local work. A turn is mostly waiting: a Messages API call is seconds, a shell job is seconds to hours, a judge call is hundreds of milliseconds, a human is minutes. At every such offload boundary the turn releases the lock and the core spends the surrendered time on **asynchronous durability work**: sealing the current WAL segment and handing it to the durability tender, taking checkpoints, flushing index updates, compacting edge segments, running the memory pass, uploading. The floor remains unchanged (intent is fsynced locally before dispatch); what changes is the off-node recovery point, which becomes **eventual: 5–60 s** rather than 1–2 minutes, achieved for free from time the loop was not using anyway. The tender scheduler prioritizes by staleness: the oldest unshipped committed record bounds the current recovery-point exposure, and that number is exported as a metric and alarmed on.
-- **WAL.** Every record appends to the local SSD and is fsynced on a short group-commit interval before the turn proceeds. Records carry a length prefix and checksum; a torn tail is truncated on recovery. Periodic **checkpoints** snapshot the arena so recovery is checkpoint plus tail, not full-history replay. Schema versions are stamped on every segment and migrations are forward-only transforms run by the durability tender. Disk-full is handled by refusing new turns with a clear message while tenders continue to drain. The SSD is a persistent volume that survives instance death and is encrypted at rest by the platform (EBS encryption, LUKS on a desktop), not by Theseus.
+- **WAL.** Every record appends to the local SSD and is fsynced on a short group-commit interval before the turn proceeds. Records carry a length prefix and checksum; a torn tail is truncated on recovery. Periodic **checkpoints** snapshot the arena so recovery is checkpoint plus tail, not full-history replay. Schema versions are stamped on every record, by kind. Old layouts are read in place, through serde's defaults or a reader such as `Execution::from_stored`. A layout that needs rewriting will get a forward-only transform run by a tender; none has needed one yet. Disk-full is handled by refusing new turns with a clear message while tenders continue to drain. The SSD is a persistent volume that survives instance death and is encrypted at rest by the platform (EBS encryption, LUKS on a desktop), not by Theseus.
 - **Tenders** consume the WAL and answer rehydration over a local socket; they never touch the arena directly. Durability ships to S3 and DynamoDB when configured, with a 5–60 s target measured as "age of the oldest unshipped committed record." Tiering demotes payloads by heat and retention (stub stays in the arena, payload on SSD and S3; nothing is removed from the graph), with a Jev backup opinion for lower heat bands; rehydration misses are logged. Index owns embeddings: 768-d stored, 256-d indexed, 768-d rerank; usearch memory-mapped from SSD; tantivy BM25; reciprocal-rank fusion then Jev relevance; asynchronous after commit; long nodes chunked with `part_of`. Memory runs consolidation and decay sweeps.
 - **Completion spool.** A directory on the same SSD as the WAL where job wrappers write results before attempting delivery. Startup drains it before accepting events; the heartbeat reconciler reads it every minute. It is the reason a harness restart never loses a finished job.
 - **Restore.** Rebuilding a node from S3 segments plus the DynamoDB index is a first-class, tested path from the first release (`theseus restore --from s3://…`), because S3 is presented as disk-failure recovery. Periodic automated drills remain deferred.
@@ -1317,11 +1317,11 @@ lifecycle timings, and the M3.5 entry).
 
 | Metric | Target |
 |---|---|
-| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ |
+| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ _(Since theseus-8ni, F4a: the store's open checks the WAL only from the frame after the index's checkpoint to its end. The history is checked after serving, at about 5 % of a core, and a corrupt frame there is refused and loud. On 10,000 parked sessions the store phase went from 63.2 to 10.1 ms p50, and a cold start from 164.1 to 121.7 ms.)_ |
 | Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for |
 | Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms _(The bench's budget: the cold-start budget plus 100 ms.)_ |
 | Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer |
-| Store or schema migration | adds nothing before serving: old formats are read in place, and a tender rewrites them in the background using at most 5 % of one core |
+| Store or schema migration | adds nothing before serving: old formats are read in place, and a tender rewrites them in the background using at most 5 % of one core _(Since F4a, theseus-qa0: every record carries its kind's schema, and the manifest names the newest schema written for each kind. A start writes neither: a store an older binary wrote is marked only when this build first appends a newer record. A build older than the store refuses to open it, before anything is written. No layout has needed a rewrite yet; the first that does lands with its tender.)_ |
 | Restore from a local WAL | at the disk's sequential read speed; to measure |
 | Binary size, static | under 60 MB with Wasmtime, AWS SDK, voice, search, and web UI; embedding weights are a separate artifact |
 | RSS at 10,000 parked channels, 50 active executions | under 1 GB including arena metadata for the active set |
@@ -1587,8 +1587,8 @@ Not in the original plan. This is Eddie's principle (§2 FAST), adopted after an
   - The GitHub token check (0.2 s) runs after serving.
   - A failure is loud (health, the ledger, the Observatory) but never delays the socket.
 - **Startup phases in the Observatory,** from the kernel's existing step timings plus the new background phases, so a slow start names its cause the first time it happens (EXQUISITE VISIBILITY).
-- **Versioned readers for WAL record layouts and manifest formats.** The next format change migrates in a tender, and the M2 practice of moving an old-format store aside (A2) is retired.
-- **A standing rule for every later milestone:** new startup work lands with its bench row, and a new on-disk format lands with the reader for the format it replaces, on the same commit.
+- **Versioned readers for WAL record layouts and manifest formats.** The next format change migrates in a tender, and the M2 practice of moving an old-format store aside (A2) is retired. _(Built 2026-09-30, F4a: per-kind schemas and a format-3 manifest. The move-aside had already gone in ea06ff8, batch C. Part III A3c.)_
+- **A standing rule for every later milestone:** new startup work lands with its bench row. A new on-disk layout lands on the same commit as the reader for the layout it replaces. It bumps its record kind's schema number (`kinds::SCHEMAS`) and adds a test that reads the old layout; a new record kind is added to the table. A build never writes over a store newer than itself: it refuses to open it and says to install the newer build. _(Adopted in F4a, theseus-qa0. Six kinds went to schema 2 for the fields they had gained since M2, among them the session's hold on external text, and an execution's wakes, report wakes, and stop, all of which an older binary would have dropped.)_
 - _Added 2026-09-29._ **Parallel tool calls** (theseus-a60). Eddie, 2026-09-28, 23:57: "we're writing all our core tools in Rust right? I mean I know that sometimes using shells and other expected binaries like git is good practice, but I do want as many things native and performant as possible. Also, I imagine that you often can run things in parallel. My thought is that the most performant way to run trivially parallelizable tasks is to avoid os threads and use truly async code." Today a response's calls run one after another, and in-process toollets run on tokio's blocking pool, whose default ceiling is 512 threads.
   - Gate every call in the response first. A call under `approve` parks, as today.
   - Run the `open` and `notify` calls of one response concurrently, as async tasks, and answer them in the model's order.
@@ -1599,7 +1599,7 @@ Not in the original plan. This is Eddie's principle (§2 FAST), adopted after an
   - A ledger row that is not a state transition rides in the next frame the kernel or the runner already commits, and an action that needs no confirm is planned, authorized, and dispatched in one frame. The review put a plain turn at about 8 frames.
   - A turn reads its session's nodes once, at its start, and keeps the nodes it writes. Today every turn decodes the whole transcript three or more times, plus once per loop.
 
-**Prove.** The lifecycle bench meets every §9 lifecycle budget at p95, both on Eddie's store and on a synthetic store of 10,000 parked sessions. With 1Password unreachable, the socket still answers inside its budget and health names the missing secrets. A store written in the previous record layout serves immediately under the new binary, and a tender rewrites it while turns run, with no request failing. The gate refuses a branch that adds a 100 ms sleep to cold start. _Added 2026-09-29:_ a response of five reads and two greps takes the slowest call, not the sum; a plain turn writes fewer frames than 17, and the frame-budget test holds the new count.
+**Prove.** The lifecycle bench meets every §9 lifecycle budget at p95, both on Eddie's store and on a synthetic store of 10,000 parked sessions. With 1Password unreachable, the socket still answers inside its budget and health names the missing secrets. A store written in the previous record layout serves immediately under the new binary _(proved in F4a on a store 460a35b wrote, checked in as a fixture, and on a copy of the owner's store)_, and a tender rewrites it while turns run, with no request failing _(future work: no layout has needed a rewrite)_. The gate refuses a branch that adds a 100 ms sleep to cold start. _Added 2026-09-29:_ a response of five reads and two greps takes the slowest call, not the sum; a plain turn writes fewer frames than 17, and the frame-budget test holds the new count.
 
 **Not yet.** Turn-path latency beyond §9's 5 ms. The arena's memory layout (M6–M7). Anything that needs more than one node.
 
@@ -2610,7 +2610,10 @@ M3.5 (P5b) runs as these steps:
 - F1b: start from a last-known-good copy of the config note (theseus-2fo, accepted by Eddie 2026-09-29).
 - F2: fewer frames and one transcript read per turn.
 - F3: parallel tool calls (theseus-a60).
-- F4: the swap and restore phases, with versioned readers, and F2's remaining frame merges (theseus-l6y).
+- F4, in two steps:
+  - F4a: versioned readers, a newer store refused, and a tail-only store open (theseus-8ni). Built
+    2026-09-30.
+  - F4b: the swap and restore phases, the store-lock race, and F2's remaining frame merges (theseus-l6y).
 
 Beside them, in the same chain:
 - K1: the kernel never loses an update (theseus-id9), found by F3.
@@ -3415,6 +3418,121 @@ The lifecycle bench is unchanged within its noise: cold start p50 18.9 ms, again
   the scrubbed text. The follow-up above closes it.
 - At L0 a job of the same user can read another job's `/proc/<pid>/environ`, and gh's own stored login
   (`~/.config/gh/hosts.yml`) authenticates any job's gh, through a shell too. L1 (M4) closes both.
+
+### Step F4a. Versioned readers, a newer store refused, and a tail-only open (theseus-qa0, theseus-8ni; 2026-09-30, 13:03–13:48; 1da73ee, 6d3df58)
+
+**Why.** M3.5's exit test says a store in the previous format serves at once under the new binary, and
+nothing stopped the other direction. DD8 found that an older binary reads pending wakes and drops them
+at its next write. T1's hold on external text would be dropped the same way, which lifts a safety rule.
+`Wal::open` also read and checked every segment on every start, and the store's open then read the WAL
+a second time to replay its tail (theseus-8ni).
+
+**What exists** (§6's storage kernel; §9's migration row; P5b's standing rule).
+- **Per-kind schemas** (`kinds::SCHEMAS`). Six kinds are at 2 for the fields they gained since M2:
+  session, execution, action, completion, node, and compilation. Every writer takes a record's schema
+  from the table through `NewRecord`.
+- **A format-3 manifest** names each kind's newest schema. It is marked lazily and durably, before the
+  first newer record: a start writes nothing, so an older binary still opens a store the newer one has
+  only read.
+- **The refusal** comes before the WAL or the index opens, so nothing is written. It names the kind and
+  both schemas, and says to install the newer theseusd. Builds before F4a refuse format 3 with their own
+  message.
+- **The fixture**: a store written by 460a35b (155 KB), checked in with a README, served at once and read
+  whole.
+- **The tail-only open.** The index opens first. The WAL is checked from the frame after the index's
+  checkpoint, and falls back to the full check when the log is not what the index says. Every record
+  read checks the position it was asked for.
+- **The history check after serving** (`store.verify`, about 5 % of a core). A corrupt frame is loud: an
+  ERROR line, a `store.corrupt` row, a `store: CORRUPT` line in `theseus health`, and its reads refused.
+- **A checkpoint excludes appends** (the `appending` lock). This closes a latent race in which a
+  checkpoint could claim a frame that was written but not yet synced or indexed.
+- **The reaper's `CORE` is a `Weak`.** Since B1, a static that owned the core kept redb open past every
+  exit, so every start repaired the index. Health says when an open repaired it (`index_repaired`).
+
+**How it is proven.**
+- The gate at 6d3df58 ran 519 tests, 11 of them new:
+  - 5 in the store: the refusal with nothing written, the lazy mark, the tail-only open over an old
+    corrupt and an unreadable segment, the fallback, and the history check;
+  - 1 in the core: the fixture read whole;
+  - 4 against the real daemon: the fixture served, the refusal, a corrupt history, and a clean stop
+    repairing nothing;
+  - 1 in the CLI.
+- Numbers (release, p50):
+  - the store phase at 10,000 sessions went 63.2 → 10.1 ms, and on Eddie's copy 21.4 → 7.2 ms;
+  - M3.5's exit test on 10,000 parked sessions meets every §9 phase: cold start 121.7 ms of 250,
+    from the copy 112.7, clean shutdown 24.8 of 100, and SIGKILL then restart 138.6 of 350.
+  - A clean stop now pays redb's close: 23.3 → 36.9 ms on the empty store, within its 100 ms.
+- The step's live check, on a copy of Eddie's store:
+  - the sessions read identically under T1 and the new build;
+  - `session.open` marked the store format 3;
+  - T1 then refused it, and left every file byte-identical;
+  - the new build served it again.
+
+**Reviewed** (Tabitha, 2026-09-30, 14:00 to 14:12).
+- The gate rerun passed on the first try: 519 tests, cold start p95 33.3 ms (T1's was 41.2), and a clean
+  shutdown p50 of 35.7 ms.
+- **Reading the code.**
+  - Appends hold the `appending` lock shared, and the checkpoint runs after the lock is released, so it
+    never waits on its own thread.
+  - Group commit waits only for a sync that is already in flight, never for new arrivals, so a queued
+    checkpoint cannot deadlock the appenders.
+  - The manifest is rewritten under the marks' write lock, rechecked there, so two appenders mark it once.
+  - `tail_after` requires the checkpoint's record to decode at its indexed location with its position. It
+    walks every later segment, cuts a torn frame only in the last segment, and falls back otherwise.
+- **Crash tests on the release build.**
+  - `theseus-sim crash-test`, whose worker checkpoints every 200 records, ran 40 iterations × 3 restarts,
+    then 25 × 8, with stores up to 487 records, so most restarts took the tail-only path. The tail-only
+    open cut 24,555 bytes of half-written frames, and lost zero committed records.
+  - With `--tear true` (bytes truncated or flipped after each kill), T1's build and F4a's both passed the
+    same seed, 25 × 4, with zero committed records lost.
+- **The kernel simulator**, 30 seeds × 1,500 steps with half the turns raced by a second thread (`--p-race
+  0.5`): 129 injected crashes, 540 raced turns, and no deadlock or broken invariant.
+- **A live check on the release build of 6d3df58**, over a fresh copy of Eddie's store with his note:
+  - the first start served in 27.7 ms: no repair, 20 records replayed, and the 1 MB history checked
+    after serving in 0.7 ms;
+  - a GLM turn ran `sleep 25` through `proc.run`, and the daemon was SIGKILLed while the job ran. The
+    wrapper and the `sleep` survived. The restart served in 43 ms, repaired the index (expected after a
+    kill), and replayed only the 47 records past the checkpoint. The job's result arrived, first as the
+    restart's placeholder and then as `exit 0`;
+  - after a clean stop, the next start served in 17.0 ms: store phase 7.1 ms, no repair, nothing
+    replayed, and the manifest at format 3.
+- Eddie's unchanged note loads under the new binary.
+- **Installed at 14:09**, after a snapshot of Eddie's store (format 2) at
+  `~/reports/theseus-f4a/eddie-store-pre-f4a/`. His store becomes format 3 at its first new session
+  record, and T1 or older cannot open it after that, so a rollback is `theseusd restore --from` that copy.
+- **Taken at review:**
+  - **A continuation runs on the live profile** (theseus-kol, P2, pre-existing: T1's build does the
+    same). The GLM turn's continuation after the restart ran on `default` (claude-sonnet-5-5).
+    Anthropic refused GLM's replayed thinking block ("Invalid `signature` in `thinking` block"), and the
+    driver's retry ended `nothing_new`, so the job's result was never answered. Three defects: the
+    continuation's profile, a thinking block replayed across providers, and a failed continuation that
+    consumes its input. It goes into fix batch 1.
+  - `theseusd`'s release builds differ in about 40 bytes between two builds of the same commit: an
+    embedded file time (13:19 against 13:41) and the build id. They are functionally identical.
+
+**Divergence from Parts I and II.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| Schema versions stamped on every segment (§6) | On every record, by kind; the manifest keeps the newest per kind | The kind is the unit that gains fields, and a segment mixes kinds | §6 amended |
+| A tender rewrites an old layout in the background (§9, P5b) | Old layouts are read in place; nothing needed a rewrite | serde's defaults read every schema-1 record | Keep; the first layout that needs one lands with its tender |
+| Recovery verifies every frame (§6) | The open checks from the checkpoint's frame on; the history is checked after serving | Store open grows with the tail, never with history (§9) | §6 amended |
+| The full check in `theseusd check` or a tender (brief) | A tender, `store.verify`, once per start at about 5 % of a core | It runs itself, and finds a bad segment the day it goes bad | Keep |
+| An older binary is told what to do (brief) | Builds from F4a on name the kind and both schemas; older ones refuse format 3 with their own message | They cannot learn a new message | Keep |
+| — | Every start repaired redb's index since B1 (the static `CORE`); fixed | A clean close is what the start budget assumes | Keep |
+
+**Known gaps.**
+- theseus-lv2 (P2): startup, health, the reconcile, and the driver's tick read every execution, action,
+  and session. A projection by state in the index would make them O(open). At 10,000 sessions this is
+  most of what is left of a cold start.
+- theseus-0dq (P3): the history check re-reads the whole WAL at every start. It could keep a
+  verified-to mark, with a slower full re-check for bit rot.
+- theseus-15g (P3): a corrupt frame's refused reads fail whole list reads, such as a `ledger.tail` that
+  reaches them.
+- theseus-q49 (P3): records carry two schema numbers, the header's per kind and some payloads' own.
+- theseus-02k (P3): a clean stop pays redb's close after its own durable checkpoint.
+- A restore by a build older than the WAL it restores cannot be stopped by this one. Restore with the
+  newer build.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
