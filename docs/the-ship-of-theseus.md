@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.50
+# The Ship of Theseus — v0.51
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -347,8 +347,28 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
 **Approval** (Eddie, 2026-09-27; built 2026-09-29, theseus-sgh). An approval is a dialogue in a **trusted channel**: a surface listed in `[approval].channels` whose members are all **trusted users** (`[approval].trusted_users`). Both lists live in the vault-held config, which agents cannot write. The rule covers every answer: a tool call that waits (posture `approve`, the approve lists, a path outside the roots, the floor) and the budget question.
 - **Where it is judged.** In one place, where an answer becomes a decision (`Core::confirm_action`), which every surface reaches through `action.confirm`. An answer counts only from a trusted user through a trusted channel. One that does not is refused with the reason, ledgered as `approval.refused` (who, through what, and why), and narrated; the call keeps waiting, and nothing is lost.
 - **Who answered is known from the connection, never from what a client says.** The listener that accepts a connection names its surface: the Unix socket and `--stdio` are `cli`, the loopback bridge is `web`, and the in-process Discord binding is `discord`. Only the binding may name a Discord channel and user. An answer's `author` is a label; it names and proves nothing.
+- **Not a job's process** (theseus-6qy; accepted by Eddie on 2026-09-29, and built the same day).
+  - At L0 a job runs as the operator's own user, so it can reach the CLI socket and the loopback web UI just
+    as the operator does.
+  - So an answer (an approval, a decline, or the spend reset) and the undo of a tightening are refused when
+    the process that asks, or any ancestor of it up to pid 1, is a live Theseus job wrapper. This holds with
+    or without an `[approval]` section, and is checked before its rules.
+  - *Who asks.* The socket reads its peer's pid (`SO_PEERCRED`) and start time when it accepts, and
+    `--stdio` names its parent. The web UI finds the process that holds the client's end of its loopback
+    connection, and only when a judged act arrives. A process that cannot be traced counts as a job's: one
+    that has exited, a pid reused since, or another account's.
+  - *A double fork stays under its job.* The job wrapper is a child subreaper. After its command exits, it
+    lingers until the last descendant has, and health counts the wrappers that linger.
+  - *A refusal is loud.* It is ledgered as `approval.refused`, with the reason `from a Theseus job's process
+    (job <id>, pid <n>, <argv0>)`. It is narrated, and sent to the operator where approvals go. The CLI prints
+    the reason and exits 1.
+  - A "should have asked" press is not checked, since it only makes things stricter. Discord has no process
+    to check: an answer there is a trusted user's press.
+  - This is a speed bump before L1, not a boundary (M4). A job can still drive a process that is not its
+    descendant: a user systemd unit, a tmux server already running, cron, or anything else the operator runs
+    that takes commands.
 - **The channels.**
-  - `cli` and `web` are the operator's own machine: the socket is mode 0600, and the web UI is loopback-only, so anyone with an account on the machine can reach it. Their only member is this machine's operator, so listing one is the whole rule for it, with no trusted-user entry.
+  - `cli` and `web` are the operator's own machine: the socket is mode 0600, and the web UI is loopback-only, so anyone with an account on the machine can reach it. Their only member is this machine's operator, so listing one is the whole rule for it, with no trusted-user entry. _Since theseus-6qy, an answer through either counts only from a process of this account that is not a Theseus job's. Another account's connection to the web UI cannot be traced, so it is refused._
   - `discord:dm` is a DM between the bot and a trusted user.
   - `discord:<channel id>` is a guild channel. It is trusted only while nobody outside the trusted users can view it; another bot counts like anyone else, and Theseus itself does not.
 - **Who can view a guild channel** is worked out with Discord's permission rules (roles, the channel's overwrites, the owner). It is checked when the binding starts, when a card is about to post, and again when an answer arrives. The check needs the member list, which Discord gives only when the bot's Server Members intent is on in the developer portal. The binding reads that setting from the application's flags and leaves the gateway intents as they are. Without it, a listed guild channel cannot be verified, so it is not trusted, and health says why. DMs, the web UI, and the CLI need no check.
@@ -2461,6 +2481,7 @@ M3.5 (P5b) runs as these steps:
 Beside them, in the same chain:
 - K1: the kernel never loses an update (theseus-id9), found by F3.
 - O1: the native OTel exporter (theseus-hee), with theseus-gi7.
+- J1: a job cannot answer approvals (theseus-6qy).
 
 Eddie's order (2026-09-29) is:
 1. F1, F2, F1b, and F3;
@@ -2976,6 +2997,101 @@ spread of its own rounds.
 - `opentelemetry-proto` 0.33 reads `asInt` only as a number, so a receiver built on that crate's serde would
   refuse our sums. Ours follow the protobuf JSON mapping.
 - No gzip.
+
+### Step J1. A job cannot answer approvals (theseus-6qy; 2026-09-29, 17:56–19:00; 4bd8bdc, d567d05, 0b23036)
+
+**Why.** At L0 a `proc.run` job runs as the operator's own user. So it could reach the CLI socket and the
+loopback web UI, and answer an approval its own session waited on, whenever `cli` or `web` was a trusted
+channel, which is the default. This was found in the 2b part 1 review, and Eddie accepted the peer-pid check
+on 2026-09-29 at 09:21.
+
+**What exists.**
+- **The wrapper** (`theseusd job-wrapper`) is a child subreaper.
+  - It reaps every child that exits while its command runs, and reports as before.
+  - Then it lingers, marked in `spool/lingering/<id>`, until no descendant remains. It kills nothing.
+  - Health's `kernel.lingering_wrappers` counts the lingering wrappers, and `theseus health` and the
+    Observatory show it.
+- **A zombie is not alive.** `pid_alive` reads `/proc/<pid>/stat`. Before this, the daemon never reaped its
+  wrappers (theseus-z4b), so a cancel took the wrapper it had just killed for alive, and settled
+  `OutcomeUncertain` after 2.5 s.
+- **Who is asking** (`peer.rs`). Each connection keeps its peer:
+  - the socket reads `SO_PEERCRED` and the pid's start time at accept;
+  - `--stdio` names its parent;
+  - the web UI keeps the connection's two addresses, and finds the processes that hold the client's end
+    (`/proc/net/tcp`, then `/proc/*/fd`) only when a judged act arrives;
+  - Discord has no process.
+- **The check**, in `Core::judge_act`. An answer (approve, decline, the spend reset) and an undo trace the
+  asker's parent chain to pid 1. An asker under a live wrapper, known by its command line, is refused, and
+  so is one that cannot be traced. This holds with or without `[approval]`. A press is not traced.
+- **Loud.**
+  - `approval.refused` carries `asker` (pid, `argv0`, job, wrapper pid, `trace_us`) and `from_job`.
+  - A narrative line.
+  - An `approval.refused` notification to every connection. The Discord binding posts it to the approval DM,
+    or else the session's place, and `theseus watch` prints it.
+  - The CLI exits 1.
+  - An accepted answer records its asker too, and `theseus confirm` takes `--approve`.
+
+**How it is proven.** 346 tests in the gate, 24 of them new:
+- the real wrapper: a double fork stays under it, it reaps while the command runs, it lingers, and a cancel
+  kills its group as before;
+- the parent-chain walk and the loopback lookup, on real process trees with a stand-in wrapper (`flock`);
+- the acts in the core: approve, decline, and the web UI from a job's process are refused; the spend reset is
+  refused; the undo is refused; a press is accepted;
+- end to end, with the real daemon, wrappers, and CLI, and a stand-in Messages API:
+  - a job's `theseus confirm --approve` for its own session's call is refused;
+  - so is its double-forked grandchild, before and after the job's main process exits;
+  - a job's WebSocket answer through the web UI is refused;
+  - the operator's answers count;
+  - a cancel still kills what it killed.
+
+Throwaway probes: without the subreaper, the grandchild approved the call after the job's main process
+exited. Without the trace, all six act tests failed.
+
+| Measure (release) | p50 | p95 |
+|---|---|---|
+| each socket connection at accept | 3.9 µs | 4.6 µs |
+| a judged act's trace: the operator's CLI / a job's process | 62.5 / 21.6 µs | 105.4 / 24.2 µs |
+| a judged web act's owner lookup (120 processes, 1,153 fds) | 3.08 ms | 3.58 ms |
+
+**Reviewed** (Tabitha, 2026-09-29, 19:18 to 19:29).
+- The gate rerun passed: 346 tests, and all four bench phases within budget.
+- On the release build, over a fresh copy of Eddie's store, with `[approval] channels = ["cli"]`:
+  - `theseus policy tighten fs.write` made a GLM turn's write wait.
+  - A second GLM session was asked to approve it with `proc.run`. It declined twice on its own judgment, and
+    once investigated the binary's strings. When it ran `theseus confirm --approve`, the daemon refused it:
+    "from a Theseus job's process (job act_…, pid 3452497, theseus)", exit 1, a 46 µs trace, and
+    `approval.refused` with `from_job` in the ledger.
+  - Tabitha's own `theseus confirm --approve` from her shell then counted, with a 126 µs trace, and the file
+    was written.
+- **Eddie restarted his daemon at 18:50** (pid 3431665), on the O1 build. Every check kept to its own socket
+  and state dir, and never touched his.
+- Installed at 19:28.
+- **Taken at review:**
+  - The one hole left before M4 (a job that kills its own wrapper, whose orphans go to init) is closed next,
+    with theseus-z4b's reaping: the daemon becomes a child subreaper, and refuses answers from its own
+    descendants (step Z1).
+  - Refusing another local account's web client, and counting any Theseus daemon's job, are right for a
+    one-operator machine.
+  - A web banner for a refusal isn't needed now: the Observatory's ledger and the narrative show it, and the
+    DM carries it.
+
+**Divergence from Parts I and II, and from the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The brief: refuse when the asker or an ancestor is a live job wrapper | Any Theseus daemon's wrapper, known by its command line | The command line names the job, needs no spool state, and holds for as long as the wrapper lives | Keep |
+| §3.9: the web UI's member is anyone with an account on the machine | Another account's client cannot be traced, so it is refused | The brief: a pid that cannot be read counts as a job's | §3.9 amended |
+| The brief: after the command exits, the wrapper keeps reaping | It also reaps while the command runs | Orphans reparented to a subreaper would otherwise wait as zombies for the whole job | Keep |
+| — | `pid_alive` treats a zombie as gone | A cancel of a real job settled `OutcomeUncertain` after 2.5 s | Fixed; the zombie leak is theseus-z4b (Z1) |
+| The brief: `theseus confirm --approve <id>` | The flag added: the default, and it conflicts with `--decline` | The CLI had only `--decline` | Keep |
+| The brief: a notice where approvals go (the DM) | The DM when one is trusted, else the session's place, else the log; `theseus watch` too | The web UI has no banner; its Observatory shows the row, highlighted | Keep |
+
+**Known gaps.**
+- A user systemd unit, a tmux server already running, cron, and a process started outside the job are M4's.
+- A job that kills its own wrapper is closed next (Z1, theseus-z4b).
+- A Windows browser, through a Hyper-V firewall rule for 7433 that does not exist today, would be refused as
+  untraceable.
+- The web lookup's `/proc/net/tcp` read takes about 1 ms; `sock_diag` would make it tens of µs.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
