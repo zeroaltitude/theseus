@@ -496,6 +496,11 @@ mod tests {
         let st = Command::new("git")
             .args(args)
             .current_dir(dir)
+            // The fixture must not read the operator's git config. A global
+            // `commit.gpgsign = true` made this test wait 60 s for a locked
+            // gpg-agent after a reboot, then fail.
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_AUTHOR_NAME", "Tester")
             .env("GIT_AUTHOR_EMAIL", "t@example.com")
             .env("GIT_COMMITTER_NAME", "Tester")
