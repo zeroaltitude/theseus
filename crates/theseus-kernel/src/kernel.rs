@@ -14,7 +14,7 @@
 //! (theseus-id9, `locks.rs`).
 
 use std::collections::{BTreeMap, HashSet};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -345,6 +345,18 @@ pub struct Kernel {
     /// When this process's startup began (0 before it): a wake due before
     /// then fell due while the daemon was down (DD8). Shared with every view.
     pub(crate) started_at_ms: Arc<AtomicU64>,
+    /// A turn's view: the results it reads itself (`turn_of`).
+    own: Option<Arc<OwnResults>>,
+}
+
+/// A turn's own results (theseus-l6y): what a turn's view settles for the
+/// turn's execution, which that turn reads itself (the provider call's
+/// answer, an in-process call's result, a job it waited for). No later turn
+/// needs them, so they are not queued. `settled` counts them: a turn that
+/// faults after one settled is woken, as its queued entry once requeued it.
+struct OwnResults {
+    execution_id: ExecutionId,
+    settled: AtomicU32,
 }
 
 const QUARANTINE_PREFIX: &str = "quarantine:";
@@ -362,6 +374,7 @@ impl Kernel {
             phase: Arc::new(Mutex::new(0)),
             legacy_spend: None,
             started_at_ms: Arc::default(),
+            own: None,
         }
     }
 
@@ -380,7 +393,29 @@ impl Kernel {
             phase: self.phase.clone(),
             legacy_spend: self.legacy_spend.clone(),
             started_at_ms: self.started_at_ms.clone(),
+            own: None,
         }
+    }
+
+    /// This view as the kernel of one turn of `execution_id` (theseus-l6y):
+    /// a completion it accepts for that execution is the turn's own result,
+    /// which the turn reads itself. It is not queued for a later turn, so a
+    /// plain turn has nothing to consume at its end, and `own_settled`
+    /// counts it.
+    pub fn turn_of(mut self, execution_id: &str) -> Self {
+        self.own = Some(Arc::new(OwnResults {
+            execution_id: execution_id.to_string(),
+            settled: AtomicU32::new(0),
+        }));
+        self
+    }
+
+    /// How many of its turn's own results this view has settled: a turn that
+    /// faults after one did is woken, so its continuation reads them.
+    pub fn own_settled(&self) -> u32 {
+        self.own
+            .as_ref()
+            .map_or(0, |o| o.settled.load(std::sync::atomic::Ordering::SeqCst))
     }
 
     /// Where startup finds the dollar spend of an execution stored with a
@@ -764,6 +799,62 @@ impl Kernel {
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
+        let (guard, frame) = self.admit_frame(&mut e)?;
+        // A frame that fails drops the guard, which frees the turn.
+        self.commit(&frame)?;
+        Ok(guard)
+    }
+
+    /// Human input arrived, and its turn starts (theseus-l6y): `wake_input`
+    /// and `admit` in one frame. Each keeps its record and row, in that
+    /// order, so the WAL reads as the two transitions did in two frames.
+    /// When admission must wait (the ceiling, or a turn already held on the
+    /// execution), only the wake is written, as `wake_input` alone would
+    /// write it, and admission's error is returned.
+    pub fn admit_input(&self, execution_id: &str) -> Result<TurnGuard> {
+        self.require_accepting()?;
+        let _w = self.locks.lock(execution_id);
+        let mut e = self
+            .execution(execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
+        if e.state.is_terminal() {
+            return Err(KernelError::NotRunnable {
+                id: e.id.clone(),
+                state: e.state.as_str(),
+            }
+            .into());
+        }
+        let mut frame = Vec::new();
+        if e.state == ExecState::Waiting || e.state == ExecState::Blocked {
+            e.state = ExecState::Queued;
+            e.wake = None;
+            e.updated_at_ms = self.now_ms();
+            frame.push(exec_record(&e)?);
+            frame.push(self.ledger(
+                "execution.queued",
+                Some(&e.session_id),
+                json!({"execution_id": e.id, "why": "input"}),
+            )?);
+        }
+        match self.admit_frame(&mut e) {
+            Ok((guard, admitted)) => {
+                frame.extend(admitted);
+                self.commit(&frame)?;
+                Ok(guard)
+            }
+            Err(refused) => {
+                if !frame.is_empty() {
+                    self.commit(&frame)?;
+                }
+                Err(refused)
+            }
+        }
+    }
+
+    /// `admit`'s checks on `e`, the turn held, and its frame: `Running`,
+    /// and the `execution.running` row. The guard frees the turn when
+    /// dropped, so a caller whose frame fails lets it go.
+    fn admit_frame(&self, e: &mut Execution) -> Result<(TurnGuard, Vec<NewRecord>)> {
         if e.state != ExecState::Queued {
             return Err(KernelError::NotRunnable {
                 id: e.id.clone(),
@@ -785,29 +876,26 @@ impl Kernel {
             held.insert(e.id.clone());
         }
         let now = self.now_ms();
+        let guard = TurnGuard {
+            execution_id: e.id.clone(),
+            turn: e.turns + 1,
+            started_at_ms: now,
+            held: self.held.clone(),
+        };
         e.state = ExecState::Running;
         e.turns += 1;
         e.wake = None;
         let resumed = std::mem::take(&mut e.resume_pending);
         e.updated_at_ms = now;
-        let res = self.commit(&[
-            exec_record(&e)?,
+        let frame = vec![
+            exec_record(e)?,
             self.ledger(
                 "execution.running",
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "turn": e.turns, "queued_results": e.queued_results.len(), "resumed": resumed}),
             )?,
-        ]);
-        if let Err(err) = res {
-            self.held.lock().unwrap().remove(&e.id);
-            return Err(err);
-        }
-        Ok(TurnGuard {
-            execution_id: e.id,
-            turn: e.turns,
-            started_at_ms: now,
-            held: self.held.clone(),
-        })
+        ];
+        Ok((guard, frame))
     }
 
     /// The results queued for this execution (settled since its last turn),
@@ -1652,7 +1740,7 @@ impl Kernel {
     /// `dispatched`: committed before the call is made (transactional
     /// outbox). The execution records the action as outstanding.
     pub fn dispatch(&self, correlation_id: &str, external_op_id: Option<&str>) -> Result<Action> {
-        let (_w, mut a) = self.locked_known_action(correlation_id)?;
+        let (_w, a) = self.locked_known_action(correlation_id)?;
         if a.state != ActionState::Authorized {
             return Err(KernelError::ActionState {
                 correlation_id: a.correlation_id.clone(),
@@ -1661,12 +1749,46 @@ impl Kernel {
             }
             .into());
         }
+        self.dispatch_or_refuse(a, Vec::new(), external_op_id)
+    }
+
+    /// `authorize` and `dispatch` in one frame, for a call the operator
+    /// confirmed (theseus-l6y). Each keeps its record and row, in that
+    /// order, so the WAL reads as the two transitions did in two frames.
+    /// `Ok(Err(why))`: the confirm no longer holds (`authorize`'s refusal),
+    /// and nothing was written. A cancel or a stop that landed first writes
+    /// the authorization and the action's cancel in the one frame, and is the
+    /// error, as `dispatch` returns it.
+    pub fn authorize_and_dispatch(
+        &self,
+        correlation_id: &str,
+        proposal: &Proposal,
+        confirm_required_from: Option<&str>,
+        external_op_id: Option<&str>,
+    ) -> Result<Result<Action>> {
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
+        let authorized = match self.authorize_frame(&mut a, proposal, confirm_required_from) {
+            Ok(frame) => frame,
+            Err(why) => return Ok(Err(why)),
+        };
+        self.dispatch_or_refuse(a, authorized, external_op_id)
+            .map(Ok)
+    }
+
+    /// `dispatch`'s transition of an authorized `a`, after the records in
+    /// `frame`, in one frame. A cancel or a stop (W1) that landed between
+    /// plan and dispatch keeps the action from leaving: it is cancelled
+    /// instead, and that is the error.
+    fn dispatch_or_refuse(
+        &self,
+        mut a: Action,
+        mut frame: Vec<NewRecord>,
+        external_op_id: Option<&str>,
+    ) -> Result<Action> {
         let mut e = self
             .execution(&a.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(a.execution_id.clone()))?;
         if e.state == ExecState::Cancelled || e.stopped.is_some() {
-            // A cancel or a stop (W1) landed between plan and dispatch: the
-            // action never leaves.
             let stopped = e.stopped.as_ref().map(|s| s.by.clone());
             a.state = ActionState::Cancelled;
             a.cancel = Some(CancelState::TerminationVerified);
@@ -1676,14 +1798,13 @@ impl Kernel {
             } else {
                 "execution cancelled before dispatch"
             };
-            self.commit(&[
-                action_record(&a)?,
-                self.ledger(
-                    "action.cancelled",
-                    Some(&a.session_id),
-                    json!({"correlation_id": a.correlation_id, "why": why}),
-                )?,
-            ])?;
+            frame.push(action_record(&a)?);
+            frame.push(self.ledger(
+                "action.cancelled",
+                Some(&a.session_id),
+                json!({"correlation_id": a.correlation_id, "why": why}),
+            )?);
+            self.commit(&frame)?;
             return Err(match stopped {
                 Some(by) => KernelError::Stopped { id: e.id, by },
                 None => KernelError::NotRunnable {
@@ -1693,7 +1814,7 @@ impl Kernel {
             }
             .into());
         }
-        let frame = self.dispatch_frame(&mut a, &mut e, external_op_id)?;
+        frame.extend(self.dispatch_frame(&mut a, &mut e, external_op_id)?);
         self.commit(&frame)?;
         Ok(a)
     }
@@ -1890,8 +2011,18 @@ impl Kernel {
             }
         }
         if !e.state.is_terminal() {
-            if !e.queued_results.contains(&a.correlation_id) {
-                e.queued_results.push(a.correlation_id.clone());
+            // A turn's own result is read by that turn (theseus-l6y): only
+            // what settles outside it waits in the queue for the next turn.
+            match self.own.as_deref().filter(|o| o.execution_id == e.id) {
+                Some(own) => {
+                    own.settled
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                None => {
+                    if !e.queued_results.contains(&a.correlation_id) {
+                        e.queued_results.push(a.correlation_id.clone());
+                    }
+                }
             }
             // A waiting execution wakes if this completion is what it waited on.
             let wakes = match &e.wake {

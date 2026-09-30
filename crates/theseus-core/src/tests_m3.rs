@@ -1197,13 +1197,17 @@ fn ledger_after(core: &Core, after: u64) -> Vec<String> {
 }
 
 /// Every WAL frame is its own fsync, so each frame on the turn path costs
-/// every turn. A plain one-loop turn writes 8: 27 before theseus-hco removed
+/// every turn. A plain one-loop turn writes 5: 27 before theseus-hco removed
 /// the hook rows, 17 before theseus-qa0 let the rows that are no state
 /// transition ride in the next frame and planned, authorized, and dispatched
-/// the provider call in one. A change that adds one raises this on purpose.
-/// The rows keep the order they had when each was its own frame. The
-/// template turns the narrative on, and a subscriber is watching: the
-/// narrative is never stored, so it adds no frame (theseus-5fy).
+/// the provider call in one, and 8 before theseus-l6y. That step woke and
+/// admitted the input's turn in one frame, stopped queueing the provider
+/// call's result (the turn reads it itself, so nothing is left to consume at
+/// its end), and put the session write in `end_turn`'s frame. A change that
+/// adds one raises this on purpose. The rows keep the order they had when
+/// each was its own frame. The template turns the narrative on, and a
+/// subscriber is watching: the narrative is never stored, so it adds no
+/// frame (theseus-5fy).
 #[tokio::test]
 async fn a_plain_turn_stays_within_its_frame_budget() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("hello")]);
@@ -1218,7 +1222,7 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     assert_eq!(res.loops, 1);
     let frames = r.core.store.stats().unwrap().frames_appended - before;
-    assert!(frames <= 8, "a plain turn wrote {frames} frames");
+    assert!(frames <= 5, "a plain turn wrote {frames} frames");
     assert_eq!(
         ledger_after(&r.core, from),
         [
@@ -1233,7 +1237,6 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
             "action.succeeded",
             "provider.call",
             "loop.ended",
-            "execution.results_consumed",
             "turn.ended",
             "turn.trace",
             "execution.waiting"
@@ -1283,6 +1286,95 @@ async fn a_loop_with_one_tool_call_costs_four_frames() {
     let rows = ledger_after(&r.core, from);
     let planned = rows.iter().filter(|k| *k == "action.planned").count();
     assert_eq!(planned, 3, "{rows:?}");
+}
+
+/// A turn that faults with a call unanswered still resumes it, after a
+/// restart too (theseus-l6y). The provider call's result is the turn's own
+/// and is no longer queued, and its queue entry was what requeued a turn
+/// that faulted; `run` wakes the execution instead (`execution.queued`, why
+/// `fault`). The fault: the frame that plans the model's `fs_read` fails, as
+/// a full disk would, while the call is gated.
+#[tokio::test]
+async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("w");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    std::fs::write(root.join("hello.txt"), "hi\n").unwrap();
+    let cfg = config(&root, dir.path());
+    let (sid, exec) = {
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let fake = Arc::new(FakeProvider::scripted(vec![Scripted::tools(
+            "Reading it.",
+            &[("t1", "fs_read", json!({"path": "hello.txt"}))],
+        )]));
+        let core = Core::build(crate::rpc::Parts::for_tests(cfg.clone(), fake, store)).unwrap();
+        core.store.fail_turn_frame(|records| {
+            records.iter().any(|r| {
+                r.kind == theseus_store::kinds::ACTION
+                    && serde_json::from_slice::<Value>(&r.payload)
+                        .is_ok_and(|a| a["tool"].as_str().is_some_and(|t| t.starts_with("fs")))
+            })
+        });
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        core.store.put_session(&rec.session_id, &rec).unwrap();
+        let sid = rec.session_id.clone();
+        let (live, _) = core.live_profile();
+        let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+        let sink = EventSink::new(core.bus.clone(), &sid, None);
+        let err = core
+            .runner
+            .run(TurnRequest {
+                session: rec,
+                input: Some("What does hello.txt say?".into()),
+                target,
+                sink,
+                author: "test".into(),
+                recompile: None,
+                attachments: vec![],
+                arrived: None,
+                config_wait_us: 0,
+                reply_to: None,
+            })
+            .await
+            .expect_err("the turn faults");
+        assert!(format!("{err:#}").contains("an injected fault"), "{err:#}");
+        assert_eq!(
+            kinds(&core, &sid),
+            ["user_message", "assistant_message"],
+            "the call is unanswered"
+        );
+        let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(200).unwrap();
+        let woken = rows
+            .iter()
+            .find(|(_, r)| r.kind == "execution.queued" && r.data["why"] == "fault")
+            .map(|(_, r)| r.data["execution_id"].as_str().unwrap().to_string())
+            .expect("the faulted turn's execution was woken");
+        let e = core.kernel.execution(&woken).unwrap().unwrap();
+        assert_eq!(e.state, theseus_kernel::ExecState::Queued);
+        assert!(e.resume_pending && e.queued_results.is_empty(), "{e:?}");
+        (sid, woken)
+    };
+    // A restart: a new core on the same store, whose model reads the result.
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("It says hi.")]));
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
+    let res = core
+        .continue_execution(&exec)
+        .await
+        .unwrap()
+        .expect("the continuation runs");
+    assert_eq!(res.output, "It says hi.");
+    let k = kinds(&core, &sid);
+    assert!(k.contains(&"tool_result:ok".to_string()), "{k:?}");
+    let req = fake.requests().pop().unwrap();
+    assert!(
+        serde_json::to_string(&req.messages)
+            .unwrap()
+            .contains("tool_result"),
+        "the model read the call's result: {:?}",
+        req.messages
+    );
 }
 
 /// A turn reads its session's transcript once, however many loops it runs

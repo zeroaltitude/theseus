@@ -326,9 +326,11 @@ fn main() -> Result<()> {
                 })
                 .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
                 println!(
-                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
+                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
                     rep.steps, rep.crashes, rep.startup_faults, rep.sessions, rep.turns, rep.actions,
                     rep.one_frame_dispatches, rep.batches, rep.batch_actions, rep.batch_crashes,
+                    rep.authorized_and_dispatched, rep.input_admits, rep.own_results, rep.faults,
+                    rep.fault_wakes,
                     rep.races, rep.race_ops, rep.race_crashes,
                     rep.completions_delivered, rep.duplicates, rep.notify_dropped, rep.lost_jobs,
                     rep.late_after_cancel, rep.cancels, rep.unknowns, rep.resolved_unknowns,
@@ -353,6 +355,11 @@ fn main() -> Result<()> {
                 totals.batches += rep.batches;
                 totals.batch_actions += rep.batch_actions;
                 totals.batch_crashes += rep.batch_crashes;
+                totals.authorized_and_dispatched += rep.authorized_and_dispatched;
+                totals.input_admits += rep.input_admits;
+                totals.own_results += rep.own_results;
+                totals.faults += rep.faults;
+                totals.fault_wakes += rep.fault_wakes;
                 totals.races += rep.races;
                 totals.race_ops += rep.race_ops;
                 totals.race_crashes += rep.race_crashes;
@@ -369,10 +376,11 @@ fn main() -> Result<()> {
             }
             if seeds > 1 {
                 println!(
-                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} invariant checks · {} ms · all invariants held",
+                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} invariant checks · {} ms · all invariants held",
                     seeds, totals.crashes, totals.startup_faults, totals.turns, totals.actions,
                     totals.one_frame_dispatches, totals.batches, totals.batch_actions,
-                    totals.batch_crashes, totals.races, totals.race_ops, totals.race_crashes,
+                    totals.batch_crashes, totals.authorized_and_dispatched, totals.input_admits,
+                    totals.own_results, totals.faults, totals.fault_wakes, totals.races, totals.race_ops, totals.race_crashes,
                     totals.completions_delivered, totals.duplicates, totals.notify_dropped,
                     totals.lost_jobs, totals.late_after_cancel, totals.cancels, totals.unknowns,
                     totals.resolved_unknowns, totals.budget_questions, totals.budget_resets,
@@ -466,6 +474,11 @@ fn run_and_kill(
     first_open: bool,
     committed: &mut Committed,
 ) -> Result<()> {
+    // A worker killed inside its own open (a recovery after the last kill)
+    // reports no start, and the last worker's must not stand in for it: on
+    // a loaded machine, that once failed the test on records no crash lost
+    // (theseus-qa0 F4b).
+    committed.reported_start = None;
     let mut child = Command::new(bin)
         .args([
             "worker",

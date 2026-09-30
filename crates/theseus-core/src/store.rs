@@ -49,6 +49,9 @@ pub struct Store {
     /// Full transcript reads, by this store and its turn handles.
     #[cfg(test)]
     reads: Arc<std::sync::atomic::AtomicU64>,
+    /// A turn frame a test makes fail (`fail_turn_frame`).
+    #[cfg(test)]
+    faults: Arc<Faults>,
 }
 
 /// One writer at a time per session record (theseus-xeo): the ids being
@@ -71,8 +74,28 @@ pub struct SessionLock<'a> {
     id: String,
 }
 
+/// A session record's lock, owned: a turn keeps it from its session write,
+/// which waits for the turn's last frame, until that frame is committed
+/// (theseus-l6y). Released when dropped, after writing whatever still waits
+/// on the turn's handle: the record is never written without its lock, even
+/// when the turn fails before its last frame.
+#[must_use = "the lock is released when this is dropped"]
+pub struct SessionHold {
+    /// The turn's handle, whose waiting rows carry the record.
+    store: Store,
+    id: String,
+}
+
 impl SessionLocks {
     fn lock(&self, id: &str) -> SessionLock<'_> {
+        self.acquire(id);
+        SessionLock {
+            locks: self,
+            id: id.to_string(),
+        }
+    }
+
+    fn acquire(&self, id: &str) {
         use std::sync::atomic::Ordering::SeqCst;
         let me = std::thread::current().id();
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
@@ -94,23 +117,51 @@ impl SessionLocks {
             }
         }
         held.insert(id.to_string(), me);
-        SessionLock {
-            locks: self,
-            id: id.to_string(),
-        }
+    }
+
+    fn release(&self, id: &str) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.remove(id);
+        drop(held);
+        self.freed.notify_all();
     }
 }
 
 impl Drop for SessionLock<'_> {
     fn drop(&mut self) {
-        let mut held = self
-            .locks
-            .held
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        held.remove(&self.id);
-        drop(held);
-        self.locks.freed.notify_all();
+        self.locks.release(&self.id);
+    }
+}
+
+impl Drop for SessionHold {
+    fn drop(&mut self) {
+        // Nothing waits once the turn's last frame is written: a no-op then.
+        if let Err(e) = self.store.flush() {
+            tracing::warn!(error = %format!("{e:#}"), session_id = %self.id, "a turn's session write failed");
+        }
+        self.store.sessions.release(&self.id);
+    }
+}
+
+/// A frame a test makes fail, once, as a full disk would (theseus-l6y's
+/// fault injection): the first turn frame whose records the check matches.
+#[cfg(test)]
+type FaultCheck = Box<dyn Fn(&[NewRecord]) -> bool + Send>;
+
+#[cfg(test)]
+#[derive(Default)]
+struct Faults(Mutex<Option<FaultCheck>>);
+
+#[cfg(test)]
+impl Faults {
+    /// Whether this frame is the one to fail; the check is spent if so.
+    fn hit(&self, records: &[NewRecord]) -> bool {
+        let mut g = self.0.lock().unwrap();
+        if g.as_ref().is_some_and(|f| f(records)) {
+            *g = None;
+            return true;
+        }
+        false
     }
 }
 
@@ -120,10 +171,13 @@ pub type Transcript = Vec<(u64, Arc<Node>)>;
 /// What a turn's handle keeps (theseus-qa0).
 #[derive(Default)]
 struct TurnState {
-    /// Rows that are no state transition, waiting for the turn's next frame.
+    /// Rows that are no state transition, waiting for the turn's next frame,
+    /// and the turn's session record at its end (`defer_session`).
     waiting: Mutex<Vec<NewRecord>>,
     /// The session's transcript as the turn knows it, once a reader asked.
     transcript: Mutex<Option<(String, Transcript)>>,
+    #[cfg(test)]
+    faults: Arc<Faults>,
 }
 
 impl TurnState {
@@ -131,6 +185,10 @@ impl TurnState {
     /// return the positions of `records`. A frame that fails is not written,
     /// so its rows wait again for the next.
     fn commit(&self, inner: &WalStore, records: &[NewRecord]) -> Result<Vec<u64>> {
+        #[cfg(test)]
+        if self.faults.hit(records) {
+            anyhow::bail!("an injected fault: this frame was not written");
+        }
         let rows = std::mem::take(&mut *self.waiting.lock().unwrap());
         if rows.is_empty() && records.is_empty() {
             return Ok(vec![]);
@@ -256,15 +314,68 @@ impl Store {
             sessions: Arc::default(),
             #[cfg(test)]
             reads: Default::default(),
+            #[cfg(test)]
+            faults: Default::default(),
         })
     }
 
     /// A handle for one turn: the same store, with the turn's own waiting
     /// rows and transcript (theseus-qa0).
     pub fn for_turn(&self) -> Store {
+        #[cfg(test)]
+        let state = TurnState {
+            faults: self.faults.clone(),
+            ..TurnState::default()
+        };
+        #[cfg(not(test))]
+        let state = TurnState::default();
         Store {
-            turn: Some(Arc::default()),
+            turn: Some(Arc::new(state)),
             ..self.clone()
+        }
+    }
+
+    /// Make the first turn frame whose records `check` matches fail, once,
+    /// as a full disk would (theseus-l6y's fault injection).
+    #[cfg(test)]
+    pub fn fail_turn_frame(&self, check: impl Fn(&[NewRecord]) -> bool + Send + 'static) {
+        *self.faults.0.lock().unwrap() = Some(Box::new(check));
+    }
+
+    /// A turn's session write, which rides in the turn's next frame
+    /// (theseus-l6y): its end's, with the rows that wait for it. Under the
+    /// record's lock, read the latest record, let `f` apply the turn's
+    /// fields, and put the record with the waiting rows, where the write
+    /// stood when it was a frame of its own. The returned hold keeps the lock
+    /// until the caller has committed that frame (or `flush`ed it), so no
+    /// other writer's change is lost to this copy. None, and nothing done,
+    /// when there is no such session. A handle that is not a turn's writes
+    /// the record at once.
+    pub fn defer_session(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut crate::session::SessionRecord),
+    ) -> Result<Option<SessionHold>> {
+        self.sessions.acquire(id);
+        let deferred = (|| -> Result<bool> {
+            let Some(mut rec) = self.get_session::<crate::session::SessionRecord>(id)? else {
+                return Ok(false);
+            };
+            f(&mut rec);
+            self.defer(NewRecord::json(kinds::SESSION, Some(id), &rec)?)?;
+            Ok(true)
+        })();
+        match deferred {
+            Ok(true) => Ok(Some(SessionHold {
+                store: self.clone(),
+                id: id.to_string(),
+            })),
+            // Nothing of this write waits: the lock goes, and the rows that
+            // do wait keep waiting for the turn's next frame.
+            other => {
+                self.sessions.release(id);
+                other.map(|_| None)
+            }
         }
     }
 
@@ -738,6 +849,7 @@ mod tests {
             turn: None,
             sessions: Arc::default(),
             reads: Default::default(),
+            faults: Default::default(),
         }
         .for_turn();
         small.put_meta("a", &1).unwrap();

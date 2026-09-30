@@ -113,6 +113,15 @@ pub struct SimReport {
     pub budget_declines: u64,
     /// Actions planned, authorized, and dispatched in one frame.
     pub one_frame_dispatches: u64,
+    /// theseus-l6y: actions authorized and dispatched in one frame; turns an
+    /// input woke and admitted in one frame; results a turn read itself (a
+    /// batch's in-process calls, never queued); and batch turns that faulted
+    /// after settling some, each of which must have woken its execution.
+    pub authorized_and_dispatched: u64,
+    pub input_admits: u64,
+    pub own_results: u64,
+    pub faults: u64,
+    pub fault_wakes: u64,
     /// Turns that dispatched several actions at once (theseus-a60), their
     /// actions, and the crashes that came inside one.
     pub batches: u64,
@@ -174,6 +183,12 @@ struct World {
     terminal: HashMap<String, ExecState>,
     /// Actions `plan_and_dispatch` returned: each was committed in one frame.
     one_frame: HashSet<String>,
+    /// Actions `authorize_and_dispatch` returned (theseus-l6y): authorized
+    /// and dispatched in one frame, so never found authorized.
+    two_in_one: HashSet<String>,
+    /// Results a turn's view settled for its own execution (theseus-l6y):
+    /// the turn read them, so none is ever queued.
+    own: HashSet<String>,
     /// Executions with an `execution.cancelled` row, and the last position
     /// the invariant check has read the ledger to.
     cancelled: HashSet<String>,
@@ -309,6 +324,8 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         resets_done: HashMap::new(),
         terminal: HashMap::new(),
         one_frame: HashSet::new(),
+        two_in_one: HashSet::new(),
+        own: HashSet::new(),
         cancelled: HashSet::new(),
         ledger_read_to: 0,
         limit: FIRST_LIMIT,
@@ -622,21 +639,36 @@ impl World {
     }
 
     fn take_a_turn(&mut self) -> Result<()> {
-        let queued: Vec<_> = self
-            .kernel
-            .open_executions()?
-            .into_iter()
-            .filter(|e| e.state == ExecState::Queued)
+        let open = self.kernel.open_executions()?;
+        // An input's turn, a third of the time (theseus-l6y): an execution
+        // waiting on input is woken and admitted in one frame.
+        let input: Vec<String> = open
+            .iter()
+            .filter(|e| e.state == ExecState::Waiting && matches!(e.wake, Some(Wake::Input)))
+            .map(|e| e.id.clone())
             .collect();
-        if queued.is_empty() {
+        let queued: Vec<String> = open
+            .iter()
+            .filter(|e| e.state == ExecState::Queued)
+            .map(|e| e.id.clone())
+            .collect();
+        let by_input = !input.is_empty() && (queued.is_empty() || self.chance(0.3));
+        let exec_id = if by_input {
+            input[self.rng.random_range(0..input.len())].clone()
+        } else if queued.is_empty() {
             return Ok(());
+        } else {
+            queued[self.rng.random_range(0..queued.len())].clone()
+        };
+        if !by_input && self.chance(self.p.p_race) {
+            return self.race_a_turn(&exec_id);
         }
-        let e = &queued[self.rng.random_range(0..queued.len())];
-        if self.chance(self.p.p_race) {
-            let id = e.id.clone();
-            return self.race_a_turn(&id);
-        }
-        let g = match self.kernel.admit(&e.id) {
+        let admitted = if by_input {
+            self.kernel.admit_input(&exec_id)
+        } else {
+            self.kernel.admit(&exec_id)
+        };
+        let g = match admitted {
             Ok(g) => g,
             Err(err) => {
                 let k = err.downcast_ref::<KernelError>();
@@ -650,7 +682,7 @@ impl World {
             }
         };
         self.rep.turns += 1;
-        let exec_id = e.id.clone();
+        self.rep.input_admits += u64::from(by_input);
         self.guards.insert(exec_id.clone(), g);
         if self.maybe_crash("after admit")? {
             return Ok(());
@@ -730,11 +762,30 @@ impl World {
                 if self.maybe_crash("after plan")? {
                     return Ok(());
                 }
-                self.kernel.authorize(&a.correlation_id, &prop, None)?;
-                if self.maybe_crash("after authorize")? {
-                    return Ok(());
-                }
-                match self.kernel.dispatch(&a.correlation_id, None) {
+                // Half the time authorized and dispatched in one frame, as
+                // a call the operator confirmed is (theseus-l6y).
+                let dispatched = if self.rng.random_bool(0.5) {
+                    match self
+                        .kernel
+                        .authorize_and_dispatch(&a.correlation_id, &prop, None, None)
+                    {
+                        Ok(Ok(d)) => {
+                            self.rep.authorized_and_dispatched += 1;
+                            self.two_in_one.insert(a.correlation_id.clone());
+                            Ok(d)
+                        }
+                        Ok(Err(why)) => bail!("the sim's authorization was refused: {why:#}"),
+                        // A cancel that landed first, as `dispatch` says it.
+                        Err(err) => Err(err),
+                    }
+                } else {
+                    self.kernel.authorize(&a.correlation_id, &prop, None)?;
+                    if self.maybe_crash("after authorize")? {
+                        return Ok(());
+                    }
+                    self.kernel.dispatch(&a.correlation_id, None)
+                };
+                match dispatched {
                     Ok(_) => {}
                     Err(err) => {
                         if matches!(
@@ -875,6 +926,11 @@ impl World {
             .map(|(c, _)| c.clone())
             .collect();
         in_process.shuffle(&mut self.rng);
+        // The turn reads its in-process results itself: each settles through
+        // a view that is the turn's own, which never queues it (theseus-l6y).
+        // A view holds the store, so none lives across a crash point, where
+        // the store is opened again.
+        let mut settled_own = 0;
         for corr in in_process {
             let i = self.jobs.iter().position(|j| j.corr == corr).unwrap();
             let c = Completion {
@@ -889,7 +945,15 @@ impl World {
                 cost_micros: None,
                 detail: None,
             };
-            self.kernel.accept_completion(&c)?;
+            let own = self
+                .kernel
+                .view(self.kernel.store().clone())
+                .turn_of(exec_id);
+            own.accept_completion(&c)?;
+            settled_own += own.own_settled();
+            drop(own);
+            self.own.insert(corr.clone());
+            self.rep.own_results += 1;
             // Committed: it must stay settled.
             self.jobs[i].spooled = true;
             self.jobs[i].settled = true;
@@ -900,6 +964,33 @@ impl World {
             }
         }
         let g = self.guards.remove(exec_id).unwrap();
+        // A fault after the results settled (a store error, say), as the
+        // core meets it: the turn parks on input, and, since its model never
+        // read what it settled, `run` wakes it. The queue entry that once
+        // requeued it is not written now, so the wake must.
+        if self.chance(0.2) {
+            self.rep.faults += 1;
+            let e = self
+                .kernel
+                .end_turn(g, TurnEnd::Wait { wake: Wake::Input })?;
+            if e.state.is_terminal() {
+                self.kill_jobs(&e.outstanding)?;
+                return Ok(());
+            }
+            if settled_own > 0 {
+                self.kernel.wake(exec_id, "fault")?;
+                self.rep.fault_wakes += 1;
+                let e = self.kernel.execution(exec_id)?.unwrap();
+                if e.state != ExecState::Queued || !e.resume_pending {
+                    bail!(
+                        "a faulted turn with its own results settled left {exec_id} {:?} (resume pending: {})",
+                        e.state,
+                        e.resume_pending
+                    );
+                }
+            }
+            return Ok(());
+        }
         let jobs: Vec<String> = batch
             .iter()
             .filter(|(_, p)| !p)
@@ -1624,6 +1715,10 @@ impl World {
                 if matches!(a.state, ActionState::Planned | ActionState::Authorized) {
                     bail!("{at}: queued result {c} never dispatched ({:?})", a.state);
                 }
+                // A turn read its own results itself (theseus-l6y).
+                if self.own.contains(c) {
+                    bail!("{at}: {c}, a result its turn read itself, is queued");
+                }
             }
             if e.state.is_terminal() && e.state != ExecState::BudgetExhausted {
                 // Terminal with outstanding work is only ever "cancel in flight".
@@ -1692,6 +1787,21 @@ impl World {
                     "{at}: one-frame action {c} planned at {} with {times:?}",
                     a.planned_at_ms
                 ),
+            }
+        }
+        // Authorized and dispatched in one frame (theseus-l6y): after any
+        // crash, never found authorized, and authorized no later than
+        // dispatched.
+        for c in &self.two_in_one {
+            let a = by_corr
+                .get(c)
+                .ok_or_else(|| anyhow::anyhow!("{at}: two-in-one action {c} is gone"))?;
+            if matches!(a.state, ActionState::Planned | ActionState::Authorized) {
+                bail!("{at}: two-in-one action {c} is {:?}", a.state);
+            }
+            match (a.authorized_at_ms, a.dispatched_at_ms) {
+                (Some(au), Some(d)) if au <= d => {}
+                times => bail!("{at}: two-in-one action {c} with {times:?}"),
             }
         }
         // Quarantine only ever holds ids we never minted.

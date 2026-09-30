@@ -1814,13 +1814,20 @@ impl ToolRuntime {
             return Ok(None);
         };
         let corr = &a.correlation_id;
-        let authorized = confirm_proposal(tc.store, a, node)
-            .and_then(|p| tc.kernel.authorize(corr, &p, Some(&self.policy.confirmer)));
+        // Authorized and dispatched in one frame (theseus-l6y). A confirm
+        // that no longer holds writes nothing, and is declined below; a
+        // cancel or a stop that landed first is the error.
+        let authorized = match confirm_proposal(tc.store, a, node) {
+            Ok(p) => {
+                tc.kernel
+                    .authorize_and_dispatch(corr, &p, Some(&self.policy.confirmer), None)?
+            }
+            Err(e) => Err(e),
+        };
         match authorized {
             Ok(_) => {
                 // `action.confirm` announced the answer; this only acts on it.
                 narrate_turn!(tc, Approval, "{name}: approved; running it now.");
-                tc.kernel.dispatch(corr, None)?;
                 match self.execute(tc, corr, tool, u, Posture::Approve).await? {
                     CallOutcome::Background { correlation_id } => Ok(Some(correlation_id)),
                     CallOutcome::AwaitingConfirm { .. } => {

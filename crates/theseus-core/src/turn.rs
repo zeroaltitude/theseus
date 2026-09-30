@@ -43,7 +43,7 @@ use crate::provider::{Delta, ModelResponse, Provider, ProviderError, ToolUse};
 use crate::secrets::{SecretBoard, Waited};
 use crate::session::{title_from, SessionRecord, TargetRef};
 use crate::startup::StartupLog;
-use crate::store::Store;
+use crate::store::{SessionHold, Store};
 use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
@@ -603,9 +603,11 @@ impl TurnRunner {
         }
     }
 
-    /// Take the kernel turn. With `wait`, wait for admission (ceiling, or
-    /// another turn on the same execution); without it (continuations), give
-    /// up at once and let the driver try again.
+    /// Take the kernel turn. With `wait` (an input's turn), wait for
+    /// admission (ceiling, or another turn on the same execution), waking the
+    /// execution in the same frame when it has parked meanwhile
+    /// (theseus-l6y); without it (continuations), give up at once and let the
+    /// driver try again.
     async fn admit(
         &self,
         exec_id: &str,
@@ -613,7 +615,12 @@ impl TurnRunner {
         wait: bool,
     ) -> Result<Option<TurnGuard>> {
         loop {
-            match self.kernel.admit(exec_id) {
+            let tried = if wait {
+                self.kernel.admit_input(exec_id)
+            } else {
+                self.kernel.admit(exec_id)
+            };
+            match tried {
                 Ok(g) => return Ok(Some(g)),
                 Err(e) => match e.downcast_ref::<KernelError>() {
                     Some(KernelError::AdmissionFull { .. })
@@ -763,29 +770,39 @@ impl TurnRunner {
         let exec = self.execution_for(&mut req.session)?;
         // The narrative's session id and clock, taken only when it is on.
         let sid = self.narrator.on().then(|| req.session.session_id.clone());
+        let admitting = sid.is_some().then(Instant::now);
+        // An input wakes its execution and takes the turn in one frame
+        // (theseus-l6y). When admission must wait, the wake is written alone,
+        // and the wait below takes the turn.
+        let mut admitted = None;
         if !continuation {
             self.supersede_budget_question(&exec, &req.sink, &req.author);
-            if let Err(e) = self.kernel.wake_input(&exec.id) {
-                if let Some(KernelError::NotRunnable { state, .. }) =
-                    e.downcast_ref::<KernelError>()
-                {
-                    narrate!(
-                        self.narrator,
-                        Turn,
-                        sid.as_deref(),
-                        None,
-                        "A turn from {} was refused: the execution is {state}.",
-                        req.author
-                    );
-                    return Err(turn_error(
-                        &format!("execution_{state}"),
-                        &req.session.session_id,
-                        "",
-                        0,
-                        e,
-                    ));
-                }
-                return Err(e);
+            match self.kernel.admit_input(&exec.id) {
+                Ok(g) => admitted = Some(g),
+                Err(e) => match e.downcast_ref::<KernelError>() {
+                    Some(KernelError::AdmissionFull { .. } | KernelError::TurnHeld { .. })
+                    | Some(KernelError::NotRunnable {
+                        state: "running", ..
+                    }) => {}
+                    Some(KernelError::NotRunnable { state, .. }) => {
+                        narrate!(
+                            self.narrator,
+                            Turn,
+                            sid.as_deref(),
+                            None,
+                            "A turn from {} was refused: the execution is {state}.",
+                            req.author
+                        );
+                        return Err(turn_error(
+                            &format!("execution_{state}"),
+                            &req.session.session_id,
+                            "",
+                            0,
+                            e,
+                        ));
+                    }
+                    _ => return Err(e),
+                },
             }
             if matches!(exec.state, ExecState::Waiting | ExecState::Blocked) {
                 narrate!(
@@ -798,9 +815,14 @@ impl TurnRunner {
                 );
             }
         }
-        let admitting = sid.is_some().then(Instant::now);
-        let Some(guard) = self.admit(&exec.id, arrived, !continuation).await? else {
-            anyhow::bail!("execution {} is not ready for a continuation turn", exec.id);
+        let guard = match admitted {
+            Some(g) => g,
+            None => match self.admit(&exec.id, arrived, !continuation).await? {
+                Some(g) => g,
+                None => {
+                    anyhow::bail!("execution {} is not ready for a continuation turn", exec.id)
+                }
+            },
         };
         let admit_us = admitting.map_or(0, |t| t.elapsed().as_micros() as u64);
         let admission_wait_us = arrived.elapsed().as_micros() as u64;
@@ -813,14 +835,24 @@ impl TurnRunner {
         };
         let store = self.store.for_turn();
         let frames = Frames {
-            kernel: self.kernel.view(store.shared()),
+            // The results this turn settles for its execution are its own:
+            // it reads them itself, so none is queued (theseus-l6y).
+            kernel: self
+                .kernel
+                .view(store.shared())
+                .turn_of(&guard.execution_id),
             store,
             posts: Default::default(),
         };
         // A task (DD7): where it reports, and its title, for its report.
         let task_of = req.session.task.clone();
         let task_title = req.session.title.clone();
-        let r = self.run_inner(&guard, &frames, req, arrived, waits).await;
+        // The turn's session write waits for its last frame, under the
+        // record's lock, which is held until that frame is written.
+        let (r, session_hold) = match self.run_inner(&guard, &frames, req, arrived, waits).await {
+            Ok((res, end, rewake, hold)) => (Ok((res, end, rewake)), hold),
+            Err(e) => (Err(e), None),
+        };
         let (end, rewake) = match &r {
             Ok((_, end, rewake)) => (end.clone(), *rewake),
             // No one waits on a task's input: a failed turn ends it, and it
@@ -884,6 +916,24 @@ impl TurnRunner {
             }
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
+        drop(session_hold);
+        // A turn that faults after it settled a result it reads itself (its
+        // provider call's answer, a call's result) is woken, so that its
+        // continuation reads what it has not and resumes its unanswered
+        // calls. That result's queue entry once requeued it; the entry is not
+        // written now (theseus-l6y). A task's fault ends it, and a stopped
+        // turn waits on its next input.
+        let woke_on_fault = r.is_err()
+            && task_of.is_none()
+            && stopped.is_none()
+            && frames.kernel.own_settled() > 0
+            && match self.kernel.wake(&exec_id, "fault") {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), execution_id = %exec_id, "a faulted turn's execution was not woken");
+                    false
+                }
+            };
         if let Some(p) = parked {
             let turn_id = match &r {
                 Ok((res, _, _)) => Some(res.turn_id.clone()),
@@ -957,6 +1007,16 @@ impl TurnRunner {
                  turn."
             );
         }
+        if woke_on_fault {
+            narrate!(
+                self.narrator,
+                Session,
+                sid.as_deref(),
+                None,
+                "Woken again at once: the turn stopped before its model read what \
+                 it had settled, so a continuation takes it up."
+            );
+        }
         self.admission.notify_waiters();
         r.map(|(res, _, _)| res)
     }
@@ -971,7 +1031,7 @@ impl TurnRunner {
         req: TurnRequest,
         arrived: Instant,
         waits: Waits,
-    ) -> Result<(TurnSubmitResult, TurnEnd, bool)> {
+    ) -> Result<(TurnSubmitResult, TurnEnd, bool, Option<SessionHold>)> {
         let TurnRequest {
             mut session,
             input,
@@ -2275,13 +2335,15 @@ impl TurnRunner {
 
     /// Absorb results that settled while the turn ran, book the turn, write
     /// its result, and park the execution. The `bool` asks for another turn:
-    /// a late result the model has not read.
+    /// a late result the model has not read. The session write waits for
+    /// the turn's last frame, `end_turn`'s, under the returned hold
+    /// (theseus-l6y).
     fn finish(
         &self,
         mut t: Turn<'_>,
         session: &mut SessionRecord,
         unused_recompile: Option<Recompile>,
-    ) -> Result<(TurnSubmitResult, TurnEnd, bool)> {
+    ) -> Result<(TurnSubmitResult, TurnEnd, bool, Option<SessionHold>)> {
         let settled = t.tc.kernel.take_results(t.tc.guard)?;
         let late = self.tools.absorb(&t.tc, &settled)?;
         t.close_books(session);
@@ -2293,13 +2355,14 @@ impl TurnRunner {
         });
         let w0 = t.trace.now_us();
         // Only the turn's own fields: a recompile asked meanwhile stays
-        // (theseus-xeo).
-        t.tc.store.update_session(t.tc.session_id, |r| {
+        // (theseus-xeo). The record rides in the turn's last frame, where
+        // the rows before it here and after it wait too; the span times its
+        // making, and the frame's write is `end_turn`'s.
+        let hold = t.tc.store.defer_session(t.tc.session_id, |r| {
             r.take_turns_fields(session);
             if r.pending_recompile.is_none() {
                 r.pending_recompile = unused_recompile;
             }
-            Ok(vec![])
         })?;
         t.trace
             .record("session.write", "store", w0, t.trace.now_us(), Value::Null);
@@ -2392,7 +2455,7 @@ impl TurnRunner {
             }
             end => end,
         };
-        Ok((result, end, again))
+        Ok((result, end, again, hold))
     }
 
     /// The turn's reply as an outbox post, when its session posts somewhere
