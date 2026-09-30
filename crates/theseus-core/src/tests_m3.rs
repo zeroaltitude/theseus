@@ -782,6 +782,131 @@ async fn a_fresh_recompile_starts_over_and_is_recorded() {
     let _: Value = serde_json::to_value(&rec).unwrap();
 }
 
+/// A provider whose calls, while `hold` is set, say they have begun and then
+/// wait at a gate: a test's way to act while a turn is inside its call.
+struct Gated {
+    fake: FakeProvider,
+    hold: std::sync::atomic::AtomicBool,
+    entered: tokio::sync::mpsc::UnboundedSender<()>,
+    gate: tokio::sync::Semaphore,
+}
+
+impl crate::provider::Provider for Gated {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a crate::provider::ProviderRequest,
+        on_delta: crate::provider::DeltaSink<'a>,
+    ) -> crate::provider::ProviderFuture<'a> {
+        Box::pin(async move {
+            if self.hold.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = self.entered.send(());
+                self.gate.acquire().await.unwrap().forget();
+            }
+            self.fake.stream_message(req, on_delta).await
+        })
+    }
+}
+
+/// theseus-xeo, as filed: a `session.recompile` asked while a turn runs was
+/// lost, because the turn wrote back the record it had read when it began.
+/// Here the request lands while the turn is inside its provider call, between
+/// its read and its write: it survives the turn, and the next turn applies it,
+/// once.
+#[tokio::test]
+async fn a_recompile_asked_during_a_turn_is_kept_for_the_next() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("w");
+    std::fs::create_dir_all(&root).unwrap();
+    let cfg = config(&root.canonicalize().unwrap(), dir.path());
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let (entered, mut began) = tokio::sync::mpsc::unbounded_channel();
+    let model = Arc::new(Gated {
+        fake: FakeProvider::scripted(vec![
+            Scripted::text("one"),
+            Scripted::text("two"),
+            Scripted::text("three"),
+        ]),
+        hold: false.into(),
+        entered,
+        gate: tokio::sync::Semaphore::new(0),
+    });
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let sid = turn(&core, None, "first").await.session_id;
+    model.hold.store(true, std::sync::atomic::Ordering::SeqCst);
+    let running = {
+        let (core, sid) = (core.clone(), sid.clone());
+        tokio::spawn(async move { turn(&core, Some(&sid), "second").await })
+    };
+    began.recv().await.unwrap();
+    assert!(core
+        .request_recompile(&sid, crate::compiler::Recompile::Fresh, "test")
+        .unwrap());
+    model.hold.store(false, std::sync::atomic::Ordering::SeqCst);
+    model.gate.add_permits(1);
+    running.await.unwrap();
+    let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(
+        rec.pending_recompile,
+        Some(crate::compiler::Recompile::Fresh),
+        "the turn's end wrote the request over"
+    );
+    assert_eq!(rec.turns, 2, "and the turn's books are there too");
+    turn(&core, Some(&sid), "third").await;
+    let comps = core.store.session_compilations(&sid).unwrap();
+    assert_eq!(comps.last().unwrap().trigger, "manual_fresh");
+    assert_eq!(comps.len(), 2, "applied by the third turn, once");
+    let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+    assert!(rec.pending_recompile.is_none());
+}
+
+/// One writer at a time per session record (theseus-xeo): a recompile's
+/// write waits while another writer holds the record between its read and
+/// its write, then reads again, so both changes stand.
+#[tokio::test]
+async fn a_session_records_writers_never_lose_each_others_change() {
+    let r = rig(vec![Scripted::text("one")]);
+    let sid = turn(&r.core, None, "first").await.session_id;
+    let held = r.core.store.lock_session(&sid);
+    // The first writer has read the record, and changes its copy.
+    let mut copy: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    copy.turns += 1;
+    let second = {
+        let (core, sid) = (r.core.clone(), sid.clone());
+        std::thread::spawn(move || {
+            core.request_recompile(&sid, crate::compiler::Recompile::Transcript, "test")
+                .unwrap()
+        })
+    };
+    let t0 = std::time::Instant::now();
+    let waited = loop {
+        if r.core.store.session_writers_waiting() > 0 {
+            break true;
+        }
+        if second.is_finished() {
+            break false;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "the second writer neither waited nor wrote"
+        );
+        std::thread::yield_now();
+    };
+    r.core.store.put_session(&sid, &copy).unwrap();
+    drop(held);
+    assert!(second.join().unwrap());
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(rec.turns, 2, "the first writer's change");
+    assert_eq!(
+        rec.pending_recompile,
+        Some(crate::compiler::Recompile::Transcript),
+        "the second's"
+    );
+    assert!(waited, "the second writer waited for the first's write");
+}
+
 /// Run one turn in a watched session; return it and the notices it posted.
 async fn watched_turn(r: &Rig, input: &str) -> (TurnSubmitResult, Vec<Value>) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();

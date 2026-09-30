@@ -70,6 +70,27 @@ impl SessionRecord {
             pending_recompile: None,
         }
     }
+    /// What a turn writes into the stored record (theseus-xeo): the fields it
+    /// owns, from its own copy. Its books (turns, usage, cost, tool calls,
+    /// last activity), its target, its compilation, its execution, and the
+    /// title its first input gave. Never `pending_recompile`, which the
+    /// operator sets while the turn runs; a turn takes that one by itself
+    /// (`update_session`) when it starts.
+    pub fn take_turns_fields(&mut self, turn: &SessionRecord) {
+        self.turns = turn.turns;
+        self.last_turn_id.clone_from(&turn.last_turn_id);
+        self.usage = turn.usage.clone();
+        self.last_active_ms = turn.last_active_ms;
+        self.cost_usd = turn.cost_usd;
+        self.tool_calls = turn.tool_calls;
+        self.last_target.clone_from(&turn.last_target);
+        self.compilation_id.clone_from(&turn.compilation_id);
+        self.execution_id.clone_from(&turn.execution_id);
+        if self.title.is_none() {
+            self.title.clone_from(&turn.title);
+        }
+    }
+
     pub fn info(&self) -> SessionInfo {
         SessionInfo {
             session_id: self.session_id.clone(),

@@ -517,7 +517,13 @@ impl TurnRunner {
             None,
         )?;
         session.execution_id = Some(e.id.clone());
-        self.store.put_session(&session.session_id, session)?;
+        let written = self.store.update_session(&session.session_id, |r| {
+            r.execution_id = Some(e.id.clone());
+            Ok(vec![])
+        })?;
+        if written.is_none() {
+            self.store.put_session(&session.session_id, session)?;
+        }
         narrate!(
             self.narrator,
             Session,
@@ -977,7 +983,22 @@ impl TurnRunner {
                 u.error
             );
         }
-        let mut force = recompile.or(session.pending_recompile.take());
+        // A recompile the operator asked for is taken from the stored record
+        // under its lock, so one asked while this turn runs stays for the
+        // next turn instead of being written over (theseus-xeo). A turn with
+        // none pending writes nothing for it.
+        let asked = if session.pending_recompile.is_some() {
+            let mut taken = None;
+            t.tc.store.update_session(&sid, |r| {
+                taken = r.pending_recompile.take();
+                Ok(vec![])
+            })?;
+            session.pending_recompile = None;
+            taken
+        } else {
+            None
+        };
+        let mut force = recompile.or(asked);
         while run_model {
             let i = t.loops;
             t.loops += 1;
@@ -1015,7 +1036,9 @@ impl TurnRunner {
         }
 
         // 4. Results that settled while this turn ran, the books, the park.
-        self.finish(t, &mut session)
+        // A recompile this turn took and never applied (the model was not
+        // called) goes back for the next.
+        self.finish(t, &mut session, force)
     }
 
     /// What happened while no turn was running: results that settled become
@@ -1925,7 +1948,10 @@ impl TurnRunner {
             "turn.failed",
             json!({"loops": t.loops, "reason": f.reason, "usage_so_far": t.usage, "cost_usd": t.cost, "tool_calls": t.tool_calls}),
         );
-        let _ = t.tc.store.put_session(t.tc.session_id, session);
+        let _ = t.tc.store.update_session(t.tc.session_id, |r| {
+            r.take_turns_fields(session);
+            Ok(vec![])
+        });
         TurnError {
             class: f.class,
             transient: f.transient,
@@ -1949,6 +1975,7 @@ impl TurnRunner {
         &self,
         mut t: Turn<'_>,
         session: &mut SessionRecord,
+        unused_recompile: Option<Recompile>,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool)> {
         let settled = t.tc.kernel.take_results(t.tc.guard)?;
         let late = self.tools.absorb(&t.tc, &settled)?;
@@ -1960,7 +1987,15 @@ impl TurnRunner {
             model: target.model.clone(),
         });
         let w0 = t.trace.now_us();
-        t.tc.store.put_session(t.tc.session_id, session)?;
+        // Only the turn's own fields: a recompile asked meanwhile stays
+        // (theseus-xeo).
+        t.tc.store.update_session(t.tc.session_id, |r| {
+            r.take_turns_fields(session);
+            if r.pending_recompile.is_none() {
+                r.pending_recompile = unused_recompile;
+            }
+            Ok(vec![])
+        })?;
         t.trace
             .record("session.write", "store", w0, t.trace.now_us(), Value::Null);
 
@@ -2126,7 +2161,8 @@ impl TurnRunner {
     }
 
     /// A new compilation (it carries its own `derived_from`) and the
-    /// session's pointer, in one frame.
+    /// session's pointer, in one frame. The stored record takes only the
+    /// turn's fields (theseus-xeo).
     fn persist_compilation(
         store: &Store,
         compiled: &Compiled,
@@ -2134,27 +2170,37 @@ impl TurnRunner {
         turn_id: &str,
     ) -> Result<()> {
         let c = &compiled.compilation;
-        let mut records = vec![
-            NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
-                .scoped(&c.session_id),
-        ];
         session.compilation_id = Some(c.id.clone());
-        records.push(NewRecord::json(
-            theseus_store::kinds::SESSION,
-            Some(&session.session_id),
-            &*session,
-        )?);
-        records.push(NewRecord::json(
-            theseus_store::kinds::LEDGER,
-            None,
-            &LedgerRow::new(
-                "context.recompiled",
-                Some(&c.session_id),
-                Some(turn_id),
-                json!({"compilation_id": c.id, "trigger": c.trigger, "strategy": c.strategy, "as_of": c.as_of, "includes": c.includes.len(), "derived_from": c.derived_from, "strip_thinking": c.manifest.strip_thinking, "model": c.manifest.model}),
-            ),
-        )?);
-        store.append(&records)?;
+        let records = || -> Result<Vec<NewRecord>> {
+            Ok(vec![
+                NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
+                    .scoped(&c.session_id),
+                NewRecord::json(
+                    theseus_store::kinds::LEDGER,
+                    None,
+                    &LedgerRow::new(
+                        "context.recompiled",
+                        Some(&c.session_id),
+                        Some(turn_id),
+                        json!({"compilation_id": c.id, "trigger": c.trigger, "strategy": c.strategy, "as_of": c.as_of, "includes": c.includes.len(), "derived_from": c.derived_from, "strip_thinking": c.manifest.strip_thinking, "model": c.manifest.model}),
+                    ),
+                )?,
+            ])
+        };
+        let written = store.update_session(&session.session_id, |r| {
+            r.take_turns_fields(session);
+            records()
+        })?;
+        if written.is_none() {
+            // A session whose record was never stored: this is its first.
+            let mut frame = records()?;
+            frame.push(NewRecord::json(
+                theseus_store::kinds::SESSION,
+                Some(&session.session_id),
+                &*session,
+            )?);
+            store.append(&frame)?;
+        }
         Ok(())
     }
 }

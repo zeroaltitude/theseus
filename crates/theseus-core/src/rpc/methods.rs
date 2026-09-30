@@ -389,16 +389,35 @@ impl Core {
                 ))
             }
         };
-        let mut rec = self.session(&p.session_id)?;
-        rec.pending_recompile = Some(strategy);
-        self.store.put_session(&rec.session_id, &rec)?;
-        self.store.append_ledger(&LedgerRow::new(
+        self.session(&p.session_id)?;
+        self.request_recompile(&p.session_id, strategy, conn.client)?;
+        Ok(json!({"session_id": p.session_id, "pending": p.strategy}))
+    }
+
+    /// Ask for a recompile on the session's next turn: set under the
+    /// record's lock, with its row in the same frame, so a turn running now
+    /// cannot write it over (theseus-xeo). False when there is no session.
+    pub fn request_recompile(
+        &self,
+        session_id: &str,
+        strategy: Recompile,
+        by: &str,
+    ) -> Result<bool> {
+        let row = LedgerRow::new(
             "context.recompile_requested",
-            Some(&rec.session_id),
+            Some(session_id),
             None,
-            json!({"strategy": p.strategy, "by": conn.client}),
-        ))?;
-        Ok(json!({"session_id": rec.session_id, "pending": p.strategy}))
+            json!({"strategy": strategy, "by": by}),
+        );
+        let written = self.store.update_session(session_id, |r| {
+            r.pending_recompile = Some(strategy);
+            Ok(vec![theseus_store::NewRecord::json(
+                theseus_store::kinds::LEDGER,
+                None,
+                &row,
+            )?])
+        })?;
+        Ok(written.is_some())
     }
 
     pub(super) fn catalog_list(&self) -> theseus_protocol::CatalogListResult {

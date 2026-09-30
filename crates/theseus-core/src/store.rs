@@ -18,9 +18,16 @@
 //! every node the turn's frames write, so a turn decodes it once, not once
 //! per reader and per loop (theseus-qa0). Nodes never change, so the view
 //! stays exact.
+//!
+//! A session's record has more than one writer: its turns, a
+//! `session.recompile`, and a task's end. Each change is a read, a change,
+//! and a write, under the session's lock from the read until the write is
+//! indexed (`update_session`, theseus-xeo), as K1 does for executions. So a
+//! writer never puts back a copy it read before another's write.
 
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Serialize};
@@ -36,9 +43,75 @@ pub struct Store {
     blobs: Arc<crate::blobs::Blobs>,
     /// A turn's handle: its waiting rows and its transcript.
     turn: Option<Arc<TurnState>>,
+    /// The session records being written now (theseus-xeo), shared by every
+    /// handle on this store.
+    sessions: Arc<SessionLocks>,
     /// Full transcript reads, by this store and its turn handles.
     #[cfg(test)]
     reads: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// One writer at a time per session record (theseus-xeo): the ids being
+/// written, each with the thread that writes it, and a condvar for the
+/// writers that wait. An id is in the map exactly while it is held, so there
+/// is nothing to prune. A second lock of one id on one thread would wait on
+/// itself forever, so it panics instead.
+#[derive(Default)]
+struct SessionLocks {
+    held: Mutex<HashMap<String, std::thread::ThreadId>>,
+    freed: Condvar,
+    /// Writers waiting now (a test's way to see one blocked).
+    waiting: std::sync::atomic::AtomicUsize,
+}
+
+/// A session record locked by one writer; released when dropped.
+#[must_use = "the lock is released when this is dropped"]
+pub struct SessionLock<'a> {
+    locks: &'a SessionLocks,
+    id: String,
+}
+
+impl SessionLocks {
+    fn lock(&self, id: &str) -> SessionLock<'_> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let me = std::thread::current().id();
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            match held.get(id) {
+                None => break,
+                Some(t) if *t == me => {
+                    drop(held);
+                    panic!("store: session {id} locked twice on one thread");
+                }
+                Some(_) => {
+                    self.waiting.fetch_add(1, SeqCst);
+                    held = self
+                        .freed
+                        .wait(held)
+                        .unwrap_or_else(PoisonError::into_inner);
+                    self.waiting.fetch_sub(1, SeqCst);
+                }
+            }
+        }
+        held.insert(id.to_string(), me);
+        SessionLock {
+            locks: self,
+            id: id.to_string(),
+        }
+    }
+}
+
+impl Drop for SessionLock<'_> {
+    fn drop(&mut self) {
+        let mut held = self
+            .locks
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        held.remove(&self.id);
+        drop(held);
+        self.locks.freed.notify_all();
+    }
 }
 
 /// A session's nodes with their WAL positions, in order (§4.1).
@@ -180,6 +253,7 @@ impl Store {
             dir: dir.to_path_buf(),
             blobs: Arc::new(crate::blobs::Blobs::new(dir)),
             turn: None,
+            sessions: Arc::default(),
             #[cfg(test)]
             reads: Default::default(),
         })
@@ -273,6 +347,43 @@ impl Store {
             Some(r) => Ok(Some(r.decode()?)),
             None => Ok(None),
         }
+    }
+
+    /// Change a session's record (theseus-xeo): under its lock, read the
+    /// latest record, let `f` change it and name the other records of the
+    /// same frame, and write them with it, the record last. The lock is held
+    /// until the frame is indexed, so no other writer's change is lost to a
+    /// copy read before it. Returns the record as written; None, and nothing
+    /// written, when there is no such session. A writer that holds a copy
+    /// for long (a turn) applies only the fields it owns.
+    pub fn update_session(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut crate::session::SessionRecord) -> Result<Vec<NewRecord>>,
+    ) -> Result<Option<crate::session::SessionRecord>> {
+        let _held = self.sessions.lock(id);
+        let Some(mut rec) = self.get_session::<crate::session::SessionRecord>(id)? else {
+            return Ok(None);
+        };
+        let mut frame = f(&mut rec)?;
+        frame.push(NewRecord::json(kinds::SESSION, Some(id), &rec)?);
+        self.commit(&frame)?;
+        Ok(Some(rec))
+    }
+
+    /// Hold a session record's lock, as a writer between its read and its
+    /// write does (a test's way to stop one there).
+    #[cfg(test)]
+    pub fn lock_session(&self, id: &str) -> SessionLock<'_> {
+        self.sessions.lock(id)
+    }
+
+    /// Writers waiting for a session record's lock now.
+    #[cfg(test)]
+    pub fn session_writers_waiting(&self) -> usize {
+        self.sessions
+            .waiting
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub fn list_sessions<T: DeserializeOwned>(&self) -> Result<Vec<T>> {
@@ -604,6 +715,7 @@ mod tests {
             dir: full.path().to_path_buf(),
             blobs: Arc::new(crate::blobs::Blobs::new(full.path())),
             turn: None,
+            sessions: Arc::default(),
             reads: Default::default(),
         }
         .for_turn();
