@@ -124,6 +124,21 @@ pub enum KernelError {
          dollar limit comes from the config, which the vault has not confirmed; nothing was written"
     )]
     UnconfirmedConfig { executions: usize },
+    /// A task cannot open tasks (DD7: depth one).
+    #[error("execution {id} is a task, and a task cannot start tasks (depth one)")]
+    TaskDepth { id: ExecutionId },
+    /// Nothing is left under the parent's limit to carve a task's budget from.
+    #[error(
+        "nothing to carve a task's budget from: {} of the {} limit is left ({} spent)",
+        usd(*.available),
+        usd(*.limit),
+        usd(*.spent)
+    )]
+    NothingToCarve {
+        available: Micros,
+        spent: Micros,
+        limit: Micros,
+    },
 }
 
 /// What accepting a completion did (§3.16: idempotent, quarantines strays).
@@ -358,7 +373,7 @@ impl Kernel {
         *self.phase.lock().unwrap() >= 5
     }
 
-    fn require_accepting(&self) -> Result<()> {
+    pub(crate) fn require_accepting(&self) -> Result<()> {
         let p = *self.phase.lock().unwrap();
         if p < 5 {
             return Err(KernelError::NotAccepting { step: p }.into());
@@ -387,16 +402,56 @@ impl Kernel {
 
     /// An action, read under its execution's lock: read once to learn its
     /// execution, which never changes, then lock that and read it again, so
-    /// that what the caller decides comes from the read inside the lock.
+    /// that what the caller decides comes from the read inside the lock. A
+    /// task's action locks the parent too (`lock_family`): what it settles
+    /// is the parent's spend as well (DD7).
     fn locked_action(&self, correlation_id: &str) -> Result<Option<(ExecLock<'_>, Action)>> {
         let Some(a) = self.action(correlation_id)? else {
             return Ok(None);
         };
-        let lock = self.locks.lock(&a.execution_id);
+        let lock = self.lock_family(&a.execution_id)?;
         let a = self
             .action(correlation_id)?
             .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
         Ok(Some((lock, a)))
+    }
+
+    /// Lock an execution for a transition that may reach its parent: a task
+    /// (DD7) and its parent together, with `lock_two`, since a task's spend
+    /// and its end are written into the parent in the same frame; any other
+    /// execution alone. The parent is read outside the lock, which is sound
+    /// because an execution's parent never changes.
+    pub(crate) fn lock_family(&self, execution_id: &str) -> Result<ExecLock<'_>> {
+        let parent = self.execution(execution_id)?.and_then(|e| e.parent);
+        Ok(match parent {
+            Some(p) => self.locks.lock_two(execution_id, &p),
+            None => self.locks.lock(execution_id),
+        })
+    }
+
+    /// A task's change reaches its parent (DD7): under both locks, which the
+    /// caller holds (`lock_family`), the parent is read, `carry` applies, and
+    /// the parent's record joins `frame` when it changed. `spent_before` is
+    /// the task's spend before the change. Nothing for an execution with no
+    /// parent.
+    pub(crate) fn carry_to_parent(
+        &self,
+        child: &Execution,
+        spent_before: Micros,
+        frame: &mut Vec<NewRecord>,
+    ) -> Result<Option<Execution>> {
+        let Some(pid) = &child.parent else {
+            return Ok(None);
+        };
+        let Some(mut parent) = self.execution(pid)? else {
+            return Ok(None);
+        };
+        if crate::tasks::carry(&mut parent, child, spent_before) {
+            parent.updated_at_ms = self.now_ms();
+            frame.push(exec_record(&parent)?);
+            return Ok(Some(parent));
+        }
+        Ok(None)
     }
 
     /// `locked_action`, for a transition that needs the action to exist.
@@ -531,6 +586,7 @@ impl Kernel {
             queued_results: vec![],
             parent: None,
             reports_to,
+            reports: vec![],
             turns: 0,
             interrupted: 0,
             resume_pending: false,
@@ -639,6 +695,7 @@ impl Kernel {
         a.resolution = Some(format!("declined by {by}: {reason}"));
         let mut frame = vec![action_record(&a)?];
         if let Some(mut e) = self.execution(&a.execution_id)? {
+            let spent_before = e.budget.spent_micros;
             if let Some(r) = &a.reservation_id {
                 settle_reservation_in(&mut e.budget, r, Some(0));
             }
@@ -648,6 +705,7 @@ impl Kernel {
             }
             e.updated_at_ms = now;
             frame.push(exec_record(&e)?);
+            self.carry_to_parent(&e, spent_before, &mut frame)?;
         }
         frame.push(self.ledger(
             "action.declined",
@@ -743,8 +801,11 @@ impl Kernel {
     }
 
     /// End the held turn with the Advancer's decision. Consumes the guard.
+    /// A task that ends here (complete or failed) reaches its parent in the
+    /// same frame (DD7): the carve is released but for what the task still
+    /// has in flight, and the task joins the parent's `reports`.
     pub fn end_turn(&self, guard: TurnGuard, end: TurnEnd) -> Result<Execution> {
-        let _w = self.locks.lock(&guard.execution_id);
+        let _w = self.lock_family(&guard.execution_id)?;
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -854,6 +915,7 @@ impl Kernel {
                     }
                 }
             }
+            self.task_ended(&e, &mut frame)?;
         }
         self.commit(&frame)?;
         drop(guard);
@@ -1652,6 +1714,7 @@ impl Kernel {
         let mut e = self
             .execution(&a.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(a.execution_id.clone()))?;
+        let spent_before = e.budget.spent_micros;
 
         // Settle the action.
         a.state = match c.outcome {
@@ -1718,6 +1781,8 @@ impl Kernel {
         e.updated_at_ms = now;
         let exec_state = e.state;
         frame.push(exec_record(&e)?);
+        // A task's cost is its parent's spend too, in this frame (DD7).
+        self.carry_to_parent(&e, spent_before, &mut frame)?;
         let kind = match (was_unknown, c.outcome) {
             (true, _) => "action.resolved",
             (false, Outcome::Unknown) => "action.outcome_unknown",
@@ -1784,7 +1849,21 @@ impl Kernel {
     /// through admission or Jev. Returns the correlation ids whose backends
     /// must now be terminated.
     pub fn cancel_execution(&self, execution_id: &str, by: &str) -> Result<Vec<CorrelationId>> {
-        let _w = self.locks.lock(execution_id);
+        self.cancel_execution_with(execution_id, by, |_| Ok(vec![]))
+    }
+
+    /// `cancel_execution`, with records `extra` builds from the cancelled
+    /// execution in the same frame: a task's report that it was cancelled
+    /// (DD7). `extra` runs only when this call cancels it, so a second
+    /// cancel writes nothing, and says nothing twice. A task reaches its
+    /// parent here as it does at `end_turn`.
+    pub fn cancel_execution_with(
+        &self,
+        execution_id: &str,
+        by: &str,
+        extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
+    ) -> Result<Vec<CorrelationId>> {
+        let _w = self.lock_family(execution_id)?;
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -1827,6 +1906,8 @@ impl Kernel {
             Some(&e.session_id),
             json!({"execution_id": e.id, "by": by, "outstanding": to_kill}),
         )?);
+        self.task_ended(&e, &mut frame)?;
+        frame.extend(extra(&e)?);
         self.commit(&frame)?;
         Ok(to_kill)
     }
@@ -1860,6 +1941,7 @@ impl Kernel {
             a.state = ActionState::Cancelled;
             a.settled_at_ms = Some(now);
             if let Some(mut e) = self.execution(&a.execution_id)? {
+                let spent_before = e.budget.spent_micros;
                 e.outstanding.retain(|x| x != &a.correlation_id);
                 if let Some(r) = &a.reservation_id {
                     if st == CancelState::TerminationVerified {
@@ -1870,6 +1952,7 @@ impl Kernel {
                 }
                 e.updated_at_ms = now;
                 frame.push(exec_record(&e)?);
+                self.carry_to_parent(&e, spent_before, &mut frame)?;
             }
         }
         frame.push(action_record(&a)?);
@@ -2206,7 +2289,7 @@ fn decode_all<T: serde::de::DeserializeOwned>(rs: &[Record]) -> Result<Vec<T>> {
     rs.iter().map(|r| r.decode()).collect()
 }
 
-fn exec_record(e: &Execution) -> Result<NewRecord> {
+pub(crate) fn exec_record(e: &Execution) -> Result<NewRecord> {
     Ok(NewRecord::json(kinds::EXECUTION, Some(&e.id), e)?.scoped(&e.session_id))
 }
 fn action_record(a: &Action) -> Result<NewRecord> {

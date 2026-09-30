@@ -241,11 +241,20 @@ pub struct Execution {
     /// Settled actions whose results the next turn must consume, in order.
     #[serde(default)]
     pub queued_results: Vec<CorrelationId>,
+    /// The execution that opened this one as a task (DD7, theseus-qn2): its
+    /// spend counts against the parent's, and its end is reported there. A
+    /// task has no tasks of its own (depth one).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ExecutionId>,
     /// Channel or parent task this execution reports into (§3.2a).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reports_to: Option<String>,
+    /// Tasks of this execution that ended and whose reports its next turn has
+    /// not read yet, oldest first (DD7). The frame that ends a task adds it;
+    /// `Kernel::take_reports` clears them, in the frame that writes them into
+    /// the session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reports: Vec<ExecutionId>,
     /// Turns taken (lock acquisitions).
     pub turns: u64,
     /// Recovery counter: how many times a crash interrupted a running turn.

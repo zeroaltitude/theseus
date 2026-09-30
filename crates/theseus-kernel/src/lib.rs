@@ -16,10 +16,13 @@ pub mod kernel;
 mod locks;
 pub mod outbox;
 pub mod spool;
+pub mod tasks;
 pub mod types;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_tasks;
 
 pub use clock::{Clock, RealClock, VirtualClock};
 pub use gate::{digest_json, digest_proposal, Proposal};
@@ -29,4 +32,5 @@ pub use kernel::{
 };
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
 pub use spool::Spool;
+pub use tasks::{carve_key, task_ids, TaskOpen};
 pub use types::*;

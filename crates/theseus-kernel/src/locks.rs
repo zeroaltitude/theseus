@@ -61,10 +61,9 @@ impl ExecLocks {
         self.lock_all(&[id])
     }
 
-    /// Lock two executions, in id order: the ordered two-lock helper. DD7's
-    /// carved budgets need it (a child's spend counts against its parent's);
-    /// nothing calls it yet.
-    #[allow(dead_code)]
+    /// Lock two executions, in id order: the ordered two-lock helper. A task
+    /// and its parent (DD7): opening the task and carving its budget, each of
+    /// its settles (its spend is the parent's too), and its end.
     pub(crate) fn lock_two(&self, a: &str, b: &str) -> ExecLock<'_> {
         self.lock_all(&[a, b])
     }

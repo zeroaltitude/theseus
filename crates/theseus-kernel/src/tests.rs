@@ -15,11 +15,11 @@ use crate::kernel::*;
 use crate::spool::Spool;
 use crate::types::*;
 
-struct World {
-    dir: TempDir,
-    clock: Arc<VirtualClock>,
-    kernel: Kernel,
-    spool: Spool,
+pub(super) struct World {
+    pub(super) dir: TempDir,
+    pub(super) clock: Arc<VirtualClock>,
+    pub(super) kernel: Kernel,
+    pub(super) spool: Spool,
 }
 
 fn open_store(dir: &std::path::Path) -> Arc<dyn Store> {
@@ -30,11 +30,11 @@ fn open_store(dir: &std::path::Path) -> Arc<dyn Store> {
     )
 }
 
-fn world() -> World {
+pub(super) fn world() -> World {
     world_with(KernelConfig::default())
 }
 
-fn world_with(cfg: KernelConfig) -> World {
+pub(super) fn world_with(cfg: KernelConfig) -> World {
     let dir = tempfile::tempdir().unwrap();
     let clock = VirtualClock::new(1_000_000);
     let spool = Spool::open(&dir.path().join("spool")).unwrap();
@@ -49,7 +49,7 @@ fn world_with(cfg: KernelConfig) -> World {
 }
 
 /// Crash: drop the kernel, reopen the store, run startup with spool evidence.
-fn crash(w: World, cfg: KernelConfig) -> (World, StartupReport) {
+pub(super) fn crash(w: World, cfg: KernelConfig) -> (World, StartupReport) {
     let World {
         dir,
         clock,
@@ -73,7 +73,7 @@ fn crash(w: World, cfg: KernelConfig) -> (World, StartupReport) {
     )
 }
 
-fn auth() -> Authority {
+pub(super) fn auth() -> Authority {
     Authority {
         principal: "eddie".into(),
         delegated_by: None,
@@ -84,7 +84,7 @@ fn auth() -> Authority {
     }
 }
 
-fn proposal(tool: &str) -> Proposal {
+pub(super) fn proposal(tool: &str) -> Proposal {
     Proposal {
         tool: tool.into(),
         args: json!({"a": 1}),
@@ -93,7 +93,7 @@ fn proposal(tool: &str) -> Proposal {
     }
 }
 
-fn completion(id: &str, outcome: Outcome, usage: Option<u64>) -> Completion {
+pub(super) fn completion(id: &str, outcome: Outcome, usage: Option<u64>) -> Completion {
     Completion {
         correlation_id: id.into(),
         outcome,
@@ -110,7 +110,7 @@ fn completion(id: &str, outcome: Outcome, usage: Option<u64>) -> Completion {
 
 /// Open a conversation's execution, wake it with input, take a turn: the
 /// common prelude. Returns the session id with the execution and its guard.
-fn running(w: &World) -> (SessionId, Execution, TurnGuard) {
+pub(super) fn running(w: &World) -> (SessionId, Execution, TurnGuard) {
     let e = w
         .kernel
         .open_execution(
@@ -132,7 +132,7 @@ fn running(w: &World) -> (SessionId, Execution, TurnGuard) {
 }
 
 /// plan → authorize → dispatch, returning the dispatched action.
-fn dispatched(w: &World, g: &TurnGuard, tool: &str, reserve: u64) -> Action {
+pub(super) fn dispatched(w: &World, g: &TurnGuard, tool: &str, reserve: u64) -> Action {
     let p = proposal(tool);
     let a = w
         .kernel
@@ -777,7 +777,7 @@ fn an_action_that_waits_keeps_its_proposal_and_one_stored_without_still_waits() 
 }
 
 /// The ledger rows of one kind in a session, oldest first.
-fn rows(w: &World, session: &str, kind: &str) -> Vec<serde_json::Value> {
+pub(super) fn rows(w: &World, session: &str, kind: &str) -> Vec<serde_json::Value> {
     w.kernel
         .store()
         .scan_scope(session, 0, 10_000)
@@ -1737,7 +1737,7 @@ fn executions_stored_with_unit_budgets_serve_in_dollars() {
 
 /// A store that stops one thread at one read, so that a second writer runs
 /// between a transition's read and its write.
-struct Pausing {
+pub(super) struct Pausing {
     inner: Arc<dyn Store>,
     at: std::sync::Mutex<Option<PauseAt>>,
 }
@@ -1832,7 +1832,7 @@ impl Store for Pausing {
     }
 }
 
-fn pausing_world() -> (World, Arc<Pausing>) {
+pub(super) fn pausing_world() -> (World, Arc<Pausing>) {
     let dir = tempfile::tempdir().unwrap();
     let clock = VirtualClock::new(1_000_000);
     let spool = Spool::open(&dir.path().join("spool")).unwrap();
@@ -1855,17 +1855,17 @@ fn pausing_world() -> (World, Arc<Pausing>) {
 
 /// How a race went: what each writer returned, and whether the second one
 /// was waiting for an execution's lock when the first went on.
-struct Raced<R1, R2> {
-    first: R1,
-    second: R2,
-    second_waited: bool,
+pub(super) struct Raced<R1, R2> {
+    pub(super) first: R1,
+    pub(super) second: R2,
+    pub(super) second_waited: bool,
 }
 
 /// Run `first` on a thread stopped at its `nth` read of (`kind`, `key`), and
 /// `second` on another thread while it is stopped. The first goes on once
 /// the second has returned, or waits for an execution's lock: so with the
 /// locks the second writes after the first, and without them, in between.
-fn race<R1: Send, R2: Send>(
+pub(super) fn race<R1: Send, R2: Send>(
     k: &Kernel,
     p: &Pausing,
     (kind, key, nth): (theseus_store::RecordKind, &str, usize),
@@ -1988,7 +1988,9 @@ fn a_cancel_never_drops_a_call_the_turn_dispatched() {
     let r = race(
         &w.kernel,
         &p,
-        (kinds::EXECUTION, &e.id, 1),
+        // The cancel's first read learns whether it has a parent (DD7's
+        // `lock_family`); its second is the one under the lock.
+        (kinds::EXECUTION, &e.id, 2),
         |k| k.cancel_execution(&e.id, "operator"),
         |k| {
             k.plan_and_dispatch(
@@ -2042,7 +2044,9 @@ fn a_completion_never_revives_a_cancelled_execution() {
     let r = race(
         &w.kernel,
         &p,
-        (kinds::EXECUTION, &e.id, 1),
+        // The first read learns whether the execution has a parent (DD7's
+        // `lock_family`); the second is the settlement's, under the lock.
+        (kinds::EXECUTION, &e.id, 2),
         |k| k.accept_completion(&c),
         |k| k.cancel_execution(&e.id, "operator"),
     );
@@ -2064,7 +2068,8 @@ fn a_turns_end_never_overwrites_a_cancel_that_landed_during_it() {
     let r = race(
         &w.kernel,
         &p,
-        (kinds::EXECUTION, &e.id, 1),
+        // Read 1 learns whether it has a parent (DD7); read 2 is under the lock.
+        (kinds::EXECUTION, &e.id, 2),
         move |k| k.end_turn(g, TurnEnd::Wait { wake: Wake::Input }),
         |k| k.cancel_execution(&e.id, "operator"),
     );

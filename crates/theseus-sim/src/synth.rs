@@ -80,6 +80,7 @@ fn parked_session(k: u64) -> Result<Vec<NewRecord>> {
         queued_results: vec![],
         parent: None,
         reports_to: None,
+        reports: vec![],
         turns: 1,
         interrupted: 0,
         resume_pending: false,
