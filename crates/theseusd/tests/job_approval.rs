@@ -39,7 +39,24 @@ struct Rig {
     daemon: Daemon,
     script: Script,
     web_port: Option<u16>,
+    /// Processes a test started outside the daemon's reach: killed, with
+    /// their process groups, when the rig goes, so a test that fails leaves
+    /// nothing running.
+    leftovers: Mutex<Vec<u32>>,
     _model: FakeModel,
+}
+
+impl Drop for Rig {
+    fn drop(&mut self) {
+        for pid in self.leftovers.lock().unwrap().drain(..) {
+            for target in [format!("-{pid}"), pid.to_string()] {
+                let _ = Command::new("kill")
+                    .args(["-9", "--", &target])
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        }
+    }
 }
 
 /// Where a job writes what it saw. It is inside the workspace root, as every
@@ -146,6 +163,7 @@ impl Rig {
             daemon,
             script,
             web_port,
+            leftovers: Mutex::default(),
             _model: model,
         };
         r.until("the secrets", |h| h["secrets"]["state"] == "ready");
@@ -283,6 +301,11 @@ impl Rig {
         ("proc_run", json!({"argv": argv, "timeout_secs": 120}))
     }
 
+    /// Kill `pid`, and its process group, when the rig goes.
+    fn owns(&self, pid: u32) {
+        self.leftovers.lock().unwrap().push(pid);
+    }
+
     /// The pid a job wrote to `file`.
     fn pid(&self, file: &str) -> u32 {
         self.wait(file, || {
@@ -387,9 +410,9 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
          while [ -e \"/proc/$main\" ]; do sleep 0.02; done\n\
          cut -d\" \" -f4 /proc/$$/stat > \"$O/grandchild.ppid\"\n\
          {}\
-         while [ ! -e \"$O/release\" ]; do sleep 0.02; done\n\
+         while [ ! -e \"$O/release\" ] && [ -d \"$O\" ]; do sleep 0.02; done\n\
          ' grandchild \"$T\" \"$S\" \"$O\" \"$id\" \"$$\" > /dev/null 2>&1 < /dev/null &\n\
-         while [ ! -e \"$O/g1.done\" ]; do sleep 0.02; done\n\
+         while [ ! -e \"$O/g1.done\" ] && [ -d \"$O\" ]; do sleep 0.02; done\n\
          echo \"the job's main process exits\"\n",
         approve_into("job.out"),
         approve_into("g1"),
@@ -419,6 +442,7 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
     );
     assert_refused(&r.read_done("g2"), "the grandchild, after it has exited");
     let wrapper = r.pid("wrapper.pid");
+    r.owns(wrapper);
     assert_eq!(
         r.pid("grandchild.ppid"),
         wrapper,
@@ -641,17 +665,19 @@ fn a_cancel_still_kills_the_jobs_process_group() {
     let r = Rig::start(false);
     let script = r#"O="$3"
 echo "$PPID" > "$O/wrapper.pid"; echo "$$" > "$O/main.pid"
-sleep 300 & echo "$!" > "$O/in-group.pid"
-setsid sleep 300 > /dev/null 2>&1 < /dev/null & echo "$!" > "$O/own-session.pid"
+sleep 60 & echo "$!" > "$O/in-group.pid"
+setsid sleep 60 > /dev/null 2>&1 < /dev/null & echo "$!" > "$O/own-session.pid"
 wait
 "#;
     r.asks("run a long job", vec![r.job(script, &[])]);
     let res = r.turn("run a long job");
     let exec = res["execution_id"].as_str().unwrap().to_string();
     let wrapper = r.pid("wrapper.pid");
+    r.owns(wrapper);
     let main = r.pid("main.pid");
     let in_group = r.pid("in-group.pid");
     let own_session = r.pid("own-session.pid");
+    r.owns(own_session);
     r.wait("setsid to exec sleep", || {
         std::fs::read_to_string(format!("/proc/{own_session}/comm"))
             .ok()

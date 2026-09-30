@@ -27,15 +27,23 @@ impl Rig {
         self.dir.path().join(p)
     }
 
-    /// Start `sh -c script` under a detached wrapper, in the rig's directory.
-    /// Returns the wrapper's pid.
+    /// Start `sh -c script` under a detached wrapper, in the rig's directory,
+    /// which is `$1`. Returns the wrapper's pid.
     fn start(&self, id: &str, script: &str) -> u32 {
         let args = WrapperArgs {
             spool_dir: self.spool.dir().to_path_buf(),
             correlation_id: id.into(),
             deadline_ms: 60_000,
             notify_socket: None,
-            argv: vec!["sh".into(), "-c".into(), script.into()],
+            // `$1` is the rig's directory: every loop also ends when it is
+            // gone, so a test that fails leaves nothing running.
+            argv: vec![
+                "sh".into(),
+                "-c".into(),
+                script.into(),
+                "sh".into(),
+                self.dir.path().display().to_string(),
+            ],
             cwd: Some(self.dir.path().to_path_buf()),
             env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
         };
@@ -113,9 +121,10 @@ fn a_double_fork_stays_under_its_wrapper_which_lingers_until_it_ends() {
     let wrapper = rig.start(
         "act_linger",
         "echo $PPID > wrapper.pid; \
-         ( setsid sh -c 'echo $$ > grandchild.pid; while [ ! -e release ]; do sleep 0.02; done' \
+         ( setsid sh -c 'echo $$ > grandchild.pid; \
+             while [ ! -e release ] && [ -d \"$1\" ]; do sleep 0.02; done' sh \"$1\" \
            > /dev/null 2>&1 < /dev/null & ); \
-         while [ ! -e main.exit ]; do sleep 0.02; done; echo done",
+         while [ ! -e main.exit ] && [ -d \"$1\" ]; do sleep 0.02; done; echo done",
     );
     assert_eq!(rig.pid("wrapper.pid"), wrapper, "the command's parent");
     let grandchild = rig.pid("grandchild.pid");
@@ -159,7 +168,7 @@ fn orphans_that_exit_while_the_command_runs_are_reaped() {
     let wrapper = rig.start(
         "act_reap",
         "for i in 1 2 3 4 5 6 7 8; do ( sleep 0.05 & ); done; touch forked; \
-         while [ ! -e main.exit ]; do sleep 0.02; done",
+         while [ ! -e main.exit ] && [ -d \"$1\" ]; do sleep 0.02; done",
     );
     wait_for("the forks", || rig.path("forked").exists().then_some(()));
     // Each orphan was reparented to the wrapper and has exited by now.
@@ -199,8 +208,8 @@ fn a_cancel_kills_the_wrappers_process_group_as_before() {
     let rig = Rig::new();
     let wrapper = rig.start(
         "act_cancel",
-        "sleep 300 & echo $! > in-group.pid; \
-         setsid sleep 300 > /dev/null 2>&1 < /dev/null & echo $! > own-session.pid; \
+        "sleep 30 & echo $! > in-group.pid; \
+         setsid sleep 30 > /dev/null 2>&1 < /dev/null & echo $! > own-session.pid; \
          echo $$ > main.pid; wait",
     );
     let main = rig.pid("main.pid");
