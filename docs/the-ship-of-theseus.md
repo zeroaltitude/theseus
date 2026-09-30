@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.51
+# The Ship of Theseus — v0.52
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -359,6 +359,11 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
     that has exited, a pid reused since, or another account's.
   - *A double fork stays under its job.* The job wrapper is a child subreaper. After its command exits, it
     lingers until the last descendant has, and health counts the wrappers that linger.
+  - *A job that kills its own wrapper* (theseus-z4b). Its processes then go to the daemon, which is a child
+    subreaper. Nothing that answers an approval descends from the daemon: the operator's CLI, the browser,
+    and Discord never do. So an answer from a process under `theseusd` itself, with no live wrapper
+    between, is refused too. The reason is `from a process under theseusd itself (pid <n>, <argv0>), which
+    is a job's orphan`, and the `asker` names the daemon (`under_daemon`).
   - *A refusal is loud.* It is ledgered as `approval.refused`, with the reason `from a Theseus job's process
     (job <id>, pid <n>, <argv0>)`. It is narrated, and sent to the operator where approvals go. The CLI prints
     the reason and exits 1.
@@ -366,7 +371,7 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
     to check: an answer there is a trusted user's press.
   - This is a speed bump before L1, not a boundary (M4). A job can still drive a process that is not its
     descendant: a user systemd unit, a tmux server already running, cron, or anything else the operator runs
-    that takes commands.
+    that takes commands. _Since theseus-z4b, killing its own wrapper no longer takes a job's processes out of reach._
 - **The channels.**
   - `cli` and `web` are the operator's own machine: the socket is mode 0600, and the web UI is loopback-only, so anyone with an account on the machine can reach it. Their only member is this machine's operator, so listing one is the whole rule for it, with no trusted-user entry. _Since theseus-6qy, an answer through either counts only from a process of this account that is not a Theseus job's. Another account's connection to the web UI cannot be traced, so it is refused._
   - `discord:dm` is a DM between the bot and a trusted user.
@@ -539,6 +544,23 @@ The `planned` record mints the **correlation id** and is committed before anythi
 Native in-process calls of one response that only read run concurrently (§4.6). Each is still a `planned`/`settled` pair in the WAL, dispatched before it runs. _(theseus-a60.)_
 
 **The job wrapper** is part of every shell class's contract (§7): it is **detached** (its lifetime does not depend on the harness; on the node it runs as its own systemd scope or L1 process tree), **durable** (result spooled to disk before any delivery attempt), and **cancellable** (the harness terminates it by correlation id through the execution's cancel path: kill the scope, stop the task, cancel the command). It is deliberately not "unkillable"; a runaway job must remain stoppable.
+
+**Who reaps a job** (theseus-z4b; built 2026-09-29).
+- The daemon starts each job's wrapper and is its parent, so it reaps it. Each wrapper is registered with
+  its job as it is spawned, and a sweep reaps it by its own pid once it has exited. The sweep is woken by
+  SIGCHLD, and runs every 10 s besides.
+- The daemon's other children are the `op` processes, which tokio waits for itself, each by its pid. They
+  are registered as tokio's, and the sweep never reaps one. Nothing in the daemon waits for "any child"
+  (`waitpid(-1)`), which would take tokio's.
+- The socket daemon is a child subreaper. A job can kill its own wrapper, and the job's processes are then
+  reparented to the daemon rather than to init. The sweep reaps them once they exit.
+- Once reaped, a wrapper's pid can belong to another process. So a wrapper is alive only while its pid's
+  command line names its job, and a cancel never signals a pid that has become another process.
+- An exec restart keeps the pid and every child. The new image sets the subreaper flag again and learns its
+  children: a live child whose command line is a wrapper's is that job's wrapper, and any other is an
+  orphan.
+- Health's `children` counts the wrappers running and lingering, the orphans adopted, and the zombies, which
+  are 0 in steady state.
 
 **Deadlines and reconciliation.** Every record carries a deadline from the tool's class and the execution's budget. The heartbeat reconciler (§3.3) checks open records against the spool, the queue, job-scope state, and, for AWS classes past their deadline, the service API. Reconciliation is event-first (EventBridge task state changes flow into the same queue) and polls only overdue records, so its cost scales with stuck work, not with total work.
 
@@ -2482,6 +2504,7 @@ Beside them, in the same chain:
 - K1: the kernel never loses an update (theseus-id9), found by F3.
 - O1: the native OTel exporter (theseus-hee), with theseus-gi7.
 - J1: a job cannot answer approvals (theseus-6qy).
+- Z1: the daemon reaps its job wrappers, and adopts a job's orphans (theseus-z4b).
 
 Eddie's order (2026-09-29) is:
 1. F1, F2, F1b, and F3;
@@ -3092,6 +3115,101 @@ exited. Without the trace, all six act tests failed.
 - A Windows browser, through a Hyper-V firewall rule for 7433 that does not exist today, would be refused as
   untraceable.
 - The web lookup's `/proc/net/tcp` read takes about 1 ms; `sock_diag` would make it tens of µs.
+
+### Step Z1. The daemon reaps its job wrappers, and adopts a job's orphans (theseus-z4b; 2026-09-29, 20:30–21:28; d0212c0, 0e15190)
+
+**Why.**
+- The daemon spawned each job's wrapper and forgot it. Every wrapper that exited stayed a zombie child of
+  `theseusd` until the daemon exited, and an exec restart (F1b) kept them. Eddie's daemon runs about 160 jobs
+  a day. J1 found this.
+- A job could kill its own wrapper (`kill -9 $PPID`). Its processes then went to init, out of the
+  parent-chain walk's reach, and an orphan's `theseus confirm` counted. This was J1's one hole before M4.
+- The first run was cancelled at 19:32, two minutes in and before any change, so that Eddie could restart
+  the OpenClaw gateway. It was relaunched at 20:30.
+
+**What exists.**
+- **Who reaps what** (`theseus-kernel/src/children.rs`): a registry of the daemon's children, by pid.
+  - A job wrapper is registered with its job as it is spawned, and is reaped by its own pid once it exits.
+  - An `op` process is registered as tokio's, with its start time, and is never reaped here, since tokio
+    waits for each of its children by pid.
+  - Any other child is an orphan the daemon adopted, and is reaped once it exits.
+  - A spawn holds the registry's lock through its registration, and a sweep holds it through its scan and
+    its reaps. So a sweep never takes a new `op` for an orphan. Nothing waits for "any child".
+- **The reaper** is a task woken by SIGCHLD, and every 10 s, that sweeps on the blocking pool. It runs in the
+  socket daemon and in `--stdio` alike.
+- **The daemon adopts a job's orphans.** The socket daemon is a child subreaper, set in `main` before the
+  runtime starts.
+- **An orphan can't answer.** The walk also stops at the daemon.
+  - An asker under `theseusd` with no live wrapper between is refused: `from a process under theseusd itself
+    (pid <n>, <argv0>), which is a job's orphan`, with `under_daemon` in its `asker`. The Discord text says so.
+  - The web UI's owner lookup still skips the daemon's own fds.
+- **After an exec restart,** the new image sets the flag again and learns its children, recognizing a wrapper
+  by its command line.
+- **A reaped wrapper's pid may be reused.** So a wrapper is alive only while its pid's command line names its
+  job (the reconciler, the restart check), and a cancel leaves alone a pid that is now another process.
+- **Health's `children`**: wrappers running and lingering, orphans adopted, zombies (0 in steady state), the
+  `op` processes, and what was reaped. A `theseus health` line and an Observatory line show it.
+
+**How it is proven.** 356 tests in the gate, 10 of them new:
+- the registry, in a test binary of its own: a wrapper and an orphan are reaped, an owned child is left for
+  its owner (whose `wait()` still gets its status), and the children are learned again after an exec;
+- the orphan rule on real process trees, on the socket and through the web UI;
+- a cancel leaves alone a process that took a reaped wrapper's pid;
+- end to end, with the real daemon:
+  - 200 jobs leave no zombie;
+  - an `op` run through a burst of 50 jobs keeps its exit status;
+  - a job that kills its wrapper leaves a grandchild that the daemon adopts. Its answer is refused, and the
+    operator's counts;
+  - after an exec restart, the daemon is a subreaper again, and reaps what the old image left.
+
+Throwaway runs:
+- the parent's daemon left 200 zombies after 200 jobs;
+- without the subreaper, the orphan approved the call;
+- with `op` unregistered, the sweep took tokio's children, and every `op read` failed with `ECHILD`.
+
+Live, on a copy of Eddie's store:
+- 20 GLM turns with a job each left no zombie.
+- A GLM job ran a script that killed its own wrapper. The orphan it left went to the daemon, and its `theseus
+  confirm --approve` was refused with the new reason, after an 82 µs trace. The operator's own answer then
+  counted.
+
+| Measure (release) | p50 | p95 |
+|---|---|---|
+| a sweep: 2 wrappers / 100 children, 25 threads | 47.6 / 264 µs | 68.8 / 404 µs |
+| a census (health): 2 wrappers / 100 children | 54.9 / 462 µs | 77.2 / 682 µs |
+
+The lifecycle bench is unchanged within its noise: cold start p50 18.9 ms, against the parent's 18.7.
+
+**Reviewed** (Tabitha, 2026-09-29, 21:48 to 21:55).
+- The gate rerun passed: 356 tests, and all four bench phases within budget.
+- On the release build, over a fresh copy of Eddie's store:
+  - five GLM turns each ran a `proc.run` job, and each answered with its own echo;
+  - the daemon then had 0 zombie children by a `/proc` scan;
+  - health said `subreaper: true`, `reaped_wrappers: 5`, `zombies: 0`.
+- Installed at 21:55.
+- **Taken at review:**
+  - Z1's two follow-ups are theseus-6uo, folded into the secret broker's step:
+    - refuse the descendants of any serving `theseusd`, not only this daemon's, and make `--stdio` a
+      subreaper;
+    - ledger a job's killed wrapper as `job.wrapper_lost`, and mark its action unknown at once.
+  - A job's orphans keep running until they exit, as a lingering wrapper's descendants do.
+
+**Divergence from Parts I and II, and from the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The brief: reap from the heartbeat, or from a task woken on SIGCHLD | A SIGCHLD task, with a 10 s tick | The heartbeat is 60 s, starts only once the config gate opens, and a wrapper pokes it before it exits | Keep |
+| The brief: a registry at the one spawn site (`OpReader`) | One registry of every child: wrappers with their job, `op` as tokio's with its start time | The sweep reaps wrappers by pid, and must tell tokio's children from orphans; the start time guards a reused pid | Keep |
+| — | `wrapper_alive(pid, job)`, and `terminate` takes the job | Once reaped, a wrapper's pid can belong to another process | Keep |
+| — | `--stdio` reaps its own wrappers too, and adopts nothing | The brief sets the flag for the socket daemon only; reaping by pid is safe in every mode | theseus-6uo makes `--stdio` a subreaper |
+
+**Known gaps.**
+- The rule covers this daemon's own descendants. An orphan of another Theseus daemon (a scratch daemon's,
+  or a `--stdio` daemon's) that answers this one is not caught. That is theseus-6uo.
+- A job's orphans run under the daemon until they exit, and nothing kills them. A cancel still reaches the
+  ones that stayed in the job's process group.
+- A wrapper killed before it reported leaves its action `dispatched` until its deadline, when the reconciler
+  marks it unknown. theseus-6uo marks it at once.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
