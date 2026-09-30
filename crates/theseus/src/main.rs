@@ -2874,6 +2874,54 @@ mod tests {
         );
     }
 
+    /// The sessions that hold external text (theseus-9bp): health's line
+    /// names each with what it read, and `policy trust` takes a short name
+    /// only among them, refusing one too short or naming two.
+    #[test]
+    fn external_text_lines_and_the_trust_target() {
+        let held =
+            |sid: &str, task: Option<&str>, via: Option<&str>| theseus_protocol::ExternalTextInfo {
+                session_id: sid.into(),
+                title: None,
+                task: task.map(str::to_string),
+                held: theseus_protocol::ExternalText {
+                    since_ms: 0,
+                    tool: "http.fetch".into(),
+                    url: "https://example.test/a".into(),
+                    node_id: "trs_1".into(),
+                    from_session: via.map(|_| "ses_parent".into()),
+                    via: via.map(str::to_string),
+                },
+            };
+        assert_eq!(external_line(&[]), None);
+        let two = [
+            held("ses_0000aa1111", None, None),
+            held("ses_0000bb1111", Some("bb1111"), Some("task.create")),
+        ];
+        assert_eq!(
+            external_line(&two).unwrap(),
+            "external text: 2 sessions read it, so their calls that act wait: …aa1111 since \
+             00:00:00.000Z (http.fetch https://example.test/a); task bb1111 since 00:00:00.000Z \
+             (http.fetch https://example.test/a, from the session that started it) · trust one \
+             again: theseus policy trust <session>"
+        );
+        assert_eq!(trust_target(&two, "aa1111").unwrap(), "ses_0000aa1111");
+        assert_eq!(trust_target(&two, "…bb1111").unwrap(), "ses_0000bb1111");
+        assert!(trust_target(&two, "111")
+            .unwrap_err()
+            .to_string()
+            .contains("too short"));
+        assert!(trust_target(&two, "1111")
+            .unwrap_err()
+            .to_string()
+            .contains("names 2 sessions"));
+        assert!(trust_target(&two, "cccc")
+            .unwrap_err()
+            .to_string()
+            .contains("no session that holds external text"));
+        assert_eq!(trust_target(&two, "ses_other").unwrap(), "ses_other");
+    }
+
     /// `theseus policy list` says what set each posture, and marks a
     /// tightening with who, when, and the call; `tighten` and `untighten`
     /// say what changed (theseus-sgh).

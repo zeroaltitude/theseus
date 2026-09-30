@@ -1462,6 +1462,24 @@ mod tests {
         assert_eq!(policy_only("").unwrap().policy.enforcement, Posture::Open);
     }
 
+    /// `[policy] external_text` (theseus-9bp): `ask` by default, so a note
+    /// without it loads unchanged; `notify` loads; anything else fails, and
+    /// the error names the two.
+    #[test]
+    fn external_text_is_ask_by_default_and_names_its_two_values() {
+        use crate::external::Mode;
+        assert_eq!(policy_only("").unwrap().policy.external_text, Mode::Ask);
+        let notify = policy_only("external_text = \"notify\"").unwrap();
+        assert_eq!(notify.policy.external_text, Mode::Notify);
+        let e = format!(
+            "{:#}",
+            policy_only("external_text = \"approve\"").unwrap_err()
+        );
+        assert!(e.contains("ask") && e.contains("notify"), "{e}");
+        let (t, _) = Config::parse(Config::EXAMPLE_TOML).unwrap();
+        assert_eq!(t.policy.external_text, Mode::Ask, "the template says ask");
+    }
+
     /// The spellings the loader once accepted with a warning, which no
     /// deployment still uses (Eddie's note checked by key name, 2026-09-29),
     /// now fail to load like any unknown key (theseus-0g4): the renamed lists,
