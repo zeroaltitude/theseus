@@ -676,6 +676,7 @@ mod tests {
                 late,
                 meta: json!({"exit_code": 0}),
                 image: None,
+                external: None,
             },
         )
     }

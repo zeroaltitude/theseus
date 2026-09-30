@@ -120,6 +120,7 @@ impl Tool for Read {
                 access: Access::Read,
             }],
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -288,6 +289,7 @@ impl Tool for WriteFile {
                 access: Access::Write,
             }],
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -380,6 +382,7 @@ impl Tool for Edit {
                 access: Access::Write,
             }],
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -529,6 +532,7 @@ impl Tool for Patch {
             ),
             resources,
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -653,6 +657,7 @@ impl Tool for Glob {
                 access: Access::Read,
             }],
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -840,6 +845,7 @@ impl Tool for Grep {
                 access: Access::Read,
             }],
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -1152,6 +1158,7 @@ impl Tool for List {
                 access: Access::Read,
             }],
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {

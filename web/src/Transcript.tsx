@@ -61,6 +61,8 @@ function callSummary(tool: string, input: unknown): string {
     case 'git.diff': return `${s('repo') || s('path') || '.'}${i.rev ? ` ${s('rev')}` : ''}`
     case 'git.log': return `${s('repo') || s('path') || '.'}${i.n ? ` (${s('n')})` : ''}`
     case 'text.diff': return 'two texts'
+    case 'http.fetch': return `${s('url')}${i.max_bytes ? ` (at most ${bytes(Number(i.max_bytes))})` : ''}`
+    case 'web.search': return `"${s('query')}"${i.count ? ` (${s('count')} results)` : ''}`
     default: return clip(JSON.stringify(input), 120)
   }
 }

@@ -196,6 +196,7 @@ impl Core {
                 late,
                 meta,
                 image,
+                external,
             } => (
                 match image {
                     // The web UI and the CLI show the image's header line.
@@ -203,7 +204,7 @@ impl Core {
                     None => content.clone(),
                 },
                 String::new(),
-                json!({"tool_use_id": tool_use_id, "tool": tool, "status": status.as_str(), "is_error": is_error, "correlation_id": correlation_id, "truncated": truncated, "full_ref": full_ref, "duration_ms": duration_ms, "late": late, "meta": meta}),
+                json!({"tool_use_id": tool_use_id, "tool": tool, "status": status.as_str(), "is_error": is_error, "correlation_id": correlation_id, "truncated": truncated, "full_ref": full_ref, "duration_ms": duration_ms, "late": late, "meta": meta, "external": external}),
                 *bytes_total,
             ),
         };

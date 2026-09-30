@@ -414,9 +414,15 @@ fn a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does() {
             )
         })
         .collect();
+    // The wiring's own grant (DD5: web.search's key) is listed too, unused.
     assert_eq!(
         uses,
-        vec![("gh".into(), 1), ("ghb".into(), 0), ("ghx".into(), 1)],
+        vec![
+            ("gh".into(), 1),
+            ("ghb".into(), 0),
+            ("ghx".into(), 1),
+            ("web.search".into(), 0)
+        ],
         "{h}"
     );
 

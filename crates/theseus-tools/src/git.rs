@@ -174,6 +174,7 @@ impl Tool for Diff {
                 access: Access::Read,
             }],
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -416,6 +417,7 @@ impl Tool for Log {
                 access: Access::Read,
             }],
             argv: None,
+            url: None,
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {

@@ -17,8 +17,9 @@
 //!
 //! 1. the floor (Theseus's own binary and state, the 1Password CLI and its
 //!    token) waits for approval at every posture, and is marked as the floor;
-//! 2. the operator's approve lists (`approve_argv`, `approve_paths`) and any
-//!    path outside the roots wait for approval;
+//! 2. the operator's approve lists (`approve_argv`, `approve_paths`), any
+//!    path outside the roots, and a URL whose host is a private address
+//!    (DD5) wait for approval;
 //! 3. the operator's explicit allow (`allow_argv`) runs, when every path
 //!    argument is inside the roots. An entry is a prefix (`["ls"]` also runs
 //!    `ls -la src`), so entries should be narrow;
@@ -358,7 +359,7 @@ impl ToolPolicy {
                 )
             };
         }
-        if let Some(why) = self.listed(&resources, argv, &nargv, &args) {
+        if let Some(why) = self.listed(&resources, plan.url.as_deref(), argv, &nargv, &args) {
             return Decision::new(
                 Posture::Approve,
                 format!("{}: {name} — approve ({why})", plan.summary),
@@ -422,11 +423,13 @@ impl ToolPolicy {
     }
 
     /// What of the call the operator listed for approval: a path on the
-    /// approve list, a path outside the roots, an approve-listed program, or
-    /// a path argument on the approve list.
+    /// approve list, a path outside the roots, a URL whose host is a private
+    /// address (DD5), an approve-listed program, or a path argument on the
+    /// approve list.
     fn listed(
         &self,
         resources: &[PathBuf],
+        url: Option<&str>,
         argv: &[String],
         nargv: &[String],
         args: &[(String, PathBuf)],
@@ -452,6 +455,9 @@ impl ToolPolicy {
                     }
                 ));
             }
+        }
+        if let Some(why) = url.and_then(crate::web::net::private_url) {
+            return Some(format!("{why}, and a private address waits for approval"));
         }
         if let Some(p) = self.approve_argv.iter().find(|p| prefix_match(nargv, p)) {
             return Some(format!(
@@ -533,6 +539,7 @@ mod tests {
         Plan {
             resources: vec![Resource { path, access }],
             argv: argv.map(|v| v.into_iter().map(String::from).collect()),
+            url: None,
             summary: "the call".into(),
         }
     }

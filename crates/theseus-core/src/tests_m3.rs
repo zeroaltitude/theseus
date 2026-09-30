@@ -4696,9 +4696,20 @@ async fn a_toollet_gets_the_secret_granted_to_it_through_the_broker() {
         (rows[0]["tool"].as_str(), rows[0]["secret"].as_str()),
         (Some("test.keyed"), Some("search_key"))
     );
+    // Health lists the wiring's own grant too (DD5: web.search's key), unused.
     let grants = r.core.health().broker;
-    assert_eq!(grants.len(), 1, "{grants:?}");
-    assert_eq!((grants[0].to.as_str(), grants[0].uses), ("test.keyed", 1));
+    let listed: Vec<_> = grants
+        .iter()
+        .map(|g| (g.to.as_str(), g.secret.as_str(), g.uses))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("test.keyed", "search_key", 1),
+            ("web.search", "brave_api_key", 0)
+        ],
+        "{grants:?}"
+    );
     // Nowhere on disk: the WAL holds every node and ledger row.
     let store = r._dir.path().join("store");
     let mut stack = vec![store];
@@ -4715,6 +4726,237 @@ async fn a_toollet_gets_the_secret_granted_to_it_through_the_broker() {
                     p.display()
                 );
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- the web tools (DD5)
+
+mod web {
+    use super::*;
+    use std::time::Instant;
+
+    use crate::config::WebToolsConfig;
+    use crate::secrets::{Secret, SecretBoard};
+    use crate::web::tests::{serve, web};
+
+    /// A rig whose web tools reach a test's server, standing in for the
+    /// built-ins, with `brave_api_key` resolved on the board.
+    fn web_rig(script: Vec<Scripted>, port: u16, enforcement: Posture) -> Rig {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("work");
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let mut cfg = config(&root, dir.path());
+        cfg.policy.enforcement = enforcement;
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let fake = Arc::new(FakeProvider::scripted(script));
+        let board = SecretBoard::new(["brave_api_key".to_string()], Instant::now());
+        board.publish(
+            [(
+                "brave_api_key".to_string(),
+                Ok(Secret::new("tv-good".into())),
+            )]
+            .into(),
+            "test",
+        );
+        let core = Core::build(crate::rpc::Parts {
+            toollets: web(port, WebToolsConfig::default(), true).tools(),
+            secrets: board,
+            ..crate::rpc::Parts::for_tests(cfg, fake.clone(), store)
+        })
+        .unwrap();
+        Rig {
+            core,
+            fake,
+            root,
+            _dir: dir,
+        }
+    }
+
+    /// Each result node's tool, status, and external URL, in WAL order.
+    fn externals(core: &Core, sid: &str) -> Vec<(String, ResultStatus, Option<String>)> {
+        core.store
+            .session_nodes(sid)
+            .unwrap()
+            .into_iter()
+            .filter_map(|(_, n)| match &n.body {
+                Body::ToolResult {
+                    tool,
+                    status,
+                    external,
+                    ..
+                } => Some((
+                    tool.clone(),
+                    *status,
+                    external.as_ref().map(|e| e.url.clone()),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Two fetches in one response run together (F3's barrier rule: both
+    /// are `Read`): each request reaches the server before either is
+    /// answered, and the calls take about one wait, not two. Each result
+    /// is marked external, from its URL.
+    #[tokio::test]
+    async fn two_fetches_in_one_response_run_together_and_are_marked_external() {
+        let s = serve().await;
+        let a = format!("http://site.test:{}/wait", s.port);
+        let b = format!("http://other.test:{}/wait", s.port);
+        let r = web_rig(
+            vec![
+                Scripted::tools(
+                    "",
+                    &[
+                        ("f1", "http_fetch", json!({ "url": a })),
+                        ("f2", "http_fetch", json!({ "url": b })),
+                    ],
+                ),
+                Scripted::text("Both fetched."),
+            ],
+            s.port,
+            Posture::Notify,
+        );
+        let res = turn(&r.core, None, "fetch both").await;
+        assert_eq!((res.loops, res.tool_calls), (2, 2), "{res:?}");
+        let hits = s.hits.lock().unwrap().clone();
+        assert_eq!(hits.len(), 2);
+        let last_came = hits.iter().map(|h| h.came).max().unwrap();
+        let first_answered = hits.iter().filter_map(|h| h.answered).min().unwrap();
+        assert!(
+            last_came < first_answered,
+            "the fetches ran one after the other"
+        );
+        let trace = res.trace.as_ref().unwrap();
+        let tools = trace
+            .children
+            .iter()
+            .find(|l| l.kind == "loop")
+            .and_then(|l| l.children.iter().find(|s| s.name == "tools"))
+            .expect("a tools span");
+        let took_ms = tools.duration_us() / 1000;
+        assert!(
+            (400..780).contains(&took_ms),
+            "the fetches took {took_ms} ms"
+        );
+        let mut got = externals(&r.core, &res.session_id);
+        got.sort_by(|x, y| x.2.cmp(&y.2));
+        let mut want = vec![
+            ("http.fetch".to_string(), ResultStatus::Ok, Some(a)),
+            ("http.fetch".to_string(), ResultStatus::Ok, Some(b)),
+        ];
+        want.sort_by(|x, y| x.2.cmp(&y.2));
+        assert_eq!(got, want);
+        // Each ran under notify, and its notice names its URL.
+        let notices = ledgered(&r, "tool.notified");
+        assert_eq!(notices.len(), 2);
+        assert!(notices
+            .iter()
+            .all(|n| n["summary"].as_str().unwrap().starts_with("fetch http://")));
+    }
+
+    /// A fetch of a loopback address waits for approval at every posture,
+    /// `open` included, and says why. Declined, it never connects.
+    #[tokio::test]
+    async fn a_fetch_of_a_loopback_address_waits_and_a_decline_never_connects() {
+        let s = serve().await;
+        let url = format!("http://127.0.0.1:{}/plain.txt", s.port);
+        let r = web_rig(
+            vec![
+                Scripted::tools("", &[("f1", "http_fetch", json!({ "url": url }))]),
+                Scripted::text("Not fetched: you declined it."),
+            ],
+            s.port,
+            Posture::Open,
+        );
+        let res = turn(&r.core, None, "fetch it").await;
+        let corr = res.awaiting_confirm.clone().expect("it waits for approval");
+        let asked = ledgered(&r, "tool.confirm_requested");
+        assert_eq!(asked.len(), 1);
+        assert_eq!(
+            asked[0]["reason"],
+            json!(format!(
+                "fetch {url}: http.fetch — approve (127.0.0.1 is a loopback address, and a \
+                 private address waits for approval)"
+            ))
+        );
+        r.core
+            .confirm_action(&corr, false, Some("not that one"), "test")
+            .unwrap();
+        r.core
+            .continue_execution(res.execution_id.as_deref().unwrap())
+            .await
+            .unwrap();
+        assert!(s.paths().is_empty(), "it connected: {:?}", s.paths());
+        let got = externals(&r.core, &res.session_id);
+        assert_eq!(
+            got,
+            vec![("http.fetch".to_string(), ResultStatus::Declined, None)]
+        );
+    }
+
+    /// web.search runs at no looser a posture than its key's: `open` by the
+    /// config, it is notified, since `brave_api_key` is notify by default.
+    /// The notice says what it got, the ledger has `secret.granted`, health
+    /// counts the grant's use, and the key is in no node.
+    #[tokio::test]
+    async fn a_search_is_held_to_its_keys_posture_and_the_grant_is_counted() {
+        let s = serve().await;
+        let r = web_rig(
+            vec![
+                Scripted::tools(
+                    "",
+                    &[(
+                        "s1",
+                        "web_search",
+                        json!({"query": "rust ignore WalkParallel"}),
+                    )],
+                ),
+                Scripted::text("The first is docs.rs."),
+            ],
+            s.port,
+            Posture::Open,
+        );
+        let res = turn(&r.core, None, "search").await;
+        assert_eq!(res.tool_calls, 1, "{res:?}");
+        let got = externals(&r.core, &res.session_id);
+        assert_eq!(
+            (got[0].0.as_str(), got[0].1),
+            ("web.search", ResultStatus::Ok)
+        );
+        assert!(got[0]
+            .2
+            .as_deref()
+            .unwrap()
+            .contains("/search?q=rust+ignore+WalkParallel"));
+        let notices = ledgered(&r, "tool.notified");
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0]["granted"], json!("web.search got brave_api_key"));
+        assert_eq!(
+            notices[0]["setting"],
+            json!("the broker's posture for brave_api_key, notify by default")
+        );
+        let granted = ledgered(&r, "secret.granted");
+        assert_eq!(
+            (
+                granted.len(),
+                granted[0]["tool"].clone(),
+                granted[0]["secret"].clone()
+            ),
+            (1, json!("web.search"), json!("brave_api_key"))
+        );
+        let grant = r
+            .core
+            .health()
+            .broker
+            .into_iter()
+            .find(|g| g.to == "web.search")
+            .expect("health lists the grant");
+        assert_eq!((grant.secret.as_str(), grant.uses), ("brave_api_key", 1));
+        for (_, n) in r.core.store.session_nodes(&res.session_id).unwrap() {
+            assert!(!serde_json::to_string(&n).unwrap().contains("tv-good"));
         }
     }
 }

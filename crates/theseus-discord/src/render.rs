@@ -981,6 +981,10 @@ pub fn summarize(tool: &str, input: &Value) -> String {
         p
     } else if tool == "fs.patch" {
         "(patch)".into()
+    } else if let Some(u) = s("url") {
+        u
+    } else if let Some(q) = s("query") {
+        format!("\"{q}\"")
     } else {
         serde_json::to_string(input).unwrap_or_default()
     };

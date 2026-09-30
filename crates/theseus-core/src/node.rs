@@ -172,6 +172,11 @@ pub enum Body {
         /// the blobs like an attached one (theseus-9g2).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<Attachment>,
+        /// Its text came from outside, from this URL (`http.fetch`,
+        /// `web.search`; DD5): external text, which never becomes durable
+        /// without the operator's confirmation (§5.2).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        external: Option<theseus_tools::External>,
     },
 }
 

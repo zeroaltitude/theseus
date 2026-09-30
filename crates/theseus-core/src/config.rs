@@ -213,7 +213,50 @@ pub struct ToolsConfig {
     /// Environment variables `proc.run` passes through from the daemon (nothing else).
     #[serde(default = "default_proc_env")]
     pub proc_env: Vec<String>,
+    /// `[tools.web]`: `http.fetch` and `web.search` (DD5).
+    #[serde(default)]
+    pub web: WebToolsConfig,
 }
+
+/// `[tools.web]`: the limits of `http.fetch` and `web.search`, and the secret
+/// that holds the search key (DD5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WebToolsConfig {
+    /// A fetch's or a search's whole time, redirects included.
+    #[serde(default = "default_web_timeout_secs")]
+    pub timeout_secs: u64,
+    /// The most bytes of a body a fetch reads; a call may ask for fewer.
+    #[serde(default = "default_web_max_bytes")]
+    pub max_bytes: usize,
+    /// The `[secrets]` entry that holds the Brave Search API key.
+    #[serde(default = "default_search_key_secret")]
+    pub search_key_secret: String,
+}
+
+fn default_web_timeout_secs() -> u64 {
+    30
+}
+fn default_web_max_bytes() -> usize {
+    2 * 1024 * 1024
+}
+fn default_search_key_secret() -> String {
+    "brave_api_key".into()
+}
+
+impl Default for WebToolsConfig {
+    fn default() -> Self {
+        Self {
+            timeout_secs: default_web_timeout_secs(),
+            max_bytes: default_web_max_bytes(),
+            search_key_secret: default_search_key_secret(),
+        }
+    }
+}
+
+/// The longest a web call may take: every in-process call ends by the
+/// runtime's deadline (120 s), so a web call's own timeout must come first.
+pub const WEB_TIMEOUT_MAX_SECS: u64 = 110;
 
 fn default_approve_paths() -> Vec<String> {
     [
@@ -278,6 +321,7 @@ impl Default for ToolsConfig {
             proc_timeout_secs: default_proc_timeout_secs(),
             proc_timeout_max_secs: default_proc_timeout_max_secs(),
             proc_env: default_proc_env(),
+            web: WebToolsConfig::default(),
         }
     }
 }
@@ -901,6 +945,20 @@ impl Config {
                 anyhow::bail!("profiles.{name}.max_loops must be at least 1");
             }
         }
+        // The search key's secret may be absent: web.search then says it has
+        // no key, as a result the model reads (DD5).
+        let web = &self.tools.web;
+        if !(1..=WEB_TIMEOUT_MAX_SECS).contains(&web.timeout_secs) {
+            anyhow::bail!(
+                "tools.web.timeout_secs must be 1 to {WEB_TIMEOUT_MAX_SECS}: every in-process call ends by 120 s"
+            );
+        }
+        if web.max_bytes == 0 {
+            anyhow::bail!("tools.web.max_bytes must be at least 1");
+        }
+        if web.search_key_secret.is_empty() {
+            anyhow::bail!("tools.web.search_key_secret must name a [secrets] entry");
+        }
         // Paths only: the files are read when a turn compiles, never here.
         let files = std::iter::once(("context.files".to_string(), &self.context.files)).chain(
             self.personas
@@ -980,10 +1038,14 @@ impl Config {
         for name in self.policy.tools.keys() {
             let known = match name.strip_prefix(crate::policy::MCP_PREFIX) {
                 Some(rest) => rest.contains('/') && mcp_key(rest),
-                None => registry.get(name).is_some(),
+                None => registry.get(name).is_some() || crate::web::NAMES.contains(&name.as_str()),
             };
             if !known {
-                let names: Vec<&str> = registry.all().map(|t| t.name()).collect();
+                let names: Vec<&str> = registry
+                    .all()
+                    .map(|t| t.name())
+                    .chain(crate::web::NAMES)
+                    .collect();
                 anyhow::bail!(
                     "policy.tools.\"{name}\" is not a tool (the tools: {}; an MCP tool is \"mcp:<server>/<tool>\")",
                     names.join(", ")
@@ -1219,7 +1281,8 @@ mod tests {
         assert!(cfg.model.system.is_some());
         // The commented tool lines and the [policy.mcp] example are real too.
         assert_eq!(cfg.policy.tools["proc.run"], Posture::Approve);
-        assert_eq!(cfg.policy.tools.len(), 11);
+        assert_eq!(cfg.policy.tools["http.fetch"], Posture::Notify);
+        assert_eq!(cfg.policy.tools.len(), 13);
         assert_eq!(cfg.policy.mcp["some-server"], Posture::Notify);
         assert_eq!(cfg.policy.mcp["some-server/read-only-tool"], Posture::Open);
         assert_eq!(
@@ -1303,6 +1366,7 @@ mod tests {
         let tools: Vec<String> = theseus_tools::default_registry()
             .all()
             .map(|t| t.name().to_string())
+            .chain(crate::web::NAMES.map(String::from))
             .collect();
         for t in &tools {
             assert!(

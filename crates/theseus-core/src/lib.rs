@@ -39,6 +39,7 @@ pub mod tighten;
 pub mod toolrun;
 pub mod trace;
 pub mod turn;
+pub mod web;
 
 pub use config::Config;
 pub use rpc::Core;

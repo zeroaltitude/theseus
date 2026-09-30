@@ -426,6 +426,7 @@ impl ToolRuntime {
                 late: r.late,
                 meta,
                 image: r.image,
+                external: r.external,
             },
         )
     }
@@ -477,12 +478,16 @@ impl ToolRuntime {
 
     /// A call's main resource for the narrative, scrubbed of any secret value.
     fn subject(&self, tool: &str, plan: &Plan) -> String {
-        let s = narrative::subject(
-            tool,
-            plan.argv.as_deref(),
-            plan.resources.first().map(|r| r.path.as_path()),
-            &self.ctx.cwd,
-        );
+        let s = match &plan.url {
+            // A network call's subject is what it asks for (DD5).
+            Some(url) => format!("{tool} {url}"),
+            None => narrative::subject(
+                tool,
+                plan.argv.as_deref(),
+                plan.resources.first().map(|r| r.path.as_path()),
+                &self.ctx.cwd,
+            ),
+        };
         self.scrubber.scrub(&s).0
     }
 
@@ -981,7 +986,7 @@ impl ToolRuntime {
 
     fn deadline_ms(&self, tool: &dyn Tool, input: &Value) -> u64 {
         match tool.backend() {
-            Backend::Inproc => INPROC_DEADLINE_MS,
+            Backend::Inproc | Backend::Async => INPROC_DEADLINE_MS,
             Backend::Job => {
                 let t = input
                     .get("timeout_secs")
@@ -1008,7 +1013,7 @@ impl ToolRuntime {
         ran_at: Posture,
     ) -> Result<CallOutcome> {
         match tool.backend() {
-            Backend::Inproc => {
+            Backend::Inproc | Backend::Async => {
                 self.run_inproc(tc, correlation_id, tool, call, ran_at)
                     .await
             }
@@ -1020,6 +1025,8 @@ impl ToolRuntime {
     }
 
     /// An in-process tool: its result node rides in its completion's frame.
+    /// A toollet computes on a core; an async tool (DD5) waits as a task on
+    /// the runtime and holds none.
     async fn run_inproc(
         &self,
         tc: &TurnCtx<'_>,
@@ -1030,7 +1037,7 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         tc.sink.send(
             notify::TOOL_STARTED,
-            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "inproc"}),
+            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": tool.backend().as_str()}),
         );
         let (t, input, mut ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
         // A toollet granted a secret reads it through the broker, bound to
@@ -1049,33 +1056,52 @@ impl ToolRuntime {
         } else {
             None
         };
-        // A free core first (theseus-a60): the deadline counts the run, not
-        // the wait for one. The call's time is its run's own, timed on its
-        // core: its result may wait for the turn's task, busy with the frames
-        // of the calls beside it.
-        let run = self
-            .cpu
-            .spawn(move || {
-                let t0 = Instant::now();
-                (t.run_with_image(&input, &ctx), t0.elapsed())
-            })
-            .await;
-        let started = theseus_protocol::now_unix_ms();
-        let t0 = Instant::now();
-        let (outcome, took) =
-            match tokio::time::timeout(Duration::from_millis(INPROC_DEADLINE_MS), run).await {
-                Ok(Ok((Ok(out), took))) => (Ok(out), took),
+        let deadline = Duration::from_millis(INPROC_DEADLINE_MS);
+        let timed_out = || format!("timed out after {} ms", INPROC_DEADLINE_MS);
+        let (started, outcome, took) = if tool.backend() == Backend::Async {
+            // A task of its own, so a panic is the call's error and not the
+            // turn's, and its deadline can stop it. Only an approved call
+            // reaches the private address it names.
+            ctx.approved = ran_at == Posture::Approve;
+            let started = theseus_protocol::now_unix_ms();
+            let t0 = Instant::now();
+            let mut task = tokio::spawn(t.run_async(&input, &ctx));
+            let outcome = match tokio::time::timeout(deadline, &mut task).await {
+                Ok(Ok(Ok((out, external)))) => Ok((out, None, external)),
+                Ok(Ok(Err(f))) => Err(f.message),
+                Ok(Err(join)) => Err(format!("the tool panicked: {join}")),
+                Err(_) => {
+                    task.abort();
+                    Err(timed_out())
+                }
+            };
+            (started, outcome, t0.elapsed())
+        } else {
+            // A free core first (theseus-a60): the deadline counts the run,
+            // not the wait for one. The call's time is its run's own, timed
+            // on its core: its result may wait for the turn's task, busy with
+            // the frames of the calls beside it.
+            let run = self
+                .cpu
+                .spawn(move || {
+                    let t0 = Instant::now();
+                    (t.run_with_image(&input, &ctx), t0.elapsed())
+                })
+                .await;
+            let started = theseus_protocol::now_unix_ms();
+            let t0 = Instant::now();
+            let (outcome, took) = match tokio::time::timeout(deadline, run).await {
+                Ok(Ok((Ok((out, img)), took))) => (Ok((out, img, None)), took),
                 Ok(Ok((Err(f), took))) => (Err(f.message), took),
                 Ok(Err(join)) => (Err(format!("the tool panicked: {join}")), t0.elapsed()),
-                Err(_) => (
-                    Err(format!("timed out after {} ms", INPROC_DEADLINE_MS)),
-                    t0.elapsed(),
-                ),
+                Err(_) => (Err(timed_out()), t0.elapsed()),
             };
+            (started, outcome, took)
+        };
         let dur = took.as_millis() as u64;
-        let (status, mut text, meta, img) = match outcome {
-            Ok((o, img)) => (ResultStatus::Ok, o.text, o.meta, img),
-            Err(m) => (ResultStatus::Error, m, Value::Null, None),
+        let (status, mut text, meta, img, external) = match outcome {
+            Ok((o, img, external)) => (ResultStatus::Ok, o.text, o.meta, img, external),
+            Err(m) => (ResultStatus::Error, m, Value::Null, None, None),
         };
         // An image the tool read goes to the blobs once; the node holds the
         // reference (theseus-9g2).
@@ -1105,6 +1131,7 @@ impl ToolRuntime {
                 duration_ms: Some(dur),
                 meta: meta.clone(),
                 image,
+                external,
                 ..ResultNode::new(&call.id, tool.name(), status, text)
             },
         );
@@ -1119,7 +1146,7 @@ impl ToolRuntime {
             external_op_id: None,
             started_at_ms: started,
             finished_at_ms: theseus_protocol::now_unix_ms(),
-            producer: format!("inproc:{}", tool.name()),
+            producer: format!("{}:{}", tool.backend().as_str(), tool.name()),
             signature: None,
             cost_micros: None,
             detail: Some(json!({"duration_ms": dur, "meta": meta})),
@@ -1812,6 +1839,8 @@ struct ResultNode<'a> {
     bytes_total: Option<u64>,
     meta: Value,
     image: Option<crate::node::Attachment>,
+    /// Where its text came from, when that is outside Theseus (DD5).
+    external: Option<theseus_tools::External>,
 }
 
 impl<'a> ResultNode<'a> {
@@ -1833,6 +1862,7 @@ impl<'a> ResultNode<'a> {
             bytes_total: None,
             meta: Value::Null,
             image: None,
+            external: None,
         }
     }
 }
@@ -1951,8 +1981,15 @@ pub fn build_runtime(
         floor_paths.push(canon_path(f.clone()));
     }
     let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
+    let cpu = crate::cpu::CpuPool::for_host();
     let registry = if t.enabled {
-        theseus_tools::default_registry()
+        let mut r = theseus_tools::default_registry();
+        // The web tools wait on the network, as async tools (DD5).
+        let web = crate::web::Web::new(&t.web, t.result_max_chars, cpu.clone());
+        for tool in web.tools() {
+            r.register(tool);
+        }
+        r
     } else {
         Registry::new()
     };
@@ -1963,9 +2000,13 @@ pub fn build_runtime(
         .filter_map(|k| std::env::var(k).ok().map(|v| (k.clone(), v)))
         .collect();
     let notify_socket = spool.as_ref().map(|s| s.dir().join("notify.sock"));
-    let cpu = crate::cpu::CpuPool::for_host();
     // A program's name is resolved on the daemon's own PATH (theseus-dcy).
     let broker = Broker::new(&cfg.broker, secrets, std::env::var("PATH").ok());
+    // web.search's key: its calls run at no looser a posture than the
+    // key's, and health lists the grant with its uses (DD5).
+    if t.enabled {
+        broker.grant_tool("web.search", &t.web.search_key_secret);
+    }
     Ok(ToolRuntime {
         registry,
         policy: ToolPolicy {
@@ -1989,6 +2030,7 @@ pub fn build_runtime(
             proc_timeout_max_secs: t.proc_timeout_max_secs,
             cores: Some(cpu.clone()),
             secrets: None,
+            approved: false,
         },
         spool,
         scrubber,

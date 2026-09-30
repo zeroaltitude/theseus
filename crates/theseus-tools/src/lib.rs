@@ -50,6 +50,9 @@ pub enum Backend {
     Inproc,
     /// The detached job wrapper (§3.16): spooled result, own deadline, cancellable.
     Job,
+    /// A future on the daemon's runtime (`run_async`): a tool that waits on
+    /// the network (DD5), so it holds no core while it waits.
+    Async,
 }
 
 impl Backend {
@@ -57,6 +60,7 @@ impl Backend {
         match self {
             Backend::Inproc => "inproc",
             Backend::Job => "job",
+            Backend::Async => "async",
         }
     }
 }
@@ -92,6 +96,10 @@ pub struct Plan {
     /// For `proc.run`: the exact argv.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub argv: Option<Vec<String>>,
+    /// For a network tool: the URL it asks for (`http.fetch`'s, or the
+    /// request `web.search` makes). The gate judges its host (DD5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     /// One line for humans ("edit src/main.rs (1 occurrence)").
     pub summary: String,
 }
@@ -124,6 +132,22 @@ impl<E: std::fmt::Display> From<E> for ToolFailure {
         ToolFailure::new(e.to_string())
     }
 }
+
+/// Where a result's text came from, when it came from outside Theseus (spec
+/// §5.2): a page `http.fetch` read, or the results `web.search` got. Such
+/// text never becomes durable without the operator's confirmation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct External {
+    /// The page's final URL, or the search's request.
+    pub url: String,
+}
+
+/// What an async tool's run gives: its output, and where the output's text
+/// came from when that is outside Theseus.
+pub type AsyncResult = Result<(ToolOutput, Option<External>), ToolFailure>;
+
+/// An async tool's run, a future on the daemon's runtime (DD5).
+pub type AsyncRun = std::pin::Pin<Box<dyn std::future::Future<Output = AsyncResult> + Send>>;
 
 /// An image a toollet read, for the model to see (`fs.read` of a PNG,
 /// theseus-9g2). The runtime stores its bytes once, in the store's blobs,
@@ -184,6 +208,10 @@ pub struct ToolCtx {
     /// The secrets this call's tool was granted, set per call by the runtime
     /// (theseus-dcy). `None`: it was granted none.
     pub secrets: Option<Arc<dyn Secrets>>,
+    /// The operator approved this call: it ran at `approve`. Set per call by
+    /// the runtime. Only then does `http.fetch` reach the private address its
+    /// URL names (DD5).
+    pub approved: bool,
 }
 
 impl ToolCtx {
@@ -198,6 +226,7 @@ impl ToolCtx {
             proc_timeout_max_secs: 3600,
             cores: None,
             secrets: None,
+            approved: false,
         }
     }
 
@@ -243,6 +272,13 @@ pub trait Tool: Send + Sync {
         ctx: &ToolCtx,
     ) -> Result<(ToolOutput, Option<ImageData>), ToolFailure> {
         self.run(input, ctx).map(|o| (o, None))
+    }
+    /// Run as a future on the daemon's runtime (only for `Backend::Async`,
+    /// only after the gate): a tool that waits on the network, not on a core.
+    fn run_async(&self, _input: &Value, _ctx: &ToolCtx) -> AsyncRun {
+        Box::pin(std::future::ready(Err(ToolFailure::new(
+            "this tool does not run async",
+        ))))
     }
     /// The job to launch (only for `Backend::Job`).
     fn job(&self, _input: &Value, _ctx: &ToolCtx) -> Result<JobSpec, String> {
