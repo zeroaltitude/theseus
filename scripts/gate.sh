@@ -13,7 +13,17 @@ cargo nextest run --workspace --no-fail-fast
 # p95 against the budget plus the measured noise margin. Debug binaries: they
 # are never faster than release, so a pass here holds for release.
 cargo build -q -p theseusd -p theseus-sim
-target/debug/theseus-sim bench lifecycle --runs 10 --check
+# Other processes' dirty pages are flushed first, so a start's fsync never
+# pays for their writeback (1.3 GB of it once put a clean shutdown's p95 at
+# 148 ms). And one stalled fsync does not fail the gate: a miss runs the
+# bench once more, and only a second miss fails it, as a real regression
+# does (theseus-hee).
+sync
+target/debug/theseus-sim bench lifecycle --runs 10 --check || {
+  echo "lifecycle: a budget was missed; running the bench once more"
+  sync
+  target/debug/theseus-sim bench lifecycle --runs 10 --check
+}
 cargo deny --log-level error check
 if [ -d web/node_modules ]; then (cd web && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
 git diff --quiet -- crates/theseusd/web/dist || { echo "web dist changed by the build: commit it"; exit 1; }
