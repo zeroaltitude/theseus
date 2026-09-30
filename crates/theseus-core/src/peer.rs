@@ -12,7 +12,10 @@
 //! A job can kill its own wrapper. Its orphans then go to the daemon, which
 //! is a child subreaper too (theseus-z4b), and nothing that answers an
 //! approval descends from the daemon: so an asker with the daemon above it is
-//! refused as well, as a job's orphan.
+//! refused as well, as a job's orphan. So is one under any other serving
+//! `theseusd`, known by its command line (theseus-6uo): a scratch daemon's
+//! orphan, or a `--stdio` daemon's, which is a subreaper too, runs as the
+//! operator's user and could otherwise answer this one.
 //!
 //! This is a speed bump before M4's sandbox (L1: no route to localhost
 //! services), not a boundary. A job can still drive a process that is not
@@ -72,6 +75,10 @@ pub enum Traced {
     /// A process under the daemon itself, with no live wrapper between: a
     /// job's orphan, whose wrapper died (theseus-z4b). The daemon's pid.
     Orphan { asker: Asker, daemon: u32 },
+    /// A process under another serving `theseusd`, with no live wrapper
+    /// between: that daemon's orphan, or a process it runs (theseus-6uo).
+    /// That daemon's pid.
+    OtherDaemon { asker: Asker, daemon: u32 },
     /// It could not be traced, which counts as a job's: why, and how long
     /// finding that out took, in µs.
     Untraceable { why: String, trace_us: u64 },
@@ -89,6 +96,11 @@ impl Traced {
             )),
             Self::Orphan { asker, .. } => Some(format!(
                 "from a process under theseusd itself (pid {}, {}), which is a job's orphan",
+                asker.pid, asker.argv0
+            )),
+            Self::OtherDaemon { asker, daemon } => Some(format!(
+                "from a process under another serving theseusd (pid {}, {}; the daemon is pid \
+                 {daemon}), which counts as that daemon's job",
                 asker.pid, asker.argv0
             )),
             Self::Untraceable { why, .. } => Some(format!(
@@ -116,6 +128,10 @@ impl Traced {
             Self::Orphan { asker, daemon } => serde_json::json!({
                 "pid": asker.pid, "argv0": asker.argv0, "trace_us": asker.trace_us,
                 "under_daemon": daemon,
+            }),
+            Self::OtherDaemon { asker, daemon } => serde_json::json!({
+                "pid": asker.pid, "argv0": asker.argv0, "trace_us": asker.trace_us,
+                "under_other_daemon": daemon,
             }),
             Self::Untraceable { why, trace_us } => {
                 serde_json::json!({"untraceable": why, "trace_us": trace_us})
@@ -189,6 +205,10 @@ impl Peer {
                 asker.trace_us = us();
                 Traced::Orphan { asker, daemon }
             }
+            Ok(Found::OtherDaemon { mut asker, daemon }) => {
+                asker.trace_us = us();
+                Traced::OtherDaemon { asker, daemon }
+            }
             Err(why) => Traced::Untraceable {
                 why,
                 trace_us: us(),
@@ -209,13 +229,19 @@ enum Found {
         asker: Asker,
         daemon: u32,
     },
+    OtherDaemon {
+        asker: Asker,
+        daemon: u32,
+    },
 }
 
 /// The deepest process tree a walk follows.
 const MAX_DEPTH: usize = 4096;
 
 /// From `pid` up the parent chain to pid 1: the first live job wrapper met,
-/// the asker itself included, or else `daemon` met above the asker. `start`
+/// the asker itself included, or else `daemon`, or any other serving
+/// `theseusd`, met above the asker. Each process's command line is read once.
+/// `start`
 /// is the asker's start time when the connection was accepted. An ancestor
 /// that exits mid-walk has had its children reparented, so the walk starts
 /// again, at most three times.
@@ -238,7 +264,8 @@ fn walk(pid: u32, start: Option<u64>, daemon: Option<u32>) -> Result<Found, Stri
         };
         let (mut p, mut s) = (pid, first);
         for _ in 0..MAX_DEPTH {
-            if let Some(job) = theseus_kernel::job::wrapper_job(p) {
+            let cmdline = std::fs::read(format!("/proc/{p}/cmdline")).unwrap_or_default();
+            if let Some(job) = theseus_kernel::job::job_in_cmdline(&cmdline) {
                 return Ok(Found::Job {
                     asker,
                     job,
@@ -247,6 +274,9 @@ fn walk(pid: u32, start: Option<u64>, daemon: Option<u32>) -> Result<Found, Stri
             }
             if p != pid && daemon == Some(p) {
                 return Ok(Found::Orphan { asker, daemon: p });
+            }
+            if p != pid && theseus_kernel::job::daemon_in_cmdline(&cmdline) {
+                return Ok(Found::OtherDaemon { asker, daemon: p });
             }
             if s.ppid == 0 {
                 return Ok(Found::Outside(asker));
@@ -273,7 +303,9 @@ fn owners_verdict(pids: &[u32], daemon: Option<u32>) -> Result<Found, String> {
     let mut why = None;
     for &pid in pids {
         match walk(pid, None, daemon) {
-            Ok(j @ (Found::Job { .. } | Found::Orphan { .. })) => return Ok(j),
+            Ok(j @ (Found::Job { .. } | Found::Orphan { .. } | Found::OtherDaemon { .. })) => {
+                return Ok(j)
+            }
             Ok(Found::Outside(a)) => {
                 outside.get_or_insert(a);
             }

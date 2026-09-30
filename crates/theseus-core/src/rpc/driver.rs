@@ -179,6 +179,50 @@ impl Core {
         Ok((e, to_kill))
     }
 
+    /// A job wrapper the reaper took, which a signal ended (theseus-6uo). One
+    /// that had not reported, and that no cancel stopped, was killed by its
+    /// own job or by something beside it, which is a security event. Its
+    /// action is marked unknown at once, instead of at its deadline, and the
+    /// ledger (`job.wrapper_lost`) and the narrative say so. Returns whether
+    /// it was lost.
+    pub fn wrapper_signalled(&self, pid: u32, job: &str, signal: i32) -> bool {
+        let Ok(Some(a)) = self.kernel.action(job) else {
+            return false;
+        };
+        let reported = matches!(self.spool.read_completion(job), Ok(Some(_)));
+        if a.state != theseus_kernel::ActionState::Dispatched || a.cancel.is_some() || reported {
+            return false;
+        }
+        // It rechecks under the execution's lock: a completion that landed
+        // meanwhile wins, and this was no loss.
+        if self.kernel.mark_unknown(job, "wrapper_lost").is_err() {
+            return false;
+        }
+        tracing::warn!(pid, job, signal, tool = %a.tool, "a job's wrapper was killed before it reported; its outcome is unknown");
+        let row = crate::ledger::LedgerRow::new(
+            "job.wrapper_lost",
+            Some(&a.session_id),
+            None,
+            serde_json::json!({"correlation_id": job, "pid": pid, "signal": signal,
+                "tool": a.tool, "execution_id": a.execution_id}),
+        );
+        if let Err(e) = self.store.append_ledger(&row) {
+            tracing::warn!(error = %e, "ledger append failed");
+        }
+        narrate!(
+            self.narrator,
+            Job,
+            Some(&a.session_id),
+            None,
+            "Job {} ({}) lost its wrapper (pid {pid}, killed by signal {signal}) before it \
+             reported: the job, or something beside it, killed it. Its outcome is unknown.",
+            crate::narrative::short(job),
+            a.tool
+        );
+        self.admission.notify_waiters();
+        true
+    }
+
     /// The harness driver: take a continuation turn for an execution that is
     /// runnable without human input. Returns quickly if it is not ready.
     pub async fn continue_execution(

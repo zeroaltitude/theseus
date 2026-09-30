@@ -318,6 +318,44 @@ pub fn job_in_cmdline(cmdline: &[u8]) -> Option<String> {
     Some(id.unwrap_or_else(|| "?".into()))
 }
 
+/// `theseusd`'s options that take a value (theseus-6uo): what follows one is
+/// its value, never a subcommand. A test in `theseusd` keeps this in step with
+/// its command line.
+pub const DAEMON_VALUE_FLAGS: [&str; 4] =
+    ["--config", "--op-token-file", "--socket", "--state-dir"];
+
+/// Is this command line a serving `theseusd` (theseus-6uo)? Its program's file
+/// name is `theseusd`, and no subcommand follows: the socket daemon or
+/// `--stdio`, not a job wrapper, `check`, or `config`. Any daemon's descendant
+/// is refused an answer, as a job's is, since no process that answers an
+/// approval runs under one.
+pub fn daemon_in_cmdline(cmdline: &[u8]) -> bool {
+    let mut args = cmdline.split(|&b| b == 0);
+    let Some(first) = args.next() else {
+        return false;
+    };
+    let name = first.rsplit(|&b| b == b'/').next().unwrap_or(first);
+    if name != b"theseusd" {
+        return false;
+    }
+    while let Some(a) = args.next() {
+        if a.is_empty() {
+            continue;
+        }
+        if DAEMON_VALUE_FLAGS.iter().any(|f| f.as_bytes() == a) {
+            args.next();
+        } else if !a.starts_with(b"-") {
+            return false;
+        }
+    }
+    true
+}
+
+/// `daemon_in_cmdline` for a live process.
+pub fn serving_daemon(pid: u32) -> bool {
+    std::fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|c| daemon_in_cmdline(&c))
+}
+
 /// Best-effort poke: one line on a Unix stream socket. Failure is fine; the
 /// spool is the truth and the reconciler will find it.
 #[cfg(unix)]
@@ -514,6 +552,44 @@ mod tests {
         ] {
             assert_eq!(job_in_cmdline(&other), None, "{other:?}");
         }
+    }
+
+    /// A serving daemon is known by its command line (theseus-6uo): `theseusd`
+    /// with options only, the socket daemon or `--stdio`. A wrapper, a
+    /// subcommand, and another program are not, and an option's value is not
+    /// taken for a subcommand.
+    #[test]
+    fn a_serving_daemon_is_known_by_its_command_line() {
+        for serving in [
+            &["theseusd"][..],
+            &[
+                "/home/x/.local/bin/theseusd",
+                "--config",
+                "check",
+                "--socket",
+                "/s",
+            ],
+            &["theseusd", "--stdio", "--state-dir", "/tmp/x"],
+            &[
+                "target/debug/theseusd",
+                "--config=/c.toml",
+                "--op-token-file",
+                "config",
+            ],
+        ] {
+            assert!(daemon_in_cmdline(&cmdline(serving)), "{serving:?}");
+        }
+        for other in [
+            &["theseusd", WRAPPER_MODE, "--spool", "/s", "--", "sh"][..],
+            &["theseusd", "--config", "/c.toml", "check"],
+            &["theseusd", "config"],
+            &["theseus", "--socket", "/s", "confirm"],
+            &["theseusd-old"],
+            &["sh", "-c", "theseusd"],
+        ] {
+            assert!(!daemon_in_cmdline(&cmdline(other)), "{other:?}");
+        }
+        assert!(!daemon_in_cmdline(&[]));
     }
 
     /// A zombie is not alive: it has exited, and waits only to be reaped.

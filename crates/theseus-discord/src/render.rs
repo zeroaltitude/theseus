@@ -966,12 +966,21 @@ pub fn job_refusal(p: &Value) -> String {
         a.get("job").and_then(Value::as_str),
         a.get("pid").and_then(Value::as_u64),
         a.get("under_daemon").and_then(Value::as_u64),
+        a.get("under_other_daemon").and_then(Value::as_u64),
     ) {
-        (Some(job), Some(pid), _) => format!("`{}` (pid {pid}), a process of job `{job}`", argv0()),
+        (Some(job), Some(pid), ..) => {
+            format!("`{}` (pid {pid}), a process of job `{job}`", argv0())
+        }
         // A job's orphan, whose wrapper died (theseus-z4b).
-        (None, Some(pid), Some(daemon)) => format!(
+        (None, Some(pid), Some(daemon), _) => format!(
             "`{}` (pid {pid}), a process under theseusd itself (pid {daemon}), which is a job's \
              orphan",
+            argv0()
+        ),
+        // Under another serving daemon, a scratch one or `--stdio` (theseus-6uo).
+        (None, Some(pid), None, Some(daemon)) => format!(
+            "`{}` (pid {pid}), a process under another serving theseusd (pid {daemon}), which \
+             counts as that daemon's job",
             argv0()
         ),
         _ => format!(
@@ -1116,6 +1125,19 @@ mod tests {
             "🚨 Refused: `theseus` (pid 4343), a process under theseusd itself (pid 4000), which \
              is a job's orphan, tried to answer the approval of `fs.write` through cli. A job \
              cannot answer an approval. It keeps waiting for your answer."
+        );
+        // Under another serving daemon (theseus-6uo).
+        let other = n(
+            "action.confirm",
+            "fs.write",
+            &json!({"pid": 4343, "argv0": "theseus", "under_other_daemon": 5000}),
+        );
+        assert!(
+            other.starts_with(
+                "🚨 Refused: `theseus` (pid 4343), a process under another serving theseusd \
+                 (pid 5000), which counts as that daemon's job, tried to answer"
+            ),
+            "{other}"
         );
     }
     use serde_json::json;

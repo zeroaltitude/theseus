@@ -586,6 +586,34 @@ fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
         "the orphan was reparented to theseusd, not to init"
     );
     assert!(!alive(wrapper), "the job killed its wrapper");
+    // A security event (theseus-6uo): the wrapper died by a signal before it
+    // reported, and no cancel killed it. It is ledgered, and the job's action
+    // is unknown at once, long before its deadline.
+    let lost = r.wait("the lost wrapper's row", || {
+        Some(r.ledger("job.wrapper_lost")).filter(|l| !l.is_empty())
+    });
+    let exec = res["execution_id"].as_str().unwrap();
+    let actions = r
+        .call("action.list", json!({"execution_id": exec}))
+        .unwrap();
+    let job = actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["tool"] == "proc.run")
+        .unwrap()
+        .clone();
+    assert_eq!(lost.len(), 1, "{lost:?}");
+    assert_eq!(
+        (
+            &lost[0]["correlation_id"],
+            &lost[0]["pid"],
+            &lost[0]["signal"]
+        ),
+        (&job["correlation_id"], &json!(wrapper), &json!(9)),
+        "{lost:?}"
+    );
+    assert_eq!(job["state"], "outcome_unknown", "{job}");
     let refused = r.ledger("approval.refused");
     assert_eq!(refused.len(), 1, "{refused:?}");
     let row = &refused[0];
@@ -851,4 +879,81 @@ wait
         took < Duration::from_millis(1500),
         "a verified kill is quick: {took:?}"
     );
+    // A cancel's own kill is expected: once the daemon has reaped the wrapper,
+    // there is no `job.wrapper_lost` (theseus-6uo).
+    let mut r = r;
+    r.until("the killed wrapper reaped", |h| {
+        h["children"]["reaped_wrappers"].as_u64() >= Some(1)
+    });
+    assert!(r.ledger("job.wrapper_lost").is_empty());
+}
+
+/// Another daemon's orphan cannot answer this one (theseus-6uo). A job of
+/// daemon A kills its own wrapper, and its double-forked grandchild, adopted
+/// by A, runs `theseus confirm --approve` for the call that daemon B waits
+/// on. B refuses it: the process is under another serving theseusd. Before,
+/// only B's own descendants were refused, and this answer counted.
+#[test]
+fn an_orphan_of_another_daemon_cannot_answer_this_one() {
+    let b = Rig::start(false);
+    b.asks(
+        "write a file",
+        vec![(
+            "fs_write",
+            json!({"path": "written.txt", "content": "approved\n"}),
+        )],
+    );
+    let res = b.turn("write a file");
+    let corr = res["awaiting_confirm"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the write waits: {res}\n{}", b.log()))
+        .to_string();
+    let a = Rig::start(false);
+    let daemon_a = a.daemon.id();
+    let script = format!(
+        "T=\"$1\"; O=\"$3\"; BS=\"$4\"; id=\"$5\"\n\
+         setsid sh -c '\n\
+         T=\"$1\"; S=\"$2\"; O=\"$3\"; id=\"$4\"; main=\"$5\"; w=\"$6\"\n\
+         echo $$ > \"$O/orphan.pid\"\n\
+         while [ -d \"$O\" ]; do\n\
+         \x20 p=$(cut -d\" \" -f4 /proc/$$/stat)\n\
+         \x20 [ \"$p\" != \"$main\" ] && [ \"$p\" != \"$w\" ] && break\n\
+         \x20 sleep 0.02\n\
+         done\n\
+         echo \"$p\" > \"$O/orphan.ppid\"\n\
+         {}\
+         ' orphan \"$T\" \"$BS\" \"$O\" \"$id\" \"$$\" \"$PPID\" > /dev/null 2>&1 < /dev/null &\n\
+         kill -9 \"$PPID\"\n",
+        approve_into("orphan"),
+    );
+    let b_sock = b.path("projects/sock").display().to_string();
+    a.asks(
+        "answer the other daemon",
+        vec![a.job(&script, &[&b_sock, &corr])],
+    );
+    a.turn("answer the other daemon");
+    let said = a.read_done("orphan");
+    let orphan = a.pid("orphan.pid");
+    a.owns(orphan);
+    assert_eq!(a.pid("orphan.ppid"), daemon_a, "A adopted the orphan");
+    assert!(
+        said.contains("does not count: from a process under another serving theseusd (pid ")
+            && said.contains(&format!(
+                "; the daemon is pid {daemon_a}), which counts as that daemon's job"
+            )),
+        "the orphan's answer: {said}"
+    );
+    assert!(said.trim_end().ends_with("exit=1"), "{said}");
+    let refused = b.ledger("approval.refused");
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert_eq!(
+        (
+            &refused[0]["correlation_id"],
+            &refused[0]["asker"]["under_other_daemon"]
+        ),
+        (&json!(corr), &json!(daemon_a))
+    );
+    let confirms = b.call("confirm.list", Value::Null).unwrap();
+    assert_eq!(confirms["confirms"][0]["correlation_id"], corr.as_str());
+    assert!(!b.path("projects/written.txt").exists());
 }

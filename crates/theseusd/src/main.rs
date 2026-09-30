@@ -155,7 +155,7 @@ fn main() -> Result<()> {
         return theseus_kernel::job::run_wrapper_process(&wa);
     }
     keep_name();
-    if cli.cmd.is_none() && !cli.stdio {
+    if cli.cmd.is_none() {
         adopt_children();
     }
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -344,7 +344,10 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     let bindings_path = cfg.discord.bindings_path(&state_dir);
     // Records `providers`, `kernel`, and `core`, one after another.
     let core = match Core::new(cfg, secrets, store, startup.clone(), gate) {
-        Ok(core) => core,
+        Ok(core) => {
+            let _ = CORE.set(core.clone());
+            core
+        }
         // A store with unit budgets is migrated only under the vault's own
         // config: this start becomes one that reads the vault first.
         Err(e) if unconfirmed_config(&e) => {
@@ -470,10 +473,12 @@ fn exec_self(var: &str, value: &str) -> Result<()> {
     Err(anyhow::Error::new(err).context("restarting: exec of /proc/self/exe failed"))
 }
 
-/// The socket daemon adopts a job's orphans (theseus-z4b): as a child
+/// A serving daemon adopts a job's orphans (theseus-z4b): as a child
 /// subreaper, it is where a job's descendant goes when the job kills its own
 /// wrapper, instead of init, and no descendant of it may answer an approval.
-/// Set before any thread starts. After an exec restart, which keeps the pid
+/// The socket daemon and `--stdio` alike (theseus-6uo): a `--stdio` daemon's
+/// orphan that went to init could answer another daemon. Set before any
+/// thread starts. After an exec restart, which keeps the pid
 /// and so every child, the flag is set again and the children are learned
 /// again: a live child whose command line is a wrapper's is that job's
 /// wrapper, and any other is an orphan.
@@ -496,13 +501,21 @@ fn adopt_children() {
 /// How often the reaper sweeps without a SIGCHLD.
 const SWEEP_EVERY: Duration = Duration::from_secs(10);
 
+/// The core, once built: the reaper hands it each wrapper that a signal
+/// ended, to learn whether the wrapper had reported (theseus-6uo).
+static CORE: std::sync::OnceLock<Arc<Core>> = std::sync::OnceLock::new();
+
 /// Reap what this daemon holds (theseus-z4b): each job wrapper, and each
 /// orphan it adopted, once it exits. Woken by SIGCHLD, which every child's
 /// exit sends to its parent, and every `SWEEP_EVERY` besides. A sweep waits
 /// only for pids it names, never for tokio's `op` processes, which tokio
 /// waits for (`children`). tokio gives each listener of a signal its own
-/// wake, so this one takes nothing from tokio's.
+/// wake, so this one takes nothing from tokio's. A wrapper that a signal
+/// ended goes to the core, which says whether it was lost (theseus-6uo); one
+/// reaped before the core is built waits for it.
 async fn reap_children() {
+    use std::os::unix::process::ExitStatusExt;
+    let mut signalled: Vec<(u32, String, i32)> = Vec::new();
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigchld = match signal(SignalKind::child()) {
         Ok(s) => Some(s),
@@ -517,12 +530,20 @@ async fn reap_children() {
             Ok(swept) => {
                 for (pid, job, status) in &swept.wrappers {
                     tracing::debug!(pid, job = %job, status = %status, "reaped a job wrapper");
+                    if let Some(sig) = status.signal() {
+                        signalled.push((*pid, job.clone(), sig));
+                    }
                 }
                 for (pid, status) in &swept.orphans {
                     tracing::info!(pid, status = %status, "reaped an orphan a job left");
                 }
             }
             Err(e) => tracing::warn!(error = %e, "the reaper's sweep failed"),
+        }
+        if let Some(core) = CORE.get() {
+            for (pid, job, sig) in signalled.drain(..) {
+                core.wrapper_signalled(pid, &job, sig);
+            }
         }
         tokio::select! {
             _ = async {
@@ -867,5 +888,27 @@ mod tests {
         let env = Cli::try_parse_from(["theseusd"]).unwrap();
         std::env::remove_var("THESEUS_OP_TOKEN_FILE");
         assert_eq!(env.op_token_file.as_deref(), Some("/x/env"));
+    }
+
+    /// The core knows a serving daemon by its command line (theseus-6uo), so
+    /// it must know which of the daemon's options take a value: exactly
+    /// these, with no positional argument but the subcommands.
+    #[test]
+    fn a_serving_daemons_value_options_are_the_ones_the_core_skips() {
+        use clap::CommandFactory;
+        let cmd = Cli::command();
+        let mut takes: Vec<String> = cmd
+            .get_arguments()
+            .filter(|a| a.get_action().takes_values())
+            .filter_map(|a| a.get_long().map(|l| format!("--{l}")))
+            .collect();
+        takes.sort();
+        let mut known: Vec<String> = theseus_kernel::job::DAEMON_VALUE_FLAGS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        known.sort();
+        assert_eq!(takes, known);
+        assert_eq!(cmd.get_positionals().count(), 0);
     }
 }

@@ -21,6 +21,14 @@ impl Daemon {
         self.0.id()
     }
 
+    /// Its protocol pipes, for a `--stdio` daemon spawned with both piped.
+    pub fn stdio(&mut self) -> (std::process::ChildStdin, std::process::ChildStdout) {
+        (
+            self.0.stdin.take().expect("a piped stdin"),
+            self.0.stdout.take().expect("a piped stdout"),
+        )
+    }
+
     /// The exit status, once it has exited (and is reaped).
     pub fn try_wait(&mut self) -> Option<ExitStatus> {
         self.0.try_wait().expect("waiting on theseusd")

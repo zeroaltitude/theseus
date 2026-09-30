@@ -3,7 +3,8 @@
 //! - 200 short jobs leave no zombie child behind. Before, each job left one
 //!   until the daemon exited;
 //! - an `op` run that lasts through a burst of jobs still gets its own exit
-//!   status: the reaper never takes a child that tokio waits for.
+//!   status: the reaper never takes a child that tokio waits for;
+//! - a `--stdio` daemon is a child subreaper too (theseus-6uo).
 
 mod common;
 
@@ -404,4 +405,64 @@ fn an_op_run_through_a_burst_of_jobs_keeps_its_exit_status() {
     });
     assert_eq!(h["children"]["owned"], 0, "{}", h["children"]);
     assert!(zombie_children(r.daemon.id()).is_empty());
+}
+
+/// A `--stdio` daemon is a child subreaper too (theseus-6uo), as the socket
+/// daemon is: a job that kills its own wrapper leaves its processes under it,
+/// where the rule that refuses any serving daemon's descendants finds them,
+/// not to init, where it would not.
+#[test]
+fn a_stdio_daemon_is_a_subreaper_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |p: &str| dir.path().join(p);
+    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
+    std::fs::create_dir_all(path("bin")).unwrap();
+    std::fs::create_dir_all(path("projects")).unwrap();
+    std::fs::write(path("bin/op"), quick_op(dir.path())).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path("bin/op"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        path("config.toml"),
+        common::safe_note(&theseusd, &path("projects"), 100.0),
+    )
+    .unwrap();
+    let log = std::fs::File::create(path("theseusd.log")).unwrap();
+    let mut daemon = Daemon::spawn(
+        std::process::Command::new(&theseusd)
+            .arg("--config")
+            .arg(path("config.toml"))
+            .arg("--state-dir")
+            .arg(path("state"))
+            .arg("--stdio")
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    path("bin").display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
+            .env_remove("THESEUS_OP_TOKEN_FILE")
+            .env_remove("THESEUS_CONFIG")
+            .env_remove("THESEUS_STATE_DIR")
+            .env_remove("THESEUS_SOCKET")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(log),
+    );
+    let (mut stdin, stdout) = daemon.stdio();
+    writeln!(stdin, r#"{{"jsonrpc":"2.0","id":1,"method":"health"}}"#).unwrap();
+    let health = BufReader::new(stdout)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|l| serde_json::from_str::<Value>(&l).ok())
+        .find(|v| v["id"] == 1)
+        .unwrap_or_else(|| {
+            panic!(
+                "no answer on stdio:\n{}",
+                std::fs::read_to_string(path("theseusd.log")).unwrap_or_default()
+            )
+        });
+    assert_eq!(health["result"]["children"]["subreaper"], true, "{health}");
 }
