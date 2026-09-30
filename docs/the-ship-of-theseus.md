@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.52
+# The Ship of Theseus — v0.53
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -460,7 +460,7 @@ Budgets are a first-class notion: a `Budget` is a named ceiling with a unit (mon
 
 **As built: dollars, a limit, and a reset** (Eddie, 2026-09-29, 00:09; theseus-0sg, cb824c7, fdf4813, d6183d1). In Eddie's words: "Right -- dollars is good. Let's record all model costs in the config. Let's set the spend limit in the config to 100$. Let's make it so when you hit the limit, the gateway asks the trusted operator whether the current cost can be reset to 0 to continue". The general design above stands: reservations before each call, and unknown consumption held until reconciled. What is built:
 - **Money, in micro-dollars.** An execution's budget is its limit, its spend, its reservations, and its held-unknown amounts, all in micro-dollars priced from the catalog. The arithmetic is integer, with one rounding up per call. Token counts stay in usage, the ledger, and telemetry.
-- **The limit** is `[kernel] spend_limit_usd`, $100 by default, per session.
+- **The limit** is `[kernel] spend_limit_usd`, $100 by default, per session. An open session follows it when it changes (below).
 - **The reservation.** A provider call reserves its output cap at the output price plus its input estimate at the input price. It settles at the real cost: input, output, cache reads, and cache writes, each at its own price.
 - **At the limit, Theseus asks.** A reservation that does not fit writes nothing. The turn asks the operator, "This session has spent $X of its $100 limit. Reset its spend to $0 and continue?", and the session waits, the way a call waits for approval. The question goes to the session's Discord place (only its listed users can answer), the web UI, and `theseus confirm`. When trusted-channel approval lands (§3.9, Approval), the question follows its rules like any approval.
   - An approved reset sets the spend to $0, and the waiting call goes ahead. Reservations and held amounts stay. The reset is ledgered as `budget.reset`, with who approved it, the spend before, and the limit.
@@ -469,6 +469,12 @@ Budgets are a first-class notion: a `Budget` is a named ceiling with a unit (mon
   - A reset is the only way spend goes down, and an execution has one open question at a time.
 - **No control reserve.** Nothing at the limit ends work or refuses a cancel, so nothing needs holding back for cleanup.
 - **Unit budgets are retired.** `[kernel] default_budget` and `control_reserve` still load, are ignored, and warn. A versioned reader serves executions stored with unit budgets: each gets the configured limit, its spend comes from its session's recorded `cost_usd`, and the unit figures are kept as `units_before`. Startup rewrites each one once, with a `budget.migrated` row. An execution that already ended `budget_exhausted` stays ended.
+- **An open session follows the config's limit** (Eddie, 2026-09-29, 09:21; theseus-3pj, 430d291). A session's limit is what `[kernel] spend_limit_usd` says now, not what it said when the session opened. Since a changed config note restarts the daemon onto it (§3.19), "I changed the limit and restarted" means what it says, for the long-lived Discord place too.
+  - *When.* Once, at the moment the config becomes the vault's word. For a config that may act at once (a file, or a vault read before serving), that is in startup. For a start served from the copy, it is on the vault's confirmation, before anything may act. So nothing acts on an old limit once the vault has confirmed a new one, and startup under a copy writes no limit the copy decided.
+  - *What.* Each open execution whose limit is the config's takes the new limit, all in one frame, with a `budget.limit_changed` row (from, to, the spend, and what is left). Spend, reservations, held amounts, and resets are untouched. So spend still goes down only through an approved reset, and the lifetime cost never goes down.
+  - *A raise* lets a session waiting at its old limit go on. Its question is withdrawn, with the reason ("withdrawn: the spend limit was raised from $A to $B"). It becomes the result the next turn consumes, as an approved reset's does, and the driver makes the waiting call. If the raise is still not enough, that call asks again, with the new figures. A session whose question was declined goes on too.
+  - *A lower limit* changes nothing else. The next reservation that does not fit is refused, and the turn asks, as usual.
+  - *What keeps its limit:* an ended execution, and an execution opened with a limit of its own (`pinned`). DD7's carved task budgets will be the first of those.
 - **A model with no price is not called.** A model priced neither in the config nor in the built-in table is refused, with the class `unpriced` (Part III A4).
 
 **Prices live in the config** (cb824c7). The template lists every built-in model as a `[catalog."<id>"]` table with its four prices per million tokens (input, output, cache read, cache write), one table per model. The text is generated from the built-in table, and a test fails if the template and the built-in table ever disagree. A table over a built-in model names only what it changes, and a model the built-in table lacks must name every figure a call uses. At startup, one warning names every built-in model that has no table in the config; such a model is priced from the built-in table.
@@ -875,15 +881,21 @@ The **indexer** turns "everything is eligible" into a few hundred candidates: ex
 
 Graph selection yields node ids; the **compiler** turns them into a valid provider request. Its contract: preserve tool-call/tool-result pairing (never emit one without the other), preserve message ordering within a channel, honour model-specific constraints (thinking blocks tied to the model that produced them; no forced tool use on models that reject it), truncate only at message boundaries (the ring never cuts inside a message or a tool pair), and emit a **manifest** that records node ids, compiler version, renderer version, binding revision, model, and pack versions, so a turn can be reproduced faithfully from the ledger. The compiler takes the **session** (§3.2a) as its first input: the session's roots decide where traversal starts, so a task session compiles from its `Task` node outward (evidence, subtasks, the originating conversation as a secondary root, recalled memory) while a conversation session compiles from the channel's temporal view; both then pass through the same budgeter, labels, and manifest. The compiler is deterministic and unit-tested in the simulator against every strategy in §4.2. **Reproducibility** requires more than node ids because projections mutate: the manifest records an **as-of WAL position**, tool-schema versions, role versions (and hook versions, until the hook system was deleted on 2026-09-28), pack versions, binding revision, model, and every prompt-affecting transformation, plus a **canonical request digest** so a reconstruction can be verified byte-for-byte. Judgment records likewise store the bounded state itself (or enough versioned references to rebuild it), not only its hash and size.
 
-**Context files** (2026-09-29; theseus-58a, 76e7d35, a29e9f7). A profile names files that the compiler puts into the system block: `context_files`, a list of `~/` or absolute paths. `[model].context_files` is the default for a profile that names none, and `[]` names none.
-- **Placement.** Each file follows the persona, the tools note, and the profile's `system`, in list order, under a header that names it (`# Context file: <path>`).
+**Context files** (2026-09-29; theseus-58a, 76e7d35, a29e9f7; two levels since theseus-c48, 68cb127). The config names files that the compiler puts into the system block, in two levels. In Eddie's words: "Context files by persona with a system/default level", and "the Jev will classify which persona is in play, based on a dynamic, growing ontology of personas. Pre-jev, it will always pick the system/default persona."
+- **The system level,** `[context] files`: the files every session gets.
+- **A persona's files,** `[personas.<name>] files`: added after the system level's while that persona is in play.
+- **Which persona.** `[context] default_persona` is the only choice until Jev chooses one from the ontology (§4.1a; theseus-8kk, theseus-0j2).
+  - An unknown name is refused at load, and the error names the known ones.
+  - With none set, the system level alone is used, and personas defined without a default warn once at load.
+- **Placement.** The system block is the built-in persona, the tools note, and the profile's `system`, then the system level's files, then the persona's. Each file is in list order, under a header that names it and its level: `# Context file (system): <path>` or `# Context file (persona theseus): <path>`.
 - **No gate.** The compiler reads the files itself, not through a tool, so no posture or approval applies.
-- **Digest.** Their text is part of the system block, so the system digest covers it. An edit is one `system_changed` recompile, and an unchanged file appends.
+- **Digest.** Their text is part of the system block, so the system digest covers it. An edit to a file at either level is one `system_changed` recompile, and an unchanged file appends.
 - **Timing.** A turn's system block is fixed for all its loops. A file edited during a turn takes effect at the next turn, never between a tool call and its result.
-- **FAST.** Nothing is read at startup. A turn stats each file and rereads it only when its size, mtime, or inode changed, or when it had changed less than two seconds before it was last read.
-- **Failure.** A missing or unreadable file never stops a turn: the block says it is missing, and the daemon warns once per file per run (a log line and a `context.file_missing` row).
+- **FAST.** Nothing is read at startup. A turn stats each file and rereads it only when its size, mtime, or inode changed, or when it had changed less than two seconds before it was last read. A file named at both levels is read once.
+- **Failure.** A missing or unreadable file never stops a turn. The block says it is missing, and the daemon warns once per file per run (a log line and a `context.file_missing` row).
 - **Cap.** A file over 64 KB is cut at a character boundary and marked as cut.
-- **Records.** The manifest and every `context.compiled` row record each file's path, the digest of the text included, its bytes, and whether it was cut or missing.
+- **Records.** The manifest and every `context.compiled` row record each file's path, the digest of the text included, its bytes, whether it was cut or missing, and its persona (absent at the system level). The row names the persona in play. Health, `theseus health`, and the Observatory show the persona in play and each level's files.
+- _(Amended 2026-09-29, theseus-c48: until then a profile carried `context_files`, defaulting to `[model].context_files`; both are gone.)_
 
 **Attachments and images** (2026-09-29; theseus-9g2, 7bcfd9a, 48fd2c8). A user message carries the files that
 came with it, and a tool result may carry an image.
@@ -960,7 +972,7 @@ Session {
 
 ### 4.5 Prompt caching layout
 
-Most stable first: persona and role hints; tool schemas; frozen transcript prefix from root to the last compaction; cache breakpoint; dynamic assembly; recent tail and new message. Compaction roots keep the prefix small and stable by construction. `continue.v1` receives cache state so it can prefer appending on hot conversations, and a recompile is scheduled at a natural boundary (after a tool loop closes, not mid-loop) whenever the trigger allows deferral.
+Most stable first: persona and role hints; tool schemas; frozen transcript prefix from root to the last compaction; cache breakpoint; dynamic assembly; recent tail and new message. Compaction roots keep the prefix small and stable by construction. `continue.v1` receives cache state so it can prefer appending on hot conversations, and a recompile is scheduled at a natural boundary (after a tool loop closes, not mid-loop) whenever the trigger allows deferral. The system block leads the prefix: the built-in persona, the tools note, the profile's `system`, the system level's context files, then the persona's (§4.4). A persona that Jev switches, or an edited file, changes the block, and so the whole prefix is written to the cache again. Until the files get a breakpoint of their own (theseus-ev1), putting the system level first keeps the block's longest stable run at its front.
 
 **One header across sessions** (Eddie, 2026-09-26; theseus-ev1). The header is kept as static as possible and reused across sessions and the parts of sessions (derived tasks), so one provider cache entry serves many of them instead of each session warming its own. This is the **provider-safe caching** work, scheduled after M3; M3 built only a breakpoint on the system block plus automatic caching of each session's growing prefix (Part III A3). It respects each provider's rules (a header shorter than the model's `cache_min_tokens` in the catalog never caches) and never rewrites earlier history to win hits, since that breaks preserved thinking signatures. It lands together with money budgets (theseus-0sg): under a token budget a cache read counts as much as fresh input, so better caching would lower the bill without stretching the budget. _(Money budgets landed first, on 2026-09-29, after Eddie's DM hit its unit limit; a cache read now counts at its own price, §3.13. The caching work stays scheduled.)_
 
@@ -3439,3 +3451,82 @@ Theseus silently missed every long paste.
 **Open, held for Eddie.**
 - Whether PDFs should be read (as text, or as document blocks).
 - Whether the "no vision" line should instead route the turn to a vision profile.
+
+### Items 1 and 2, follow-ups: the limit follows the config, and context files by persona (theseus-3pj, theseus-c48; 2026-09-29, 22:10–22:53; 430d291, 68cb127)
+
+**Why.** Eddie accepted both on 2026-09-29 at 09:21, and the second again at 09:39.
+- A dollar-era execution kept the limit it opened with, so a changed `spend_limit_usd` reached only new
+  sessions, and never the long-lived Discord place. Since F1b, a changed note restarts the daemon onto it,
+  so "I changed the limit and restarted" had to mean what it says.
+- Item 2's `context_files` hung on profiles. Eddie wants a system level that every session gets, plus a
+  persona's files, with the persona chosen by default until Jev chooses one from an ontology.
+
+**What exists.**
+- **The limit follows the config** (§3.13).
+  - `Kernel::follow_spend_limit`, with the same rule in startup's step 2 for a config that may act at
+    once. The core calls it on the vault's word, before the gate opens.
+  - One frame, with a `budget.limit_changed` row for each execution.
+  - A raise withdraws the waiting question and queues it as the next turn's result, and the continuation
+    treats that as "the waiting call proceeds". A lower limit asks at the next reservation.
+  - `Budget.pinned` marks a limit the opener named. It is absent from every record the product writes.
+  - A narrative line per session, `confirm.resolved` (withdrawn) to the session's clients, and an
+    Observatory summary of the row.
+- **Context files in two levels** (§4.4).
+  - `[context] files`, `[personas.<name>] files`, and `[context] default_persona`.
+  - `[model] context_files` and the profile field are removed. Eddie's note used neither, checked by key
+    name.
+  - The headers name the level, and the manifest and the row record each file's persona.
+  - Health's `context`, a `theseus health` line, and an Observatory line with a level column.
+  - The template documents `[context]`, and a commented `[personas.theseus]`.
+
+**How it is proven.** 369 tests in the gate, against 356 before:
+- a raise across a restart lets a waiting session continue;
+- a lowered limit makes the next turn ask;
+- under an unconfirmed copy, startup writes no limit;
+- a declined wait proceeds on a raise, and a pinned or ended execution keeps its limit;
+- end to end, a limit raised in the vault: the old copy, the restart onto the changed note, and the vault's
+  word, after which the waiting call runs, with the row before `config.confirmed`;
+- system then persona files, each labeled; a persona with no files; an edited persona file recompiling
+  once; an unknown `default_persona` refused, naming the known ones; and the template.
+
+`kernel-sim` holds its budget invariants with limits that change across restarts, a third of the starts
+served from an unconfirmed copy. Over 40 seeds × 300 steps: 497 changes, 327 rewrites, and 15 waits let
+proceed. Four throwaway breaks were each caught, by the kernel tests and by the simulator.
+
+Live, over a copy of Eddie's store and his real note through a shim `op`:
+- a GLM turn's manifest listed the scratch system file, then the persona draft;
+- a lower limit made the session's next turn ask;
+- a raise restarted the daemon onto the note, and the session went on without a reset.
+
+**Reviewed** (Tabitha, 2026-09-29, 23:18 to 23:25).
+- The gate rerun passed: 369 tests, and all four bench phases within budget.
+- On the release build, over a fresh copy of Eddie's store, with a file config:
+  - Health said `context: 1 file at the system level · persona theseus (1 file)`.
+  - A GLM turn's compilation listed the system file, then the persona draft, with the report's digests
+    (`3ede0c7e…`, `7e3c050e…`). The answer knew Eddie from the persona draft. It did not end with the
+    system file's "Ithaca" this time, which is the model's instruction-following: the file was in the
+    block.
+  - A limit lowered from $1 to $0.50 across a restart gave five `budget.limit_changed` rows, $1.0 → $0.5,
+    for the open executions.
+- Installed at 23:24.
+- **Taken at review:**
+  - The stale Discord question after a raise (a card whose buttons outlive its withdrawn question) goes
+    into DD6's outbox brief: on reconnect, edit the cards of questions that closed while the binding was
+    away.
+  - Personas without a default stay a warning.
+  - A carved task budget stays `pinned` (DD7).
+
+**Divergence from the brief and the issues.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The brief: rewrite the limits once, after the vault confirms the config at startup | Also in startup's step 2, for a config that may act at once | A file, or a vault read before serving, has no confirmation; step 2 already reads every execution | Keep |
+| "Make an open execution's limit the config's" | Unless the opener named its own (`pinned`) | The kernel tests and the simulator open executions with limits of their own, and DD7's carved budgets will | Keep |
+| A raise wakes a session parked at its limit | Also one whose question was declined; and a raise still too small withdraws the question, and the call asks again in the new figures | A declined wait is still parked on its budget; a stale question would show the old limit | Keep |
+| The 58a header `# Context file: <path>` | `# Context file (system): <path>` and `# Context file (persona <name>): <path>` | Each file labeled by its level | Keep |
+
+**Known gaps.**
+- A Discord question posted before a restart keeps its buttons after a raise withdraws it (to DD6).
+- A lower limit makes theseus-kks likelier: a limit below one call's reservation asks again after every reset.
+- A persona switch by Jev will rewrite the whole cached prefix, until the files get their own breakpoint
+  (theseus-ev1).
