@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.59
+# The Ship of Theseus — v0.60
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -161,7 +161,7 @@ The word *session* is used deliberately and narrowly. A **session is a compiler 
 
 **Promotion requires an arrangement** (Eddie, 2026-09-27; openrig's mission install, Appendix F). The requesting conversation's agent holds the discussion, so it writes an `Arrangement` node. The node names the pieces the task needs (objective, acceptance criteria, design nodes, all by id), what to trust, and what supersedes what. The task's first compilation admits the pieces by reference, never paraphrased, so a later correction still reaches them. The arrangement comes right after the objective, rendered as testimony with its origin and as-of. Promotion is refused without an arrangement, and the refusal gives the reason. No arrangement is ever generated at install time, because a generated summary is a second source that drifts. If a one-line objective is drawn from a long discussion, promotion flags it and asks for the design to be attached.
 
-_(As built 2026-09-30, theseus-qn2 (DD7), a first form of promotion. `task.create { brief, budget_usd? }` opens a task session whose first node is the brief, and returns at once. The child inherits the parent's authority, persona, context files, postures, and model. Its approvals go where the parent's go, and its notices name it. Its budget is carved from the parent's: `budget_usd`, or a quarter of what the parent has left, capped at all of it, as a reservation in the parent, with the child's spend counted in the parent's. Depth is one: a task cannot start tasks. A task is done when its turn would wait on input, and its last message is its report. The report goes once to the place through the outbox (§3.16), and once into the parent's session as a node at the parent's next turn. By default nothing starts a parent turn. A task opened with `wake_parent: true` starts that turn when it finishes or fails (theseus-lji, W1): the frame that ends it queues the parent, as a due wake does (§3.15), and the turn runs in the parent's session, under its authority and budget, with the report as its input and `📋 task a1b2c3 reported` above its reply. A busy parent runs it when it is free, reports that land together start one turn, and a cancelled task wakes nothing, since whoever cancelled it is there. The option is for a chain, where the parent reviews each result and starts the next. `task.list` and `task.cancel`, `theseus tasks` and `theseus cancel`, and Discord's `/tasks` and `/cancel <id>` see and stop tasks, and `/stop` does not stop them, and the web UI shows each session's tasks as a tree. The arrangement, `autonomous: true`, sub-tasks, and §3.5's task graph are not built: the requesting model writes the brief. Part III A4, item 7.)_
+_(As built 2026-09-30, theseus-qn2 (DD7), a first form of promotion. `task.create { brief, budget_usd? }` opens a task session whose first node is the brief, and returns at once. The child inherits the parent's authority, persona, context files, postures, and model, and, when the parent has read external text, its hold (§3.9, theseus-9bp). Its approvals go where the parent's go, and its notices name it. Its budget is carved from the parent's: `budget_usd`, or a quarter of what the parent has left, capped at all of it, as a reservation in the parent, with the child's spend counted in the parent's. Depth is one: a task cannot start tasks. A task is done when its turn would wait on input, and its last message is its report. The report goes once to the place through the outbox (§3.16), and once into the parent's session as a node at the parent's next turn. By default nothing starts a parent turn. A task opened with `wake_parent: true` starts that turn when it finishes or fails (theseus-lji, W1): the frame that ends it queues the parent, as a due wake does (§3.15), and the turn runs in the parent's session, under its authority and budget, with the report as its input and `📋 task a1b2c3 reported` above its reply. A busy parent runs it when it is free, reports that land together start one turn, and a cancelled task wakes nothing, since whoever cancelled it is there. The option is for a chain, where the parent reviews each result and starts the next. `task.list` and `task.cancel`, `theseus tasks` and `theseus cancel`, and Discord's `/tasks` and `/cancel <id>` see and stop tasks, and `/stop` does not stop them, and the web UI shows each session's tasks as a tree. The arrangement, `autonomous: true`, sub-tasks, and §3.5's task graph are not built: the requesting model writes the brief. Part III A4, item 7.)_
 
 **How they stay connected.** Only through the graph, never through shared in-memory state:
 
@@ -359,20 +359,36 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
 
 The call's tool line and its notice say what it was given ("gh got GH_TOKEN"). A spawn gives no secret whose posture is stricter than the one the call ran at.
 
+**External text** (theseus-9bp; built 2026-09-30). This is the interim, deterministic floor for web text, until provenance labels ("Exposure", below) and Jev (M5) arrive, and it stays the floor after them.
+- **When a session holds it.** A session reads external text when a result node marked `external` enters its context: `http.fetch` and `web.search` today, and MCP results and untrusted attachments when they come. The first such read since the operator last trusted the session is its **hold**, kept on the session's record, with a `session.external_read` row (the node, the tool, the URL). Both are written in the frame that writes the node, so no crash leaves the text in the context without the hold. A later read writes nothing.
+- **From another session.** A task that a holding session starts holds the text from its brief, which that session's model wrote. A session that reads a report from a holding task holds it too, from the frame that writes the report.
+- **What waits.** After the order above and a granted secret's posture, every call whose class is not `read` waits for approval: writes, edits, patches, `proc.run`, `task.create`, and `wake.at`, including the allow list's calls. The stricter posture wins, as a tightening's does. A `read` call keeps its posture, fetches and searches included, so research goes on. A call in the same response as the fetch keeps its posture too, since the model wrote it before it saw the page.
+- A wake's turn, and a turn that a task's report started, are the session's own turns, so the hold covers them.
+- **The confirm says why**: "this session read external text (http.fetch <url>, at 13:05), and a call that acts waits for approval after that (§3.9)". Discord, the web UI, and the CLI show it.
+- **Trusting it again.** Only the operator clears a hold, with the trusted answer an approval takes ("Approval", below), so a Theseus job's process is refused. There are two ways:
+  - `policy.trust`: `theseus policy trust <session>`, or the Observatory's "trust again";
+  - an approval that trusts the session as well: the card's **Approve + trust session** button on Discord and in the web UI, or `theseus confirm --trust`. The button appears only when the hold is why the call waits.
+
+  A trust is ledgered as `session.trusted` (who, how, and the hold it cleared). A trust accepts the text already in the context; a later read holds the session again.
+- Health, `theseus health`, and the Observatory list the sessions that hold external text, since when, and from what. The hold is on the session's own record, so it survives a restart.
+- `[policy] external_text = "ask" | "notify"`, `ask` by default. `notify` runs a call that acts with at least a notice.
+- The rule judges what the session has read, not what the text says. It does not stop a page from sending data out through a fetch's URL, since a read keeps its posture; each fetch's notice names its URL. It also does not follow a job's own process: a job the operator approves can open a clean session through the socket (theseus-d64).
+
 **Notices and records.** Every call, under any posture, is recorded on its tool-call node with the gate's decision, the posture, and the reason. A call that runs under `notify` is also ledgered (`tool.notified`) and shown on every surface as a notice: what ran, the setting that made it a notice, and the outcome. In the web UI and the CLI it is its own line. On Discord it is the call's line in its loop's tool message, `🔔 notified (<setting>)` and then its outcome, and a loop that overflows one message counts the notices on the line that folds its oldest calls. _(Amended 2026-09-29, theseus-w4f: a separate Discord embed per call is `[discord] notice_embeds`, off by default, because the DM's roughly 160 shell calls a day would each post one; Part III A4, item 3.)_ A call that waits is a confirm on every surface. A declined call is recorded as declined and never runs. Only a toollet's own input validation stops a call at the gate, and it does so as an error, not a refusal.
 
 **What the gate is not.** It judges what a call names, not what a program does once it runs, so it is not a sandbox. For arbitrary commands, the operator's control is `proc.run`'s posture, and the boundary is the environment (§7; L1 in M4).
 
 **Jev** (M5; not built). Eddie's direction is one classifier (`security.v1`) that says "this is risky: 0-100%" and, based on the posture, lets the operator know. As everywhere, Jev may make a call's treatment stricter, never looser, and it is never the sole gate (§3.7), because adversarial content can move its score.
 
-**Approval** (Eddie, 2026-09-27; built 2026-09-29, theseus-sgh). An approval is a dialogue in a **trusted channel**: a surface listed in `[approval].channels` whose members are all **trusted users** (`[approval].trusted_users`). Both lists live in the vault-held config, which agents cannot write. The rule covers every answer: a tool call that waits (posture `approve`, the approve lists, a path outside the roots, the floor) and the budget question.
+**Approval** (Eddie, 2026-09-27; built 2026-09-29, theseus-sgh). An approval is a dialogue in a **trusted channel**: a surface listed in `[approval].channels` whose members are all **trusted users** (`[approval].trusted_users`). Both lists live in the vault-held config, which agents cannot write. The rule covers every answer: a tool call that waits (posture `approve`, the approve lists, a path outside the roots, the floor, a session's hold on external text), the budget question, and the trust of a session that read external text.
 - **Where it is judged.** In one place, where an answer becomes a decision (`Core::confirm_action`), which every surface reaches through `action.confirm`. An answer counts only from a trusted user through a trusted channel. One that does not is refused with the reason, ledgered as `approval.refused` (who, through what, and why), and narrated; the call keeps waiting, and nothing is lost.
 - **Who answered is known from the connection, never from what a client says.** The listener that accepts a connection names its surface: the Unix socket and `--stdio` are `cli`, the loopback bridge is `web`, and the in-process Discord binding is `discord`. Only the binding may name a Discord channel and user. An answer's `author` is a label; it names and proves nothing.
 - **Not a job's process** (theseus-6qy; accepted by Eddie on 2026-09-29, and built the same day).
   - At L0 a job runs as the operator's own user, so it can reach the CLI socket and the loopback web UI just
     as the operator does.
-  - So an answer (an approval, a decline, or the spend reset) and the undo of a tightening are refused when
-    the process that asks, or any ancestor of it up to pid 1, is a live Theseus job wrapper. This holds with
+  - So an answer (an approval, a decline, or the spend reset), the undo of a tightening, and the trust of a
+    session that read external text are refused when the process that asks, or any ancestor of it up to
+    pid 1, is a live Theseus job wrapper. This holds with
     or without an `[approval]` section, and is checked before its rules.
   - *Who asks.* The socket reads its peer's pid (`SO_PEERCRED`) and start time when it accepts, and
     `--stdio` names its parent. The web UI finds the process that holds the client's end of its loopback
@@ -4175,3 +4191,113 @@ effect.
 - A stopped turn's in-flight model call runs to its end, and its cost is paid (theseus-yey).
 - An older binary would drop `stopped`, `report_wakes`, and `wake_parent` on a rewrite. F4a closes this.
 - The kernel-sim's random operations include neither stops nor report wakes yet.
+
+### Item 10. T1: after a session reads external text, a call that acts waits (theseus-9bp; 2026-09-30, 11:39–12:27; 822f127, 41e8fa5)
+
+**Why.** This came from DD5's review. Since DD5, a page's text reaches the model, and in Eddie's config
+`proc.run` and the writers run at `notify`. So an injection in a page could steer the model into running
+a command, with only a notice after the fact. OpenClaw's provenance plugin closes this path for OpenClaw
+sessions. Theseus has no provenance labels yet, and Jev's `security.v1` is M5. T1 is the interim,
+deterministic floor, and it landed before Eddie's end-to-end test.
+
+**What exists** (§3.9, External text).
+- **The hold** (`theseus-core/src/external.rs`): `SessionRecord.external` (since when, the tool, the
+  URL, the node, and, when it came from another session, which one and how), with one
+  `session.external_read` row. It is written in the frame that brings the text in, under the record's
+  lock (`Store::with_session`, holding it until the frame is indexed; the lock order is always the
+  session, then the execution). There are three such frames: a result's completion, a task's
+  `open_task` (for a task that a holding session starts), and the parent's `take_reports` (for a report
+  from a holding task). A turn never writes it (`take_turns_fields`).
+- **The gate** (`external::gate`, after the broker's posture): a call whose class is not `Read` waits,
+  with the reason, the allow list's calls included. A `Read` call keeps its posture and reads no
+  record. A record that cannot be read fails closed.
+- **Trusting it again**: `policy.trust` and `action.confirm { trust }`, judged by `judge_act`
+  (`Act::Trust`), and ledgered as `session.trusted`.
+- **Surfaces**: `theseus policy trust <session>`, `theseus confirm --trust`, and a hint on a waiting
+  call's lines; health's `external_text` and the CLI's `external text:` line; Discord's third button,
+  "Approve + trust session", and its settle; the web UI card's third button and marker, and the
+  Observatory's External text section.
+- **Config**: `[policy] external_text = "ask" | "notify"`, `ask` by default, in the template.
+
+**How it is proven.**
+- The gate at 41e8fa5 ran 509 tests, 13 of them new: 9 through the whole core, 2 unit tests of the rule,
+  a config test, and a CLI test. The core tests cover the same turn and the next, trust, a read keeping
+  its posture, a job's process refused, a restart, a clean session unchanged, approve with trust, a
+  task, a report's turn, and a wake's turn. The frame budget test holds 8.
+- The step's live check (12:19–12:22) ran on a copy of Eddie's store with his note, with Discord and the
+  web UI off:
+  - a GLM turn fetched the `Option` page (200, 248,029 bytes), and `proc.run echo hi` waited, with the
+    reason word for word;
+  - the hold rode in the result's frame (`…node+session.external_read+session`), and the run was declined;
+  - `theseus policy trust` cleared it (`session.trusted`, by the CLI), and the next `proc.run echo hi` in
+    that session was a notice and ran;
+  - beyond the brief, a hold survived a restart, and `theseus confirm --trust` approved a waiting run and
+    trusted the session in one answer.
+
+**Reviewed** (Tabitha, 2026-09-30, 12:47 to 13:05).
+- **The gate rerun.** The first rerun's lifecycle bench missed twice, right after the test run's
+  writeback: cold start p95 was 62.2 ms, then 74.6 ms, against 57, and the store phase's p95 was about
+  50 ms. On a quiet disk, the bench alone passed (cold start p95 41.6 ms). The full gate then passed with
+  509 tests and every phase within budget (cold start p95 41.2 ms). T1 does not touch the start path.
+- **Reading the code.**
+  - Every path that takes a session's lock takes it before an execution's, and no kernel transition
+    takes a session's.
+  - `run_harness` (`task.create`, `wake.at`) and the error path complete without the hold, and neither
+    result can be marked external.
+  - `task::create` reads the parent's hold without the lock. The one race is a fetch that completes in
+    the same response as the `task.create`, and that call was written before the page was seen, so a
+    clean child is correct.
+- **A live check on the release build of 41e8fa5,** over a fresh copy of Eddie's store, with his note.
+  Discord and the web UI were off, and the Brave key's reference was added, because his note has none.
+  - **A search gives the hold, and the allow list waits.** A GLM turn ran `web.search` (a notice), and
+    then `ls`, which his allow list runs `open`. `ls` waited: "this session read external text
+    (web.search …?q=tokio+JoinSet+documentation…, at 12:55), and a call that acts waits for approval
+    after that (§3.9)". Health listed the session. The call was declined.
+  - **A job's process cannot trust its own session.** GLM was told plainly that this was the operator's
+    test. It asked `proc.run` to run the scratch CLI's `policy trust` on its own session. The call
+    waited, and was approved without trust. The job exited 1: "trusting the session again from the CLI
+    does not count: from a Theseus job's process (job act_…, pid 366807, theseus). It still holds external
+    text". The refusal was ledgered as `approval.refused` (`act: policy.trust`, `from_job: true`), and the
+    hold stayed.
+  - **Approve and trust, then the allow list is back.** The next `ls` waited. `theseus confirm --trust`
+    ran it and cleared the hold (`session.trusted`, `how: action.confirm`). The `ls` after that ran at
+    `open`, from the allow list, with no notice.
+  - Outbound connections went to api.github.com, api.z.ai, and the Brave search API. Nothing reached
+    Discord.
+- Eddie's unchanged note loads under the new binary.
+- Installed at 12:57.
+- **Taken at review:**
+  - **A job the operator approves can open a clean session.** It can run `theseus ask` over the socket,
+    and that session holds nothing. This needs an approved acting call in the holding session first, and
+    the card shows the command. Filed as theseus-d64 (P3): J1's trace, applied at `session.open` and
+    `turn.submit`, would pass the job session's hold on.
+  - **Cosmetic** (theseus-qiy, P3, fix batch 2): a search's hold names the search API's address rather
+    than the query; health gives the hold's time in UTC while the reason uses local time; and a trust
+    through an approval names the connection (`sock#32`), not the surface.
+  - **Eddie's open questions, with the defaults the chain keeps.**
+    - Reads keep their posture, so a fetch's URL can still carry data out, and its notice names the URL.
+    - `wake.at` waits in a holding session.
+    - There is no Discord `/trust`: the card's button, the CLI, and the Observatory clear a hold.
+
+**Divergence from the brief and the issue.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| "every call whose class is not `Read` waits … It is a tightening, so the stricter posture wins" | Applied after the whole order, the allow list included, as a granted secret's posture is | An allow-list prefix is the easiest way through for a page that steers the model | Keep |
+| "A fetch, then `proc.run` in the same turn: it waits" | From the next model call on; a call in the fetch's own response keeps its posture | That call was written before the model saw the page (F3 gates a response's calls first) | Keep |
+| — | `wake.at` and `task.create` wait too | Both act (a write, a run), and the rule covers every class but `Read` | Keep; Eddie's question 2 |
+| Discord: "a button on the first such confirm, or a slash command" | A third button, **Approve + trust session**, on every confirm the rule raises | The operator learns of the rule on that card, and each later one offers the same | Keep; no `/trust` |
+| The CLI: `theseus policy trust <session>` | That, and `theseus confirm --trust <id>` | The card's button, for symmetry | Keep |
+| "a `session.external_read` ledger row" per session | One per hold: a session that is trusted and then reads again writes another | "A later external read taints the session again" | Keep |
+| — | A trust through an approval names the approval's author (the connection's label) | Approvals record the connection's label | Keep; theseus-qiy |
+
+**Known gaps.**
+- A job's output that carries outside text (a download, `gh issue view`, a pulled README, and files it
+  leaves that `fs.read` reads later) is not marked external, so it gives no hold (theseus-20f).
+- A job the operator approves can open a clean session through the socket (theseus-d64).
+- A page can still send data out through a fetch's URL: a read keeps its posture, by design, and each
+  fetch is a notice with its URL.
+- Discord's third button was not pressed live, since the gateway is not faked. The binding's tests
+  cover its id and its parse, and the core's test covers the answer.
+- An older binary would drop a session's hold the next time it wrote the record. F4a closes this.
+- The model is not told that its session holds external text. It learns only when a call waits.
