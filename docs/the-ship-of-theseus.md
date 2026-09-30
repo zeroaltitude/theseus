@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.61
+# The Ship of Theseus — v0.62
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -25,6 +25,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Comms | Discord only, text and voice. One Discord application invited to many guilds. |
 | Model path | Direct Anthropic Messages API. Bedrock is a possible later provider, not the default. |
 | Hands | AWS tool surface is deep and default. Shells are graded: local host, local native sandbox, and AWS classes, chosen per job by Jev within policy. **L0 (native host shell) is the default** for BigHat's deployment; agent-authored code and package installs go to L1; the open-source distribution ships L1 as default with L0 as documented opt-in. Committed 2026-09-24, to be revisited on evidence. |
+| Home AWS account | **Theseus owns it** (Eddie, 2026-09-30). Theseus is the complete, virtual owner of its home AWS account, not a limited user. It may mint IAM roles and session policies to narrow its own hands, as it sees fit, and every call is attributed to its execution. The operator's only hard limits are the budget (so experiments can't run up the bill) and a SOC2 security stance: no public-IP ingress, everything as infrastructure as code, and BigHat's AWS standards. Where those limits are enforced, so that the account's owner can't remove them, is open (theseus-mgw). |
 | Execution model | **Event-driven.** No in-flight state lives only in harness memory; every dispatched thing is a WAL record with a harness-minted correlation id; completion arrives as an event (in-process, Unix socket spool, SQS pull, loopback HTTP as the off-by-default exception); the harness is quiescent between events; the one-minute heartbeat is the level-triggered reconciler. Adopted 2026-09-24 from Eddie's all-webhook proposal, with "webhook" generalized to "completion event" and "unkillable" replaced by "detached, durable, cancellable" (§3.3, §3.16). |
 | Deployment | One large node: Theseus, source trees, and sandboxes together. Must also run on a home desktop with every AWS dependency optional at runtime. |
 | Durability | Local fsync to a persistent SSD is the floor, before any action is dispatched. Off-node durability is **eventual, 5–60 s** (measured, not asserted), produced by asynchronous durability work the core performs in the time a turn has surrendered to a remote (model call, shell, judge, human). Single node; no replication. |
@@ -1092,13 +1093,22 @@ Inbound `Message` nodes; the turn trace (§3.3a); the `Compilation` node when th
 - An action that never waits for a confirm is planned, authorized, and dispatched in one frame: the
   provider call, and any tool call the policy runs (`open` or `notify`). Each transition keeps its own
   record and row, so the record still reads as three transitions.
-- A plain one-loop turn writes 8 frames, and each further loop with one in-process tool call writes 4.
-  `tests_m3::a_plain_turn_stays_within_its_frame_budget` holds the first number.
+- A result the turn reads itself (the provider call's answer, an in-process call's result, a job the turn
+  waited for) is not queued for a later turn: the queue holds only what settled outside the turn. A turn
+  that faults after settling one is woken (`execution.queued`, why `fault`), so its continuation reads
+  what it settled and resumes its unanswered calls. A confirmed call is authorized and dispatched in one
+  frame, and an input's wake and admission are one frame.
+- A turn's session write at its end rides in `end_turn`'s frame, the turn's last, in the place it had as a
+  frame of its own, under the session record's lock until that frame is written (theseus-l6y).
+- A plain one-loop turn writes 5 frames: the input's wake and admission; the input; the provider call's
+  plan, authorization, and dispatch; its completion; and the turn's end with its session write. Each
+  further loop with one in-process tool call writes 4. `tests_m3::a_plain_turn_stays_within_its_frame_budget`
+  holds the first number.
 - A turn reads its session's transcript once, at its first reader, and every node its frames write
   joins that view. No reader in the turn decodes the transcript again: not resume, not absorb, not the
   check for anything new, and not each loop's compile.
 
-_(Amended 2026-09-29, theseus-qa0 step F2: until then a plain turn wrote 17 frames, and decoded its transcript at every reader; Part III A3c.)_
+_(Amended 2026-09-29, theseus-qa0 step F2: until then a plain turn wrote 17 frames, and decoded its transcript at every reader; and 2026-09-30, step F4b, theseus-l6y: 8 frames until then. Part III A3c.)_
 
 **Calls that run together** (theseus-a60).
 - A response's tool calls are gated in order. The first call that waits for the operator ends the gating,
@@ -1303,7 +1313,10 @@ Under FAST (§2), the lifecycle rows are budgets. `theseus-sim bench lifecycle` 
 P5b):
 - cold start to the first `health` answer;
 - clean shutdown with executions waiting and a job running;
-- SIGKILL, then restart to the first answer.
+- SIGKILL, then restart to the first answer;
+- a binary swap under load: the `shutdown` request and its answer, then the other build started at once on
+  the same store, to its first answer, with the job's wrapper kept and adopted;
+- restore from a local WAL, beside a cold sequential read of the same bytes.
 
 Each phase runs N times, with p50 and p95, per phase, per start-path phase, and per kernel step. It runs
 on an empty store, on the owner's store, or on a synthetic store of parked sessions.
@@ -1311,7 +1324,7 @@ on an empty store, on the owner's store, or on a synthetic store of parked sessi
 `scripts/gate.sh` runs it on every commit: ten runs of each phase on an empty store, with debug binaries,
 which are never faster than release. Each p95 is checked against its budget plus that phase's noise
 margin, measured as the spread of p95 over repeated runs on the build machine (in 2026-09: 7 ms cold,
-4 ms shutdown, 25 ms kill). A miss fails the gate. Between today's store sizes and 10,000 parked
+4 ms shutdown, 25 ms kill, 2 ms swap; restore has no budget yet). A miss fails the gate. Between today's store sizes and 10,000 parked
 sessions, the cold-start budget is the line from 50 ms to 250 ms. Measured values are in Part III (A3,
 lifecycle timings, and the M3.5 entry).
 
@@ -1320,9 +1333,9 @@ lifecycle timings, and the M3.5 entry).
 | Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ _(Since theseus-8ni, F4a: the store's open checks the WAL only from the frame after the index's checkpoint to its end. The history is checked after serving, at about 5 % of a core, and a corrupt frame there is refused and loud. On 10,000 parked sessions the store phase went from 63.2 to 10.1 ms p50, and a cold start from 164.1 to 121.7 ms.)_ |
 | Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for |
 | Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms _(The bench's budget: the cold-start budget plus 100 ms.)_ |
-| Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer |
+| Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer _(Since F4b, theseus-qa0: the bench's swap phase holds this in the gate, from the stop's request to the other build's first answer, with a job's wrapper running through every swap and ended at last by a daemon that never started it. `theseus shutdown` answers before the daemon has closed its store, so a start that follows at once waits for the store's lock, at most 3 s, instead of failing. Numbers in Part III A3c, F4b.)_ |
 | Store or schema migration | adds nothing before serving: old formats are read in place, and a tender rewrites them in the background using at most 5 % of one core _(Since F4a, theseus-qa0: every record carries its kind's schema, and the manifest names the newest schema written for each kind. A start writes neither: a store an older binary wrote is marked only when this build first appends a newer record. A build older than the store refuses to open it, before anything is written. No layout has needed a rewrite yet; the first that does lands with its tender.)_ |
-| Restore from a local WAL | at the disk's sequential read speed; to measure |
+| Restore from a local WAL | at the disk's sequential read speed; to measure _(Measured in F4b; see Part III A3c. A restore copies the WAL, then opens the copy with no index, which checks every frame and indexes every record, so it runs 39 to 64 times slower than a cold sequential read of the same bytes. The budget waits on how the index is rebuilt: in bulk, or after serving (theseus-byu).)_ |
 | Binary size, static | under 60 MB with Wasmtime, AWS SDK, voice, search, and web UI; embedding weights are a separate artifact |
 | RSS at 10,000 parked channels, 50 active executions | under 1 GB including arena metadata for the active set |
 | Per-turn harness overhead (context compile + gate + WAL commit, warm arena; excludes model, Jev, tokenization, rehydration) | under 5 ms |
@@ -1580,7 +1593,7 @@ Not in the original plan. This is Eddie's principle (§2 FAST), adopted after an
   - a binary swap under load;
   - restore.
 
-  Each phase runs N times, with p50 and p95 reported per phase and per startup step. `scripts/gate.sh` compares the result with §9 and fails on a miss, allowing a noise margin that is itself measured.
+  Each phase runs N times, with p50 and p95 reported per phase and per startup step. `scripts/gate.sh` compares the result with §9 and fails on a miss, allowing a noise margin that is itself measured. _(Built: cold, shutdown, and kill in F1, 2026-09-29; swap and restore in F4b, 2026-09-30. Restore is measured, with no budget yet.)_
 - **Serve first.**
   - Secrets resolve in the background. Today six concurrent `op read` processes take 1.0 s between them (A3, lifecycle timings); one `op inject` for every reference is the first candidate, and measurement picks the winner.
   - The provider, the Discord binding, and the GitHub client each wait for their own secret, and health reports `secrets: resolving | ready | failed <name>`.
@@ -1599,7 +1612,7 @@ Not in the original plan. This is Eddie's principle (§2 FAST), adopted after an
   - A ledger row that is not a state transition rides in the next frame the kernel or the runner already commits, and an action that needs no confirm is planned, authorized, and dispatched in one frame. The review put a plain turn at about 8 frames.
   - A turn reads its session's nodes once, at its start, and keeps the nodes it writes. Today every turn decodes the whole transcript three or more times, plus once per loop.
 
-**Prove.** The lifecycle bench meets every §9 lifecycle budget at p95, both on Eddie's store and on a synthetic store of 10,000 parked sessions. With 1Password unreachable, the socket still answers inside its budget and health names the missing secrets. A store written in the previous record layout serves immediately under the new binary _(proved in F4a on a store 460a35b wrote, checked in as a fixture, and on a copy of the owner's store)_, and a tender rewrites it while turns run, with no request failing _(future work: no layout has needed a rewrite)_. The gate refuses a branch that adds a 100 ms sleep to cold start. _Added 2026-09-29:_ a response of five reads and two greps takes the slowest call, not the sum; a plain turn writes fewer frames than 17, and the frame-budget test holds the new count.
+**Prove.** The lifecycle bench meets every §9 lifecycle budget at p95, both on Eddie's store and on a synthetic store of 10,000 parked sessions. With 1Password unreachable, the socket still answers inside its budget and health names the missing secrets. A store written in the previous record layout serves immediately under the new binary _(proved in F4a on a store 460a35b wrote, checked in as a fixture, and on a copy of the owner's store)_, and a tender rewrites it while turns run, with no request failing _(future work: no layout has needed a rewrite)_. The gate refuses a branch that adds a 100 ms sleep to cold start. _Added 2026-09-29:_ a response of five reads and two greps takes the slowest call, not the sum; a plain turn writes fewer frames than 17, and the frame-budget test holds the new count _(8 after F2, 5 after F4b)_.
 
 **Not yet.** Turn-path latency beyond §9's 5 ms. The arena's memory layout (M6–M7). Anything that needs more than one node.
 
@@ -2613,7 +2626,8 @@ M3.5 (P5b) runs as these steps:
 - F4, in two steps:
   - F4a: versioned readers, a newer store refused, and a tail-only store open (theseus-8ni). Built
     2026-09-30.
-  - F4b: the swap and restore phases, the store-lock race, and F2's remaining frame merges (theseus-l6y).
+  - F4b: the swap and restore phases, the store-lock race, and F2's remaining frame merges (theseus-l6y). Built
+    2026-09-30. **M3.5 closed** at F4b's review.
 
 Beside them, in the same chain:
 - K1: the kernel never loses an update (theseus-id9), found by F3.
@@ -2685,7 +2699,7 @@ after, with `secrets: resolving` at each. A GLM turn sent at once waited 1.32 s 
 | The process refuses to start if a referenced secret cannot be resolved (§3.19) | The process serves. Each consumer refuses to run without its secret, and health, the ledger, and the Observatory name the failure and why | FAST (§2): the socket never waits on the network | §3.19 amended |
 | References resolve concurrently through `op read` (§3.19) | One `op inject` for every reference; `op read` per reference only after a failed injection | Measured: the same wall time, a sixth of the CPU, one process | Keep |
 | Resolution happens once at startup (§3.19) | Once, then again for what failed, at 5 s doubling to 60 s | The process no longer exits on a failure, so it must fetch again | Keep |
-| The bench has five phases (P5b) | Three; binary swap and restore are F4's | A swap under load needs F4's upgrade path | F4 |
+| The bench has five phases (P5b) | Three; binary swap and restore are F4's | A swap under load needs F4's upgrade path | Built in F4b: swap and restore |
 | Nothing on the path to serving waits on the network (§2) | When the config is `op://` (Eddie's), the note is read before serving: about 1 s | Everything after it needs the config | Built in step F1b (theseus-2fo): the daemon starts from a last-known-good copy of the note, and nothing acts until the vault confirms it |
 | Store open grows with the WAL tail, never with history (§9) | `Wal::open` reads and checks every segment: 47 ms at 10,000 sessions | Since M1 | F4, with the versioned readers (theseus-8ni) |
 | The gate measures §9 on every commit (P5b) | On debug binaries and an empty store; Eddie's store and 10,000 sessions are release bench runs | A release build takes 3 min, and debug is never faster than release | Keep; revisit if a debug-only slowdown fails the gate |
@@ -2764,6 +2778,8 @@ Release, medians of three interleaved rounds:
 - `wake_input` and `admit`, and a confirmed call's `authorize` and `dispatch`, which are two frames each;
 - the session write, which could ride in `end_turn`'s frame;
 - `confirm.list`, which still reads a transcript for a question's reason.
+
+_(The first three merged in F4b; `confirm.list`'s read is theseus-ef0.)_
 
 Beyond those, each loop still renders the whole transcript into its request. That is §4.5's rendered
 cache, which is not built.
@@ -2862,7 +2878,7 @@ With Eddie's real note, through a shim `op` that turned the web UI and Discord o
   not an escalation, and L1's sandbox (M4) takes the write away.
 - The restart's 100 ms grace is a delay, not a handshake.
 - The copy is written without fsync, so a copy lost in a crash costs one slow start.
-- A start spawned the moment `theseus shutdown` returns can still fail with "Database already open" (F4).
+- A start spawned the moment `theseus shutdown` returns can still fail with "Database already open" (F4). _(Fixed in F4b: the start waits for the lock.)_
 
 ### Step F3. Parallel tool calls (theseus-a60; 2026-09-29, 14:15–15:10; a579f63, d421e1b, 59b3d9f)
 
@@ -3533,6 +3549,110 @@ a second time to replay its tail (theseus-8ni).
 - theseus-02k (P3): a clean stop pays redb's close after its own durable checkpoint.
 - A restore by a build older than the WAL it restores cannot be stopped by this one. Restore with the
   newer build.
+
+### Step F4b. The swap and restore phases, the store-lock race, and a plain turn in 5 frames (theseus-qa0, theseus-l6y; 2026-09-30, 14:12–14:26 and 14:31–15:31; de880fc, 27e1237)
+
+**Why.** P5b's bench had three of its five phases; a binary swap and a restore were F4's. F1b found that
+`theseus shutdown` answers before the daemon has closed its store, so a start at once failed with "Database
+already open". F2 left four frame merges (theseus-l6y), with a plain turn at 8 frames.
+
+**What exists.**
+- **The store's open waits for another process's lock**, at most 3 s (`LOCK_WAIT`). It tries again every
+  0.5 ms and reads the manifest again on each try. Health's store phase reports `lock_wait_ms`. The wait is
+  in the new process, not in the old one's ordering, because the CLI returns before the old process removes
+  its socket or closes its store.
+- **The bench's `swap` phase**: the stop's answer, then the other build at once on the same store, timed to
+  that process's first answer (the new process is known by `SO_PEERCRED`). The job's wrapper must run
+  through every swap, and be ended at last by a daemon that never started it. Budget 200 ms, margin 2 ms.
+- **The `restore` phase**: `theseusd restore` from a copy of the WAL, with its pages dropped first, beside a
+  cold read of the same bytes. It is measured, and the restored store must serve.
+- **A plain turn writes 5 frames**:
+  - an input's wake and admission are one frame (`Kernel::admit_input`);
+  - a result the turn reads itself gets no queue entry (`Kernel::turn_of`), and a turn that faults after
+    settling one is woken explicitly (`execution.queued`, why `fault`);
+  - a confirmed call is authorized and dispatched in one frame (`Kernel::authorize_and_dispatch`);
+  - the session write rides in `end_turn`'s frame (`Store::defer_session`, under a `SessionHold`).
+
+**How it is proven.**
+- 523 tests in the gate.
+- **The lock:**
+  - a daemon test of five stops, each followed at once by a start (a probe with no wait failed it);
+  - on release builds, 20 of 20 starts at once failed with the installed build, and 0 of 20 with this one
+    (each waited about 15 ms).
+- **The frames:**
+  - F2's output-diff probe (623 → 495 frames): after normalizing what dropping the queue entry removes,
+    only the provider-failure scenario's explicit wake differs;
+  - a fault-injection test that faults the frame planning a tool call, and resumes the call after a restart;
+  - kernel-sim with new invariants: a turn's own result is never queued, and a two-in-one action is never
+    found authorized-only;
+  - the crash test.
+- **The step's live check**, on a copy of Eddie's store with his note:
+  - a swap from the installed build to this one, mid-way through a GLM turn's `sleep 20` job, took 56.9 ms to
+    the new build's first answer, 14.5 ms of it waiting for the lock;
+  - the wrapper survived, and the new daemon accepted the job's result, which the next turn read;
+  - a plain GLM turn wrote 5 frames;
+  - a restore of the copy's WAL served all 7 sessions identically.
+
+Release, p50 / p95 (ms):
+
+| Store | Cold | Vault | Shutdown | Kill | Swap | Restore |
+|---|---|---|---|---|---|---|
+| Eddie's copy (1.24 MB) | 19.6 / 22.1 | 19.3 / 23.9 | 31.7 / 37.1 | 35.0 / 60.6 | 48.2 / 49.8 | 82.5 / 105.0 |
+| 10,000 sessions (36.5 MB) | 113.3 / 119.4 | 120.1 / 133.1 | 26.2 / 44.2 | 143.0 / 176.0 | 138.7 / 150.7 | 342.2 / 386.2 |
+
+**Reviewed** (Tabitha, 2026-09-30, 16:00 to 16:06).
+- **The gate rerun passed on the first try**: 523 tests, and all six phases within budget. Swap p95 was
+  76.2 ms of 202, and cold p95 31.1.
+- **Reading the code.** `defer_session`'s lock span:
+  - `finish` is `run_inner`'s last expression, and nothing between it and the hold's drop in `run` awaits
+    or takes a session lock again;
+  - `end_turn`'s closure only reads and stages outbox records;
+  - the order stays session, then execution;
+  - the hold releases its lock on drop, and flushes what waits first.
+- **A live check on the release build of 27e1237, over a fresh copy of Eddie's store with his note**
+  (Discord and the web UI off, and glm live, for theseus-kol). It went through the upgrade path, with T1:
+  - on the installed F4a build, a GLM turn fetched a page. Its `proc.run echo f4b-review` waited, because the
+    hold raised it to approve;
+  - the daemon was **SIGKILLed while the call waited**. This build then started on the same store: 37.8 ms to
+    serving, with the index repaired, as expected after a kill. The pending approval and the hold both
+    survived;
+  - an approval from the CLI: the call's authorization and dispatch rode in **one frame** (`turn.started +
+    action.authorized + action.dispatched`). It ran (`f4b-review`, exit 0), and GLM finished the turn. The
+    session write rode in the turn's last frame;
+  - **`theseus shutdown`, then an immediate start, 5 times: 5 of 5 served**, each waiting 6.6 to 14.1 ms for
+    the lock, with no repair.
+- Eddie's unchanged note loads under the new binary.
+- **Installed at 16:05** from 27e1237. The format is unchanged since F4a (format 3), and his store, still
+  format 2 as of this review, is snapshotted at `~/reports/theseus-f4a/eddie-store-pre-f4a/`.
+- **M3.5 (theseus-qa0) closed.** Every §9 lifecycle budget is met at p95, on both stores, and the gate fails
+  a commit that misses one. A store in the previous format serves at once (F4a). What stays open is filed:
+  theseus-lv2, ur0, ez3, byu, and ef0.
+- **Taken at review:**
+  - A continuation that a confirm answer starts still writes its queue and admission as two frames
+    (`execution.queued`, then `execution.running`). Only an input's are merged. It is small, and folded into
+    theseus-ef0.
+  - The job's result in the live check was accepted by the driver's drain, not the turn's own wait, so it was
+    queued and consumed (`execution.results_consumed`). That is by design.
+
+**M3.5's exit.** Every §9 lifecycle budget is met at p95 on both stores, the gate fails a commit that misses
+one, and a store in the previous format serves at once (F4a). Restore is measured, as §9 says "to measure".
+
+**Divergence from Parts I and II, and from the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The lock race: wait, bounded "well inside the budget", or release the lock before the socket (brief) | The new start waits, bounded at 3 s | The CLI returns before either. A bound under 200 ms would fail a stop whose telemetry flush takes its whole second | Keep; the bench holds the swap itself to 200 ms |
+| Restore at the disk's sequential read speed (§9) | 39 to 64 times a cold read (and the read is WSL's host cache) | A restore copies, then checks every frame and indexes every record | theseus-byu |
+| F2's option (b): wake when a turn faults "with a call unanswered" (theseus-l6y) | Wake when it faults after settling a result it reads itself | The queue entry also requeued a turn whose calls were all answered, and a failed provider call's retry; the narrower test would change both | Keep |
+| theseus-l6y's item 5, `confirm.list`'s read | Not built | It changes the action record's layout (a schema bump) | theseus-ef0 |
+| The session record is synced before the call that wrote it returns (§4.6) | A turn's end-of-turn session write rides in `end_turn`'s frame, under its lock | One frame per turn | §4.6 amended |
+
+**Known gaps.**
+- A stop's answer can be lost, so `theseus shutdown` fails though the daemon stopped (theseus-ur0).
+- A restore does not sync its copies (theseus-ez3).
+- Restore's budget (theseus-byu).
+- `confirm.list`'s read, and a confirm continuation's two frames (theseus-ef0).
+- O(open) reads (theseus-lv2, F4a's), which are most of the 10,000-session swap's 139 ms.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
