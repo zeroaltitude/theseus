@@ -35,6 +35,21 @@ impl Daemon {
     }
 }
 
+/// The Theseus job this test process runs under, if any: a job wrapper
+/// among its ancestors (the gate run from a task, DD7). An approval from such
+/// a process is refused (theseus-6qy), so a test's operator's part skips.
+pub fn job_above_this_test() -> Option<String> {
+    let mut p = std::process::id();
+    while p > 1 {
+        if let Some(job) = theseus_kernel::job::wrapper_job(p) {
+            return Some(job);
+        }
+        let s = std::fs::read_to_string(format!("/proc/{p}/stat")).ok()?;
+        p = s[s.rfind(')')? + 2..].split(' ').nth(1)?.parse().ok()?;
+    }
+    None
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         // A daemon already reaped is not signalled again: std keeps its status.
