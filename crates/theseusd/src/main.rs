@@ -143,12 +143,10 @@ fn main() -> Result<()> {
         .init();
 
     if let Some(Cmd::ExampleConfig) = cli.cmd {
-        print!("{}", Config::EXAMPLE_TOML);
-        return Ok(());
+        return out(Config::EXAMPLE_TOML);
     }
     if let Some(Cmd::ExampleBindings) = cli.cmd {
-        print!("{}", theseus_discord::EXAMPLE_BINDINGS);
-        return Ok(());
+        return out(theseus_discord::EXAMPLE_BINDINGS);
     }
     if let Some(Cmd::JobWrapper { args }) = cli.cmd {
         // No config, no secrets: the wrapper only runs a command and spools.
@@ -254,11 +252,12 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     cfg.op_token_file = op.token_file().map(std::path::Path::to_path_buf);
     cfg.config_copy = copy_path.clone();
     if let Some(Cmd::Config) = cli.cmd {
-        println!("# source: {}", cli.config);
-        if let (Some(p), Start::Vault(text)) = (&copy_path, &start) {
-            println!("# copy: {}", copy_line(p, &cli.config, text));
+        let mut text = format!("# source: {}\n", cli.config);
+        if let (Some(p), Start::Vault(note)) = (&copy_path, &start) {
+            text.push_str(&format!("# copy: {}\n", copy_line(p, &cli.config, note)));
         }
-        print!("{}", toml::to_string_pretty(&cfg)?);
+        text.push_str(&toml::to_string_pretty(&cfg)?);
+        out(&text)?;
         return Ok(Exit::Done);
     }
     if let Some(Cmd::Restore { from, force }) = &cli.cmd {
@@ -404,6 +403,22 @@ async fn flush_telemetry(core: &Core) {
     }
 }
 
+/// Print a subcommand's output. A reader that went away (`theseusd config |
+/// head`) ends it quietly, as a closed pipe ends `cat`, instead of panicking
+/// (theseus-gi7). The signal stays ignored: the daemon must never die of a
+/// client that disconnects mid-write.
+fn out(text: &str) -> Result<()> {
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    match stdout
+        .write_all(text.as_bytes())
+        .and_then(|()| stdout.flush())
+    {
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        r => Ok(r?),
+    }
+}
+
 /// How the daemon ends: a restart onto the vault's changed note execs the
 /// same image, marked so it never restarts again.
 fn exit(core: &Core) -> Exit {
@@ -533,14 +548,13 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result
         );
     }
     github_token_report(secrets.get(&cfg.github.token_secret), cfg.github.warn_days).await;
-    println!(
-        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}",
+    out(&format!(
+        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n",
         st.ready.len(),
         st.settled_ms.unwrap_or(0),
         st.method.as_deref().unwrap_or("nothing to fetch"),
         st.ready.join(", ")
-    );
-    Ok(())
+    ))
 }
 
 /// What runs once the socket answers: the kernel's startup report and the
@@ -698,30 +712,25 @@ async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -
     }
     std::fs::create_dir_all(&state_dir)?;
     let r = theseus_core::restore::restore(from, &state_dir, force)?;
-    println!(
-        "restored {} segment(s): {} frames, {} records, last position {}",
+    let mut text = format!(
+        "restored {} segment(s): {} frames, {} records, last position {}\n",
         r.segments, r.frames, r.records, r.last_position
     );
     if r.truncated_bytes > 0 {
-        println!(
-            "cut a torn final frame of {} bytes (a write the source never finished)",
+        text.push_str(&format!(
+            "cut a torn final frame of {} bytes (a write the source never finished)\n",
             r.truncated_bytes
-        );
+        ));
     }
-    println!(
-        "{} session(s), {} node(s), {} ledger row(s)",
-        r.sessions, r.nodes, r.ledger_rows
-    );
-    println!(
-        "from {}
-into {}",
-        r.from, r.into
-    );
+    text.push_str(&format!(
+        "{} session(s), {} node(s), {} ledger row(s)\nfrom {}\ninto {}\n",
+        r.sessions, r.nodes, r.ledger_rows, r.from, r.into
+    ));
     if let Some(a) = &r.moved_aside {
-        println!("the store that was there is kept at {a}");
+        text.push_str(&format!("the store that was there is kept at {a}\n"));
     }
-    println!("start theseusd to serve it; the ledger's last row is store.restored");
-    Ok(())
+    text.push_str("start theseusd to serve it; the ledger's last row is store.restored\n");
+    out(&text)
 }
 
 /// Log when the GitHub token expires; warn loudly when close. Never fatal.
