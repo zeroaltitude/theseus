@@ -480,6 +480,17 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
     });
     assert_eq!(h["kernel"]["lingering_wrappers"], 1);
     assert!(alive(wrapper));
+    // The daemon's children say the same: the wrapper is its child, and
+    // lingers (theseus-z4b).
+    assert_eq!(
+        (
+            &h["children"]["wrappers_lingering"],
+            &h["children"]["wrappers_running"]
+        ),
+        (&json!(1), &json!(0)),
+        "{}",
+        h["children"]
+    );
 
     if !test_is_inside_a_job() {
         // The operator's own answer counts, recorded with its process.
@@ -500,11 +511,14 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
         assert_eq!(written, "approved\n");
     }
 
-    // The grandchild ends; the wrapper exits.
+    // The grandchild ends; the wrapper exits, and the daemon reaps it.
     std::fs::write(r.out("release"), "").unwrap();
     r.wait("the wrapper to exit", || (!alive(wrapper)).then_some(()));
     r.until("no lingering wrapper", |h| {
         h["kernel"]["lingering_wrappers"] == 0
+            && h["children"]["wrappers_lingering"] == 0
+            && h["children"]["reaped_wrappers"] == 1
+            && h["children"]["zombies"] == 0
     });
 }
 
