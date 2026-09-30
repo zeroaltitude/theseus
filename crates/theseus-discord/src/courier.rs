@@ -725,16 +725,22 @@ impl Lane {
                 Err(e) => return Err(e),
             }
         }
-        let m = self
+        let (m, landed) = self
             .create(w.channel, &w.key, &w.content, &w.buttons, w.reply_to)
             .await?;
         self.msgs.insert(w.key.clone(), (w.channel, m));
+        if landed != w.content {
+            // The nonce returned an earlier send of this message (the stream's,
+            // or one before a restart): bring it to this state.
+            self.edit(w.channel, m, &w.content, &w.buttons).await?;
+        }
         self.sent.insert(w.key.clone(), w.content.clone());
         Ok(Some((w.channel, m)))
     }
 
     /// A new message, with its key's nonce and `enforce_nonce`: a second send
-    /// of it returns the first message.
+    /// of it returns the first message. Returns its id and the content Discord
+    /// has for it, which is an earlier send's when the nonce matched one.
     async fn create(
         &mut self,
         channel: u64,
@@ -742,7 +748,7 @@ impl Lane {
         content: &str,
         buttons: &Buttons,
         reply_to: Option<u64>,
-    ) -> Result<u64, SendErr> {
+    ) -> Result<(u64, String), SendErr> {
         let mut body = json!({
             "content": content,
             "nonce": nonce(key),
@@ -787,7 +793,7 @@ impl Lane {
                    "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_))}),
         );
-        Ok(m.id.get())
+        Ok((m.id.get(), m.content))
     }
 
     async fn edit(

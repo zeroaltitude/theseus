@@ -184,6 +184,11 @@ pub struct Start {
     /// A vault start's first answer to the vault's confirmation, when timed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirmed_ms: Option<f64>,
+    /// When the continuation driver started, in ms after the process began,
+    /// by the daemon's clock (theseus-q4v): it waits for no binding, so this
+    /// comes before the bot token resolves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver_ms: Option<f64>,
 }
 
 impl Start {
@@ -220,8 +225,20 @@ impl Start {
             secrets: h["secrets"]["state"].as_str().unwrap_or("").to_string(),
             config: h["config"]["state"].as_str().unwrap_or("").to_string(),
             confirmed_ms: None,
+            driver_ms: driver_ms(h),
         }
     }
+}
+
+/// The continuation driver's start, in ms after the process began: the end
+/// of its phase in health's startup log (theseus-q4v).
+fn driver_ms(h: &Value) -> Option<f64> {
+    h["startup"]
+        .as_array()?
+        .iter()
+        .find(|p| p["name"] == "driver")?["end_us"]
+        .as_u64()
+        .map(|us| us as f64 / 1000.0)
 }
 
 // ------------------------------------------------------------------ the rig
@@ -377,6 +394,19 @@ impl Rig {
         }
     }
 
+    /// When the continuation driver started, by the daemon's clock, once
+    /// health shows it (it starts once the config may act).
+    fn driver_started(&self) -> Result<Option<f64>> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if let Some(ms) = driver_ms(&self.call("health", Value::Null)?) {
+                return Ok(Some(ms));
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Ok(None)
+    }
+
     /// The `shutdown` request to process exit, in ms.
     fn stop(&self, daemon: &mut Daemon) -> Result<f64> {
         let s = UnixStream::connect(&self.sock).context("connecting to stop theseusd")?;
@@ -488,9 +518,16 @@ fn fake_op(ms: u64, note: &Path) -> String {
     )
 }
 
+/// The bench's bindings file: one DM, so the Discord binding starts and
+/// waits for its token, which the fake op gives only after `resolver_ms`.
+pub const BENCH_BINDINGS: &str = "guild_id = \"1\"\n[[dm]]\nuser = \"2\"\nname = \"bench\"\n";
+
+/// A port nothing listens on: the bench's Discord REST and gateway.
+const NOWHERE: &str = "127.0.0.1:9";
+
 /// The template, with its endpoints on the fake model, its secrets on the
-/// fake `op`, Discord and the web UI off, and no GitHub token, so nothing
-/// leaves the machine.
+/// fake `op`, the web UI off, Discord's REST and gateway on a port nothing
+/// listens on, and no GitHub token, so nothing leaves the machine.
 pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> Result<String> {
     let mut t: toml::Table = theseus_core::Config::EXAMPLE_TOML.parse()?;
     fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
@@ -518,7 +555,12 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
     let server = table(&mut t, "server");
     server.insert("state_dir".into(), state.display().to_string().into());
     server.insert("socket".into(), sock.display().to_string().into());
-    table(&mut t, "discord").insert("enabled".into(), false.into());
+    // The binding runs, as Eddie's does, and nothing it sends leaves the
+    // machine: the continuation driver must not wait for it (theseus-q4v).
+    let discord = table(&mut t, "discord");
+    discord.insert("enabled".into(), true.into());
+    discord.insert("rest_proxy".into(), NOWHERE.into());
+    discord.insert("gateway_proxy".into(), format!("ws://{NOWHERE}").into());
     table(&mut t, "web").insert("enabled".into(), false.into());
     let tools = table(&mut t, "tools");
     tools.insert("projects_dir".into(), projects.display().to_string().into());
@@ -564,6 +606,12 @@ pub struct Report {
     pub config_at_first_answer: BTreeMap<String, usize>,
     /// Whether every vault start answered from its copy, before the vault.
     pub served_from_copy: bool,
+    /// When each cold start's continuation driver started, by the daemon's
+    /// clock (theseus-q4v).
+    pub driver: Option<Summary>,
+    /// Whether every cold start's driver started before the fake op could
+    /// give the Discord binding its token: it waited for no binding.
+    pub driver_before_token: bool,
     /// Spawn to the vault's confirmation, when timed (`confirm`).
     pub vault_confirmed: Option<Summary>,
     /// With the operator's note: the first start, which read the vault
@@ -580,7 +628,10 @@ pub struct Report {
 
 impl Report {
     pub fn ok(&self) -> bool {
-        self.verdicts.iter().all(|v| v.ok) && self.served_before_secrets && self.served_from_copy
+        self.verdicts.iter().all(|v| v.ok)
+            && self.served_before_secrets
+            && self.served_from_copy
+            && self.driver_before_token
     }
 }
 
@@ -638,6 +689,7 @@ pub fn run(o: &Opts) -> Result<Report> {
             let config = work.join("config.toml");
             let text = bench_config(&model.base(), &state, &sock, &projects)?;
             std::fs::write(&config, &text)?;
+            std::fs::write(state.join("bindings.toml"), BENCH_BINDINGS)?;
             // The vault phase starts from the note's copy, as a daemon that
             // has run before does; the fake op answers the note with the same
             // text after `resolver_ms`.
@@ -688,6 +740,9 @@ pub fn run(o: &Opts) -> Result<Report> {
             let (mut child, mut s) = rig.start()?;
             samples.entry("cold".into()).or_default().push(s.ms);
             s.after = "cold".into();
+            if s.driver_ms.is_none() {
+                s.driver_ms = rig.driver_started()?;
+            }
             starts.push(s);
             rig.stop(&mut child)?;
         }
@@ -729,6 +784,9 @@ pub fn run(o: &Opts) -> Result<Report> {
     if want("shutdown") || want("kill") {
         let (mut child, mut s) = rig.start()?;
         s.after = "cold".into();
+        if s.driver_ms.is_none() {
+            s.driver_ms = rig.driver_started()?;
+        }
         starts.push(s);
         let mut job: Option<String> = None;
         let measured = (|| -> Result<()> {
@@ -828,6 +886,16 @@ pub fn run(o: &Opts) -> Result<Report> {
         .filter(|s| s.after == "warm-up")
         .map(|s| s.ms)
         .collect();
+    // No driver wait at startup (theseus-q4v): the bench's Discord binding
+    // gets its token from the fake op only after `resolver_ms`, so a driver
+    // that waited for the binding could not start before then.
+    let cold: Vec<&Start> = starts.iter().filter(|s| s.after == "cold").collect();
+    let driver: Vec<f64> = cold.iter().filter_map(|s| s.driver_ms).collect();
+    let driver_before_token = resolver_ms == 0
+        || !want("cold")
+        || cold
+            .iter()
+            .all(|s| s.driver_ms.is_some_and(|ms| ms < resolver_ms as f64));
     let verdicts = verdicts(&phases, sessions, o.margin_ms);
     drop(tmp);
     Ok(Report {
@@ -845,6 +913,8 @@ pub fn run(o: &Opts) -> Result<Report> {
         served_before_secrets,
         config_at_first_answer,
         served_from_copy,
+        driver: Summary::of(&driver),
+        driver_before_token,
         vault_confirmed: Summary::of(&confirmed),
         vault_first_ms,
         samples,
@@ -942,6 +1012,19 @@ pub fn print(r: &Report) {
                 "served from the copy before the vault answered"
             } else {
                 "a start WAITED for the vault"
+            }
+        );
+    }
+    if let Some(d) = &r.driver {
+        println!(
+            "  continuation driver started, ms after the process began: p50 {:.1}  p95 {:.1}  (max {:.1}; {})",
+            d.p50,
+            d.p95,
+            d.max,
+            if r.driver_before_token {
+                "before the Discord binding's token resolved: no wait for the binding"
+            } else {
+                "a driver WAITED past the binding's token"
             }
         );
     }
@@ -1096,7 +1179,15 @@ mod tests {
         )
         .unwrap();
         let (cfg, _warnings) = theseus_core::Config::parse(&text).unwrap();
-        assert!(!cfg.discord.enabled && !cfg.web.enabled);
+        assert!(!cfg.web.enabled);
+        // The binding runs, and all it sends goes to a port nothing listens
+        // on (theseus-q4v).
+        assert!(cfg.discord.enabled);
+        assert_eq!(cfg.discord.rest_proxy.as_deref(), Some("127.0.0.1:9"));
+        assert_eq!(
+            cfg.discord.gateway_proxy.as_deref(),
+            Some("ws://127.0.0.1:9")
+        );
         assert!(!cfg.secrets.contains_key(&cfg.github.token_secret));
         assert!(cfg.secrets.values().all(|r| r.starts_with("op://Bench/")));
         assert!(cfg

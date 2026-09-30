@@ -335,6 +335,103 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     assert!(create < edit, "the edit went after its create, to its id");
 }
 
+/// 2b's approval route through the lanes: a card for a place that is not a
+/// trusted channel goes to the trusted user's DM, with a note in the place;
+/// how its question closed edits both, the card's buttons gone.
+#[tokio::test]
+async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_both() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let script = vec![Scripted::tools(
+        "",
+        &[(
+            "t1",
+            "fs_write",
+            serde_json::json!({"path": "a.txt", "content": "x"}),
+        )],
+    )];
+    let core = core_at(d.path(), &fake, script, |c| {
+        c.approval = Some(theseus_core::config::ApprovalConfig {
+            trusted_users: vec![format!("discord:{USER}")],
+            channels: vec!["discord:dm".into(), "cli".into()],
+        })
+    });
+    let bindings = format!(
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"general\"\nusers = [\"{USER}\"]\nmention_only = false\n",
+        dm_only()
+    );
+    let rpc = bind(&core, d.path(), &bindings).await;
+    let c = core.clone();
+    until("the channel is bound", 10, move || {
+        c.outbox
+            .place_session(&format!("channel:{CHANNEL}"))
+            .unwrap()
+            .is_some()
+    })
+    .await;
+    let sid = core
+        .outbox
+        .place_session(&format!("channel:{CHANNEL}"))
+        .unwrap()
+        .unwrap();
+    let q = ask(&rpc, &sid, "write a")
+        .await
+        .awaiting_confirm
+        .expect("the write waits");
+    let c = core.clone();
+    until("the card and the reply delivered", 10, move || {
+        pending(&c) == 0
+    })
+    .await;
+    let card = fake
+        .messages(DM)
+        .into_iter()
+        .find(|m| m.content.starts_with("**Approve?** `fs.write` a.txt"))
+        .expect("the card in the DM");
+    assert!(
+        card.content.contains("-# for #general · expires"),
+        "{}",
+        card.content
+    );
+    assert_eq!(card.components, 1, "its buttons");
+    let note = fake
+        .messages(CHANNEL)
+        .into_iter()
+        .find(|m| m.content.starts_with("🔐"))
+        .expect("the note in the channel");
+    assert_eq!(
+        note.content,
+        "🔐 Approval for `fs.write` a.txt was asked in DM @eddie: this channel is not a trusted \
+         channel (it is not listed in [approval] channels)."
+    );
+    // Closed with no event that says so; the reconcile finds it.
+    core.kernel
+        .decline_action(&q, "operator", "closed elsewhere")
+        .unwrap();
+    assert_eq!(core.outbox.reconcile_cards().unwrap(), 1);
+    let c = core.clone();
+    until("the settle delivered", 10, move || pending(&c) == 0).await;
+    let card = fake
+        .messages(DM)
+        .into_iter()
+        .find(|m| m.id == card.id)
+        .unwrap();
+    assert_eq!(
+        card.content,
+        "❎ **Declined** by operator · `fs.write` a.txt"
+    );
+    assert_eq!(card.components, 0, "its buttons are gone");
+    let note = fake
+        .messages(CHANNEL)
+        .into_iter()
+        .find(|m| m.id == note.id)
+        .unwrap();
+    assert_eq!(
+        note.content,
+        "🔐 ❎ **Declined** by operator · `fs.write` a.txt (in DM @eddie)"
+    );
+}
+
 /// Pending live edits of one message collapse into the last: a burst of
 /// updates to a slow Discord costs a handful of edits, not one per update.
 #[tokio::test]

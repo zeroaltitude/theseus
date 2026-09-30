@@ -3048,6 +3048,7 @@ dependencies = [
  "theseus-discord",
  "theseus-kernel",
  "theseus-protocol",
+ "theseus-sim",
  "theseus-store",
  "tokio",
  "toml",
