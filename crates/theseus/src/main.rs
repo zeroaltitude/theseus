@@ -35,6 +35,8 @@ Quick start:
   theseus history [session]                  a session's transcript: messages, tool calls, results
   theseus watch [session]                    follow a session live (turns started anywhere)
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
+  theseus tasks                              background tasks (task.create): state, spend, what each waits on
+  theseus cancel <task>                      stop a task and its jobs (its last six characters are enough)
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
   theseus catalog                            models, context windows, and prices
@@ -176,6 +178,16 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<ExecutionsCmd>,
     },
+    /// Tasks: the background sessions conversations started with task.create, the newest
+    /// first, with state, spend of their carved limit, and what each waits on.
+    Tasks {
+        /// Only the tasks this session started.
+        #[arg(long, short)]
+        session: Option<String>,
+    },
+    /// Stop a task and its jobs, as `executions cancel` does; its place hears it once. TASK is
+    /// its id or its last six characters, as `theseus tasks` shows it.
+    Cancel { task: String },
     /// Model profiles: list, or switch the live one (`theseus profile use glm`).
     Profile {
         #[command(subcommand)]
@@ -1064,6 +1076,57 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
         },
+        Cmd::Tasks { session } => {
+            let v = conn
+                .call(
+                    method::TASK_LIST,
+                    serde_json::to_value(theseus_protocol::TaskListParams {
+                        session_id: session,
+                        target: None,
+                    })?,
+                    |_, _| {},
+                )
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                let l: theseus_protocol::TaskListResult = serde_json::from_value(v)?;
+                if l.tasks.is_empty() {
+                    println!("no tasks");
+                }
+                let now = theseus_protocol::now_unix_ms();
+                for t in l.tasks {
+                    println!("{}", task_line(&t, now));
+                }
+            }
+        }
+        Cmd::Cancel { task } => {
+            let v = conn
+                .call(
+                    method::TASK_CANCEL,
+                    serde_json::to_value(theseus_protocol::TaskCancelParams {
+                        task,
+                        author: None,
+                    })?,
+                    |_, _| {},
+                )
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                let r: theseus_protocol::TaskCancelResult = serde_json::from_value(v)?;
+                println!(
+                    "task {} {} · {} action(s) asked to stop{}",
+                    r.task.short,
+                    r.task.state,
+                    r.cancelled_actions.len(),
+                    r.task
+                        .ended_reason
+                        .map(|x| format!(" · {x}"))
+                        .unwrap_or_default()
+                );
+            }
+        }
         Cmd::Profile { cmd } => match cmd.unwrap_or(ProfileCmd::List) {
             ProfileCmd::List => {
                 let v = conn
@@ -1722,6 +1785,41 @@ fn print_node(n: &NodeInfo, full: bool) {
 
 /// An execution's budget in dollars: spend since the last reset, the limit,
 /// what is reserved and held, and what came before dollar budgets.
+/// One task, as `theseus tasks` lists it (DD7): its short id, its state and
+/// what it waits on, its spend of its carved limit, its age, its title, and
+/// the session that started it.
+fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> String {
+    let age = now_ms.saturating_sub(t.created_at_ms) / 1000;
+    let age = match age {
+        0..=59 => format!("{age}s"),
+        60..=3599 => format!("{}m", age / 60),
+        3600..=86_399 => format!("{}h", age / 3600),
+        _ => format!("{}d", age / 86_400),
+    };
+    let state = match &t.waiting_on {
+        Some(w) => format!("{} on {w}", t.state),
+        None => t.state.clone(),
+    };
+    let asks = match t.pending_confirms {
+        0 => String::new(),
+        n => format!(" · {n} waiting for you (theseus confirm)"),
+    };
+    format!(
+        "{}\t{state}\t${:.4} of ${:.2}\t{} turn{}\t{age}\t{}\tfrom {}{asks}{}",
+        t.short,
+        t.spent_usd,
+        t.limit_usd,
+        t.turns,
+        if t.turns == 1 { "" } else { "s" },
+        t.title.as_deref().unwrap_or("untitled"),
+        t.parent_session_id,
+        t.ended_reason
+            .as_deref()
+            .map(|r| format!("\t{r}"))
+            .unwrap_or_default()
+    )
+}
+
 fn budget_line(b: &theseus_protocol::BudgetInfo) -> String {
     let mut s = format!(
         "budget ${:.4} of ${:.2} (reserved ${:.4}, held ${:.4})",

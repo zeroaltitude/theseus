@@ -182,6 +182,8 @@ export interface SessionInfo {
   last_active_ms?: number; cost_usd?: number; tool_calls?: number
   profile?: string | null; model?: string | null; compilation_id?: string | null; title?: string | null
   pending_confirms?: number
+  /** A task session (DD7): the session that started it, and its carved limit. */
+  parent_session_id?: string | null; limit_usd?: number | null
 }
 
 /// An execution's budget in US dollars (theseus-0sg). `spent_usd` counts since the last reset;

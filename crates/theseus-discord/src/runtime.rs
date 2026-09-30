@@ -403,14 +403,20 @@ async fn serve(
 }
 
 async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Board) {
-    let cmds = [
+    let cmds = commands();
+    match http.interaction(app).set_global_commands(&cmds).await {
+        Ok(_) => tracing::info!(commands = cmds.len(), "discord slash commands registered"),
+        Err(e) => board.error("register slash commands", None, e),
+    }
+}
+
+/// The slash commands every place answers. `/cancel` names a task (DD7):
+/// `/stop` stops this session's own work.
+fn commands() -> Vec<twilight_model::application::command::Command> {
+    let mut cmds: Vec<_> = [
         (
             "stop",
             "Stop what Theseus is doing here (cancels this session's work) and start fresh",
-        ),
-        (
-            "cancel",
-            "Same as /stop until tasks arrive: cancel this session's work",
         ),
         (
             "new",
@@ -420,12 +426,30 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
             "status",
             "This place's session: state, turns, dollars, waiting confirms",
         ),
+        (
+            "tasks",
+            "This place's background tasks: state, spend, and what each waits on",
+        ),
     ]
-    .map(|(n, d)| CommandBuilder::new(n, d, CommandType::ChatInput).build());
-    match http.interaction(app).set_global_commands(&cmds).await {
-        Ok(_) => tracing::info!(commands = cmds.len(), "discord slash commands registered"),
-        Err(e) => board.error("register slash commands", None, e),
-    }
+    .into_iter()
+    .map(|(n, d)| CommandBuilder::new(n, d, CommandType::ChatInput).build())
+    .collect();
+    cmds.push(
+        CommandBuilder::new(
+            "cancel",
+            "Stop a background task and its jobs; /tasks lists them",
+            CommandType::ChatInput,
+        )
+        .option(
+            twilight_util::builder::command::StringBuilder::new(
+                "task",
+                "The task's id, or its last six characters, as /tasks shows it",
+            )
+            .required(true),
+        )
+        .build(),
+    );
+    cmds
 }
 
 /// What every place, lane, and the gateway share.
@@ -512,18 +536,25 @@ enum PlaceMsg {
     DmChannel(Id<ChannelMarker>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Control {
     Stop,
     New,
     Status,
+    /// This place's tasks (DD7).
+    Tasks,
+    /// Stop the task named; None asks which.
+    Cancel(Option<String>),
 }
 
 fn parse_control(text: &str) -> Option<Control> {
-    match text.split_whitespace().next()? {
-        "/stop" | "/cancel" => Some(Control::Stop),
+    let mut words = text.split_whitespace();
+    match words.next()? {
+        "/stop" => Some(Control::Stop),
+        "/cancel" => Some(Control::Cancel(words.next().map(str::to_string))),
         "/new" => Some(Control::New),
         "/status" => Some(Control::Status),
+        "/tasks" => Some(Control::Tasks),
         _ => None,
     }
 }
@@ -1074,8 +1105,19 @@ impl Shared {
             }
             Some(InteractionData::ApplicationCommand(c)) => {
                 let cmd = match c.name.as_str() {
-                    "stop" | "cancel" => Control::Stop,
+                    "stop" => Control::Stop,
+                    // `/cancel task:<id>` (DD7).
+                    "cancel" => Control::Cancel(c.options.iter().find_map(|o| {
+                        match (&*o.name, &o.value) {
+                            (
+                                "task",
+                                twilight_model::application::interaction::application_command::CommandOptionValue::String(s),
+                            ) => Some(s.clone()),
+                            _ => None,
+                        }
+                    })),
                     "new" => Control::New,
+                    "tasks" => Control::Tasks,
                     _ => Control::Status,
                 };
                 self.respond(
@@ -1822,6 +1864,50 @@ impl Place {
                     Err(e) => format!("{said} Could not open a new session: {e}"),
                 }
             }
+            Control::Tasks => {
+                // The tasks that report here (DD7), the newest first.
+                match self
+                    .shared
+                    .rpc
+                    .call::<_, theseus_protocol::TaskListResult>(
+                        theseus_protocol::method::TASK_LIST,
+                        theseus_protocol::TaskListParams {
+                            session_id: None,
+                            target: Some(self.target.clone()),
+                        },
+                    )
+                    .await
+                {
+                    Ok(l) => crate::render::tasks(&l.tasks, theseus_protocol::now_unix_ms()),
+                    Err(e) => format!("⚠️ Could not list the tasks: {e}."),
+                }
+            }
+            Control::Cancel(None) => "Which task? `/cancel <task>` stops one, by the id `/tasks` \
+                                      shows. `/stop` stops this session's own work."
+                .to_string(),
+            Control::Cancel(Some(task)) => match self
+                .shared
+                .rpc
+                .call::<_, theseus_protocol::TaskCancelResult>(
+                    theseus_protocol::method::TASK_CANCEL,
+                    theseus_protocol::TaskCancelParams {
+                        task,
+                        author: Some(by.to_string()),
+                    },
+                )
+                .await
+            {
+                Ok(r) if r.cancelled_actions.is_empty() && r.task.state != "cancelled" => format!(
+                    "Task `{}` had already ended ({}).",
+                    r.task.short, r.task.state
+                ),
+                Ok(r) => format!(
+                    "⏹️ Task `{}` stopped ({} running action(s) told to stop). Its report says so here.",
+                    r.task.short,
+                    r.cancelled_actions.len()
+                ),
+                Err(e) => format!("⚠️ Could not cancel: {e}."),
+            },
         }
     }
 
@@ -1912,9 +1998,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_slash_commands_list_tasks_and_cancel_one_by_name() {
+        let cmds = commands();
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["stop", "new", "status", "tasks", "cancel"]);
+        let cancel = cmds.iter().find(|c| c.name == "cancel").unwrap();
+        assert_eq!(cancel.options.len(), 1);
+        assert_eq!(cancel.options[0].name, "task");
+        assert_eq!(cancel.options[0].required, Some(true));
+    }
+
+    #[test]
     fn controls_and_confirm_ids_parse() {
         assert_eq!(parse_control("/stop"), Some(Control::Stop));
-        assert_eq!(parse_control("  /cancel now"), Some(Control::Stop));
+        // `/cancel` names a task now (DD7); alone, it asks which.
+        assert_eq!(
+            parse_control("  /cancel a1b2c3"),
+            Some(Control::Cancel(Some("a1b2c3".into())))
+        );
+        assert_eq!(parse_control("/cancel"), Some(Control::Cancel(None)));
+        assert_eq!(parse_control("/tasks"), Some(Control::Tasks));
         assert_eq!(parse_control("/new"), Some(Control::New));
         assert_eq!(parse_control("/status"), Some(Control::Status));
         assert_eq!(parse_control("please /stop"), None);

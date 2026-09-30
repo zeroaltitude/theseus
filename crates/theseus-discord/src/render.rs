@@ -788,6 +788,48 @@ pub fn failed(class: &str, error: &str) -> String {
     format!("⚠️ **Turn failed** ({class}): {}", clip(error, 600))
 }
 
+/// This place's tasks (DD7), as `/tasks` lists them: the newest ten, each
+/// with its state, what it waits on, its spend of its limit, and its age.
+pub fn tasks(tasks: &[theseus_protocol::TaskInfo], now_ms: u64) -> String {
+    if tasks.is_empty() {
+        return "No tasks here yet. Ask for one: \"start a task that …\".".into();
+    }
+    let mut lines = vec![format!("**Tasks here** ({})", tasks.len())];
+    for t in tasks.iter().take(10) {
+        let age = now_ms.saturating_sub(t.created_at_ms) / 1000;
+        let age = match age {
+            0..=59 => format!("{age} s"),
+            60..=3599 => format!("{} min", age / 60),
+            3600..=86_399 => format!("{} h", age / 3600),
+            _ => format!("{} d", age / 86_400),
+        };
+        let state = match &t.waiting_on {
+            Some(w) => format!("{} on {w}", t.state),
+            None => t.state.clone(),
+        };
+        let asks = if t.pending_confirms > 0 {
+            " · **needs you**"
+        } else {
+            ""
+        };
+        lines.push(format!(
+            "• `{}` {state}{asks} · {} of {} · {age} · {}",
+            t.short,
+            dollars(t.spent_usd),
+            dollars(t.limit_usd),
+            clip(t.title.as_deref().unwrap_or("untitled"), 80)
+        ));
+    }
+    if tasks.len() > 10 {
+        lines.push(format!(
+            "-# and {} older; `theseus tasks` lists them all",
+            tasks.len() - 10
+        ));
+    }
+    lines.push("-# `/cancel <task>` stops one.".into());
+    lines.join("\n")
+}
+
 /// A task's report (DD7), as one message: the task by its short id and
 /// title, how it ended, its last message (clipped to fit), and what it spent.
 pub fn report(body: &Value, said: Option<&str>) -> String {
@@ -2166,5 +2208,40 @@ mod tests {
             card.content
         );
         assert_eq!(card.line, "task `a1b2c3`: `proc.run` cargo test");
+    }
+
+    /// `/tasks` (DD7): each task by its short id, with its state, what it
+    /// waits on, its spend of its limit, its age, and its title.
+    #[test]
+    fn slash_tasks_lists_each_with_state_and_spend() {
+        let t = |short: &str, state: &str, waiting: Option<&str>, asks: u32| {
+            theseus_protocol::TaskInfo {
+                task_id: format!("ses_{short}"),
+                short: short.into(),
+                title: Some("Run the gate".into()),
+                state: state.into(),
+                waiting_on: waiting.map(str::to_string),
+                spent_usd: 0.0123,
+                limit_usd: 2.5,
+                pending_confirms: asks,
+                created_at_ms: 1_000,
+                ..Default::default()
+            }
+        };
+        let text = tasks(
+            &[
+                t("a1b2c3", "waiting", Some("an approval"), 1),
+                t("d4e5f6", "complete", None, 0),
+            ],
+            181_000,
+        );
+        assert_eq!(
+            text,
+            "**Tasks here** (2)\n\
+             • `a1b2c3` waiting on an approval · **needs you** · $0.0123 of $2.50 · 3 min · Run the gate\n\
+             • `d4e5f6` complete · $0.0123 of $2.50 · 3 min · Run the gate\n\
+             -# `/cancel <task>` stops one."
+        );
+        assert!(tasks(&[], 0).starts_with("No tasks here yet"));
     }
 }

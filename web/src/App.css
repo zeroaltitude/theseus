@@ -170,6 +170,8 @@ button.link.danger { color: var(--bad); }
 .s-item:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .s-item.on { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
 .s-item.draft { cursor: default; }
+/* A task (DD7) nests under the session that started it. */
+.s-item.task { margin-left: 18px; border-left: 2px solid var(--border); border-radius: 0 8px 8px 0; font-size: 12.5px; }
 .s-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .s-meta { display: flex; flex-wrap: wrap; gap: 0 4px; align-items: center; margin-top: 1px; }
 .s-meta .pill { margin-left: 4px; }
