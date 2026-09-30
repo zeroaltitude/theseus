@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.56
+# The Ship of Theseus — v0.57
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -160,6 +160,8 @@ The word *session* is used deliberately and narrowly. A **session is a compiler 
 **Promotion.** A conversation accumulates intent; at some point it becomes a structured, trackable, goal-oriented piece of work. That moment is `task.create` with `autonomous: true` (proposed by the model, judged by Jev under `CLASSIFY`, or asked for by a human). Promotion **forks an execution**: the new task execution inherits the requesting principal's authority and delegation limits (never broader, §3.9), receives its own budget allotment carved from the requester's, records `origin_channel`, and gets a `reports_to` edge to that channel. The conversation session returns to its human cadence immediately; it is not blocked by the task and never was the task.
 
 **Promotion requires an arrangement** (Eddie, 2026-09-27; openrig's mission install, Appendix F). The requesting conversation's agent holds the discussion, so it writes an `Arrangement` node. The node names the pieces the task needs (objective, acceptance criteria, design nodes, all by id), what to trust, and what supersedes what. The task's first compilation admits the pieces by reference, never paraphrased, so a later correction still reaches them. The arrangement comes right after the objective, rendered as testimony with its origin and as-of. Promotion is refused without an arrangement, and the refusal gives the reason. No arrangement is ever generated at install time, because a generated summary is a second source that drifts. If a one-line objective is drawn from a long discussion, promotion flags it and asks for the design to be attached.
+
+_(As built 2026-09-30, theseus-qn2 (DD7), a first form of promotion. `task.create { brief, budget_usd? }` opens a task session whose first node is the brief, and returns at once. The child inherits the parent's authority, persona, context files, postures, and model. Its approvals go where the parent's go, and its notices name it. Its budget is carved from the parent's: `budget_usd`, or a quarter of what the parent has left, capped at all of it, as a reservation in the parent, with the child's spend counted in the parent's. Depth is one: a task cannot start tasks. A task is done when its turn would wait on input, and its last message is its report. The report goes once to the place through the outbox (§3.16), and once into the parent's session as a node at the parent's next turn. Nothing starts a parent turn. `task.list` and `task.cancel`, `theseus tasks` and `theseus cancel`, and Discord's `/tasks` and `/cancel <task>` see and stop tasks, and the web UI shows each session's tasks as a tree. The arrangement, `autonomous: true`, sub-tasks, and §3.5's task graph are not built: the requesting model writes the brief. Part III A4, item 7.)_
 
 **How they stay connected.** Only through the graph, never through shared in-memory state:
 
@@ -3890,4 +3892,108 @@ FAST's start path.
 - The gateway side cannot be faked, so no test sends a Discord message in; turns enter through the
   protocol.
 - `kernel-sim` does not yet inject crashes around the outbox's transitions.
-- A task's report (DD7) will be a post of its own kind, through `Outbox::post`.
+- A task's report (DD7) will be a post of its own kind, through `Outbox::post`. _(Done in item 7.)_
+
+### Item 7. Task sessions (theseus-qn2, with theseus-xeo; 2026-09-30, 04:49–06:03; 795ed91, 625dde3, 5b44ff5, 9610b2e, 3b0b20d)
+
+**Why.** 43% of all tool calls in the audit's 30 days ran in delegated sessions. Eddie's daily pattern is
+"go do this long thing and tell me when it's done", while he keeps talking.
+
+**What exists.**
+- **`task.create { brief, budget_usd? }`** (`theseus-core/src/task.rs`), a harness tool
+  (`Backend::Harness`, new): it needs the turn's kernel and store, so the runtime runs it in the calling
+  turn's task. It opens the child in one kernel frame (`Kernel::open_task`, under `lock_two(parent,
+  child)`) and returns at once. The child's ids come from the call's correlation id (`act_X` opens `exe_X`
+  in `ses_X`), so a call run again after a crash finds its task instead of opening a second.
+- **What the child inherits** (§3.2a's note): authority, persona and context files, postures, model, and
+  where its approvals go. Its cards, its budget question, and its notices name it (`task a1b2c3:`).
+- **The carve** (`theseus-kernel/src/tasks.rs`). `budget_usd`, or a quarter of what the parent has left,
+  capped at all of it, reserved in the parent as `task:<child>`, with the child's limit pinned. Each
+  settle of the child's cost moves it into the parent's spend and shrinks the carve, under both locks
+  (`lock_family`). The child's end releases the carve, but for what it still has in flight. At its own
+  limit the child asks, as any session does.
+- **Depth one.** A task's `task.create` is refused, and the kernel refuses too (`TaskDepth`).
+- **The report.** A task turn that would wait on input ends the task, and its last message is its report.
+  The frame that ends it carries the report's outbox post (`report:<task>`, one message ever) and puts the
+  child on the parent's `reports`. The parent's next turn writes one node per report into its own session
+  (`origin: harness`, author `task:<short>`), in one frame that clears the list. Nothing starts a parent
+  turn. A failed task reports `failed`, and a cancel reports `stopped`, in the cancel's own frame.
+- **Seeing and stopping.** `task.list` and `task.cancel` in the protocol, `theseus tasks` and
+  `theseus cancel <task>`, Discord's `/tasks` and `/cancel task:<id>`, and the web UI's session tree with
+  each task's state and spend. A cancel terminates the task's jobs and walks each action's cancel, as
+  `execution.cancel` does. A second cancel writes nothing.
+- **Crash safety.** A task is an execution and a session, so startup requeues it, and the driver continues
+  it. A job that outlives a `kill -9` is found still running, and its result finishes the task.
+- **theseus-xeo.** `Store::update_session` holds a per-session lock from the read to the indexed write,
+  for one frame. A turn writes only its own fields, and takes a pending recompile when it starts. So a
+  `session.recompile` asked during a turn is kept for the next.
+- **`lock_two`'s first callers:** `open_task`, and `lock_family` for every transition of a task, which
+  takes the task and its parent together.
+- **A kernel fix found on the way.** A late completion after a cancel that held its reservation as
+  unknown books its real cost and releases the hold. Before, a cancelled task would have kept its carve.
+
+**How it is proven.**
+- The gate at 3b0b20d: 445 tests, 25 of them new:
+  - 12 in the kernel: the carve, the cap, one task per call, depth one, the spend carried, the end, the
+    cancel, a late completion after a cancel, a crash, and three `lock_two` races that lose an update with
+    one lock (a throwaway probe, reverted);
+  - 5 in the core, through the real driver;
+  - 2 for theseus-xeo, the filed race and the lock;
+  - 4 in Discord, and 2 against the real daemon (a `kill -9` while a task's job runs, and a cancel that
+    kills a real job).
+- The step's live check (05:53–06:00), on a copy of Eddie's store:
+  - a GLM turn started a task that ran `scripts/gate.sh`, and a second question was answered meanwhile;
+  - the report posted once, and the parent quoted it;
+  - a `kill -9` during a second task's gate run: the task finished after the restart, in 3 turns, and
+    reported once.
+  - The first gate run inside a task found that the broker test's own approval, from inside a job, is
+    refused by J1's guard, correctly. 3b0b20d makes that test skip its operator's part inside a job, as
+    `job_approval.rs` does.
+- **The run.** A clean WSL shutdown at 06:03:36 (a WSL update) ended the run while it wrote the report's
+  last four sections. Its commits were all pushed, and Tabitha wrote those sections at review.
+
+**Reviewed** (Tabitha, 2026-09-30, 08:28 to 08:40).
+- **The first gate rerun failed one test**, `theseus-tools git::tests::diff_and_log_against_a_real_repository`,
+  in 60 s: "gpg failed to sign the data". Its fixture builds a repository with the git CLI and inherited
+  the operator's global `commit.gpgsign = true`, and the reboot had left the gpg-agent locked. This is not
+  DD7's fault, and it predates DD7. Fixed at review in 94d184d: the fixture sets
+  `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, and passes in 49 ms with the agent still
+  locked. The gate then passed: 445 tests, and every bench phase within budget.
+- On the release build of 94d184d, over a fresh copy of Eddie's store, with the binding on a fake REST
+  (port 9473) and a gateway that never connected:
+  - **A task that reports.** A GLM turn in the bound session called `task.create` with a $0.50 budget and
+    a brief to run `git log --oneline -3`, and returned in 22.5 s. The task ran one turn, spent $0.0007 of
+    its $0.50, and completed. Its report was one message at the fake, `📋 Task 4bed87 finished`, with the
+    three subjects;
+  - **the parent's next turn quoted it** exactly, in one loop with no tool call, and the parent's session
+    held exactly one report node, authored `task:4bed87`;
+  - **a cancel.** A second task ran `sleep 120` in a job wrapper. `theseus cancel 164775` stopped it: the
+    wrapper and the `sleep` were gone, and one message, `⏹️ Task 164775 stopped … cancelled by sock#13`,
+    reached the fake. A second cancel asked 0 actions to stop and posted nothing;
+  - **the parent's spend holds its tasks'.** The parent's own three turns cost $0.001444, and the tasks
+    $0.000995, which makes $0.002439. The parent's execution said $0.002442 spent, and $0 reserved once
+    both tasks had ended;
+  - nothing reached Discord: the connections went to 127.0.0.1, api.z.ai, and api.github.com.
+- Eddie's unchanged note loads under the new binary.
+- Installed at 08:38.
+- **Taken at review:**
+  - A cancel's author on Discord reads as the connection's label (`sock#13`). DD8, which touches
+    `/cancel` for wakes, makes it name the surface or the person.
+  - Whether a finished task should start a parent turn is put to Eddie as a later `wake_parent` option
+    (the report's section 13).
+
+**Divergence from the brief and the issue.** The report's section 14 has the table:
+- `task.create` is a harness tool, not a toollet;
+- the report reaches the parent at its next turn;
+- the default carve is a quarter;
+- `/cancel` now takes a required task;
+- the kernel fix for a late completion after a cancel;
+- the broker test's skip inside a job;
+- and, at review, the hermetic git fixture.
+
+**Known gaps.**
+- Discord's `/tasks` and `/cancel` were not run live, since the gateway is not faked. The binding's tests
+  cover them.
+- A task's live progress shows only in the web UI's session, not in the place.
+- `/stop` does not stop a session's tasks, which `/cancel <task>` does.
+- §3.2a's arrangement, `autonomous: true`, sub-tasks, and §3.5's task graph are not built.
