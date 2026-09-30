@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.55
+# The Ship of Theseus — v0.56
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -143,6 +143,8 @@ Consequences:
 - A reference to another channel's history ("what we did in the deploy thread") makes the agent pick it up: **borrow** by default (that channel's summary or relevant nodes enter the current context via `mentions_conversation`), **switch** on explicit ask (subsequent turns are posted and appended in that channel instead).
 
 The runtime object behind a channel is a `tokio` actor with a mailbox and a few kilobytes of hot state. Parked, it costs no CPU and no thread. Turns are serialized per channel; messages arriving mid-turn are coalesced into the next context build **with each message's author preserved**, so authority never blurs across a coalesced batch. Under LOOP FOREVER, an inbound message during autonomous work is a nudge, not an interrupt, unless it is a deterministic control (`/stop`, `/cancel`, revocation) or Jev judges it a new ask.
+
+**Delivery** (theseus-q4v; built 2026-09-30). What must reach a channel is written when it becomes true, whether or not anything can deliver it: a turn's reply, a confirm card and how its question closed, a notice the operator must see, and a task's report. Each is an outbox post (§3.16), addressed to the channel its session reports into. The binding only delivers: it sends a channel's posts in order and once, and records the message ids in each post's completion. Live progress is not a post. Typing, and the edits of a reply while its turn runs, are the binding's alone: best-effort, never replayed, and only a message's latest state is ever sent. Nothing waits for a binding to start. A binding that was away sends what waited when it is back, before anything live.
 
 Humans are `Person` nodes keyed by Discord user id with their own memory namespace that follows them across every guild and channel.
 
@@ -606,6 +608,13 @@ Native in-process calls of one response that only read run concurrently (§4.6).
 **`outcome_unknown` is knowledge, not a terminal fact.** A record marked unknown stays **resolvable**: later authoritative evidence (a late completion, a reconciler finding) settles it to succeeded or failed and is ledgered as a resolution. Resolution never revives a cancelled execution and never authorizes new work by itself; it updates the record and, if the execution is still waiting on it, delivers the result.
 
 **Recovery** never blindly retries a non-idempotent action. Correlation ids are not idempotency keys: an MCP or JSON-RPC request id correlates a request with its response and guarantees nothing about repeated effects; Discord nonces and AWS client tokens have their own validity windows. Every tool adapter therefore declares a **retry class** for each operation: `safe_to_repeat`, `idempotent_with_key` (naming the downstream key), `recoverable_by_external_id`, or `non_repeatable` (requires a human to resolve uncertainty). Generic SDK retry behaviour is disabled or overridden so it cannot silently contradict the class. Where the outcome cannot be established, `outcome_unknown` goes to the principal with the exact action, and the model gets it as a tool result so it can reason about it.
+
+**The outbox** (theseus-q4v; built 2026-09-30). A post is a kernel action of its own record kind (`OUTBOX`), so no execution waits on it. It is never outstanding, queues no result, and wakes nothing, and neither a cancel nor the end of its execution touches it.
+- The core stages it planned and authorized in one record, since nothing gates what the core itself says. It rides in the frame of the transition that made it true: a reply in the frame that ends its turn, and a card in the frame that plans its question.
+- The binding dispatches it before its first call, and settles it with the channel's answer, its message ids, as its completion. A settle is idempotent.
+- A post that creates messages is `idempotent_with_key`: each create carries Discord's nonce, derived from the message's key, with `enforce_nonce`. A retry after a crash between the send and the settle returns the first message, and a first message that holds an earlier send's content is edited to the post's state. An edit is `safe_to_repeat`, and targets the recorded id.
+- Past the nonce's window (120 s, ours; Discord says only "a few minutes"), a create that may have landed goes again with a line that says it may be a copy. So the worst case is a visible duplicate, never a lost reply. A refusal that no retry changes (a 4xx other than 429) settles the post as failed, and health counts it.
+- A card whose question closed is settled by a post of its own: at the close, when the core closed it, and otherwise by a level-triggered pass on the binding's connect and on every heartbeat.
 
 **Cancellation is a lifecycle, not a flag.** `cancel_requested → cancel_acknowledged → termination_verified`, or `cancel_unsupported` / `cancel_outcome_uncertain` where the backend offers no external termination (a running Lambda invocation, for example). Executions report which state they reached. Every job wrapper carries its **own deadline** enforced locally, so a harness outage never removes the only limit on a job's lifetime.
 
@@ -1902,7 +1911,7 @@ M3 was built in three parts: **content** (the session graph, the context compile
 
 *Discord and restore.* 108 tests. Nine in `theseus-discord`: a streamed turn renders as edits and ends with its footer; a confirm gets buttons and loses them when answered; denied calls and failed turns say why; long text splits under the limit with fences balanced, and appending never moves an earlier cut; tool summaries; the bindings example parses and bad files are refused with the reason; controls and button ids parse. Four in `restore`: a WAL restores into an empty state dir and the source is byte-identical afterwards; an occupied store needs `--force` and survives moved aside; a torn tail is cut and reported; nothing to restore is an error. Live against Discord (a scratch daemon, DM binding): the gateway reached ready, four slash commands registered, the DM channel opened, and the bind notice was sent, all in the ledger (`discord.bound`, `discord.message.out`, `discord.ready`). Live restore from a copy of that daemon's WAL: 13 frames, 14 records, the index rebuilt, a second restore refused without `--force`, and the restored store served.
 
-*Eddie's exit test from Discord* (2026-09-26, 21:03–21:05, his daemon, DM). Two gate refusals rendered with their reasons (`fs.read /etc/hostname`: outside the workspace roots; `proc.run sudo ls`: the deny list), a `proc.run` of `bash -c 'sleep 45; echo done'` approved with the Discord button, then `pkill -9 -f 'theseusd$'` and a restart. The job survived, startup settled it from the spool (45 005 ms, exit 0), and the continuation answered. **The answer never reached Discord:** the driver resumed the execution 0.2 s after the kernel accepted, and the turn ended at 21:05:36.6, but the binding watched its sessions only at 21:05:37.8, and the bus delivers live events only. Fixed in 8a41519: the driver waits (at most 20 s) until every expected binding watches its sessions and ledgers `driver.started` with the wait; the renderer shows a turn it only saw end from the result's final text. Eddie's rerun at 21:18 passed: the driver waited 1 687 ms for the binding (`driver.started`), the continuation reported the job still running into the DM, and 45 022 ms after launch the late result was settled and its answer posted there. What remains of the P5 prove is a real coding task from Discord. Walking Eddie through the policy then found a hole in the gate itself: a `proc.run` call's only resource was its working directory, so an allow-listed command could name any path in its arguments (`git diff --no-index /dev/null ~/.ssh/id_rsa` would have printed a protected file unconfirmed, and `git log --output=<path>` could write anywhere). Fixed in 15aadce as described under the policy gate above; git left the default allow list because its config and attributes can run programs, and the native `git.diff` and `git.log` read history without it. Then Eddie set the policy's shape (862f5c6, §3.9): `[tools].projects_dir` replaces the built-in `~/projects` (no default: without it every path is outside the workspace), and one `[policy].enforcement` ladder (strict | ask | notify | open, 866bd1b) decides what a confirm and a deny do, replacing a first cut of two independent settings (862f5c6) after Eddie asked that they be intrinsically compatible: two knobs allowed a call against the policy to run with no card while a merely sensitive one waited. Anything that runs without asking posts a structured notice in the channel, and a floor no level lifts. Scenario tests run a write with no card and a read outside the roots under `open` (proving `theseusd` stays floored) and turn a refusal into a marked confirm under `ask`.
+*Eddie's exit test from Discord* (2026-09-26, 21:03–21:05, his daemon, DM). Two gate refusals rendered with their reasons (`fs.read /etc/hostname`: outside the workspace roots; `proc.run sudo ls`: the deny list), a `proc.run` of `bash -c 'sleep 45; echo done'` approved with the Discord button, then `pkill -9 -f 'theseusd$'` and a restart. The job survived, startup settled it from the spool (45 005 ms, exit 0), and the continuation answered. **The answer never reached Discord:** the driver resumed the execution 0.2 s after the kernel accepted, and the turn ended at 21:05:36.6, but the binding watched its sessions only at 21:05:37.8, and the bus delivers live events only. Fixed in 8a41519: the driver waits (at most 20 s) until every expected binding watches its sessions and ledgers `driver.started` with the wait; the renderer shows a turn it only saw end from the result's final text. _(Replaced 2026-09-30, theseus-q4v: the reply is a post, and the driver waits for nothing.)_ Eddie's rerun at 21:18 passed: the driver waited 1 687 ms for the binding (`driver.started`), the continuation reported the job still running into the DM, and 45 022 ms after launch the late result was settled and its answer posted there. What remains of the P5 prove is a real coding task from Discord. Walking Eddie through the policy then found a hole in the gate itself: a `proc.run` call's only resource was its working directory, so an allow-listed command could name any path in its arguments (`git diff --no-index /dev/null ~/.ssh/id_rsa` would have printed a protected file unconfirmed, and `git log --output=<path>` could write anywhere). Fixed in 15aadce as described under the policy gate above; git left the default allow list because its config and attributes can run programs, and the native `git.diff` and `git.log` read history without it. Then Eddie set the policy's shape (862f5c6, §3.9): `[tools].projects_dir` replaces the built-in `~/projects` (no default: without it every path is outside the workspace), and one `[policy].enforcement` ladder (strict | ask | notify | open, 866bd1b) decides what a confirm and a deny do, replacing a first cut of two independent settings (862f5c6) after Eddie asked that they be intrinsically compatible: two knobs allowed a call against the policy to run with no card while a merely sensitive one waited. Anything that runs without asking posts a structured notice in the channel, and a floor no level lifts. Scenario tests run a write with no card and a read outside the roots under `open` (proving `theseusd` stays floored) and turn a refusal into a marked confirm under `ask`.
 
 _Note, 2026-09-29._ The coding task is still open. Eddie took one to Theseus from Discord on 2026-09-28 and wrote at 23:57: "Coding task from discord went very well (haven't written so far just analyzed)". The session analysed the code but did not yet change it, so this prove still waits on a task that writes. The prove's clause on a request Eddie is not permitted to make is now read under no deny, as the reversal records (A3b).
 
@@ -1921,7 +1930,7 @@ Local work is about 5 % of startup; the other 95 % is two network calls on the s
 | Planned | Actual | Why | Disposition |
 |---|---|---|---|
 | Discord (twilight) as M3's front end, the confirm as a Discord component | Built third, after the web UI and CLI, as a protocol client of the core | The confirm needed a surface first and Eddie's rule required the web UI to show everything first; a protocol client runs exactly the paths the other surfaces run | Keep |
-| Delivery to a channel is an action (§3.2a) | Discord posts and edits are direct HTTP calls, counted in health and ledgered (`discord.message.out`, `discord.error`) | M3 has no task executions reporting into channels; a conversation's reply is already the turn's own output | Make delivery an action when task sessions report into channels (M5) |
+| Delivery to a channel is an action (§3.2a) | Discord posts and edits are direct HTTP calls, counted in health and ledgered (`discord.message.out`, `discord.error`) | M3 has no task executions reporting into channels; a conversation's reply is already the turn's own output | Done in M3.6 item 6 (theseus-q4v, A4): what must be seen is an outbox post, and live progress stays direct |
 | Messages coalesced with each author preserved (§3.2) | Coalesced into one input: joined when one author wrote them all, `[author]` tags otherwise; the node's author label is `discord:<name>` | One operator in M3; separate nodes per author arrive with Person nodes | Revisit with roles and Persons |
 | `/stop` stops the model loop | `/stop` cancels the session's execution and binds the place to a fresh session | The kernel has no soft stop for a turn; an execution is one per session and cancel is terminal | Consider a turn-level stop with M5's Advancer |
 | `theseus restore` | `theseusd restore --from <dir>` | The daemon owns the store, and restore must run with the daemon stopped | Keep |
@@ -1935,7 +1944,7 @@ Local work is about 5 % of startup; the other 95 % is two network calls on the s
 | The run-hooks path wired at each event site (P2); the core's hook sites and the kernel gate meet when tools arrive (A2) | The same fourteen events as at M0 are dispatched. `tool.pre_call`, `tool.post_call`, `confirm.requested`, `action.planned`, `action.dispatched`, `completion.received`, and `ledger.row` sit on paths that exist and are never dispatched, and the confirm is decided in the policy gate, not through `PreToolCall`'s `defer` (§3.17). `memory.*` and `judgment.made` wait for their subsystems | Not recorded when M2 and M3 landed; found by the theseus-s3m review, 2026-09-27 (Appendix F). Re-verified that night, with a further finding: three dispatched sites discard their result. They are `tool.proposed` (gate), `context.built` (transform), and `reply.claim` (claim). With `tool.pre_call` unwired, no hook could stop a tool call. This is latent while `Hooks::dispatch` always returns `Proceed` (only remote observers exist) | Eddie, 2026-09-27: fix as proposed. Wire the seven, make the three honor their results, amend §3.17 (done in v0.37), add a blocking scenario per gating point, and let the P0 registry test prevent a recurrence (theseus-0dp, P5c item 2). _Moot since 2026-09-28: the hook system was deleted (A3b, the complexity cuts)._ |
 | Process start to accepting events in under 2 s, warm-up excluded (§9) | Met, at 1.3 s, but 1.2 s of it is network on the start path: secrets through `op` and the GitHub token check run before the store opens | The startup order dates from M0, and no bench timed startup end to end | Serve first; secrets and checks resolve in the background (P5b, M3.5) |
 
-**Known gaps carried forward.** The simulator's random operations do not yet include the kernel calls M3 added (decline, wake, the resume flag, records riding in the plan and settle frames); the core scenarios cover them, the fault injection does not. An allowed call interrupted between its plan and its authorization is treated as awaiting confirmation (the safe direction). In-process results over `[tools].result_max_chars` are truncated without a full-output reference (`fs.read` pages instead). `session.history` returns whole sessions, and `theseus confirm` without an id asks each waiting session in turn. The web transcript renders plain text, not markdown. The `updates` thinking display is wired but not yet exercised live. A profile's `max_output_tokens` still wins over the catalog, so a config carrying the old `max_tokens = 1024` truncates tool inputs; regenerate it from `theseusd example-config`. Since 8c8a53a the template caps no profile, so every model runs at its catalog ceiling. Budgets count every token at full weight, cache reads included, and each provider call reserves its output cap plus the input estimate: about 130 k at Sonnet 5's ceiling, so the default million-token budget ends a session near 862 k minus its context (theseus-0sg). A session's limit is fixed when its execution opens; changing `default_budget` affects new sessions only. _(Closed 2026-09-29 by theseus-0sg: budgets are dollars, a session at its limit asks for a reset instead of ending, and `default_budget` is retired; A4, item 1.)_ Discord: attachments are listed in the input by name and size, not read; a DM place whose channel could not be opened at startup stays silent until that user writes; rendering remembers the last eight turns per place, so a confirm answered after a restart is settled by the button handler from the message itself; slash commands are registered globally; there are no threads. Delivery is not yet durable: a turn that ends while Discord is unreachable, or after the 20 s startup wait gave up, is in the store and the web UI but is not re-posted when Discord returns (delivery becomes an action with its own completion in M5; _since 2026-09-29 it is M3.6's item 6, theseus-q4v, P5d_).
+**Known gaps carried forward.** The simulator's random operations do not yet include the kernel calls M3 added (decline, wake, the resume flag, records riding in the plan and settle frames); the core scenarios cover them, the fault injection does not. An allowed call interrupted between its plan and its authorization is treated as awaiting confirmation (the safe direction). In-process results over `[tools].result_max_chars` are truncated without a full-output reference (`fs.read` pages instead). `session.history` returns whole sessions, and `theseus confirm` without an id asks each waiting session in turn. The web transcript renders plain text, not markdown. The `updates` thinking display is wired but not yet exercised live. A profile's `max_output_tokens` still wins over the catalog, so a config carrying the old `max_tokens = 1024` truncates tool inputs; regenerate it from `theseusd example-config`. Since 8c8a53a the template caps no profile, so every model runs at its catalog ceiling. Budgets count every token at full weight, cache reads included, and each provider call reserves its output cap plus the input estimate: about 130 k at Sonnet 5's ceiling, so the default million-token budget ends a session near 862 k minus its context (theseus-0sg). A session's limit is fixed when its execution opens; changing `default_budget` affects new sessions only. _(Closed 2026-09-29 by theseus-0sg: budgets are dollars, a session at its limit asks for a reset instead of ending, and `default_budget` is retired; A4, item 1.)_ Discord: attachments are listed in the input by name and size, not read; a DM place whose channel could not be opened at startup stays silent until that user writes; rendering remembers the last eight turns per place, so a confirm answered after a restart is settled by the button handler from the message itself _(since 2026-09-30, theseus-q4v, a card is settled by its settle post, and only a card from before then settles by its press)_; slash commands are registered globally; there are no threads. Delivery is not yet durable: a turn that ends while Discord is unreachable, or after the 20 s startup wait gave up, is in the store and the web UI but is not re-posted when Discord returns (delivery becomes an action with its own completion in M5; _since 2026-09-29 it is M3.6's item 6, theseus-q4v, P5d_). _(Closed 2026-09-30 by theseus-q4v: A4, item 6.)_
 
 ## A3b. The build chain from the 2026-09-27 decisions (theseus-5r9)
 
@@ -3680,7 +3689,8 @@ Live, over a copy of Eddie's store and his real note through a shim `op`:
 | The 58a header `# Context file: <path>` | `# Context file (system): <path>` and `# Context file (persona <name>): <path>` | Each file labeled by its level | Keep |
 
 **Known gaps.**
-- A Discord question posted before a restart keeps its buttons after a raise withdraws it (to DD6).
+- A Discord question posted before a restart keeps its buttons after a raise withdraws it (to DD6). _(Closed
+  2026-09-30 by theseus-q4v for every card posted since. A card posted before then has no post to settle it.)_
 - A lower limit makes theseus-kks likelier: a limit below one call's reservation asks again after every reset.
 - A persona switch by Jev will rewrite the whole cached prefix, until the files get their own breakpoint
   (theseus-ev1).
@@ -3783,3 +3793,101 @@ section 6). Eddie chose the Brave Search API on 2026-09-29.
 - Pages are read as UTF-8 only, with no gzip or brotli.
 - Not exercised live: the Discord and web UI tool lines, since Discord and the web UI stay off in a
   scratch daemon. The Discord summary is unit-tested.
+
+### Item 6. Durable delivery (theseus-q4v; 2026-09-30, 02:50–04:19; f028083, 9dd4cef, 765111d)
+
+**Why.** 64 DM turns ran past 5 minutes. A reply that ended while Discord was away was lost, since the
+binding posted with a plain HTTP call from a live watcher of its session. For the same reason every
+continuation waited at startup, up to 20 s, for the binding to watch its sessions (A3). That wait was on
+FAST's start path.
+
+**What exists.**
+- **Posts** (`theseus-kernel/src/outbox.rs`, `theseus-core/src/outbox.rs`). The core writes an outbox
+  post when something must reach Discord, whether or not the binding is there:
+  - a turn's reply: its loops' text by node, and its footer;
+  - a confirm card, with its question;
+  - a card's settle at every close: an answer, a supersede, or a raise's withdrawal;
+  - a failed turn, a job's refused answer, and a restart onto a changed config note;
+  - the binding's own notes.
+
+  A post is a kernel action of the record kind `OUTBOX`: planned and authorized, dispatched, and settled
+  with its message ids. It is no execution's work.
+- **Frames.** A reply rides in the frame that ends its turn, and a card in its question's, so a plain turn
+  still writes 8 frames. Delivering a post writes 2 more, off the turn path.
+- **The lanes** (`theseus-discord/src/courier.rs`). One per place, and one for the operator, each the only
+  writer of its messages.
+  - A lane sends its posts in order, then the live progress, which keeps only each message's latest state
+    and is dropped while Discord is away.
+  - A card is routed when it is delivered (2b's rule), and its completion keeps what its settle edits.
+  - The lanes need only REST, and start before Discord answers anything.
+- **Exactly once.** A create carries a nonce from its message's key, with `enforce_nonce`. A create that
+  the nonce returns with an earlier send's content is edited to the post's state. Past a 120 s window, a
+  create that may have landed says it may be a copy.
+- **S1's stale card.** Every close writes its card's settle. A level-triggered pass, on connect and every
+  heartbeat, catches the closes that no event said.
+- **No startup wait.** `BindingBoard::expect`, `started`, and `wait` are gone, with the driver's wait. The
+  driver's start is a startup phase.
+- **Health and the Observatory** show each binding's outbox: pending, sent, refused, the oldest pending
+  post's age, and the last error.
+- **For tests and scratch daemons**, `[discord] rest_proxy` and `gateway_proxy` point a binding at local
+  stand-ins. `theseus-sim fake-discord` is one for REST: it honors a nonce as Discord does, can be down,
+  hang creates, or fail, and never records a header.
+
+**How it is proven.**
+- The gate at 765111d: 420 tests. Among them are 6 binding scenarios against the fake: away during a turn;
+  three replies in order; a crash between send and settle; a card's settle after its create, to its id;
+  live edits coalescing; and 2b's DM route.
+- Three real-daemon tests: a `kill -9` between send and settle leaves one message; a continuation at
+  restart, with Discord away, posts once Discord is back; and the REST goes to the fake, with no header
+  kept.
+- The lifecycle bench now runs the binding, with its token resolving after 1000 ms. The driver starts at
+  p50 41 ms, before the token.
+- The step's live check (04:02–04:18), on a copy of Eddie's store: a reply posted once after the fake came
+  back, and one message after a `kill -9` (tries `hung, hung, deduped`).
+
+**Reviewed** (Tabitha, 2026-09-30, 04:40 to 04:47).
+- The gate rerun passed: 420 tests, and every bench phase within budget (cold start p95 38.3 ms; the driver
+  started at p50 41.1 ms, before the binding's token resolved).
+- On the release build, over a fresh copy of Eddie's store, with the binding on a fake REST (port 9472) and
+  a gateway that never connected, and a scratch bindings file that binds a DM with a user who does not
+  exist:
+  - the bind notice went out through the outbox;
+  - **away during a turn:** with the fake down, a GLM turn ended. Health said `1 pending … last error:
+    parsing or receiving the response failed`, and the fake had no message. With the fake back at
+    04:44:41, the reply was posted once, footer included, at 04:44:55;
+  - **a kill between send and settle:** with the fake hanging creates, the reply's create reached it twice
+    with one nonce (the stream's and the post's). I killed the daemon with `kill -9` at 04:45:39, brought
+    the fake back, and restarted. The retry at 04:45:49 was deduped (`hung, hung, deduped`), and the
+    message was edited once to its final form. The channel held the bind notice and the two replies, each
+    once, and nothing was pending;
+  - **nothing reached Discord.** The daemon's connections went to 127.0.0.1 (24), api.github.com (2, the
+    startup token check), and api.z.ai (2, the turns). No Discord host name was in the log.
+- Eddie's unchanged note loads under the new binary.
+- Installed at 04:46.
+- **Taken at review:**
+  - The labeled possible copy after a long outage stays, rather than a lookup of recent messages first,
+    which would need another permission and a call per retry.
+  - A post for a place no longer in the bindings file stays pending forever. Filed as theseus-l3m: settle
+    it as refused, "not bound here any more", when the binding starts without that place.
+
+**Divergence from the brief and the issue.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| "Every post and edit the binding makes becomes an outbox action" (the issue's title) | Posts that must be seen are durable; live progress (streamed text, tool messages, typing, notice embeds) stays best-effort | Only a live message's latest state matters, and a replay is noise | Keep |
+| The nonce "derived from the outbox action's id" | Derived from the message's key, which holds the post's or question's id, or the turn's for a reply | The stream's create of a part and the reply's create of it share a nonce, so a stream create whose answer was lost cannot become a copy | Keep |
+| "Use the kernel's actions" | Kernel actions of their own record kind, `OUTBOX`, with their own transitions; the `Action` type, states, `Completion`, and ledger rows are the kernel's | An execution's machinery would queue a post's result on its execution, cancel a reply when its execution ends, and let the reconciler mark a post unknown | Keep |
+| The card's route decided when the live renderer saw the question | Decided when the card is delivered, with a fresh check of who can view the channel | Routing needs REST, which is the lane's | Keep |
+| — | A card whose question closed before it could be posted is posted, then settled at once | Discord keeps a record of what was asked while it was away | Keep |
+| — | A turn that parks on a confirm: its card is written with the question, and its reply at the turn's end | A card must exist whenever its question does. After an outage the card is posted above the text that led to it | Revisit if it reads badly |
+| — | The lifecycle bench runs the Discord binding | To show no driver wait, the bench's daemon needs a binding to wait for | Keep |
+
+**Known gaps.**
+- The index reads every outbox record once per process, at first use: O(posts ever). Compaction, or a
+  settled-below watermark, when it matters.
+- A lane's maps (key to message, sent contents, sealed keys) grow for the process's life.
+- A card posted before DD6 has no post: only a press settles it.
+- The gateway side cannot be faked, so no test sends a Discord message in; turns enter through the
+  protocol.
+- `kernel-sim` does not yet inject crashes around the outbox's transitions.
+- A task's report (DD7) will be a post of its own kind, through `Outbox::post`.
