@@ -587,16 +587,19 @@ impl Core {
     /// background startup phase `store.verify` carries the outcome to health
     /// and the Observatory. A corrupt frame is loud: an error in the log, a
     /// `store.corrupt` ledger row, and its records' reads refused.
+    ///
+    /// The thread holds neither the core nor the store, only the check and a
+    /// weak reference, so a daemon that stops meanwhile still drops its store
+    /// and closes the index cleanly.
     pub fn check_store_history(self: &Arc<Self>) -> Option<std::thread::JoinHandle<()>> {
         let phase = self.startup_log.begin("store.verify", true, Instant::now());
-        let core = self.clone();
+        let check = self.store.inner().history_check();
+        let log = self.startup_log.clone();
+        let core = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
             .name("store-verify".into())
             .spawn(move || {
-                let checked = core
-                    .store
-                    .inner()
-                    .verify_history(|took| std::thread::sleep(took * 19));
+                let checked = check.run(|took| std::thread::sleep(took * 19));
                 let detail = match checked {
                     Ok(h) => json!({
                         "outcome": "ok",
@@ -618,13 +621,15 @@ impl Core {
                             None,
                             json!({"error": e.to_string()}),
                         );
-                        if let Err(e) = core.store.append_ledger(&row) {
-                            tracing::warn!(error = %e, "ledger append failed");
+                        if let Some(core) = core.upgrade() {
+                            if let Err(e) = core.store.append_ledger(&row) {
+                                tracing::warn!(error = %e, "ledger append failed");
+                            }
                         }
                         json!({"outcome": "corrupt", "error": e.to_string()})
                     }
                 };
-                core.startup_log.end(phase, detail);
+                log.end(phase, detail);
             });
         match spawned {
             Ok(h) => Some(h),

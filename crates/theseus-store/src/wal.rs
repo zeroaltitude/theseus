@@ -164,7 +164,7 @@ pub struct Wal {
     /// A corrupt frame `verify_history` found (segment, from, to): reads of
     /// its records are refused. `to` is the segment's end when the frame's
     /// header cannot say where it ends.
-    bad: OnceLock<(u32, u64, u64)>,
+    bad: Arc<OnceLock<(u32, u64, u64)>>,
 }
 
 fn segment_path(dir: &Path, n: u32) -> PathBuf {
@@ -395,7 +395,7 @@ impl Wal {
             syncs: std::sync::atomic::AtomicU64::new(0),
             readers: Mutex::default(),
             history_end,
-            bad: OnceLock::new(),
+            bad: Arc::default(),
         };
         Ok((wal, walk.out))
     }
@@ -638,15 +638,49 @@ impl Wal {
         Ok(out)
     }
 
-    /// Check what open did not (theseus-8ni): every frame from the log's
-    /// start to the frame after the index's checkpoint, with its crc, its
-    /// records, and the position sequence, which must end at the checkpoint.
-    /// Read-only. `pace` gets the time each stretch of `PACE_BYTES` took, so
-    /// a caller can keep to its share of a core. On a corrupt frame, reads
-    /// from it to its segment's end are refused from then on
-    /// (`read_at`), and the error names it.
-    pub fn verify_history(&self, mut pace: impl FnMut(Duration)) -> Result<History, WalError> {
-        let Some((last, end_seg, end_off)) = self.history_end else {
+    /// Check what open did not (theseus-8ni); see `HistoryCheck::run`.
+    pub fn verify_history(&self, pace: impl FnMut(Duration)) -> Result<History, WalError> {
+        self.history_check().run(pace)
+    }
+
+    /// What checking the history needs, apart from the WAL: a thread that
+    /// holds it keeps no file of the store open but the segments it reads.
+    pub fn history_check(&self) -> HistoryCheck {
+        HistoryCheck {
+            dir: self.dir.clone(),
+            end: self.history_end,
+            bad: self.bad.clone(),
+        }
+    }
+
+    /// Total bytes of all segments (as recovered plus appended).
+    pub fn total_bytes(&self) -> u64 {
+        self.w.lock().unwrap().total_len
+    }
+
+    pub fn segment_count(&self) -> u32 {
+        self.w.lock().unwrap().segment
+    }
+}
+
+/// The history check of one open WAL (theseus-8ni), on its own: the WAL's
+/// directory, where the history open left unchecked ends, and the WAL's
+/// refusal of a corrupt frame's reads, which it sets.
+pub struct HistoryCheck {
+    dir: PathBuf,
+    end: Option<(u64, u32, u64)>,
+    bad: Arc<OnceLock<(u32, u64, u64)>>,
+}
+
+impl HistoryCheck {
+    /// Every frame from the log's start to the frame after the index's
+    /// checkpoint, with its crc, its records, and the position sequence,
+    /// which must end at the checkpoint. Read-only. `pace` gets the time
+    /// each stretch of `PACE_BYTES` took, so a caller can keep to its share
+    /// of a core. On a corrupt frame, reads of its records are refused from
+    /// then on (`Wal::read_at`), and the error names it.
+    pub fn run(&self, mut pace: impl FnMut(Duration)) -> Result<History, WalError> {
+        let Some((last, end_seg, end_off)) = self.end else {
             return Ok(History {
                 checked_at_open: true,
                 ..History::default()
@@ -718,15 +752,6 @@ impl Wal {
         h.records = walk.records;
         h.busy_ms = t0.elapsed().saturating_sub(paused).as_secs_f64() * 1000.0;
         Ok(h)
-    }
-
-    /// Total bytes of all segments (as recovered plus appended).
-    pub fn total_bytes(&self) -> u64 {
-        self.w.lock().unwrap().total_len
-    }
-
-    pub fn segment_count(&self) -> u32 {
-        self.w.lock().unwrap().segment
     }
 }
 

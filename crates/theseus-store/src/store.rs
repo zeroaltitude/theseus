@@ -39,6 +39,9 @@ pub struct StoreStats {
     /// (theseus-8ni): `verify_history` checks them after serving.
     #[serde(default)]
     pub history_bytes: u64,
+    /// The index was repaired at open: the last process did not close it.
+    #[serde(default)]
+    pub index_repaired: bool,
 }
 
 /// What the kernel writes through. Every method is durable when it returns.
@@ -364,6 +367,13 @@ impl WalStore {
         self.wal.verify_history(pace)
     }
 
+    /// The same check, apart from the store: a thread that runs it keeps
+    /// neither the store nor its index open, so a stopping daemon's store
+    /// still closes cleanly.
+    pub fn history_check(&self) -> crate::wal::HistoryCheck {
+        self.wal.history_check()
+    }
+
     fn read(&self, position: u64) -> Result<Option<Record>> {
         match self.index.location(position)? {
             Some(loc) => Ok(Some(checked(position, self.wal.read_at(loc)?)?)),
@@ -519,6 +529,7 @@ impl Store for WalStore {
             frames_appended: self.wal.frames_appended(),
             syncs: self.wal.syncs(),
             history_bytes: r.history_bytes,
+            index_repaired: self.index.repaired(),
         })
     }
 }

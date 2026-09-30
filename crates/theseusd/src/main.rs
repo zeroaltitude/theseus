@@ -330,7 +330,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         "store",
         false,
         t,
-        json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index, "history_bytes": st.history_bytes}),
+        json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index, "history_bytes": st.history_bytes, "index_repaired": st.index_repaired}),
     );
     tracing::info!(
         last_position = st.last_position,
@@ -345,7 +345,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     // Records `providers`, `kernel`, and `core`, one after another.
     let core = match Core::new(cfg, secrets, store, startup.clone(), gate) {
         Ok(core) => {
-            let _ = CORE.set(core.clone());
+            let _ = CORE.set(Arc::downgrade(&core));
             core
         }
         // A store with unit budgets is migrated only under the vault's own
@@ -499,8 +499,10 @@ fn adopt_children() {
 const SWEEP_EVERY: Duration = Duration::from_secs(10);
 
 /// The core, once built: the reaper hands it each wrapper that a signal
-/// ended, to learn whether the wrapper had reported (theseus-6uo).
-static CORE: std::sync::OnceLock<Arc<Core>> = std::sync::OnceLock::new();
+/// ended, to learn whether the wrapper had reported (theseus-6uo). Weak: a
+/// static that owned the core kept it, and the store, past the runtime, so
+/// the index was never closed and every start repaired it (theseus-8ni).
+static CORE: std::sync::OnceLock<std::sync::Weak<Core>> = std::sync::OnceLock::new();
 
 /// Reap what this daemon holds (theseus-z4b): each job wrapper, and each
 /// orphan it adopted, once it exits. Woken by SIGCHLD, which every child's
@@ -537,7 +539,7 @@ async fn reap_children() {
             }
             Err(e) => tracing::warn!(error = %e, "the reaper's sweep failed"),
         }
-        if let Some(core) = CORE.get() {
+        if let Some(core) = CORE.get().and_then(std::sync::Weak::upgrade) {
             for (pid, job, sig) in signalled.drain(..) {
                 core.wrapper_signalled(pid, &job, sig);
             }

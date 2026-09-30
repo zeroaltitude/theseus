@@ -87,11 +87,20 @@ const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
 
 pub struct RedbIndex {
     db: Database,
+    repaired: bool,
 }
 
 impl RedbIndex {
     pub fn open(path: &Path) -> Result<Self> {
-        let db = Database::create(path).with_context(|| format!("opening {}", path.display()))?;
+        // redb repairs a file its last process did not close, which costs
+        // this start several syncs: say so (theseus-8ni).
+        let repair = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = repair.clone();
+        let db = Database::builder()
+            .set_repair_callback(move |_| seen.store(true, std::sync::atomic::Ordering::Relaxed))
+            .create(path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        let repaired = repair.load(std::sync::atomic::Ordering::Relaxed);
         let txn = db.begin_write()?;
         {
             txn.open_table(LOC)?;
@@ -101,7 +110,12 @@ impl RedbIndex {
             txn.open_table(META)?;
         }
         txn.commit()?;
-        Ok(Self { db })
+        Ok(Self { db, repaired })
+    }
+
+    /// Whether the open repaired the file: its last process did not close it.
+    pub fn repaired(&self) -> bool {
+        self.repaired
     }
 
     /// Record a batch of entries. Non-durable unless `durable`.

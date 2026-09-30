@@ -331,6 +331,47 @@ fn a_store_marked_newer_is_refused_with_the_message_and_left_as_it_was() {
     assert!(!rig.path("sock").exists(), "it never served");
 }
 
+/// The store phase's detail in health: what the open found.
+fn store_phase(rig: &Rig) -> Value {
+    let h = rig.call("health", Value::Null).unwrap();
+    h["startup"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "store")
+        .map(|p| p["detail"].clone())
+        .unwrap()
+}
+
+/// A clean stop drops the store, so the index is closed and the next start
+/// repairs nothing: a static that owned the core once kept it open, and every
+/// start paid redb's repair, 4 syncs more than a clean open (theseus-8ni).
+/// After a SIGKILL the next start does repair it, which shows the signal.
+#[test]
+fn a_clean_stop_closes_the_index_and_the_next_start_repairs_nothing() {
+    let rig = Rig::new();
+    let mut d = rig.spawn();
+    rig.verified();
+    rig.call("shutdown", Value::Null).unwrap();
+    rig.wait("the stop", || d.try_wait());
+    let mut d = rig.spawn();
+    let s = store_phase(&rig);
+    assert_eq!(
+        s["index_repaired"], false,
+        "a clean stop left the index open: {s}"
+    );
+    let pid = d.id().to_string();
+    let killed = std::process::Command::new("kill")
+        .args(["-9", &pid])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    rig.wait("the kill", || d.try_wait());
+    let _d = rig.spawn();
+    let s = store_phase(&rig);
+    assert_eq!(s["index_repaired"], true, "a SIGKILL needs a repair: {s}");
+}
+
 #[test]
 fn the_history_check_after_serving_finds_a_corrupt_frame_and_says_so() {
     let rig = Rig::new();
