@@ -102,6 +102,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             attachments: vec![],
             arrived: None,
             config_wait_us: 0,
+            reply_to: None,
         })
         .await
         .unwrap()
@@ -1345,6 +1346,7 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             attachments: vec![],
             arrived: None,
             config_wait_us: 0,
+            reply_to: None,
         })
         .await
         .expect_err("the second call fails");
@@ -1786,6 +1788,7 @@ async fn a_model_with_no_price_is_not_called() {
             attachments: vec![],
             arrived: None,
             config_wait_us: 0,
+            reply_to: None,
         })
         .await
         .unwrap_err();
@@ -2268,6 +2271,7 @@ fn submit_params(
         model: None,
         author: Some("discord:eddie".into()),
         attachments,
+        reply_to: None,
     }
 }
 
@@ -4124,6 +4128,7 @@ mod parallel {
                 attachments: vec![],
                 arrived: None,
                 config_wait_us: 0,
+                reply_to: None,
             })
             .await
     }
@@ -4959,4 +4964,240 @@ mod web {
             assert!(!serde_json::to_string(&n).unwrap().contains("tv-good"));
         }
     }
+}
+
+// ---------------------------------------------------------------- the outbox (theseus-q4v)
+
+/// A session bound to a place, as the Discord binding binds one.
+fn bound(core: &Core, place: &str) -> String {
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    core.outbox.bind_place(place, &rec.session_id).unwrap();
+    rec.session_id
+}
+
+fn posts(core: &Core, target: &str) -> Vec<theseus_kernel::Action> {
+    core.outbox.open_for(target)
+}
+
+/// A turn in a bound session writes its reply to the outbox, whether or not
+/// a binding is there, in the frame that ends the turn: a plain turn still
+/// writes 8 frames. The post names the loop's node, and its footer's facts.
+#[tokio::test]
+async fn a_bound_sessions_reply_rides_in_the_frame_that_ends_its_turn() {
+    let r = rig(vec![Scripted::text("first"), Scripted::text("hello")]);
+    let sid = bound(&r.core, "dm:42");
+    turn(&r.core, Some(&sid), "warm up").await;
+    let before = r.core.store.stats().unwrap().frames_appended;
+    let from = r.core.store.last_position();
+    let res = turn(&r.core, Some(&sid), "hi").await;
+    let frames = r.core.store.stats().unwrap().frames_appended - before;
+    assert!(
+        frames <= 8,
+        "a plain turn in a bound session wrote {frames} frames"
+    );
+    let rows = ledger_after(&r.core, from);
+    let planned = rows.iter().rposition(|k| k == "action.planned").unwrap();
+    let ended = rows.iter().position(|k| k == "turn.ended").unwrap();
+    assert!(
+        ended < planned && rows.last().unwrap() == "execution.waiting",
+        "{rows:?}"
+    );
+    let p = posts(&r.core, "discord:dm:42");
+    assert_eq!(p.len(), 2, "two turns, two replies");
+    let body = crate::outbox::body_of(&p[1]);
+    assert_eq!(body["kind"], "reply");
+    assert_eq!(body["turn_id"], res.turn_id.as_str());
+    assert_eq!(r.core.outbox.reply_texts(body), [(0, "hello".to_string())]);
+    assert_eq!(body["result"]["model"], res.model.as_str());
+    assert_eq!(
+        body["result"]["output"], "",
+        "the text is the node's, not a copy"
+    );
+    assert_eq!(
+        p[1].retry_class,
+        theseus_kernel::RetryClass::IdempotentWithKey {
+            key: "discord.nonce".into()
+        }
+    );
+    // A session that posts nowhere writes no post.
+    let other = turn(&r.core, None, "unbound").await;
+    assert!(r.core.outbox.target(&other.session_id).is_none());
+    assert_eq!(r.core.outbox.status("discord").pending, 2);
+}
+
+/// A question's card is written in the frame that plans the question, and
+/// an answer writes the card's settle, with who answered.
+#[tokio::test]
+async fn a_card_is_written_with_its_question_and_settled_by_its_answer() {
+    let r = rig(vec![Scripted::tools(
+        "",
+        &[("t1", "fs_write", json!({"path": "a.txt", "content": "x"}))],
+    )]);
+    let sid = bound(&r.core, "channel:7");
+    let res = turn(&r.core, Some(&sid), "write a").await;
+    let q = res.awaiting_confirm.expect("the write waits");
+    let p = posts(&r.core, "discord:channel:7");
+    let card = p
+        .iter()
+        .find(|a| crate::outbox::kind_of(a) == "card")
+        .expect("a card");
+    assert_eq!(crate::outbox::body_of(card)["question"], q.as_str());
+    let node = crate::outbox::body_of(card)["node"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let question = r.core.kernel.action(&q).unwrap().unwrap();
+    let req = r
+        .core
+        .question_request(&question, Some(&node))
+        .unwrap()
+        .expect("the card's question reads back");
+    assert_eq!(
+        (req.tool.as_str(), req.input["path"].as_str()),
+        ("fs.write", Some("a.txt"))
+    );
+    assert!(r.core.outbox.has_card(&q));
+    r.core
+        .confirm_action(&q, true, None, "discord:eddie")
+        .unwrap();
+    let settle = posts(&r.core, "discord:channel:7")
+        .into_iter()
+        .find(|a| crate::outbox::kind_of(a) == "settle")
+        .expect("a settle");
+    let body = crate::outbox::body_of(&settle);
+    assert_eq!(
+        (body["question"].as_str(), body["card"].as_str()),
+        (Some(q.as_str()), Some(card.correlation_id.as_str()))
+    );
+    assert_eq!(
+        body["closed"],
+        json!({"how": "approved", "by": "discord:eddie"})
+    );
+    assert_eq!(settle.retry_class, theseus_kernel::RetryClass::SafeToRepeat);
+    // Written once: nothing reconciles a second.
+    assert_eq!(r.core.outbox.reconcile_cards().unwrap(), 0);
+}
+
+/// S1's stale card (theseus-3pj): a raise that withdraws a budget question
+/// writes its card's settle, which says so.
+#[tokio::test]
+async fn a_raise_that_withdraws_a_budget_question_settles_its_card() {
+    let r = rig(vec![]);
+    let sid = bound(&r.core, "dm:42");
+    let card = r
+        .core
+        .outbox
+        .post(
+            &sid,
+            "",
+            "discord:dm:42",
+            json!({"kind": "card", "question": "act_q"}),
+        )
+        .unwrap();
+    r.core
+        .said_limits_followed(&[theseus_kernel::LimitFollowed {
+            execution_id: "exe_1".into(),
+            session_id: sid,
+            from_micros: 1_400_000,
+            to_micros: 3_000_000,
+            withdrew: Some("act_q".into()),
+            proceeds: true,
+        }]);
+    let settle = posts(&r.core, "discord:dm:42")
+        .into_iter()
+        .find(|a| crate::outbox::kind_of(a) == "settle")
+        .expect("a settle");
+    let body = crate::outbox::body_of(&settle);
+    assert_eq!(body["card"], card.correlation_id.as_str());
+    assert_eq!(body["closed"]["how"], "withdrawn");
+    assert_eq!(
+        body["closed"]["note"],
+        "the spend limit was raised from $1.40 to $3"
+    );
+}
+
+/// A question that closed with no event that said so (here, declined in the
+/// kernel alone) is found by the level-triggered pass, which the binding runs
+/// on connecting and the heartbeat on every beat: one settle, once.
+#[tokio::test]
+async fn a_card_whose_question_closed_silently_is_settled_by_the_reconcile() {
+    let r = rig(vec![Scripted::tools(
+        "",
+        &[("t1", "fs_write", json!({"path": "a.txt", "content": "x"}))],
+    )]);
+    let sid = bound(&r.core, "dm:42");
+    let q = turn(&r.core, Some(&sid), "write a")
+        .await
+        .awaiting_confirm
+        .unwrap();
+    assert_eq!(
+        r.core.outbox.reconcile_cards().unwrap(),
+        0,
+        "it still waits"
+    );
+    r.core
+        .kernel
+        .decline_action(&q, "operator", "the web UI closed it")
+        .unwrap();
+    assert_eq!(r.core.outbox.reconcile_cards().unwrap(), 1);
+    assert_eq!(r.core.outbox.reconcile_cards().unwrap(), 0, "once");
+    let settle = posts(&r.core, "discord:dm:42")
+        .into_iter()
+        .find(|a| crate::outbox::kind_of(a) == "settle")
+        .unwrap();
+    assert_eq!(
+        crate::outbox::body_of(&settle)["closed"],
+        json!({"how": "declined", "by": "operator", "note": "the web UI closed it"})
+    );
+}
+
+/// A failed turn's notice goes where its reply would have gone.
+#[tokio::test]
+async fn a_failed_turn_posts_its_failure_to_its_place() {
+    let r = rig(vec![Scripted::Fail(
+        crate::provider::ProviderError::InvalidRequest {
+            status: 400,
+            message: "no such thing".into(),
+        },
+    )]);
+    let sid = bound(&r.core, "dm:42");
+    let rec = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    let (live, _) = r.core.live_profile();
+    let target = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, None)
+        .unwrap();
+    let sink = EventSink::new(r.core.bus.clone(), &sid, None);
+    let out = r
+        .core
+        .runner
+        .run(TurnRequest {
+            session: rec,
+            input: Some("hi".into()),
+            target,
+            sink,
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            config_wait_us: 0,
+            reply_to: None,
+        })
+        .await;
+    assert!(out.is_err());
+    let p = posts(&r.core, "discord:dm:42");
+    assert_eq!(p.len(), 1, "{p:?}");
+    let body = crate::outbox::body_of(&p[0]);
+    assert_eq!(body["kind"], "failed");
+    assert!(
+        body["error"].as_str().unwrap().contains("no such thing"),
+        "{body}"
+    );
 }

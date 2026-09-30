@@ -1,20 +1,24 @@
 //! The gateway loop, the places (a text channel or a DM, each backed by one
-//! conversation session), and the executor that turns renderer operations into
-//! Discord messages.
+//! conversation session), and the lanes that write to Discord.
 //!
 //! One actor per place: it serializes that place's turns, coalesces messages
-//! that arrive mid-turn into the next turn (authors kept), and owns the map
-//! from render keys to Discord message ids. A router hands each notification
-//! from the core to the place whose session it names.
+//! that arrive mid-turn into the next turn (authors kept), and renders the
+//! live progress of its session's turns. A router hands each notification
+//! from the core to the place whose session it names. One lane per place
+//! writes its messages (`courier`): the outbox's posts first, in order, then
+//! the live progress, so what must reach Discord does even when a place's
+//! actor never saw it (theseus-q4v).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use theseus_core::approval::{Checked, Client, Surface};
 use theseus_core::config::DiscordConfig;
+use theseus_core::outbox::OPERATOR_TARGET;
 use theseus_core::Core;
 use theseus_protocol::{
     Attachment, BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams,
@@ -34,23 +38,25 @@ use twilight_model::guild::Permissions;
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
-use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, MessageMarker, RoleMarker};
+use twilight_model::id::marker::{
+    ApplicationMarker, ChannelMarker, GuildMarker, MessageMarker, RoleMarker,
+};
 use twilight_model::id::Id;
 use twilight_util::builder::command::CommandBuilder;
 
 use crate::bindings::{snowflake, Bindings};
+use crate::courier::{self, Lane, LaneMsg, SendErr};
 use crate::files;
-use crate::render::{Asked, Buttons, NoticeCard, Op, Renderer, Route};
+use crate::render::{Asked, Renderer};
 use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 /// The connection label every Discord call carries; authors refine it per message.
 const CLIENT: &str = "discord";
-const META_PREFIX: &str = "discord.session.";
 
 /// Health's view of the binding, pushed to the core on every change.
 #[derive(Clone)]
-struct Board {
+pub(crate) struct Board {
     core: Arc<Core>,
     st: Arc<Mutex<BindingStatus>>,
 }
@@ -69,7 +75,7 @@ impl Board {
         }
     }
 
-    fn update(&self, f: impl FnOnce(&mut BindingStatus)) {
+    pub(crate) fn update(&self, f: impl FnOnce(&mut BindingStatus)) {
         let snapshot = {
             let mut g = self.st.lock().unwrap();
             f(&mut g);
@@ -90,7 +96,7 @@ impl Board {
         });
     }
 
-    fn error(&self, op: &str, session: Option<&str>, e: impl std::fmt::Display) {
+    pub(crate) fn error(&self, op: &str, session: Option<&str>, e: impl std::fmt::Display) {
         let msg = format!("{op}: {e}");
         tracing::warn!(error = %msg, "discord");
         self.core.binding_ledger(
@@ -112,35 +118,12 @@ impl Board {
     }
 }
 
-/// Tells the core, once, that this binding is watching its sessions (or will
-/// never be): the continuation driver waits for it at startup.
-struct Ready {
-    core: Arc<Core>,
-    fired: std::sync::atomic::AtomicBool,
-}
-
-impl Ready {
-    fn fire(&self) {
-        if !self.fired.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            self.core.bindings.started();
-        }
-    }
-}
-
-impl Drop for Ready {
-    fn drop(&mut self) {
-        self.fire();
-    }
-}
-
 /// Run the binding until the process ends. Never fails the daemon: whatever
 /// goes wrong is a state in health and a `discord.error` ledger row. The bot
-/// token comes from the secret board once it resolves (theseus-qa0).
+/// token comes from the secret board once it resolves (theseus-qa0). Nothing
+/// waits for the binding (theseus-q4v): what must reach its places is in the
+/// outbox, and it delivers that when it can.
 pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
-    let ready = Arc::new(Ready {
-        core: core.clone(),
-        fired: std::sync::atomic::AtomicBool::new(false),
-    });
     let board = Board::new(core.clone());
     if !cfg.enabled {
         board.state("disabled", Some("[discord].enabled = false".into()));
@@ -178,19 +161,19 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
         s.guild_id = Some(bindings.guild_id.clone());
         s.revision = Some(bindings.revision.clone());
     });
-    let Some(token) = bot_token(&core, &cfg.token_secret, &board, &ready).await else {
+    let Some(token) = bot_token(&core, &cfg.token_secret, &board).await else {
         return;
     };
-    if let Err(e) = serve(core, cfg, token, bindings, board.clone(), ready.clone()).await {
+    if let Err(e) = serve(core, cfg, token, bindings, board.clone()).await {
         board.state("failed", Some(format!("{e:#}")));
     }
 }
 
 /// The bot token, once the vault gives it. Fail closed: the binding never
 /// connects without it. While it resolves the binding is `waiting`; if it
-/// fails, the binding is `failed` with the reason, lets the continuation
-/// driver go on without it, and connects when a retry resolves the token.
-async fn bot_token(core: &Arc<Core>, name: &str, board: &Board, ready: &Ready) -> Option<String> {
+/// fails, the binding is `failed` with the reason, and connects when a retry
+/// resolves the token.
+async fn bot_token(core: &Arc<Core>, name: &str, board: &Board) -> Option<String> {
     use theseus_core::secrets::SecretState;
     let t0 = std::time::Instant::now();
     let phase = core.startup_log.begin("discord.token", true, t0);
@@ -232,12 +215,21 @@ async fn bot_token(core: &Arc<Core>, name: &str, board: &Board, ready: &Ready) -
                     phase,
                     json!({"secret": name, "waited_ms": t0.elapsed().as_millis() as u64, "outcome": "failed", "error": why}),
                 );
-                ready.fire();
             }
         }
         if rx.changed().await.is_err() {
             return None;
         }
+    }
+}
+
+/// The REST client: Discord's, or a local stand-in when `[discord]
+/// rest_proxy` names one (tests and scratch daemons), over plain http.
+fn http_client(token: &str, cfg: &DiscordConfig) -> Http {
+    let b = Http::builder().token(token.to_string());
+    match cfg.rest_proxy.as_deref().filter(|p| !p.is_empty()) {
+        Some(p) => b.proxy(p.to_string(), true).build(),
+        None => b.build(),
     }
 }
 
@@ -247,58 +239,36 @@ async fn serve(
     token: String,
     bindings: Bindings,
     board: Board,
-    ready: Arc<Ready>,
 ) -> anyhow::Result<()> {
     // Both rustls providers are compiled into this workspace; pick one for the process.
     let _ = rustls::crypto::ring::default_provider().install_default();
     board.state("connecting", None);
-    let http = Arc::new(Http::new(token.clone()));
-
-    let me = http.current_user().await?.model().await?;
-    board.update(|s| s.bot_user = Some(format!("{} ({})", me.name, me.id)));
-    let app = http.current_user_application().await?.model().await?;
-    let app_id = app.id;
-    // Who can view a guild channel takes the member list, which Discord
-    // gives only when the portal has the Server Members intent on
-    // (theseus-sgh). It is read from the application's flags; the gateway
-    // intents stay as they are, since asking for a privileged intent the
-    // portal has off closes the gateway.
-    let members_intent = viewers::members_intent(app.flags);
-    board.update(|s| s.members_intent = Some(members_intent));
-    let guild = Id::new(snowflake("guild_id", &bindings.guild_id)?);
-    let in_guild = http
-        .current_user_guilds()
-        .await?
-        .models()
-        .await?
-        .iter()
-        .any(|g| g.id == guild);
-    if !in_guild {
-        board.update(|s| {
-            s.detail = Some(format!(
-                "the bot is not in guild {guild} yet; invite it: https://discord.com/oauth2/authorize?client_id={app_id}&scope=bot+applications.commands&permissions=117824"
-            ))
-        });
-    }
-    register_commands(&http, app_id, &board).await;
-
+    let http = Arc::new(http_client(&token, &cfg));
+    let guild: Id<GuildMarker> = Id::new(snowflake("guild_id", &bindings.guild_id)?);
     let (rpc, notes) = RpcClient::connect(core.clone(), Client::new(CLIENT, Surface::Discord));
     let shared = Arc::new(Shared {
         core: core.clone(),
         rpc: rpc.clone(),
         http: http.clone(),
         board: board.clone(),
-        app_id,
-        bot_id: me.id.get(),
+        bot_id: AtomicU64::new(0),
         edit_interval: Duration::from_millis(cfg.edit_interval_ms.max(250)),
         notice_embeds: cfg.notice_embeds,
         routes: Mutex::new(Routes::default()),
         files_http: files::client(),
         max_text: core.cfg.tools.max_read_bytes as u64,
-        members_intent,
+        members_intent: OnceLock::new(),
+        lanes: Mutex::new(HashMap::new()),
     });
+    // The lanes first: what the outbox holds for these places needs only
+    // REST, so it goes out while the rest connects, or while the gateway is
+    // down (theseus-q4v).
+    shared.clone().start_lanes(&bindings)?;
+    tokio::spawn(courier::courier(shared.clone()));
+    shared.wake_lanes();
 
-    shared.refresh_bot_roles(guild).await;
+    // Who the bot is and what it may do, asked until Discord answers.
+    let me = shared.connect(guild).await;
     // Places: every [[channel]] and every [[dm]], each with its session.
     for c in &bindings.channel {
         let channel = Id::new(snowflake("channel id", &c.id)?);
@@ -321,10 +291,10 @@ async fn serve(
     }
     for d in &bindings.dm {
         let user = snowflake("dm user", &d.user)?;
-        let channel = match http.create_private_channel(Id::new(user)).await {
-            Ok(r) => r.model().await.ok().map(|c| c.id),
+        let channel = match shared.dm_channel(user).await {
+            Ok(c) => Some(Id::new(c)),
             Err(e) => {
-                board.error("open DM channel", None, &e);
+                board.error("open DM channel", None, &e.message);
                 None
             }
         };
@@ -341,26 +311,18 @@ async fn serve(
             .await?;
     }
     tokio::spawn(route(shared.clone(), notes));
-    // Every place watches its session now: turns the kernel resumes can run.
-    ready.fire();
-    // After a restart onto the vault's changed config note, one line to the
-    // operator's DM, where approval cards go (theseus-2fo).
-    if let Some(r) = core.config_gate.restarted() {
-        match shared.approval_dm(None) {
-            Some((user, _)) => shared.to_dm(
-                user,
-                PlaceMsg::Notice(format!(
-                    "Restarted <t:{}:T> onto the vault's config note, which had changed since \
-                     my local copy: {}.",
-                    r.at_unix_ms / 1000,
-                    r.tables.join(", ")
-                )),
-            ),
-            None => {
-                tracing::info!("restarted onto a changed config note; no DM place to say so in")
-            }
-        }
+    // A card whose question closed while the binding was away (a raise at
+    // the vault's confirmation, an answer from the CLI) says how, and loses
+    // its buttons: a settle each, delivered like any post (theseus-q4v).
+    match core.outbox.reconcile_cards() {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(
+            settles = n,
+            "discord: cards whose question closed meanwhile"
+        ),
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "discord: reconciling cards failed"),
     }
+    shared.wake_lanes();
     // Who can view each guild channel `[approval]` lists, for health and for
     // the first answer; each card and each answer checks again.
     let checks = shared.clone();
@@ -374,7 +336,12 @@ async fn serve(
         | Intents::GUILD_MESSAGES
         | Intents::DIRECT_MESSAGES
         | Intents::MESSAGE_CONTENT;
-    let mut shard = Shard::new(ShardId::ONE, token, intents);
+    let mut gateway = twilight_gateway::ConfigBuilder::new(token, intents);
+    if let Some(p) = cfg.gateway_proxy.as_deref().filter(|p| !p.is_empty()) {
+        // A local stand-in for Discord's gateway (tests and scratch daemons).
+        gateway = gateway.proxy_url(p.to_string());
+    }
+    let mut shard = Shard::with_config(ShardId::ONE, gateway.build());
     let mut last_latency = std::time::Instant::now();
     while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
         if last_latency.elapsed() > Duration::from_secs(15) {
@@ -404,8 +371,13 @@ async fn serve(
                     json!({"bot": me.name, "guilds": r.guilds.len(), "revision": bindings.revision}),
                 );
                 tracing::info!(bot = %me.name, "discord gateway ready");
+                // Back: whatever waited goes now (the lanes back off alone).
+                shared.wake_lanes();
             }
-            Event::Resumed => board.state("ready", None),
+            Event::Resumed => {
+                board.state("ready", None);
+                shared.wake_lanes();
+            }
             Event::GuildCreate(g) if g.id() == guild => {
                 board.update(|s| s.detail = None);
                 shared.refresh_bot_roles(guild).await;
@@ -456,14 +428,13 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
     }
 }
 
-/// What every place and the gateway share.
-struct Shared {
-    core: Arc<Core>,
+/// What every place, lane, and the gateway share.
+pub(crate) struct Shared {
+    pub(crate) core: Arc<Core>,
     rpc: Arc<RpcClient>,
-    http: Arc<Http>,
-    board: Board,
-    app_id: Id<ApplicationMarker>,
-    bot_id: u64,
+    pub(crate) http: Arc<Http>,
+    pub(crate) board: Board,
+    bot_id: AtomicU64,
     edit_interval: Duration,
     /// `[discord] notice_embeds`: each place's renderer posts notice cards.
     notice_embeds: bool,
@@ -473,8 +444,10 @@ struct Shared {
     /// `[tools].max_read_bytes`: the largest text attachment downloaded.
     max_text: u64,
     /// The portal has the Server Members intent on: a listed guild channel's
-    /// viewers can be checked (theseus-sgh).
-    members_intent: bool,
+    /// viewers can be checked (theseus-sgh). Asked on first need.
+    members_intent: OnceLock<bool>,
+    /// Each place's lane, and the operator's, by target (theseus-q4v).
+    lanes: Mutex<HashMap<String, mpsc::UnboundedSender<LaneMsg>>>,
 }
 
 /// One message for a turn: who wrote it, what it says, its files (still
@@ -537,15 +510,6 @@ enum PlaceMsg {
         reply: oneshot::Sender<String>,
     },
     DmChannel(Id<ChannelMarker>),
-    /// Something to say that is not part of a turn.
-    Notice(String),
-    /// Another place's approval card, for this DM to post or settle
-    /// (theseus-sgh).
-    Card {
-        key: String,
-        content: String,
-        buttons: Buttons,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -565,6 +529,170 @@ fn parse_control(text: &str) -> Option<Control> {
 }
 
 impl Shared {
+    /// A lane for every place in the bindings file, and one for the
+    /// operator's notices: the one writer of each's messages (theseus-q4v).
+    fn start_lanes(self: Arc<Self>, bindings: &Bindings) -> anyhow::Result<()> {
+        let mut lanes = Vec::new();
+        for c in &bindings.channel {
+            let id = snowflake("channel id", &c.id)?;
+            lanes.push((
+                format!("discord:channel:{}", c.id),
+                "channel",
+                c.label(),
+                Some(id),
+                None,
+            ));
+        }
+        for d in &bindings.dm {
+            let user = snowflake("dm user", &d.user)?;
+            self.routes.lock().unwrap().dms.push((user, d.label()));
+            lanes.push((
+                format!("discord:dm:{}", d.user),
+                "dm",
+                d.label(),
+                None,
+                Some(user),
+            ));
+        }
+        lanes.push((
+            OPERATOR_TARGET.to_string(),
+            "operator",
+            "the operator".into(),
+            None,
+            None,
+        ));
+        for (target, kind, label, channel, dm_user) in lanes {
+            let (tx, rx) = mpsc::unbounded_channel();
+            self.lanes.lock().unwrap().insert(target.clone(), tx);
+            let lane = Lane::new(self.clone(), target, kind, label, channel, dm_user);
+            tokio::spawn(lane.run(rx));
+        }
+        Ok(())
+    }
+
+    /// Tell every lane to look at the outbox.
+    pub(crate) fn wake_lanes(&self) {
+        for tx in self.lanes.lock().unwrap().values() {
+            let _ = tx.send(LaneMsg::Wake);
+        }
+    }
+
+    fn lane(&self, target: &str) -> Option<mpsc::UnboundedSender<LaneMsg>> {
+        self.lanes.lock().unwrap().get(target).cloned()
+    }
+
+    /// Who the bot is, what its application allows, the slash commands, and
+    /// the bot's roles: asked until Discord answers, while the lanes deliver
+    /// on their own.
+    async fn connect(&self, guild: Id<GuildMarker>) -> twilight_model::user::CurrentUser {
+        let mut attempt = 0u32;
+        loop {
+            match self.preamble(guild).await {
+                Ok(me) => return me,
+                Err(e) => {
+                    attempt += 1;
+                    let why = format!("{e:#}");
+                    if attempt == 1 {
+                        self.board.error("connect", None, &why);
+                    }
+                    self.board.state(
+                        "connecting",
+                        Some(format!("Discord did not answer ({why}); trying again")),
+                    );
+                    let wait =
+                        Duration::from_secs(1 << attempt.min(6)).min(Duration::from_secs(60));
+                    tokio::time::sleep(wait).await;
+                }
+            }
+        }
+    }
+
+    async fn preamble(
+        &self,
+        guild: Id<GuildMarker>,
+    ) -> anyhow::Result<twilight_model::user::CurrentUser> {
+        let me = self.http.current_user().await?.model().await?;
+        self.board
+            .update(|s| s.bot_user = Some(format!("{} ({})", me.name, me.id)));
+        self.bot_id.store(me.id.get(), Ordering::Relaxed);
+        let app = self.http.current_user_application().await?.model().await?;
+        let app_id = app.id;
+        // Who can view a guild channel takes the member list, which Discord
+        // gives only when the portal has the Server Members intent on
+        // (theseus-sgh). It is read from the application's flags; the gateway
+        // intents stay as they are, since asking for a privileged intent the
+        // portal has off closes the gateway.
+        let members_intent = viewers::members_intent(app.flags);
+        let _ = self.members_intent.set(members_intent);
+        self.board
+            .update(|s| s.members_intent = Some(members_intent));
+        let in_guild = self
+            .http
+            .current_user_guilds()
+            .await?
+            .models()
+            .await?
+            .iter()
+            .any(|g| g.id == guild);
+        if !in_guild {
+            self.board.update(|s| {
+                s.detail = Some(format!(
+                    "the bot is not in guild {guild} yet; invite it: https://discord.com/oauth2/authorize?client_id={app_id}&scope=bot+applications.commands&permissions=117824"
+                ))
+            });
+        }
+        register_commands(&self.http, app_id, &self.board).await;
+        self.refresh_bot_roles(guild).await;
+        Ok(me)
+    }
+
+    fn bot_id(&self) -> u64 {
+        self.bot_id.load(Ordering::Relaxed)
+    }
+
+    /// The DM channel with `user`: known, or opened now (REST only).
+    pub(crate) async fn dm_channel(&self, user: u64) -> Result<u64, SendErr> {
+        if let Some(c) = self.routes.lock().unwrap().dm_channel.get(&user).copied() {
+            return Ok(c);
+        }
+        let c = self
+            .http
+            .create_private_channel(Id::new(user))
+            .await
+            .map_err(|e| SendErr::of(&e))?
+            .model()
+            .await
+            .map_err(|e| SendErr {
+                away: true,
+                unsure: false,
+                gone: false,
+                message: e.to_string(),
+            })?
+            .id
+            .get();
+        self.routes.lock().unwrap().dm_channel.insert(user, c);
+        if let Some(tx) = self.lane(&format!("discord:dm:{user}")) {
+            let _ = tx.send(LaneMsg::Channel(c));
+        }
+        Ok(c)
+    }
+
+    /// Every bound DM's channel, so the DM approvals go to can be chosen.
+    pub(crate) async fn open_dm_channels(&self) -> Result<(), SendErr> {
+        let users: Vec<u64> = self
+            .routes
+            .lock()
+            .unwrap()
+            .dms
+            .iter()
+            .map(|(u, _)| *u)
+            .collect();
+        for u in users {
+            self.dm_channel(u).await?;
+        }
+        Ok(())
+    }
+
     /// Resolve (or open) the place's session, watch it, and start its actor.
     async fn start_place(
         self: Arc<Self>,
@@ -576,6 +704,10 @@ impl Shared {
         mention_only: bool,
     ) -> anyhow::Result<()> {
         let (session_id, fresh) = self.session_for(&key, &label).await?;
+        let target = format!("discord:{key}");
+        let lane = self
+            .lane(&target)
+            .ok_or_else(|| anyhow::anyhow!("no lane for {target}"))?;
         let (tx, rx) = mpsc::unbounded_channel();
         {
             let mut r = self.routes.lock().unwrap();
@@ -589,16 +721,18 @@ impl Shared {
             }
             if kind == "dm" {
                 r.by_dm_user.insert(users[0], tx.clone());
-                r.dms.push((users[0], label.clone()));
                 if let Some(c) = channel {
                     r.dm_channel.insert(users[0], c.get());
                 }
             }
         }
-        let notice_tx = tx.clone();
+        if let (Some(c), "dm") = (channel, kind) {
+            let _ = lane.send(LaneMsg::Channel(c.get()));
+        }
         let place = Place {
             shared: self.clone(),
             key,
+            target,
             kind,
             label,
             channel,
@@ -606,13 +740,11 @@ impl Shared {
             mention_only,
             session_id,
             renderer: self.renderer(),
-            msgs: HashMap::new(),
+            lane,
             inflight: false,
             queued: Vec::new(),
-            anchor: None,
             saw_failure: false,
             last_activity_ms: 0,
-            last_author: None,
             tx,
         };
         place.report();
@@ -622,10 +754,13 @@ impl Shared {
             } else {
                 "talk to me in this place"
             };
-            let _ = notice_tx.send(PlaceMsg::Notice(format!(
-                "🔗 Theseus is bound here (session `{}`). {how}; `/status`, `/new` and `/stop` work too, and everything shows in the web UI.",
-                place.session_id
-            )));
+            place.say(
+                &format!(
+                    "🔗 Theseus is bound here (session `{}`). {how}; `/status`, `/new` and `/stop` work too, and everything shows in the web UI.",
+                    place.session_id
+                ),
+                None,
+            );
         }
         tokio::spawn(place.run(rx));
         Ok(())
@@ -634,8 +769,7 @@ impl Shared {
     /// The session stored for this place, if it still exists and can take
     /// turns; otherwise a new conversation session, stored for next time.
     async fn session_for(&self, key: &str, label: &str) -> anyhow::Result<(String, bool)> {
-        let meta = format!("{META_PREFIX}{key}");
-        if let Some(sid) = self.core.store.get_meta::<String>(&meta)? {
+        if let Some(sid) = self.core.outbox.place_session(key)? {
             if let Some(info) = self.session_info(&sid).await {
                 if !terminal(info.execution_state.as_deref()) {
                     self.watch(&sid).await;
@@ -657,9 +791,8 @@ impl Shared {
                 },
             )
             .await?;
-        self.core
-            .store
-            .put_meta(&format!("{META_PREFIX}{key}"), &info.session_id)?;
+        // The place's record, and where the session's posts go from now on.
+        self.core.outbox.bind_place(key, &info.session_id)?;
         self.core.binding_ledger(
             "discord.bound",
             Some(&info.session_id),
@@ -696,7 +829,7 @@ impl Shared {
     /// The bot's roles in the guild, so an @Theseus that resolves to its
     /// managed role still counts as a mention.
     async fn refresh_bot_roles(&self, guild: Id<twilight_model::id::marker::GuildMarker>) {
-        let roles = match self.http.guild_member(guild, Id::new(self.bot_id)).await {
+        let roles = match self.http.guild_member(guild, Id::new(self.bot_id())).await {
             Ok(r) => match r.model().await {
                 Ok(m) => m.roles.iter().map(|r| r.get()).collect(),
                 Err(_) => vec![],
@@ -707,7 +840,7 @@ impl Shared {
     }
 
     fn on_message(self: Arc<Self>, m: &twilight_model::channel::Message) {
-        if m.author.bot || m.author.id.get() == self.bot_id {
+        if m.author.bot || m.author.id.get() == self.bot_id() {
             return;
         }
         let (tx, allowed, mention_only, bot_roles) = {
@@ -740,7 +873,7 @@ impl Shared {
                 &mentions,
                 &roles,
                 replied,
-                self.bot_id,
+                self.bot_id(),
                 &bot_roles,
             ) {
                 return; // talk in a shared channel that is not for Theseus
@@ -759,7 +892,7 @@ impl Shared {
             let _ = tx.send(PlaceMsg::DmChannel(m.channel_id));
         }
         let text = if mention_only {
-            strip_mentions(&m.content, self.bot_id, &bot_roles)
+            strip_mentions(&m.content, self.bot_id(), &bot_roles)
         } else {
             m.content.clone()
         };
@@ -920,7 +1053,13 @@ impl Shared {
                     None,
                     json!({"correlation_id": corr, "approve": approve, "by": who, "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
                 );
-                if let (Some(ch), Some(m)) = (i.channel.as_ref(), i.message.as_ref()) {
+                // An outbox card is settled by its settle post, which the
+                // answer just wrote (theseus-q4v); a card from before the
+                // outbox, or an answer that failed, is settled here.
+                let settled_by_post = r.is_ok() && self.core.outbox.has_card(&corr);
+                if let (Some(ch), Some(m), false) =
+                    (i.channel.as_ref(), i.message.as_ref(), settled_by_post)
+                {
                     let res = self
                         .http
                         .update_message(ch.id, m.id)
@@ -962,7 +1101,7 @@ impl Shared {
                     .unwrap_or_else(|_| "The place did not answer.".into());
                 if let Err(e) = self
                     .http
-                    .interaction(self.app_id)
+                    .interaction(i.application_id)
                     .update_response(&i.token)
                     .content(Some(&text))
                     .await
@@ -1007,7 +1146,7 @@ impl Shared {
         let none = AllowedMentions::default();
         if let Err(e) = self
             .http
-            .interaction(self.app_id)
+            .interaction(i.application_id)
             .create_followup(&i.token)
             .content(text)
             .flags(MessageFlags::EPHEMERAL)
@@ -1018,20 +1157,15 @@ impl Shared {
         }
     }
 
-    /// A place's renderer: the `[discord]` notice setting, and, under
-    /// `[approval]`, where else its cards can be answered.
+    /// A place's renderer: the `[discord]` notice setting.
     fn renderer(&self) -> Renderer {
-        let mut r = Renderer::new(self.notice_embeds);
-        if let Some(e) = self.core.approval.elsewhere() {
-            r.set_elsewhere(e);
-        }
-        r
+        Renderer::new(self.notice_embeds)
     }
 
     /// The DM an approval card goes to when its place is not a trusted
     /// channel: the turn's author's, when they are a trusted user with an
     /// open DM here, else the first such DM in the bindings file.
-    fn approval_dm(&self, prefer: Option<u64>) -> Option<(u64, String)> {
+    pub(crate) fn approval_dm(&self, prefer: Option<u64>) -> Option<(u64, String)> {
         let r = self.routes.lock().unwrap();
         let trusted: Vec<&(u64, String)> = r
             .dms
@@ -1048,42 +1182,23 @@ impl Shared {
             .map(|d| (*d).clone())
     }
 
-    /// A Theseus job's process tried to answer an approval and was refused
-    /// (theseus-6qy): a security event, said where approvals go. A trusted
-    /// user's DM first; without one, the place of the session that asked;
-    /// without that, the log alone, beside the ledger and the narrative.
-    fn job_refusal(&self, p: &Value) {
-        let text = crate::render::job_refusal(p);
-        if let Some((user, _)) = self.approval_dm(None) {
-            self.to_dm(user, PlaceMsg::Notice(text));
-            return;
+    /// Whether the portal has the Server Members intent on: the application's
+    /// flags, asked on first need when `connect` has not asked yet.
+    async fn members_intent(&self) -> bool {
+        if let Some(m) = self.members_intent.get() {
+            return *m;
         }
-        let place = p
-            .get("session_id")
-            .and_then(Value::as_str)
-            .and_then(|s| self.routes.lock().unwrap().by_session.get(s).cloned());
-        match place {
-            Some(tx) => {
-                let _ = tx.send(PlaceMsg::Notice(text));
-            }
-            None => {
-                tracing::warn!(notice = %text, "no DM or place to tell of a job's refused answer")
-            }
-        }
-    }
-
-    /// Hand an approval card to the DM place of `user`.
-    fn to_dm(&self, user: u64, card: PlaceMsg) {
-        let tx = self.routes.lock().unwrap().by_dm_user.get(&user).cloned();
-        match tx {
-            Some(tx) => {
-                let _ = tx.send(card);
-            }
-            None => self.board.error(
-                "approval card",
-                None,
-                format!("no DM place for user {user}"),
-            ),
+        match self.http.current_user_application().await {
+            Ok(r) => match r.model().await {
+                Ok(app) => {
+                    let m = viewers::members_intent(app.flags);
+                    let _ = self.members_intent.set(m);
+                    self.board.update(|s| s.members_intent = Some(m));
+                    m
+                }
+                Err(_) => false,
+            },
+            Err(_) => false,
         }
     }
 
@@ -1091,8 +1206,8 @@ impl Shared {
     /// core, which judges answers from there against it (theseus-sgh).
     /// Without the Server Members intent it cannot be verified. True when it
     /// is trusted.
-    async fn check_channel(&self, channel: u64) -> bool {
-        let (trusted, detail) = match viewers::unverifiable(self.members_intent) {
+    pub(crate) async fn check_channel(&self, channel: u64) -> bool {
+        let (trusted, detail) = match viewers::unverifiable(self.members_intent().await) {
             Some(v) => v,
             None => match self.viewers(channel).await {
                 Ok(v) => v,
@@ -1152,7 +1267,7 @@ impl Shared {
             &overwrites,
             &members,
             &self.core.approval.discord_users(),
-            self.bot_id,
+            self.bot_id(),
         );
         Ok(viewers::verdict(&outside, members.len()))
     }
@@ -1173,7 +1288,7 @@ impl Shared {
         let resp = InteractionResponse { kind, data };
         if let Err(e) = self
             .http
-            .interaction(self.app_id)
+            .interaction(i.application_id)
             .create_response(i.id, &i.token, &resp)
             .await
         {
@@ -1276,7 +1391,7 @@ fn parse_asked_pick(custom_id: &str, values: &[String]) -> Option<Asked> {
 
 /// The one "Should have asked…" menu on a tool message: an option per
 /// distinct notified tool (the renderer caps them at 25).
-fn asked_menu(options: &[Asked]) -> Vec<Component> {
+pub(crate) fn asked_menu(options: &[Asked]) -> Vec<Component> {
     let options = options
         .iter()
         .take(crate::render::MAX_ASKED)
@@ -1308,7 +1423,7 @@ fn asked_menu(options: &[Asked]) -> Vec<Component> {
 
 /// A notice card's "Should have asked" button (with `[discord]
 /// notice_embeds`), or none once its tool asks first.
-fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
+pub(crate) fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
     let Some(a) = ask else {
         return vec![];
     };
@@ -1372,7 +1487,7 @@ fn tightened_reply(tool: &str, r: &Result<TightenResult, CallError>) -> String {
     }
 }
 
-fn confirm_buttons(corr: &str) -> Vec<Component> {
+pub(crate) fn confirm_buttons(corr: &str) -> Vec<Component> {
     let button = |verb: &str, label: &str, style| {
         Component::Button(Button {
             id: None,
@@ -1395,11 +1510,12 @@ fn confirm_buttons(corr: &str) -> Vec<Component> {
 }
 
 /// Hand each notification to the place whose session it names. A tightening
-/// holds for every session, so every place gets it (theseus-sgh).
+/// holds for every session, so every place gets it (theseus-sgh). A refused
+/// answer from a job's process is the core's post to the operator
+/// (theseus-q4v), so no place renders it.
 async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notification>) {
     while let Some(n) = notes.recv().await {
         if n.method == theseus_protocol::notify::APPROVAL_REFUSED {
-            shared.job_refusal(&n.params);
             continue;
         }
         if everywhere(&n.method) {
@@ -1446,6 +1562,8 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
 struct Place {
     shared: Arc<Shared>,
     key: String,
+    /// Where its posts go: `discord:<key>`.
+    target: String,
     kind: &'static str,
     label: String,
     channel: Option<Id<ChannelMarker>>,
@@ -1453,18 +1571,14 @@ struct Place {
     mention_only: bool,
     session_id: String,
     renderer: Renderer,
-    /// render key → Discord message id
-    msgs: HashMap<String, Id<MessageMarker>>,
+    /// The place's lane: the one writer of its messages (theseus-q4v).
+    lane: mpsc::UnboundedSender<LaneMsg>,
     /// A `turn.submit` of ours is outstanding.
     inflight: bool,
     /// Messages that arrived mid-turn, for the next turn.
     queued: Vec<Inbound>,
-    /// The first message of the next turn replies to this one.
-    anchor: Option<Id<MessageMarker>>,
     saw_failure: bool,
     last_activity_ms: u64,
-    /// Who wrote the latest message here: the DM an approval card prefers.
-    last_author: Option<u64>,
     tx: mpsc::UnboundedSender<PlaceMsg>,
 }
 
@@ -1480,11 +1594,11 @@ impl Place {
                 },
                 _ = tick.tick() => {
                     let ops = self.renderer.tick();
-                    self.apply(ops).await;
+                    self.apply(ops);
                 }
                 _ = typing.tick() => {
                     if self.inflight || self.renderer.busy() {
-                        self.typing().await;
+                        self.apply(vec![crate::render::Op::Typing]);
                     }
                 }
             }
@@ -1495,7 +1609,7 @@ impl Place {
         match m {
             PlaceMsg::Inbound(m) => {
                 self.last_activity_ms = theseus_protocol::now_unix_ms();
-                self.last_author = Some(m.author_id);
+                let _ = self.lane.send(LaneMsg::Author(m.author_id));
                 let mut row = json!({"place": self.label, "author": m.author, "chars": m.text.chars().count(), "message_id": m.message.to_string()});
                 if let Some(p) = &m.files {
                     row["attachments"] = json!(p.metas.len());
@@ -1505,7 +1619,7 @@ impl Place {
                     .binding_ledger("discord.message.in", Some(&self.session_id), row);
                 if let Some(cmd) = parse_control(&m.text) {
                     let reply = self.control(cmd, &format!("discord:{}", m.author)).await;
-                    self.say(&reply, Some(m.message)).await;
+                    self.say(&reply, Some(m.message));
                     return;
                 }
                 if self.inflight {
@@ -1519,14 +1633,8 @@ impl Place {
                 if n.method == theseus_protocol::notify::TURN_FAILED {
                     self.saw_failure = true;
                 }
-                if n.method == theseus_protocol::notify::CONFIRM_REQUESTED
-                    && self.shared.core.approval.configured()
-                {
-                    let route = self.approval_route().await;
-                    self.renderer.set_route(route);
-                }
                 let ops = self.renderer.on_notification(&n.method, &n.params);
-                self.apply(ops).await;
+                self.apply(ops);
             }
             PlaceMsg::SubmitDone(r) => {
                 self.inflight = false;
@@ -1549,7 +1657,7 @@ impl Place {
                         );
                         match self.rebind().await {
                             Ok(()) => {
-                                self.say(&note, None).await;
+                                self.say(&note, None);
                                 let batch = std::mem::take(&mut self.queued);
                                 if !batch.is_empty() {
                                     self.submit(batch);
@@ -1559,7 +1667,7 @@ impl Place {
                             Err(err) => self.shared.board.error("rebind", None, err),
                         }
                     } else if !self.saw_failure {
-                        self.say(&format!("⚠️ {}", e.message), None).await;
+                        self.say(&format!("⚠️ {}", e.message), None);
                     }
                 }
                 let batch = std::mem::take(&mut self.queued);
@@ -1572,20 +1680,10 @@ impl Place {
                 let text = self.control(cmd, &by).await;
                 let _ = reply.send(text);
             }
-            PlaceMsg::Notice(text) => self.say(&text, None).await,
-            PlaceMsg::Card {
-                key,
-                content,
-                buttons,
-            } => {
-                // Another place's card: never a reply to this DM's own turn.
-                let anchor = self.anchor.take();
-                self.upsert(&key, &content, buttons).await;
-                self.anchor = anchor;
-            }
             PlaceMsg::DmChannel(c) => {
                 if self.channel != Some(c) {
                     self.channel = Some(c);
+                    let _ = self.lane.send(LaneMsg::Channel(c.get()));
                     let mut r = self.shared.routes.lock().unwrap();
                     r.by_channel.insert(c.get(), self.tx.clone());
                     r.users.insert(c.get(), self.users.clone());
@@ -1620,7 +1718,12 @@ impl Place {
         } else {
             "discord".into()
         };
-        self.anchor = batch.last().map(|m| m.message);
+        // The turn's first message replies to the last one it answers: the
+        // stream's, or the reply's post when the stream posted nothing.
+        let anchor = batch.last().map(|m| m.message);
+        if let Some(a) = anchor {
+            let _ = self.lane.send(LaneMsg::Anchor(a.get()));
+        }
         self.inflight = true;
         self.saw_failure = false;
         let pending: Vec<Pending> = batch.into_iter().filter_map(|m| m.files).collect();
@@ -1645,6 +1748,7 @@ impl Place {
                         model: None,
                         author: Some(author),
                         attachments,
+                        reply_to: anchor.map(|a| a.to_string()),
                     },
                 )
                 .await
@@ -1744,207 +1848,28 @@ impl Place {
         Ok(())
     }
 
-    /// Where this place's approval card goes now (theseus-sgh): here when
-    /// the place is a trusted channel, which for a listed guild channel means
-    /// a fresh check of who can view it; else a trusted user's DM, with a
-    /// note here; else the note alone.
-    async fn approval_route(&self) -> Route {
-        let ap = &self.shared.core.approval;
-        let channel = self.channel.map(|c| c.get());
-        let why = match (self.kind, channel) {
-            ("dm", _) if ap.trusts_dm(self.users[0], channel) => return Route::Here,
-            ("dm", _) if !ap.discord_users().contains(&self.users[0]) => {
-                "its user is not in [approval] trusted_users".to_string()
-            }
-            ("dm", _) => "[approval] channels does not list \"discord:dm\"".to_string(),
-            (_, Some(c)) if ap.lists_discord_channel(c) => {
-                if self.shared.check_channel(c).await {
-                    return Route::Here;
-                }
-                ap.checked(c).map(|k| k.detail).unwrap_or_default()
-            }
-            _ => "it is not listed in [approval] channels".to_string(),
-        };
-        match self.shared.approval_dm(self.last_author) {
-            Some((user, dm)) => Route::Dm {
-                user,
-                dm,
-                place: self.label.clone(),
-                why,
-            },
-            None => Route::Elsewhere { why },
-        }
-    }
-
-    async fn apply(&mut self, ops: Vec<Op>) {
+    /// Live progress to the place's lane: best-effort, never replayed.
+    fn apply(&mut self, ops: Vec<crate::render::Op>) {
         for op in ops {
-            match op {
-                Op::Typing => self.typing().await,
-                Op::Upsert {
-                    key,
-                    content,
-                    buttons,
-                } => self.upsert(&key, &content, buttons).await,
-                Op::Notice { key, card } => self.notice(&key, &card).await,
-                Op::InDm {
-                    user,
-                    key,
-                    content,
-                    buttons,
-                } => self.shared.to_dm(
-                    user,
-                    PlaceMsg::Card {
-                        key,
-                        content,
-                        buttons,
-                    },
-                ),
-            }
+            let _ = self.lane.send(LaneMsg::Live(op));
         }
     }
 
-    /// Post (or update) a structured notice: a Discord embed, no mentions.
-    async fn notice(&mut self, key: &str, card: &NoticeCard) {
-        let Some(channel) = self.channel else {
-            return;
-        };
-        let mut b = twilight_util::builder::embed::EmbedBuilder::new()
-            .title(card.title.clone())
-            .color(card.color)
-            .description(card.description.clone());
-        for (name, value) in &card.fields {
-            if !value.trim().is_empty() {
-                b = b.field(twilight_util::builder::embed::EmbedFieldBuilder::new(
-                    name.clone(),
-                    value.clone(),
-                ));
-            }
-        }
-        let embeds = [b.build()];
-        let none = AllowedMentions::default();
-        // Its "Should have asked" button, or none once the tool asks first.
-        let comps = asked_button(card.ask.as_ref());
-        let http = &self.shared.http;
-        let res: Result<Option<Id<MessageMarker>>, String> = match self.msgs.get(key).copied() {
-            Some(mid) => http
-                .update_message(channel, mid)
-                .embeds(Some(&embeds))
-                .components(Some(&comps))
-                .allowed_mentions(Some(&none))
-                .await
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
-            None => {
-                let mut req = http
-                    .create_message(channel)
-                    .embeds(&embeds)
-                    .allowed_mentions(Some(&none));
-                if !comps.is_empty() {
-                    req = req.components(&comps);
-                }
-                match req.await {
-                    Ok(r) => r
-                        .model()
-                        .await
-                        .map(|m| Some(m.id))
-                        .map_err(|e| e.to_string()),
-                    Err(e) => Err(e.to_string()),
-                }
-            }
-        };
-        match res {
-            Ok(Some(id)) => {
-                self.msgs.insert(key.to_string(), id);
-                self.shared.board.update(|s| s.messages_out += 1);
-                self.shared.core.binding_ledger(
-                    "discord.message.out",
-                    Some(&self.session_id),
-                    json!({"place": self.label, "message_id": id.to_string(), "part": key, "notice": card.title}),
-                );
-            }
-            Ok(None) => self.shared.board.update(|s| s.edits += 1),
-            Err(e) => self
-                .shared
+    /// Something the place must say that is no turn's (a bind notice, a
+    /// control's answer, a rebind): an outbox post, delivered when Discord
+    /// can take it (theseus-q4v).
+    fn say(&self, text: &str, reply_to: Option<Id<MessageMarker>>) {
+        let body =
+            json!({"kind": "notice", "text": text, "reply_to": reply_to.map(|m| m.to_string())});
+        if let Err(e) = self
+            .shared
+            .core
+            .outbox
+            .post(&self.session_id, "", &self.target, body)
+        {
+            self.shared
                 .board
-                .error("post notice", Some(&self.session_id), e),
-        }
-    }
-
-    async fn typing(&self) {
-        if let Some(c) = self.channel {
-            let _ = self.shared.http.create_typing_trigger(c).await;
-        }
-    }
-
-    async fn say(&mut self, text: &str, reply_to: Option<Id<MessageMarker>>) {
-        let key = format!("note:{}", theseus_protocol::now_unix_ms());
-        self.anchor = reply_to.or(self.anchor);
-        self.upsert(&key, text, Buttons::Keep).await;
-    }
-
-    async fn upsert(&mut self, key: &str, content: &str, buttons: Buttons) {
-        let Some(channel) = self.channel else {
-            return; // a DM whose channel has not opened yet
-        };
-        if content.trim().is_empty() {
-            return;
-        }
-        let none = AllowedMentions::default();
-        let comps = match &buttons {
-            Buttons::Confirm(corr) => Some(confirm_buttons(corr)),
-            Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
-            Buttons::Clear => Some(vec![]),
-            Buttons::Keep => None,
-        };
-        let http = &self.shared.http;
-        if let Some(mid) = self.msgs.get(key).copied() {
-            let mut req = http
-                .update_message(channel, mid)
-                .content(Some(content))
-                .allowed_mentions(Some(&none));
-            if let Some(c) = &comps {
-                req = req.components(Some(c));
-            }
-            match req.await {
-                Ok(_) => self.shared.board.update(|s| s.edits += 1),
-                Err(e) => self
-                    .shared
-                    .board
-                    .error("edit message", Some(&self.session_id), e),
-            }
-            return;
-        }
-        let mut req = http
-            .create_message(channel)
-            .content(content)
-            .allowed_mentions(Some(&none));
-        if let Some(c) = comps.as_deref().filter(|c| !c.is_empty()) {
-            req = req.components(c);
-        }
-        let anchor = self.anchor.take();
-        if let Some(a) = anchor {
-            req = req.reply(a).fail_if_not_exists(false);
-        }
-        match req.await {
-            Ok(resp) => match resp.model().await {
-                Ok(m) => {
-                    self.msgs.insert(key.to_string(), m.id);
-                    self.shared.board.update(|s| s.messages_out += 1);
-                    self.shared.core.binding_ledger(
-                        "discord.message.out",
-                        Some(&self.session_id),
-                        json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_)), "menu": matches!(buttons, Buttons::ShouldHaveAsked(_))}),
-                    );
-                }
-                Err(e) => self
-                    .shared
-                    .board
-                    .error("read sent message", Some(&self.session_id), e),
-            },
-            Err(e) => self
-                .shared
-                .board
-                .error("send message", Some(&self.session_id), e),
+                .error("post notice", Some(&self.session_id), format!("{e:#}"));
         }
     }
 
@@ -1959,6 +1884,27 @@ impl Place {
             last_activity_ms: self.last_activity_ms,
         });
     }
+}
+
+/// What a lane needs, for a test that drives one directly: the core's
+/// `[discord]` REST (a fake's), and nothing started.
+#[cfg(test)]
+pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
+    let (rpc, _notes) = RpcClient::connect(core.clone(), Client::new(CLIENT, Surface::Discord));
+    Arc::new(Shared {
+        core: core.clone(),
+        rpc,
+        http: Arc::new(http_client("fake-token-not-a-secret", &core.cfg.discord)),
+        board: Board::new(core.clone()),
+        bot_id: AtomicU64::new(0),
+        edit_interval: Duration::from_millis(250),
+        notice_embeds: false,
+        routes: Mutex::new(Routes::default()),
+        files_http: files::client(),
+        max_text: 0,
+        members_intent: OnceLock::new(),
+        lanes: Mutex::new(HashMap::new()),
+    })
 }
 
 #[cfg(test)]
@@ -2154,7 +2100,6 @@ mod tests {
         std::fs::write(&path, crate::EXAMPLE_BINDINGS).unwrap();
         let cfg = core.cfg.discord.clone();
         assert!(cfg.enabled && cfg.token_secret == name);
-        core.bindings.expect();
         let binding = tokio::spawn(run(core.clone(), cfg, path));
         let state = |core: &Arc<Core>| {
             let b = core.bindings.all().pop().unwrap();
@@ -2164,13 +2109,6 @@ mod tests {
         let (s, detail) = state(&core);
         assert_eq!(s, "waiting", "{detail}");
         assert!(detail.contains("discord_bot_token"), "{detail}");
-        assert!(
-            !core
-                .bindings
-                .wait(std::time::Duration::from_millis(10))
-                .await,
-            "the driver still waits for the binding"
-        );
         board.publish(
             [(name.clone(), Err::<Secret, _>("could not find item".into()))].into(),
             "fake",
@@ -2181,12 +2119,6 @@ mod tests {
         assert!(
             detail.contains("discord_bot_token") && detail.contains("could not find item"),
             "{detail}"
-        );
-        assert!(
-            core.bindings
-                .wait(std::time::Duration::from_millis(10))
-                .await,
-            "a failed token lets the driver go on"
         );
         assert!(!binding.is_finished(), "it waits for a retry");
         binding.abort();

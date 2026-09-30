@@ -12,10 +12,12 @@ use crate::approval::{Answerer, Refusal};
 use crate::ledger::LedgerRow;
 use crate::narrative::narrate;
 use crate::node::{Body, Node};
+use crate::outbox::Closed;
 use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::{Action, LimitFollowed, BUDGET_TOOL};
+use theseus_store::Store as _;
 
 impl Core {
     /// A waiting action as the question the operator sees: the one place a
@@ -91,6 +93,32 @@ impl Core {
                 lifetime_usd: session.cost_usd,
             }),
         })
+    }
+
+    /// A card's question as the operator sees it, from its action and, for a
+    /// tool call, the `ToolCall` node its card names (theseus-q4v): one read
+    /// by key, not a transcript.
+    pub fn question_request(
+        &self,
+        q: &Action,
+        node_id: Option<&str>,
+    ) -> Result<Option<ConfirmRequest>> {
+        let Some(rec) = self.store.get_session::<SessionRecord>(&q.session_id)? else {
+            return Ok(None);
+        };
+        if q.tool == BUDGET_TOOL {
+            return Ok(self.budget_confirm(q, &rec));
+        }
+        let Some(id) = node_id else {
+            return Ok(None);
+        };
+        let node = self
+            .store
+            .inner()
+            .latest_by_key(theseus_store::kinds::NODE, id)?
+            .map(|r| r.decode::<Node>())
+            .transpose()?;
+        Ok(node.and_then(|n| self.confirm_request(q, &rec, &[(0, n)])))
     }
 
     /// A session's questions for the operator: its budget question, then its
@@ -251,6 +279,10 @@ impl Core {
             )),
             None,
         );
+        self.card_closed(
+            correlation_id,
+            Closed::new(if approve { "approved" } else { "declined" }, Some(by)),
+        );
         self.admission.notify_waiters();
         Ok(theseus_protocol::ActionConfirmResult {
             correlation_id: correlation_id.into(),
@@ -259,6 +291,13 @@ impl Core {
             execution_id: a.execution_id,
             resumes: true,
         })
+    }
+
+    /// A question closed: its card's settle goes to the outbox (theseus-q4v).
+    pub(crate) fn card_closed(&self, question: &str, how: Closed) {
+        if let Err(e) = self.outbox.closed(question, how) {
+            tracing::warn!(error = %format!("{e:#}"), question, "the card's settle was not written");
+        }
     }
 
     /// The one judgment of every approval-like act (theseus-sgh): an answer
@@ -405,6 +444,14 @@ impl Core {
         );
         data["act"] = json!(act.method());
         data["session_id"] = json!(session);
+        // A security event the operator must see, where approvals go, whether
+        // or not the binding is there now (theseus-q4v).
+        if let Err(e) = self
+            .outbox
+            .to_operator(session, json!({"kind": "refusal", "params": data}))
+        {
+            tracing::warn!(error = %format!("{e:#}"), "the refusal's notice was not written");
+        }
         self.bus
             .publish_all(&Message::Notification(theseus_protocol::Notification::new(
                 notify::APPROVAL_REFUSED,
@@ -467,6 +514,10 @@ impl Core {
                 json!({"session_id": q.session_id, "correlation_id": correlation_id, "approved": approve, "by": by}),
             )),
             None,
+        );
+        self.card_closed(
+            correlation_id,
+            Closed::new(if approve { "approved" } else { "declined" }, Some(by)),
         );
         self.admission.notify_waiters();
         Ok(theseus_protocol::ActionConfirmResult {
@@ -540,6 +591,20 @@ impl Core {
                         json!({"session_id": f.session_id, "correlation_id": q, "approved": false, "withdrawn": true, "by": "config"}),
                     )),
                     None,
+                );
+                // S1's stale card (theseus-3pj): the raise closed it, and the
+                // card says so, whenever its binding is back.
+                self.card_closed(
+                    q,
+                    Closed {
+                        how: "withdrawn".into(),
+                        by: None,
+                        note: Some(format!(
+                            "the spend limit was raised from {} to {}",
+                            crate::narrative::dollars(f.from_micros),
+                            crate::narrative::dollars(f.to_micros)
+                        )),
+                    },
                 );
             }
         }

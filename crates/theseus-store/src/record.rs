@@ -20,6 +20,9 @@ pub mod kinds {
     pub const EDGE: RecordKind = 8;
     pub const COMPILATION: RecordKind = 9;
     // 10 was `JUDGMENT` and 255 `CHECKPOINT`, reserved and never written.
+    /// What must reach a channel (theseus-q4v): the kernel's outbox actions,
+    /// kept apart from `ACTION` so no reader of an execution's work sees them.
+    pub const OUTBOX: RecordKind = 11;
 
     pub fn name(k: RecordKind) -> &'static str {
         match k {
@@ -32,6 +35,7 @@ pub mod kinds {
             NODE => "node",
             EDGE => "edge",
             COMPILATION => "compilation",
+            OUTBOX => "outbox",
             _ => "unknown",
         }
     }

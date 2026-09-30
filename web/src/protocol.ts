@@ -163,6 +163,16 @@ export interface BindingStatus {
   ignored: number; errors: number; last_error?: string
   /// The portal has the Server Members intent on: who can view a guild channel can be checked.
   members_intent?: boolean
+  /// What waits to reach its places (theseus-q4v).
+  outbox?: OutboxStatus
+}
+
+/// A binding's outbox: posts written when they happened, delivered once when the channel can take them.
+export interface OutboxStatus {
+  pending: number; sent: number; failed: number
+  /// When the oldest pending post was written (unix ms); 0 with none.
+  oldest_pending_ms: number
+  last_error?: string; last_error_ms: number
 }
 
 export interface SessionInfo {

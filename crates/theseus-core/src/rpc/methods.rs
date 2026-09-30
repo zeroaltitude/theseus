@@ -62,7 +62,15 @@ impl Core {
             broker: self.tools.broker.status(),
             cost_usd_total: sessions.iter().map(|s| s.cost_usd).sum(),
             catalog_version: self.catalog.version.clone(),
-            bindings: self.bindings.all(),
+            bindings: self
+                .bindings
+                .all()
+                .into_iter()
+                .map(|mut b| {
+                    b.outbox = Some(self.outbox.status(&b.kind));
+                    b
+                })
+                .collect(),
             narrative: self.narrator.on(),
             context: self.context_status(),
             approval: self.approval_status(),
@@ -217,6 +225,7 @@ impl Core {
                 attachments: p.attachments,
                 arrived: Some(conn.arrived),
                 config_wait_us: conn.config_wait_us,
+                reply_to: p.reply_to,
             })
             .await;
         match result {

@@ -642,6 +642,29 @@ pub struct BindingStatus {
     /// checked. None until the binding has asked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub members_intent: Option<bool>,
+    /// Its outbox (theseus-q4v): the posts waiting for it, and how delivery
+    /// goes. The core fills it in for health.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outbox: Option<OutboxStatus>,
+}
+
+/// A binding's outbox (theseus-q4v): what waits to reach its channels.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutboxStatus {
+    /// Posts written and not yet delivered.
+    pub pending: u64,
+    /// Posts delivered, in this store's life.
+    pub sent: u64,
+    /// Posts the channel refused for good (a deleted channel, lost access).
+    pub failed: u64,
+    /// When the oldest pending post was written (unix ms); 0 with none.
+    #[serde(default)]
+    pub oldest_pending_ms: u64,
+    /// The last delivery error, and when (unix ms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub last_error_ms: u64,
 }
 
 /// A place Theseus lives in: a text channel or a DM, and the session behind it.
@@ -1022,6 +1045,10 @@ pub struct TurnSubmitParams {
     /// input may be empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
+    /// The surface's message this turn answers (a Discord message id): the
+    /// reply's first message is posted as a reply to it (theseus-q4v).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
 }
 
 /// A file sent with a turn's input (theseus-9g2): a Discord attachment, or

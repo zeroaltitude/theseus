@@ -76,6 +76,13 @@ impl Core {
             }
             Err(e) => tracing::warn!(error = %e, "reconcile failed"),
         }
+        // A card whose question closed without an event that said so (its
+        // execution ended, say) gets its settle (theseus-q4v).
+        match self.outbox.reconcile_cards() {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(why, settles = n, "heartbeat: cards whose question closed"),
+            Err(e) => tracing::warn!(error = %format!("{e:#}"), "reconciling cards failed"),
+        }
     }
 
     /// The narrative's line for a job's completion that came from the spool.
@@ -266,6 +273,7 @@ impl Core {
                 attachments: vec![],
                 arrived: None,
                 config_wait_us: 0,
+                reply_to: None,
             })
             .await?;
         self.telemetry().record_turn(&res);

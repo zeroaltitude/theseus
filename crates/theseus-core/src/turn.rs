@@ -89,6 +89,9 @@ pub struct TurnRunner {
     pub secrets: Arc<SecretBoard>,
     /// Where a turn's first wait for a provider's key is recorded.
     pub startup_log: Arc<StartupLog>,
+    /// What must reach a channel: a turn's reply, its cards, a failure
+    /// (theseus-q4v).
+    pub outbox: Arc<crate::outbox::Outbox>,
 }
 
 /// The longest a turn waits for its secrets (theseus-qa0). A round takes
@@ -115,6 +118,10 @@ struct Waits {
 struct Frames {
     store: Store,
     kernel: Kernel,
+    /// Outbox posts whose records wait in `store` too (the reply, a budget
+    /// question's card): indexed once the turn's last frame is written
+    /// (theseus-q4v).
+    posts: std::sync::Mutex<Vec<theseus_kernel::Action>>,
 }
 
 /// Why a turn did not run: a secret it needs is not there.
@@ -142,6 +149,9 @@ pub struct TurnRequest {
     pub arrived: Option<Instant>,
     /// How long it waited there for the vault to confirm the config.
     pub config_wait_us: u64,
+    /// The surface's message it answers (a Discord message id), which the
+    /// reply's post names (theseus-q4v).
+    pub reply_to: Option<String>,
 }
 
 /// How long a turn may wait for admission before the client gets an error.
@@ -198,6 +208,11 @@ struct Turn<'a> {
     /// Jobs this turn started or resumed in the background.
     background: Vec<String>,
     stop_reason: String,
+    /// Each loop that said something: its index and its assistant node,
+    /// which the reply's post names (theseus-q4v).
+    said: Vec<(u32, String)>,
+    /// The surface's message the turn answers (a Discord message id).
+    reply_to: Option<String>,
 }
 
 /// What became of a loop's provider call.
@@ -247,6 +262,8 @@ impl<'a> Turn<'a> {
             budget_question: None,
             background: Vec::new(),
             stop_reason: String::new(),
+            said: Vec::new(),
+            reply_to: None,
         }
     }
 
@@ -532,6 +549,12 @@ impl TurnRunner {
                     notify::CONFIRM_RESOLVED,
                     json!({"session_id": exec.session_id, "correlation_id": q, "approved": false, "superseded": true, "by": author}),
                 );
+                if let Err(e) = self
+                    .outbox
+                    .closed(q, crate::outbox::Closed::new("superseded", Some(author)))
+                {
+                    tracing::warn!(error = %format!("{e:#}"), "the card's settle was not written");
+                }
                 narrate!(
                     self.narrator,
                     Approval,
@@ -759,6 +782,7 @@ impl TurnRunner {
         let frames = Frames {
             kernel: self.kernel.view(store.shared()),
             store,
+            posts: Default::default(),
         };
         let r = self.run_inner(&guard, &frames, req, arrived, waits).await;
         let (end, rewake) = match &r {
@@ -771,8 +795,14 @@ impl TurnRunner {
             tracing::warn!(error = %e, "end_turn failed");
         }
         // Rows still waiting when the turn's last frame failed or wrote none.
-        if let Err(e) = frames.store.flush() {
-            tracing::warn!(error = %e, "ledger append failed");
+        match frames.store.flush() {
+            // The turn's posts rode in its last frame: now a binding may send them.
+            Ok(()) => {
+                for a in frames.posts.lock().unwrap().drain(..) {
+                    self.outbox.posted(&a);
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         if let Some(p) = parked {
             let turn_id = match &r {
@@ -802,18 +832,22 @@ impl TurnRunner {
                     "The turn stopped on an internal error; the log has it."
                 );
             }
-            failure_sink.send(
-                notify::TURN_FAILED,
-                theseus_protocol::TurnFailed {
-                    session_id: failure_sink.session_id.clone(),
-                    turn_id: te.map(|t| t.turn_id.clone()).filter(|t| !t.is_empty()),
-                    execution_id: Some(exec_id.clone()),
-                    continuation,
-                    class: te.map(|t| t.class.clone()),
-                    // The class and the turn ride beside it: the cause, once.
-                    error: te.map_or_else(|| format!("{e:#}"), |t| format!("{:#}", t.source)),
-                },
-            );
+            let failed = theseus_protocol::TurnFailed {
+                session_id: failure_sink.session_id.clone(),
+                turn_id: te.map(|t| t.turn_id.clone()).filter(|t| !t.is_empty()),
+                execution_id: Some(exec_id.clone()),
+                continuation,
+                class: te.map(|t| t.class.clone()),
+                // The class and the turn ride beside it: the cause, once.
+                error: te.map_or_else(|| format!("{e:#}"), |t| format!("{:#}", t.source)),
+            };
+            // A failed turn must be seen where its reply would have gone.
+            let mut body = serde_json::to_value(&failed).unwrap_or_default();
+            body["kind"] = json!("failed");
+            if let Err(e) = self.outbox.post_for(&failed.session_id, &exec_id, body) {
+                tracing::warn!(error = %format!("{e:#}"), "the failed turn's notice was not written");
+            }
+            failure_sink.send(notify::TURN_FAILED, failed);
         }
         if rewake {
             // A background result landed while the turn ran; the model has not
@@ -851,6 +885,7 @@ impl TurnRunner {
             author,
             recompile,
             attachments,
+            reply_to,
             ..
         } = req;
         let provider = self
@@ -878,6 +913,8 @@ impl TurnRunner {
             sink: &sink,
             confirm_ttl_ms: self.kernel.config().confirm_ttl_ms,
             narrator: &self.narrator,
+            outbox: &self.outbox,
+            posts: &frames.posts,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             narrate!(
@@ -893,6 +930,7 @@ impl TurnRunner {
             );
         }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
+        t.reply_to = reply_to;
         t.announce(input.as_deref(), attachments.len(), &author, &waits);
 
         // 1. What happened while no turn was running.
@@ -1389,6 +1427,20 @@ impl TurnRunner {
         limit: Micros,
     ) -> Result<()> {
         let q = t.tc.kernel.ask_budget(t.tc.guard, needed)?;
+        // Its card rides in the turn's next frame, the one that parks it on
+        // the question (theseus-q4v).
+        if let Some(target) = self.outbox.target(t.tc.session_id) {
+            let (post, records) = self.outbox.stage(
+                t.tc.session_id,
+                t.tc.execution_id,
+                &target,
+                json!({"kind": "card", "question": q.correlation_id}),
+            )?;
+            for r in records {
+                t.tc.store.defer(r)?;
+            }
+            t.tc.posts.lock().unwrap().push(post);
+        }
         let lifetime = session.cost_usd + t.cost.unwrap_or(0.0);
         let question = format!(
             "This session has spent {} of its {} limit. Reset its spend to $0 and continue?",
@@ -1543,6 +1595,7 @@ impl TurnRunner {
                 t.output.push_str("\n\n");
             }
             t.output.push_str(&resp.text);
+            t.said.push((i, node.id.clone()));
         }
         narrate_turn!(
             t.tc,
@@ -1942,6 +1995,7 @@ impl TurnRunner {
             "turn.ended",
             json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "cost_usd": result.cost_usd, "tool_calls": result.tool_calls, "session_usage": session.usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model, "awaiting_confirm": result.awaiting_confirm, "continuation": result.continuation, "late_results": late}),
         );
+        self.stage_reply(&t, &result)?;
         result.trace = Some(t.trace.finish(json!({
             "outcome": "complete",
             "loops": result.loops,
@@ -1972,6 +2026,36 @@ impl TurnRunner {
             None => self.park(t.tc.execution_id, t.awaiting, &t.background)?,
         };
         Ok((result, end, late > 0))
+    }
+
+    /// The turn's reply as an outbox post, when its session posts somewhere
+    /// (theseus-q4v): each loop's text, by node, and what its footer says.
+    /// It rides in the frame that ends the turn, so a turn that ended has its
+    /// reply written, whether or not a binding is connected.
+    fn stage_reply(&self, t: &Turn<'_>, result: &TurnSubmitResult) -> Result<()> {
+        let Some(target) = self.outbox.target(t.tc.session_id) else {
+            return Ok(());
+        };
+        let footer = TurnSubmitResult {
+            output: String::new(),
+            trace: None,
+            ..result.clone()
+        };
+        let body = json!({
+            "kind": "reply",
+            "turn_id": result.turn_id,
+            "loops": t.said,
+            "result": footer,
+            "reply_to": t.reply_to,
+        });
+        let (post, records) =
+            self.outbox
+                .stage(t.tc.session_id, t.tc.execution_id, &target, body)?;
+        for r in records {
+            t.tc.store.defer(r)?;
+        }
+        t.tc.posts.lock().unwrap().push(post);
+        Ok(())
     }
 
     /// Where the execution waits: on the confirm, on outstanding jobs, or on

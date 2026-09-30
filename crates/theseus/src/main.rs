@@ -504,6 +504,7 @@ async fn run(cli: Cli) -> Result<()> {
                         model,
                         author: None,
                         attachments,
+                        reply_to: None,
                     })?,
                     |m, p| printer.on(m, p),
                 )
@@ -927,6 +928,9 @@ async fn run(cli: Cli) -> Result<()> {
                             format!(" · {}", places.join(", "))
                         }
                     );
+                    if let Some(o) = &b.outbox {
+                        println!("{}", outbox_line(&b.kind, o));
+                    }
                 }
                 print_approval(&h.approval);
                 if !h.tightenings.is_empty() {
@@ -1184,6 +1188,31 @@ fn fmt_us(us: u64) -> String {
 /// `secrets: resolving | ready | failed <names>`, with the names ready, how
 /// the vault was read and how long it took, and each failure's reason
 /// (theseus-qa0). A daemon older than that reports only the ready names.
+/// A binding's outbox (theseus-q4v): `discord outbox: 2 pending, the oldest
+/// 3 min old · 41 sent · 0 refused · last error …`.
+fn outbox_line(kind: &str, o: &theseus_protocol::OutboxStatus) -> String {
+    let now = theseus_protocol::now_unix_ms();
+    let mut s = format!("{kind} outbox: {} pending", o.pending);
+    if o.pending > 0 && o.oldest_pending_ms > 0 {
+        let secs = now.saturating_sub(o.oldest_pending_ms) / 1000;
+        s.push_str(&format!(", the oldest {} old", human_secs(secs)));
+    }
+    s.push_str(&format!(" · {} sent · {} refused", o.sent, o.failed));
+    if let Some(e) = &o.last_error {
+        let secs = now.saturating_sub(o.last_error_ms) / 1000;
+        s.push_str(&format!(" · last error {} ago: {e}", human_secs(secs)));
+    }
+    s
+}
+
+fn human_secs(s: u64) -> String {
+    match s {
+        0..=119 => format!("{s} s"),
+        120..=7199 => format!("{} min", s / 60),
+        _ => format!("{} h", s / 3600),
+    }
+}
+
 fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> String {
     if s.state.is_empty() {
         return format!("secrets [{}]", ready.join(", "));

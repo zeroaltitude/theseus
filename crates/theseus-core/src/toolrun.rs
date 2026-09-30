@@ -85,6 +85,11 @@ pub struct TurnCtx<'a> {
     pub sink: &'a EventSink,
     pub confirm_ttl_ms: u64,
     pub narrator: &'a Narrator,
+    /// Where a card for a call that waits goes (theseus-q4v).
+    pub outbox: &'a crate::outbox::Outbox,
+    /// Posts whose records wait in `store` for the turn's next frame: the
+    /// turn indexes them once that is written.
+    pub posts: &'a std::sync::Mutex<Vec<Action>>,
 }
 
 impl TurnCtx<'_> {
@@ -902,11 +907,38 @@ impl ToolRuntime {
             .record()
         };
         if g.decision.posture == Posture::Approve {
-            return tc
+            // Its card is written with the question, in the same frame, when
+            // the session posts somewhere (theseus-q4v).
+            let target = tc.outbox.target(tc.session_id);
+            let mut card = None;
+            let a = tc
                 .kernel
                 .plan_confirm_with(tc.guard, &g.proposal, retry, deadline, |a| {
-                    Ok(vec![node(a)?])
-                });
+                    let n = Self::tool_call_node(
+                        tc,
+                        assistant_node,
+                        call,
+                        tool.name(),
+                        Some(&a.correlation_id),
+                        g.record.clone(),
+                    );
+                    let mut records = vec![n.record()?];
+                    if let Some(target) = &target {
+                        let (post, more) = tc.outbox.stage(
+                            tc.session_id,
+                            tc.execution_id,
+                            target,
+                            json!({"kind": "card", "question": a.correlation_id, "node": n.id}),
+                        )?;
+                        records.extend(more);
+                        card = Some(post);
+                    }
+                    Ok(records)
+                })?;
+            if let Some(post) = card {
+                tc.outbox.posted(&post);
+            }
+            return Ok(a);
         }
         tc.kernel
             .plan_and_dispatch(tc.guard, &g.proposal, retry, deadline, 0, |a| {
@@ -1592,6 +1624,12 @@ impl ToolRuntime {
             "superseded: the operator sent a new message instead of confirming",
         )?;
         tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false, "superseded": true}));
+        if let Err(e) = tc
+            .outbox
+            .closed(corr, crate::outbox::Closed::new("superseded", None))
+        {
+            tracing::warn!(error = %format!("{e:#}"), "the card's settle was not written");
+        }
         self.answer(
             tc,
             ResultNode {

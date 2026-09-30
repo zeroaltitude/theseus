@@ -82,8 +82,11 @@ pub struct Core {
     /// The live profile and where it came from ("config" | "runtime").
     live: std::sync::RwLock<(String, String)>,
     pub shutdown: tokio::sync::Notify,
-    /// Channel bindings: their status for health, and how many still start.
+    /// Channel bindings: their status, for health.
     pub bindings: BindingBoard,
+    /// What must reach a channel, written when it becomes true; a binding
+    /// only delivers it (theseus-q4v).
+    pub outbox: Arc<crate::outbox::Outbox>,
     /// `[approval]`: who may answer a waiting call, and through which
     /// channels, with the Discord binding's checks (theseus-sgh).
     pub approval: crate::approval::Approval,
@@ -474,7 +477,10 @@ impl Core {
             catalog = %catalog.version,
             "tools and catalog"
         );
+        // Read from the store on its first use, never on the start path.
+        let outbox = Arc::new(crate::outbox::Outbox::new(store.clone(), kernel.clone()));
         let runner = TurnRunner {
+            outbox: outbox.clone(),
             cfg: cfg.clone(),
             providers,
             store: store.clone(),
@@ -526,6 +532,7 @@ impl Core {
             live: std::sync::RwLock::new(live),
             shutdown: tokio::sync::Notify::new(),
             bindings: BindingBoard::default(),
+            outbox,
             approval,
             config_gate,
             restart: tokio::sync::watch::Sender::new(None),

@@ -470,7 +470,12 @@ impl Kernel {
 
     // ------------------------------------------------------------ frames
 
-    fn ledger(&self, kind: &str, session: Option<&str>, data: Value) -> Result<NewRecord> {
+    pub(crate) fn ledger(
+        &self,
+        kind: &str,
+        session: Option<&str>,
+        data: Value,
+    ) -> Result<NewRecord> {
         let row = LedgerRow {
             at_unix_ms: self.now_ms(),
             kind: kind.into(),
@@ -485,8 +490,13 @@ impl Kernel {
         })
     }
 
-    fn commit(&self, frame: &[NewRecord]) -> Result<Vec<u64>> {
+    pub(crate) fn commit(&self, frame: &[NewRecord]) -> Result<Vec<u64>> {
         self.store.append(frame).context("kernel frame")
+    }
+
+    /// The per-execution locks, which the outbox also takes by its own keys.
+    pub(crate) fn locks(&self) -> &ExecLocks {
+        &self.locks
     }
 
     // ------------------------------------------------------------ sessions
@@ -1018,6 +1028,7 @@ impl Kernel {
             reserved_micros: reserve_micros,
             resolution: None,
             completions_seen: 0,
+            detail: None,
         };
         frame.push(action_record(&a)?);
         frame.push(self.ledger(
@@ -1117,6 +1128,7 @@ impl Kernel {
             reserved_micros: 0,
             resolution: None,
             completions_seen: 0,
+            detail: None,
         };
         let asked = json!({
             "execution_id": e.id,

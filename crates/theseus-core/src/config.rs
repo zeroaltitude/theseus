@@ -116,6 +116,15 @@ pub struct DiscordConfig {
     /// the ledger row and the web UI's notice are the same either way.
     #[serde(default)]
     pub notice_embeds: bool,
+    /// A local stand-in for Discord's REST API, `host:port` over plain http
+    /// (twilight's proxy base): tests and scratch daemons only, so that no
+    /// request and no token leaves the machine (theseus-q4v).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rest_proxy: Option<String>,
+    /// The same for the gateway: a `ws://host:port` URL connected instead of
+    /// Discord's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_proxy: Option<String>,
 }
 
 fn default_discord_token_secret() -> String {
@@ -136,6 +145,8 @@ impl Default for DiscordConfig {
             bindings_file: default_bindings_file(),
             edit_interval_ms: default_edit_interval_ms(),
             notice_embeds: false,
+            rest_proxy: None,
+            gateway_proxy: None,
         }
     }
 }

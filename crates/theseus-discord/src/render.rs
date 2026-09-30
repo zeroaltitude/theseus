@@ -1,17 +1,25 @@
-//! A session's event stream as Discord messages. Pure: notifications in,
-//! operations out, so the whole rendering is tested without Discord.
+//! A session's event stream as Discord messages. Pure: notifications and
+//! posts in, messages out, so the whole rendering is tested without Discord.
 //!
-//! A turn becomes: each loop's streamed text as one or more messages edited in
-//! place (split under Discord's 2000-character limit, with code fences closed
-//! and reopened across a split); one message per loop listing its tool calls,
-//! updated as each runs; a confirm message with Approve and Decline buttons;
-//! and a footer line with the turn's model, loops, tools, dollars, and time.
-//! Rendering is a diff: every tick re-renders the live turns and emits only the
-//! messages whose text changed, so a burst of deltas costs one edit.
+//! Two kinds of message (theseus-q4v):
+//! - **Live progress**, the `Renderer`, best-effort and never replayed: while a
+//!   turn runs, each loop's streamed text as messages edited in place (split
+//!   under Discord's 2000-character limit, with code fences closed and
+//!   reopened across a split), and one message per loop listing its tool
+//!   calls, updated as each runs. Rendering is a diff: every tick re-renders
+//!   the live turns and emits only the messages whose text changed, so a burst
+//!   of deltas costs one edit.
+//! - **Posts**, the outbox's, delivered once: a turn's reply (its loops' text
+//!   in their final form, and a footer with the turn's model, loops, tools,
+//!   dollars, and time), a confirm card with Approve and Decline buttons and
+//!   how it closed, and notices. Their text is `reply_parts`, `card`,
+//!   `settled`, and the notice functions below. A reply's parts have the keys
+//!   the stream used, so its last state edits the streamed messages.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use serde_json::Value;
+use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, TurnSubmitResult};
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
@@ -79,14 +87,16 @@ pub enum Op {
         content: String,
         buttons: Buttons,
     },
-    /// The same, in the DM with `user`: an approval card this place may not
-    /// carry (theseus-sgh).
-    InDm {
-        user: u64,
-        key: String,
-        content: String,
-        buttons: Buttons,
-    },
+}
+
+impl Op {
+    /// The message it writes; typing writes none.
+    pub fn key(&self) -> Option<&str> {
+        match self {
+            Op::Typing => None,
+            Op::Notice { key, .. } | Op::Upsert { key, .. } => Some(key),
+        }
+    }
 }
 
 /// Where a place's approval cards go (theseus-sgh, spec §3.9 "Approval").
@@ -109,16 +119,13 @@ pub enum Route {
     Elsewhere { why: String },
 }
 
-/// A card asked for: its message key, the line it describes, whether it is
-/// a budget question, the DM it went to (user, label), and whether the place
-/// has a note about it.
-#[derive(Debug, Clone)]
-struct Card {
-    key: String,
-    line: String,
-    budget: bool,
-    dm: Option<(u64, String)>,
-    note: bool,
+/// A card as posted: its text, the line its settle names, and whether it is a
+/// budget question.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardText {
+    pub content: String,
+    pub line: String,
+    pub budget: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,8 +172,8 @@ struct LoopView {
 struct TurnView {
     turn_id: String,
     loops: BTreeMap<u32, LoopView>,
-    footer: Option<String>,
-    failure: Option<String>,
+    /// Ended or failed: its text is the reply's post now, and only its tool
+    /// messages are still live.
     ended: bool,
     dirty: bool,
 }
@@ -178,8 +185,6 @@ pub struct Renderer {
     emitted: HashMap<String, String>,
     /// key → the "should have asked" menu Discord last received on it.
     menus: HashMap<String, Vec<Asked>>,
-    /// correlation id → the card asked for it.
-    confirms: HashMap<String, Card>,
     /// tool_use_id → the notice card posted for it (updated when the call
     /// ends) and the call it names.
     notices: HashMap<String, (NoticeCard, Asked)>,
@@ -189,12 +194,10 @@ pub struct Renderer {
     /// `[discord] notice_embeds`: a notified call posts its own card. Off, its
     /// tool line alone carries the notice.
     notice_embeds: bool,
-    /// Where this place's approval cards go (`set_route`).
-    route: Route,
-    /// Where else an approval can be answered, as a card says it ("in the web
-    /// UI or with `theseus confirm`"); None says that, and "" says nothing.
-    elsewhere: Option<String>,
 }
+
+/// Where else an approval can be answered when `[approval]` does not say.
+pub const ELSEWHERE: &str = "in the web UI or with `theseus confirm`";
 
 impl Renderer {
     /// A place's renderer; `notice_embeds` is the `[discord]` setting.
@@ -203,23 +206,6 @@ impl Renderer {
             notice_embeds,
             ..Self::default()
         }
-    }
-
-    /// Where this place's next approval card goes (theseus-sgh).
-    pub fn set_route(&mut self, route: Route) {
-        self.route = route;
-    }
-
-    /// Where else an approval can be answered, for a card to say: the
-    /// trusted local surfaces when `[approval]` is set ("" for none).
-    pub fn set_elsewhere(&mut self, elsewhere: impl Into<String>) {
-        self.elsewhere = Some(elsewhere.into());
-    }
-
-    fn elsewhere(&self) -> &str {
-        self.elsewhere
-            .as_deref()
-            .unwrap_or("in the web UI or with `theseus confirm`")
     }
 
     /// True while a turn is running (the place keeps "typing…" alive).
@@ -236,8 +222,6 @@ impl Renderer {
                 self.turns.push_back(TurnView {
                     turn_id: turn_id.to_string(),
                     loops: BTreeMap::new(),
-                    footer: None,
-                    failure: None,
                     ended: false,
                     dirty: false,
                 });
@@ -426,37 +410,16 @@ impl Renderer {
                 ops.extend(self.tick());
                 ops
             }
+            // The card is a post (`card`); here only the tool line waits.
             "confirm.requested" => {
                 let Ok(req) = serde_json::from_value::<ConfirmRequest>(p.clone()) else {
                     return vec![];
                 };
-                if let Some(b) = &req.budget {
+                if req.budget.is_some() {
                     // No tool line waits: the turn stopped before its call.
-                    let corr = req.correlation_id.clone();
-                    let also = match self.elsewhere() {
-                        "" => String::new(),
-                        e => format!(" You can also answer {e}."),
-                    };
-                    let asked_for = match &self.route {
-                        Route::Dm { place, .. } => format!("For {place}. "),
-                        _ => String::new(),
-                    };
-                    let content = format!(
-                        "{BUDGET_ASK}{}\n-# {asked_for}Approve resets its spend to $0 and the waiting \
-                         call goes on; the session's lifetime cost ({}) keeps counting. Decline, or \
-                         send a new message, and it keeps waiting.{also}",
-                        clip(&req.reason, 300),
-                        dollars(b.lifetime_usd)
-                    );
-                    let line = format!(
-                        "spend reset ({} of the {} limit)",
-                        dollars(b.spent_usd),
-                        dollars(b.limit_usd)
-                    );
-                    return self.ask(corr, content, line, true);
+                    return vec![];
                 }
                 // The newest proposed call of this tool is the one waiting.
-                let corr = req.correlation_id.clone();
                 if let Some(t) = self.turns.iter_mut().rev().find(|t| !t.ended) {
                     if let Some(l) = t
                         .loops
@@ -466,41 +429,17 @@ impl Renderer {
                         .find(|l| l.tool == req.tool && l.state == ToolState::Proposed)
                     {
                         l.state = ToolState::Waiting;
-                        l.correlation_id = Some(corr.clone());
+                        l.correlation_id = Some(req.correlation_id.clone());
                     }
                     t.dirty = true;
                 }
-                let line = format!("`{}` {}", req.tool, summarize(&req.tool, &req.input));
-                let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });
-                if !req.reason.is_empty() {
-                    content.push_str(&format!("\n{}", clip(&req.reason, 300)));
-                }
-                let asked_for = match &self.route {
-                    Route::Dm { place, .. } => format!("for {place} · "),
-                    _ => String::new(),
-                };
-                let also = match self.elsewhere() {
-                    "" => String::new(),
-                    e => format!(" · you can also answer {e}"),
-                };
-                content.push_str(&format!(
-                    "\n-# {asked_for}expires <t:{}:R>{also}",
-                    req.expires_at_ms / 1000
-                ));
-                let line = if req.floor {
-                    format!("{line} (floor)")
-                } else {
-                    line
-                };
-                self.ask(corr, content, line, false)
+                vec![]
             }
+            // The card's settle is a post (`settled`); here the tool line says
+            // who answered.
             "confirm.resolved" => {
                 let corr = str_of(p, "correlation_id");
                 let approved = p.get("approved").and_then(Value::as_bool).unwrap_or(false);
-                let superseded = p
-                    .get("superseded")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
                 let by = p
                     .get("by")
                     .and_then(Value::as_str)
@@ -521,22 +460,7 @@ impl Renderer {
                         }
                     }
                 }
-                let Some(card) = self.confirms.remove(&corr) else {
-                    return vec![];
-                };
-                let (line, budget) = (&card.line, card.budget);
-                let content = if budget && superseded {
-                    format!("⏭️ **Replaced**: a new message came first, and its call asks again if it still does not fit. {line}")
-                } else if budget && !approved {
-                    format!("❎ **Declined** by {by} · {line}; the session keeps waiting, and a new message asks again")
-                } else if superseded {
-                    format!("⏭️ **Not run**: a new message replaced this request. {line}")
-                } else if approved {
-                    format!("✅ **Approved** by {by} · {line}")
-                } else {
-                    format!("❎ **Declined** by {by} · {line}")
-                };
-                self.settle(card, content)
+                vec![]
             }
             "loop.ended" => {
                 if let Some(t) = self.turn_mut(turn_id) {
@@ -544,66 +468,36 @@ impl Renderer {
                 }
                 self.tick()
             }
-            "turn.ended" => {
-                let Ok(r) = serde_json::from_value::<TurnSubmitResult>(p.clone()) else {
-                    return vec![];
-                };
-                match self.turn_mut(&r.turn_id) {
-                    Some(t) => {
-                        t.footer = Some(footer(&r));
-                        t.ended = true;
-                        t.dirty = true;
-                    }
-                    None => {
-                        // It started before this place was watching (a daemon
-                        // restart racing the binding): show its final text.
-                        let mut loops = BTreeMap::new();
-                        loops.insert(
-                            0,
-                            LoopView {
-                                text: r.output.clone(),
-                                tools: vec![],
-                            },
-                        );
-                        self.turns.push_back(TurnView {
-                            turn_id: r.turn_id.clone(),
-                            loops,
-                            footer: Some(footer(&r)),
-                            failure: None,
-                            ended: true,
-                            dirty: true,
-                        });
-                        while self.turns.len() > RECENT_TURNS {
-                            self.turns.pop_front();
-                        }
-                    }
-                }
-                self.tick()
-            }
-            "turn.failed" => {
-                let class = p.get("class").and_then(Value::as_str).unwrap_or("error");
-                let error = clip(p.get("error").and_then(Value::as_str).unwrap_or(""), 600);
-                let text = format!("⚠️ **Turn failed** ({class}): {error}");
-                match self
+            // The reply and a failure are posts; the turn's tool messages take
+            // their last state here, and its text stops streaming.
+            "turn.ended" | "turn.failed" => {
+                let found = self
                     .turns
                     .iter_mut()
                     .rev()
-                    .find(|t| t.turn_id == turn_id || (turn_id.is_empty() && !t.ended))
-                {
+                    .find(|t| t.turn_id == turn_id || (turn_id.is_empty() && !t.ended));
+                match found {
                     Some(t) => {
-                        t.failure = Some(text);
                         t.ended = true;
                         t.dirty = true;
                         self.tick()
                     }
-                    None => {
-                        let key = format!("failed:{}", theseus_protocol::now_unix_ms());
-                        vec![self.upsert(&key, text, Buttons::Keep)]
-                    }
+                    None => vec![],
                 }
             }
             _ => vec![],
         }
+    }
+
+    /// The keys of a turn's streamed text that Discord has seen: a reply's
+    /// post edits these instead of posting its parts again.
+    pub fn streamed(&self, turn_id: &str) -> Vec<String> {
+        let prefix = format!("{turn_id}:L");
+        self.emitted
+            .keys()
+            .filter(|k| k.starts_with(&prefix) && k.contains(":p"))
+            .cloned()
+            .collect()
     }
 
     /// Emit the messages whose rendered text or "should have asked" menu
@@ -660,78 +554,6 @@ impl Renderer {
         }
     }
 
-    /// Post a card for `corr` where the route says: here, in the DM with a
-    /// note here, or only a note here.
-    fn ask(&mut self, corr: String, content: String, line: String, budget: bool) -> Vec<Op> {
-        let key = format!("confirm:{corr}");
-        let note_key = format!("approval:{corr}");
-        let mut card = Card {
-            key: key.clone(),
-            line: line.clone(),
-            budget,
-            dm: None,
-            note: false,
-        };
-        let ops = match self.route.clone() {
-            Route::Here => vec![self.upsert(&key, content, Buttons::Confirm(corr.clone()))],
-            Route::Dm { user, dm, why, .. } => {
-                card.dm = Some((user, dm.clone()));
-                card.note = true;
-                vec![
-                    Op::InDm {
-                        user,
-                        key,
-                        content,
-                        buttons: Buttons::Confirm(corr.clone()),
-                    },
-                    self.upsert(
-                        &note_key,
-                        format!(
-                            "🔐 Approval for {line} was asked in {dm}: this channel is not a \
-                             trusted channel ({why})."
-                        ),
-                        Buttons::Keep,
-                    ),
-                ]
-            }
-            Route::Elsewhere { why } => {
-                card.note = true;
-                let answer = match self.elsewhere() {
-                    "" => ", and no trusted channel is bound here to answer it".to_string(),
-                    e => format!(": answer {e}"),
-                };
-                vec![self.upsert(
-                    &note_key,
-                    format!(
-                        "🔐 {line} waits for approval, and this channel is not a trusted \
-                         channel ({why}){answer}."
-                    ),
-                    Buttons::Keep,
-                )]
-            }
-        };
-        self.confirms.insert(corr, card);
-        ops
-    }
-
-    /// A card answered: settled where it was posted, and its note updated.
-    fn settle(&mut self, card: Card, content: String) -> Vec<Op> {
-        let note_key = card.key.replacen("confirm:", "approval:", 1);
-        match (&card.dm, card.note) {
-            (Some((user, dm)), _) => vec![
-                Op::InDm {
-                    user: *user,
-                    key: card.key.clone(),
-                    content: content.clone(),
-                    buttons: Buttons::Clear,
-                },
-                self.upsert(&note_key, format!("🔐 {content} (in {dm})"), Buttons::Keep),
-            ],
-            (None, true) => vec![self.upsert(&note_key, format!("🔐 {content}"), Buttons::Keep)],
-            (None, false) => vec![self.upsert(&card.key, content, Buttons::Clear)],
-        }
-    }
-
     fn upsert(&mut self, key: &str, content: String, buttons: Buttons) -> Op {
         self.emitted.insert(key.to_string(), content.clone());
         Op::Upsert {
@@ -778,14 +600,18 @@ impl Rendered {
     }
 }
 
-/// Every message a turn shows, in the order Discord should first see them.
-/// `tightened` is tool → who tightened it; `menus` puts a "Should have
-/// asked…" select on each tool message that lists a notified call.
+/// Every live message a turn shows, in the order Discord should first see
+/// them: its streamed text while it runs (then its reply's post owns the
+/// text), and its tool messages. `tightened` is tool → who tightened it;
+/// `menus` puts a "Should have asked…" select on each tool message that lists
+/// a notified call.
 fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) -> Vec<Rendered> {
     let mut out: Vec<Rendered> = Vec::new();
     for (li, lv) in &t.loops {
-        for (i, part) in split_text(&lv.text, PART_LIMIT).into_iter().enumerate() {
-            out.push(Rendered::text(format!("{}:L{li}:p{i}", t.turn_id), part));
+        if !t.ended {
+            for (i, part) in split_text(&lv.text, PART_LIMIT).into_iter().enumerate() {
+                out.push(Rendered::text(format!("{}:L{li}:p{i}", t.turn_id), part));
+            }
         }
         if !lv.tools.is_empty() {
             let (asked, tight) = notified_tools(&lv.tools, tightened);
@@ -809,21 +635,166 @@ fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) 
             });
         }
     }
-    if let Some(f) = &t.failure {
-        out.push(Rendered::text(format!("{}:failed", t.turn_id), f.clone()));
+    out
+}
+
+// ---------------------------------------------------------------- posts
+
+/// A reply's messages, in order: each loop's text in its final form, under
+/// the keys the stream used, and the footer riding on the last part when it
+/// fits, else standing alone (theseus-q4v).
+pub fn reply_parts(
+    turn_id: &str,
+    texts: &[(u32, String)],
+    result: Option<&TurnSubmitResult>,
+) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (li, text) in texts {
+        for (i, part) in split_text(text, PART_LIMIT).into_iter().enumerate() {
+            out.push((format!("{turn_id}:L{li}:p{i}"), part));
+        }
     }
-    if let Some(f) = &t.footer {
-        // The footer rides on the last text part when it fits, else stands alone.
+    if let Some(f) = result.map(footer) {
         match out.last_mut() {
-            Some(m) if m.key.contains(":p") && m.content.len() + f.len() < DISCORD_LIMIT => {
-                m.content.push('\n');
-                m.content.push_str(f);
+            Some((_, c)) if c.len() + f.len() < DISCORD_LIMIT => {
+                c.push('\n');
+                c.push_str(&f);
             }
-            _ => out.push(Rendered::text(format!("{}:footer", t.turn_id), f.clone())),
+            _ => out.push((format!("{turn_id}:footer"), f)),
         }
     }
     out
 }
+
+/// A card's text for the route it takes: `elsewhere` is where else it can be
+/// answered ("" for nowhere).
+pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
+    if let Some(b) = &req.budget {
+        let also = match elsewhere {
+            "" => String::new(),
+            e => format!(" You can also answer {e}."),
+        };
+        let asked_for = match route {
+            Route::Dm { place, .. } => format!("For {place}. "),
+            _ => String::new(),
+        };
+        return CardText {
+            content: format!(
+                "{BUDGET_ASK}{}\n-# {asked_for}Approve resets its spend to $0 and the waiting \
+                 call goes on; the session's lifetime cost ({}) keeps counting. Decline, or send \
+                 a new message, and it keeps waiting.{also}",
+                clip(&req.reason, 300),
+                dollars(b.lifetime_usd)
+            ),
+            line: format!(
+                "spend reset ({} of the {} limit)",
+                dollars(b.spent_usd),
+                dollars(b.limit_usd)
+            ),
+            budget: true,
+        };
+    }
+    let line = format!("`{}` {}", req.tool, summarize(&req.tool, &req.input));
+    let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });
+    if !req.reason.is_empty() {
+        content.push_str(&format!("\n{}", clip(&req.reason, 300)));
+    }
+    let asked_for = match route {
+        Route::Dm { place, .. } => format!("for {place} · "),
+        _ => String::new(),
+    };
+    let also = match elsewhere {
+        "" => String::new(),
+        e => format!(" · you can also answer {e}"),
+    };
+    content.push_str(&format!(
+        "\n-# {asked_for}expires <t:{}:R>{also}",
+        req.expires_at_ms / 1000
+    ));
+    CardText {
+        content,
+        line: if req.floor {
+            format!("{line} (floor)")
+        } else {
+            line
+        },
+        budget: false,
+    }
+}
+
+/// The note a place gets when its card goes elsewhere: to a trusted DM, or
+/// nowhere on Discord. None when the card is here.
+pub fn card_note(route: &Route, line: &str, elsewhere: &str) -> Option<String> {
+    match route {
+        Route::Here => None,
+        Route::Dm { dm, why, .. } => Some(format!(
+            "🔐 Approval for {line} was asked in {dm}: this channel is not a trusted channel \
+             ({why})."
+        )),
+        Route::Elsewhere { why } => {
+            let answer = match elsewhere {
+                "" => ", and no trusted channel is bound here to answer it".to_string(),
+                e => format!(": answer {e}"),
+            };
+            Some(format!(
+                "🔐 {line} waits for approval, and this channel is not a trusted channel \
+                 ({why}){answer}."
+            ))
+        }
+    }
+}
+
+/// How a card reads once its question closed: who answered, or what closed it.
+pub fn settled(closed: &Closed, line: &str, budget: bool) -> String {
+    let by = closed.by.as_deref().unwrap_or("the operator");
+    let note = closed.note.as_deref().unwrap_or("");
+    match closed.how.as_str() {
+        "superseded" if budget => format!(
+            "⏭️ **Replaced**: a new message came first, and its call asks again if it still does \
+             not fit. {line}"
+        ),
+        "superseded" => format!("⏭️ **Not run**: a new message replaced this request. {line}"),
+        "declined" if budget => format!(
+            "❎ **Declined** by {by} · {line}; the session keeps waiting, and a new message asks \
+             again"
+        ),
+        "declined" => format!("❎ **Declined** by {by} · {line}"),
+        "approved" => format!("✅ **Approved** by {by} · {line}"),
+        "withdrawn" => format!("↩️ **Withdrawn**: {note} · {line}"),
+        "ended" => format!("⏹️ **Closed**: the session's work ended · {line}"),
+        _ if note.is_empty() => format!("⏹️ **Closed** · {line}"),
+        _ => format!("⏹️ **Closed**: {} · {line}", clip(note, 200)),
+    }
+}
+
+/// The note that went with a card, once the card settled: in the place, it
+/// says how, and where the card was.
+pub fn settled_note(content: &str, dm: Option<&str>) -> String {
+    match dm {
+        Some(dm) => format!("🔐 {content} (in {dm})"),
+        None => format!("🔐 {content}"),
+    }
+}
+
+/// A turn that failed, as its notice says it.
+pub fn failed(class: &str, error: &str) -> String {
+    format!("⚠️ **Turn failed** ({class}): {}", clip(error, 600))
+}
+
+/// The line after a restart onto the vault's changed config note (theseus-2fo).
+pub fn restarted(at_unix_ms: u64, tables: &[String]) -> String {
+    format!(
+        "Restarted <t:{}:T> onto the vault's config note, which had changed since my local \
+         copy: {}.",
+        at_unix_ms / 1000,
+        tables.join(", ")
+    )
+}
+
+/// A post created again after an outage longer than Discord keeps a nonce
+/// (theseus-q4v): the channel may already hold it, so it says so.
+pub const RESENT: &str =
+    "-# ↻ Sent again after an outage: if the same message is just above, this is a copy.";
 
 /// A tool message's distinct notified tools, in the order they first ran:
 /// those still offered to "should have asked", each with its newest
@@ -1187,9 +1158,17 @@ mod tests {
         ops.iter()
             .filter_map(|o| match o {
                 Op::Upsert { key, content, .. } => Some((key.clone(), content.clone())),
-                Op::Typing | Op::Notice { .. } | Op::InDm { .. } => None,
+                Op::Typing | Op::Notice { .. } => None,
             })
             .collect()
+    }
+
+    fn result_of(v: Value) -> TurnSubmitResult {
+        serde_json::from_value(v).unwrap()
+    }
+
+    fn request(v: Value) -> ConfirmRequest {
+        serde_json::from_value(v).unwrap()
     }
 
     fn ended(turn: &str, awaiting: Option<&str>) -> Value {
@@ -1240,17 +1219,29 @@ mod tests {
             "model.delta",
             &json!({"turn_id": "t1", "loop_index": 1, "text": "Done."}),
         );
-        let ops = upserts(&r.on_notification("turn.ended", &ended("t1", None)));
-        assert_eq!(ops.len(), 1);
-        assert_eq!(ops[0].0, "t1:L1:p0");
+        // The turn's end is its reply's post (theseus-q4v): the stream stops,
+        // and the post's parts edit the streamed messages under their keys.
+        assert!(upserts(&r.on_notification("turn.ended", &ended("t1", None))).is_empty());
+        assert!(!r.busy());
+        let parts = reply_parts(
+            "t1",
+            &[(0, "Hello".into()), (1, "Done.".into())],
+            Some(&result_of(ended("t1", None))),
+        );
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0], ("t1:L0:p0".into(), "Hello".into()));
+        assert_eq!(parts[1].0, "t1:L1:p0");
         assert!(
-            ops[0].1.starts_with(
+            parts[1].1.starts_with(
                 "Done.\n-# sonnet · claude-sonnet-5 · 2 loops · 1 tool call · $0.0123 · 4.2 s"
             ),
             "{}",
-            ops[0].1
+            parts[1].1
         );
-        assert!(!r.busy());
+        // With no text, the footer stands alone.
+        let alone = reply_parts("t2", &[], Some(&result_of(ended("t2", None))));
+        assert_eq!(alone.len(), 1);
+        assert_eq!(alone[0].0, "t2:footer");
     }
 
     /// A session at its spend limit asks with its own message and buttons
@@ -1264,32 +1255,30 @@ mod tests {
                 "reason": "This session has spent $99.48 of its $100 limit. Reset its spend to $0 and continue?",
                 "budget": {"spent_usd": 99.48, "limit_usd": 100.0, "needed_usd": 1.368, "lifetime_usd": 212.4}})
         };
-        for (answer, want) in [
-            (json!({"approved": true, "by": "discord:eddie"}), "✅ **Approved** by discord:eddie · spend reset ($99.48 of the $100 limit)"),
-            (json!({"approved": false, "by": "discord:eddie"}), "❎ **Declined** by discord:eddie · spend reset ($99.48 of the $100 limit); the session keeps waiting, and a new message asks again"),
-            (json!({"approved": false, "superseded": true}), "⏭️ **Replaced**: a new message came first, and its call asks again if it still does not fit. spend reset ($99.48 of the $100 limit)"),
+        let card = card(&request(ask("act_b")), &Route::Here, ELSEWHERE);
+        assert!(card.budget);
+        assert!(card.content.starts_with(&format!("{BUDGET_ASK}This session has spent $99.48 of its $100 limit. Reset its spend to $0 and continue?\n")), "{}", card.content);
+        assert!(
+            card.content
+                .contains("lifetime cost ($212.40) keeps counting"),
+            "{}",
+            card.content
+        );
+        assert!(
+            !card.content.contains("expires"),
+            "a budget question does not expire: {}",
+            card.content
+        );
+        assert_eq!(card.line, "spend reset ($99.48 of the $100 limit)");
+        for (closed, want) in [
+            (Closed::new("approved", Some("discord:eddie")), "✅ **Approved** by discord:eddie · spend reset ($99.48 of the $100 limit)"),
+            (Closed::new("declined", Some("discord:eddie")), "❎ **Declined** by discord:eddie · spend reset ($99.48 of the $100 limit); the session keeps waiting, and a new message asks again"),
+            (Closed::new("superseded", None), "⏭️ **Replaced**: a new message came first, and its call asks again if it still does not fit. spend reset ($99.48 of the $100 limit)"),
+            // A raise withdraws it (theseus-3pj, the stale card of S1).
+            (Closed { how: "withdrawn".into(), by: None, note: Some("the spend limit was raised from $100 to $200".into()) },
+             "↩️ **Withdrawn**: the spend limit was raised from $100 to $200 · spend reset ($99.48 of the $100 limit)"),
         ] {
-            let mut r = Renderer::default();
-            r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
-            match &r.on_notification("confirm.requested", &ask("act_b"))[..] {
-                [Op::Upsert { key, content, buttons }] => {
-                    assert_eq!(key, "confirm:act_b");
-                    assert!(content.starts_with(&format!("{BUDGET_ASK}This session has spent $99.48 of its $100 limit. Reset its spend to $0 and continue?\n")), "{content}");
-                    assert!(content.contains("lifetime cost ($212.40) keeps counting"), "{content}");
-                    assert!(!content.contains("expires"), "a budget question does not expire: {content}");
-                    assert_eq!(buttons, &Buttons::Confirm("act_b".into()));
-                }
-                other => panic!("{other:?}"),
-            }
-            let mut p = answer.clone();
-            p["correlation_id"] = json!("act_b");
-            match &r.on_notification("confirm.resolved", &p)[..] {
-                [Op::Upsert { key, content, buttons }] => {
-                    assert_eq!((key.as_str(), content.as_str()), ("confirm:act_b", want));
-                    assert_eq!(buttons, &Buttons::Clear);
-                }
-                other => panic!("{answer}: {other:?}"),
-            }
+            assert_eq!(settled(&closed, &card.line, true), want);
         }
     }
 
@@ -1299,36 +1288,33 @@ mod tests {
         r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
         r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
             "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
-        let ops = r.on_notification("confirm.requested", &json!({"correlation_id": "act_1", "session_id": "s",
+        let req = json!({"correlation_id": "act_1", "session_id": "s",
             "execution_id": "e", "tool": "proc.run", "input": {"argv": ["cargo", "test"]}, "reason": "run cargo test",
-            "by": "operator", "requested_at_ms": 1, "expires_at_ms": 1790000000000u64}));
-        match &ops[0] {
-            Op::Upsert {
-                key,
-                content,
-                buttons,
-            } => {
-                assert_eq!(key, "confirm:act_1");
-                assert!(content.starts_with("**Approve?** `proc.run` cargo test\nrun cargo test"));
-                assert_eq!(buttons, &Buttons::Confirm("act_1".into()));
-            }
-            other => panic!("{other:?}"),
-        }
+            "by": "operator", "requested_at_ms": 1, "expires_at_ms": 1790000000000u64});
+        // The card is a post; the stream only marks the tool line.
+        assert!(r.on_notification("confirm.requested", &req).is_empty());
+        let card = card(&request(req), &Route::Here, ELSEWHERE);
+        assert!(card
+            .content
+            .starts_with("**Approve?** `proc.run` cargo test\nrun cargo test"));
+        assert_eq!(card.line, "`proc.run` cargo test");
         let tools = upserts(&r.on_notification("turn.ended", &ended("t1", Some("act_1"))));
         assert!(tools
             .iter()
             .any(|(k, c)| k == "t1:L0:tools" && c.contains("waiting for approval")));
-        let ops = r.on_notification(
-            "confirm.resolved",
-            &json!({"correlation_id": "act_1", "approved": true, "by": "discord:eddie"}),
-        );
+        assert!(r
+            .on_notification(
+                "confirm.resolved",
+                &json!({"correlation_id": "act_1", "approved": true, "by": "discord:eddie"}),
+            )
+            .is_empty());
         assert_eq!(
-            ops,
-            vec![Op::Upsert {
-                key: "confirm:act_1".into(),
-                content: "✅ **Approved** by discord:eddie · `proc.run` cargo test".into(),
-                buttons: Buttons::Clear
-            }]
+            settled(
+                &Closed::new("approved", Some("discord:eddie")),
+                &card.line,
+                false
+            ),
+            "✅ **Approved** by discord:eddie · `proc.run` cargo test"
         );
         let tools = upserts(&r.tick());
         assert!(
@@ -1713,20 +1699,30 @@ mod tests {
         );
         let mut end = ended("t1", None);
         end["tool_calls"] = json!(30);
-        let keys: Vec<String> = upserts(&r.on_notification("turn.ended", &end))
+        // The reply is a post (theseus-q4v): the stream sends nothing more,
+        // and the post is one message.
+        assert!(upserts(&r.on_notification("turn.ended", &end)).is_empty());
+        let result: TurnSubmitResult = serde_json::from_value(end).unwrap();
+        let keys: Vec<String> = reply_parts("t1", &[(1, "All thirty ran.".into())], Some(&result))
             .into_iter()
             .map(|(k, _)| k)
             .collect();
         assert_eq!(keys, ["t1:L1:p0"]);
     }
 
-    fn waiting_write(r: &mut Renderer) -> Vec<Op> {
-        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
-        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
-            "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
-        r.on_notification("confirm.requested", &json!({"correlation_id": "act_1", "session_id": "s",
+    fn waiting_write() -> ConfirmRequest {
+        request(json!({"correlation_id": "act_1", "session_id": "s",
             "execution_id": "e", "tool": "proc.run", "input": {"argv": ["cargo", "test"]}, "reason": "run cargo test",
             "by": "operator", "requested_at_ms": 1, "expires_at_ms": 1790000000000u64}))
+    }
+
+    fn to_dm(why: &str) -> Route {
+        Route::Dm {
+            user: 159471966640799744,
+            dm: "DM @eddie".into(),
+            place: "#general".into(),
+            why: why.into(),
+        }
     }
 
     /// A place that is not a trusted channel (theseus-sgh) sends its card to
@@ -1734,77 +1730,52 @@ mod tests {
     /// the card in the DM and the note here.
     #[test]
     fn a_card_for_an_untrusted_place_goes_to_the_dm_with_a_note_here() {
-        let mut r = Renderer::default();
-        r.set_route(Route::Dm {
-            user: 159471966640799744,
-            dm: "DM @eddie".into(),
-            place: "#general".into(),
-            why: "it is not listed in [approval] channels".into(),
-        });
-        r.set_elsewhere("with `theseus confirm`");
-        let ops = waiting_write(&mut r);
-        let [Op::InDm {
-            user,
-            key,
-            content,
-            buttons,
-        }, Op::Upsert {
-            key: note_key,
-            content: note,
-            buttons: Buttons::Keep,
-        }] = &ops[..]
-        else {
-            panic!("{ops:?}")
-        };
-        assert_eq!((*user, key.as_str()), (159471966640799744, "confirm:act_1"));
+        let route = to_dm("it is not listed in [approval] channels");
+        let c = card(&waiting_write(), &route, "with `theseus confirm`");
         assert!(
-            content.starts_with("**Approve?** `proc.run` cargo test\nrun cargo test\n"),
-            "{content}"
+            c.content
+                .starts_with("**Approve?** `proc.run` cargo test\nrun cargo test\n"),
+            "{}",
+            c.content
         );
         assert!(
-            content.ends_with("-# for #general · expires <t:1790000000:R> · you can also answer with `theseus confirm`"),
-            "{content}"
+            c.content.ends_with(
+                "-# for #general · expires <t:1790000000:R> · you can also answer with `theseus confirm`"
+            ),
+            "{}",
+            c.content
         );
-        assert_eq!(buttons, &Buttons::Confirm("act_1".into()));
-        assert_eq!(note_key, "approval:act_1");
         assert_eq!(
-            note,
+            card_note(&route, &c.line, "with `theseus confirm`").unwrap(),
             "🔐 Approval for `proc.run` cargo test was asked in DM @eddie: this channel is not a \
              trusted channel (it is not listed in [approval] channels)."
         );
-        assert!(
-            !ops.iter().any(|o| matches!(
-                o,
-                Op::Upsert {
-                    buttons: Buttons::Confirm(_),
-                    ..
-                }
-            )),
-            "no buttons here"
+        let done = settled(
+            &Closed::new("approved", Some("discord:eddie")),
+            &c.line,
+            false,
         );
-        let ops = r.on_notification(
+        assert_eq!(
+            done,
+            "✅ **Approved** by discord:eddie · `proc.run` cargo test"
+        );
+        assert_eq!(
+            settled_note(&done, Some("DM @eddie")),
+            "🔐 ✅ **Approved** by discord:eddie · `proc.run` cargo test (in DM @eddie)"
+        );
+        // The tool line here says who approved it, as it does for a card here.
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
+            "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
+        r.on_notification(
+            "confirm.requested",
+            &serde_json::to_value(waiting_write()).unwrap(),
+        );
+        r.on_notification(
             "confirm.resolved",
             &json!({"correlation_id": "act_1", "approved": true, "by": "discord:eddie"}),
         );
-        assert_eq!(
-            ops,
-            vec![
-                Op::InDm {
-                    user: 159471966640799744,
-                    key: "confirm:act_1".into(),
-                    content: "✅ **Approved** by discord:eddie · `proc.run` cargo test".into(),
-                    buttons: Buttons::Clear
-                },
-                Op::Upsert {
-                    key: "approval:act_1".into(),
-                    content:
-                        "🔐 ✅ **Approved** by discord:eddie · `proc.run` cargo test (in DM @eddie)"
-                            .into(),
-                    buttons: Buttons::Keep
-                }
-            ]
-        );
-        // The tool line here says who approved it, as it does for a card here.
         let tools = upserts(&r.tick());
         assert!(
             tools[0].1.contains("approved by discord:eddie"),
@@ -1815,46 +1786,36 @@ mod tests {
     /// A budget question takes the same route as a tool call.
     #[test]
     fn a_budget_question_for_an_untrusted_place_goes_to_the_dm_too() {
-        let mut r = Renderer::default();
-        r.set_route(Route::Dm {
+        let route = Route::Dm {
             user: 7,
             dm: "DM @eddie".into(),
             place: "#general".into(),
             why: "cannot be verified".into(),
-        });
-        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
-        let ops = r.on_notification("confirm.requested", &json!({"correlation_id": "act_b", "session_id": "s",
+        };
+        let req = request(json!({"correlation_id": "act_b", "session_id": "s",
             "execution_id": "e", "tool": "budget.reset", "input": {}, "by": "operator", "requested_at_ms": 1,
             "expires_at_ms": 0, "reason": "This session has spent $99.48 of its $100 limit. Reset its spend to $0 and continue?",
             "budget": {"spent_usd": 99.48, "limit_usd": 100.0, "needed_usd": 1.0, "lifetime_usd": 212.4}}));
-        match &ops[..] {
-            [Op::InDm {
-                user: 7,
-                key,
-                content,
-                buttons: Buttons::Confirm(c),
-            }, Op::Upsert {
-                key: note,
-                content: said,
-                ..
-            }] => {
-                assert_eq!(
-                    (key.as_str(), c.as_str(), note.as_str()),
-                    ("confirm:act_b", "act_b", "approval:act_b")
-                );
-                assert!(
-                    content.contains("\n-# For #general. Approve resets its spend"),
-                    "{content}"
-                );
-                assert!(
-                    content
-                        .ends_with("You can also answer in the web UI or with `theseus confirm`."),
-                    "{content}"
-                );
-                assert!(said.starts_with("🔐 Approval for spend reset ($99.48 of the $100 limit) was asked in DM @eddie"), "{said}");
-            }
-            other => panic!("{other:?}"),
-        }
+        let c = card(&req, &route, ELSEWHERE);
+        assert!(
+            c.content
+                .contains("\n-# For #general. Approve resets its spend"),
+            "{}",
+            c.content
+        );
+        assert!(
+            c.content
+                .ends_with("You can also answer in the web UI or with `theseus confirm`."),
+            "{}",
+            c.content
+        );
+        let said = card_note(&route, &c.line, ELSEWHERE).unwrap();
+        assert!(
+            said.starts_with(
+                "🔐 Approval for spend reset ($99.48 of the $100 limit) was asked in DM @eddie"
+            ),
+            "{said}"
+        );
     }
 
     /// Not trusted, and no trusted DM: no card on Discord, only a note that
@@ -1868,98 +1829,115 @@ mod tests {
             ),
             ("", ", and no trusted channel is bound here to answer it."),
         ] {
-            let mut r = Renderer::default();
-            r.set_route(Route::Elsewhere {
+            let route = Route::Elsewhere {
                 why: "it is not listed in [approval] channels".into(),
-            });
-            r.set_elsewhere(elsewhere);
-            let ops = waiting_write(&mut r);
+            };
+            let c = card(&waiting_write(), &route, elsewhere);
             assert_eq!(
-                ops,
-                vec![Op::Upsert {
-                    key: "approval:act_1".into(),
-                    content: format!(
-                        "🔐 `proc.run` cargo test waits for approval, and this channel is not a \
-                         trusted channel (it is not listed in [approval] channels){tail}"
-                    ),
-                    buttons: Buttons::Keep
-                }]
+                card_note(&route, &c.line, elsewhere).unwrap(),
+                format!(
+                    "🔐 `proc.run` cargo test waits for approval, and this channel is not a \
+                     trusted channel (it is not listed in [approval] channels){tail}"
+                )
             );
-            let ops = r.on_notification(
-                "confirm.resolved",
-                &json!({"correlation_id": "act_1", "approved": false, "by": "sock#3"}),
-            );
+            let done = settled(&Closed::new("declined", Some("sock#3")), &c.line, false);
             assert_eq!(
-                upserts(&ops),
-                [(
-                    "approval:act_1".into(),
-                    "🔐 ❎ **Declined** by sock#3 · `proc.run` cargo test".into()
-                )]
+                settled_note(&done, None),
+                "🔐 ❎ **Declined** by sock#3 · `proc.run` cargo test"
             );
         }
+        assert!(card_note(&Route::Here, "x", ELSEWHERE).is_none());
     }
 
     /// With `[approval]`, a card names only the trusted local surfaces; with
     /// none, it names none. Without `[approval]` it reads as before.
     #[test]
     fn a_card_names_where_else_it_can_be_answered() {
-        let text = |elsewhere: Option<&str>| {
-            let mut r = Renderer::default();
-            if let Some(e) = elsewhere {
-                r.set_elsewhere(e);
-            }
-            match &waiting_write(&mut r)[..] {
-                [Op::Upsert {
-                    content,
-                    buttons: Buttons::Confirm(_),
-                    ..
-                }] => content.lines().last().unwrap().to_string(),
-                other => panic!("{other:?}"),
-            }
+        let text = |elsewhere: &str| {
+            card(&waiting_write(), &Route::Here, elsewhere)
+                .content
+                .lines()
+                .last()
+                .unwrap()
+                .to_string()
         };
         assert_eq!(
-            text(None),
+            text(ELSEWHERE),
             "-# expires <t:1790000000:R> · you can also answer in the web UI or with `theseus confirm`"
         );
         assert_eq!(
-            text(Some("in the web UI")),
+            text("in the web UI"),
             "-# expires <t:1790000000:R> · you can also answer in the web UI"
         );
-        assert_eq!(text(Some("")), "-# expires <t:1790000000:R>");
+        assert_eq!(text(""), "-# expires <t:1790000000:R>");
     }
 
     #[test]
     fn a_floor_confirm_says_so_and_names_the_reason() {
-        let mut r = Renderer::default();
-        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
         let reason = "read /home/x/.openclaw-1password-service-token: fs.read — approve (floor: /home/x/.openclaw-1password-service-token is Theseus's own state or the 1Password token)";
-        let ops = upserts(&r.on_notification("confirm.requested", &json!({"correlation_id": "act_9",
+        let c = card(
+            &request(json!({"correlation_id": "act_9",
             "session_id": "s", "execution_id": "e", "tool": "fs.read",
             "input": {"path": "~/.openclaw-1password-service-token"}, "reason": reason, "by": "operator",
-            "requested_at_ms": 0, "expires_at_ms": 60_000, "floor": true})));
-        let (_, content) = ops.iter().find(|(k, _)| k == "confirm:act_9").unwrap();
-        assert!(content.starts_with(FLOOR_ASK), "{content}");
-        assert!(content.contains("fs.read — approve (floor: "), "{content}");
+            "requested_at_ms": 0, "expires_at_ms": 60_000, "floor": true})),
+            &Route::Here,
+            ELSEWHERE,
+        );
+        assert!(c.content.starts_with(FLOOR_ASK), "{}", c.content);
+        assert!(
+            c.content.contains("fs.read — approve (floor: "),
+            "{}",
+            c.content
+        );
+        assert!(c.line.ends_with("(floor)"), "{}", c.line);
     }
 
+    /// A turn the stream never saw (a continuation that ended before the
+    /// binding was back) is its reply's post alone: its text and footer.
     #[test]
-    fn a_turn_seen_only_at_its_end_still_shows_its_text() {
+    fn a_turn_seen_only_at_its_end_is_its_reply() {
         let mut r = Renderer::default();
         let mut end = ended("t9", None);
-        end["output"] = json!("Done. The command printed `done`.");
         end["continuation"] = json!(true);
-        let ops = upserts(&r.on_notification("turn.ended", &end));
-        assert_eq!(ops.len(), 1);
-        assert_eq!(ops[0].0, "t9:L0:p0");
+        assert!(r.on_notification("turn.ended", &end).is_empty());
+        assert!(!r.busy());
+        let parts = reply_parts(
+            "t9",
+            &[(0, "Done. The command printed `done`.".into())],
+            Some(&result_of(end)),
+        );
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].0, "t9:L0:p0");
         assert!(
-            ops[0]
+            parts[0]
                 .1
                 .starts_with("Done. The command printed `done`.\n-# sonnet"),
             "{}",
-            ops[0].1
+            parts[0].1
         );
-        assert!(ops[0].1.contains("continued"));
-        assert!(!r.busy());
+        assert!(parts[0].1.contains("continued"));
+    }
+
+    /// How a card reads when its question closed without an answer.
+    #[test]
+    fn a_card_closed_without_an_answer_says_what_closed_it() {
+        assert_eq!(
+            settled(&Closed::new("superseded", None), "`fs.write` a", false),
+            "⏭️ **Not run**: a new message replaced this request. `fs.write` a"
+        );
+        assert_eq!(
+            settled(&Closed::new("ended", None), "`fs.write` a", false),
+            "⏹️ **Closed**: the session's work ended · `fs.write` a"
+        );
+        let other = Closed {
+            how: "closed".into(),
+            by: None,
+            note: Some("its question is no longer in the store".into()),
+        };
+        assert_eq!(
+            settled(&other, "`fs.write` a", false),
+            "⏹️ **Closed**: its question is no longer in the store · `fs.write` a"
+        );
     }
 
     #[test]
@@ -2016,12 +1994,14 @@ mod tests {
                 )),
                 "{status}: {ops:?}"
             );
-            assert!(ops.contains(&(
-                "t1:failed".into(),
-                "⚠️ **Turn failed** (overloaded): try later".into()
-            )));
+            // The failure itself is a post (theseus-q4v).
+            assert_eq!(ops.len(), 1, "{ops:?}");
             assert!(!r.busy());
         }
+        assert_eq!(
+            failed("overloaded", "try later"),
+            "⚠️ **Turn failed** (overloaded): try later"
+        );
     }
 
     #[test]

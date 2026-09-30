@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 theseus-core.workspace = true
+theseus-kernel.workspace = true
 theseus-protocol.workspace = true
 anyhow.workspace = true
 serde.workspace = true
@@ -28,6 +29,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 [dev-dependencies]
 tempfile = "3"
+theseus-sim = { path = "../theseus-sim" }
 
 [lints]
 workspace = true

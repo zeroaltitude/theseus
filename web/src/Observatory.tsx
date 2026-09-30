@@ -418,6 +418,11 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                 <div><span className="muted">traffic</span> <b>{b.messages_in}</b> in · <b>{b.messages_out}</b> sent · <b>{b.edits}</b> edits · <b>{b.interactions}</b> button/command presses
                   · <b className={b.ignored ? 'warn' : ''}>{b.ignored}</b> ignored · <b className={b.errors ? 'bad' : ''}>{b.errors}</b> errors</div>
                 {b.last_error && <div><span className="muted">last error</span> <span className="warn small">{b.last_error}</span></div>}
+                {b.outbox && <div title="replies, cards, and notices are written when they happen and sent once, in order per place, when Discord can take them">
+                  <span className="muted">outbox</span> <b className={b.outbox.pending ? 'warn' : 'ok'}>{b.outbox.pending}</b> pending
+                  {b.outbox.pending > 0 && b.outbox.oldest_pending_ms > 0 && <span className="muted"> · oldest {ago(b.outbox.oldest_pending_ms, now)}</span>}
+                  {' · '}<b>{b.outbox.sent}</b> sent · <b className={b.outbox.failed ? 'bad' : ''}>{b.outbox.failed}</b> refused
+                  {b.outbox.last_error && <span className="warn small"> · last error {b.outbox.last_error_ms ? ago(b.outbox.last_error_ms, now) : ''}: {b.outbox.last_error}</span>}</div>}
               </div>
               {b.places.length > 0 && (
                 <table className="obs-table">

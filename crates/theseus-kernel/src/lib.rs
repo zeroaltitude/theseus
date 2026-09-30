@@ -14,6 +14,7 @@ pub mod gate;
 pub mod job;
 pub mod kernel;
 mod locks;
+pub mod outbox;
 pub mod spool;
 pub mod types;
 
@@ -26,5 +27,6 @@ pub use kernel::{
     Accepted, Evidence, Kernel, KernelConfig, KernelError, KernelStats, LegacySpend, LimitFollowed,
     NoEvidence, Probe, ReconcileReport, StartupReport, TurnEnd, TurnGuard,
 };
+pub use outbox::{Post, Settled, OUTBOX_TOOL};
 pub use spool::Spool;
 pub use types::*;

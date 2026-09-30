@@ -287,13 +287,30 @@ impl Execution {
 }
 
 /// Per-operation declaration of what a repeat would do (§3.16). Every tool
-/// declares one of these two; the others §3.16 names wait for a tool that
-/// needs them.
+/// declares `SafeToRepeat` or `NonRepeatable`; an outbox post that creates a
+/// message is `IdempotentWithKey` (theseus-q4v). `recoverable_by_external_id`
+/// waits for a tool that needs it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "class")]
 pub enum RetryClass {
     SafeToRepeat,
     NonRepeatable,
+    /// A repeat under the same downstream key returns the first result
+    /// instead of acting twice, for as long as the downstream honors the
+    /// key. `key` names it: `discord.nonce`.
+    IdempotentWithKey {
+        key: String,
+    },
+}
+
+impl RetryClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RetryClass::SafeToRepeat => "safe_to_repeat",
+            RetryClass::NonRepeatable => "non_repeatable",
+            RetryClass::IdempotentWithKey { .. } => "idempotent_with_key",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -401,6 +418,10 @@ pub struct Action {
     pub resolution: Option<String>,
     /// Number of completions seen (>1 means duplicates were ignored).
     pub completions_seen: u32,
+    /// What the completion said, kept on the action: an outbox post's
+    /// messages (theseus-q4v). Other actions keep none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<serde_json::Value>,
 }
 
 impl Action {

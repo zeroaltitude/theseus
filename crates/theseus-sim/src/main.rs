@@ -126,6 +126,22 @@ enum Cmd {
         #[arg(long, default_value_t = 10_000)]
         sessions: u64,
     },
+    /// A stand-in for Discord's REST API (theseus-q4v), for a scratch
+    /// daemon's `[discord] rest_proxy`: it keeps messages, honors nonces, and
+    /// never records a header. Serves until killed.
+    FakeDiscord {
+        /// Where to listen.
+        #[arg(long, default_value = "127.0.0.1:9447")]
+        addr: String,
+        /// A file whose first line is the mode, read at every request: `up`,
+        /// `down`, `hang-creates`, or `fail`.
+        #[arg(long)]
+        control: Option<PathBuf>,
+        /// Every request as a JSON line (method, path, outcome; no headers),
+        /// and the messages beside it in `<log>.messages.json`.
+        #[arg(long)]
+        log: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -184,6 +200,14 @@ enum BenchCmd {
 
 fn main() -> Result<()> {
     match Cli::parse().cmd {
+        Cmd::FakeDiscord { addr, control, log } => {
+            let fake = theseus_sim::fake_discord::FakeDiscord::start_on(&addr, control, log)
+                .with_context(|| format!("listening on {addr}"))?;
+            println!("fake discord REST on {}", fake.addr);
+            loop {
+                std::thread::park();
+            }
+        }
         Cmd::SynthStore { dir, sessions } => {
             let g = synth::generate(&dir, sessions)?;
             println!(

@@ -72,9 +72,6 @@ pub async fn run(core: Arc<Core>) {
 /// runnable without human input — a job's result arrived, a confirm was
 /// answered, a crash interrupted a turn. Parked on the admission notify and a
 /// short timer; one continuation per execution at a time.
-/// The longest the driver waits for channel bindings at startup.
-pub const BINDINGS_WAIT: Duration = Duration::from_secs(20);
-
 pub async fn drive(core: Arc<Core>) {
     // A continuation runs only under a config the vault has confirmed
     // (theseus-2fo).
@@ -89,22 +86,18 @@ pub async fn drive(core: Arc<Core>) {
     // queued; back off per execution instead of retrying every tick.
     let backoff: Arc<Mutex<HashMap<String, (std::time::Instant, u32)>>> =
         Arc::new(Mutex::new(HashMap::new()));
-    // A turn resumed at startup must be seen by its channel from its first
-    // event: wait (bounded) for channel bindings to be watching their sessions.
+    // Nothing waits for a channel binding (theseus-q4v): what a continuation
+    // says reaches its channel through the outbox, whenever the binding
+    // delivers it. The driver's start is a phase of its own, which the
+    // lifecycle bench reads.
     let t0 = std::time::Instant::now();
-    let ready = core.bindings.wait(BINDINGS_WAIT).await;
-    let waited_ms = t0.elapsed().as_millis() as u64;
-    if !ready {
-        tracing::warn!(
-            waited_ms,
-            "channel bindings still starting; continuations run without them"
-        );
-    }
+    core.startup_log
+        .record("driver", true, t0, serde_json::Value::Null);
     if let Err(e) = core.store.append_ledger(&crate::ledger::LedgerRow::new(
         "driver.started",
         None,
         None,
-        serde_json::json!({"waited_for_bindings_ms": waited_ms, "bindings_ready": ready}),
+        serde_json::json!({"after_start_ms": core.startup_log.us(t0) / 1000}),
     )) {
         tracing::warn!(error = %e, "ledger append failed");
     }

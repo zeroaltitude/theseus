@@ -107,10 +107,7 @@ impl Core {
             session_id: a.session_id.clone(),
             tool: a.tool.clone(),
             state: a.state.as_str().into(),
-            retry_class: match &a.retry_class {
-                theseus_kernel::RetryClass::SafeToRepeat => "safe_to_repeat".into(),
-                theseus_kernel::RetryClass::NonRepeatable => "non_repeatable".into(),
-            },
+            retry_class: a.retry_class.as_str().into(),
             planned_at_ms: a.planned_at_ms,
             authorized_at_ms: a.authorized_at_ms,
             dispatched_at_ms: a.dispatched_at_ms,

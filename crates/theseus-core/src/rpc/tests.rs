@@ -92,27 +92,6 @@ fn notifications(msgs: &[Message]) -> Vec<&Notification> {
         .collect()
 }
 
-#[tokio::test]
-async fn continuations_wait_for_expected_bindings_but_not_forever() {
-    let core = test_core("x");
-    assert!(
-        core.bindings.wait(Duration::from_millis(10)).await,
-        "none expected"
-    );
-    core.bindings.expect();
-    assert!(
-        !core.bindings.wait(Duration::from_millis(120)).await,
-        "times out while a binding is still starting"
-    );
-    let c = core.clone();
-    let waiter = tokio::spawn(async move { c.bindings.wait(Duration::from_secs(5)).await });
-    tokio::time::sleep(Duration::from_millis(80)).await;
-    core.bindings.started();
-    assert!(waiter.await.unwrap(), "released when the binding starts");
-    core.bindings.started(); // a second report never underflows
-    assert!(core.bindings.wait(Duration::from_millis(10)).await);
-}
-
 // ---------------------------------------------------------------- serve first (theseus-qa0)
 
 /// A core whose secrets resolve from `vault` in the background, as the
@@ -165,6 +144,7 @@ fn submit(id: u64, input: &str) -> Request {
             model: None,
             author: None,
             attachments: vec![],
+            reply_to: None,
         },
     )
 }
@@ -321,6 +301,7 @@ async fn one_turn_is_one_loop_with_streamed_deltas() {
                 model: None,
                 author: None,
                 attachments: vec![],
+                reply_to: None,
             },
         )],
     )
@@ -408,6 +389,7 @@ async fn rejects_empty_input_and_unknown_session() {
                     model: None,
                     author: None,
                     attachments: vec![],
+                    reply_to: None,
                 },
             ),
             Request::new(
@@ -421,6 +403,7 @@ async fn rejects_empty_input_and_unknown_session() {
                     model: None,
                     author: None,
                     attachments: vec![],
+                    reply_to: None,
                 },
             ),
         ],
@@ -543,6 +526,7 @@ async fn same_session_serializes_turns() {
                     model: None,
                     author: None,
                     attachments: vec![],
+                    reply_to: None,
                 },
             )
         })
@@ -589,6 +573,7 @@ async fn provider_failure_is_classified_and_ledgered() {
                 model: None,
                 author: None,
                 attachments: vec![],
+                reply_to: None,
             },
         )],
     )
@@ -642,6 +627,7 @@ async fn usage_accumulates_per_session_and_globally() {
                     model: None,
                     author: None,
                     attachments: vec![],
+                    reply_to: None,
                 },
             )
         })
@@ -740,6 +726,7 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
                     model: None,
                     author: None,
                     attachments: vec![],
+                    reply_to: None,
                 },
             )],
         )
@@ -1018,6 +1005,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
                 model: None,
                 author: None,
                 attachments: vec![],
+                reply_to: None,
             },
         )
     };
@@ -1181,6 +1169,7 @@ async fn per_turn_provider_and_model_selection() {
                     model: None,
                     author: None,
                     attachments: vec![],
+                    reply_to: None,
                 },
             ),
             Request::new(
@@ -1194,6 +1183,7 @@ async fn per_turn_provider_and_model_selection() {
                     model: Some("glm-5.3-flash".into()),
                     author: None,
                     attachments: vec![],
+                    reply_to: None,
                 },
             ),
             Request::new(
@@ -1207,6 +1197,7 @@ async fn per_turn_provider_and_model_selection() {
                     model: None,
                     author: None,
                     attachments: vec![],
+                    reply_to: None,
                 },
             ),
         ],
@@ -1291,6 +1282,7 @@ async fn live_profile_switch_persists_and_routes() {
                 model: None,
                 author: None,
                 attachments: vec![],
+                reply_to: None,
             },
         )
     };
@@ -1440,6 +1432,7 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
                 model: None,
                 author: Some("discord:eddie".into()),
                 attachments: vec![],
+                reply_to: None,
             },
         )
     };

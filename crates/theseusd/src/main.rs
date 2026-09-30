@@ -366,11 +366,8 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     }
 
     // The harness loop and the continuation driver start once the socket
-    // answers and the config may act (`after_serving`).
-    if !cli.stdio {
-        // Discord binds then; continuations wait until it watches its sessions.
-        core.bindings.expect();
-    }
+    // answers and the config may act (`after_serving`); neither waits for
+    // Discord, whose posts are in the outbox (theseus-q4v).
     tokio::spawn(core.clone().watch_secrets());
 
     if cli.stdio {
@@ -695,6 +692,7 @@ async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<P
     tokio::spawn(theseus_core::harness::drive(core.clone()));
     tokio::spawn(core.clone().install_telemetry());
     if let Some(path) = bindings {
+        core.post_restart_notice();
         if core.cfg.web.enabled {
             let (bind, port) = (core.cfg.web.bind.clone(), core.cfg.web.port);
             let web_core = core.clone();

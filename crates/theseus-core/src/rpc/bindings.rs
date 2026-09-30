@@ -1,52 +1,23 @@
-//! Channel bindings (M3c): each binding's latest status, which health shows,
-//! and how many are still starting, which a continuation turn waits on so the
-//! binding watches that turn from its first event.
+//! Channel bindings (M3c): each binding's latest status, which health shows.
+//!
+//! Nothing waits for a binding to start (theseus-q4v): what must reach its
+//! channels is in the outbox, and it delivers that when it can.
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
-use std::time::Duration;
 
 use serde_json::Value;
 use theseus_protocol::BindingStatus;
-use tokio::sync::watch;
 
 use super::Core;
 use crate::ledger::LedgerRow;
 
+#[derive(Default)]
 pub struct BindingBoard {
     status: RwLock<BTreeMap<String, BindingStatus>>,
-    /// Bindings expected and not yet started.
-    starting: watch::Sender<u32>,
-}
-
-impl Default for BindingBoard {
-    fn default() -> Self {
-        Self {
-            status: RwLock::default(),
-            starting: watch::Sender::new(0),
-        }
-    }
 }
 
 impl BindingBoard {
-    /// A binding is about to start: continuations wait for it (see `wait`).
-    pub fn expect(&self) {
-        self.starting.send_modify(|n| *n += 1);
-    }
-
-    /// A binding is watching its sessions (or gave up): continuations may run.
-    pub fn started(&self) {
-        self.starting.send_modify(|n| *n = n.saturating_sub(1));
-    }
-
-    /// Wait until every expected binding has started, at most `max`. True when
-    /// they all did; false on timeout (the caller goes ahead anyway).
-    pub async fn wait(&self, max: Duration) -> bool {
-        let mut starting = self.starting.subscribe();
-        let done = tokio::time::timeout(max, starting.wait_for(|n| *n == 0)).await;
-        matches!(done, Ok(Ok(_)))
-    }
-
     /// A binding reports its state; health shows the latest report.
     pub fn set(&self, status: BindingStatus) {
         self.status
