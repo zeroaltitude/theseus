@@ -42,6 +42,10 @@ pub struct StoreStats {
     /// The index was repaired at open: the last process did not close it.
     #[serde(default)]
     pub index_repaired: bool,
+    /// How long open waited for the previous process to release the store
+    /// (theseus-qa0 F4b): a start at once after a stop.
+    #[serde(default)]
+    pub lock_wait_us: u64,
 }
 
 /// What the kernel writes through. Every method is durable when it returns.
@@ -90,7 +94,22 @@ pub struct WalStore {
     /// alone by a checkpoint: the position a checkpoint claims is then synced
     /// and indexed, which a tail-only open relies on (theseus-8ni).
     appending: RwLock<()>,
+    /// How long open waited for another process to release the store.
+    lock_wait_us: u64,
 }
+
+/// How long an open waits for another process to release the store before
+/// it fails (theseus-qa0 F4b). `theseus shutdown` returns on the daemon's
+/// answer. The daemon then removes its socket, flushes telemetry (bounded at
+/// 1 s), and closes the store as its runtime ends, so a start that follows at
+/// once finds the store held for the rest of that stop: about 15 ms here, up
+/// to a second more with a telemetry batch to send. The bound covers a stop
+/// whose flush takes its whole second, on a slow disk. A second daemon beside
+/// one that is not stopping fails once it has passed.
+pub const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// How often a held store is tried again.
+const LOCK_POLL: std::time::Duration = std::time::Duration::from_micros(500);
 
 /// Bumped when the WAL record layout or the manifest changes. 2 = scope
 /// field (M2). 3 = the newest schema written for each kind (F4a).
@@ -213,7 +232,51 @@ impl WalStore {
     /// end, for the next position and a torn frame (theseus-8ni): store open
     /// grows with the tail since the checkpoint, never with history.
     /// `verify_history` checks the rest, after serving.
+    ///
+    /// A store another process still has open is waited for, at most
+    /// `LOCK_WAIT` (theseus-qa0 F4b): the lock is redb's, taken when the
+    /// index opens, and each try reads the manifest again, so the one that
+    /// gets the lock checks the manifest the last holder left.
     pub fn open(dir: &Path, wal_cfg: WalConfig) -> Result<Self> {
+        Self::open_waiting(dir, wal_cfg, LOCK_WAIT)
+    }
+
+    /// `open`, waiting at most `wait` for another process to release the
+    /// store.
+    pub fn open_waiting(dir: &Path, wal_cfg: WalConfig, wait: std::time::Duration) -> Result<Self> {
+        let t0 = std::time::Instant::now();
+        // When the try under way began: zero for the first.
+        let mut began = std::time::Duration::ZERO;
+        loop {
+            match Self::open_once(dir, wal_cfg.clone()) {
+                Ok(mut store) => {
+                    store.lock_wait_us = began.as_micros() as u64;
+                    if !began.is_zero() {
+                        tracing::info!(
+                            waited_ms = began.as_millis() as u64,
+                            "store: waited for the previous process to release it"
+                        );
+                    }
+                    return Ok(store);
+                }
+                Err(e) if RedbIndex::held_elsewhere(&e) && t0.elapsed() < wait => {
+                    std::thread::sleep(LOCK_POLL);
+                    began = t0.elapsed();
+                }
+                Err(e) if RedbIndex::held_elsewhere(&e) => {
+                    return Err(e.context(format!(
+                        "another process has held the store at {} for {} ms and still does: \
+                         is another theseusd serving it?",
+                        dir.display(),
+                        t0.elapsed().as_millis()
+                    )));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    fn open_once(dir: &Path, wal_cfg: WalConfig) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let fsync = wal_cfg.fsync;
         let manifest_path = dir.join("MANIFEST.json");
@@ -289,6 +352,7 @@ impl WalStore {
             marks: RwLock::new(marks),
             fsync,
             appending: RwLock::new(()),
+            lock_wait_us: 0,
         };
         // A manifest that lags its WAL's tail catches up now.
         let tail: Vec<(RecordKind, u16)> =
@@ -530,6 +594,7 @@ impl Store for WalStore {
             syncs: self.wal.syncs(),
             history_bytes: r.history_bytes,
             index_repaired: self.index.repaired(),
+            lock_wait_us: self.lock_wait_us,
         })
     }
 }
@@ -543,6 +608,54 @@ mod tests {
         WalStore::open(dir, WalConfig::default())
             .unwrap()
             .with_checkpoint_every(0)
+    }
+
+    /// A start at once after a stop (theseus-qa0 F4b): the stopping process
+    /// still holds the store for a while after its socket is gone. The next
+    /// open waits for it, and serves what the last holder wrote.
+    #[test]
+    fn an_open_waits_for_the_last_holder_to_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = open(dir.path());
+        let rec = NewRecord::json(kinds::SESSION, Some("s1"), &serde_json::json!({"turns": 1}));
+        first.append(&[rec.unwrap()]).unwrap();
+        let closer = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            drop(first);
+        });
+        let t0 = std::time::Instant::now();
+        let next = WalStore::open(dir.path(), WalConfig::default()).unwrap();
+        let waited = t0.elapsed();
+        closer.join().unwrap();
+        assert!(waited >= std::time::Duration::from_millis(60), "{waited:?}");
+        let st = next.stats().unwrap();
+        assert!(st.lock_wait_us >= 60_000, "{}", st.lock_wait_us);
+        assert!(!st.index_repaired, "the last holder closed it");
+        let s1 = next.latest_by_key(kinds::SESSION, "s1").unwrap().unwrap();
+        assert_eq!(s1.decode::<serde_json::Value>().unwrap()["turns"], 1);
+        // An open that found the store free waited for nothing.
+        drop(next);
+        let again = WalStore::open(dir.path(), WalConfig::default()).unwrap();
+        assert_eq!(again.stats().unwrap().lock_wait_us, 0);
+    }
+
+    /// A second process beside one that is not stopping still fails, once
+    /// its wait has passed, and says why. The daemon's wait covers a stop
+    /// whose telemetry flush takes its whole second.
+    #[test]
+    fn an_open_beside_a_holder_that_stays_fails_after_the_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let _held = open(dir.path());
+        let wait = std::time::Duration::from_millis(150);
+        let t0 = std::time::Instant::now();
+        let e = WalStore::open_waiting(dir.path(), WalConfig::default(), wait)
+            .err()
+            .expect("the store is held");
+        assert!(t0.elapsed() >= wait);
+        let msg = format!("{e:#}");
+        assert!(msg.contains("is another theseusd serving it?"), "{msg}");
+        assert!(RedbIndex::held_elsewhere(&e), "{msg}");
+        assert!(LOCK_WAIT >= std::time::Duration::from_secs(2));
     }
 
     #[test]

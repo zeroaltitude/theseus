@@ -1,7 +1,7 @@
 //! `theseus-sim bench lifecycle`: the lifecycle budgets of §9, measured on a
 //! real `theseusd` over its real socket (FAST, §2; P5b; theseus-qa0).
 //!
-//! Four phases, each run `runs` times, with p50 and p95 per phase, and per
+//! Six phases, each run `runs` times, with p50 and p95 per phase, and per
 //! start-path phase and kernel step by the daemon's own clock (`health`):
 //! - `cold`: process start to the first `health` answer;
 //! - `vault`: the same, with the config an `op://` note, from its
@@ -10,15 +10,22 @@
 //! - `shutdown`: the `shutdown` request to process exit, with executions
 //!   waiting and a job running (a real `proc.run`, started by a real turn
 //!   against a stand-in for the Messages API, `fake_model`);
-//! - `kill`: SIGKILL, then a new process to its first `health` answer.
+//! - `kill`: SIGKILL, then a new process to its first `health` answer;
+//! - `swap`: a binary upgrade under the same load (F4b). The `shutdown`
+//!   request, its answer, and at once the other build on the same store, to
+//!   that process's first answer. The job's wrapper runs through every swap,
+//!   and the last new daemon ends it with its own cancel: it was adopted;
+//! - `restore`: `theseusd restore` from a copy of the store's WAL into a fresh
+//!   state dir, with the source's pages dropped from the cache first, beside
+//!   a cold sequential read of the same bytes. Measured, with no budget yet;
+//!   the last restored store must serve.
 //!
 //! The daemon's secrets come from a fake `op` that answers only after
 //! `resolver_ms`, so a start that waited for them would show: at each first
-//! answer, health must still say `resolving`. Binary swap and restore, P5b's
-//! other two phases, are left to theseus-qa0's step F4.
+//! answer, health must still say `resolving`.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -30,7 +37,7 @@ use serde_json::{json, Value};
 
 use crate::fake_model::FakeModel;
 
-pub const PHASES: [&str; 4] = ["cold", "vault", "shutdown", "kill"];
+pub const PHASES: [&str; 6] = ["cold", "vault", "shutdown", "kill", "swap", "restore"];
 
 /// The bench's vault note: the fake `op` answers it with the bench config.
 pub const VAULT_REF: &str = "op://Bench/theseus-config/notesPlain";
@@ -43,6 +50,9 @@ const WARM_UPS: usize = 2;
 
 pub struct Opts {
     pub theseusd: PathBuf,
+    /// The build the swap phase alternates with `theseusd`: both must read
+    /// the store (F4a or later). None: a copy of `theseusd`.
+    pub swap_to: Option<PathBuf>,
     pub runs: usize,
     /// A synthetic store of this many parked sessions (0: an empty store).
     pub sessions: u64,
@@ -103,7 +113,9 @@ impl Summary {
 /// §9's budget for `phase`, in ms, on a store of `sessions` parked sessions.
 /// Cold start is under 50 ms at today's sizes and under 250 ms at 10,000
 /// sessions, read as a line between the two; clean shutdown is under 100 ms;
-/// SIGKILL to serving is the cold budget plus 100 ms of tail replay.
+/// SIGKILL to serving is the cold budget plus 100 ms of tail replay; a binary
+/// upgrade is under 200 ms without a protocol answer, at any size. Restore
+/// has none yet: §9 asks for the disk's sequential read speed, "to measure".
 pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
     let cold = 50.0 + 200.0 * sessions.min(10_000) as f64 / 10_000.0;
     match phase {
@@ -111,6 +123,7 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
         "cold" | "vault" => Some(cold),
         "shutdown" => Some(100.0),
         "kill" => Some(cold + 100.0),
+        "swap" => Some(200.0),
         _ => None,
     }
 }
@@ -120,11 +133,13 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
 /// ten runs a phase) on this machine, 2026-09-29, rounded up. Measured:
 /// cold 23.3–30.1 (6.8), shutdown 47.3–51.3 (4.0), kill 43.2–67.7 (24.5,
 /// one run whose redb repair after the SIGKILL took 50 ms instead of 26).
+/// The swap, 2026-09-30 (F4b): 68.6–70.6 (1.9).
 pub fn margin_ms(phase: &str) -> f64 {
     match phase {
         "cold" | "vault" => 7.0,
         "shutdown" => 4.0,
         "kill" => 25.0,
+        "swap" => 2.0,
         _ => 0.0,
     }
 }
@@ -189,11 +204,17 @@ pub struct Start {
     /// comes before the bot token resolves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver_ms: Option<f64>,
+    /// How long the store's open waited for the last process to release it
+    /// (the store phase's `lock_wait_ms`, F4b); builds before F4b say
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_wait_ms: Option<f64>,
 }
 
 impl Start {
     pub fn from_health(ms: f64, h: &Value) -> Self {
         let (mut phases, mut steps, mut serving_us) = (Vec::new(), Vec::new(), 0u64);
+        let mut lock_wait_ms = None;
         for p in h["startup"].as_array().into_iter().flatten() {
             if p["background"].as_bool().unwrap_or(false) {
                 continue;
@@ -203,6 +224,9 @@ impl Start {
             };
             serving_us = serving_us.max(e);
             let name = p["name"].as_str().unwrap_or("?").to_string();
+            if name == "store" {
+                lock_wait_ms = p["detail"]["lock_wait_ms"].as_f64();
+            }
             if name == "kernel" {
                 for st in p["detail"]["steps"].as_array().into_iter().flatten() {
                     steps.push((
@@ -226,6 +250,7 @@ impl Start {
             config: h["config"]["state"].as_str().unwrap_or("").to_string(),
             confirmed_ms: None,
             driver_ms: driver_ms(h),
+            lock_wait_ms,
         }
     }
 }
@@ -285,17 +310,32 @@ struct Rig {
 
 impl Rig {
     fn spawn(&self) -> Result<(Daemon, Instant)> {
+        self.spawn_bin(&self.theseusd)
+    }
+
+    /// Start `bin`, another build, on the rig's store (the swap phase).
+    fn spawn_bin(&self, bin: &Path) -> Result<(Daemon, Instant)> {
+        let mut cmd = self.command(bin, &self.state)?;
+        let t0 = Instant::now();
+        let child = cmd
+            .spawn()
+            .with_context(|| format!("starting {}", bin.display()))?;
+        Ok((Daemon(child), t0))
+    }
+
+    /// `bin` with the rig's config, socket, and vault, on `state`.
+    fn command(&self, bin: &Path, state: &Path) -> Result<Command> {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.log)?;
-        let mut cmd = Command::new(&self.theseusd);
+        let mut cmd = Command::new(bin);
         cmd.arg("--config")
             .arg(&self.config)
             .arg("--socket")
             .arg(&self.sock)
             .arg("--state-dir")
-            .arg(&self.state)
+            .arg(state)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(log);
@@ -315,18 +355,29 @@ impl Rig {
                     .env("THESEUS_OP_TOKEN_FILE", token_file);
             }
         }
-        let t0 = Instant::now();
-        let child = cmd
-            .spawn()
-            .with_context(|| format!("starting {}", self.theseusd.display()))?;
-        Ok((Daemon(child), t0))
+        Ok(cmd)
     }
 
     /// The same rig with its config an `op://` note (the vault phase).
     fn with_config(&self, config: PathBuf) -> Self {
         Self {
-            theseusd: self.theseusd.clone(),
             config,
+            ..self.clone_rig()
+        }
+    }
+
+    /// The same rig on another state dir (a restored store).
+    fn with_state(&self, state: PathBuf) -> Self {
+        Self {
+            state,
+            ..self.clone_rig()
+        }
+    }
+
+    fn clone_rig(&self) -> Self {
+        Self {
+            theseusd: self.theseusd.clone(),
+            config: self.config.clone(),
             state: self.state.clone(),
             sock: self.sock.clone(),
             vault: match &self.vault {
@@ -335,6 +386,67 @@ impl Rig {
             },
             log: self.log.clone(),
         }
+    }
+
+    /// A binary upgrade under load (F4b): the `shutdown` request and its
+    /// answer, as `theseus shutdown` waits for it, then `bin` started at once
+    /// on the same store, timed from the request to the new process's first
+    /// `health` answer. The old process still holds the store for a while
+    /// after its answer, and the new one waits for it (`lock_wait_ms`). An
+    /// answer counts only from the new process: until the old one's socket is
+    /// gone, a connection may still reach it. The old process must exit
+    /// cleanly.
+    fn swap(&self, old: &mut Daemon, bin: &Path) -> Result<(Daemon, Start)> {
+        let s = UnixStream::connect(&self.sock).context("connecting to stop theseusd")?;
+        let t0 = Instant::now();
+        request(s, "shutdown", Value::Null)?;
+        let (mut daemon, _) = self.spawn_bin(bin)?;
+        let deadline = t0 + Duration::from_secs(30);
+        let pid = daemon.0.id();
+        let (ms, h) = loop {
+            if let Ok(s) = UnixStream::connect(&self.sock) {
+                if peer_pid(&s) == Some(pid) {
+                    let h = request(s, "health", Value::Null)?;
+                    break (t0.elapsed().as_secs_f64() * 1000.0, h);
+                }
+            }
+            if let Some(status) = daemon.0.try_wait()? {
+                bail!(
+                    "{} exited ({status}) before answering after a swap; its log ends:\n{}",
+                    bin.display(),
+                    tail(&self.log)
+                );
+            }
+            if Instant::now() > deadline {
+                bail!(
+                    "{} did not answer within 30 s of a swap; its log ends:\n{}",
+                    bin.display(),
+                    tail(&self.log)
+                );
+            }
+            std::thread::sleep(Duration::from_micros(250));
+        };
+        let status = old.0.wait()?;
+        if !status.success() {
+            bail!("the stopped theseusd exited with {status} in a swap");
+        }
+        Ok((daemon, Start::from_health(ms, &h)))
+    }
+
+    /// The running job's wrapper, from the spool: its correlation id and pid.
+    fn wrapper(&self) -> Result<(String, u32)> {
+        let dir = self.state.join("spool").join("pids");
+        for e in std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
+            let e = e?;
+            let job = e.file_name().to_string_lossy().into_owned();
+            let Ok(pid) = std::fs::read_to_string(e.path())?.trim().parse::<u32>() else {
+                continue;
+            };
+            if theseus_kernel::job::wrapper_alive(pid, &job) {
+                return Ok((job, pid));
+            }
+        }
+        bail!("no live job wrapper in {}", dir.display())
     }
 
     /// Ask `health` until the vault has confirmed the config, at most 30 s:
@@ -496,6 +608,77 @@ fn tail(log: &Path) -> String {
     lines[lines.len().saturating_sub(15)..].join("\n")
 }
 
+/// The pid of the process listening at the other end (`SO_PEERCRED`): which
+/// daemon answered.
+fn peer_pid(s: &UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut cred = libc::ucred {
+        pid: 0,
+        uid: 0,
+        gid: 0,
+    };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: a connected socket's fd, and a buffer of the size given.
+    let r = unsafe {
+        libc::getsockopt(
+            s.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut cred as *mut libc::ucred).cast(),
+            &mut len,
+        )
+    };
+    (r == 0 && cred.pid > 0).then_some(cred.pid as u32)
+}
+
+/// The WAL segments in `wal`, in order.
+fn segments(wal: &Path) -> Result<Vec<PathBuf>> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(wal)
+        .with_context(|| format!("reading {}", wal.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "seg"))
+        .collect();
+    v.sort();
+    Ok(v)
+}
+
+/// Flush a file and drop its pages from the page cache, so that the next
+/// read of it comes from the disk.
+fn uncache(path: &Path) -> Result<()> {
+    use std::os::fd::AsRawFd;
+    let f = std::fs::File::open(path)?;
+    f.sync_all()?;
+    // SAFETY: an open file's fd; the advice changes no memory of ours.
+    let r = unsafe { libc::posix_fadvise(f.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED) };
+    if r != 0 {
+        bail!("posix_fadvise on {}: error {r}", path.display());
+    }
+    Ok(())
+}
+
+/// Every segment in `wal` read in order with its pages dropped first: the
+/// disk's sequential read of these bytes. Bytes, and ms.
+fn read_cold(wal: &Path) -> Result<(u64, f64)> {
+    let segs = segments(wal)?;
+    for s in &segs {
+        uncache(s)?;
+    }
+    let mut buf = vec![0u8; 1 << 20];
+    let mut bytes = 0u64;
+    let t0 = Instant::now();
+    for s in &segs {
+        let mut f = std::fs::File::open(s)?;
+        loop {
+            let n = f.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            bytes += n as u64;
+        }
+    }
+    Ok((bytes, t0.elapsed().as_secs_f64() * 1000.0))
+}
+
 // ------------------------------------------------------------------ setup
 
 /// The fake `op`: every reference gets the same value, after `ms`, except
@@ -617,6 +800,12 @@ pub struct Report {
     /// With the operator's note: the first start, which read the vault
     /// before serving because there was no copy yet.
     pub vault_first_ms: Option<f64>,
+    /// The swap phase's job (F4b).
+    pub swap_job: Option<SwapJob>,
+    /// How long each swap's new process waited for the old one's store.
+    pub swap_lock_wait: Option<Summary>,
+    /// The restore phase (F4b), measured with no budget.
+    pub restore: Option<RestoreRow>,
     pub samples: BTreeMap<String, Vec<f64>>,
     /// The first starts, unmeasured: the first creates an empty store, or
     /// reads a copied one into the page cache.
@@ -632,7 +821,41 @@ impl Report {
             && self.served_before_secrets
             && self.served_from_copy
             && self.driver_before_token
+            && self.swap_job.as_ref().is_none_or(|j| j.kept && j.adopted)
+            && self.restore.as_ref().is_none_or(|r| r.serves)
     }
+}
+
+/// The job the swap phase keeps running (F4b).
+#[derive(Debug, Clone, Serialize)]
+pub struct SwapJob {
+    /// The builds swapped between, in turn.
+    pub builds: [String; 2],
+    pub wrapper_pid: u32,
+    /// The wrapper was alive after every swap, and each new daemon counted
+    /// its job as running.
+    pub kept: bool,
+    /// The last new daemon's cancel ended the wrapper that an earlier
+    /// process started: it had adopted the job.
+    pub adopted: bool,
+}
+
+/// The restore phase (F4b): `theseusd restore` against a cold sequential
+/// read of the same WAL.
+#[derive(Debug, Clone, Serialize)]
+pub struct RestoreRow {
+    pub segments: usize,
+    pub wal_bytes: u64,
+    /// The segments read in order, their pages dropped first, in ms.
+    pub read_ms: f64,
+    pub read_mb_s: f64,
+    /// The sessions the last restore counted, and those its store served.
+    pub sessions_restored: u64,
+    pub sessions_served: u64,
+    /// The last restored store's first `health` answer, in ms.
+    pub served_ms: f64,
+    /// The restored store served every session the restore counted.
+    pub serves: bool,
 }
 
 pub fn run(o: &Opts) -> Result<Report> {
@@ -781,7 +1004,20 @@ pub fn run(o: &Opts) -> Result<Report> {
         }
     }
     let mut sessions = generated.as_ref().map_or(0, |g| g.sessions);
-    if want("shutdown") || want("kill") {
+    // The swap's other build: a copy of this one unless given.
+    let swap_to = match (&o.swap_to, want("swap")) {
+        (Some(p), _) => p.clone(),
+        (None, true) => {
+            let copy = work.join("swap").join("theseusd");
+            std::fs::create_dir_all(work.join("swap"))?;
+            std::fs::copy(&o.theseusd, &copy)
+                .with_context(|| format!("copying {} for the swap", o.theseusd.display()))?;
+            copy
+        }
+        (None, false) => o.theseusd.clone(),
+    };
+    let mut swap_job = None;
+    if want("shutdown") || want("kill") || want("swap") {
         let (mut child, mut s) = rig.start()?;
         s.after = "cold".into();
         if s.driver_ms.is_none() {
@@ -817,6 +1053,33 @@ pub fn run(o: &Opts) -> Result<Report> {
             sessions = rig.call("health", Value::Null)?["sessions"]
                 .as_u64()
                 .unwrap_or(0);
+            if want("swap") {
+                // Alternately the other build and this one, each started
+                // at once on the store the last one stopped.
+                let builds = [swap_to.clone(), rig.theseusd.clone()];
+                let (corr, pid) = rig.wrapper()?;
+                let mut kept = true;
+                for i in 0..o.runs {
+                    let (c, mut s) = rig.swap(&mut child, &builds[i % 2])?;
+                    child = c;
+                    samples.entry("swap".into()).or_default().push(s.ms);
+                    s.after = "swap".into();
+                    starts.push(s);
+                    kept &= theseus_kernel::job::wrapper_alive(pid, &corr);
+                    kept &= rig.running_jobs()? > 0;
+                }
+                // Adopted: the daemon serving now ends, with its own cancel,
+                // the wrapper an earlier process started.
+                if let Some(exec) = job.take() {
+                    rig.call("execution.cancel", json!({"execution_id": exec}))?;
+                }
+                swap_job = Some(SwapJob {
+                    builds: builds.map(|b| b.display().to_string()),
+                    wrapper_pid: pid,
+                    kept,
+                    adopted: !theseus_kernel::job::wrapper_alive(pid, &corr),
+                });
+            }
             Ok(())
         })();
         // Whatever happened: the job cancelled, the daemon stopped.
@@ -828,6 +1091,11 @@ pub fn run(o: &Opts) -> Result<Report> {
         rig.stop_anyhow(&mut child);
         measured?;
     }
+    let restore = if want("restore") {
+        Some(restore_phase(&rig, &work, o.runs, &mut samples)?)
+    } else {
+        None
+    };
 
     let phases: Vec<(String, Summary)> = PHASES
         .iter()
@@ -897,6 +1165,11 @@ pub fn run(o: &Opts) -> Result<Report> {
             .iter()
             .all(|s| s.driver_ms.is_some_and(|ms| ms < resolver_ms as f64));
     let verdicts = verdicts(&phases, sessions, o.margin_ms);
+    let lock_waits: Vec<f64> = starts
+        .iter()
+        .filter(|s| s.after == "swap")
+        .filter_map(|s| s.lock_wait_ms)
+        .collect();
     drop(tmp);
     Ok(Report {
         theseusd: o.theseusd.display().to_string(),
@@ -917,6 +1190,9 @@ pub fn run(o: &Opts) -> Result<Report> {
         driver_before_token,
         vault_confirmed: Summary::of(&confirmed),
         vault_first_ms,
+        swap_job,
+        swap_lock_wait: Summary::of(&lock_waits),
+        restore,
         samples,
         warm_up_ms,
         starts,
@@ -924,7 +1200,85 @@ pub fn run(o: &Opts) -> Result<Report> {
     })
 }
 
-const TITLES: [(&str, &str); 4] = [
+/// The restore phase (F4b), with the daemon stopped: `runs` restores of a
+/// copy of the store's WAL (as a backup holds it), each into a fresh state
+/// dir, with the source's pages dropped from the cache first, so each reads
+/// it from the disk. Beside them, one cold sequential read of the same
+/// segments: §9 asks for a restore at the disk's sequential read speed.
+/// Then the last restored store serves, and must hold every session the
+/// restore counted.
+fn restore_phase(
+    rig: &Rig,
+    work: &Path,
+    runs: usize,
+    samples: &mut BTreeMap<String, Vec<f64>>,
+) -> Result<RestoreRow> {
+    let src = work.join("restore-from");
+    let _ = std::fs::remove_dir_all(&src);
+    copy_dir(&rig.state.join("store").join("wal"), &src.join("wal"))?;
+    let blobs = rig.state.join("store").join("blobs");
+    if blobs.is_dir() {
+        copy_dir(&blobs, &src.join("blobs"))?;
+    }
+    let wal = src.join("wal");
+    let (wal_bytes, read_ms) = read_cold(&wal)?;
+    let nsegs = segments(&wal)?.len();
+    let mut last: Option<(PathBuf, String)> = None;
+    for i in 0..runs {
+        let into = work.join(format!("restored-{i}"));
+        let _ = std::fs::remove_dir_all(&into);
+        for s in segments(&wal)? {
+            uncache(&s)?;
+        }
+        let mut cmd = rig.command(&rig.theseusd, &into)?;
+        cmd.arg("restore")
+            .arg("--from")
+            .arg(&src)
+            .stdout(Stdio::piped());
+        let t0 = Instant::now();
+        let out = cmd.output().context("running theseusd restore")?;
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        if !out.status.success() {
+            bail!(
+                "theseusd restore exited with {}; its log ends:\n{}",
+                out.status,
+                tail(&rig.log)
+            );
+        }
+        samples.entry("restore".into()).or_default().push(ms);
+        let said = String::from_utf8_lossy(&out.stdout).into_owned();
+        if let Some((prev, _)) = last.replace((into, said)) {
+            let _ = std::fs::remove_dir_all(prev);
+        }
+    }
+    let (restored, said) = last.context("no restore ran")?;
+    // "… frames …\n5 session(s), 105 node(s), 806 ledger row(s)\n…"
+    let sessions_restored = said
+        .lines()
+        .find(|l| l.contains(" session(s), "))
+        .and_then(|l| l.split(' ').next()?.parse().ok())
+        .with_context(|| format!("no session count in the restore's report: {said}"))?;
+    let served = rig.with_state(restored.clone());
+    let (mut daemon, start) = served.start()?;
+    let sessions_served = served.call("health", Value::Null)?["sessions"]
+        .as_u64()
+        .unwrap_or(0);
+    served.stop(&mut daemon)?;
+    let _ = std::fs::remove_dir_all(&restored);
+    let _ = std::fs::remove_dir_all(&src);
+    Ok(RestoreRow {
+        segments: nsegs,
+        wal_bytes,
+        read_ms,
+        read_mb_s: wal_bytes as f64 / 1e6 / (read_ms / 1000.0).max(1e-9),
+        sessions_restored,
+        sessions_served,
+        served_ms: start.ms,
+        serves: sessions_served == sessions_restored,
+    })
+}
+
+const TITLES: [(&str, &str); 6] = [
     ("cold", "cold start to the first health answer"),
     (
         "vault",
@@ -935,6 +1289,11 @@ const TITLES: [(&str, &str); 4] = [
         "clean shutdown, executions waiting and a job running",
     ),
     ("kill", "SIGKILL, then restart to the first health answer"),
+    (
+        "swap",
+        "binary swap, stop's request to the new build's answer",
+    ),
+    ("restore", "theseusd restore from a local WAL, cold"),
 ];
 
 pub fn print(r: &Report) {
@@ -977,12 +1336,57 @@ pub fn print(r: &Report) {
             s.p95,
             s.min,
             s.max,
-            verdict.map_or(String::new(), |v| format!(
+            verdict.map_or("measured; no budget yet".to_string(), |v| format!(
                 "budget {:.0} ms + {:.0} ms margin: {}",
                 v.budget,
                 v.margin,
                 if v.ok { "ok" } else { "MISSED" }
             ))
+        );
+    }
+    if let Some(j) = &r.swap_job {
+        let wait = r.swap_lock_wait.map_or("not reported".to_string(), |w| {
+            format!(
+                "p50 {:.1} ms, p95 {:.1} ms (min {:.1}, max {:.1})",
+                w.p50, w.p95, w.min, w.max
+            )
+        });
+        println!("  swap: each new process waited for the stopped one's store: {wait}");
+        println!(
+            "  swap: the job's wrapper (pid {}) {}, and {}",
+            j.wrapper_pid,
+            if j.kept {
+                "ran through every swap"
+            } else {
+                "was LOST in a swap"
+            },
+            if j.adopted {
+                "the last new daemon ended it with its own cancel: adopted"
+            } else {
+                "the last new daemon's cancel did NOT end it: not adopted"
+            }
+        );
+    }
+    if let Some(x) = &r.restore {
+        let p50 = r
+            .phases
+            .iter()
+            .find(|(n, _)| n == "restore")
+            .map_or(0.0, |(_, s)| s.p50);
+        println!(
+            "  restore: {} segment(s), {:.2} MB of WAL; a cold sequential read of it took {:.1} ms ({:.0} MB/s), and a restore's p50 is {:.1}x that",
+            x.segments,
+            x.wal_bytes as f64 / 1e6,
+            x.read_ms,
+            x.read_mb_s,
+            p50 / x.read_ms.max(1e-9)
+        );
+        println!(
+            "  restore: the restored store served in {:.1} ms, with {} of the {} session(s) the restore counted{}",
+            x.served_ms,
+            x.sessions_served,
+            x.sessions_restored,
+            if x.serves { "" } else { ": SESSIONS MISSING" }
         );
     }
     let answers: Vec<String> = r
@@ -1095,7 +1499,11 @@ mod tests {
         assert_eq!(budget_ms("kill", 0), Some(150.0));
         assert_eq!(budget_ms("kill", 10_000), Some(350.0));
         assert_eq!(budget_ms("shutdown", 10_000), Some(100.0));
-        assert_eq!(budget_ms("swap", 0), None);
+        // A binary upgrade: under 200 ms without an answer, at any size.
+        assert_eq!(budget_ms("swap", 0), Some(200.0));
+        assert_eq!(budget_ms("swap", 10_000), Some(200.0));
+        // Restore is measured: §9 names no number yet.
+        assert_eq!(budget_ms("restore", 0), None);
     }
 
     #[test]
@@ -1132,6 +1540,19 @@ mod tests {
         // The throwaway 100 ms sleep in cold start: 23 ms becomes 123 ms.
         let slept = verdicts(&[("cold".to_string(), s(123.0))], 0, None);
         assert!(!slept[0].ok);
+        // A swap: 200 ms plus its 2 ms margin, whatever the store's size;
+        // a restore is measured and never judged.
+        let v = verdicts(
+            &[
+                ("swap".to_string(), s(203.0)),
+                ("restore".to_string(), s(9999.0)),
+            ],
+            10_000,
+            None,
+        );
+        assert_eq!(v.len(), 1);
+        assert!(!v[0].ok);
+        assert_eq!((v[0].budget, v[0].margin), (200.0, 2.0));
     }
 
     #[test]

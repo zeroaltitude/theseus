@@ -148,12 +148,17 @@ enum Cmd {
 enum BenchCmd {
     /// The §9 lifecycle budgets: cold start to the first health answer, the
     /// same from the copy of an `op://` config note (vault), clean shutdown
-    /// with executions waiting and a job running, and SIGKILL then restart,
-    /// each run N times with p50 and p95.
+    /// with executions waiting and a job running, SIGKILL then restart, a
+    /// binary swap under the same load, and restore from a local WAL, each
+    /// run N times with p50 and p95.
     Lifecycle {
         /// The daemon to measure (default: the `theseusd` beside this binary).
         #[arg(long)]
         theseusd: Option<PathBuf>,
+        /// The build the swap phase alternates with --theseusd (default: a
+        /// copy of it). Both must read the store: F4a or later.
+        #[arg(long)]
+        swap_to: Option<PathBuf>,
         #[arg(long, default_value_t = 10)]
         runs: usize,
         /// A synthetic store of this many parked sessions (0: empty).
@@ -169,7 +174,7 @@ enum BenchCmd {
         #[arg(
             long,
             value_delimiter = ',',
-            default_value = "cold,vault,shutdown,kill"
+            default_value = "cold,vault,shutdown,kill,swap,restore"
         )]
         phases: Vec<String>,
         /// Compare each p95 with §9 plus the margin, and exit 1 on a miss.
@@ -225,6 +230,7 @@ fn main() -> Result<()> {
             bench:
                 BenchCmd::Lifecycle {
                     theseusd,
+                    swap_to,
                     runs,
                     sessions,
                     store,
@@ -254,6 +260,7 @@ fn main() -> Result<()> {
             }
             let report = lifecycle::run(&lifecycle::Opts {
                 theseusd,
+                swap_to,
                 runs: runs.max(1),
                 sessions,
                 store,

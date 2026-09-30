@@ -372,6 +372,42 @@ fn a_clean_stop_closes_the_index_and_the_next_start_repairs_nothing() {
     assert_eq!(s["index_repaired"], true, "a SIGKILL needs a repair: {s}");
 }
 
+/// A start at once after a stop (theseus-qa0 F4b). `shutdown` answers before
+/// the daemon removes its socket and closes its store, so a start that
+/// followed at once could find the store still held and exit with "Database
+/// already open". It now waits for the lock. Five stops, each followed at
+/// once by a start on the same store: each start serves, and each stopped
+/// daemon exits cleanly.
+#[test]
+fn a_start_at_once_after_a_stop_waits_for_the_store() {
+    let rig = Rig::new();
+    let mut d = rig.spawn();
+    let mut waited = Vec::new();
+    for i in 0..5 {
+        rig.call("shutdown", Value::Null).unwrap();
+        let mut next = Daemon::spawn(&mut rig.command());
+        let status = rig.wait("the stop", || d.try_wait());
+        assert!(status.success(), "stop {i}: {status}");
+        rig.wait("the next start's answer", || {
+            if let Some(s) = next.try_wait() {
+                panic!(
+                    "start {i} at once after a stop exited ({s}); the log ends:\n{}",
+                    tail(&rig.log(), 20)
+                );
+            }
+            rig.call("health", Value::Null).ok()
+        });
+        waited.push(store_phase(&rig)["lock_wait_ms"].as_f64().unwrap());
+        d = next;
+    }
+    assert!(
+        !rig.log().contains("Database already open"),
+        "{}",
+        tail(&rig.log(), 20)
+    );
+    eprintln!("each start's wait for the stopped daemon's store, ms: {waited:?}");
+}
+
 #[test]
 fn the_history_check_after_serving_finds_a_corrupt_frame_and_says_so() {
     let rig = Rig::new();

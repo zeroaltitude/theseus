@@ -118,6 +118,15 @@ impl RedbIndex {
         self.repaired
     }
 
+    /// Whether `open` failed because another process has the file open: redb
+    /// holds a lock on it from its open to its close (theseus-qa0 F4b).
+    pub fn held_elsewhere(e: &anyhow::Error) -> bool {
+        matches!(
+            e.downcast_ref::<redb::DatabaseError>(),
+            Some(redb::DatabaseError::DatabaseAlreadyOpen)
+        )
+    }
+
     /// Record a batch of entries. Non-durable unless `durable`.
     pub fn apply(&self, entries: &[IndexEntry], durable: bool) -> Result<()> {
         let mut txn = self.db.begin_write()?;

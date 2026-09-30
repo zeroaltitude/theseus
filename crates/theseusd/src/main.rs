@@ -330,7 +330,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         "store",
         false,
         t,
-        json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index, "history_bytes": st.history_bytes, "index_repaired": st.index_repaired}),
+        json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index, "history_bytes": st.history_bytes, "index_repaired": st.index_repaired, "lock_wait_ms": st.lock_wait_us as f64 / 1000.0}),
     );
     tracing::info!(
         last_position = st.last_position,

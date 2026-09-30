@@ -9,9 +9,11 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -q -- -D warnings
 cargo nextest run --workspace --no-fail-fast
 # The lifecycle budgets of §9 (FAST, theseus-qa0): cold start, clean shutdown
-# with a job running, SIGKILL then restart, 10 runs each on an empty store,
-# p95 against the budget plus the measured noise margin. Debug binaries: they
-# are never faster than release, so a pass here holds for release.
+# with a job running, SIGKILL then restart, a binary swap with the job's
+# wrapper adopted, 10 runs each on an empty store, p95 against the budget plus
+# the measured noise margin; and restore, measured, whose restored store must
+# serve. Debug binaries: they are never faster than release, so a pass here
+# holds for release.
 cargo build -q -p theseusd -p theseus-sim
 # Other processes' dirty pages are flushed first, so a start's fsync never
 # pays for their writeback (1.3 GB of it once put a clean shutdown's p95 at
