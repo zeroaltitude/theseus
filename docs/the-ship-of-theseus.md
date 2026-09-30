@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.49
+# The Ship of Theseus — v0.50
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -629,19 +629,47 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
 
 ### 3.20 Telemetry
 
-OpenTelemetry is a **projection of the record**, never a second instrumentation, and an opt-in build feature (below; amended 2026-09-29, theseus-0g4). The turn trace (§3.3a) is already a span tree with absolute start and end times; when a turn ends, Theseus walks the finished tree and emits it as OTel spans with those exact timestamps, so the hot path pays nothing beyond the trace it already records and the exported picture is byte-for-byte the ledger's. The mapping:
+OpenTelemetry is a **projection of the record**, never a second instrumentation.
+- The turn trace (§3.3a) is already a span tree, with absolute start and end times.
+- When a turn ends, Theseus records its metrics in the process, and hands the finished tree to one sender
+  task. The sender walks it into OTel spans with those exact timestamps.
+- So the hot path pays only the hand-over (tens of microseconds), and the exported picture is the ledger's.
+
+The mapping:
 
 | Theseus | OpenTelemetry |
 |---|---|
-| turn | root span; attributes `theseus.turn_id`, `theseus.session_id`, `theseus.profile`, outcome, loops |
-| loop *n* | child span |
-| provider.call | child span with the GenAI semantic conventions: `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.id`, `gen_ai.response.finish_reasons` |
+| turn | root span, with the trace root's attributes as recorded: `turn_id`, `session_id`, `profile`, `provider`, `model`, `continuation`, `outcome`, `loops`, `stop_reason`, `usage.*` |
+| loop *n*, a group of calls run together (`tools`), `tool <name>`, `continuation` | child spans |
+| provider.call | client span with the GenAI semantic conventions: `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.id`, `gen_ai.response.finish_reasons`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` |
 | first_byte, first_token | events on the provider span |
-| compile, advancer, store, lock, marks | events on their parent span. _(Since 2026-09-28 always: hook sites are gone, and `telemetry.hook_spans`, which made these spans, was retired in 11d2f43 and since theseus-0g4 no longer loads.)_ |
-| provider.error, turn.failed | span status error with the class, transient, and usage_unknown as attributes |
-| turns, tokens, provider errors, durations | metrics: `theseus.turns` (profile, provider, model, outcome), `theseus.tokens` (direction), `theseus.provider.errors` (class, transient), histograms `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`, `theseus.provider.first_token_ms`; `theseus.tool.calls` (family, tool, backend, outcome) and `theseus.tool.duration_ms`, from which the shell-fallback ratio (§3.23) is read |
+| compile, advancer, store, lock, marks | events on their parent span _(since 2026-09-28 always: hook sites are gone, and `telemetry.hook_spans` no longer loads)_ |
+| provider.error, turn.failed | error status, with the message or the class; the class and transient as attributes |
+| turns, tokens, provider errors, dollars, tool calls, durations | cumulative metrics: `theseus.turns` (profile, provider, model, outcome), `theseus.tokens` (the same, and direction), `theseus.provider.errors` (provider, model, class, transient), `theseus.cost.usd`, `theseus.tool.calls` (the turn's attributes, and tool); histograms `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`, `theseus.provider.first_token_ms` |
 
-Transport is OTLP over HTTP/protobuf through `reqwest` and rustls, with no gRPC. Headers (a Honeycomb key, a Datadog key) come from the vault like every other secret, and resource attributes carry `service.name`, `service.version`, and `service.instance.id`. **The exporter is a build option, off by default** (theseus-0g4): it is compiled in only with the `otel` cargo feature (`cargo build --release -p theseusd --features otel`), because it brought 19 crates, aws-lc among them, into every build while no deployment set an endpoint. A build without it parses `[telemetry]` the same way, exports nothing, and warns once when the config loads if `otlp_endpoint` is set; the gate lints the feature's code on every commit, so turning export on stays a build flag and a config line. In an `otel` build, **nothing leaves the process until `[telemetry].otlp_endpoint` is set**. Point it at a local Collector, Grafana Tempo, Honeycomb, Datadog, or the AWS Distro for OpenTelemetry, which is how "CloudWatch for historical search" (§1) is satisfied with no CloudWatch-specific code. In every build the trace, the ledger, and `turn.trace` are the record; the web UI and CLI read the trace directly, and OTel is for the fleet view.
+**Transport.** OTLP/HTTP with the JSON encoding, posted to `<otlp_endpoint>/v1/traces` and `/v1/metrics`
+over the workspace's `reqwest` and rustls, with no gRPC and no protobuf library.
+- **The exporter is Theseus's own, and it is in every build.** It adds no crate to the daemon.
+  (theseus-hee. Until then it was the `otel` cargo feature, off by default, over the OpenTelemetry SDK and 19
+  crates, aws-lc among them.)
+- Headers (a Honeycomb key, a Datadog key) come from the vault like every other secret. Resource attributes
+  carry `service.name`, `service.version`, and `service.instance.id`.
+- **Nothing leaves the process until three things hold:** `[telemetry].otlp_endpoint` is set, the vault
+  has confirmed the config (§3.19), and the headers secret has resolved.
+
+**A turn never waits for the network.**
+- The sender posts each turn's trace as it comes, from a queue of at most 64 whose oldest is dropped when
+  it is full. It posts the metrics every `metrics_interval_secs`.
+- A failure, a 429, or a 5xx is retried once after a second. Then the batch is dropped and counted.
+- Health says what was sent and dropped, and the last error (`telemetry: exporting to … · sent N ·
+  dropped M · last error …`), or why nothing is sent yet.
+- A stopping daemon flushes, bounded at a second.
+
+Point it at a local Collector, Grafana Tempo, Honeycomb, Datadog, or the AWS Distro for OpenTelemetry. That
+is how "CloudWatch for historical search" (§1) is satisfied, with no CloudWatch-specific code. The trace, the
+ledger, and `turn.trace` are the record: the web UI and CLI read the trace directly, and OTel is for the fleet
+view. _(Amended 2026-09-29, theseus-hee: the transport was HTTP/protobuf through the SDK, a build feature since
+theseus-0g4; Part III A3c, Step O1.)_
 
 ### 3.21 Self-extension: planks, never the keel
 
@@ -2430,6 +2458,10 @@ M3.5 (P5b) runs as these steps:
 - F3: parallel tool calls (theseus-a60).
 - F4: the swap and restore phases, with versioned readers, and F2's remaining frame merges (theseus-l6y).
 
+Beside them, in the same chain:
+- K1: the kernel never loses an update (theseus-id9), found by F3.
+- O1: the native OTel exporter (theseus-hee), with theseus-gi7.
+
 Eddie's order (2026-09-29) is:
 1. F1, F2, F1b, and F3;
 2. then the native OTel exporter, the self-approval fix, and the secret broker;
@@ -2850,6 +2882,100 @@ spread of its own rounds.
 - A turn's frames, and one execution's frames in general, still take one fsync each. Group commit over a
   group's frames needs the index to move before the fsync (theseus-l6y).
 - The core's `SessionRecord` read-and-write-back (theseus-xeo, with DD7).
+
+### Step O1. OTel without the SDK: a native OTLP exporter in every build (theseus-hee, theseus-gi7; 2026-09-29, 16:27–17:20; 6ad89a2, e7d8495, b51252f, 5240563)
+
+**Why.** Eddie, 2026-09-29, 08:52: "I'd like it built in by default, but 19 crates is surprising"; and at 09:21,
+"let's do cheaper otel". The exporter was the `otel` cargo feature, off by default, over the OpenTelemetry SDK:
+19 crates, among them prost and a second reqwest (0.13) with its own rustls stack and aws-lc.
+
+**What exists.**
+- **A native exporter** (`theseus-core/src/telemetry/`). It speaks OTLP/HTTP with the JSON encoding over the
+  workspace's reqwest 0.12: lowerCamelCase fields, hex ids, integer enums, and 64-bit integers as decimal
+  strings. It is in every build, and `theseusd`'s dependency tree is the default build's own set.
+- **The same picture as the SDK's.** The trace walk, attributes, events, status, limits (128), and flags were
+  ported from `otel.rs`. So were the eight instruments, with their units, descriptions, and attributes,
+  aggregated in the process with cumulative temporality.
+- **Off the hot path.**
+  - A turn records its metrics and queues its trace. One sender task posts the trace, and the metrics every
+    interval.
+  - A failure, a 429, or a 5xx gets one retry after a second; then the batch is dropped and counted.
+  - A full queue (64) drops its oldest.
+- **Health** says `off`, `waiting` (for the vault or the headers secret), `exporting` (with what was sent
+  and dropped, and the last error), or `failed` (the exporter could not be built). `theseus health` prints it.
+- **Built after serving**, once the vault confirms the config and the headers secret resolves. A stopping
+  daemon flushes, bounded at 1 s.
+- **Removed:** the feature, its dependencies, the warning about a build without it, and the gate's second
+  clippy run.
+- **theseus-gi7.** `theseusd`'s printing subcommands end with success on a closed pipe. SIGPIPE stays
+  ignored, so no pipe write can kill the daemon.
+- **No leaked daemons.** Every `theseusd` that a real-binary test or the lifecycle bench spawns is held by a
+  guard that kills and reaps it on drop.
+- **The gate** runs `sync` before the lifecycle bench, and a second run before a miss fails it.
+
+**How it is proven.** 322 tests in the gate, 22 of them new.
+- **Conformance.** What is posted is read back through `opentelemetry-proto`'s own types: a dev-dependency,
+  built without tonic. Every field comes back unchanged, and every encoding is checked.
+- **The old picture.** A golden file dumped from the SDK exporter itself at 964411f matches span for span
+  and metric for metric.
+- **Failures:**
+  - a 503 then a 200 delivers once;
+  - a failing or absent receiver gets one retry, then the batch is dropped and counted in health;
+  - a receiver that hangs costs a turn 63–73 µs.
+- **Headers**, in both forms, with no value shown.
+- **Throwaway probes** of each test failed as they should: a wrong field case, kind, integer encoding,
+  temporality, or id encoding; SIGPIPE's default; a panic or a `bail!` before a stop. The temporality probe
+  failed only once the tests wrote OTLP's enum values out, instead of reading the code's own constants.
+- A 100 ms sleep on the start path still failed the gate, on both runs.
+- **Live, on the release build** over a copy of Eddie's store, with his note and a local receiver:
+  - a GLM tool turn's spans arrived with the trace's durations to the tenth of a millisecond, and the
+    metrics after one interval;
+  - with the receiver stopped, the next turn ran unchanged, and health counted 7 batches dropped, with the
+    last error;
+  - with the receiver back, the counters were still cumulative.
+
+| Measure | Before | After |
+|---|---|---|
+| crates in `theseusd`'s build (`cargo tree -e normal`, name and version) | 292, or 311 with the exporter | 292 with the exporter |
+| release `theseusd` | 19,702,816 B, or 23,942,128 B with the exporter | 19,830,208 B with the exporter |
+| a clean shutdown with telemetry on, after a turn (release) | | 27.1 ms (24.9 ms off) |
+
+**Reviewed** (Tabitha, 2026-09-29, 17:48 to 17:54).
+- The gate rerun passed: 322 tests, and all four bench phases within budget. The gate has no
+  `--features otel` run left.
+- `theseusd`'s normal dependency tree was counted by name: 281 names, the same as before this step. None of
+  them is opentelemetry, prost, or aws-lc.
+- On the release build (19,830,208 B), over a fresh copy of Eddie's store, with `otlp_endpoint` pointed at a
+  local receiver:
+  - a GLM tool turn posted one trace (12,862 B of JSON, 7 spans), whose durations match `--trace` (turn
+    11,560.8 ms, the tool 14.0 ms);
+  - the metrics arrived every 5 s, cumulative;
+  - health read `sent 2 (1 traces, 1 metrics) · dropped 0`.
+- `theseusd example-config` and `example-bindings` into a closed pipe exit 0.
+- Installed at 17:54.
+- **Filed at review** as theseus-yf1, all small, with no consumer yet: the histogram bounds past 10 s; tool
+  metrics by family, backend, and outcome, with a duration; the served model in `gen_ai.response.model`;
+  failed continuations counted; and the provider-call histogram's empty attributes, which Tabitha found
+  live and which the SDK exporter had too.
+
+**Divergence from Parts I and II, and from the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| OTLP over HTTP/protobuf (§3.20) | OTLP/HTTP with the JSON encoding | JSON needs no protobuf library, and the Collector's receiver takes it | §3.20 amended; a hand-written protobuf encoder is the fallback for a receiver that won't |
+| The exporter is the `otel` build feature, off by default (§3.20, theseus-0g4) | In every build, with no feature and no added crate | Eddie, 2026-09-29 | §3.20 amended |
+| §3.20's table: root attributes `theseus.turn_id`, `theseus.session_id`, `theseus.profile` | The root's attributes as recorded (`turn_id`, `session_id`, `profile`, …), as the SDK exporter emitted them | The same picture, so a dashboard built on it still works | Table corrected |
+| §3.20's table: `theseus.tool.calls` by family, tool, backend, and outcome, and `theseus.tool.duration_ms` | By tool, with the turn's attributes; no duration | Neither exporter had them (A3 recorded it) | Table corrected; theseus-yf1 |
+| The SDK's batching (2,048 spans, a 5 s delay) and its blocking `force_flush` inside `shutdown` | One post per turn, a queue of 64, and a flush after the serving loop, bounded at 1 s | Simpler, and a stop never blocks a task | Keep |
+| theseus-gi7: restore SIGPIPE's default for the printing subcommands, or end quietly | End quietly, with exit 0 | A default SIGPIPE would expose `check`'s write into `op inject`'s stdin | Keep |
+| The brief: the lifecycle bench "already kills on its error paths" | Not on all of them: a failed stop, confirmation, copy wait, or health read after a start leaked | Found by reading, and shown by a probe | Fixed |
+
+**Known gaps.**
+- Vendors' acceptance of OTLP JSON (Honeycomb, Datadog, Tempo, ADOT) was checked only against a local
+  receiver. Eddie's first real endpoint will tell.
+- `opentelemetry-proto` 0.33 reads `asInt` only as a number, so a receiver built on that crate's serde would
+  refuse our sums. Ours follow the protobuf JSON mapping.
+- No gzip.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
