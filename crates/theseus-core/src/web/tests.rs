@@ -163,6 +163,7 @@ fn route(path: &str, headers: &BTreeMap<String, String>, port: u16) -> Reply {
         "/to-private" => redirect("http://10.0.0.1/secret"),
         "/to-metadata" => redirect("http://169.254.169.254/latest/meta-data/"),
         "/to-loopback" => redirect(&format!("http://127.0.0.1:{port}/plain.txt")),
+        "/to-nowhere" => redirect("http://said so.test/words-7c1e"),
         "/search" => brave(headers),
         p if p.starts_with("/r/") => match p[3..].parse::<u32>() {
             Ok(0) => ok("text/plain", b"arrived"),
@@ -389,6 +390,16 @@ async fn five_redirects_are_followed_and_a_sixth_fails() {
             at("/r/6"),
             at("/r/1"),
             at("/r/0")
+        )
+    );
+    // A Location that is not a URL fails the call, and its text is not echoed.
+    let why = failure(&w, json!({"url": at("/to-nowhere")}), false).await;
+    assert_eq!(
+        why,
+        format!(
+            "Not fetched: {} redirects to a Location that is not a URL (invalid \
+             international domain name).",
+            at("/to-nowhere")
         )
     );
 }

@@ -2056,5 +2056,20 @@ mod tests {
         );
         assert_eq!(summarize("fs.read", &json!({"path": "a`b"})), "a'b");
         assert!(summarize("fs.write", &json!({"path": "x", "content": "secret body"})) == "x");
+        // The web tools (DD5): the URL, or the quoted query.
+        assert_eq!(
+            summarize(
+                "http.fetch",
+                &json!({"url": "https://doc.rust-lang.org/std/", "max_bytes": 4096})
+            ),
+            "https://doc.rust-lang.org/std/"
+        );
+        assert_eq!(
+            summarize(
+                "web.search",
+                &json!({"query": "ignore WalkParallel", "count": 3})
+            ),
+            "\"ignore WalkParallel\""
+        );
     }
 }

@@ -244,9 +244,11 @@ impl Web {
                 .filter(|_| status.is_redirection());
             if let Some(loc) = location {
                 let loc = loc.to_str().unwrap_or_default().to_string();
+                // The Location is not echoed: an error result is Theseus's own
+                // words, never marked external, so the server's text stays out.
                 let next = url.join(&loc).map_err(|e| {
                     ToolFailure::new(format!(
-                        "Not fetched: {url} redirects to `{loc}`, which is not a URL: {e}."
+                        "Not fetched: {url} redirects to a Location that is not a URL ({e})."
                     ))
                 })?;
                 if !matches!(next.scheme(), "http" | "https") {
