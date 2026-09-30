@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.57
+# The Ship of Theseus — v0.58
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -210,7 +210,7 @@ JUDGE_CONTINUE: HEALTHY   → CALL_MODEL
 - Each **JUDGE** is one Jev request over bounded state: the original ask, task-graph delta, last N tool calls and results truncated, turn count, spend, wall clock. Pack `loop.v1`: `work_state` (Choice: complete · progressing · blocked_needs_human · thrashing · off_task · other), `stopping_point_defined`, `same_action_repeating`, `cost_out_of_proportion`, `wants_human_input` (Nouls).
 - **Execution outcomes** are distinct and deterministic where they can be: `complete` (accepted objective satisfied: Jev `complete` ≥ τ and the execution's task scope has no open accepted tasks), `waiting` (no runnable work now; a wake condition exists, e.g. a due time, an external job id, a task blocked on another execution), `blocked` (progress needs a human), `cancelled` (authority or intent withdrawn via a deterministic control path, never via Jev), `failed` (recovery exhausted), `budget_exhausted` (reservation consumed; correct operation). LOOP FOREVER means: continue while authorized, runnable work exists within reserved resources.
 - **Jev unavailable or malformed:** the loop treats the judgment as `abstain`; the execution finishes its current tool call, then parks as `waiting` on Jev recovery with a bounded retry, and tells the channel. It never continues autonomously without a judge and never invents an answer.
-- **Wake** covers scheduled and self-scheduled continuation: the agent may ask to be woken ("check the build in twenty minutes"), which is a `Task` with a due time in the harness loop's wake queue, not a separate cron system. Running work is also a wake source: every shell job and external operation registers a completion event, so "the build finished" reaches the model loop as a turn, not as something a human has to notice and relay.
+- **Wake** covers scheduled and self-scheduled continuation: the agent may ask to be woken ("check the build in twenty minutes"), which is a `Task` with a due time in the harness loop's wake queue, not a separate cron system. _(Built 2026-09-30, theseus-cff (DD8): the self-scheduled wake is `wake.at { at | after, note }`, one-shot, into the current session. It is not a `Task`: a pending wake is a field of the session's execution, and at its time the session gets a continuation turn whose input is the note (§3.15).)_ Running work is also a wake source: every shell job and external operation registers a completion event, so "the build finished" reaches the model loop as a turn, not as something a human has to notice and relay.
 
 ### 3.3a Loop, turn, and the Advancer
 
@@ -550,6 +550,12 @@ Rules: one execution per session, one turn at a time per execution; an execution
   both locks in id order.
 - So a cancel is never lost to a commit read before it, and no commit is lost to a cancel.
 
+**Pending wakes** (theseus-cff; built 2026-09-30). A conversation asks for a turn at a time with `wake.at { at | after, note }`. The wake goes on a list on the execution (`wakes`), beside its one `wake`, which keeps saying what the last turn parked on. One field cannot say both: a conversation waits on its next input and on its due times at once, and one that waits on its own job must still be woken ("check the build in ten minutes" while the build runs).
+- **Firing.** A wake fires once it is due and its execution is free: waiting on input, a due time, a job, or another execution, where new input would start a turn too. It never fires over an approval or a budget question, since only the operator answers those. The due scan runs on the driver's half-second tick, and in the heartbeat's reconciler as a backstop, and queues the execution for the driver (`resume_pending`). A busy execution keeps its wakes, and the frame that ends its turn queues it again.
+- **Once.** The next turn takes every due wake in one frame, which removes them and writes each as a user-role node from the harness (`⏰ wake (set 13:05): <note>`), before any new input. A crash before that frame leaves them pending, and a crash after it leaves them taken. A wake's id comes from the call that set it, so a call run again after a restart finds its wake.
+- **Late.** Startup writes nothing for a due wake: the driver's first tick queues it, after serving and after the vault confirms the config. A wake that runs more than 5 s late says when it was due and how late, and, when it fell due before this process started, that the daemon was not running. The ledger's `wake.fired` row always carries `late_ms` and `while_down`.
+- **Bounds.** At most 5 per session, 1 s to 30 days ahead, and notes up to 2,000 characters. A task cannot set one. A cancel of the execution, or its end, drops its wakes. A wake's turn is an ordinary turn, with the session's authority, budget, and model. Its reply goes where the session posts, or, if the place has moved on to a new session, to where the wake was set.
+
 _(theseus-id9; Part III A3c.)_
 
 ### 3.16 External actions and completions
@@ -651,7 +657,7 @@ The core is a **server**. Nothing else in the system, not the CLI, not Discord, 
 2. **Unix domain socket**, the daemon mode and the real deployment: `theseus serve` listens on a socket in the state directory; many clients attach and detach while the core runs forever. Localhost only, by the settled reachability rule; file permissions are the authentication.
 3. **In-process**, for adapters compiled into the binary (Discord, the web UI, tenders): the identical message types over a `tokio` channel. An in-binary adapter is still a client; it has no privileged path into the kernel.
 
-**Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session. `policy.tighten` and `policy.untighten`, with the `policy.tightened` and `policy.untightened` notifications, arrived with "should have asked" (theseus-sgh).)_
+**Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. _(Wakes, theseus-cff: `wake.list { session_id?, target? }` reads, `wake.cancel { wake, author? }` acts and waits at the config gate, and health's `wakes` lists every pending wake. A cancel's author is the request's `author`, else the surface's name, `the CLI` or `the web UI`, for executions, tasks, and wakes. The CLI has `theseus wakes` and `theseus cancel <id>`, for a wake or a task. Discord has `/wakes` and `/cancel id:<id>`, for a task or a wake; DD7 named the option `task`.)_ It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session. `policy.tighten` and `policy.untighten`, with the `policy.tightened` and `policy.untightened` notifications, arrived with "should have asked" (theseus-sgh).)_
 
 **Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. Both are static musl binaries.
 
@@ -3997,3 +4003,92 @@ FAST's start path.
 - A task's live progress shows only in the web UI's session, not in the place.
 - `/stop` does not stop a session's tasks, which `/cancel <task>` does.
 - §3.2a's arrangement, `autonomous: true`, sub-tasks, and §3.5's task graph are not built.
+
+### Item 8. `wake.at`: one-shot wakes into the current session (theseus-cff; 2026-09-30, 08:41–09:50; 84ab96d, 07c0bb8, ba49df2, 4c6b72c)
+
+**Why.** 6 of the DM's 8 schedule adds in the audit's 30 days were one-shot wakes into the current
+conversation: "check the build in 10 minutes".
+
+**What exists.**
+- **`wake.at { at | after, note }`** (`theseus-core/src/wake.rs`), a harness tool. `after` is a duration
+  (`90s`, `10m`, `2h`, `1h30m`, `1d`), and `at` an RFC 3339 time with its offset, 1 s to 30 days ahead.
+  It writes the wake onto the session's execution in one kernel frame (`Kernel::set_wake`), and returns at
+  once with the wake's id, its time, and the line its turn will read. It is refused in a task, and at 5
+  pending, with the five listed.
+- **Pending wakes** (`theseus-kernel/src/wakes.rs`): a list on the execution beside its one `wake`
+  (§3.15). A due wake fires when its execution is free; the driver's tick queues it within half a second,
+  and the reconciler is the backstop. A busy execution is queued again by the frame that ends its turn. A
+  due `Wake::DueAt` now sets `resume_pending`, so the driver takes it: before, nothing did.
+- **The wake's turn.** Its catch-up takes the due wakes in one frame, each a node (`wake:<short>`,
+  `⏰ wake (set 13:05): <note>`), with a `wake.fired` row (`late_ms`, `while_down`). The reply's outbox
+  post carries the wake's line, which the binding shows above the reply.
+- **Late, and never twice.** Startup writes nothing for a due wake: the driver's first tick queues it,
+  once the vault has confirmed the config. A wake more than 5 s late says so, when it was due, and why.
+- **Seeing and stopping.** `wake.list`, `wake.cancel`, and health's `wakes`; `theseus wakes` and
+  `theseus cancel <id>`; Discord's `/wakes`, and `/cancel id:` for a task or a wake; and the Observatory's
+  Wakes section, with a cancel. A cancel's author names the surface or the person (DD7's review).
+
+**How it is proven.**
+- The gate at 4c6b72c: 473 tests, 28 of them new: 9 in the kernel, under the virtual clock; 6 in the core
+  through the real driver, and 8 unit tests of the tool's parsing and text; 2 against the real daemon
+  with the fake Discord REST (a wake's reply posted once, and a `kill -9` with 9 s down, then a late wake,
+  once); 2 in Discord; and 1 in the CLI. The frame budget test holds 8.
+- The step's live check (09:26–09:45), on a copy of Eddie's store:
+  - "Remind me in one minute to check the build" set a 60 s wake, and the daemon was restarted 11 s later.
+    The wake's turn started 60.0 s after the wake was set, ran a real `cargo check`, and its reply posted
+    once under its wake line;
+  - a 30 s wake with the daemon down for 61 s ran after startup, `42 s late: the daemon was not running
+    then`, once. That start queued it before serving, which ba49df2 fixed. On ba49df2's build, the same
+    check wrote nothing before serving;
+  - `theseus cancel` cleared a pending wake, `by the CLI`, and a task's cancel read `cancelled by the CLI`.
+- The step found and fixed three things live: startup's write before serving, a doubled full stop in the
+  tool's result, and a due time printed without its seconds.
+
+**Reviewed** (Tabitha, 2026-09-30, 10:00 to 10:07).
+- The gate rerun passed: 473 tests, and every bench phase within budget (cold start p95 37.9 ms). The
+  step's own last gate had passed cold start at 56.7 ms against 57, on a busy machine.
+- On the release build of 4c6b72c, over a fresh copy of Eddie's store, with the binding on a fake REST
+  (port 9475):
+  - a GLM turn in the bound session, "Remind me in 20 seconds to stretch", set a wake due 10:05:08;
+  - **down across the due time.** I stopped the daemon at 10:05:00 and restarted it at 10:05:53. The
+    wake's turn ran at once, and its node read `⏰ wake (set 10:04, due 10:05:08, 46 s late: the daemon was
+    not running then): …`. Its `wake.fired` row had `late_ms` 45877 and `while_down` true, and its reply
+    reached the fake once, under the wake line;
+  - **startup wrote nothing for it before serving.** The restart's frames were the startup steps, then
+    `server.started+server.serving`, then `driver.started`, and only then the driver's
+    `execution+execution.queued`;
+  - **listing and cancelling.** A two-hour wake showed in `theseus wakes`. `theseus cancel beeee4`
+    cleared it, the list was empty, and the `wake.cancelled` row said `the CLI`;
+  - nothing reached Discord: the connections went to 127.0.0.1, api.z.ai, and api.github.com.
+- Eddie's unchanged note loads under the new binary.
+- Installed at 10:06.
+- **Taken at review:**
+  - `/cancel`'s option stays `id`, since it names a task or a wake, and a wake keeps waiting while an
+    approval or the budget question is open, since only the operator answers those.
+  - A task still cannot set a wake, and a session may hold 5.
+  - A clean shutdown just after a turn's end can stop the daemon between a reply's create and its settle.
+    The next start resends it, deduped by its nonce. Filed as theseus-pfv: the lanes settle what they
+    already sent, within the shutdown budget.
+
+**Divergence from the brief and the issue.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| "sets the kernel's existing `Wake::DueAt` on the current session" (issue, P5d) | A list of pending wakes on the execution, beside its one `wake`; the due scan that fired `Wake::DueAt` fires them too | One field cannot hold input and a due time, and a session parked on its own job must still be woken | Keep |
+| The reconciler runs due wakes every `heartbeat_secs` (the audit) | The driver's 500 ms tick fires a due wake; the reconciler is the backstop | A 60 s heartbeat would run "after 2 s" up to a minute late | Keep |
+| — | A due `Wake::DueAt` now sets `resume_pending` | Before, the reconciler queued it and nothing took the turn | Keep |
+| — | Startup's reconcile no longer fires due wakes (ba49df2) | It wrote two frames before serving, which FAST forbids | Keep |
+| "`/cancel` clears a session's pending wakes … or `/cancel wake <id>`" | `/cancel id:<id>` names a task or a wake, and `/wakes` lists them | One verb for "stop that one" | Keep |
+| — | A wake's reply goes to where it was set, after `/new` | The reminder should reach the place that asked for it | Keep |
+| — | A task cannot set a wake | A task ends when it has nothing to wait on | Keep; a later option |
+| "a small number of pending wakes" | 5 | The DM set 6 in 30 days | Keep |
+
+**Known gaps.**
+- Discord's `/wakes` and `/cancel` were not run live, since the gateway is not faked. The binding's tests
+  cover them.
+- `at` needs an RFC 3339 offset, and times print in the daemon's zone.
+- The kernel-sim's random operations do not include wakes yet.
+- A wake is not moved when its session is `/new`ed away. It runs in its own session, and its reply reaches
+  the place.
+- An older binary reads a store with pending wakes but ignores them, and would drop them the next time it
+  wrote the execution. F4's versioned readers close this.
