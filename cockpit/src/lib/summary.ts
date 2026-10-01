@@ -36,6 +36,16 @@ export function summarize(r: LedgerEntry): string {
     case 'hook.site': return `hook ${d.event} · ${d.handlers} handlers → ${d.outcome}`
     case 'secrets.resolved': return `secrets resolved: ${(d.names ?? []).length} in ${ms(d.ms)}`
     case 'server.started': case 'server.serving': return r.kind.replace('server.', 'server ')
+    // The web UI's door (theseus-70f, 3qf, zab): one row per kind a minute, with the count it stands for.
+    case 'web.refused': {
+      const by: Record<string, string> = { host: 'by address', origin: 'by page', peer: 'by user' }
+      const n = d.count ?? 1
+      return `web UI turned away ${n} connection${n === 1 ? '' : 's'} ${by[d.why] ?? d.why ?? ''}${d.last?.why ? `: ${String(d.last.why).slice(0, 90)}` : ''}`
+    }
+    case 'web.dev_origin': {
+      const n = d.count ?? 1
+      return `web UI served the dev page ${n}× (${d.last?.origin ?? '?'} via ${d.last?.host ?? '?'})`
+    }
     default: {
       const keys = Object.entries(d).filter(([, v]) => typeof v !== 'object').slice(0, 3)
       return keys.map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(' · ')

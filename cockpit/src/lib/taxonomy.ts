@@ -52,7 +52,7 @@ export function ledgerKind(kind: string): KindInfo {
     case 'turn': case 'execution': case 'driver': return { family: fam, tone: 'live' }
     case 'context': return { family: fam, tone: 'think' }
     case 'budget': return { family: fam, tone: 'money' }
-    case 'policy': case 'session': case 'approval': return { family: fam, tone: 'wait' }
+    case 'policy': case 'session': case 'approval': case 'web': return { family: fam, tone: 'wait' }
     case 'discord': return { family: fam, tone: 'ok' }
     default: return { family: fam, tone: 'idle' }
   }

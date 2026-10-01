@@ -182,6 +182,7 @@ function HeartbeatBar() {
           <Dot label="discord" tone={stateTone(discord?.state)} title={discord ? `Discord ${discord.state}${discord.latency_ms ? ` · ${discord.latency_ms} ms` : ''}${discord.detail ? ` · ${discord.detail}` : ''}` : 'Discord'} />
           <Dot label="config" tone={stateTone(h?.config?.state)} title={`config ${h?.config?.state ?? '—'} (${h?.config?.source ?? '—'})`} />
           <Dot label="secrets" tone={stateTone(h?.secrets?.state)} title={`secrets ${h?.secrets?.state ?? '—'}`} />
+          <Dot label="web" tone={webTone(h?.web)} title={webTitle(h?.web)} />
         </div>
         <Indicator label="cache" tone="think" value={usage ? `${(cacheHit * 100).toFixed(0)}%` : '—'} title={usage ? `${tokens(usage.cache_read_input_tokens)} input tokens read from cache` : undefined} />
         <Indicator label="spent" tone="money" value={h?.cost_usd_total !== undefined ? usd(h.cost_usd_total) : '—'} />
@@ -199,6 +200,25 @@ function Indicator({ label, value, tone, title }: { label: string; value: string
       <span className="num text-[12px] text-ink">{value}</span>
     </div>
   )
+}
+
+/** The web UI's door: a fault when any local user is served (no owner check), a wait while a dev page is let in,
+ *  after a refusal, or on a build with no owner check; otherwise ok. A build with the check (theseus-3qf) always
+ *  reports `refused_peer`. */
+function webTone(web: Health['web']): keyof typeof toneHex {
+  if (!web) return 'idle'
+  if (web.peer_unchecked) return 'fault'
+  if (web.refused_peer === undefined || web.dev_origin || web.refused_host + web.refused_origin + web.refused_peer > 0) return 'wait'
+  return 'ok'
+}
+
+function webTitle(web: Health['web']): string {
+  if (!web) return 'web UI: not reported'
+  const parts = [`web UI refused ${web.refused_host} by address, ${web.refused_origin} by page, ${web.refused_peer ?? 0} by user`]
+  if (web.refused_peer === undefined) parts.push('no owner check in this build: any local user is served')
+  if (web.peer_unchecked) parts.push(`owner check off: ${web.peer_unchecked}`)
+  if (web.dev_origin) parts.push(`dev origin open: ${web.dev_origin} (${web.dev_origin_served ?? 0} served)`)
+  return parts.join(' · ')
 }
 
 /** A system state as a labeled dot; the details are in its tooltip. */

@@ -25,9 +25,10 @@ export function Panel({
   )
 }
 
-export function Pill({ tone = 'idle', children, className }: { tone?: Tone; children: ReactNode; className?: string }) {
+export function Pill({ tone = 'idle', children, className, title }: { tone?: Tone; children: ReactNode; className?: string; title?: string }) {
   return (
     <span
+      title={title}
       className={cn(
         'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset whitespace-nowrap',
         toneClass[tone], className,

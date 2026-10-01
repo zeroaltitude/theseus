@@ -97,6 +97,25 @@ export interface Health {
   config?: ConfigStatus
   /// The last start's phases, timed from process start (theseus-qa0).
   startup?: StartupPhase[]
+  /// The web UI's port: what it refused since the daemon started, and the dev page it also serves (theseus-70f,
+  /// theseus-3qf, theseus-zab).
+  web?: WebStatus
+}
+
+/// The web UI's refusals by kind, each also ledgered as `web.refused` at most once a minute per kind.
+export interface WebStatus {
+  /// A request whose `Host` is not the UI's own address (a rebinding page).
+  refused_host: number
+  /// A `/ws` upgrade from another page in the browser.
+  refused_origin: number
+  /// A connection whose client socket another user owns (theseus-3qf).
+  refused_peer?: number
+  /// Why the port can't check its clients' owner, where it can't (not Linux): then any local user is served.
+  peer_unchecked?: string
+  /// `[web] dev_origin`, while set: the Vite dev page, whose `/ws` upgrades are also served (theseus-zab).
+  dev_origin?: string
+  /// Those upgrades, each ledgered as `web.dev_origin` at most once a minute.
+  dev_origin_served?: number
 }
 
 /// The config (theseus-2fo): a file, or the vault's note. A start from its last-known-good

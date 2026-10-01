@@ -1,6 +1,7 @@
 // Systems: the machine under the harness. Config and secrets (names, never values), the last start, the kernel,
 // the daemon's children, the broker's grants, Discord, approval channels, context files, profiles, and the catalog.
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import {
   Baby, Bot, Cpu, FileText, KeyRound, Network, Radio, Rocket, Server, Settings2, ShieldCheck, Tags,
 } from 'lucide-react'
@@ -183,10 +184,44 @@ export default function Systems() {
 
       <RpcConsole />
 
-      <Card title="Network" icon={<Network size={13} />}>
-        <div className="text-[12px] text-ink-dim">This page talks to the daemon over one WebSocket (<span className="num">/ws</span>), JSON-RPC 2.0, the same protocol as the CLI and the classic Observatory.</div>
-      </Card>
+      <WebAccess web={h.web} />
     </div>
+  )
+}
+
+/** The web UI's own door: who it turned away since the daemon started, and whether a dev page is let in. */
+function WebAccess({ web }: { web: Health['web'] }) {
+  const refused = (web?.refused_host ?? 0) + (web?.refused_origin ?? 0) + (web?.refused_peer ?? 0)
+  const count = (n: number | undefined) => <span className={n ? 'text-wait' : 'text-ink-dim'}>{n ?? 0}</span>
+  return (
+    <Card title="Web UI · access" icon={<Network size={13} />}>
+      {web ? <>
+        <Field label="another address (Host)" mono>{count(web.refused_host)}</Field>
+        <Field label="another page (Origin)" mono>{count(web.refused_origin)}</Field>
+        <Field label="another user (socket owner)" mono>{count(web.refused_peer)}</Field>
+        <Field label="owner check">
+          {web.refused_peer === undefined
+            ? <Pill tone="wait" title="this daemon predates the owner check (theseus-3qf)">not in this build · any local user is served</Pill>
+            : web.peer_unchecked
+              ? <Pill tone="fault" title={web.peer_unchecked}>off · any local user is served</Pill>
+              : <Pill tone="ok">on · this user only</Pill>}
+        </Field>
+        <Field label="dev origin">
+          {web.dev_origin
+            ? <><Pill tone="wait">open</Pill> <span className="num text-[11px] text-ink-dim">{web.dev_origin} · {web.dev_origin_served ?? 0} served</span></>
+            : <Pill tone="ok">closed</Pill>}
+        </Field>
+        <div className="mt-1.5 flex gap-3 text-[11px]">
+          <Link to="/ledger?kind=web.refused" className="text-live hover:underline">refusals in the ledger →</Link>
+          {web.dev_origin && <Link to="/ledger?kind=web.dev_origin" className="text-live hover:underline">dev page's uses →</Link>}
+        </div>
+        <div className="mt-1.5 text-[11px] text-ink-faint">
+          {refused ? `${refused} turned away since the daemon started; each kind is ledgered at most once a minute.` : 'Nothing turned away since the daemon started.'}{' '}
+          {web.dev_origin && 'Unset [web] dev_origin when you are done developing: the dev server checks no one.'}
+        </div>
+      </> : <Empty>this daemon doesn't report its web UI's refusals</Empty>}
+      <div className="mt-2 border-t border-line/50 pt-1.5 text-[11px] text-ink-faint">This page talks to the daemon over one WebSocket (<span className="num">/ws</span>), JSON-RPC 2.0, the same protocol as the CLI and the classic Observatory.</div>
+    </Card>
   )
 }
 
