@@ -2694,13 +2694,14 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
 }
 
 /// The real header, the persona, the tools note, and the tools, is about
-/// 13 KB, which Haiku 4.5 counts at about 4,150 tokens, past its caching
-/// minimum of 4,096 (the cache2 lane's live check). A token takes 2 bytes at
-/// the fewest, so the header gets its breakpoint on every built-in model,
-/// Haiku included (theseus-ev1). A minimum the prefix can never reach, here a
-/// config's 16,384 tokens (32,768 bytes), drops the header's breakpoint: the
-/// compilation's manifest and the narrative say so, and the conversation's
-/// breakpoint stays.
+/// 13 KB, which Sonnet 5.5 counts at about 5,000 tokens and Haiku 4.5 at
+/// just under its caching minimum of 4,096 (the cache2 lane's live check). A
+/// token takes 2 bytes at the fewest, so the header's breakpoint is placed
+/// on every built-in model (theseus-ev1); on Haiku the provider skips it
+/// until the header grows past the minimum. A minimum the prefix can never
+/// reach, here a config's 16,384 tokens (32,768 bytes), drops the header's
+/// breakpoint: the compilation's manifest and the narrative say so, and the
+/// conversation's breakpoint stays.
 #[tokio::test]
 async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
     async fn on_haiku(r: &Rig) -> TurnSubmitResult {

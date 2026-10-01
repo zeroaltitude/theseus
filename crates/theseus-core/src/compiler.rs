@@ -98,21 +98,25 @@ pub struct BlockBreakpoint {
     /// this block, in bytes of their JSON.
     pub prefix_bytes: u64,
     /// The block carries `cache_control`. Not when the provider does not
-    /// cache, nor when the prefix is too short to reach `min_tokens`: then
-    /// the provider would never cache it, and the breakpoint would take a
-    /// slot for nothing.
+    /// cache, nor when the prefix is too short to reach `min_tokens`
+    /// (`MIN_BYTES_PER_TOKEN`): then the provider would never cache it, and
+    /// the breakpoint would take a slot for nothing. A marked breakpoint
+    /// whose prefix still falls short is skipped by the provider without an
+    /// error, and the usage shows no write for it.
     pub marked: bool,
 }
 
 /// Bytes a token takes at the fewest, for the minimum's check. A prefix
-/// under `min_tokens` × this can never reach the minimum. Claude's
-/// tokenizers read this JSON at about 2.6 bytes a token (Sonnet 5.5) to 3.1
-/// (Haiku 4.5), and prose at about 4, so the check drops a breakpoint only
-/// when its prefix is surely short. The compiler's chars/4 estimate would
-/// not do: on Eddie's config it put the header at 3,350 tokens, which
-/// Sonnet 5.5 counted 5,045 and Haiku 4.5 about 4,150, over Haiku's 4,096
-/// (the cache2 lane's live check, 2026-10-01). A breakpoint dropped that
-/// would have cached costs a rewrite; one placed that cannot costs nothing.
+/// under `min_tokens` × this can never reach the minimum, so its breakpoint
+/// is dropped; any other is placed. Claude's tokenizers read this JSON at
+/// about 2.6 bytes a token (Sonnet 5.5) to 3.1 (Haiku 4.5), and prose at
+/// about 4. The compiler's chars/4 estimate would not do: on Eddie's config
+/// it put the header, tools included, at about 3,350 tokens, which Sonnet
+/// 5.5 counted at 5,045 and Haiku 4.5 at just under its 4,096 minimum (the
+/// cache2 lane's live check, 2026-10-01). Under chars/4 a header that grew
+/// past Haiku's minimum would still lose its breakpoint. A breakpoint
+/// dropped that would have cached costs a rewrite; one placed that cannot
+/// costs nothing.
 pub const MIN_BYTES_PER_TOKEN: u64 = 2;
 
 impl CacheLayout {
