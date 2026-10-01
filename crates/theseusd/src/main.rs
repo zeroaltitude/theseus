@@ -158,8 +158,11 @@ fn main() -> Result<()> {
         return out(theseus_discord::EXAMPLE_BINDINGS);
     }
     if let Some(Cmd::JobWrapper { args }) = cli.cmd {
-        // No config, no secrets, no threads: the wrapper runs a command,
+        // No config, no `op`, no runtime: the wrapper runs a command,
         // spools its result, and waits for what the command left running.
+        // A broker's grant is in its environment, the job's, and a thread
+        // copies the output to the spool with each granted value withheld
+        // (theseus-l0d).
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
         return theseus_kernel::job::run_wrapper_process(&wa);
     }

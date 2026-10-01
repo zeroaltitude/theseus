@@ -458,7 +458,8 @@ fn a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does() {
 /// output on stdout and stderr, then waits to be let go. While it waits, its
 /// spool file holds everything it printed, byte for byte, with the value
 /// withheld; once it ends, no file under the state dir, no surface, and not
-/// the log holds the value, and the ledger counts the withheld value.
+/// the log holds the value, and the result's report counts the withheld
+/// value.
 #[test]
 fn a_program_that_prints_its_granted_secret_leaves_it_nowhere() {
     let r = Rig::start();
