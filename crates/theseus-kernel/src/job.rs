@@ -327,8 +327,9 @@ fn run(
     // The copy ends once the command and every descendant sharing its output
     // have closed it (theseus-l0d). One that keeps it open does not hold the
     // report: the copy goes on after it, and the report says what was
-    // dropped so far.
-    let dropped = match copier.wait(crate::redact::DRAIN) {
+    // dropped so far, and what of the output's end the ring still holds
+    // (`held`, theseus-gsn9), which the file takes only at the pipe's end.
+    let (dropped, held) = match copier.wait(crate::redact::DRAIN) {
         Some(Ok(c)) => {
             if c.withheld > 0 {
                 detail["withheld"] = serde_json::json!(c.withheld);
@@ -336,21 +337,29 @@ fn run(
             if let Some(e) = c.write_error {
                 detail["output_error"] = serde_json::Value::String(e);
             }
-            c.dropped
+            // The output's two ends, when bytes between them were dropped.
+            if c.tail > 0 {
+                detail["head"] = serde_json::json!(c.head);
+                detail["tail"] = serde_json::json!(c.tail);
+            }
+            (c.dropped, 0)
         }
         Some(Err(e)) => {
             detail["output_error"] = serde_json::Value::String(e);
-            copier.dropped_so_far()
+            (copier.dropped_so_far(), copier.held_so_far())
         }
         None => {
             detail["output_open"] = serde_json::Value::Bool(true);
-            copier.dropped_so_far()
+            (copier.dropped_so_far(), copier.held_so_far())
         }
     };
     if dropped > 0 {
         detail["truncated"] = serde_json::Value::Bool(true);
         detail["dropped"] = serde_json::json!(dropped);
         detail["output_max_bytes"] = serde_json::json!(args.output_max_bytes);
+    }
+    if held > 0 {
+        detail["held"] = serde_json::json!(held);
     }
     detail["duration_ms"] = serde_json::json!(t0.elapsed().as_millis() as u64);
     detail["bytes"] = serde_json::json!(std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0));
@@ -952,11 +961,12 @@ mod tests {
     }
 
     /// Review 2's R3 (theseus-102), with a grant: the file keeps the cap, its
-    /// value withheld before it; past the cap nothing is kept, the value
-    /// there included, and the bytes are counted as the job printed them.
-    /// The command runs to its end. `--output-max-bytes` round-trips.
+    /// value withheld. Since theseus-gsn9 the cap keeps both ends: the head,
+    /// a marker that counts the bytes dropped between, and the last bytes,
+    /// the value there withheld too, since it is kept. The command runs to
+    /// its end. `--output-max-bytes` round-trips.
     #[test]
-    fn a_granted_job_that_prints_past_the_cap_keeps_the_cap_without_its_value() {
+    fn a_granted_job_that_prints_past_the_cap_keeps_both_ends_without_its_value() {
         let d = tempfile::tempdir().unwrap();
         let spool = Spool::open(d.path()).unwrap();
         let value = "tv-invented_grant-5c1e9b7a";
@@ -986,21 +996,35 @@ mod tests {
         run_wrapper(&args).unwrap();
         assert!(after.exists(), "the job ran to its end");
         let out = std::fs::read(spool.result_path("act_capped")).unwrap();
-        assert_eq!(out.len(), 4096);
+        // Printed: the value's line (27 bytes), a million zeros, the value's
+        // line again; withheld, 26 + 1,000,000 + 26. The cap of 4,096 keeps
+        // a head of 1,920 and an end of 2,048, with the marker between.
+        let (head, tail) = crate::redact::split(4096);
+        assert_eq!((head, tail), (1_920, 2_048));
+        let dropped = 1_000_052 - head - tail;
+        let marker = crate::redact::marker(dropped, tail);
+        assert!(out.len() <= 4096, "{}", out.len());
+        assert_eq!(out.len() as u64, head + marker.len() as u64 + tail);
         let mark = b"[redacted:invented_grant]\n";
         assert_eq!(&out[..mark.len()], mark);
-        assert!(out[mark.len()..].iter().all(|&b| b == 0));
+        assert!(out[mark.len()..head as usize].iter().all(|&b| b == 0));
+        let (between, end) = out[head as usize..].split_at(marker.len());
+        assert_eq!(between, marker.as_bytes());
+        assert_eq!(&end[end.len() - mark.len()..], mark, "the end, withheld");
+        assert!(end[..end.len() - mark.len()].iter().all(|&b| b == 0));
         let c = spool.read_completion("act_capped").unwrap().unwrap();
         assert_eq!(c.outcome, Outcome::Succeeded);
         let detail = c.detail.unwrap();
-        // Printed: the value's line (27 bytes), a million zeros, the value's
-        // line again. Kept: the mark's line (26) and 4,070 zeros.
-        let kept_zeros = 4096 - mark.len() as u64;
-        assert_eq!(detail["dropped"], 1_000_000 - kept_zeros + 27, "{detail}");
+        assert_eq!(detail["dropped"], dropped, "{detail}");
         assert_eq!(detail["truncated"], true, "{detail}");
         assert_eq!(detail["output_max_bytes"], 4096, "{detail}");
-        assert_eq!(detail["withheld"], 1, "{detail}");
-        assert_eq!(detail["bytes"], 4096, "{detail}");
+        assert_eq!(
+            (&detail["head"], &detail["tail"]),
+            (&serde_json::json!(head), &serde_json::json!(tail)),
+            "{detail}"
+        );
+        assert_eq!(detail["withheld"], 2, "{detail}");
+        assert_eq!(detail["bytes"], out.len(), "{detail}");
         let parsed = parse_wrapper_args(
             [
                 "--spool",

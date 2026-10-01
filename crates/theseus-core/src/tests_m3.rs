@@ -829,11 +829,14 @@ async fn a_jobs_raw_output_is_deleted_once_its_result_is_written() {
 
 /// Review 2's R3 (theseus-102): a job that prints past its output cap runs
 /// to its end, and its result says what it printed, what was dropped, and
-/// how to get the rest (proc.run's own words, theseus-46v), then which bytes
-/// of what was kept follow. The completion's detail carries the counts.
+/// how to get the rest (proc.run's own words, theseus-46v). Since
+/// theseus-gsn9 the cap keeps both ends: the result names the head and the
+/// end it kept and the bytes dropped between them, and ends with the job's
+/// real last line, its verdict. The completion's detail carries the counts.
 #[tokio::test]
-async fn a_job_past_its_output_cap_says_what_was_dropped_and_how_to_get_the_rest() {
-    // 20,000 lines of 21 bytes: 420,000 bytes against a cap of 65,536.
+async fn a_job_past_its_output_cap_keeps_its_end_and_names_the_dropped_middle() {
+    // 20,000 lines of 21 bytes, then a verdict of 22: 420,022 bytes against
+    // a cap of 65,536, which keeps a head of 32,640 and an end of 32,768.
     let r = rig_with(
         vec![
             Scripted::tools(
@@ -841,7 +844,7 @@ async fn a_job_past_its_output_cap_says_what_was_dropped_and_how_to_get_the_rest
                 &[(
                     "t1",
                     "proc_run",
-                    json!({"argv": ["bash", "-c", "yes 'a line of the roster' | head -n 20000; : > ran"]}),
+                    json!({"argv": ["bash", "-c", "yes 'a line of the roster' | head -n 20000; echo 'the verdict: 3 passed'; : > ran"]}),
                 )],
             ),
             Scripted::text("Done."),
@@ -858,12 +861,18 @@ async fn a_job_past_its_output_cap_says_what_was_dropped_and_how_to_get_the_rest
     assert_eq!(status, ResultStatus::Ok);
     assert!(
         text.starts_with(
-            "[exit code 0]\n[truncated: it printed 420,000 bytes, and the 354,464 bytes past its \
-             output cap of 65,536 bytes were dropped; its output is not kept: run it again \
+            "[exit code 0]\n[truncated: it printed 420,022 bytes, more than its output cap of \
+             65,536 bytes: its first 32,640 bytes and its last 32,768 bytes are kept, and the \
+             354,614 bytes between them were dropped; its output is not kept: run it again \
              printing less, or with its output sent to a file that fs_read then reads in ranges]\n\
              a line of the roster\n"
         ),
         "{text}"
+    );
+    assert!(
+        text.ends_with("a line of the roster\nthe verdict: 3 passed\n"),
+        "the job's real end: {}",
+        &text[text.len().saturating_sub(200)..]
     );
     let node = r
         .core
@@ -876,8 +885,18 @@ async fn a_job_past_its_output_cap_says_what_was_dropped_and_how_to_get_the_rest
             _ => None,
         })
         .unwrap();
-    assert_eq!(node["detail"]["dropped"], 354_464, "{node}");
-    assert_eq!(node["detail"]["bytes"], 65_536, "{node}");
+    let marker = theseus_kernel::redact::marker(354_614, 32_768);
+    assert_eq!(node["detail"]["dropped"], 354_614, "{node}");
+    assert_eq!(
+        (&node["detail"]["head"], &node["detail"]["tail"]),
+        (&json!(32_640), &json!(32_768)),
+        "{node}"
+    );
+    assert_eq!(
+        node["detail"]["bytes"],
+        32_640 + marker.len() + 32_768,
+        "{node}"
+    );
 }
 
 /// Review 2's R3 (theseus-102): below `[server] disk_floor_mb` a job is not

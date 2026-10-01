@@ -17,8 +17,17 @@
 //!
 //! Every job's output takes this copy since theseus-102, a grant or none: the
 //! copy also caps the file. Past the cap it keeps reading, so the command
-//! never blocks or dies for printing, and counts what it drops. Its memory is
-//! one read's buffer, whatever the job prints.
+//! never blocks or dies for printing, and counts what it drops.
+//!
+//! The cap keeps both ends (theseus-gsn9): builds, tests, and installers print
+//! their verdict last. The file takes the output's head as it is read, up to
+//! the cap less [`TAIL_BYTES`] (less with a small cap) and a marker's room.
+//! Past the head the copy keeps the latest `TAIL_BYTES` in a ring in the
+//! wrapper's memory, and at the pipe's end writes them after a marker that
+//! says how many bytes between the two ends were dropped. So the runtime's
+//! read of a job's last 4 MiB is the job's real end. The copy's memory is one
+//! read's buffer and that ring, whatever the job prints. A wrapper killed
+//! before the pipe's end loses the ring, and its file holds the head.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -190,42 +199,167 @@ fn begins(hay: &[u8], value: &[u8]) -> usize {
 /// output open would hold the report otherwise. The copy goes on after it.
 pub const DRAIN: Duration = Duration::from_millis(200);
 
+/// The most of an output's end the copy keeps past its head (theseus-gsn9):
+/// the runtime's read of a job's output is its last 4 MiB.
+pub const TAIL_BYTES: u64 = 4 * 1024 * 1024;
+
+/// The room the marker between the two ends takes from the head, so the file
+/// never passes the cap: [`marker`] with two 20-digit numbers fits it.
+pub const MARKER_ROOM: u64 = 128;
+
+/// How the copy splits a cap of `max_bytes` (theseus-gsn9): the head the file
+/// takes as the output is read, and the end the ring keeps past it, half the
+/// cap at most. A cap too small to keep both keeps the head alone.
+pub fn split(max_bytes: u64) -> (u64, u64) {
+    let tail = (max_bytes / 2).min(TAIL_BYTES);
+    if tail < MARKER_ROOM * 2 {
+        return (max_bytes, 0);
+    }
+    (max_bytes - tail - MARKER_ROOM, tail)
+}
+
+/// The line between the head and the end, when bytes between them were
+/// dropped: at most [`MARKER_ROOM`] bytes.
+pub fn marker(dropped: u64, tail: u64) -> String {
+    format!(
+        "\n[theseus: {dropped} bytes dropped here, past the output cap; the last {tail} bytes \
+         follow]\n"
+    )
+}
+
 /// What a finished copy did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Copied {
     /// Granted values withheld (theseus-l0d).
     pub withheld: u64,
-    /// Bytes the job printed past the cap, read and dropped (theseus-102).
+    /// Bytes the job printed past the cap, read and dropped (theseus-102):
+    /// since theseus-gsn9, those between the head and the end the ring kept.
     pub dropped: u64,
+    /// The head's bytes, and the end's that follow the marker (theseus-gsn9),
+    /// when bytes between them were dropped; 0 and 0 otherwise.
+    pub head: u64,
+    pub tail: u64,
     /// Why the file stopped taking the output before the cap: a write that
     /// failed, as on a full disk. The copy read on and counted the rest as
     /// dropped, so the command still never blocked.
     pub write_error: Option<String>,
 }
 
-/// The spool file, holding at most `room` more bytes. What does not fit is
-/// counted, never kept.
+/// The end of the output past the head: its last `cap` bytes, oldest first,
+/// in a buffer the wrapper allocates when the head fills (theseus-gsn9).
+struct Ring {
+    buf: Vec<u8>,
+    cap: usize,
+    start: usize,
+    len: usize,
+}
+
+impl Ring {
+    fn new(cap: u64) -> Self {
+        Ring {
+            buf: Vec::new(),
+            cap: cap as usize,
+            start: 0,
+            len: 0,
+        }
+    }
+
+    /// Keep `bytes` after what the ring holds; returns how many of the
+    /// oldest bytes, its own or theirs, no longer fit.
+    fn push(&mut self, bytes: &[u8]) -> u64 {
+        if self.cap == 0 {
+            return bytes.len() as u64;
+        }
+        if self.buf.is_empty() {
+            self.buf = vec![0u8; self.cap];
+        }
+        let mut gone = 0u64;
+        let bytes = match bytes.len().checked_sub(self.cap) {
+            Some(over) if over > 0 => {
+                gone += over as u64;
+                &bytes[over..]
+            }
+            _ => bytes,
+        };
+        let over = (self.len + bytes.len()).saturating_sub(self.cap);
+        if over > 0 {
+            self.start = (self.start + over) % self.cap;
+            self.len -= over;
+            gone += over as u64;
+        }
+        let at = (self.start + self.len) % self.cap;
+        let first = (self.cap - at).min(bytes.len());
+        self.buf[at..at + first].copy_from_slice(&bytes[..first]);
+        self.buf[..bytes.len() - first].copy_from_slice(&bytes[first..]);
+        self.len += bytes.len();
+        gone
+    }
+
+    /// What it holds, oldest first, in at most two pieces.
+    fn pieces(&self) -> (&[u8], &[u8]) {
+        let end = self.start + self.len;
+        if end <= self.cap {
+            (&self.buf[self.start..end], &[])
+        } else {
+            (&self.buf[self.start..], &self.buf[..end - self.cap])
+        }
+    }
+
+    /// Hold nothing and take nothing more; returns what it held.
+    fn close(&mut self) -> u64 {
+        let held = self.len as u64;
+        self.buf.fill(0);
+        self.buf = Vec::new();
+        (self.cap, self.start, self.len) = (0, 0, 0);
+        held
+    }
+}
+
+/// The spool file, holding at most `room` more bytes of the output's head,
+/// then the ring of its end (theseus-gsn9). What does not fit is counted,
+/// never kept.
 struct Capped {
     file: File,
     room: u64,
+    ring: Ring,
+    /// The head's bytes written.
+    head: u64,
     dropped: Arc<AtomicU64>,
+    /// What the ring holds now, which the report names while the copy goes on.
+    held: Arc<AtomicU64>,
     error: Option<String>,
 }
 
 impl Capped {
-    /// Keep what fits and count the rest. A failed write keeps nothing more.
+    /// Keep what fits, the head and then the end, and count the rest. A
+    /// failed write keeps nothing more.
     fn put(&mut self, bytes: &[u8]) {
         let fits = (bytes.len() as u64).min(self.room) as usize;
         if fits > 0 {
             if let Err(e) = self.file.write_all(&bytes[..fits]) {
-                self.error = Some(e.to_string());
-                self.room = 0;
+                self.fail(e);
                 self.drop_bytes(fits as u64);
             } else {
                 self.room -= fits as u64;
+                self.head += fits as u64;
             }
         }
-        self.drop_bytes((bytes.len() - fits) as u64);
+        let rest = &bytes[fits..];
+        if !rest.is_empty() {
+            let gone = self.ring.push(rest);
+            self.drop_bytes(gone);
+            self.held.store(self.ring.len as u64, Ordering::Relaxed);
+        }
+    }
+
+    /// A write failed: the file takes nothing more, and the ring's bytes are
+    /// dropped with the rest.
+    fn fail(&mut self, e: std::io::Error) {
+        self.error = Some(e.to_string());
+        self.room = 0;
+        let held = self.ring.close();
+        self.drop_bytes(held);
+        self.held.store(0, Ordering::Relaxed);
     }
 
     fn drop_bytes(&self, n: u64) {
@@ -234,8 +368,39 @@ impl Capped {
         }
     }
 
+    /// Nothing more can be kept: past the head with no ring (a cap too small
+    /// for one, or a failed write).
     fn full(&self) -> bool {
-        self.room == 0
+        self.room == 0 && self.ring.cap == 0
+    }
+
+    /// The pipe's end: the ring's bytes follow the head, after the marker
+    /// when bytes between them were dropped. Returns the head's bytes and the
+    /// end's when there was a marker, (0, 0) when there was none.
+    fn finish(&mut self) -> (u64, u64) {
+        if self.ring.len == 0 {
+            return (0, 0);
+        }
+        let dropped = self.dropped.load(Ordering::Relaxed);
+        let tail = self.ring.len as u64;
+        let written = {
+            let (a, b) = self.ring.pieces();
+            let line = (dropped > 0).then(|| marker(dropped, tail));
+            line.map_or(Ok(()), |l| self.file.write_all(l.as_bytes()))
+                .and_then(|()| self.file.write_all(a))
+                .and_then(|()| self.file.write_all(b))
+        };
+        self.ring.close();
+        self.held.store(0, Ordering::Relaxed);
+        match written {
+            Ok(()) if dropped > 0 => (self.head, tail),
+            Ok(()) => (0, 0),
+            Err(e) => {
+                self.error = Some(e.to_string());
+                self.drop_bytes(tail);
+                (0, 0)
+            }
+        }
     }
 }
 
@@ -245,14 +410,19 @@ pub struct Copier {
     ended: Option<Result<Copied, String>>,
     /// What has been dropped so far, while the copy goes on.
     dropped: Arc<AtomicU64>,
+    /// What the ring holds so far, not yet in the file (theseus-gsn9).
+    held: Arc<AtomicU64>,
 }
 
 impl Copier {
     /// Copy `from` into `to` on a thread of its own, withholding `redactor`'s
     /// values, until every writer has closed the pipe. The file takes at most
-    /// `max_bytes`; the copy reads on past them and counts them dropped
-    /// (theseus-102). Past the cap the bytes are counted as the job printed
-    /// them, unredacted, since none of them is kept.
+    /// `max_bytes`: the head as it is read, and at the pipe's end the last
+    /// bytes, which wait in a ring meanwhile, after a marker ([`split`],
+    /// theseus-gsn9). The copy reads on past them and counts the bytes
+    /// between dropped (theseus-102). Every byte that may be kept goes
+    /// through the redactor; once nothing more can be kept (a write failed),
+    /// the bytes are counted as the job printed them, unredacted.
     pub fn spawn(
         mut from: std::io::PipeReader,
         to: File,
@@ -261,10 +431,15 @@ impl Copier {
     ) -> std::io::Result<Self> {
         let (tx, done) = mpsc::channel();
         let dropped = Arc::new(AtomicU64::new(0));
+        let held = Arc::new(AtomicU64::new(0));
+        let (head, tail) = split(max_bytes);
         let mut sink = Capped {
             file: to,
-            room: max_bytes,
+            room: head,
+            ring: Ring::new(tail),
+            head: 0,
             dropped: dropped.clone(),
+            held: held.clone(),
             error: None,
         };
         std::thread::Builder::new()
@@ -278,7 +453,11 @@ impl Copier {
                             Ok(0) => break,
                             Ok(n) => n,
                             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                            Err(e) => return Err(e),
+                            Err(e) => {
+                                // What the ring kept still follows the head.
+                                sink.finish();
+                                return Err(e);
+                            }
                         };
                         if sink.full() {
                             sink.drop_bytes(n as u64);
@@ -295,9 +474,12 @@ impl Copier {
                     sink.put(&out);
                     buf.fill(0);
                     out.fill(0);
+                    let (head, tail) = sink.finish();
                     Ok(Copied {
                         withheld: redactor.withheld(),
                         dropped: sink.dropped.load(Ordering::Relaxed),
+                        head,
+                        tail,
                         write_error: sink.error.take(),
                     })
                 };
@@ -307,6 +489,7 @@ impl Copier {
             done,
             ended: None,
             dropped,
+            held,
         })
     }
 
@@ -323,6 +506,12 @@ impl Copier {
     /// open, the copy has not ended, and this is what the report can say.
     pub fn dropped_so_far(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// The end's bytes the ring holds so far, not yet in the file
+    /// (theseus-gsn9): the copy writes them at the pipe's end.
+    pub fn held_so_far(&self) -> u64 {
+        self.held.load(Ordering::Relaxed)
     }
 }
 
@@ -450,23 +639,108 @@ mod tests {
         c.wait(Duration::from_secs(10)).unwrap().unwrap()
     }
 
-    /// The cap (theseus-102): the file keeps exactly its first `max` bytes,
-    /// and the rest is read and counted, so the writer finishes.
+    /// `input`, as the copy keeps it under a cap of `max`: the whole, or
+    /// the head, the marker, and the exact last bytes.
+    fn kept(input: &[u8], max: u64) -> Vec<u8> {
+        let (head, tail) = split(max);
+        if input.len() as u64 <= head + tail {
+            return input.to_vec();
+        }
+        let dropped = input.len() as u64 - head - tail;
+        [
+            &input[..head as usize],
+            marker(dropped, tail).as_bytes(),
+            &input[input.len() - tail as usize..],
+        ]
+        .concat()
+    }
+
+    /// The cap (theseus-102) keeps both ends (theseus-gsn9): the file holds
+    /// the head, a marker that counts the bytes dropped between, and the
+    /// output's exact last bytes, never more than the cap; the rest is read
+    /// and counted, so the writer finishes.
     #[test]
-    fn the_copy_keeps_the_cap_and_counts_the_rest() {
+    fn the_copy_keeps_the_head_and_the_exact_last_bytes_and_counts_the_middle() {
         let d = tempfile::tempdir().unwrap();
         let path = d.path().join("out");
         let input: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
         let copied = copy_through(File::create(&path).unwrap(), 100_000, input.clone());
-        assert_eq!(std::fs::read(&path).unwrap(), &input[..100_000]);
+        let file = std::fs::read(&path).unwrap();
+        assert_eq!(split(100_000), (49_872, 50_000));
+        assert_eq!(file, kept(&input, 100_000));
+        assert!(file.len() <= 100_000, "{}", file.len());
+        assert_eq!(&file[file.len() - 50_000..], &input[250_000..]);
         assert_eq!(
             copied,
             Copied {
                 withheld: 0,
-                dropped: 200_000,
+                dropped: 200_128,
+                head: 49_872,
+                tail: 50_000,
                 write_error: None
             }
         );
+    }
+
+    /// Every output size around the cap, written in reads of odd sizes: what
+    /// fits is kept whole with no marker; past it, the head and the exact
+    /// end, the marker between, and the file never past the cap. A cap too
+    /// small for a ring keeps the head alone, as before.
+    #[test]
+    fn every_size_around_the_cap_keeps_what_fits_or_both_ends() {
+        let d = tempfile::tempdir().unwrap();
+        let max = 10_000u64;
+        let (head, tail) = split(max);
+        for len in [
+            0,
+            1,
+            head - 1,
+            head,
+            head + 1,
+            head + tail,
+            head + tail + 1,
+            max,
+            3 * max,
+        ] {
+            let input: Vec<u8> = (0..len as u32).map(|i| (i * 7 % 253) as u8).collect();
+            let path = d.path().join(format!("out-{len}"));
+            let copied = copy_through(File::create(&path).unwrap(), max, input.clone());
+            let file = std::fs::read(&path).unwrap();
+            assert_eq!(file, kept(&input, max), "{len} bytes");
+            assert!(file.len() as u64 <= max, "{len} bytes: {}", file.len());
+            let dropped = len.saturating_sub(head + tail);
+            assert_eq!(copied.dropped, dropped, "{len} bytes");
+            let ends = if dropped > 0 { (head, tail) } else { (0, 0) };
+            assert_eq!((copied.head, copied.tail), ends, "{len} bytes");
+        }
+        assert_eq!(split(300), (300, 0), "too small for both ends");
+        let input = vec![9u8; 1_000];
+        let path = d.path().join("small");
+        let copied = copy_through(File::create(&path).unwrap(), 300, input);
+        assert_eq!(std::fs::read(&path).unwrap(), vec![9u8; 300]);
+        assert_eq!((copied.dropped, copied.tail), (700, 0));
+    }
+
+    /// The ring keeps its last bytes whatever the reads: wrapping, a read
+    /// longer than it, and an empty one.
+    #[test]
+    fn the_ring_keeps_its_last_bytes_across_wraps() {
+        let mut r = Ring::new(5);
+        assert_eq!(r.push(b"abc"), 0);
+        assert_eq!(r.push(b"de"), 0);
+        assert_eq!(r.push(b"fg"), 2);
+        assert_eq!([r.pieces().0, r.pieces().1].concat(), b"cdefg");
+        assert_eq!(r.push(b""), 0);
+        assert_eq!(r.push(b"0123456789"), 10);
+        assert_eq!([r.pieces().0, r.pieces().1].concat(), b"56789");
+        assert_eq!(r.close(), 5);
+        assert_eq!(r.push(b"x"), 1, "a closed ring keeps nothing");
+    }
+
+    /// The marker fits its room with the largest numbers.
+    #[test]
+    fn the_marker_fits_its_room() {
+        assert!(marker(u64::MAX, u64::MAX).len() as u64 <= MARKER_ROOM);
     }
 
     /// A full disk (`/dev/full`) fails every write: the copy keeps reading,

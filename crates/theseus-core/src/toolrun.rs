@@ -1761,7 +1761,7 @@ impl ToolRuntime {
             text: out,
             total,
             unread,
-        } = read_result_file(a.result_ref.as_deref());
+        } = read_result_file(self.raw_output(a).as_deref());
         let exit = detail.get("exit_code").and_then(Value::as_i64);
         let status = match a.state {
             ActionState::Succeeded => ResultStatus::Ok,
@@ -1792,7 +1792,18 @@ impl ToolRuntime {
         // A job that printed past the cap kept only the cap's worth: the
         // result says how much it printed, how much was dropped, and how to
         // get the rest (theseus-102), as the cap's line does (theseus-46v).
+        // Since theseus-gsn9 the cap keeps the output's two ends, and the
+        // bytes dropped are those between them; a wrapper from before keeps
+        // the head alone.
         let dropped = detail.get("dropped").and_then(Value::as_u64).unwrap_or(0);
+        let ends = match (
+            detail.get("head").and_then(Value::as_u64),
+            detail.get("tail").and_then(Value::as_u64),
+        ) {
+            (Some(h), Some(t)) => Some((h, t)),
+            _ => None,
+        };
+        let bytes = |n: u64| narrative::count(n, "byte", "bytes");
         let header = match dropped {
             0 => header,
             d => {
@@ -1807,27 +1818,67 @@ impl ToolRuntime {
                     .filter(|r| !r.is_empty())
                     .map(|r| format!("; {r}"))
                     .unwrap_or_default();
-                format!(
-                    "{header}[truncated: it printed {}, and the {} past its output cap of {} were \
-                     dropped{rest}]\n",
-                    narrative::count(total + d, "byte", "bytes"),
-                    narrative::count(d, "byte", "bytes"),
-                    size(cap),
-                )
+                match ends {
+                    Some((h, t)) => format!(
+                        "{header}[truncated: it printed {}, more than its output cap of {}: its \
+                         first {} and its last {} are kept, and the {} between them were \
+                         dropped{rest}]\n",
+                        bytes(h + d + t),
+                        size(cap),
+                        bytes(h),
+                        bytes(t),
+                        bytes(d),
+                    ),
+                    None => format!(
+                        "{header}[truncated: it printed {}, and the {} past its output cap of {} \
+                         were dropped{rest}]\n",
+                        bytes(total + d),
+                        bytes(d),
+                        size(cap),
+                    ),
+                }
             }
+        };
+        // The end the copy held when the wrapper reported, which the file
+        // takes only at the pipe's end (theseus-gsn9).
+        let header = match detail.get("held").and_then(Value::as_u64) {
+            Some(n) if n > 0 => format!(
+                "{header}[when it reported, a process it started still held its output open, and \
+                 its last {} were not yet written]\n",
+                bytes(n)
+            ),
+            _ => header,
+        };
+        // No report, and the file stopped where the head does: the output
+        // went past the head, and its end waited in the job's wrapper, which
+        // was killed before the pipe's end (theseus-gsn9).
+        let (head, tail) = theseus_kernel::redact::split(self.output_max_bytes);
+        let header = if completion.is_none() && tail > 0 && total == head {
+            format!(
+                "{header}[its output reached the first {}, all the file takes before the end, and \
+                 its end was lost: the job's wrapper was killed before it could write it]\n",
+                bytes(head)
+            )
+        } else {
+            header
         };
         // Only the end of a very long output is read: the cut says so, as the
         // cap's does for what it leaves out (theseus-46v).
-        let header = match (unread, dropped) {
-            (0, _) => header,
-            (n, 0) => format!(
-                "{header}[the first {} of its output not read; its last {} follow]\n",
-                narrative::count(n, "byte", "bytes"),
+        let header = match (unread, dropped, ends) {
+            (0, _, _) => header,
+            (n, 0, _) | (n, _, Some(_)) => format!(
+                "{header}[the first {} of {} not read; its last {} follow]\n",
+                bytes(n),
+                if dropped == 0 {
+                    "its output"
+                } else {
+                    "what was kept"
+                },
                 size(total - n)
             ),
-            (n, _) => format!(
+            (n, _, None) => format!(
                 "{header}[the first {} of what was kept not read; the {} before the cap follow]\n",
-                narrative::count(n, "byte", "bytes"),
+                bytes(n),
                 size(total - n)
             ),
         };
@@ -1854,10 +1905,41 @@ impl ToolRuntime {
     /// two leaves the file, 0600 in the private spool.
     fn answer_job(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>, a: &Action) -> Result<ResultStatus> {
         let status = self.answer(tc, r)?;
+        self.remove_job_output(a);
+        Ok(status)
+    }
+
+    /// Where a job's raw output is: the file its completion names, or, for a
+    /// job killed before its completion (a stop, a cancel), the spool's file
+    /// for its id, when there is one (theseus-ewev). A stopped job's result
+    /// reads it too, so it shows what the job printed before the stop.
+    fn raw_output(&self, a: &Action) -> Option<String> {
+        a.result_ref.clone().or_else(|| {
+            let path = self.spool.as_ref()?.result_path(&a.correlation_id);
+            path.exists().then(|| path.to_string_lossy().into_owned())
+        })
+    }
+
+    /// Delete a job's raw output once its result's node is written
+    /// (theseus-wz2). A job killed before its completion has no `result_ref`,
+    /// so its file waited for the spool's sweep after its cancelled result was
+    /// written; now it goes then too, unless the job's wrapper still lives,
+    /// as the sweep checks (theseus-ewev).
+    fn remove_job_output(&self, a: &Action) {
         if let Some(path) = a.result_ref.as_deref() {
             self.remove_raw_output(path);
+            return;
         }
-        Ok(status)
+        let Some(spool) = &self.spool else {
+            return;
+        };
+        let corr = &a.correlation_id;
+        let alive = spool
+            .read_pid(corr)
+            .is_some_and(|pid| theseus_kernel::job::wrapper_alive(pid, corr));
+        if !alive {
+            self.remove_raw_output(&spool.result_path(corr).to_string_lossy());
+        }
     }
 
     /// Delete a job's raw output, once its result's node is written
@@ -2243,9 +2325,10 @@ impl ToolRuntime {
             Self::announce_end(tc, node);
         }
         // Their nodes are written, so the jobs' raw output goes, as for a
-        // result read within a turn (`answer_job`, theseus-wz2).
-        for path in &outputs {
-            self.remove_raw_output(path);
+        // result read within a turn (`answer_job`, theseus-wz2), a stopped
+        // job's included (theseus-ewev).
+        for a in &outputs {
+            self.remove_job_output(a);
         }
         Ok((settled, late.len() as u32))
     }
@@ -2253,13 +2336,13 @@ impl ToolRuntime {
     /// The late results among `settled`: for each job whose call was
     /// answered `background` and has no late result yet, its result's node
     /// and its `tool.late_result` row, for the frame that takes it from the
-    /// queue, and the path of the job's raw output, to delete once that
-    /// frame is written.
+    /// queue, and its action, whose raw output goes once that frame is
+    /// written.
     fn late_results(
         &self,
         tc: &TurnCtx<'_>,
         settled: &[Action],
-    ) -> Result<(Vec<Node>, Vec<theseus_store::NewRecord>, Vec<String>)> {
+    ) -> Result<(Vec<Node>, Vec<theseus_store::NewRecord>, Vec<Action>)> {
         let (mut late, mut records, mut outputs) = (Vec::new(), Vec::new(), Vec::new());
         let jobs: Vec<&Action> = settled
             .iter()
@@ -2301,9 +2384,7 @@ impl ToolRuntime {
                 json!({"correlation_id": a.correlation_id, "tool": tool, "state": a.state}),
             )?);
             late.push(node);
-            if let Some(path) = &a.result_ref {
-                outputs.push(path.clone());
-            }
+            outputs.push(a.clone());
         }
         Ok((late, records, outputs))
     }

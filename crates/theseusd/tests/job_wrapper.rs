@@ -253,12 +253,14 @@ fn a_wrapper_with_nothing_left_exits_with_its_command() {
 }
 
 /// Review 2's R3 (theseus-102): a job that prints far past the cap leaves its
-/// file at the cap, runs to its own end (the wrapper reads on and counts, it
-/// never stops the command for printing), and its completion says what was
-/// dropped and what the cap was. The cap reaches the wrapper on its command
-/// line, as the daemon passes it.
+/// file within the cap, runs to its own end (the wrapper reads on and counts,
+/// it never stops the command for printing), and its completion says what
+/// was dropped and what the cap was. The cap reaches the wrapper on its
+/// command line, as the daemon passes it. Since theseus-gsn9 the file keeps
+/// both ends: the head, a marker, and the exact last bytes, its verdict
+/// among them, which the wrapper's ring held until the pipe's end.
 #[test]
-fn a_job_that_prints_past_the_cap_leaves_its_file_at_the_cap_and_runs_to_its_end() {
+fn a_job_that_prints_past_the_cap_keeps_both_ends_and_runs_to_its_end() {
     let rig = Rig::new();
     let cap = 64 * 1024;
     let printed = 5 * 1024 * 1024 + "the end\n".len() as u64;
@@ -272,15 +274,34 @@ fn a_job_that_prints_past_the_cap_leaves_its_file_at_the_cap_and_runs_to_its_end
         rig.spool.read_completion("act_chatty").unwrap()
     });
     assert!(rig.path("after").exists(), "the job ran to its end");
+    let (head, tail) = theseus_kernel::redact::split(cap);
+    assert_eq!((head, tail), (32_640, 32_768));
+    let dropped = printed - head - tail;
+    let marker = theseus_kernel::redact::marker(dropped, tail);
     let detail = c.detail.unwrap();
     assert_eq!(detail["exit_code"], 3, "{detail}");
-    assert_eq!(detail["bytes"], cap, "{detail}");
+    assert_eq!(
+        detail["bytes"],
+        head + marker.len() as u64 + tail,
+        "{detail}"
+    );
     assert_eq!(detail["truncated"], true, "{detail}");
-    assert_eq!(detail["dropped"], printed - cap, "{detail}");
+    assert_eq!(detail["dropped"], dropped, "{detail}");
+    assert_eq!(
+        (detail["head"].as_u64(), detail["tail"].as_u64()),
+        (Some(head), Some(tail)),
+        "{detail}"
+    );
     assert_eq!(detail["output_max_bytes"], cap, "{detail}");
     let out = std::fs::read(c.result_ref.unwrap()).unwrap();
-    assert_eq!(out.len() as u64, cap);
-    assert!(out.iter().all(|&b| b == 0), "the first bytes it printed");
+    assert!(out.len() as u64 <= cap, "{}", out.len());
+    let (first, rest) = out.split_at(head as usize);
+    assert!(first.iter().all(|&b| b == 0), "the first bytes it printed");
+    let (between, end) = rest.split_at(marker.len());
+    assert_eq!(between, marker.as_bytes());
+    assert_eq!(end.len() as u64, tail);
+    assert!(end.ends_with(b"\0\0the end\n"), "the last bytes it printed");
+    assert!(end[..end.len() - 8].iter().all(|&b| b == 0));
 }
 
 /// A command that ignores SIGTERM, as `trap '' TERM` makes it (its `sleep`s

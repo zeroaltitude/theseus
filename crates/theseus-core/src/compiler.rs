@@ -1809,6 +1809,19 @@ mod tests {
             "the count's reading fits, or only the last exchange is left: {:?}",
             kept(&n)
         );
+        // A window the estimate fits: only the provider's word rings it, and
+        // its count, ten times the estimate, reads every candidate so.
+        let forced = Overflowed {
+            counted: Some(plain.est_tokens * 10),
+            maximum: Some(200_000),
+            ..counted.clone()
+        };
+        let budget = 200_000 - 1_000 - 4_096;
+        assert!(plain.estimate.upper <= budget, "the estimate fits");
+        let f = run_over(&more, Some(&c0.compilation), &sp, 13, Some(&forced));
+        assert_eq!(f.trigger.as_deref(), Some("overflow"), "rung anyway");
+        assert!(kept(&f).len() < kept(&plain).len(), "{:?}", kept(&f));
+        assert!(f.est_tokens * 10 <= budget * 6 / 10, "{}", f.est_tokens);
         // A catalog window smaller than the provider's stays.
         let bigger = Overflowed {
             maximum: Some(5_000_000),

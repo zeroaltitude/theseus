@@ -49,6 +49,14 @@ impl Rig {
     /// `script`: a phrase the last user message contains, and the tool calls
     /// the model makes for it. A call that answers a tool call gets `Done.`.
     fn new(script: Vec<(&str, Vec<(&'static str, Value)>)>) -> Self {
+        Self::with(script, |_| {})
+    }
+
+    /// `new`, with a last change to the config.
+    fn with(
+        script: Vec<(&str, Vec<(&'static str, Value)>)>,
+        tweak: impl FnOnce(&mut toml::Table),
+    ) -> Self {
         let script: Script = Arc::new(Mutex::new(
             script
                 .into_iter()
@@ -95,6 +103,7 @@ impl Rig {
         discord.insert("enabled".into(), true.into());
         discord.insert("rest_proxy".into(), fake.addr.clone().into());
         discord.insert("gateway_proxy".into(), "ws://127.0.0.1:9".into());
+        tweak(&mut t);
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         std::fs::write(
             path("state/bindings.toml"),
@@ -513,4 +522,80 @@ fn a_stop_kills_the_sessions_job_and_the_next_message_continues_the_session() {
         "{late}"
     );
     assert_eq!(execution_of(&r, &sid)["turns"], 2);
+}
+
+/// theseus-ewev: a job stopped before its completion has no `result_ref`, so
+/// its raw output waited for the spool's sweep after its cancelled result
+/// was written. Now the turn that writes that result deletes the file, with
+/// no restart, and the result shows what the job printed before the stop.
+/// theseus-gsn9: the job printed past its cap's head, and the stop killed
+/// its wrapper with the end in its ring: the file holds the head, and the
+/// result says the end was lost.
+#[test]
+fn a_stopped_jobs_raw_output_goes_with_its_cancelled_result() {
+    let r = Rig::with(
+        vec![(
+            "Run the noisy build",
+            vec![(
+                "proc_run",
+                json!({"argv": ["bash", "-c", "head -c 100000 /dev/zero | tr '\\0' x; echo; echo still building; sleep 30"], "timeout_secs": 60}),
+            )],
+        )],
+        |t| {
+            t.get_mut("tools")
+                .and_then(toml::Value::as_table_mut)
+                .unwrap()
+                .insert("job_output_max_bytes".into(), 65_536.into());
+        },
+    );
+    let _daemon = r.spawn();
+    let sid = r.session();
+    r.ask(&sid, "Run the noisy build");
+    let exec = r.wait("the session waiting on its job", || {
+        let e = execution_of(&r, &sid);
+        (e["state"] == "waiting" && e["outstanding"] == 1).then_some(e)
+    });
+    let eid = exec["execution_id"].as_str().unwrap().to_string();
+    let res = r
+        .call(
+            "execution.stop",
+            json!({"execution_id": eid, "author": "test"}),
+        )
+        .unwrap();
+    assert_eq!(res["stopped"], true, "{res}");
+    let job = res["stopped_actions"][0].as_str().unwrap().to_string();
+    let raw = r.path(&format!("state/spool/results/{job}.out"));
+    // The head of a 65,536-byte cap, and no more: the end was in the ring.
+    let head = 65_536 - 32_768 - 128;
+    assert_eq!(
+        std::fs::metadata(&raw).unwrap().len(),
+        head,
+        "{}",
+        raw.display()
+    );
+
+    r.ask(&sid, "What happened to the build?");
+    assert!(
+        !raw.exists(),
+        "the stopped job's raw output went with its cancelled result, with no restart"
+    );
+    let h = r
+        .call("session.history", json!({"session_id": sid}))
+        .unwrap();
+    let late = h["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["detail"]["late"] == true)
+        .cloned()
+        .expect("the job's late result");
+    let text = late["text"].as_str().unwrap();
+    assert!(
+        text.starts_with(
+            "[cancelled: stopped by test]\n[its output reached the first 32,640 bytes, all the \
+             file takes before the end, and its end was lost: the job's wrapper was killed \
+             before it could write it]\nxxxx"
+        ),
+        "{text}"
+    );
 }
