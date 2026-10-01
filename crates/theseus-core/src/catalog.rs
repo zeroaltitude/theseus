@@ -24,6 +24,10 @@
 //! caching reference (2026-10-01): 512 on Fable 5 and 5.1, Opus 5 and 5.5, and
 //! Sonnet 5.5; 1,024 on Opus 4.8 and Sonnet 5; 4,096 on Haiku 4.5. The
 //! reference marks Sonnet 5.5's 512 as one to confirm in the docs.
+//!
+//! `bytes_per_token` is how densely the model's tokenizer reads a request's
+//! JSON and its prose, for the compiler's estimate (theseus-f5hf): see
+//! [`TokenRates`].
 
 use std::collections::BTreeMap;
 
@@ -85,10 +89,76 @@ pub struct CatalogEntry {
     /// Where the figures came from.
     #[serde(default)]
     pub source: String,
+    /// How densely the model's tokenizer reads a request (theseus-f5hf).
+    #[serde(default)]
+    pub bytes_per_token: TokenRates,
 }
 
 fn yes() -> bool {
     true
+}
+
+/// Bytes a model's tokenizer reads as one token, by what the bytes are
+/// (theseus-f5hf), for the compiler's estimate of a request
+/// (`provider::Census`). Measured on Theseus's own requests against the
+/// provider's count (the tokens lane, 2026-10-01). A tokenizer reads JSON,
+/// code, and command output far more densely than prose. On Sonnet 5.5 the
+/// 15 tool schemas, with the provider's tool prompt, ran 2.5 bytes a token,
+/// a Rust file read by a tool 2.36, the tool results in Eddie's DM 1.76 to
+/// 2.84 (2.4 typically), and prose 3.35; chars/4 read them all at 4. A
+/// figure is the typical one: the compiler's estimate allows for denser
+/// content by its margin (`compiler::MARGIN_PERCENT`), and counts on the
+/// provider's own count once a compilation has made a call.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenRates {
+    /// Tool schemas, tool inputs, and tool results (code, command output,
+    /// file contents).
+    pub json: f64,
+    /// The system's text, and the messages' text and thinking.
+    pub text: f64,
+}
+
+impl TokenRates {
+    /// Claude's tokenizer since Opus 4.7: Sonnet 5 and 5.5, Opus 4.7, 4.8,
+    /// 5, and 5.5, and Fable 5 and 5.1 (the claude-api reference: "roughly
+    /// 1× to 1.35×" the older one's tokens). Measured on Sonnet 5.5.
+    pub const CLAUDE: TokenRates = TokenRates {
+        json: 2.4,
+        text: 3.3,
+    };
+    /// Claude's older tokenizer (Haiku 4.5): it counted Theseus's first
+    /// request at 4,274 where Sonnet 5.5 counted 5,204 (the cache2 lane),
+    /// so Claude's figures × 1.22.
+    pub const CLAUDE_OLD: TokenRates = TokenRates {
+        json: 2.9,
+        text: 4.0,
+    };
+    /// GLM 5.x, measured on GLM-5.3 Flash: the tool schemas 3.77 bytes a
+    /// token, a Rust file about 3.4, prose 4.54.
+    pub const GLM: TokenRates = TokenRates {
+        json: 3.7,
+        text: 4.4,
+    };
+
+    /// The built-in figures for a model, by its family. A model of no known
+    /// family gets Claude's, the densest measured, so it is over-estimated
+    /// rather than under.
+    pub fn of(model: &str) -> TokenRates {
+        if model.starts_with("claude-haiku-4") {
+            Self::CLAUDE_OLD
+        } else if model.starts_with("glm-") {
+            Self::GLM
+        } else {
+            Self::CLAUDE
+        }
+    }
+}
+
+impl Default for TokenRates {
+    fn default() -> Self {
+        Self::CLAUDE
+    }
 }
 
 impl CatalogEntry {
@@ -208,6 +278,9 @@ pub struct CatalogRow {
     pub vision: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Omitted on a new model: its family's figures ([`TokenRates::of`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_per_token: Option<TokenRates>,
 }
 
 impl CatalogRow {
@@ -257,6 +330,7 @@ impl CatalogRow {
                     cache_min_tokens: 0,
                     vision: false,
                     source: String::new(),
+                    bytes_per_token: TokenRates::default(),
                 }
             }
         };
@@ -279,6 +353,7 @@ impl CatalogRow {
             cache_min_tokens: r.cache_min_tokens.unwrap_or(entry.cache_min_tokens),
             vision: r.vision.unwrap_or(entry.vision),
             source: r.source.unwrap_or_else(|| "config".into()),
+            bytes_per_token: r.bytes_per_token.unwrap_or(entry.bytes_per_token),
         })
     }
 }
@@ -317,6 +392,7 @@ fn claude(
         cache_min_tokens: cache_min,
         vision: true,
         source: "Claude API reference (2026-06-24 model table; model-migration pricing)".into(),
+        bytes_per_token: TokenRates::CLAUDE,
     }
 }
 
@@ -345,6 +421,7 @@ fn glm(
         cache_min_tokens: 0,
         vision: true,
         source: "OpenClaw model catalog (models.providers.zai), 2026-09".into(),
+        bytes_per_token: TokenRates::GLM,
     }
 }
 
@@ -388,7 +465,10 @@ impl Catalog {
         );
         e.insert(
             "claude-haiku-4-5".into(),
-            claude(200_000, 64_000, 1.0, 5.0, 0.10, 1.25, Budget, false, 4096),
+            CatalogEntry {
+                bytes_per_token: TokenRates::CLAUDE_OLD,
+                ..claude(200_000, 64_000, 1.0, 5.0, 0.10, 1.25, Budget, false, 4096)
+            },
         );
         // Text only (theseus-9g2): OpenClaw's model table marks glm-5.3 and
         // glm-5.2 text-only, and glm-5.3 answered a test PNG with empty text
@@ -432,7 +512,12 @@ impl Catalog {
             return c;
         }
         for (k, row) in overrides {
-            if let Ok(e) = row.over(c.entries.get(k)) {
+            let base = c.entries.get(k);
+            let new_model = base.is_none();
+            if let Ok(mut e) = row.over(base) {
+                if new_model && row.bytes_per_token.is_none() {
+                    e.bytes_per_token = TokenRates::of(k);
+                }
                 c.entries.insert(k.clone(), e);
             }
         }
@@ -777,5 +862,52 @@ mod tests {
         };
         assert_eq!(flash.cost_micros(&tiny), 1);
         assert_eq!(flash.cost_micros(&Usage::default()), 0);
+    }
+
+    /// The figures against the provider's counts of whole first requests
+    /// (theseus-f5hf; the tokens lane's live check, 2026-10-01): Eddie's 15
+    /// tools and header with a small context file, the same with 6.5 KB of
+    /// prose in it, the same again as a tool loop's first call, and with no
+    /// tools; on Sonnet 5.5, then on GLM-5.3 Flash. Each estimate is within
+    /// 7 % of the count, and its bound (`compiler::MARGIN_PERCENT`) is over
+    /// it. chars/4, the estimate before, read Sonnet 5.5's at 66 to 71 %.
+    #[test]
+    fn the_figures_hold_for_recorded_first_requests() {
+        use crate::provider::Census;
+        // (model, JSON bytes, text bytes, the provider's count, chars/4)
+        let recorded = [
+            ("claude-sonnet-5-5", 11_898, 1_631, 5_236, 3_436),
+            ("claude-sonnet-5-5", 11_898, 8_191, 7_196, 5_082),
+            ("claude-sonnet-5-5", 11_898, 1_678, 5_253, 3_448),
+            ("claude-sonnet-5-5", 0, 444, 155, 139),
+            ("glm-5.3-flash", 11_898, 1_631, 3_525, 3_436),
+            ("glm-5.3-flash", 11_898, 8_191, 4_971, 5_082),
+            ("glm-5.3-flash", 11_898, 1_678, 3_536, 3_448),
+            ("glm-5.3-flash", 0, 444, 112, 157),
+        ];
+        let c = Catalog::builtin();
+        for (model, json, text, count, chars4) in recorded {
+            // Two system blocks and one message of one block.
+            let census = Census {
+                json,
+                text,
+                messages: 3,
+                blocks: 1,
+                ..Default::default()
+            };
+            let est = census.tokens(c.get(model).unwrap().bytes_per_token);
+            let off = est as f64 / count as f64 - 1.0;
+            assert!(
+                off.abs() < 0.07,
+                "{model}, {json} + {text} bytes: {est} against {count}"
+            );
+            assert!(est * 140 / 100 >= count, "{model}: {est}");
+            if model.starts_with("claude") && json > 0 {
+                assert!(
+                    (chars4 as f64) < count as f64 * 0.72,
+                    "{chars4} against {count}"
+                );
+            }
+        }
     }
 }

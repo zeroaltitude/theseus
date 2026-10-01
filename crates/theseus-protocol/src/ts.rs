@@ -94,7 +94,8 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         ConfirmListResult, ActionConfirmParams, ActionConfirmResult, ToolInfo, ToolListResult,
         ProviderErrorData, TurnStarted, TurnFailed, LoopStarted, ModelDelta, LoopEnded,
         NarrativePart, NarrativeLine, NarrativeWatchResult, ToolProposed, ContextFileRef,
-        CacheSummary, ContextCompiled, ToolStarted, ToolEnded, ConfirmResolved,
+        CacheSummary, EstimateSummary, CensusSummary, ContextCompiled, ToolStarted, ToolEnded,
+        ConfirmResolved,
         NodeWritten, PolicyNotified, Asker, ApprovalRefused, Access, Resource, Plan, Proposal,
         Notice, GateDecision, GateResult, GateRecord,
     }

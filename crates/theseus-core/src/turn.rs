@@ -1772,6 +1772,8 @@ impl TurnRunner {
             nodes_scanned: nodes.len() as u64,
             context_files: spec.context_files.clone(),
             persona: spec.persona.clone(),
+            // How the compiler sized the request (theseus-f5hf).
+            estimate: Some(compiled.estimate.summary()),
             // The request's cache breakpoints and their TTLs (theseus-ev1).
             cache: CacheSummary {
                 breakpoints: compiled

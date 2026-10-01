@@ -27,10 +27,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::attach::Media;
-use crate::catalog::{Catalog, ThinkingMode};
+use crate::catalog::{Catalog, ThinkingMode, TokenRates};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::node::{Body, Node};
-use crate::provider::{tool_uses_in, ProviderRequest};
+use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_TOKENS};
 
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block
@@ -232,6 +232,184 @@ pub struct CompileInput<'a> {
     pub strip: Option<&'a str>,
 }
 
+/// How far the bytes part of an estimate may run low, in percent of itself
+/// (theseus-f5hf). The ring allows for it: it rings when the counted part
+/// plus the bytes part × (1 + this) passes the window less the output cap
+/// and the headroom. The worst measured: in Eddie's DM an 11 KB tool result
+/// read at 1.76 bytes a token against Sonnet 5.5's figure of 2.4, and the
+/// request's new part came to ×1.36 its estimate.
+pub const MARGIN_PERCENT: u64 = 40;
+
+/// A request's size in tokens, as the compiler estimates it (theseus-f5hf).
+/// From a compilation's second call on, most of it is the provider's own
+/// count: the session's latest answer came from this compilation's last
+/// request, whose input the provider counted, and the answer costs as
+/// input what it cost as output. Only what was written since is estimated,
+/// from its bytes at the catalog's figures. Before that call (a new
+/// session, a recompile, the ring's candidates) all of it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Estimate {
+    /// What the provider will count: `counted` + `estimated`.
+    pub tokens: u64,
+    pub method: EstimateMethod,
+    /// The provider's count of this compilation's last request (its input,
+    /// cache reads, and cache writes), plus its answer's output tokens.
+    pub counted: u64,
+    /// The rest, from its bytes at the catalog's `bytes_per_token`.
+    pub estimated: u64,
+    /// What the ring checks: `counted`, plus `estimated` and its margin
+    /// ([`MARGIN_PERCENT`]).
+    pub upper: u64,
+    /// The request's bytes as JSON, base64 image data left out: the estimate
+    /// before theseus-f5hf was a fourth of it.
+    pub bytes: u64,
+    /// The whole request's bytes by class, so a row can be estimated again
+    /// at other figures.
+    pub census: Census,
+}
+
+impl Estimate {
+    /// The estimate as `context.compiled` carries it: the protocol's one
+    /// definition of its shape (theseus-0g4).
+    pub fn summary(&self) -> theseus_protocol::EstimateSummary {
+        let c = &self.census;
+        theseus_protocol::EstimateSummary {
+            tokens: self.tokens,
+            method: match self.method {
+                EstimateMethod::Counted => "counted",
+                EstimateMethod::Bytes => "bytes",
+            }
+            .into(),
+            counted: self.counted,
+            estimated: self.estimated,
+            upper: self.upper,
+            bytes: self.bytes,
+            census: theseus_protocol::CensusSummary {
+                json: c.json,
+                text: c.text,
+                opaque: c.opaque,
+                messages: c.messages,
+                blocks: c.blocks,
+                ids: c.ids,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EstimateMethod {
+    /// Part of it is the provider's count.
+    Counted,
+    /// All of it is from bytes.
+    Bytes,
+}
+
+/// Estimate `request`'s tokens at `rates` (theseus-f5hf). `counted` is the
+/// provider's count of what the request repeats, and the index of its first
+/// message after that (`counted_part`). Leaves `bytes` at 0.
+pub fn estimate(
+    request: &ProviderRequest,
+    rates: TokenRates,
+    counted: Option<(u64, usize)>,
+) -> Estimate {
+    let census = request.census();
+    let (method, counted, estimated) = match counted {
+        Some((n, from)) => {
+            let rest = &request.messages[from..];
+            // An image's size is not in the request: each new one counts
+            // at the model's most, until the next call counts it.
+            let images = (images_in(rest) * image_cap(&request.model)).min(request.image_tokens);
+            // The answer's own message: its framing, and its calls' ids,
+            // which its output tokens leave out.
+            let calls = request.messages[from - 1]["content"]
+                .as_array()
+                .map_or(0, |b| tool_uses_in(b).len() as u64);
+            let answer = MESSAGE_TOKENS + calls * ID_TOKENS;
+            (
+                EstimateMethod::Counted,
+                n,
+                Census::of_messages(rest).tokens(rates) + answer + images,
+            )
+        }
+        None => (
+            EstimateMethod::Bytes,
+            0,
+            census.tokens(rates) + request.image_tokens,
+        ),
+    };
+    Estimate {
+        tokens: counted + estimated,
+        method,
+        counted,
+        estimated,
+        upper: counted + estimated + (estimated * MARGIN_PERCENT).div_ceil(100),
+        bytes: 0,
+        census,
+    }
+}
+
+/// The provider's count of what `request` repeats, and where its new part
+/// begins (theseus-f5hf). The session's latest answer must come from a call
+/// of compilation `c`. Then every node before it was in that call's request:
+/// nothing is written mid-call (a turn writes its input before its first
+/// call, and tool results and late results between calls). The provider
+/// counted that request's input, and the answer re-enters as input at its
+/// output tokens, thinking included (Eddie's DM: to within the 6 tokens of
+/// framing of it and the message after it). The request's last assistant
+/// message must end with the answer's last block.
+pub fn counted_part(
+    nodes: &[(u64, Arc<Node>)],
+    c: &Compilation,
+    request: &ProviderRequest,
+) -> Option<(u64, usize)> {
+    let answer = nodes
+        .iter()
+        .rev()
+        .find(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))?;
+    let Body::AssistantMessage {
+        blocks,
+        usage,
+        compilation_id,
+        ..
+    } = &answer.1.body
+    else {
+        return None;
+    };
+    let input =
+        usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
+    if compilation_id.as_deref() != Some(c.id.as_str()) || input == 0 {
+        return None;
+    }
+    let at = request
+        .messages
+        .iter()
+        .rposition(|m| m["role"] == "assistant")?;
+    let last = request.messages[at]["content"].as_array()?.last();
+    (last.is_some() && last == blocks.last()).then_some((input + usage.output_tokens, at + 1))
+}
+
+/// Image blocks in `messages`, those inside tool results included.
+fn images_in(messages: &[Value]) -> u64 {
+    fn count(blocks: &Value) -> u64 {
+        blocks.as_array().map_or(0, |bs| {
+            bs.iter()
+                .map(|b| match b.get("type").and_then(Value::as_str) {
+                    Some("image") => 1,
+                    Some("tool_result") => count(&b["content"]),
+                    _ => 0,
+                })
+                .sum()
+        })
+    }
+    messages.iter().map(|m| count(&m["content"])).sum()
+}
+
+/// The most tokens one image costs `model`: its tile cap.
+fn image_cap(model: &str) -> u64 {
+    crate::catalog::image_tokens(model, 1 << 20, 1 << 20)
+}
+
 #[derive(Debug, Clone)]
 pub struct Compiled {
     pub request: ProviderRequest,
@@ -242,7 +420,10 @@ pub struct Compiled {
     pub prefix_nodes: usize,
     pub tail_nodes: usize,
     pub messages: usize,
+    /// `estimate.tokens`.
     pub est_tokens: u64,
+    /// How the request's size was estimated (theseus-f5hf).
+    pub estimate: Estimate,
     pub digest: String,
     /// tool_use ids that had no recorded result and got a synthetic one.
     pub repairs: Vec<String>,
@@ -441,14 +622,20 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
     let media = (input.blobs, input.hidden);
     let (mut request, mut prefix_n, mut tail_n, mut repairs) =
         render_request(spec, input.catalog, &compilation, input.nodes, media);
-    let mut est = request.estimate_tokens();
+    let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
+    let counted = counted_part(input.nodes, &compilation, &request);
+    let mut est = estimate(&request, rates, counted);
 
-    // 2. Overflow: drop leading turns (ring), cutting only before a user message.
+    // 2. Overflow: drop leading turns (ring), cutting only before a user
+    // message. It rings on the estimate's upper bound, so a request whose
+    // bytes run denser than the catalog's figures still rings in time; it
+    // keeps turns while the estimate itself is under 60 %, and that
+    // candidate's bound, at most 84 %, does not ring again (theseus-f5hf).
     if let Some(w) = window {
         let budget = w
             .saturating_sub(spec.max_tokens as u64)
             .saturating_sub(4_096);
-        if est > budget {
+        if est.upper > budget {
             let target = budget * 6 / 10;
             let seq: Vec<&Node> = all_renderable.iter().map(|(_, n)| &**n).collect();
             let starts: Vec<usize> = seq
@@ -462,9 +649,9 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
                 let candidate = make("overflow".into(), "ring", true, includes);
                 let (r, p, t, rep) =
                     render_request(spec, input.catalog, &candidate, input.nodes, media);
-                let e = r.estimate_tokens();
+                let e = estimate(&r, rates, None);
                 let last = cut == *starts.last().unwrap();
-                if e <= target || last {
+                if e.tokens <= target || last {
                     compilation = candidate;
                     request = r;
                     prefix_n = p;
@@ -481,6 +668,7 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
 
     let messages = request.messages.len();
     let digest = request.digest();
+    est.bytes = request.json_bytes();
     Compiled {
         request,
         compilation,
@@ -489,7 +677,8 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         prefix_nodes: prefix_n,
         tail_nodes: tail_n,
         messages,
-        est_tokens: est,
+        est_tokens: est.tokens,
+        estimate: est,
         digest,
         repairs,
         cache: cache_layout(spec, input.catalog),
@@ -1408,5 +1597,273 @@ mod tests {
         let c2 = run(&nodes, Some(&old), &sp, 2);
         assert!(!c2.new_compilation, "{:?}", c2.trigger);
         assert_eq!(c2.request.system, c.request.system);
+    }
+
+    // ------------------------------------------------- the estimate (theseus-f5hf)
+
+    /// `run` with a window.
+    fn run_in(
+        nodes: &[(u64, Node)],
+        current: Option<&Compilation>,
+        spec: &RequestSpec,
+        last: u64,
+        window: u64,
+    ) -> Compiled {
+        let nodes: Vec<(u64, Arc<Node>)> = nodes
+            .iter()
+            .map(|(p, n)| (*p, Arc::new(n.clone())))
+            .collect();
+        compile(CompileInput {
+            session_id: "s",
+            current,
+            nodes: &nodes,
+            last_position: last,
+            spec,
+            catalog: &Catalog::builtin(),
+            force: None,
+            window_override: Some(window),
+            blobs: None,
+            hidden: &[],
+            strip: None,
+        })
+    }
+
+    /// An answer a call of compilation `cmp` returned, which the provider
+    /// counted: `input` tokens in (a cache write, as a first call's is),
+    /// `output` out.
+    fn answered(blocks: Vec<Value>, cmp: &str, input: u64, output: u64) -> Node {
+        let mut n = assistant(blocks);
+        if let Body::AssistantMessage {
+            usage,
+            compilation_id,
+            ..
+        } = &mut n.body
+        {
+            *usage = Usage {
+                input_tokens: 4,
+                cache_creation_input_tokens: input - 4,
+                output_tokens: output,
+                ..Default::default()
+            };
+            *compilation_id = Some(cmp.into());
+        }
+        n
+    }
+
+    fn call(id: &str) -> Value {
+        json!({"type": "tool_use", "id": id, "name": "fs_read", "input": {"path": "/x"}})
+    }
+
+    /// `n` bytes of a tool's JSON output.
+    fn json_output(n: usize) -> String {
+        let row = r#"{"id":1234,"name":"node_17","kind":"file","size":4096,"tags":["a","b"]},"#;
+        row.repeat(n / row.len() + 1)[..n].to_string()
+    }
+
+    /// A conversation heavy in tool results on Sonnet 5.5. chars/4 puts it
+    /// under the ring's budget, while its count at the recorded ratio for
+    /// Theseus's JSON (×1.52 of chars/4, the cache2 lane's first request)
+    /// passes the window itself: the provider would refuse it. The estimate
+    /// reads the JSON at the catalog's figure, and the ring rings.
+    #[test]
+    fn the_ring_rings_for_json_that_chars4_reads_as_fitting() {
+        let sp = spec("claude-sonnet-5-5", "S");
+        let out = json_output(88_000);
+        let mut nodes = Vec::new();
+        for i in 0..3u64 {
+            let id = format!("t{i}");
+            nodes.push((3 * i + 1, Node::user("s", None, "web", "read the next")));
+            nodes.push((3 * i + 2, assistant(vec![call(&id)])));
+            nodes.push((3 * i + 3, result(&id, &out, ResultStatus::Ok, false)));
+        }
+        let window = 100_000;
+        let budget = window - 1_000 - 4_096;
+        // The request as it stands, with no window to ring at.
+        let whole = run(&nodes, None, &sp, 9);
+        let chars4 = whole.estimate.bytes / 4;
+        assert!(chars4 < budget, "chars/4 {chars4} rings by itself");
+        assert!(
+            chars4 * 152 / 100 > window,
+            "the recorded ratio's count fits"
+        );
+        assert_eq!(whole.estimate.method, EstimateMethod::Bytes);
+        assert!(whole.est_tokens > chars4, "{:?}", whole.estimate);
+        assert!(
+            whole.estimate.upper > chars4 * 152 / 100,
+            "{:?}",
+            whole.estimate
+        );
+
+        let c = run_in(&nodes, None, &sp, 9, window);
+        assert_eq!(c.trigger.as_deref(), Some("overflow"));
+        assert_eq!(c.compilation.strategy, "ring");
+        assert!(c.est_tokens <= budget * 6 / 10, "{:?}", c.estimate);
+        assert!(
+            c.estimate.upper <= budget,
+            "the kept turns do not ring again"
+        );
+    }
+
+    /// From a compilation's second call on, the estimate adds what is new
+    /// to the provider's own count of the last request and its answer.
+    #[test]
+    fn a_compilations_second_call_adds_to_the_providers_count() {
+        let sp = spec("claude-sonnet-5-5", "S");
+        let mut nodes = vec![(1, Node::user("s", None, "web", "read /x"))];
+        let c1 = run(&nodes, None, &sp, 1);
+        assert_eq!(c1.estimate.method, EstimateMethod::Bytes);
+        assert_eq!(c1.estimate.counted, 0);
+        let id = c1.compilation.id.clone();
+        // The provider counted 5,204 tokens in and 88 out; then 11,142 bytes
+        // of tool output.
+        nodes.push((2, answered(vec![call("t1")], &id, 5_204, 88)));
+        nodes.push((
+            3,
+            result("t1", &json_output(11_142), ResultStatus::Ok, false),
+        ));
+        let c2 = run(&nodes, Some(&c1.compilation), &sp, 3);
+        assert!(!c2.new_compilation);
+        let e = c2.estimate;
+        assert_eq!(e.method, EstimateMethod::Counted);
+        assert_eq!(e.counted, 5_204 + 88);
+        // The new part: the output at 2.4 bytes a token, the result's
+        // message and block, two ids (the call's and the result's), and the
+        // answer's message.
+        assert_eq!(e.estimated, 4_643 + 3 + 1 + 2 * 15 + 3);
+        assert_eq!(e.tokens, e.counted + e.estimated);
+        assert_eq!(
+            e.upper,
+            e.counted + e.estimated + (e.estimated * 40).div_ceil(100)
+        );
+        assert_eq!(c2.est_tokens, e.tokens);
+
+        // An answer of another compilation, or one with no count, is not
+        // counted on: the estimate is all bytes again.
+        let mut other = nodes.clone();
+        other[1].1 = answered(vec![call("t1")], "cmp_other", 5_204, 88);
+        let c = run(&other, Some(&c1.compilation), &sp, 3);
+        assert_eq!(c.estimate.method, EstimateMethod::Bytes);
+        let mut uncounted = nodes.clone();
+        uncounted[1].1 = assistant(vec![call("t1")]);
+        let c = run(&uncounted, Some(&c1.compilation), &sp, 3);
+        assert_eq!(c.estimate.method, EstimateMethod::Bytes);
+        // A recompile makes a new compilation, which no answer is of yet.
+        let mut sp = sp;
+        sp.system_text = "S2".into();
+        let c = run(&nodes, Some(&c1.compilation), &sp, 3);
+        assert!(c.new_compilation);
+        assert_eq!(c.estimate.method, EstimateMethod::Bytes);
+    }
+
+    /// Recorded counts: each loop of Eddie's DM on Sonnet 5.5 (2026-10-01),
+    /// as the provider counted it, against the estimate from the loop
+    /// before's count. Each row: the last request's count and its answer's
+    /// output tokens and calls; then the bytes of tool output, or of a
+    /// message, the request added; and the provider's count of it. The
+    /// estimate is never under the count by more than its margin, so the
+    /// bound the ring checks is never under it.
+    #[test]
+    fn the_estimate_is_within_its_margin_of_recorded_counts() {
+        // (count, output, calls, tool output bytes, message bytes, next count)
+        let dm: [(u64, u64, usize, usize, usize, u64); 19] = [
+            (4_633, 88, 1, 11_142, 0, 11_092),
+            (11_092, 695, 0, 0, 84, 11_819),
+            (11_819, 125, 2, 18_848, 0, 19_914),
+            (19_914, 287, 3, 38_499, 0, 34_542),
+            (34_542, 4_176, 0, 0, 105, 38_754),
+            (38_754, 432, 3, 228, 0, 39_380),
+            (39_380, 233, 1, 2_141, 0, 40_527),
+            (40_527, 336, 3, 3_421, 0, 42_789),
+            (42_789, 425, 2, 3_555, 0, 44_868),
+            (44_868, 505, 1, 7_515, 0, 48_200),
+            (48_200, 1_060, 0, 0, 66, 49_286),
+            (49_286, 126, 1, 2_141, 0, 50_383),
+            (50_383, 310, 1, 526, 0, 51_001),
+            (51_001, 197, 1, 2_437, 0, 52_114),
+            (52_114, 282, 1, 1_811, 0, 53_070),
+            (53_070, 558, 3, 4_658, 0, 55_728),
+            (55_728, 429, 1, 2_416, 0, 57_283),
+            (57_283, 722, 0, 0, 92, 58_036),
+            (58_036, 343, 1, 833, 0, 58_726),
+        ];
+        let sp = spec("claude-sonnet-5-5", "S");
+        let first = run(&hi(), None, &sp, 1);
+        let mut worst: f64 = 1.0;
+        for (count, output, calls, out_bytes, msg_bytes, next) in dm {
+            let ids: Vec<String> = (0..calls).map(|k| format!("t{k}")).collect();
+            let mut nodes = hi();
+            let blocks: Vec<Value> = if calls == 0 {
+                vec![json!({"type": "text", "text": "a"})]
+            } else {
+                ids.iter().map(|id| call(id)).collect()
+            };
+            nodes.push((2, answered(blocks, &first.compilation.id, count, output)));
+            let mut p = 3;
+            for id in &ids {
+                let share = out_bytes / calls;
+                nodes.push((p, result(id, &json_output(share), ResultStatus::Ok, false)));
+                p += 1;
+            }
+            if msg_bytes > 0 {
+                nodes.push((p, Node::user("s", None, "web", &"m".repeat(msg_bytes))));
+                p += 1;
+            }
+            let c = run(&nodes, Some(&first.compilation), &sp, p);
+            let e = c.estimate;
+            assert_eq!(e.method, EstimateMethod::Counted);
+            assert!(e.upper >= next, "{e:?} against {next}");
+            worst = worst.min(e.tokens as f64 / next as f64);
+        }
+        // At its worst, an 11 KB tool output read at 1.76 bytes a token, the
+        // estimate is 15 % low; the ring's bound covers it.
+        assert!(worst > 0.84, "{worst}");
+    }
+
+    /// GLM's tokenizer reads Theseus's requests at about four bytes a token
+    /// (×1.02 of chars/4, the cache2 lane), so its figures leave a GLM
+    /// conversation unrung where Sonnet 5.5's would ring the same bytes.
+    #[test]
+    fn a_glm_conversation_is_not_rung_early() {
+        let window = 200_000;
+        let mut glm = spec("glm-5.3-flash", "S");
+        glm.provider = "zai".into();
+        // A conversation that chars/4 puts at 65 % of the budget.
+        let budget = window - 1_000 - 4_096;
+        let text = "word ".repeat((budget * 65 / 100 * 4 / 6) as usize / 5);
+        let mut nodes = Vec::new();
+        for i in 0..6u64 {
+            nodes.push((i * 2 + 1, Node::user("s", None, "web", &text)));
+            nodes.push((
+                i * 2 + 2,
+                assistant(vec![json!({"type": "text", "text": "ok"})]),
+            ));
+        }
+        nodes.pop();
+        let c = run_in(&nodes, None, &glm, 11, window);
+        let chars4 = c.estimate.bytes / 4;
+        assert!(chars4 > budget * 64 / 100, "{chars4}");
+        assert_eq!(
+            c.trigger.as_deref(),
+            Some("new_session"),
+            "{:?}",
+            c.estimate
+        );
+        assert!(c.est_tokens < chars4 * 115 / 100, "{:?}", c.estimate);
+        // Counted, GLM's own count of 90 % of the budget does not ring.
+        let first = run_in(&hi(), None, &glm, 1, window);
+        let mut counted = hi();
+        counted.push((
+            2,
+            answered(
+                vec![json!({"type": "text", "text": "ok"})],
+                &first.compilation.id,
+                budget * 90 / 100,
+                2,
+            ),
+        ));
+        counted.push((3, Node::user("s", None, "web", "and then?")));
+        let c = run_in(&counted, Some(&first.compilation), &glm, 3, window);
+        assert_eq!(c.estimate.method, EstimateMethod::Counted);
+        assert!(!c.new_compilation, "{:?}", c.estimate);
     }
 }

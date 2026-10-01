@@ -70,6 +70,51 @@ pub struct CacheSummary {
     pub conversation_ttl: String,
 }
 
+/// How the compiler sized a request (theseus-f5hf): the provider's own count
+/// of what the request repeats, and the rest from its bytes at the catalog's
+/// figures.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct EstimateSummary {
+    /// What the provider will count: `counted` + `estimated`.
+    pub tokens: u64,
+    /// `counted` (part of it is the provider's count) or `bytes` (all of it
+    /// is from bytes).
+    pub method: String,
+    /// The provider's count of this compilation's last request (its input,
+    /// cache reads, and cache writes), plus its answer's output tokens.
+    pub counted: u64,
+    /// The rest, from its bytes at the catalog's `bytes_per_token`.
+    pub estimated: u64,
+    /// What the ring checks: `counted`, plus `estimated` and its margin.
+    pub upper: u64,
+    /// The request's bytes as JSON, base64 image data left out: the estimate
+    /// before theseus-f5hf was a fourth of it.
+    pub bytes: u64,
+    /// The whole request's bytes by class.
+    pub census: CensusSummary,
+}
+
+/// A request's bytes by how densely a tokenizer reads them (theseus-f5hf).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct CensusSummary {
+    /// Tool schemas, tool inputs, and tool results, in bytes.
+    pub json: u64,
+    /// The system's text and the messages' text and thinking, in bytes.
+    pub text: u64,
+    /// Thinking signatures and redacted thinking, in bytes.
+    pub opaque: u64,
+    /// Messages, and the system's blocks.
+    pub messages: u64,
+    /// Content blocks.
+    pub blocks: u64,
+    /// Tool call ids, in `tool_use` and `tool_result` blocks.
+    pub ids: u64,
+}
+
 /// `context.compiled`: the context a loop's request was compiled from
 /// (§3.13). The `context.compiled` ledger row and the trace's compile span
 /// carry the same.
@@ -93,6 +138,11 @@ pub struct ContextCompiled {
     pub tail_nodes: u64,
     pub messages: u64,
     pub est_tokens: u64,
+    /// How `est_tokens` was reached (theseus-f5hf); absent in rows written
+    /// before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub estimate: Option<EstimateSummary>,
     pub digest: String,
     /// The tool calls that had no result, given a synthetic one.
     pub repairs: Vec<String>,

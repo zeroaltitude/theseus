@@ -810,6 +810,7 @@ fn typed_model_thinking_and_context() {
         tail_nodes: 6,
         messages: 7,
         est_tokens: 4210,
+        estimate: None,
         digest: "9f2c1a0b7d3e4f51".into(),
         repairs: if recompile {
             vec!["tu_lost1".into()]

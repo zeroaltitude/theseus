@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use theseus_protocol::Usage;
 
+use crate::catalog::TokenRates;
 use crate::secrets::{Secret, SecretBoard};
 
 pub const API_VERSION: &str = "2023-06-01";
@@ -106,27 +107,172 @@ impl ProviderRequest {
         theseus_kernel::digest_json(&self.body())
     }
 
-    /// Rough size of the prompt in tokens (chars / 4) for budgeting. An
-    /// image's base64 is not text the model reads: its characters are left
-    /// out and its estimated tokens counted instead (theseus-9g2), or a
-    /// 1 MB PNG would reserve about 333,000 tokens.
+    /// The prompt's size in tokens at its model's built-in figures
+    /// ([`TokenRates::of`]), from its bytes by class ([`Census`]), images by
+    /// their tiles (theseus-9g2). The compiler estimates with the catalog's
+    /// figures, a config's included, and from a compilation's second call
+    /// on adds to the provider's own count of the last request instead
+    /// (`compiler::Estimate`, theseus-f5hf).
     pub fn estimate_tokens(&self) -> u64 {
-        let chars = serde_json::to_string(&self.system)
-            .map(|s| s.len())
-            .unwrap_or(0)
-            + serde_json::to_string(&self.tools)
-                .map(|s| s.len())
-                .unwrap_or(0)
-            + serde_json::to_string(&self.messages)
-                .map(|s| s.len())
-                .unwrap_or(0);
+        self.census().tokens(TokenRates::of(&self.model)) + self.image_tokens
+    }
+
+    /// The request's bytes by class (theseus-f5hf): the tools, the system,
+    /// and the messages.
+    pub fn census(&self) -> Census {
+        let mut c = Census::of_messages(&self.messages);
+        for t in &self.tools {
+            c.json += json_len(t);
+        }
+        for b in &self.system {
+            c.messages += 1;
+            c.text += str_len(&b["text"]);
+        }
+        c
+    }
+
+    /// The bytes of the system, the tools, and the messages as JSON, base64
+    /// image data left out: what the estimate before theseus-f5hf divided by
+    /// four, kept so a `context.compiled` row can be read against it.
+    pub fn json_bytes(&self) -> u64 {
         let data: usize = self
             .messages
             .iter()
             .map(|m| base64_chars(&m["content"]))
             .sum();
-        (chars.saturating_sub(data) / 4) as u64 + self.image_tokens
+        (json_len(&self.system) + json_len(&self.tools) + json_len(&self.messages))
+            .saturating_sub(data as u64)
     }
+}
+
+/// Tokens of framing a message costs, its role and turn markers. In Eddie's
+/// DM an answer and a short message cost 6 more than the answer's output
+/// tokens and the message's text (the tokens lane, 2026-10-01).
+pub const MESSAGE_TOKENS: u64 = 3;
+/// Tokens of framing a content block costs.
+pub const BLOCK_TOKENS: u64 = 1;
+/// Tokens a tool call's id costs, in its `tool_use` block and again in its
+/// `tool_result`: the provider assigns it, so an answer's output tokens
+/// leave it out. Fitted to Eddie's DM, where each call and result after a
+/// counted request cost about 15 tokens more than their content.
+pub const ID_TOKENS: u64 = 15;
+/// Bytes a token of a thinking block's signature, or of redacted thinking:
+/// the provider counts the thinking they carry, not their bytes. A
+/// signature runs about 3 to 16 bytes for each token of the thinking it
+/// carries (Eddie's DM), so a fourth over-counts it, the safe side. Only a
+/// request with no counted part estimates thinking at all.
+pub const OPAQUE_BYTES_PER_TOKEN: f64 = 4.0;
+/// The densest figure a catalog row may set: a config's 0 would divide by
+/// nothing.
+const DENSEST_BYTES_PER_TOKEN: f64 = 0.5;
+
+/// A request's bytes by how densely a tokenizer reads them (theseus-f5hf).
+/// Base64 image data is left out: an image counts by its tiles
+/// (`ProviderRequest::image_tokens`, theseus-9g2). JSON's own punctuation is
+/// left out too: the provider frames messages and blocks with a few tokens
+/// each, whatever their JSON.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Census {
+    /// Tool schemas, tool inputs, and tool results, in bytes.
+    pub json: u64,
+    /// The system's text and the messages' text and thinking, in bytes.
+    pub text: u64,
+    /// Thinking signatures and redacted thinking, in bytes.
+    pub opaque: u64,
+    /// Messages, and the system's blocks.
+    pub messages: u64,
+    /// Content blocks.
+    pub blocks: u64,
+    /// Tool call ids, in `tool_use` and `tool_result` blocks.
+    pub ids: u64,
+}
+
+impl Census {
+    /// The bytes of `messages`, a request's or the end of one.
+    pub fn of_messages(messages: &[Value]) -> Census {
+        let mut c = Census::default();
+        for m in messages {
+            c.messages += 1;
+            match &m["content"] {
+                Value::String(s) => {
+                    c.blocks += 1;
+                    c.text += s.len() as u64;
+                }
+                Value::Array(blocks) => blocks.iter().for_each(|b| c.block(b)),
+                _ => {}
+            }
+        }
+        c
+    }
+
+    fn block(&mut self, b: &Value) {
+        self.blocks += 1;
+        match b.get("type").and_then(Value::as_str) {
+            Some("text") => self.text += str_len(&b["text"]),
+            Some("thinking") => {
+                self.text += str_len(&b["thinking"]);
+                self.opaque += str_len(&b["signature"]);
+            }
+            Some("redacted_thinking") => self.opaque += str_len(&b["data"]),
+            Some("image") => {}
+            Some("tool_use") => {
+                self.ids += 1;
+                self.json += str_len(&b["name"]) + json_len(&b["input"]);
+            }
+            Some("tool_result") => {
+                self.ids += 1;
+                match &b["content"] {
+                    Value::String(s) => self.json += s.len() as u64,
+                    Value::Array(inner) => {
+                        for x in inner {
+                            self.blocks += 1;
+                            match x.get("type").and_then(Value::as_str) {
+                                Some("text") => self.json += str_len(&x["text"]),
+                                Some("image") => {}
+                                _ => self.json += json_len(x),
+                            }
+                        }
+                    }
+                    Value::Null => {}
+                    other => self.json += json_len(other),
+                }
+            }
+            // A block Theseus does not model: its JSON.
+            _ => self.json += json_len(b),
+        }
+    }
+
+    /// The tokens these bytes come to at `rates`, framing included.
+    pub fn tokens(&self, rates: TokenRates) -> u64 {
+        let at =
+            |bytes: u64, per: f64| (bytes as f64 / per.max(DENSEST_BYTES_PER_TOKEN)).ceil() as u64;
+        at(self.json, rates.json)
+            + at(self.text, rates.text)
+            + at(self.opaque, OPAQUE_BYTES_PER_TOKEN)
+            + self.messages * MESSAGE_TOKENS
+            + self.blocks * BLOCK_TOKENS
+            + self.ids * ID_TOKENS
+    }
+}
+
+fn str_len(v: &Value) -> u64 {
+    v.as_str().map_or(0, |s| s.len() as u64)
+}
+
+/// The length of `v` as compact JSON, without building the string.
+fn json_len<T: Serialize + ?Sized>(v: &T) -> u64 {
+    struct Count(u64);
+    impl std::io::Write for Count {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len() as u64;
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut n = Count(0);
+    serde_json::to_writer(&mut n, v).map_or(0, |_| n.0)
 }
 
 /// Characters of base64 image data in a message's content, tool results

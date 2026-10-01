@@ -2587,6 +2587,11 @@ async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
     let est = ledgered(&r, "context.compiled")[0]["est_tokens"]
         .as_u64()
         .unwrap();
+    // The estimate reads the tool schemas at the catalog's figures, above
+    // chars/4, and the reservation follows it (theseus-f5hf).
+    let estimate = &ledgered(&r, "context.compiled")[0]["estimate"];
+    assert_eq!(estimate["tokens"], est, "{estimate}");
+    assert!(est > estimate["bytes"].as_u64().unwrap() / 4, "{estimate}");
     let planned = ledgered(&r, "action.planned");
     let call = planned
         .iter()
