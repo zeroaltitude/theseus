@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.63
+# The Ship of Theseus — v0.64
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -582,6 +582,16 @@ Rules: one execution per session, one turn at a time per execution; an execution
 - **Once.** A stop is one frame. After a crash, startup does not resume a turn that a stop had stopped. A task cannot be stopped; its cancel ends it.
 - `/new` alone starts a fresh session.
 
+**A continuation's model** (theseus-kol; built 2026-09-30). A continuation is a turn no input started: a job's late result, a restart's resume, the retry of a failed turn, a wake's or a report's turn. It runs on what the session's last turn ran on (its profile, provider, and model), never on the live profile. So a conversation does not change model under its own thinking blocks, and a `-P glm` turn's job is answered by GLM.
+- A turn records its target from its start, in the session record. An input that changes it writes it in the input's own frame. Every other session write the turn makes (a recompile's, a failure's, its end's) carries it, so a crash or a failed call leaves it as the turn ran.
+- A profile no longer configured gives its provider and model under the live profile's settings. Only a session with neither runs on the live profile, and §4.4's thinking rule then keeps the old provider's thinking out.
+
+**A failed continuation keeps its input** (theseus-kol). What a turn writes before its model call (a late result, a restart's placeholder, a wake's or a report's node) stays in the session, unread.
+- A continuation that finds results after the model's last answer calls the model. It was woken to have them read: a failure's or a fault's retry, a late result taken at a turn's end, or a crash. It never ends `nothing_new` on them.
+- A result leaves the execution's queue only in the frame that writes it into the session (§4.6).
+- A turn that stops short of its results by its own decision (its loop cap, `/stop`) parks on input, and nothing wakes it without writing something new.
+- A failure, transient or not, is retried by the driver with its backoff (2 s, doubling, capped at 256 s). Until theseus-ljr, one that recurs is retried without end, with a notice each time.
+
 _(theseus-id9; Part III A3c.)_
 
 ### 3.16 External actions and completions
@@ -686,6 +696,8 @@ The core is a **server**. Nothing else in the system, not the CLI, not Discord, 
 **Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. _(Wakes, theseus-cff: `wake.list { session_id?, target? }` reads, `wake.cancel { wake, author? }` acts and waits at the config gate, and health's `wakes` lists every pending wake. A cancel's author is the request's `author`, else the surface's name, `the CLI` or `the web UI`, for executions, tasks, and wakes. The CLI has `theseus wakes` and `theseus cancel <id>`, for a wake or a task. Discord has `/wakes` and `/cancel id:<id>`, for a task or a wake; DD7 named the option `task`.)_ It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session. `policy.tighten` and `policy.untighten`, with the `policy.tightened` and `policy.untightened` notifications, arrived with "should have asked" (theseus-sgh).)_
 
 **Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. Both are static musl binaries.
+
+**A stop always answers** (theseus-ur0; built 2026-09-30). A client's `shutdown` is answered before the daemon stops. Its method writes `server.stopping` and the checkpoint, its connection writes and flushes the answer, and only then are the serving loops woken (bounded at 1 s, for a client that stopped reading). Every transport goes through the same connection path, so each answers a stop before it lands. A restart onto a changed vault note stops at once, since no client waits. So `theseus shutdown && theseusd …` starts the next build every time.
 
 ### 3.19 Configuration and secrets
 
@@ -983,7 +995,12 @@ The **indexer** turns "everything is eligible" into a few hundred candidates: ex
 
 ### 4.4 The context compiler
 
-Graph selection yields node ids; the **compiler** turns them into a valid provider request. Its contract: preserve tool-call/tool-result pairing (never emit one without the other), preserve message ordering within a channel, honour model-specific constraints (thinking blocks tied to the model that produced them; no forced tool use on models that reject it), truncate only at message boundaries (the ring never cuts inside a message or a tool pair), and emit a **manifest** that records node ids, compiler version, renderer version, binding revision, model, and pack versions, so a turn can be reproduced faithfully from the ledger. The compiler takes the **session** (§3.2a) as its first input: the session's roots decide where traversal starts, so a task session compiles from its `Task` node outward (evidence, subtasks, the originating conversation as a secondary root, recalled memory) while a conversation session compiles from the channel's temporal view; both then pass through the same budgeter, labels, and manifest. The compiler is deterministic and unit-tested in the simulator against every strategy in §4.2. **Reproducibility** requires more than node ids because projections mutate: the manifest records an **as-of WAL position**, tool-schema versions, role versions (and hook versions, until the hook system was deleted on 2026-09-28), pack versions, binding revision, model, and every prompt-affecting transformation, plus a **canonical request digest** so a reconstruction can be verified byte-for-byte. Judgment records likewise store the bounded state itself (or enough versioned references to rebuild it), not only its hash and size.
+Graph selection yields node ids; the **compiler** turns them into a valid provider request. Its contract: preserve tool-call/tool-result pairing (never emit one without the other), preserve message ordering within a channel, honour model-specific constraints (thinking blocks tied to the provider and model that produced them, below; no forced tool use on models that reject it), truncate only at message boundaries (the ring never cuts inside a message or a tool pair), and emit a **manifest** that records node ids, compiler version, renderer version, binding revision, model, and pack versions, so a turn can be reproduced faithfully from the ledger. The compiler takes the **session** (§3.2a) as its first input: the session's roots decide where traversal starts, so a task session compiles from its `Task` node outward (evidence, subtasks, the originating conversation as a secondary root, recalled memory) while a conversation session compiles from the channel's temporal view; both then pass through the same budgeter, labels, and manifest. The compiler is deterministic and unit-tested in the simulator against every strategy in §4.2. **Reproducibility** requires more than node ids because projections mutate: the manifest records an **as-of WAL position**, tool-schema versions, role versions (and hook versions, until the hook system was deleted on 2026-09-28), pack versions, binding revision, model, and every prompt-affecting transformation, plus a **canonical request digest** so a reconstruction can be verified byte-for-byte. Judgment records likewise store the bounded state itself (or enough versioned references to rebuild it), not only its hash and size.
+
+**Thinking goes back only to its own provider** (theseus-kol; built 2026-09-30). Thinking is replayed byte for byte, and only to the provider that wrote it.
+- An assistant message another provider wrote is rendered without its thinking blocks, wherever it sits, since a signature is its own provider's to verify (Anthropic refused GLM's with a 400).
+- Every recompile strips the prefix's thinking: a system, tools, model, or provider change, a ring, fresh, or transcript. The earlier model's reasoning goes; its text, calls, and results stay.
+- Within one provider, a message keeps its thinking byte for byte, a tool loop's last message included, as the provider requires. The rule compares providers, not models, since a node records the model that served it, which can differ from the one asked for. A model change is caught at the compilation, whose manifest records the model asked for.
 
 **Context files** (2026-09-29; theseus-58a, 76e7d35, a29e9f7; two levels since theseus-c48, 68cb127). The config names files that the compiler puts into the system block, in two levels. In Eddie's words: "Context files by persona with a system/default level", and "the Jev will classify which persona is in play, based on a dynamic, growing ontology of personas. Pre-jev, it will always pick the system/default persona."
 - **The system level,** `[context] files`: the files every session gets.
@@ -1107,6 +1124,10 @@ Inbound `Message` nodes; the turn trace (§3.3a); the `Compilation` node when th
   plan, authorization, and dispatch; its completion; and the turn's end with its session write. Each
   further loop with one in-process tool call writes 4. `tests_m3::a_plain_turn_stays_within_its_frame_budget`
   holds the first number.
+- A turn's target rides in its input's frame when it differs from the session's last (a session's first
+  turn, a profile switch): one record more, in a frame the turn writes anyway (theseus-kol).
+- A late result's node rides in the frame that takes it from the execution's queue, with its
+  `tool.late_result` row (`Kernel::take_results_with`), so no crash between them can lose it (theseus-kol).
 - A turn reads its session's transcript once, at its first reader, and every node its frames write
   joins that view. No reader in the turn decodes the transcript again: not resume, not absorb, not the
   check for anything new, and not each loop's compile.
@@ -1930,7 +1951,7 @@ M3 was built in three parts: **content** (the session graph, the context compile
 **What exists.**
 
 - **The session graph as nodes** (§4.4b, §6.1). `NODE` records scoped to their session: `user_message`; `assistant_message` with the provider's content blocks kept byte for byte (thinking blocks and their signatures included), model, provider, stop reason, usage, dollars, the catalog version that priced them, request id, the action's correlation id, the compilation id, and the request digest; `tool_call` with the tool's canonical and wire names, the input, and the gate's record (validation, the policy decision and its reason, the plan, the proposal digest); `tool_result` with a status (`ok`, `error`, `denied`, `background`, `unknown`, `cancelled`), the scrubbed and capped content, bytes, truncation with a reference to the full output in the spool, duration, a `late` flag, and meta (exit code). Each node is written in the frame of the kernel transition that produced it (§4.6 now says so).
-- **The context compiler** (§4.4, §4.4a, simplest form). A **compilation** is a frozen prefix (node ids) with a manifest (compiler and renderer versions, profile, provider, model, system digest, tool digest and names, catalog version, context window, whether prefix thinking is stripped, and, since 2026-09-29, the context files it carried, A4) and an as-of position; every node after it is the **tail**. Each loop answers *append or recompile*, deterministically: `new_session`, `model_changed`, `system_changed`, `tools_changed`, `overflow` (a ring that drops leading turns at a user-message boundary until the estimate is under 60 % of the window less output and headroom), `manual_fresh` (keep only the current exchange, from the latest operator message), `manual_transcript`. The renderer is byte-stable: a later request's messages begin with the earlier request's messages unchanged, and a test asserts it. Parallel tool results go in one user message after their assistant message; late results render as `[Background result for your earlier … call]`; a tool use with no recorded result gets a synthetic error result and is listed in the decision's `repairs`. Thinking is replayed byte for byte and stripped only from the prefix at a recompile that edits history (system or tools change, ring, fresh, transcript); a model change keeps it. Caching: `cache_control` on the system block plus top-level automatic caching. A new compilation is persisted with its `derived_from` edge, the session update, and a `context.recompiled` row in one frame; every loop ledgers `context.compiled` (decision, trigger, prefix and tail sizes, messages, estimated tokens, digest, repairs).
+- **The context compiler** (§4.4, §4.4a, simplest form). A **compilation** is a frozen prefix (node ids) with a manifest (compiler and renderer versions, profile, provider, model, system digest, tool digest and names, catalog version, context window, whether prefix thinking is stripped, and, since 2026-09-29, the context files it carried, A4) and an as-of position; every node after it is the **tail**. Each loop answers *append or recompile*, deterministically: `new_session`, `model_changed`, `system_changed`, `tools_changed`, `overflow` (a ring that drops leading turns at a user-message boundary until the estimate is under 60 % of the window less output and headroom), `manual_fresh` (keep only the current exchange, from the latest operator message), `manual_transcript`. The renderer is byte-stable: a later request's messages begin with the earlier request's messages unchanged, and a test asserts it. Parallel tool results go in one user message after their assistant message; late results render as `[Background result for your earlier … call]`; a tool use with no recorded result gets a synthetic error result and is listed in the decision's `repairs`. Thinking is replayed byte for byte and stripped only from the prefix at a recompile that edits history (system or tools change, ring, fresh, transcript); a model change keeps it. _(Changed 2026-09-30, theseus-kol: every recompile now strips the prefix's thinking, a model change included, and another provider's thinking is never sent. See §4.4 and A4 Item 12.)_ Caching: `cache_control` on the system block plus top-level automatic caching. A new compilation is persisted with its `derived_from` edge, the session update, and a `context.recompiled` row in one frame; every loop ledgers `context.compiled` (decision, trigger, prefix and tail sizes, messages, estimated tokens, digest, repairs).
 - **The model catalog** (theseus-5xn, P5). Built-in version `2026-09-26.1`, eleven models (Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5, Haiku 4.5, GLM 5.3, 5.2, 5.3-flash, 5.3-flashx), each with provider, context window, maximum output, prices per million tokens (input, output, cache read, cache write), thinking mode (`adaptive`, `always`, `budget`, `none`), effort support, server-side refusal fallbacks, cache minimum, and the source it was taken from. `[catalog."<id>"]` overrides or adds rows and the version becomes `…+config:N`. Consumers: a profile without `max_output_tokens` gets the model's real ceiling; overflow uses the window; every assistant node, turn result, and `provider.call` row carries dollars and the catalog version; health reports the total. An unknown model runs with a startup warning and unknown cost.
 - **Request building from the catalog.** Adaptive thinking with display `summarized`, `omitted`, or `updates` (with its beta header, on the models that have it), `output_config.effort`, refusal fallbacks (beta) on first-party calls to models that support them, `eager_input_streaming` on every tool. A tool input that arrives as invalid JSON goes back to the model as an `INVALID_JSON` error result instead of failing the call, and no tool runs on a `max_tokens` or `refusal` stop.
 - **The toollets** (§3.23, §3.24), crate `theseus-tools`: `fs.read` (numbered lines, paging, binary detection), `fs.write` (atomic), `fs.edit` (exact match with occurrence control, returns the diff), `fs.patch` (multi-file unified diffs, atomic, create and delete), `fs.glob` and `fs.list` (gitignore-aware walker), `fs.grep` (ripgrep's searcher and regex crates; content, files, or counts, with context), `text.diff`, `git.diff` and `git.log` (native through `gix`; no `git` binary), and `proc.run` (typed argv, the only shell path). Each declares its class (read, write, run), backend (in-process or job), retry class, and a `plan` naming the resources and argv the gate judges.
@@ -4627,3 +4648,93 @@ unbound guild channel acted on his DM, and an unbound daemon answered every inte
 - **Installed at 17:10** from 3aa72a8.
 - **Taken at review:** theseus-ur0 (P1, the gate's flake under the lanes' load) goes with theseus-kol in fix
   batch 1's head. theseus-c3e (P3) keeps Discord-enabled scratch daemons on fresh stores.
+
+### Item 12. Fix batch 1's head: a continuation keeps its profile, and a stop always answers (theseus-kol, theseus-ur0; 2026-09-30, 17:14–17:59; 13adef6, be71fdc)
+
+**Why.** F4a's review found that a `-P glm` turn cut by a SIGKILL continued on the live profile (Sonnet),
+that Anthropic refused GLM's replayed thinking block (400, "Invalid `signature` in `thinking` block"), and
+that the retry ended `nothing_new`, so the job's result was never answered. T1b's review saw the lost stop
+answer (theseus-ur0) fail the gate under the parallel lanes' load. The roadmap's re-cut made this the spine's
+first step after T1b.
+
+**What exists.**
+- **ur0, a stop always answers** (§3.18). `shutdown`'s method only prepares (`Core::stopping`: the row and
+  the checkpoint). The connection that asked queues the answer, asks its writer to flush everything queued
+  before the ask, and wakes the serving loops once it has (`Core::wake_after_answer`, bounded at 1 s). The
+  socket loop registers its stop waiter once, before the loop, so a stop that lands while it takes a
+  connection is not missed.
+- **A, a continuation runs on its session's profile** (§3.15). `run_inner` records the turn's target from its
+  start. An input that changes it writes it in the input's frame, and every other session write carries it.
+  A vanished profile falls back to its provider and model under the live settings, then to the live
+  profile.
+- **B, thinking goes back only to its own provider** (§4.4). `render_messages` drops the thinking blocks of
+  any assistant message another provider wrote. Every recompile strips the prefix's thinking, a model change
+  included.
+- **C, a failed continuation keeps its input** (§3.15, §4.6). `has_news` counts results after the model's
+  last answer as news for every continuation, not only a task's. `Kernel::take_results_with` takes the queue
+  and writes the late results' nodes in one frame. The same rule answers a late result that landed during a
+  turn, which was answered `nothing_new` before.
+- No record layout changed: no `kinds::SCHEMAS` bump, and T1b's build opens a store be71fdc wrote.
+
+**How it is proven.**
+- The gate at be71fdc ran 535 tests, 9 of them new:
+  - `tests_continuations`, five in-process tests with two scripted providers: the 529 and the 400 retry, a
+    failed turn's profile, a result landing during a turn, the queue's frame, and GLM's thinking never
+    reaching Anthropic;
+  - `theseusd/tests/continuations.rs`, three real-daemon tests: a late result's turn, a restart's
+    continuation, and a wake's turn, each on the profile that started it;
+  - ur0's unit test.
+
+  Two were changed: B's request-builder test, and the model-change test. Each fix was switched off once and
+  its test failed as the bug did. The frame budget still holds 5.
+- Stress, release, under 8 busy loops: 0 of 201 stop answers lost on 13adef6, against 26 of 201 on T1b's
+  build. The versions test passed 20 of 20 under the same load.
+- The step's live check, on a copy of Eddie's store with the live profile at `default` (Sonnet):
+  - a SIGKILLed `-P glm` job's restart and late result both ran on glm, and GLM answered "Exit code 0.";
+  - Sonnet then answered in the same session, with GLM's thinking dropped;
+  - with glm's profile and provider removed from the config, the cut tool loop (GLM's `thinking` and
+    `tool_use`, the 400's own shape) continued on Sonnet and was accepted;
+  - 120 stops, each followed at once by a start, lost no answer.
+
+**Divergence from the brief and the issues.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| A model change keeps the prefix's thinking (§4.4) | Every recompile strips it, and another provider's is never sent | A signature is its own provider's to verify; GLM's drew a 400 | §4.4 amended |
+| B: drop thinking from "another provider or model" | The per-message rule compares providers; the compilation catches a model change | A node records the served model, which can differ from the one asked for, and a tool loop's own thinking must go back | Keep |
+| A continuation reuses the session's last target (M3) | It does, and the target is recorded from the turn's start, with a fallback when its profile is gone | A crash or a failure left the previous turn's target, or none | §3.15 amended |
+| Results after the last answer start a turn only in a task (DD7) | In every continuation | Each continuation that finds them was woken for them | §3.15 amended |
+| ur0: wake the loops once the answer is flushed | That, plus the socket loop's waiter registered before the loop | `notify_waiters` wakes only registered waiters | Keep |
+
+**Known gaps.**
+- A failure that recurs is retried without end, with a notice each time (theseus-ljr). It was already true
+  for input turns, and a continuation with unread results now retries too.
+- A failed wake's or report's turn: the retry answers its node, but posts without the `⏰ wake` line and to
+  the session's current place (theseus-4lx).
+- The fallback for a vanished profile takes the live profile's `max_output_tokens`, which could exceed the
+  session model's ceiling. Left as is, since it needs both.
+
+**Reviewed** (Tabitha, 2026-09-30, 18:09 to 18:20).
+- **The gate rerun** at be71fdc, with the lanes paused: 535 tests, lifecycle OK. It passed first time.
+- **Reading the code.**
+  - ur0's writer drains everything queued before the flush ask, and the answer is queued first, on the same
+    channel. A writer that is gone drops the ack, so a stop never hangs.
+  - A's changed target rides in the input's frame, so a plain turn writes no extra frame.
+  - B compares each node's recorded provider. `provider` is a required field of `assistant_message`, so an
+    old session's thinking stays with its own provider.
+  - C's frame keeps the queue and the node together.
+- **A live check on the release build of be71fdc**, over a fresh copy of Eddie's store (Discord and the web
+  UI off; the live profile `default`, Sonnet). An `ask -P glm` turn ran `sleep 20` through `proc.run`, and
+  the daemon was SIGKILLed 3 s into the job and restarted.
+  - The ledger shows three `turn.started` rows (the input, the restart's continuation, and the late
+    result's turn), all on glm (`zai`, `glm-5.3-flash`), three `provider.call` rows to `zai`, and no
+    `provider.error`.
+  - GLM answered "Exit code 0 — reviewed."
+  - Ten `theseus shutdown`s, each followed at once by a start, lost no answer and failed no start.
+- Eddie's unchanged note loads under the new binary.
+- **Installed at 18:18** from be71fdc.
+- **Taken at review:**
+  - theseus-ljr is raised to P1 and goes into fix batch 1's rest, since a recurring 400 would now post a
+    notice every few minutes in a DM.
+  - The hardening lane's H3 changed `absorb` too (deleting a job's raw output once absorbed), so its join
+    must re-apply that delete after be71fdc's single frame.
