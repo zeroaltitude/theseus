@@ -1,0 +1,21 @@
+[package]
+name = "theseus-ontology"
+description = "The fungible ontology's first slice (spec §4.1a): the kinds table and its validation, categories, guidance, memberships, and the compile walk's composition. Pure: no store, no labels, no policy."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hex = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

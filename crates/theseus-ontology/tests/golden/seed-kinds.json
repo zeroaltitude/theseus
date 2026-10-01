@@ -1,0 +1,48 @@
+[
+  {
+    "name": "guild",
+    "basis": "given",
+    "assigned_by": ["transport"],
+    "per_session": 1,
+    "precedence": 10,
+    "rule": "chain",
+    "description": "The server a session's place is in, from the transport.",
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "channel",
+    "basis": "given",
+    "assigned_by": ["transport"],
+    "per_session": 1,
+    "parent": "guild",
+    "precedence": 20,
+    "rule": "chain",
+    "description": "The place a session lives in, from the transport. A channel's parent is its guild.",
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "person",
+    "basis": "given",
+    "assigned_by": ["transport"],
+    "per_session": "many",
+    "precedence": 30,
+    "rule": "intent_line",
+    "description": "The people a session talks with, from the transport: a DM's user, or a channel's listed users.",
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "topic",
+    "basis": "interpreted",
+    "assigned_by": ["operator"],
+    "per_session": 3,
+    "parent": "topic",
+    "precedence": 40,
+    "rule": "chain",
+    "description": "What a session is about, declared by the operator. Topics nest.",
+    "version": 1,
+    "added_by": "seed"
+  }
+]

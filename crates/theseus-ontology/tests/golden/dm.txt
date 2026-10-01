@@ -1,0 +1,19 @@
+# Guidance
+
+The sections below are guidance for the categories this session belongs to. Where two disagree, the later one governs.
+
+# Guidance (person)
+
+- Eddie: The owner. Approves the work, and likes short answers.
+
+# Guidance (topic theseus)
+
+Theseus is Eddie's Rust agent harness. Its spec, The Ship of Theseus, holds the design and the as-built record.
+
+# Guidance (topic theseus › rust-harness)
+
+Run the gate before every commit:
+
+    scripts/gate.sh && git commit -S
+
+Never hand-merge Cargo.lock.

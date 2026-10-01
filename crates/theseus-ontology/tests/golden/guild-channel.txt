@@ -1,0 +1,32 @@
+# Guidance
+
+The sections below are guidance for the categories this session belongs to. Where two disagree, the later one governs.
+
+# Guidance (guild BigHat)
+
+This is BigHat's server. Keep work talk professional, and never paste secrets here.
+
+# Guidance (channel BigHat › general)
+
+The general channel is shared with the whole team: answer briefly, and move long work to a thread.
+
+# Guidance (person)
+
+- Eddie: The owner. Approves the work, and likes short answers.
+- Sam: A teammate. Explain the context that may be missing.
+
+# Guidance (topic cooking)
+
+Metric units.
+
+# Guidance (topic theseus)
+
+Theseus is Eddie's Rust agent harness. Its spec, The Ship of Theseus, holds the design and the as-built record.
+
+# Guidance (topic theseus › rust-harness)
+
+Run the gate before every commit:
+
+    scripts/gate.sh && git commit -S
+
+Never hand-merge Cargo.lock.

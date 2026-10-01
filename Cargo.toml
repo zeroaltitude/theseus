@@ -9,6 +9,7 @@ members = [
     "crates/theseus-sim",
     "crates/theseus-core",
     "crates/theseus-discord",
+    "crates/theseus-ontology",
     "crates/theseusd",
     "crates/theseus",
 ]

@@ -2974,6 +2974,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "theseus-ontology"
+version = "0.0.1"
+dependencies = [
+ "hex",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror",
+]
+
+[[package]]
 name = "theseus-protocol"
 version = "0.0.1"
 dependencies = [
