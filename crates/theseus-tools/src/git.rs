@@ -74,6 +74,51 @@ fn worktree_blob_id(data: &[u8]) -> Option<gix::ObjectId> {
     gix::objs::compute_hash(gix::hash::Kind::Sha1, gix::objs::Kind::Blob, data).ok()
 }
 
+/// What the working tree holds at the tree path `p`, read as git reads it
+/// (theseus-skc): a file's bytes, or a symbolic link's target as its bytes,
+/// never what the link points at. A link's text is its blob in git, so an
+/// unchanged link compares equal and a retargeted one diffs as text. A path
+/// under a directory that is itself a link is not in the working tree, as
+/// git sees it ("beyond a symbolic link"). The roots and the floor are
+/// checked on the repository's path only, so a link committed in a cloned
+/// repository (`notes -> ~/.ssh/id_ed25519`) or one into the state dir would
+/// otherwise put its target's text in the diff, the model's context, and
+/// the store. `None`: nothing there that git would read. `real_dirs`
+/// remembers each leading directory checked, across one diff's paths.
+fn worktree_bytes(wd: &Path, p: &str, real_dirs: &mut BTreeMap<PathBuf, bool>) -> Option<Vec<u8>> {
+    use std::os::unix::ffi::OsStrExt;
+    let rel = Path::new(p);
+    // Plain names only: a crafted tree's `..` or absolute entry, which git
+    // refuses to check out, would take `wd.join` out of the working tree.
+    if !rel
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
+    {
+        return None;
+    }
+    let mut dir = wd.to_path_buf();
+    for part in rel.parent().into_iter().flat_map(Path::components) {
+        dir.push(part);
+        let real = *real_dirs
+            .entry(dir.clone())
+            .or_insert_with(|| fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()));
+        if !real {
+            return None;
+        }
+    }
+    let path = wd.join(rel);
+    let meta = fs::symlink_metadata(&path).ok()?;
+    if meta.file_type().is_symlink() {
+        return fs::read_link(&path)
+            .ok()
+            .map(|t| t.as_os_str().as_bytes().to_vec());
+    }
+    if !meta.is_file() {
+        return None;
+    }
+    fs::read(&path).ok()
+}
+
 fn file_diff(
     path: &str,
     old: Option<&str>,
@@ -227,13 +272,13 @@ impl Tool for Diff {
             }
         } else {
             let tree = tree_blobs(&repo, &rev)?;
+            let mut real_dirs = BTreeMap::new();
             for (p, id) in &tree {
                 if !keep(p) {
                     continue;
                 }
-                let on_disk = wd.join(p);
-                match fs::read(&on_disk) {
-                    Ok(data) => {
+                match worktree_bytes(&wd, p, &mut real_dirs) {
+                    Some(data) => {
                         if worktree_blob_id(&data) == Some(*id) {
                             continue;
                         }
@@ -246,7 +291,7 @@ impl Tool for Diff {
                             binary,
                         ));
                     }
-                    Err(_) => {
+                    None => {
                         let old = blob_text(&repo, *id)?;
                         changes.push((
                             p.clone(),
@@ -565,5 +610,110 @@ mod tests {
         assert!(Diff.run(&json!({"rev": "nope"}), &c).is_err());
         assert!(fmt_date(0).starts_with("1970-01-01"));
         assert!(fmt_date(1_790_000_000).starts_with("2026-"));
+    }
+
+    /// Review 2's H4 (theseus-skc): symbolic links in the working tree are
+    /// read as git reads them, as their target's path, never through. One
+    /// link points outside the roots, one at a floor path (a state dir's
+    /// store, as `~/.theseus/store` is on the floor), and one directory is
+    /// replaced by a link: no target's text reaches any diff.
+    #[test]
+    fn diff_never_reads_through_a_symlink_in_the_working_tree() {
+        use std::os::unix::fs::symlink;
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("repo");
+        let outside = d.path().join("outside");
+        let floor = d.path().join("state/store");
+        for dir in [&root, &outside, &floor] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        fs::write(outside.join("secret.txt"), "OUTSIDE-SECRET-7f3a\n").unwrap();
+        fs::write(outside.join("other.txt"), "OUTSIDE-OTHER-2b8d\n").unwrap();
+        fs::write(outside.join("x.txt"), "OUTSIDE-DIR-SECRET-5e0c\n").unwrap();
+        fs::write(floor.join("index.txt"), "FLOOR-SECRET-9c1e\n").unwrap();
+        git(&root, &["init", "-q", "-b", "main"]);
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        fs::create_dir(root.join("sub")).unwrap();
+        fs::write(root.join("sub/x.txt"), "committed\n").unwrap();
+        symlink(outside.join("secret.txt"), root.join("notes")).unwrap();
+        symlink(floor.join("index.txt"), root.join("key")).unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "links"]);
+        let c = ToolCtx::for_tests(&root);
+        let leaks = |text: &str| {
+            ["OUTSIDE-", "FLOOR-SECRET"]
+                .iter()
+                .any(|s| text.contains(s))
+        };
+
+        // Committed links, unchanged: the same as their blobs, so no change.
+        let same = Diff.run(&json!({}), &c).unwrap();
+        assert!(same.text.starts_with("No changes"), "{}", same.text);
+
+        // A link retargeted in the working tree diffs as its path's text.
+        fs::remove_file(root.join("notes")).unwrap();
+        symlink(outside.join("other.txt"), root.join("notes")).unwrap();
+        let moved = Diff.run(&json!({}), &c).unwrap();
+        let (old, new) = (
+            outside.join("secret.txt").display().to_string(),
+            outside.join("other.txt").display().to_string(),
+        );
+        assert!(
+            moved.text.contains(&format!("-{old}")) && moved.text.contains(&format!("+{new}")),
+            "{}",
+            moved.text
+        );
+        assert!(!leaks(&moved.text), "{}", moved.text);
+
+        // A tracked file whose directory became a link is not in the working
+        // tree: it shows as deleted, with its committed text only.
+        fs::remove_dir_all(root.join("sub")).unwrap();
+        symlink(&outside, root.join("sub")).unwrap();
+        // And an untracked link to the floor, which the walk never follows.
+        symlink(floor.join("index.txt"), root.join("untracked-key")).unwrap();
+        for args in [
+            json!({}),
+            json!({"untracked": true}),
+            json!({"stat": true, "untracked": true}),
+            json!({"paths": ["sub", "key", "notes"]}),
+        ] {
+            let out = Diff.run(&args, &c).unwrap();
+            assert!(!leaks(&out.text), "{args}: {}", out.text);
+        }
+        let gone = Diff.run(&json!({"paths": ["sub"]}), &c).unwrap();
+        assert!(
+            gone.text.contains("-committed") && gone.text.contains("+++ /dev/null"),
+            "{}",
+            gone.text
+        );
+    }
+
+    /// A crafted tree can name `..` or an absolute path, which git refuses
+    /// to check out but a fetched tree can hold: such a path is not in the
+    /// working tree, so nothing is read from where it points (theseus-skc).
+    #[test]
+    fn a_tree_path_that_climbs_out_is_not_in_the_working_tree() {
+        let d = tempfile::tempdir().unwrap();
+        let wd = d.path().join("repo");
+        fs::create_dir_all(wd.join("sub")).unwrap();
+        fs::write(d.path().join("outside.txt"), "OUTSIDE").unwrap();
+        fs::write(wd.join("sub/in.txt"), "in").unwrap();
+        let abs = d.path().join("outside.txt");
+        let mut dirs = BTreeMap::new();
+        for p in [
+            "../outside.txt",
+            "sub/../../outside.txt",
+            "./../outside.txt",
+            abs.to_str().unwrap(),
+        ] {
+            assert_eq!(worktree_bytes(&wd, p, &mut dirs), None, "{p}");
+        }
+        assert_eq!(
+            worktree_bytes(&wd, "sub/in.txt", &mut dirs).as_deref(),
+            Some(&b"in"[..])
+        );
     }
 }
