@@ -2509,4 +2509,51 @@ mod tests {
         t.recount();
         assert_eq!(marks(&t), incremental);
     }
+
+    /// theseus-64x at the design's scale: a file of 100,000 records at
+    /// [256, 768] (181.6 MB) compacted with a quarter of them dead, which
+    /// holds the table's write lock (a vector query waits that long); and
+    /// the open that reads it. Records are written raw (each with its CRC),
+    /// so building the file costs no model. Prints the times. Run with
+    /// `cargo nextest run --workspace --run-ignored only --no-capture -E
+    /// 'test(bench_a_compaction)'` (a debug build: the copy is I/O).
+    #[test]
+    #[ignore = "a benchmark: 182 MB written, compacted, timed"]
+    fn bench_a_compaction_of_100k_records() {
+        let tmp = tempfile::tempdir().unwrap();
+        let st = stamp(256, 768);
+        let n = 100_000usize;
+        {
+            let c = Cache::open(tmp.path(), &st).unwrap();
+            let mut rng = SplitMix(11);
+            let mut w = io::BufWriter::with_capacity(1 << 20, &c.file);
+            let mut rec = vec![0u8; c.rec];
+            for i in 0..n {
+                rec[..16].copy_from_slice(&(i as u128).to_le_bytes());
+                for b in rec[16..c.rec - 4].iter_mut() {
+                    *b = (rng.next_u64() & 0x3f) as u8;
+                }
+                let at = c.rec - 4;
+                let crc = crc32fast::hash(&rec[..at]);
+                rec[at..].copy_from_slice(&crc.to_le_bytes());
+                w.write_all(&rec).unwrap();
+            }
+            w.flush().unwrap();
+        }
+        let t0 = Instant::now();
+        let mut c = Cache::open(tmp.path(), &st).unwrap();
+        let open = t0.elapsed();
+        assert_eq!(c.len(), n);
+        let t1 = Instant::now();
+        let done = c.compact(&|h| !h.is_multiple_of(4)).unwrap();
+        let compact = t1.elapsed();
+        assert_eq!(done.dropped, n as u64 / 4);
+        eprintln!(
+            "{n} records, {:.1} MB: the open {:.0} ms; a compaction dropping a quarter {:.0} ms, {:.1} MB left",
+            done.bytes_before as f64 / 1e6,
+            open.as_secs_f64() * 1e3,
+            compact.as_secs_f64() * 1e3,
+            done.bytes_after as f64 / 1e6,
+        );
+    }
 }

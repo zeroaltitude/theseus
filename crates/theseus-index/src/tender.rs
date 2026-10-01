@@ -704,20 +704,8 @@ impl Tender {
             }
         }
         chunk_count += chunks.len() as u64;
-        for id in &nodes {
-            self.writer.delete_node(id);
-        }
-        for (node, chunk) in &chunks {
-            self.writer
-                .delete_chunk(node, *chunk)
-                .context("deleting a chunk")?;
-        }
         if !nodes.is_empty() || !chunks.is_empty() {
-            if let Err(e) = self.writer.commit() {
-                self.writer.rollback().ok();
-                return Err(anyhow::Error::from(e).context("committing the forget"));
-            }
-            engine.reload().context("reloading the index")?;
+            self.delete_now(&nodes, &chunks)?;
         }
         let keys: Vec<(String, u32)> = chunks.iter().map(|(n, c)| (n.clone(), *c as u32)).collect();
         let v = self.shared.vectors.forget(&nodes, &keys, &asked)?;
@@ -745,6 +733,30 @@ impl Tender {
             bytes_after: v.compacted.bytes_after,
             ms: t0.elapsed().as_secs_f64() * 1e3,
         })
+    }
+
+    /// Delete `nodes` whole and `chunks` one by one, and commit, so a reader
+    /// reloaded after no longer sees them; or, on any error, none of it: the
+    /// writer is rolled back, so no delete waits for the next batch's commit.
+    fn delete_now(&mut self, nodes: &[String], chunks: &[(String, u64)]) -> anyhow::Result<()> {
+        let done = (|| -> anyhow::Result<()> {
+            for id in nodes {
+                self.writer.delete_node(id);
+            }
+            for (node, chunk) in chunks {
+                self.writer
+                    .delete_chunk(node, *chunk)
+                    .context("deleting a chunk")?;
+            }
+            self.writer.commit().context("committing the forget")?;
+            Ok(())
+        })();
+        if let Err(e) = done {
+            self.writer.rollback().ok();
+            return Err(e);
+        }
+        self.shared.engine.reload().context("reloading the index")?;
+        Ok(())
     }
 
     /// Do the `index.forget` calls waiting, and answer them.
