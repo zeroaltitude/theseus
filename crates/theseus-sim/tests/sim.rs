@@ -21,7 +21,8 @@ fn sim(args: &[&str]) -> String {
 }
 
 /// SIGKILL a writer at random moments and reopen: every record reported
-/// committed is still there, byte for byte. Tearing stays off until its
+/// committed is still there, byte for byte. The kill may land inside the
+/// store's very first open (theseus-0b8). Tearing stays off until its
 /// durable bound is finished (see the `--tear` flag).
 #[test]
 fn a_killed_store_keeps_every_committed_record() {
@@ -35,6 +36,49 @@ fn a_killed_store_keeps_every_committed_record() {
         "false",
     ]);
     assert!(out.contains("CRASH TEST OK"), "{out}");
+}
+
+/// A store another process holds is refused with the message it always
+/// had, and nothing is moved aside (theseus-0b8): the held index is the
+/// holder's, never a file to replace. The holder is a real second process,
+/// the crash test's worker, which keeps the store open as it appends.
+#[test]
+fn a_store_another_process_holds_is_refused_and_nothing_is_moved() {
+    use std::io::{BufRead, BufReader};
+    use theseus_store::Store as _;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("store");
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_theseus-sim"))
+        .args(["worker", "--dir", &dir.to_string_lossy(), "--seed", "5"])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawning the worker");
+    let mut lines = BufReader::new(worker.stdout.take().unwrap()).lines();
+    let first = lines.next().expect("the worker's first line").unwrap();
+    assert!(first.starts_with("R "), "the store is open: {first}");
+    // Its output keeps flowing; drain it so the worker never blocks.
+    let drain = std::thread::spawn(move || lines.count());
+    let e = theseus_store::WalStore::open_waiting(
+        &dir,
+        theseus_store::WalConfig::default(),
+        std::time::Duration::from_millis(200),
+    )
+    .err()
+    .expect("the worker holds the store");
+    let msg = format!("{e:#}");
+    let _ = worker.kill();
+    let _ = worker.wait();
+    drain.join().unwrap();
+    assert!(msg.contains("is another theseusd serving it?"), "{msg}");
+    let aside: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains(".bad-"))
+        .collect();
+    assert!(aside.is_empty(), "{aside:?}");
+    // Its holder gone, the store opens, and nothing was moved.
+    let s = theseus_store::WalStore::open(&dir, theseus_store::WalConfig::default()).unwrap();
+    assert!(s.stats().unwrap().index_moved_aside.is_none());
 }
 
 /// The kernel under seeded crashes and lost, duplicate, and late completions,

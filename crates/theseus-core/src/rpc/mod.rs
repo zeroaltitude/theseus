@@ -552,7 +552,10 @@ impl Core {
 
     /// Once the socket answers: the kernel's startup report
     /// (`server.started`) and the start path's phases (`server.serving`),
-    /// in one frame, off the start path (theseus-qa0).
+    /// in one frame, off the start path (theseus-qa0). When the store's open
+    /// found an index that was not a database, moved it aside, and built it
+    /// again from the WAL, `store.index_replaced` says so in the same frame
+    /// (theseus-0b8).
     pub fn announce_serving(&self, serving_us: u64) {
         let phases: Vec<_> = self
             .startup_log
@@ -560,7 +563,7 @@ impl Core {
             .into_iter()
             .filter(|p| !p.background)
             .collect();
-        let rows = [
+        let mut rows = vec![
             LedgerRow::new(
                 "server.started",
                 None,
@@ -574,6 +577,18 @@ impl Core {
                 json!({"serving_us": serving_us, "phases": phases}),
             ),
         ];
+        if let Ok(st) = self.store.stats() {
+            if let Some(m) = st.index_moved_aside {
+                rows.push(LedgerRow::new(
+                    "store.index_replaced",
+                    None,
+                    None,
+                    json!({"moved_aside": m.path, "bytes": m.bytes, "why": m.why,
+                           "replayed_into_index": st.replayed_into_index,
+                           "last_position": st.last_position}),
+                ));
+            }
+        }
         let frame: Result<Vec<_>> = rows
             .iter()
             .map(|r| theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, r))

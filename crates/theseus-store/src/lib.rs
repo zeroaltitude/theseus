@@ -30,7 +30,7 @@ pub mod record;
 pub mod store;
 pub mod wal;
 
-pub use index::{Engine, Location};
+pub use index::{Engine, Location, MovedAside};
 pub use record::{kinds, NewRecord, Record, RecordKind};
 pub use store::{Store, StoreStats, WalStore};
 pub use wal::{History, HistoryCheck, Wal, WalConfig, WalError};

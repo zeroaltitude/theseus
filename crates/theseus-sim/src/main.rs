@@ -466,12 +466,15 @@ struct Committed {
     durable_bytes: u64,
 }
 
+/// Run a worker on `dir` and SIGKILL it `live_ms` after it starts. The kill
+/// may land anywhere, the store's very first open included: an index that
+/// open left half written is moved aside and built again from the WAL by the
+/// next (theseus-0b8).
 fn run_and_kill(
     bin: &Path,
     dir: &Path,
     seed: u64,
     live_ms: u64,
-    first_open: bool,
     committed: &mut Committed,
 ) -> Result<()> {
     // A worker killed inside its own open (a recovery after the last kill)
@@ -492,29 +495,16 @@ fn run_and_kill(
         .spawn()
         .context("spawning worker")?;
     let stdout = child.stdout.take().unwrap();
-    let (opened, is_open) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
         let mut lines = Vec::new();
         for l in BufReader::new(stdout).lines() {
             match l {
-                Ok(l) => {
-                    if l.starts_with("R ") {
-                        let _ = opened.send(());
-                    }
-                    lines.push(l)
-                }
+                Ok(l) => lines.push(l),
                 Err(_) => break,
             }
         }
         lines
     });
-    if first_open {
-        // A kill inside a new store's first open, while redb writes the
-        // index file's header, leaves an index that will not open
-        // (theseus-0b8). The clock starts once the store is open; a kill
-        // during any later open (recovery) stays in play.
-        let _ = is_open.recv_timeout(Duration::from_secs(30));
-    }
     std::thread::sleep(Duration::from_millis(live_ms));
     child.kill()?; // SIGKILL on unix
     let _ = child.wait();
@@ -547,6 +537,10 @@ fn run_and_kill(
 /// made the test fail on records no crash could lose, theseus-hco.)
 fn tear_tail(dir: &Path, durable: u64, rng: &mut StdRng) -> Result<String> {
     let wal = dir.join("wal");
+    if !wal.is_dir() {
+        // Killed inside the store's first open, before its WAL existed.
+        return Ok("no WAL yet".into());
+    }
     let mut segs: Vec<PathBuf> = std::fs::read_dir(&wal)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "seg"))
@@ -603,7 +597,16 @@ fn tear_tail(dir: &Path, durable: u64, rng: &mut StdRng) -> Result<String> {
     }
 }
 
-fn verify(dir: &Path, committed: &Committed) -> Result<(u64, u64)> {
+/// What a verify found: the store's last position, the torn bytes its open
+/// cut, and whether the open found an index that was not a database (a kill
+/// inside the first open) and moved it aside.
+struct Verified {
+    last: u64,
+    truncated: u64,
+    moved_aside: bool,
+}
+
+fn verify(dir: &Path, committed: &Committed) -> Result<Verified> {
     let store = WalStore::open(dir, WalConfig::default())?.with_checkpoint_every(0);
     let last = store.last_position();
     // Every reported-committed record must exist with identical payload.
@@ -630,7 +633,11 @@ fn verify(dir: &Path, committed: &Committed) -> Result<(u64, u64)> {
         }
     }
     let st = store.stats()?;
-    Ok((last, st.truncated_bytes))
+    Ok(Verified {
+        last,
+        truncated: st.truncated_bytes,
+        moved_aside: st.index_moved_aside.is_some(),
+    })
 }
 
 fn crash_test(
@@ -646,6 +653,7 @@ fn crash_test(
     let mut total_records = 0u64;
     let mut total_torn = 0u64;
     let mut unreported = 0u64;
+    let mut moved_aside = 0u32;
     for it in 0..iterations {
         let tmp = tempfile::tempdir()?;
         let dir = tmp.path().join("store");
@@ -658,7 +666,6 @@ fn crash_test(
                 &dir,
                 seed + it as u64 * 1000 + r as u64,
                 live_ms,
-                r == 0,
                 &mut committed,
             )?;
             if let Some(start) = committed.reported_start {
@@ -671,22 +678,30 @@ fn crash_test(
             } else {
                 "no tear".into()
             };
-            let (last, truncated) = verify(&dir, &committed).with_context(|| {
+            let v = verify(&dir, &committed).with_context(|| {
                 format!("iteration {it} restart {r} (after kill at {live_ms} ms; {tore})")
             })?;
             let hi = committed.map.keys().next_back().copied().unwrap_or(0);
-            unreported += last.saturating_sub(hi);
-            total_torn += truncated;
-            last_seen = last;
-            total_records = total_records.max(last);
+            unreported += v.last.saturating_sub(hi);
+            total_torn += v.truncated;
+            last_seen = v.last;
+            total_records = total_records.max(v.last);
+            let aside = if v.moved_aside {
+                moved_aside += 1;
+                ", index moved aside"
+            } else {
+                ""
+            };
             println!(
-                "iter {it:>3} restart {r}: lived {live_ms:>3} ms, committed reported {:>6}, store last {last:>6}, {tore}, truncated {truncated} B",
-                committed.map.len()
+                "iter {it:>3} restart {r}: lived {live_ms:>3} ms, committed reported {:>6}, store last {:>6}, {tore}, truncated {} B{aside}",
+                committed.map.len(),
+                v.last,
+                v.truncated,
             );
         }
     }
     println!(
-        "CRASH TEST OK: {iterations} iterations × {restarts} restarts, seed {seed}, {:.1}s; torn bytes removed {total_torn}; durable-but-unreported records {unreported} (allowed); zero committed records lost",
+        "CRASH TEST OK: {iterations} iterations × {restarts} restarts, seed {seed}, tear {tear}, {:.1}s; torn bytes removed {total_torn}; durable-but-unreported records {unreported} (allowed); indexes moved aside after a kill in the first open {moved_aside}; zero committed records lost",
         started.elapsed().as_secs_f64()
     );
     Ok(())

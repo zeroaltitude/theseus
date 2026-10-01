@@ -127,6 +127,22 @@ impl RedbIndex {
         )
     }
 
+    /// Whether `open` failed because the file is not a redb database at all
+    /// (theseus-0b8): its first bytes are not redb's magic number
+    /// (`InvalidData`), or it ends inside the header (`UnexpectedEof`). A
+    /// kill inside the store's first open, while redb writes the header,
+    /// leaves such a file. Told by redb's error kind, never its text: redb
+    /// takes its lock before it reads a byte, so a file another process holds
+    /// is `DatabaseAlreadyOpen`, and a real database that fails some other way
+    /// (a newer format, a bad commit slot, a file cut short) is `Corrupted`.
+    pub fn not_a_database(e: &anyhow::Error) -> bool {
+        matches!(
+            e.downcast_ref::<redb::DatabaseError>(),
+            Some(redb::DatabaseError::Storage(redb::StorageError::Io(io)))
+                if matches!(io.kind(), std::io::ErrorKind::InvalidData | std::io::ErrorKind::UnexpectedEof)
+        )
+    }
+
     /// Record a batch of entries. Non-durable unless `durable`.
     pub fn apply(&self, entries: &[IndexEntry], durable: bool) -> Result<()> {
         let mut txn = self.db.begin_write()?;
@@ -258,6 +274,99 @@ impl RedbIndex {
         txn.commit()?;
         Ok(())
     }
+}
+
+/// redb's magic number, the first bytes of every database it writes (its
+/// `MAGICNUMBER`, which the crate keeps to itself), and the length of its
+/// header: a file shorter than that never held a database.
+const REDB_MAGIC: [u8; 9] = [b'r', b'e', b'd', b'b', 0x1A, 0x0A, 0xA9, 0x0D, 0x0A];
+const REDB_HEADER_LEN: u64 = 320;
+
+/// An index file that was not a redb database, which the store's open moved
+/// aside before it built a new index from the WAL (theseus-0b8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MovedAside {
+    /// Where it is now: `index.redb.bad-<unix ms>`, beside it.
+    pub path: String,
+    pub bytes: u64,
+    /// What redb said of it.
+    pub why: String,
+}
+
+/// What `move_aside` did.
+#[derive(Debug)]
+pub enum Aside {
+    /// Moved: the name is free for a new index.
+    Moved(MovedAside),
+    /// Another process holds the file, or moved it first: the caller opens
+    /// again, as for any store another process holds.
+    Held,
+    /// Under the lock the file is a redb database after all: left as it is.
+    Database,
+}
+
+/// Move the file at `path`, which redb refused as not a database
+/// (`RedbIndex::not_a_database`), to `<name>.bad-<unix ms>` beside it: kept,
+/// never deleted (theseus-0b8).
+///
+/// It moves under the file's lock, which redb and this lock respect in both
+/// directions: a process whose redb holds the file keeps it (`Held`), and no
+/// open takes the file while it moves. The lock is on the file the name
+/// still names, and that file is checked again under it, so two processes
+/// that both found it bad move it once, and neither moves the index the
+/// other made in its place.
+pub fn move_aside(path: &Path, why: &str) -> Result<Aside> {
+    use std::io::Read as _;
+    use std::os::unix::fs::MetadataExt as _;
+    let mut f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Aside::Held),
+        Err(e) => return Err(e).with_context(|| format!("opening {}", path.display())),
+    };
+    match f.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => return Ok(Aside::Held),
+        Err(std::fs::TryLockError::Error(e)) => {
+            return Err(e).with_context(|| format!("locking {}", path.display()))
+        }
+    }
+    let held = f.metadata()?;
+    match std::fs::metadata(path) {
+        Ok(now) if (now.dev(), now.ino()) == (held.dev(), held.ino()) => {}
+        _ => return Ok(Aside::Held),
+    }
+    let mut head = Vec::with_capacity(REDB_MAGIC.len());
+    (&mut f)
+        .take(REDB_MAGIC.len() as u64)
+        .read_to_end(&mut head)?;
+    if held.len() >= REDB_HEADER_LEN && head == REDB_MAGIC {
+        return Ok(Aside::Database);
+    }
+    let name = path
+        .file_name()
+        .context("an index path names a file")?
+        .to_string_lossy()
+        .into_owned();
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let mut to = path.with_file_name(format!("{name}.bad-{ms}"));
+    let mut n = 1;
+    while to.exists() {
+        n += 1;
+        to = path.with_file_name(format!("{name}.bad-{ms}-{n}"));
+    }
+    std::fs::rename(path, &to)
+        .with_context(|| format!("moving {} aside to {}", path.display(), to.display()))?;
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::File::open(dir)?.sync_all()?;
+    }
+    Ok(Aside::Moved(MovedAside {
+        path: to.display().to_string(),
+        bytes: held.len(),
+        why: why.to_string(),
+    }))
 }
 
 #[cfg(test)]

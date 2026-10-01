@@ -19,7 +19,7 @@ use std::sync::RwLock;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::index::{Engine, IndexEntry, RedbIndex};
+use crate::index::{Aside, Engine, IndexEntry, MovedAside, RedbIndex};
 use crate::record::{kinds, NewRecord, Record, RecordKind};
 use crate::wal::{History, Recovery, Wal, WalConfig};
 
@@ -46,6 +46,10 @@ pub struct StoreStats {
     /// (theseus-qa0 F4b): a start at once after a stop.
     #[serde(default)]
     pub lock_wait_us: u64,
+    /// The index file open found was not a redb database: where it went
+    /// before the index was built again from the WAL (theseus-0b8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_moved_aside: Option<MovedAside>,
 }
 
 /// What the kernel writes through. Every method is durable when it returns.
@@ -96,6 +100,8 @@ pub struct WalStore {
     appending: RwLock<()>,
     /// How long open waited for another process to release the store.
     lock_wait_us: u64,
+    /// The index file open moved aside, if it did (theseus-0b8).
+    moved_aside: Option<MovedAside>,
 }
 
 /// How long an open waits for another process to release the store before
@@ -223,6 +229,39 @@ fn write_manifest(dir: &Path, m: &Manifest, fsync: bool) -> Result<()> {
     Ok(())
 }
 
+/// Open the index at `path`. A file there that is not a redb database (a
+/// kill inside the store's first open, while redb wrote its header) is moved
+/// aside, never deleted, and a new index takes its place, which the open
+/// then builds from the WAL, as `restore` does (theseus-0b8). A file another
+/// process holds is that process's, and its error goes back as it came, so
+/// the open waits and then refuses as it always has. A redb database that
+/// fails some other way is left where it is, and refused.
+fn open_index(path: &Path) -> Result<(RedbIndex, Option<MovedAside>)> {
+    let e = match RedbIndex::open(path) {
+        Ok(index) => return Ok((index, None)),
+        Err(e) if RedbIndex::not_a_database(&e) => e,
+        Err(e) => return Err(e.context("opening index")),
+    };
+    let why = e.root_cause().to_string();
+    match crate::index::move_aside(path, &why)? {
+        Aside::Moved(m) => {
+            tracing::warn!(
+                moved_to = %m.path,
+                bytes = m.bytes,
+                why = %m.why,
+                "store: index.redb was not a redb database (a kill inside the store's first open \
+                 leaves one); it is moved aside, and the index is built again from the WAL"
+            );
+            let index = RedbIndex::open(path).context("opening index")?;
+            Ok((index, Some(m)))
+        }
+        Aside::Held => Err(anyhow::Error::new(redb::DatabaseError::DatabaseAlreadyOpen)
+            .context(format!("opening {}", path.display()))
+            .context("opening index")),
+        Aside::Database => Err(e.context("opening index")),
+    }
+}
+
 impl WalStore {
     /// Open or create a store in `dir`. A manifest naming another engine, a
     /// format this build does not read, or a kind newer than it knows is
@@ -292,7 +331,7 @@ impl WalStore {
             marks
         };
 
-        let index = RedbIndex::open(&dir.join("index.redb")).context("opening index")?;
+        let (index, moved_aside) = open_index(&dir.join("index.redb"))?;
         // The WAL from the frame after the checkpoint's record: the index
         // knows where that record lies.
         let cp = index.checkpoint()?.unwrap_or(0);
@@ -353,6 +392,7 @@ impl WalStore {
             fsync,
             appending: RwLock::new(()),
             lock_wait_us: 0,
+            moved_aside,
         };
         // A manifest that lags its WAL's tail catches up now.
         let tail: Vec<(RecordKind, u16)> =
@@ -595,6 +635,7 @@ impl Store for WalStore {
             history_bytes: r.history_bytes,
             index_repaired: self.index.repaired(),
             lock_wait_us: self.lock_wait_us,
+            index_moved_aside: self.moved_aside.clone(),
         })
     }
 }
@@ -1093,5 +1134,197 @@ mod tests {
                 .unwrap(),
             "v1"
         );
+    }
+
+    /// Every record a store reads: position, kind, key, scope, and payload.
+    type Rows = Vec<(u64, RecordKind, Option<String>, Option<String>, Vec<u8>)>;
+
+    /// A store of sessions, ledger rows, and scoped nodes, checkpointed and
+    /// closed, with every record as the store reads it.
+    fn written(dir: &Path) -> Rows {
+        let s = open(dir);
+        for i in 0..40u32 {
+            let mut batch = vec![NewRecord::json(kinds::LEDGER, None, &i).unwrap()];
+            if i % 3 == 0 {
+                batch.push(
+                    NewRecord::json(kinds::SESSION, Some(&format!("ses_{}", i % 4)), &i).unwrap(),
+                );
+            }
+            if i % 5 == 0 {
+                batch.push(
+                    NewRecord::json(kinds::NODE, Some(&format!("n{i}")), &i)
+                        .unwrap()
+                        .scoped("ses_0"),
+                );
+            }
+            s.append(&batch).unwrap();
+        }
+        s.checkpoint().unwrap();
+        let all = everything(&s);
+        assert!(all.len() > 50);
+        all
+    }
+
+    fn everything(s: &WalStore) -> Rows {
+        s.scan(1, None, usize::MAX)
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.position, r.kind, r.key, r.scope, r.payload))
+            .collect()
+    }
+
+    /// The `index.redb.bad-*` files beside the index.
+    fn moved(dir: &Path) -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("index.redb.bad-"))
+            })
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// A kill inside the store's first open leaves an `index.redb` that is
+    /// not a redb database (theseus-0b8): a header cut short, bytes that were
+    /// never a header, or the zeros redb sized the file with before it wrote
+    /// one. The next open moves the file aside, keeping it byte for byte,
+    /// builds the index again from the WAL, and reads every record the WAL
+    /// holds. The open after that finds a good index and moves nothing.
+    #[test]
+    fn an_index_that_is_not_a_database_is_moved_aside_and_rebuilt_from_the_wal() {
+        type Damage = fn(&[u8]) -> Vec<u8>;
+        let shapes: [(&str, Damage); 3] = [
+            ("a 37-byte partial header", |real| real[..37].to_vec()),
+            ("a few random bytes", |_| {
+                vec![
+                    0x5c, 0x91, 0x07, 0xee, 0x30, 0x2a, 0xd4, 0x18, 0x66, 0x0b, 0xf3,
+                ]
+            }),
+            ("zeros the length of a new index", |real| {
+                vec![0u8; real.len()]
+            }),
+        ];
+        for (shape, damage) in shapes {
+            let dir = tempfile::tempdir().unwrap();
+            let before = written(dir.path());
+            let index = dir.path().join("index.redb");
+            let bad = damage(&std::fs::read(&index).unwrap());
+            std::fs::write(&index, &bad).unwrap();
+
+            let s = open(dir.path());
+            let st = s.stats().unwrap();
+            let m = st.index_moved_aside.clone().expect(shape);
+            let aside = moved(dir.path());
+            assert_eq!(aside.len(), 1, "{shape}: {aside:?}");
+            assert_eq!(m.path, aside[0].display().to_string(), "{shape}");
+            assert_eq!(
+                std::fs::read(&aside[0]).unwrap(),
+                bad,
+                "{shape}: kept as it was"
+            );
+            assert_eq!(m.bytes, bad.len() as u64);
+            assert_eq!(st.replayed_into_index, before.len() as u64, "{shape}");
+            assert_eq!(everything(&s), before, "{shape}");
+            assert_eq!(s.count_of_kind(kinds::LEDGER).unwrap(), 40, "{shape}");
+            assert_eq!(s.count_in_scope("ses_0").unwrap(), 8, "{shape}");
+            assert_eq!(
+                s.latest_by_key(kinds::SESSION, "ses_3")
+                    .unwrap()
+                    .unwrap()
+                    .decode::<u32>()
+                    .unwrap(),
+                39,
+                "{shape}"
+            );
+            drop(s);
+
+            let s = open(dir.path());
+            let st = s.stats().unwrap();
+            assert!(st.index_moved_aside.is_none(), "{shape}");
+            assert_eq!(
+                st.replayed_into_index, 0,
+                "{shape}: the rebuild was checkpointed"
+            );
+            assert_eq!(everything(&s), before, "{shape}");
+            assert_eq!(moved(dir.path()).len(), 1, "{shape}");
+        }
+    }
+
+    /// A store another process holds is waited for and refused with the
+    /// message it always had, and nothing is moved (theseus-0b8): the held
+    /// index is that process's. That holds even while the index is not a
+    /// database yet, as when its holder is inside its own first open: redb
+    /// takes its lock before it reads a byte, so the error says held.
+    #[test]
+    fn a_held_index_is_refused_and_never_moved_even_before_it_is_a_database() {
+        let dir = tempfile::tempdir().unwrap();
+        written(dir.path());
+        let holder = open(dir.path());
+        let wait = std::time::Duration::from_millis(150);
+        let e = WalStore::open_waiting(dir.path(), WalConfig::default(), wait)
+            .err()
+            .expect("the store is held");
+        let msg = format!("{e:#}");
+        assert!(msg.contains("is another theseusd serving it?"), "{msg}");
+        assert!(RedbIndex::held_elsewhere(&e) && !RedbIndex::not_a_database(&e));
+        assert!(moved(dir.path()).is_empty());
+        drop(holder);
+
+        // A holder inside its first open: the file is zeros, and locked.
+        let dir = tempfile::tempdir().unwrap();
+        written(dir.path());
+        let index = dir.path().join("index.redb");
+        let zeros = vec![0u8; 4096];
+        std::fs::write(&index, &zeros).unwrap();
+        let lock = std::fs::File::open(&index).unwrap();
+        lock.try_lock().unwrap();
+        let e = WalStore::open_waiting(dir.path(), WalConfig::default(), wait)
+            .err()
+            .expect("the index is held");
+        let msg = format!("{e:#}");
+        assert!(msg.contains("is another theseusd serving it?"), "{msg}");
+        assert!(moved(dir.path()).is_empty());
+        assert_eq!(std::fs::read(&index).unwrap(), zeros, "left as it was");
+        drop(lock);
+        // Released, it is the holder's leftover: moved aside, and rebuilt.
+        let s = open(dir.path());
+        assert!(s.stats().unwrap().index_moved_aside.is_some());
+        assert_eq!(moved(dir.path()).len(), 1);
+    }
+
+    /// A file that is a redb database but fails some other way (a format
+    /// newer than redb reads, or a file cut short of its layout) is not this
+    /// case: it stays where it is, and the open refuses as it did before.
+    #[test]
+    fn a_redb_index_that_fails_another_way_is_left_and_refused() {
+        type Damage = fn(&mut Vec<u8>);
+        let cases: [(&str, Damage); 2] = [
+            ("a newer file format", |b| {
+                // Each commit slot's first byte is its format version.
+                b[64] = 99;
+                b[192] = 99;
+            }),
+            ("a file cut short", |b| b.truncate(b.len() / 2)),
+        ];
+        for (case, damage) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            written(dir.path());
+            let index = dir.path().join("index.redb");
+            let mut bytes = std::fs::read(&index).unwrap();
+            damage(&mut bytes);
+            std::fs::write(&index, &bytes).unwrap();
+            let e = WalStore::open(dir.path(), WalConfig::default())
+                .err()
+                .expect(case);
+            let msg = format!("{e:#}");
+            assert!(msg.contains("opening index"), "{case}: {msg}");
+            assert!(!RedbIndex::not_a_database(&e), "{case}: {msg}");
+            assert!(!RedbIndex::held_elsewhere(&e), "{case}: {msg}");
+            assert!(moved(dir.path()).is_empty(), "{case}");
+            assert_eq!(std::fs::read(&index).unwrap(), bytes, "{case}: untouched");
+        }
     }
 }

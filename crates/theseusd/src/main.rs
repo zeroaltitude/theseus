@@ -333,12 +333,14 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     let t = Instant::now();
     let store = Store::open(&store_dir)?;
     let st = store.stats()?;
-    startup.record(
-        "store",
-        false,
-        t,
-        json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index, "history_bytes": st.history_bytes, "index_repaired": st.index_repaired, "lock_wait_ms": st.lock_wait_us as f64 / 1000.0}),
-    );
+    let mut detail = json!({"last_position": st.last_position, "wal_bytes": st.wal_bytes, "segments": st.wal_segments, "replayed_into_index": st.replayed_into_index, "history_bytes": st.history_bytes, "index_repaired": st.index_repaired, "lock_wait_ms": st.lock_wait_us as f64 / 1000.0});
+    // An index that was not a database, moved aside and built again from
+    // the WAL (theseus-0b8): the store's open logged it, and the ledger's
+    // `store.index_replaced` row follows once serving.
+    if let Some(m) = &st.index_moved_aside {
+        detail["index_moved_aside"] = json!(m.path);
+    }
+    startup.record("store", false, t, detail);
     tracing::info!(
         last_position = st.last_position,
         wal_bytes = st.wal_bytes,
