@@ -1,0 +1,55 @@
+// A thin React wrapper over ECharts, tree-shaken to the series and components the cockpit uses.
+import { useEffect, useRef } from 'react'
+import * as echarts from 'echarts/core'
+import {
+  BarChart, CustomChart, GaugeChart, HeatmapChart, LineChart, PieChart, SankeyChart, ScatterChart,
+  SunburstChart, ThemeRiverChart, TreemapChart,
+} from 'echarts/charts'
+import {
+  DataZoomComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent,
+  PolarComponent, SingleAxisComponent, TitleComponent, TooltipComponent, VisualMapComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import { base, type EChartsOption } from '@/lib/chart'
+
+echarts.use([
+  BarChart, CustomChart, GaugeChart, HeatmapChart, LineChart, PieChart, SankeyChart, ScatterChart,
+  SunburstChart, ThemeRiverChart, TreemapChart,
+  DataZoomComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent,
+  PolarComponent, SingleAxisComponent, TitleComponent, TooltipComponent, VisualMapComponent,
+  CanvasRenderer,
+])
+
+interface Props {
+  option: EChartsOption
+  className?: string
+  style?: React.CSSProperties
+  onClick?: (params: unknown) => void
+}
+
+export function Echart({ option, className, style, onClick }: Props) {
+  const el = useRef<HTMLDivElement>(null)
+  const chart = useRef<echarts.ECharts | null>(null)
+  const clickRef = useRef(onClick)
+  useEffect(() => { clickRef.current = onClick }, [onClick])
+
+  useEffect(() => {
+    if (!el.current) return
+    const c = echarts.init(el.current, undefined, { renderer: 'canvas' })
+    chart.current = c
+    c.on('click', (p) => clickRef.current?.(p))
+    const ro = new ResizeObserver(() => c.resize())
+    ro.observe(el.current)
+    return () => {
+      ro.disconnect()
+      c.dispose()
+      chart.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    chart.current?.setOption({ ...base, ...option } as EChartsOption, { notMerge: false, lazyUpdate: true })
+  }, [option])
+
+  return <div ref={el} className={className} style={{ width: '100%', height: '100%', ...style }} />
+}
