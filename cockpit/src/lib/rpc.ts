@@ -30,12 +30,17 @@ client.onStatus = (s) => {
   }))
 }
 
-/** One call, timed: its round trip feeds the link-latency readout. */
+/** Calls that resolve when work ends, not when the daemon answers: never a link round trip. */
+const LONG = new Set(['turn.submit', 'narrative.watch', 'session.watch'])
+
+/** One call, timed: its round trip feeds the link-latency readout (not the long calls). */
 export async function call<T = unknown>(method: string, params?: unknown): Promise<T> {
   const t0 = performance.now()
   const out = await client.call<T>(method, params)
-  const dt = performance.now() - t0
-  useConn.setState((st) => ({ rtts: [...st.rtts.slice(-59), dt] }))
+  if (!LONG.has(method)) {
+    const dt = performance.now() - t0
+    useConn.setState((st) => ({ rtts: [...st.rtts.slice(-59), dt] }))
+  }
   return out
 }
 

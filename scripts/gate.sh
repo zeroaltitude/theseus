@@ -28,5 +28,8 @@ target/debug/theseus-sim bench lifecycle --runs 10 --check || {
 }
 cargo deny --log-level error check
 if [ -d web/node_modules ]; then (cd web && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
+# The cockpit (theseus-45n5): lint, type-check, and build. Its build is not committed (several MB, new with each
+# edit); the install builds it before the release build, and a binary without it says so at /cockpit/.
+if [ -d cockpit/node_modules ]; then (cd cockpit && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
 git diff --quiet -- crates/theseusd/web/dist || { echo "web dist changed by the build: commit it"; exit 1; }
 echo "gate: ok"

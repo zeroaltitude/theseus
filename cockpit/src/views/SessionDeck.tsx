@@ -18,6 +18,7 @@ import { Echart } from '@/components/Echart'
 import { Flame } from '@/components/Flame'
 import { JsonView } from '@/components/JsonView'
 import { Transcript } from '@/components/Transcript'
+import { Composer } from '@/components/Composer'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
 import { Btn, Empty, Field, LiveDot, Meter, Panel, Pill, StatePill } from '@/components/ui'
 
@@ -65,11 +66,16 @@ export default function SessionDeck() {
       <Group orientation="horizontal" className="min-h-0 flex-1">
         <RPanel defaultSize="58" minSize={420} className="min-h-0">
           <Panel title={<>transcript · {hist.nodes.length} nodes</>} icon={<ScrollText size={13} />} className="h-full"
-            bodyClassName="relative min-h-0"
+            bodyClassName="min-h-0"
             actions={live ? <span className="flex items-center gap-1.5 text-[11px] text-live"><LiveDot size={5} /> {live.text ? 'streaming' : 'turn running'}</span> : null}>
-            <Follow deps={[hist.nodes.length, live?.text]}>
-              <Transcript nodes={hist.nodes} turns={turnMap} live={live} />
-            </Follow>
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="relative min-h-0 flex-1">
+                <Follow deps={[hist.nodes.length, live?.text]}>
+                  <Transcript nodes={hist.nodes} turns={turnMap} live={live} />
+                </Follow>
+              </div>
+              <Composer sessionId={id} busy={!!live || exec?.state === 'running' || exec?.state === 'queued'} />
+            </div>
           </Panel>
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />

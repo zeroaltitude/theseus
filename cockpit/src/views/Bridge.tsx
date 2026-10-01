@@ -5,6 +5,7 @@ import {
   Activity, Bot, Brain, Clock, Coins, Flame, Gauge, Hourglass, Radar, Rocket, ShieldCheck, Siren, Timer, Wrench,
 } from 'lucide-react'
 import { ContextGrowth, Startup, TokenMix, ToolBoard, TurnsChart } from '@/components/instruments'
+import { NowStrip } from '@/components/NowStrip'
 import type { ConfirmRequest, ExecutionInfo, Health, SessionInfo } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useDerived, pulse, spendCurve, totalIn, type ProviderCall } from '@/lib/derive'
@@ -61,6 +62,8 @@ export function Bridge() {
         <Kpi label="Wakes due" icon={<Hourglass size={12} />} value={h?.wakes?.length ?? 0} format={(n) => n.toFixed(0)} tone="live"
           hint={h?.wakes?.[0] ? `next ${h.wakes[0].due_local}` : 'none set'} />
       </div>
+
+      <NowStrip sessions={sl?.sessions ?? []} executions={el?.executions ?? []} />
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <PulsePanel rows={rows} />
@@ -228,8 +231,11 @@ function Fuel({ calls }: { calls: ProviderCall[] }) {
                 <Meter value={rem} max={lim} tone={rem / lim > 0.5 ? 'ok' : rem / lim > 0.15 ? 'wait' : 'fault'} />
               </div>
             ) : null)}
-            {r.input_tokens_remaining !== undefined && (
+            {r.input_tokens_remaining != null && r.output_tokens_remaining != null && (
               <div className="num text-[11px] text-ink-faint">input left {tokens(r.input_tokens_remaining)} · output left {tokens(r.output_tokens_remaining)}</div>
+            )}
+            {gauges.every(([, rem, lim]) => rem == null || !lim) && r.input_tokens_remaining == null && (
+              <div className="text-[11px] text-ink-faint">this provider sends no rate-limit headers</div>
             )}
           </div>
         )

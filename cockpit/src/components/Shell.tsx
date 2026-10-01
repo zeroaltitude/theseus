@@ -1,19 +1,20 @@
 // The cockpit's frame: the nav rail, the heartbeat bar across the top, the view, and the activity river below.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
-import { AnimatePresence, motion } from 'motion/react'
+import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import {
-  Activity, ArrowUpRight, Coins, Command as CommandIcon, Cpu, Gauge, Layers, Radio, ScrollText, ShieldCheck, Ship,
+  Activity, ArrowUpRight, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Gauge, Layers, OctagonX, Pause, Radio,
+  ScrollText, ShieldCheck, Ship,
 } from 'lucide-react'
-import type { Health, SessionInfo } from '@protocol'
-import { useConn, useRpc, usePush } from '@/lib/rpc'
+import type { ConfirmRequest, ExecutionInfo, Health, SessionInfo } from '@protocol'
+import { call, useConn, useRpc, usePush } from '@/lib/rpc'
 import { useLedger } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
 import { cn, ms, short, tokens, uptime, usd, clock, stamp } from '@/lib/format'
 import { ledgerKind, partTone, stateTone, toneHex } from '@/lib/taxonomy'
-import { LiveDot } from './ui'
-import { useTick } from '@/lib/hooks'
+import { LiveDot, Spark } from './ui'
+import { useHistory, useTick } from '@/lib/hooks'
 
 const NAV = [
   { to: '/', label: 'Bridge', icon: Gauge, end: true },
@@ -24,16 +25,28 @@ const NAV = [
   { to: '/systems', label: 'Systems', icon: Cpu },
 ] as const
 
+const GO: Record<string, string> = { b: '/', f: '/fleet', a: '/actions', l: '/ledger', e: '/economics', s: '/systems' }
+
 export function Shell() {
+  const nav = useNavigate()
   const [palette, setPalette] = useState(false)
   const [river, setRiver] = useState(true)
   useEffect(() => {
+    // Ctrl/Cmd+K opens the palette; "g" then a letter jumps to a view (g b, g f, g a, g l, g e, g s), unless
+    // you are typing in a field.
+    let g = 0
     const k = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((v) => !v) }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((v) => !v); return }
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === 'g') { g = Date.now(); return }
+      if (g && Date.now() - g < 900 && GO[e.key]) { e.preventDefault(); nav(GO[e.key]) }
+      g = 0
     }
     window.addEventListener('keydown', k)
     return () => window.removeEventListener('keydown', k)
-  }, [])
+  }, [nav])
 
   return (
     <div className="cockpit-bg flex h-full">
@@ -50,8 +63,37 @@ export function Shell() {
   )
 }
 
+/** Opt-in desktop notices: each approval that starts waiting is announced once, while this page is open. */
+function useApprovalNotices(confirms: ConfirmRequest[] | undefined) {
+  const [on, setOn] = useState(() => localStorage.getItem('cockpit.notify') === 'on' && typeof Notification !== 'undefined' && Notification.permission === 'granted')
+  const seen = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!confirms) return
+    const ids = new Set(confirms.map((c) => c.correlation_id))
+    if (seen.current && on && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      for (const c of confirms) {
+        if (!seen.current.has(c.correlation_id)) {
+          new Notification(`Theseus: ${c.tool} waits for you`, { body: c.reason, tag: c.correlation_id })
+        }
+      }
+    }
+    seen.current = ids
+  }, [confirms, on])
+  const toggle = async () => {
+    if (on) { setOn(false); localStorage.setItem('cockpit.notify', 'off'); return }
+    if (typeof Notification === 'undefined') { window.alert('This browser has no desktop notifications.'); return }
+    const p = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
+    if (p === 'granted') { setOn(true); localStorage.setItem('cockpit.notify', 'on') }
+  }
+  return { on, toggle }
+}
+
 function NavRail({ onPalette }: { onPalette: () => void }) {
   const status = useConn((s) => s.status)
+  // Approvals waiting, from every view: the Actions item carries the count, and pulses while anything waits.
+  const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 2000)
+  const waiting = cl?.confirms.length ?? 0
+  const notify = useApprovalNotices(cl?.confirms)
   return (
     <nav className="flex w-[68px] shrink-0 flex-col items-center gap-1 border-r border-line bg-deck/80 py-3">
       <div className="mb-3 flex flex-col items-center">
@@ -77,11 +119,18 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
               )}
               <Icon size={18} className="relative" />
               <span className="relative">{label}</span>
+              {to === '/actions' && waiting > 0 && (
+                <span className="absolute right-1.5 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-wait px-1 text-[9.5px] font-bold text-void shadow-[0_0_10px_#fbbf24] animate-pulse-soft">{waiting}</span>
+              )}
             </>
           )}
         </NavLink>
       ))}
       <div className="mt-auto flex flex-col items-center gap-2">
+        <button onClick={notify.toggle} title={notify.on ? 'Desktop notices for approvals: on' : 'Desktop notices for approvals: off'}
+          className={cn('rounded-lg p-2 hover:bg-white/5', notify.on ? 'text-wait' : 'text-ink-faint hover:text-ink')}>
+          {notify.on ? <BellRing size={17} /> : <BellOff size={17} />}
+        </button>
         <button onClick={onPalette} title="Command palette (Ctrl+K)" className="rounded-lg p-2 text-ink-faint hover:bg-white/5 hover:text-ink">
           <CommandIcon size={17} />
         </button>
@@ -102,26 +151,39 @@ function HeartbeatBar() {
     return r.length ? r[Math.floor(r.length / 2)] : null
   }, [conn.rtts])
   const up = h ? h.uptime_secs + Math.max(0, (now - dataUpdatedAt) / 1000) : 0
+  // Flow: ledger rows per second, from the total's growth between polls; the header's own heartbeat line.
+  const { data: tail } = useLedger(1, 2000)
+  const totals = useHistory(tail?.total, 60, 2000)
+  const flow = totals.slice(1).map((t, i) => Math.max(0, (t - totals[i]) / 2))
+  const running = h?.kernel.executions_by_state.running ?? 0
   const discord = h?.bindings?.find((b) => b.kind === 'discord')
   const usage = h?.usage_total
   const cacheHit = usage ? usage.cache_read_input_tokens / Math.max(1, usage.cache_read_input_tokens + usage.input_tokens + usage.cache_creation_input_tokens) : 0
 
   return (
-    <header className="relative flex h-12 shrink-0 items-center gap-5 overflow-hidden border-b border-line bg-deck/70 px-4 backdrop-blur">
+    <header className="relative flex h-12 shrink-0 items-center gap-4 overflow-hidden whitespace-nowrap border-b border-line bg-deck/70 px-4 backdrop-blur">
       <div className="absolute inset-x-0 top-0 h-px live-sweep" />
-      <div className="flex items-baseline gap-2">
+      <div className="flex shrink-0 items-baseline gap-2" title={h ? `theseus ${h.version} · protocol ${h.protocol}` : undefined}>
         <span className="text-[13px] font-semibold tracking-[0.2em] text-ink">THESEUS</span>
-        <span className="num text-[11px] text-ink-faint">{h ? `v${h.version} · proto ${h.protocol}` : '…'}</span>
+        <span className="num text-[11px] text-ink-faint">{h ? `v${h.version}` : '…'}</span>
       </div>
       <Indicator label="link" tone={conn.status === 'open' ? 'ok' : conn.status === 'connecting' ? 'wait' : 'fault'} value={conn.status === 'open' ? (rtt !== null ? ms(rtt) : 'open') : conn.status} />
       <Indicator label="up" tone="live" value={h ? uptime(up) : '—'} />
-      <Indicator label="kernel" tone={h?.kernel.accepting ? 'ok' : 'wait'} value={h ? (h.kernel.accepting ? 'accepting' : 'held') : '—'} />
-      <Indicator label="model" tone="model" value={h ? `${h.provider} · ${h.model}` : '—'} />
-      <Indicator label="discord" tone={stateTone(discord?.state)} value={discord ? `${discord.state}${discord.latency_ms ? ` · ${discord.latency_ms} ms` : ''}` : '—'} />
-      <Indicator label="config" tone={stateTone(h?.config?.state)} value={h?.config?.state ?? '—'} />
-      <Indicator label="secrets" tone={stateTone(h?.secrets?.state)} value={h?.secrets?.state ?? '—'} />
-      <div className="ml-auto flex items-center gap-5">
-        <Indicator label="cache" tone="think" value={usage ? `${(cacheHit * 100).toFixed(0)}% · ${tokens(usage.cache_read_input_tokens)}` : '—'} />
+      <Indicator label="running" tone={running ? 'live' : 'idle'} value={String(running)} />
+      <div className="flex shrink-0 items-center gap-1.5" title="ledger rows per second, last two minutes">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">flow</span>
+        <div className="w-20"><Spark data={flow.length > 1 ? flow : [0, 0]} tone="live" height={22} /></div>
+        <span className="num w-11 text-[12px] text-ink">{(flow[flow.length - 1] ?? 0).toFixed(1)}/s</span>
+      </div>
+      <Indicator label="model" tone="model" value={h ? h.model : '—'} title={h ? `${h.provider} · ${h.model} · profile ${h.profile}` : undefined} />
+      <div className="ml-auto flex shrink-0 items-center gap-4">
+        <div className="flex items-center gap-2.5 rounded-md bg-white/[0.03] px-2 py-1 ring-1 ring-line">
+          <Dot label="kernel" tone={h?.kernel.accepting ? 'ok' : 'wait'} title={h ? (h.kernel.accepting ? 'kernel accepting' : 'kernel holding new turns') : ''} />
+          <Dot label="discord" tone={stateTone(discord?.state)} title={discord ? `Discord ${discord.state}${discord.latency_ms ? ` · ${discord.latency_ms} ms` : ''}${discord.detail ? ` · ${discord.detail}` : ''}` : 'Discord'} />
+          <Dot label="config" tone={stateTone(h?.config?.state)} title={`config ${h?.config?.state ?? '—'} (${h?.config?.source ?? '—'})`} />
+          <Dot label="secrets" tone={stateTone(h?.secrets?.state)} title={`secrets ${h?.secrets?.state ?? '—'}`} />
+        </div>
+        <Indicator label="cache" tone="think" value={usage ? `${(cacheHit * 100).toFixed(0)}%` : '—'} title={usage ? `${tokens(usage.cache_read_input_tokens)} input tokens read from cache` : undefined} />
         <Indicator label="spent" tone="money" value={h?.cost_usd_total !== undefined ? usd(h.cost_usd_total) : '—'} />
         <span className="num text-[12px] text-ink-dim">{clock(now)}</span>
       </div>
@@ -129,13 +191,23 @@ function HeartbeatBar() {
   )
 }
 
-function Indicator({ label, value, tone }: { label: string; value: string; tone: keyof typeof toneHex }) {
+function Indicator({ label, value, tone, title }: { label: string; value: string; tone: keyof typeof toneHex; title?: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <div className="flex shrink-0 items-center gap-1.5" title={title}>
       <LiveDot tone={tone} pulse={tone === 'live' || tone === 'ok'} size={5} />
       <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{label}</span>
-      <span className="num truncate text-[12px] text-ink">{value}</span>
+      <span className="num text-[12px] text-ink">{value}</span>
     </div>
+  )
+}
+
+/** A system state as a labeled dot; the details are in its tooltip. */
+function Dot({ label, tone, title }: { label: string; tone: keyof typeof toneHex; title: string }) {
+  return (
+    <span className="flex items-center gap-1" title={title}>
+      <LiveDot tone={tone} pulse={false} size={6} />
+      <span className="text-[10px] font-medium text-ink-faint">{label}</span>
+    </span>
   )
 }
 
@@ -170,14 +242,14 @@ function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void
       </button>
       {open && (
         <div className="h-36 overflow-auto px-4 pb-2">
-          <AnimatePresence initial={false}>
+          {/* New lines fade in; no layout animation, which overlapped rows when many arrived at once. */}
+          <div>
             {lines.map((l) => (
               <motion.div
                 key={l.key}
-                layout
-                initial={{ opacity: 0, x: -12, backgroundColor: 'rgba(34,211,238,0.12)' }}
-                animate={{ opacity: 1, x: 0, backgroundColor: 'rgba(34,211,238,0)' }}
-                transition={{ duration: 0.5 }}
+                initial={{ opacity: 0, backgroundColor: 'rgba(34,211,238,0.14)' }}
+                animate={{ opacity: 1, backgroundColor: 'rgba(34,211,238,0)' }}
+                transition={{ duration: 0.6 }}
                 className="flex items-baseline gap-2 rounded px-1 py-[1px] text-[12px]"
               >
                 <span className="num shrink-0 text-[11px] text-ink-faint">{stamp(l.at)}</span>
@@ -186,7 +258,7 @@ function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void
                 <span className="min-w-0 truncate text-ink-dim">{l.text}</span>
               </motion.div>
             ))}
-          </AnimatePresence>
+          </div>
         </div>
       )}
     </section>
@@ -196,7 +268,19 @@ function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void
 function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const nav = useNavigate()
   const { data } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
+  const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 3000)
+  const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
   const go = (to: string) => { onOpenChange(false); nav(to) }
+  const act = async (ask: string, method: string, params: unknown) => {
+    onOpenChange(false)
+    if (!window.confirm(ask)) return
+    try { await call(method, params) } catch (e: any) { window.alert(e?.message ?? String(e)) }
+  }
+  const title = (sid: string) => { const s = data?.sessions.find((x) => x.session_id === sid); return s?.title || s?.label || short(sid) }
+  const item = 'flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-ink data-[selected=true]:bg-live/10'
+  const group = 'text-[11px] text-ink-faint [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5'
+  const running = (el?.executions ?? []).filter((e) => e.state === 'running' || e.state === 'queued')
+  const held = (data?.sessions ?? []).filter((s) => s.external_text)
   return (
     <Command.Dialog
       open={open}
@@ -218,6 +302,36 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
             </Command.Item>
           ))}
         </Command.Group>
+        {(cl?.confirms.length ?? 0) > 0 && (
+          <Command.Group heading="Waiting for you" className={group}>
+            {cl!.confirms.map((c) => [
+              <Command.Item key={`y-${c.correlation_id}`} value={`approve ${c.tool} ${title(c.session_id)}`} className={item}
+                onSelect={() => act(`Approve ${c.tool} for ${title(c.session_id)}?\n\n${c.reason}`, 'action.confirm', { correlation_id: c.correlation_id, approve: true })}>
+                <CircleCheck size={14} className="text-ok" /> Approve <span className="num text-tool">{c.tool}</span><span className="truncate text-ink-faint">· {title(c.session_id)}</span>
+              </Command.Item>,
+              <Command.Item key={`n-${c.correlation_id}`} value={`decline ${c.tool} ${title(c.session_id)}`} className={item}
+                onSelect={() => act(`Decline ${c.tool} for ${title(c.session_id)}?`, 'action.confirm', { correlation_id: c.correlation_id, approve: false })}>
+                <OctagonX size={14} className="text-fault" /> Decline <span className="num text-tool">{c.tool}</span><span className="truncate text-ink-faint">· {title(c.session_id)}</span>
+              </Command.Item>,
+            ])}
+          </Command.Group>
+        )}
+        {(running.length > 0 || held.length > 0) && (
+          <Command.Group heading="Act" className={group}>
+            {running.map((e) => (
+              <Command.Item key={`s-${e.execution_id}`} value={`stop ${title(e.session_id)}`} className={item}
+                onSelect={() => act(`Stop the running turn of ${title(e.session_id)}?`, 'execution.stop', { execution_id: e.execution_id })}>
+                <Pause size={14} className="text-wait" /> Stop <span className="truncate">{title(e.session_id)}</span>
+              </Command.Item>
+            ))}
+            {held.map((s) => (
+              <Command.Item key={`t-${s.session_id}`} value={`trust ${title(s.session_id)}`} className={item}
+                onSelect={() => act(`Trust ${title(s.session_id)} again? Its calls that act stop waiting.`, 'policy.trust', { session_id: s.session_id })}>
+                <ShieldCheck size={14} className="text-wait" /> Trust <span className="truncate">{title(s.session_id)}</span>
+              </Command.Item>
+            ))}
+          </Command.Group>
+        )}
         <Command.Group heading="Sessions" className="text-[11px] text-ink-faint [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
           {(data?.sessions ?? []).map((s) => (
             <Command.Item
@@ -235,6 +349,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       </Command.List>
       <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11px] text-ink-faint">
         <span><span className="kbd">↑↓</span> move</span><span><span className="kbd">↵</span> open</span><span><span className="kbd">esc</span> close</span>
+        <span className="ml-auto"><span className="kbd">g</span> then <span className="kbd">b</span> <span className="kbd">f</span> <span className="kbd">a</span> <span className="kbd">l</span> <span className="kbd">e</span> <span className="kbd">s</span> jumps to a view</span>
       </div>
     </Command.Dialog>
   )

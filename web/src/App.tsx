@@ -282,6 +282,7 @@ export default function App() {
             onClick={() => setShowSessions((v) => { localStorage.setItem('theseus.sidebar', v ? 'off' : 'on'); return !v })}>☰</button>
           <Logo /> <strong>Theseus</strong>
           {health && <span className="muted"> v{health.version}</span>}
+          <a className="new-experience" href="/cockpit/" title="The cockpit: the same daemon, a richer view (theseus-45n5)">see the new experience →</a>
         </div>
         {profiles && (
           <label className="profile" title={`live profile (from ${profiles.live_source}); persists across restarts`}>

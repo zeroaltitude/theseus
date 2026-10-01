@@ -14,6 +14,9 @@
 //! page cannot change them. Refusals are counted in health and ledgered
 //! (`web.refused`, `Core::web_refused`), never narrated.
 //!
+//! A second app, the cockpit (theseus-45n5), is served at `/cockpit/` from its own embedded folder, under the
+//! same Host and Origin rules, and speaks the same protocol over the same `/ws`. The classic UI links to it.
+//!
 //! There is no per-start token. It would have to reach the page from this
 //! same server, so it would reach exactly the clients that already pass
 //! both checks: the UI's own page, and any local process, which can send
@@ -41,7 +44,7 @@ use axum::{
     },
     http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
     Router,
 };
@@ -56,6 +59,19 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 #[derive(Embed)]
 #[folder = "web/dist/"]
 struct Assets;
+
+/// The new experience, the cockpit (theseus-45n5), served at `/cockpit/`. It is built by `npm run build` in
+/// `cockpit/`, and the build is not committed (it is several MB and changes with every edit): a binary built
+/// without it serves a page that says so, and the classic UI is unaffected.
+#[derive(Embed)]
+#[folder = "cockpit/dist/"]
+#[allow_missing = true]
+struct Cockpit;
+
+const COCKPIT_MISSING: &str =
+    "the cockpit is not built into this binary: run `npm ci && npm run build` in cockpit/, then rebuild theseusd";
+const WEB_MISSING: &str =
+    "web UI assets are not built into this binary (run `npm run build` in web/)";
 
 pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
     // `Config::validate` refuses a bind that is not a loopback address
@@ -91,6 +107,12 @@ pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
     let app = Router::new()
         .route("/", get(index))
         .route("/ws", get(ws_upgrade))
+        .route(
+            "/cockpit",
+            get(|| async { Redirect::permanent("/cockpit/") }),
+        )
+        .route("/cockpit/", get(cockpit_index))
+        .route("/cockpit/{*path}", get(cockpit_asset))
         .route("/{*path}", get(asset))
         .layer(middleware::from_fn_with_state(ui.clone(), own_host))
         .with_state(ui);
@@ -334,19 +356,31 @@ impl Ends {
 }
 
 async fn index() -> Response {
-    serve_embedded("index.html")
+    serve_embedded::<Assets>("index.html", WEB_MISSING)
 }
 
 async fn asset(Path(path): Path<String>) -> Response {
     match Assets::get(&path) {
-        Some(_) => serve_embedded(&path),
+        Some(_) => serve_embedded::<Assets>(&path, WEB_MISSING),
         // Client-side routes fall back to the app shell.
-        None => serve_embedded("index.html"),
+        None => serve_embedded::<Assets>("index.html", WEB_MISSING),
     }
 }
 
-fn serve_embedded(path: &str) -> Response {
-    match Assets::get(path) {
+async fn cockpit_index() -> Response {
+    serve_embedded::<Cockpit>("index.html", COCKPIT_MISSING)
+}
+
+async fn cockpit_asset(Path(path): Path<String>) -> Response {
+    match Cockpit::get(&path) {
+        Some(_) => serve_embedded::<Cockpit>(&path, COCKPIT_MISSING),
+        // The cockpit's own client-side routes (`/cockpit/session/…`) fall back to its app shell.
+        None => serve_embedded::<Cockpit>("index.html", COCKPIT_MISSING),
+    }
+}
+
+fn serve_embedded<E: Embed>(path: &str, missing: &'static str) -> Response {
+    match E::get(path) {
         Some(file) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
             let cache = if path.starts_with("assets/") {
@@ -363,11 +397,7 @@ fn serve_embedded(path: &str) -> Response {
             )
                 .into_response()
         }
-        None => (
-            StatusCode::NOT_FOUND,
-            "web UI assets are not built into this binary (run `npm run build` in web/)",
-        )
-            .into_response(),
+        None => (StatusCode::NOT_FOUND, missing).into_response(),
     }
 }
 
@@ -579,5 +609,20 @@ mod tests {
             )
         );
         accepting.abort();
+    }
+
+    /// The cockpit (theseus-45n5) serves its app shell when it is built into the binary, and otherwise
+    /// a 404 that says how to build it; its client-side routes fall back to the shell.
+    #[tokio::test]
+    async fn the_cockpit_serves_its_shell_or_says_how_to_build_it() {
+        let shell = serve_embedded::<Cockpit>("index.html", COCKPIT_MISSING);
+        let deep = cockpit_asset(Path("session/ses_x".to_string())).await;
+        if Cockpit::get("index.html").is_some() {
+            assert_eq!(shell.status(), StatusCode::OK);
+            assert_eq!(deep.status(), StatusCode::OK);
+        } else {
+            assert_eq!(shell.status(), StatusCode::NOT_FOUND);
+            assert_eq!(deep.status(), StatusCode::NOT_FOUND);
+        }
     }
 }
