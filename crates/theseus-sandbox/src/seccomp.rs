@@ -121,7 +121,6 @@ pub fn denied() -> Vec<(&'static str, libc::c_long)> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum To {
     Next,
-    Allow,
     CloneFlags,
     Enosys,
     Eperm,
@@ -183,7 +182,7 @@ pub fn program() -> Vec<sock_filter> {
     for (_, nr) in denied() {
         p.push(jmp(JEQ, nr as u32, To::Eperm, To::Next));
     }
-    let allow = push(&mut p, ret(RET_ALLOW));
+    p.push(ret(RET_ALLOW));
     // Classic BPF jumps forward only, so clone's check ends in an allow of
     // its own.
     let clone_flags = push(&mut p, ld(OFF_ARG0_LO));
@@ -195,7 +194,6 @@ pub fn program() -> Vec<sock_filter> {
     let resolve = |i: usize, to: To| -> u8 {
         let target = match to {
             To::Next => i + 1,
-            To::Allow => allow,
             To::CloneFlags => clone_flags,
             To::Enosys => enosys,
             To::Eperm => eperm,

@@ -116,6 +116,15 @@ pub fn spawn(spec: &Spec, init: &Init, stdio: Stdio) -> Result<SandboxChild, Spa
 
     let mut pidfd: libc::c_int = -1;
     let flags = (NAMESPACES | libc::CLONE_PIDFD | libc::SIGCHLD) as libc::c_ulong;
+    // Every signal is blocked across the clone, so no handler of this
+    // process ever runs in the child; the init sets its own mask, and a
+    // signal that arrived meanwhile reaches it then.
+    let (mut all, mut old): (libc::sigset_t, libc::sigset_t) =
+        unsafe { (std::mem::zeroed(), std::mem::zeroed()) };
+    unsafe {
+        libc::sigfillset(&mut all);
+        libc::pthread_sigmask(libc::SIG_SETMASK, &all, &mut old);
+    }
     // clone(2) with no new stack: the child runs on a copy of this one, as
     // after fork. The pidfd is written to `pidfd` in this process alone.
     let pid = unsafe {
@@ -128,6 +137,9 @@ pub fn spawn(spec: &Spec, init: &Init, stdio: Stdio) -> Result<SandboxChild, Spa
             0usize,
         )
     };
+    if pid != 0 {
+        unsafe { libc::pthread_sigmask(libc::SIG_SETMASK, &old, std::ptr::null_mut()) };
+    }
     if pid == 0 {
         unsafe {
             child(

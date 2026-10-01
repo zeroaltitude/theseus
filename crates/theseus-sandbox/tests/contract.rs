@@ -127,6 +127,10 @@ fn probe_in(
         format!("the probe {name} ended {exit:?}; its output:\n{out}"),
     )?;
     let last = out.lines().last().unwrap_or("");
+    // THESEUS_SANDBOX_SHOW=1 prints what each probe saw, as evidence.
+    if std::env::var_os("THESEUS_SANDBOX_SHOW").is_some() {
+        println!("probe {name}: {last}");
+    }
     serde_json::from_str(last).map_err(|e| format!("the probe {name}'s output ({e}):\n{out}"))
 }
 
@@ -524,6 +528,11 @@ fn not_granted_is_denied() -> Result<(), String> {
     ] {
         is(&v, k, "ENOENT")?;
     }
+    // The init's own handles (the hidden scratch among its descriptors) are
+    // out of the command's reach: it is in another user namespace.
+    for k in ["init_fd", "init_environ", "init_root"] {
+        is(&v, k, "EACCES")?;
+    }
     check(
         v["env"] == json!(["HOME", "LANG", "PATH", "THESEUS_GRANTED"]),
         format!("the job's environment: {}", v["env"]),
@@ -560,6 +569,17 @@ fn exit_status_and_signals() -> Result<(), String> {
     check(
         exit.signal == Some(libc::SIGABRT) && exit.init_signal.is_none(),
         format!("abort: {exit:?}"),
+    )?;
+    // The command starts as a fresh process: no signal blocked or ignored,
+    // whatever its ancestors ignored (a Rust runtime ignores SIGPIPE). grep
+    // reads its own status, since a Rust probe would ignore SIGPIPE itself.
+    let argv = ["grep", "-E", "^Sig(Blk|Ign)", "/proc/self/status"];
+    let (exit, out) = run(&job(argv.map(String::from).to_vec(), ws.path()))?;
+    check(
+        exit.success()
+            && out.contains("SigBlk:\t0000000000000000")
+            && out.contains("SigIgn:\t0000000000000000"),
+        format!("the command's signal state: {exit:?}\n{out}"),
     )
 }
 
@@ -797,7 +817,16 @@ mod probe {
             .lines()
         {
             if let Some((k, v)) = l.split_once(':') {
-                if k.starts_with("Cap") || ["NoNewPrivs", "Seccomp", "Uid", "Gid"].contains(&k) {
+                let wanted = [
+                    "NoNewPrivs",
+                    "Seccomp",
+                    "Uid",
+                    "Gid",
+                    "Groups",
+                    "SigBlk",
+                    "SigIgn",
+                ];
+                if k.starts_with("Cap") || wanted.contains(&k) {
                     m.insert(k.into(), json!(v.trim()));
                 }
             }
@@ -1132,6 +1161,11 @@ mod probe {
             "theseus_state": outcome(fs::metadata(h(".theseus"))),
             "run": outcome(fs::metadata("/run")),
             "var": outcome(fs::metadata("/var")),
+            // Its fd directory lists (the init is the operator's uid too), but
+            // no link in it can be followed or opened.
+            "init_fd": outcome(fs::read_link("/proc/1/fd/4").and_then(|_| fs::File::open("/proc/1/fd/4"))),
+            "init_environ": outcome(fs::read("/proc/1/environ")),
+            "init_root": outcome(fs::read_dir("/proc/1/root")),
             "env": env,
             "ssh_auth_sock": std::env::var_os("SSH_AUTH_SOCK").is_some(),
         })

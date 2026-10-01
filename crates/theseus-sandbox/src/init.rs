@@ -65,14 +65,18 @@ fn run(report: &mut File, t0: Instant) -> Result<i32, Failure> {
             0,
         )
     };
-    // Descriptors 0 to 5 are the job's; anything else inherited goes.
-    sys::close_range(6, u32::MAX, false).stage("closing inherited descriptors")?;
+    // The wrapper cloned it with every signal blocked: from here, only those
+    // the init takes with sigwaitinfo are.
+    let set = signal_set();
+    cvt(unsafe { libc::sigprocmask(libc::SIG_SETMASK, &set, std::ptr::null_mut()) })
+        .stage("setting the signal mask")?;
     let spec = read_spec().stage("reading the job")?;
+    // Descriptors 0 to 4 are the job's, and 5 with egress; anything else
+    // inherited goes.
+    let first_stray = if spec.egress_port.is_some() { 6 } else { 5 };
+    sys::close_range(first_stray, u32::MAX, false).stage("closing inherited descriptors")?;
     let (uid, gid) = outer_ids().stage("reading user namespace 1's maps")?;
     let last_cap = last_cap();
-    let set = signal_set();
-    cvt(unsafe { libc::sigprocmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()) })
-        .stage("blocking signals")?;
 
     let view = view::build(&spec)?;
     sys::cvt(unsafe { libc::sethostname(spec.hostname.as_ptr().cast(), spec.hostname.len()) })
@@ -297,11 +301,14 @@ impl Command {
 
     fn setup(&self) -> Result<(), (u32, io::Error)> {
         let at = |step: u32| move |e: io::Error| (step, e);
+        // The command starts as a fresh process would: every signal at its
+        // default (the init's runtime ignores SIGPIPE, say), none blocked.
         let empty = {
             let mut s: libc::sigset_t = unsafe { std::mem::zeroed() };
             unsafe { libc::sigemptyset(&mut s) };
             s
         };
+        reset_signals();
         unsafe { libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut()) };
         cvt(unsafe { libc::unshare(libc::CLONE_NEWUSER) }).map_err(at(1))?;
         fs::write("/proc/self/setgroups", "deny").map_err(at(2))?;
@@ -326,6 +333,39 @@ impl Command {
         // the step pipe close at its exec.
         sys::close_range(3, u32::MAX, true).map_err(at(11))?;
         Ok(())
+    }
+}
+
+/// Every signal to its default action, by the raw system call: the C
+/// library refuses to touch the two it reserves (32 and 33), and an ignored
+/// disposition would otherwise pass through every exec to the command.
+fn reset_signals() {
+    // The kernel's struct sigaction; all zero is SIG_DFL with no flags.
+    #[repr(C)]
+    struct KernelSigaction {
+        handler: usize,
+        flags: libc::c_ulong,
+        restorer: usize,
+        mask: u64,
+    }
+    let default = KernelSigaction {
+        handler: 0,
+        flags: 0,
+        restorer: 0,
+        mask: 0,
+    };
+    for sig in 1..=64 {
+        if sig != libc::SIGKILL && sig != libc::SIGSTOP {
+            unsafe {
+                libc::syscall(
+                    libc::SYS_rt_sigaction,
+                    sig,
+                    &default as *const KernelSigaction,
+                    std::ptr::null_mut::<KernelSigaction>(),
+                    8usize,
+                )
+            };
+        }
     }
 }
 
