@@ -1,0 +1,39 @@
+theseusd install --separate --remove: the plan. Nothing is changed: --apply performs it, as root.
+  operator:  ada (uid 1000), in theseus-ops
+
+  ok      socket /run/theseus/theseus.sock (no daemon may answer)
+                 the daemon must be stopped first
+  remove  file   /etc/systemd/user/theseus-job-host.service
+                 the job host's user unit
+  remove  file   /etc/systemd/system/theseusd.service
+                 the daemon's unit
+  remove  file   /etc/tmpfiles.d/theseus.conf
+                 what made /run/theseus at boot
+  remove  dir    /run/theseus
+                 the sockets' directory, with any socket a stopped daemon left
+  remove  file   /usr/local/lib/theseus/theseusd
+                 the installed binary
+  remove  dir    /usr/local/lib/theseus
+                 the binary's directory, once empty
+  gone    file   /etc/theseus/theseus.toml
+                 a copied config file (the original is yours, and stays)
+  remove  file   /etc/theseus/op-token
+                 the token's place: removed while empty; a token in it is kept, made root's
+  remove  dir    /etc/theseus
+                 the token's directory, once empty; otherwise made root:root 0700
+  remove  dir    /var/lib/theseus
+                 the state dir: removed only while empty; one that holds anything stays (moved aside with --purge-state), made root:root 0700
+  remove  member ada of theseus-ops
+                 your membership
+  remove  user   theseus
+                 the daemon's user, if it is the one this installer makes
+  remove  group  theseus
+                 the daemon user's own group
+  remove  group  theseus-ops
+                 the operator's group
+
+13 to do, 2 already done.
+
+Then, by hand:
+  - before --apply: sudo systemctl disable --now theseusd.service; and, as yourself, systemctl --user disable --now theseus-job-host.service if you enabled it
+  - after it: sudo systemctl daemon-reload

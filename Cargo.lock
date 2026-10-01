@@ -3886,6 +3886,7 @@ dependencies = [
  "axum",
  "clap",
  "futures-util",
+ "libc",
  "mime_guess",
  "rust-embed",
  "serde_json",

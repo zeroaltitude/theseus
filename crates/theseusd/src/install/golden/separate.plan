@@ -1,0 +1,89 @@
+theseusd install --separate: the plan. Nothing is changed: --apply performs it, as root.
+  operator:  ada (uid 1000), in theseus-ops
+  binary:    $TMP/build/theseusd -> /usr/local/lib/theseus/theseusd
+  config:    op://Example/theseus-config/notesPlain, the vault's note, stays the source; the unit's flags give the layout's paths
+
+  create  group  theseus-ops
+                 the operator's group: its members reach the daemon's sockets
+  create  user   theseus (system; its own group; home /var/lib/theseus; shell /usr/sbin/nologin)
+                 the runtime and its storage run as their own OS identity, so a job, run as you, cannot read or write them
+  add     member ada of theseus-ops
+                 so you reach the daemon's sockets
+  create  dir    /var/lib/theseus theseus:theseus 0700
+                 the store (WAL, index, blobs), the config's copy, and the bindings file
+  create  dir    /etc/theseus root:theseus 0750
+                 the token's directory: the daemon reads it, your jobs cannot
+  create  file   /etc/theseus/op-token theseus:theseus 0600 (empty)
+                 the 1Password service-account token's place; the installer never writes a token
+  create  dir    /usr/local/lib/theseus root:root 0755
+                 the binary's directory
+  install file   /usr/local/lib/theseus/theseusd root:root 0755 (from $TMP/build/theseusd)
+                 the binary is part of the floor: the operator cannot replace it
+  write   file   /etc/systemd/system/theseusd.service root:root 0644
+                 the daemon as theseus, with Delegate=yes
+                 | # Written by `theseusd install --separate`. A later --apply rewrites it:
+                 | # put your own changes in a drop-in (`sudo systemctl edit theseusd`).
+                 | [Unit]
+                 | Description=Theseus daemon, as its own user
+                 | Wants=network-online.target
+                 | After=network-online.target
+                 |
+                 | [Service]
+                 | Type=exec
+                 | User=theseus
+                 | Group=theseus
+                 | # The group whose members reach the daemon's sockets.
+                 | SupplementaryGroups=theseus-ops
+                 | ExecStart=/usr/local/lib/theseus/theseusd --config op://Example/theseus-config/notesPlain --state-dir /var/lib/theseus --socket /run/theseus/theseus.sock --op-token-file /etc/theseus/op-token
+                 | UMask=0077
+                 | # Delegated, so the daemon can give each L1 job a cgroup of its own, with
+                 | # memory and pids limits (M4 2.2).
+                 | Delegate=yes
+                 | # SIGINT is the daemon's clean stop: it removes its socket and closes the
+                 | # store. A stop signals the daemon alone, so running jobs finish, and the
+                 | # next daemon reads their results from the spool, as a shell-started
+                 | # daemon's stop leaves them.
+                 | KillSignal=SIGINT
+                 | KillMode=process
+                 | Restart=on-failure
+                 | RestartSec=5
+                 |
+                 | [Install]
+                 | WantedBy=multi-user.target
+  write   file   /etc/systemd/user/theseus-job-host.service root:root 0644
+                 the job host's user unit, disabled until step 22b; here rather than in your home, so root never writes where your jobs can
+                 | # Written by `theseusd install --separate`. Leave it disabled until step 22b
+                 | # gives theseusd its job-host role: until then its start fails.
+                 | [Unit]
+                 | Description=Theseus job host: the separated daemon's jobs, run as you
+                 |
+                 | [Service]
+                 | Type=exec
+                 | ExecStart=/usr/local/lib/theseus/theseusd job-host
+                 | # Delegated, so the job host can give each L1 job a cgroup of its own.
+                 | Delegate=yes
+                 | # A stop signals the host alone: its jobs finish, and their results
+                 | # wait in the spool for the next host to relay.
+                 | KillMode=process
+                 | Restart=on-failure
+                 | RestartSec=5
+                 |
+                 | [Install]
+                 | WantedBy=default.target
+  write   file   /etc/tmpfiles.d/theseus.conf root:root 0644
+                 makes /run/theseus at each boot: /run is a tmpfs
+                 | # Written by `theseusd install --separate`.
+                 | # The daemon's sockets: theseus.sock, and the job host's jobs.sock.
+                 | d /run/theseus 0750 theseus theseus-ops -
+  create  dir    /run/theseus theseus:theseus-ops 0750
+                 the sockets' directory: theseus.sock, and the job host's jobs.sock (22b)
+
+12 to do, 0 already done.
+
+Then, by hand:
+  - copy the token in: sudo install -o theseus -g theseus -m 0600 <your token file> /etc/theseus/op-token
+  - the daemon runs `op` from systemd's PATH (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin), and none is there: install the 1Password CLI system-wide, or add its directory in a drop-in (`sudo systemctl edit theseusd`: [Service] Environment=PATH=<its dir>:/usr/local/bin:/usr/bin:/bin)
+  - sudo systemctl daemon-reload
+  - stop the daemon you run now (`theseus shutdown`): both would serve the web UI's port and Discord; then sudo systemctl enable --now theseusd.service
+  - log in again (or `newgrp theseus-ops`) for your membership in theseus-ops to take effect
+  - leave theseus-job-host.service disabled until step 22b

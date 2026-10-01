@@ -31,6 +31,7 @@ use theseus_core::store::Store;
 use theseus_core::{Config, Core};
 use tokio::net::UnixListener;
 
+mod install;
 mod web;
 
 const AFTER_HELP: &str = "\
@@ -107,6 +108,9 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
+    /// Install the daemon as a systemd service: --user (yours), or --separate (as its own
+    /// user; needs root). Prints a plan; --apply performs it, --check compares, --remove undoes.
+    Install(install::InstallArgs),
     /// Internal: the detached job wrapper (spawned by the kernel, never by hand).
     #[command(hide = true, disable_help_flag = true)]
     JobWrapper {
@@ -158,6 +162,16 @@ fn main() -> Result<()> {
         // spools its result, and waits for what the command left running.
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
         return theseus_kernel::job::run_wrapper_process(&wa);
+    }
+    if let Some(Cmd::Install(args)) = &cli.cmd {
+        // No config, no secrets, no runtime: never on the start path.
+        let globals = install::Globals {
+            config: cli.config.clone(),
+            op_token_file: cli.op_token_file.clone(),
+            state_dir: cli.state_dir.clone(),
+            socket: cli.socket.clone(),
+        };
+        std::process::exit(install::run(args, &globals)?);
     }
     keep_name();
     if cli.cmd.is_none() {

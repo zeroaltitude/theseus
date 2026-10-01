@@ -212,6 +212,28 @@ impl Manifest {
     }
 }
 
+/// Whether this build may open the store in `dir`, judged by its manifest
+/// alone: nothing else is read, and nothing is written (theseus-7hh). The
+/// installer asks before it copies a stopped daemon's store for the binary it
+/// installs, so an older build is never handed a newer store (F4a). A
+/// directory with no manifest is a store this build would create. The WAL's
+/// own records are checked when the store opens.
+pub fn check_manifest(dir: &Path) -> Result<()> {
+    let path = dir.join("MANIFEST.json");
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            return Err(
+                anyhow::Error::new(e).context(format!("reading store manifest {}", path.display()))
+            )
+        }
+    };
+    let m: Manifest = serde_json::from_slice(&bytes)
+        .with_context(|| format!("reading store manifest {}", path.display()))?;
+    m.check(dir)
+}
+
 /// Replace the manifest: a temporary file, synced, renamed over it, and
 /// the directory synced, so a reader finds the old one or the new one.
 fn write_manifest(dir: &Path, m: &Manifest, fsync: bool) -> Result<()> {
@@ -903,6 +925,34 @@ mod tests {
                 "{e}"
             );
             assert_eq!(snapshot(dir.path()), before);
+        }
+    }
+
+    /// theseus-7hh: the manifest alone says what `open` would, for a store
+    /// this build reads, one it is too old for, and a directory with no
+    /// store yet, and the check writes nothing.
+    #[test]
+    fn the_manifest_alone_says_whether_this_build_may_open_a_store() {
+        let dir = tempfile::tempdir().unwrap();
+        check_manifest(&dir.path().join("none")).unwrap();
+        let s = open(dir.path());
+        s.append(&[NewRecord::json(kinds::SESSION, Some("s1"), &"v1").unwrap()])
+            .unwrap();
+        drop(s);
+        check_manifest(dir.path()).unwrap();
+        for (manifest, says) in [
+            (
+                r#"{"format": 3, "engine": "redb", "kinds": [{"kind": 77, "name": "hold", "schema": 1}]}"#,
+                "a kind this build does not know",
+            ),
+            (r#"{"format": 4, "engine": "redb"}"#, "is format 4"),
+            ("{", "reading store manifest"),
+        ] {
+            std::fs::write(dir.path().join("MANIFEST.json"), manifest).unwrap();
+            let before = snapshot(dir.path());
+            let e = format!("{:#}", check_manifest(dir.path()).err().unwrap());
+            assert!(e.contains(says), "{says:?} missing from: {e}");
+            assert_eq!(snapshot(dir.path()), before, "the check wrote");
         }
     }
 

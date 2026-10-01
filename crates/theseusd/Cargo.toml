@@ -16,8 +16,10 @@ theseus-core.workspace = true
 theseus-protocol.workspace = true
 theseus-kernel.workspace = true
 theseus-discord.workspace = true
+theseus-store.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+libc = "0.2"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -30,7 +32,6 @@ futures-util.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
-theseus-store.workspace = true
 theseus-sim = { path = "../theseus-sim" }
 
 [lints]

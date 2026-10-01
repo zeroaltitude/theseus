@@ -1,0 +1,42 @@
+theseusd install --user: the plan. Nothing is changed: --apply performs it.
+  operator:  ada (uid 1000)
+  binary:    /opt/theseus/bin/theseusd
+  config:    op://Example/theseus-config/notesPlain
+  state dir: the config's [server] state_dir (default ~/.theseus), as today
+  PATH:      this shell's, so the daemon finds `op` and your jobs their tools
+
+  write   file   /home/ada/.config/systemd/user/theseusd.service ada:ada 0644
+                 the daemon as your systemd user service: Delegate=yes gives L1 jobs cgroup limits (M4 2.2)
+                 | # Written by `theseusd install --user`. A later --apply rewrites it:
+                 | # put your own changes in a drop-in (`systemctl --user edit theseusd`).
+                 | [Unit]
+                 | Description=Theseus daemon
+                 |
+                 | [Service]
+                 | Type=exec
+                 | ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain --op-token-file /home/ada/.config/theseus/op-token
+                 | Environment="PATH=/home/ada/.local/bin:/usr/bin:/bin"
+                 | Environment="LANG=C.UTF-8"
+                 | # Delegated, so the daemon can give each L1 job a cgroup of its own, with
+                 | # memory and pids limits (M4 2.2).
+                 | Delegate=yes
+                 | # SIGINT is the daemon's clean stop: it removes its socket and closes the
+                 | # store. A stop signals the daemon alone, so running jobs finish, and the
+                 | # next daemon reads their results from the spool, as a shell-started
+                 | # daemon's stop leaves them.
+                 | KillSignal=SIGINT
+                 | KillMode=process
+                 | Restart=on-failure
+                 | RestartSec=5
+                 |
+                 | [Install]
+                 | WantedBy=default.target
+
+1 to do, 0 already done.
+
+Then, by hand:
+  - systemctl --user daemon-reload
+  - stop the daemon you started by hand (`theseus shutdown`), so the unit's can take its socket
+  - systemctl --user enable --now theseusd.service
+  - loginctl enable-linger ada: your user manager, and the daemon, keep running when you log out
+  - journalctl --user -u theseusd: its log
