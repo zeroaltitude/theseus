@@ -2262,9 +2262,9 @@ impl TurnRunner {
     /// names not shown, in the session record at once and in the turn's copy,
     /// with an `image.not_shown` row each, so that this turn's next call and
     /// every later request render its line. None when it names no image the
-    /// session still shows. `Some(true)` when one sat before an answer of the
-    /// model's in the refused request, whose thinking the next compilation
-    /// strips.
+    /// session still shows. `Some(true)` when a copy of one sat before an
+    /// answer of the model's in the refused request, whose thinking the next
+    /// compilation strips.
     fn hide_refused(
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
@@ -2311,21 +2311,33 @@ impl TurnRunner {
             }
             Ok(vec![])
         })?;
+        let (it, line) = match refused.len() {
+            1 => ("it is", "its line"),
+            _ => ("they are", "their lines"),
+        };
         narrate_turn!(
             t.tc,
             Model,
-            "{} refused {} ({}): from now on it is not shown, and the call is made again with \
-             its line.",
+            "{} refused {} ({}): from now on {it} not shown, and the call is made again with \
+             {line}.",
             t.target.model,
             narrative::count(refused.len() as u64, "image", "images"),
             first.why
         );
-        let edited = refused.iter().any(|r| {
-            messages
-                .iter()
-                .skip(r.message + 1)
-                .any(|m| m["role"] == "assistant")
-        });
+        // Every copy of a hidden image renders as its line, not only the one
+        // the 400 named. If any copy sat before an answer of the model's, the
+        // history under that answer's thinking changed: the API binds a
+        // thinking block to every message before it, so the block must go.
+        let edited = messages
+            .iter()
+            .rposition(|m| m["role"] == "assistant")
+            .is_some_and(|last| {
+                messages[..last].iter().any(|m| {
+                    crate::attach::digests_in(m)
+                        .iter()
+                        .any(|d| refused.iter().any(|r| &r.digest == d))
+                })
+            });
         session.not_shown.extend(marks);
         Ok(Some(edited))
     }

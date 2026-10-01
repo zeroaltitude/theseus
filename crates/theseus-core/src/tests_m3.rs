@@ -3386,6 +3386,76 @@ async fn an_image_refused_under_an_answer_strips_that_answers_thinking() {
     );
 }
 
+/// theseus-0s4: the same image sent again, and refused the second time, by
+/// the later copy's block alone. The mark hides both copies, and the first
+/// sat under the model's answer, so the retry strips that answer's thinking
+/// too: the API binds a thinking block to every message before it.
+#[tokio::test]
+async fn an_image_sent_again_and_refused_strips_the_thinking_over_its_first_copy() {
+    let answered = Scripted::Blocks {
+        blocks: vec![
+            json!({"type": "thinking", "thinking": "a tide chart, high water at four", "signature": "sig-tide"}),
+            json!({"type": "text", "text": "A tide chart."}),
+        ],
+        stop_reason: "end_turn".into(),
+    };
+    let r = rig(vec![
+        answered,
+        refused_image(2, 1),
+        Scripted::text("The same chart."),
+    ]);
+    let bytes = crate::attach::tests::png(640, 480, 300);
+    let first = submit(
+        &r.core,
+        submit_params(
+            None,
+            "What is this?",
+            vec![image_attached("tide.png", &bytes)],
+        ),
+    )
+    .await;
+    assert_eq!(first["output"], "A tide chart.", "{first}");
+    let sid = first["session_id"].as_str().unwrap().to_string();
+    let second = submit(
+        &r.core,
+        submit_params(
+            Some(&sid),
+            "And this one?",
+            vec![image_attached("tide.png", &bytes)],
+        ),
+    )
+    .await;
+    assert_eq!(second["output"], "The same chart.", "{second}");
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3);
+    let thinking = |q: &crate::provider::ProviderRequest| {
+        serde_json::to_string(&q.messages)
+            .unwrap()
+            .contains(r#""type":"thinking""#)
+    };
+    assert!(
+        thinking(&reqs[1]) && carries_an_image(&reqs[1]),
+        "the refused request"
+    );
+    assert!(
+        !thinking(&reqs[2]) && !carries_an_image(&reqs[2]),
+        "{:?}",
+        reqs[2].messages
+    );
+    for m in [0, 2] {
+        assert_eq!(reqs[2].messages[m]["content"][0]["text"], TIDE_LINE, "{m}");
+    }
+    let rows = ledgered(&r, "image.not_shown");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["message_index"], 2, "the copy the 400 named");
+    let compiled = ledgered(&r, "context.compiled");
+    assert_eq!(
+        compiled.last().unwrap()["trigger"],
+        "image_not_shown",
+        "{compiled:?}"
+    );
+}
+
 // ---------------------------------------------------------------- approval (theseus-sgh)
 
 const EDDIE: &str = "159471966640799744";

@@ -250,11 +250,7 @@ pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
     let why = refusal_words(error);
     let mut out: Vec<Refused> = Vec::new();
     for (message, img) in named {
-        let Some(digest) = img["source"]["data"]
-            .as_str()
-            .and_then(|d| crate::blobs::decode(d).ok())
-            .map(|bytes| crate::blobs::digest(&bytes))
-        else {
+        let Some(digest) = digest_of(img) else {
             continue;
         };
         if !out.iter().any(|r| r.digest == digest) {
@@ -266,6 +262,27 @@ pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
         }
     }
     out
+}
+
+/// The digests of the images a request message carries, in its own blocks
+/// and in its tool results (theseus-0s4): a mark hides every copy of an
+/// image, not only the one a 400 named.
+pub fn digests_in(message: &Value) -> Vec<String> {
+    message["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(images_of)
+        .filter_map(digest_of)
+        .collect()
+}
+
+/// An image block's blob digest, from its bytes.
+fn digest_of(img: &Value) -> Option<String> {
+    img["source"]["data"]
+        .as_str()
+        .and_then(|d| crate::blobs::decode(d).ok())
+        .map(|bytes| crate::blobs::digest(&bytes))
 }
 
 /// A block's images: itself when it is one, and a tool result's.
