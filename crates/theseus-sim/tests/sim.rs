@@ -22,8 +22,8 @@ fn sim(args: &[&str]) -> String {
 
 /// SIGKILL a writer at random moments and reopen: every record reported
 /// committed is still there, byte for byte. The kill may land inside the
-/// store's very first open (theseus-0b8). Tearing stays off until its
-/// durable bound is finished (see the `--tear` flag).
+/// store's very first open (theseus-0b8), and most kills are followed by a
+/// tear of the WAL's tail past what was reported durable (theseus-4x6).
 #[test]
 fn a_killed_store_keeps_every_committed_record() {
     let out = sim(&[
@@ -33,9 +33,10 @@ fn a_killed_store_keeps_every_committed_record() {
         "--seed",
         "7",
         "--tear",
-        "false",
+        "true",
     ]);
     assert!(out.contains("CRASH TEST OK"), "{out}");
+    assert!(out.contains("tear true"), "{out}");
 }
 
 /// A store another process holds is refused with the message it always

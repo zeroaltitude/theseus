@@ -66,11 +66,10 @@ enum Cmd {
         /// Restart the same store this many times per iteration.
         #[arg(long, default_value_t = 3)]
         restarts: u32,
-        /// Also tear the WAL tail after each kill (truncate or flip bytes).
-        /// Off by default: the bound that keeps a tear out of bytes the
-        /// worker already reported durable is not finished (theseus-hco
-        /// follow-up), so `--tear true` can still flip a synced frame.
-        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+        /// Also tear the WAL tail after most kills (truncate, append junk, or
+        /// flip a byte), only past what the worker reported durable or an
+        /// open read back (theseus-4x6).
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         tear: bool,
         /// Path to this binary (defaults to current_exe).
         #[arg(long)]
@@ -462,7 +461,9 @@ struct Committed {
     // position -> (crc, kind)
     map: std::collections::BTreeMap<u64, (u32, u16)>,
     reported_start: Option<u64>,
-    /// The WAL length the worker last reported durable.
+    /// The WAL length no tear may reach into: the longest the worker
+    /// reported durable, or an open (the worker's, or a verify's) read back
+    /// after a kill (theseus-4x6).
     durable_bytes: u64,
 }
 
@@ -531,10 +532,11 @@ fn run_and_kill(
 
 /// Damage the WAL tail the way a crash mid-write would: truncate a few bytes,
 /// or append garbage, or flip a byte in the last frame. A crash cannot take
-/// back what an fdatasync made durable, so the damage stays past `durable`,
-/// the length the worker last reported: bytes it wrote but never reported, or
-/// the start of a frame that never finished. (Tearing into a reported frame
-/// made the test fail on records no crash could lose, theseus-hco.)
+/// back what an fdatasync made durable, nor what an open has read back since,
+/// so the damage stays past `durable` (`Committed::durable_bytes`): bytes the
+/// worker wrote but never reported, or the start of a frame that never
+/// finished. Tearing into a reported frame made the test fail on records no
+/// crash could lose (theseus-hco, theseus-4x6).
 fn tear_tail(dir: &Path, durable: u64, rng: &mut StdRng) -> Result<String> {
     let wal = dir.join("wal");
     if !wal.is_dir() {
@@ -598,11 +600,12 @@ fn tear_tail(dir: &Path, durable: u64, rng: &mut StdRng) -> Result<String> {
 }
 
 /// What a verify found: the store's last position, the torn bytes its open
-/// cut, and whether the open found an index that was not a database (a kill
-/// inside the first open) and moved it aside.
+/// cut, the WAL's length after that cut, and whether the open found an index
+/// that was not a database (a kill inside the first open) and moved it aside.
 struct Verified {
     last: u64,
     truncated: u64,
+    wal_bytes: u64,
     moved_aside: bool,
 }
 
@@ -636,6 +639,7 @@ fn verify(dir: &Path, committed: &Committed) -> Result<Verified> {
     Ok(Verified {
         last,
         truncated: st.truncated_bytes,
+        wal_bytes: st.wal_bytes,
         moved_aside: st.index_moved_aside.is_some(),
     })
 }
@@ -681,6 +685,11 @@ fn crash_test(
             let v = verify(&dir, &committed).with_context(|| {
                 format!("iteration {it} restart {r} (after kill at {live_ms} ms; {tore})")
             })?;
+            // What this open read back is on disk now: no later crash takes
+            // it back, so no later tear reaches into it, though no worker
+            // reported its last frames (the next one may die inside its own
+            // open before it reports anything).
+            committed.durable_bytes = committed.durable_bytes.max(v.wal_bytes);
             let hi = committed.map.keys().next_back().copied().unwrap_or(0);
             unreported += v.last.saturating_sub(hi);
             total_torn += v.truncated;
@@ -705,4 +714,66 @@ fn crash_test(
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A WAL of two segments, 5000 and 3000 bytes, of seeded bytes.
+    fn wal_of(dir: &Path) -> Vec<u8> {
+        let wal = dir.join("wal");
+        std::fs::create_dir_all(&wal).unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut all = Vec::new();
+        for (n, len) in [(1u32, 5000usize), (2, 3000)] {
+            let mut b = vec![0u8; len];
+            rng.fill_bytes(&mut b);
+            std::fs::write(wal.join(format!("{n:09}.seg")), &b).unwrap();
+            all.extend_from_slice(&b);
+        }
+        all
+    }
+
+    fn read_wal(dir: &Path) -> Vec<u8> {
+        let mut all = std::fs::read(dir.join("wal/000000001.seg")).unwrap();
+        all.extend(std::fs::read(dir.join("wal/000000002.seg")).unwrap());
+        all
+    }
+
+    /// A tear never lands inside the length reported durable (theseus-4x6):
+    /// over many seeds and every bound, from nothing reported to all of it,
+    /// the WAL's first `durable` bytes are left exactly as they were, and
+    /// every way of tearing (a cut, junk appended, a flipped byte) happens.
+    #[test]
+    fn a_tear_never_lands_inside_the_reported_durable_length() {
+        let mut ways = std::collections::BTreeSet::new();
+        for durable in [0u64, 1, 4999, 5000, 5001, 7000, 7952, 7999, 8000] {
+            for seed in 0..200u64 {
+                let dir = tempfile::tempdir().unwrap();
+                let before = wal_of(dir.path());
+                let mut rng = StdRng::seed_from_u64(seed);
+                let how = tear_tail(dir.path(), durable, &mut rng).unwrap();
+                ways.insert(how.split(' ').next().unwrap().to_string());
+                let after = read_wal(dir.path());
+                let d = durable as usize;
+                assert!(after.len() >= d, "{how}: {} < {durable}", after.len());
+                assert_eq!(&after[..d], &before[..d], "{how}, durable {durable}");
+                assert_ne!(after, before, "{how}: the tear changed nothing");
+            }
+        }
+        let ways: Vec<_> = ways.into_iter().collect();
+        assert_eq!(ways, ["appended", "flipped", "truncated"]);
+        // A WAL shorter than its reported length is a lost frame, never a tear.
+        let dir = tempfile::tempdir().unwrap();
+        wal_of(dir.path());
+        let e = tear_tail(dir.path(), 8001, &mut StdRng::seed_from_u64(1)).unwrap_err();
+        assert!(e.to_string().contains("reported durable"), "{e}");
+        // Killed inside the first open: no WAL yet, and nothing to tear.
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            tear_tail(dir.path(), 0, &mut StdRng::seed_from_u64(1)).unwrap(),
+            "no WAL yet"
+        );
+    }
 }
