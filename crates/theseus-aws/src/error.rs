@@ -23,15 +23,16 @@ pub enum ErrorRetry {
 #[serde(rename_all = "snake_case")]
 pub enum Enforcer {
     /// IAM: an identity-based or resource-based policy, a permissions
-    /// boundary, a VPC endpoint policy, or a session policy that allowed too
-    /// little (a job's narrowing, which Theseus chose).
+    /// boundary other than Theseus's own, a VPC endpoint policy, or a session
+    /// policy that allowed too little (a job's narrowing, which Theseus chose).
     Iam,
     /// A service control policy, from an Organization.
     Scp,
     /// A resource control policy, from an Organization.
     Rcp,
     /// Theseus's own guard: an explicit deny in a session policy, which on
-    /// Theseus's sessions only the deny-only `theseus-guard-*` policies hold.
+    /// Theseus's sessions only the deny-only `theseus-guard-*` policies hold,
+    /// or in `theseus-boundary`, the hands' boundary, when AWS names it.
     Guard,
 }
 
@@ -97,11 +98,12 @@ pub fn parse_denial(message: &str) -> Option<Denial> {
         .next()
         .filter(|w| w.starts_with("arn:"))
         .map(|w| w.trim_end_matches(['.', ',', ';']).to_owned());
-    // A guard named by its ARN is a guard whatever the policy type says.
-    if policy
-        .as_deref()
-        .is_some_and(|p| p.contains(":policy/theseus-guard"))
-    {
+    // A guard named by its ARN is a guard whatever the policy type says, and
+    // so is the hands' permissions boundary, which carries the guards in
+    // compacted form (the guard lane's `theseus-boundary`).
+    if policy.as_deref().is_some_and(|p| {
+        p.contains(":policy/theseus-guard") || p.ends_with(":policy/theseus-boundary")
+    }) {
         enforcer = Enforcer::Guard;
     }
     Some(Denial {
@@ -243,6 +245,15 @@ mod tests {
             Some("arn:aws:iam::111122223333:policy/theseus-guard-limits")
         );
         assert_eq!(named.enforcer, Enforcer::Guard);
+
+        let boundary = parse_denial(
+            "User: arn:aws:sts::111122223333:assumed-role/theseus-hand-example/job is not \
+             authorized to perform: iam:CreateRole with an explicit deny in a permissions \
+             boundary: arn:aws:iam::111122223333:policy/theseus-boundary",
+        )
+        .unwrap();
+        assert_eq!(boundary.policy_type, "permissions boundary");
+        assert_eq!(boundary.enforcer, Enforcer::Guard);
 
         let implicit = parse_denial(
             "User: arn:aws:iam::111122223333:user/example is not authorized to perform: \

@@ -8,7 +8,7 @@ use theseus_aws_catalog::{Catalog, Classification, OperationRef, RetryClass};
 
 use crate::build::{build, Built};
 use crate::creds::Credentials;
-use crate::error::CallError;
+use crate::error::{CallError, ErrorRetry};
 use crate::paginate;
 use crate::request::HttpRequest;
 use crate::response::{self, Answer, RawResponse};
@@ -404,6 +404,12 @@ impl Client {
         let built = self.built(op, input, call)?;
         let max = self.config.retry.max_attempts.max(1);
         let mut attempt = 0;
+        // Why an attempt may have run, once one may have: a drop after
+        // sending, or a server error. A later attempt's failure can't show
+        // that the call never ran, so the call then ends with its outcome
+        // unknown, whatever the last attempt said. Only a throttle and a
+        // connection that never opened show the request didn't run.
+        let mut may_have_run: Option<String> = None;
         loop {
             attempt += 1;
             let mut req = built.req.clone();
@@ -424,22 +430,40 @@ impl Client {
                             reason,
                         });
                     }
-                    Answer::Err(e) => match decide(class, &Failure::Aws(&e)) {
-                        Decision::Retry if attempt < max => true,
-                        Decision::Unknown => {
-                            return Err(CallError::OutcomeUnknown {
-                                attempts: attempt,
-                                reason: format!(
-                                    "AWS answered {} to a call that is not safe to repeat",
-                                    e.code
-                                ),
-                                error: Some(Box::new(e)),
+                    Answer::Err(e) => {
+                        if e.retry == ErrorRetry::Transient {
+                            may_have_run.get_or_insert_with(|| {
+                                format!("attempt {attempt}: AWS answered {}", e.code)
                             });
                         }
-                        Decision::Retry | Decision::Fail => {
-                            return Err(CallError::Aws(Box::new(e)))
+                        match decide(class, &Failure::Aws(&e)) {
+                            Decision::Retry if attempt < max => true,
+                            Decision::Unknown => {
+                                return Err(CallError::OutcomeUnknown {
+                                    attempts: attempt,
+                                    reason: format!(
+                                        "AWS answered {} to a call that is not safe to repeat",
+                                        e.code
+                                    ),
+                                    error: Some(Box::new(e)),
+                                });
+                            }
+                            Decision::Retry | Decision::Fail => {
+                                if let Some(why) = may_have_run {
+                                    return Err(CallError::OutcomeUnknown {
+                                        attempts: attempt,
+                                        reason: format!(
+                                            "an attempt may have run ({why}); the last attempt: \
+                                             AWS answered {}",
+                                            e.code
+                                        ),
+                                        error: Some(Box::new(e)),
+                                    });
+                                }
+                                return Err(CallError::Aws(Box::new(e)));
+                            }
                         }
-                    },
+                    }
                 },
                 Err(Fault::TooLarge(request_id)) => {
                     return Err(CallError::TooLarge {
@@ -450,14 +474,27 @@ impl Client {
                 Err(Fault::NotSent(reason)) => match decide(class, &Failure::NotSent) {
                     Decision::Retry if attempt < max => true,
                     _ => {
+                        if let Some(why) = may_have_run {
+                            return Err(CallError::OutcomeUnknown {
+                                attempts: attempt,
+                                reason: format!(
+                                    "an earlier attempt may have run ({why}); the last was not \
+                                     sent: {reason}"
+                                ),
+                                error: None,
+                            });
+                        }
                         return Err(CallError::NotSent {
                             attempts: attempt,
                             reason,
-                        })
+                        });
                     }
                 },
                 Err(Fault::AfterSend(reason)) => match decide(class, &Failure::AfterSend) {
-                    Decision::Retry if attempt < max => true,
+                    Decision::Retry if attempt < max => {
+                        may_have_run.get_or_insert_with(|| format!("attempt {attempt}: {reason}"));
+                        true
+                    }
                     _ => {
                         return Err(CallError::OutcomeUnknown {
                             attempts: attempt,

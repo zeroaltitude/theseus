@@ -166,6 +166,65 @@ async fn a_dropped_connection_after_sending_is_outcome_unknown() {
     assert_eq!(fake.seen().len(), 1);
 }
 
+/// An attempt that may have run (a drop after sending, or a server error)
+/// leaves the call's outcome unknown, whatever a later attempt says: a later
+/// refusal or throttle can't show that the call never ran. Only throttles,
+/// and connections that never opened, show that.
+#[tokio::test]
+async fn an_attempt_that_may_have_run_leaves_the_outcome_unknown() {
+    let a = Attribution {
+        execution: Some("exe_test".into()),
+        call: Some("call_2".into()),
+    };
+    let input = json!({"ImageId": "ami-0example", "MinCount": 1, "MaxCount": 1});
+    let refused = "<Response><Errors><Error><Code>InvalidParameterValue</Code><Message>no</Message></Error></Errors><RequestID>r3</RequestID></Response>";
+    let boom = "<Response><Errors><Error><Code>InternalError</Code><Message>boom</Message></Error></Errors><RequestID>r4</RequestID></Response>";
+    let slow = "<Response><Errors><Error><Code>RequestLimitExceeded</Code><Message>slow down</Message></Error></Errors><RequestID>r5</RequestID></Response>";
+
+    // A drop after sending, then a refusal: the first attempt may have run.
+    let fake = Fake::start(vec![Reply::Drop, Reply::new(400, refused)]).await;
+    let err = client(&fake)
+        .call(&call("ec2", "RunInstances", &input, &a), &creds())
+        .await
+        .unwrap_err();
+    match &err {
+        CallError::OutcomeUnknown {
+            attempts,
+            error,
+            reason,
+        } => {
+            assert_eq!(*attempts, 2);
+            assert_eq!(error.as_ref().unwrap().code, "InvalidParameterValue");
+            assert!(reason.contains("attempt 1"), "{reason}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(err.may_have_run());
+    assert_eq!(fake.seen().len(), 2);
+
+    // A server error, then throttles to the end of the policy.
+    let fake = Fake::start(vec![Reply::new(500, boom), Reply::new(503, slow)]).await;
+    let err = client(&fake)
+        .call(&call("ec2", "RunInstances", &input, &a), &creds())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, CallError::OutcomeUnknown { attempts: 3, .. }),
+        "{err:?}"
+    );
+    assert!(err.may_have_run());
+    assert_eq!(fake.seen().len(), 3);
+
+    // Throttles alone: it never ran.
+    let fake = Fake::start(vec![Reply::new(503, slow)]).await;
+    let err = client(&fake)
+        .call(&call("ec2", "RunInstances", &input, &a), &creds())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, CallError::Aws(_)), "{err:?}");
+    assert!(!err.may_have_run());
+}
+
 #[tokio::test]
 async fn retries_stop_at_the_policy() {
     let fake = Fake::start(vec![Reply::json(400, THROTTLE)]).await;
