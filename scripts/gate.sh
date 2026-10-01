@@ -10,8 +10,9 @@ cargo clippy --workspace --all-targets -q -- -D warnings
 # The reader rule (P0's rule 3, theseus-wjy): every crate, method, notification,
 # edge kind, and label has its reader, or a reserved marker naming the row that
 # brings it. The suite runs it again; first, alone, so a miss stops the gate in
-# seconds and says what to add.
-cargo nextest run --workspace -E 'package(theseus-core) & kind(lib) & test(/^tests_registry::/)'
+# seconds and says what to add, every miss at once.
+cargo nextest run --workspace --no-fail-fast \
+  -E 'package(theseus-core) & kind(lib) & test(/^tests_registry::/)'
 cargo nextest run --workspace --no-fail-fast
 # The web apps' protocol types, which a theseus-protocol test writes from the
 # Rust ones (theseus-0g4): a type changed without its TypeScript fails here.

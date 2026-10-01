@@ -50,8 +50,14 @@ const ROOTS: [&str; 2] = ["theseusd", "theseus"];
 /// else has its reader.
 const RESERVED: &[(&str, &str)] = &[];
 
-/// The start of the fix in every failure for an item with no reader.
-const FIX: &str = "Add its reader on the same commit, or reserve it";
+/// How a failure for an item with no reader ends: what to add, or the marker
+/// to add instead, in `RESERVED`.
+fn fix(add: &str, item: &str, reader: &str) -> String {
+    format!(
+        "Add {add} on the same commit, or reserve it: in tests_registry.rs's `RESERVED`, \
+         `(\"{item}\", \"row <n> (<step>), <milestone>: <{reader}>\")`"
+    )
+}
 
 /// Fails with every problem found, one to a line.
 fn fail_on(problems: Vec<String>) {
@@ -330,9 +336,10 @@ fn every_crate_is_read_by_a_binary_or_reserved() {
             )),
             (None, None) => problems.push(format!(
                 "crate `{name}` has no reader: nothing theseusd or theseus reaches depends on it, and \
-                 it is no tool. {FIX}: a normal dependency on the path from theseusd or theseus, or, in \
-                 {path}, `[package.metadata.theseus] reserved_for = \"row <n> (<step>), <milestone>: \
-                 <its reader>\"` (or `tool = \"<what runs it>\"`, for an installed binary of its own)"
+                 it is no tool. Add its reader on the same commit (a normal dependency on the path from \
+                 theseusd or theseus), or reserve it: in {path}, `[package.metadata.theseus] \
+                 reserved_for = \"row <n> (<step>), <milestone>: <its reader>\"` (or `tool = \"<what runs \
+                 it>\"`, for an installed binary of its own)"
             )),
             _ => {}
         }
@@ -409,9 +416,12 @@ async fn every_method_has_its_dispatch_arm() {
         let dispatched = codes[*name] != Some(error_code::METHOD_NOT_FOUND);
         match (dispatched, reserved("method", name)) {
             (false, None) => problems.push(format!(
-                "method `{name}` has no dispatch arm: the core answers it \"method not found\". {FIX}: \
-                 its arm in `dispatch` (theseus-core's rpc/server.rs), or, in tests_registry.rs's \
-                 `RESERVED`, `(\"method {name}\", \"row <n> (<step>), <milestone>: <its arm>\")`"
+                "method `{name}` has no dispatch arm: the core answers it \"method not found\". {}",
+                fix(
+                    "its arm in `dispatch` (theseus-core's rpc/server.rs)",
+                    &format!("method {name}"),
+                    "its arm"
+                )
             )),
             (true, Some(_)) => problems.push(format!(
                 "method `{name}` is dispatched now, so its `RESERVED` entry is stale: remove it, and \
@@ -435,15 +445,17 @@ fn every_notification_has_its_event_and_a_sender() {
         let sender = variant.and_then(|v| uses.built.get(&format!("Event::{v}")));
         match (variant, sender, reserved("notify", name)) {
             (None, _, None) => problems.push(format!(
-                "notification `{name}` has no `Event`, so nothing can send it. {FIX}: its variant in \
-                 `events!`'s table (theseus-protocol's events.rs) and its sender, or, in \
-                 tests_registry.rs's `RESERVED`, `(\"notify {name}\", \"row <n> (<step>), <milestone>: \
-                 <its sender>\")`"
+                "notification `{name}` has no `Event`, so nothing can send it. {}",
+                fix(
+                    "its variant in `events!`'s table (theseus-protocol's events.rs), and its sender,",
+                    &format!("notify {name}"),
+                    "its sender"
+                )
             )),
             (Some(v), None, None) => problems.push(format!(
                 "notification `{name}` (`Event::{v}`) has no sender: no code of theseus-core, its tests \
-                 aside, builds `Event::{v}(…)`. {FIX}: its sender, or, in tests_registry.rs's \
-                 `RESERVED`, `(\"notify {name}\", \"row <n> (<step>), <milestone>: <its sender>\")`"
+                 aside, builds `Event::{v}(…)`. {}",
+                fix("its sender", &format!("notify {name}"), "its sender")
             )),
             (Some(v), Some(at), Some(_)) => problems.push(format!(
                 "notification `{name}` is sent now (`Event::{v}`, in {at}), so its `RESERVED` entry is \
@@ -490,9 +502,12 @@ fn every_edge_kind_and_label_has_its_reader() {
             match (uses.read.get(&format!("{ty}::{variant}")), reserved(kind, name)) {
                 (None, None) => problems.push(format!(
                     "{what} `{name}` (`{ty}::{variant}`) has no reader: no code the binaries run, its \
-                     tests aside, matches it, binds it in a pattern, or compares it with `==`. {FIX}: \
-                     a reader that names `{ty}::{variant}` so, or, in tests_registry.rs's `RESERVED`, \
-                     `(\"{kind} {name}\", \"row <n> (<step>), <milestone>: <its reader>\")`"
+                     tests aside, matches it, binds it in a pattern, or compares it with `==`. {}",
+                    fix(
+                        &format!("a reader of `{ty}::{variant}`"),
+                        &format!("{kind} {name}"),
+                        "its reader"
+                    )
                 )),
                 (Some(at), Some(_)) => problems.push(format!(
                     "{what} `{name}` is read now (`{ty}::{variant}`, in {at}), so its `RESERVED` entry \
