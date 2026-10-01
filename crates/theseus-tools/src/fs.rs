@@ -1099,21 +1099,20 @@ impl Tool for Grep {
                     base.display()
                 ),
                 (true, content, false) => {
-                    let first = match content {
-                        true => format!(
-                            "the first {max} matching lines, from {}",
+                    // Where the cap fell: in the last file shown, which may
+                    // have more lines past it, or may not (a cap that falls on
+                    // a file's last match cannot tell).
+                    let first = match (content, files_hit.last()) {
+                        (true, Some((p, _))) => format!(
+                            "the first {max} matching lines, from {}, the last in {p}",
                             count(files_hit.len(), "file", "files")
                         ),
-                        false => format!("the first {max} files with matches"),
-                    };
-                    let stopped_in = match (content, files_hit.last()) {
-                        (true, Some((p, _))) => format!("the rest of {p}, and "),
-                        _ => String::new(),
+                        _ => format!("the first {max} files with matches"),
                     };
                     format!(
-                        "[stopped at max_results={max}: {first}; {stopped_in}{unsearched} more of {} \
-                         not searched, so more may match: a narrower search, or a larger \
-                         max_results, returns them{walked}]",
+                        "[stopped at max_results={max}: {first}; {unsearched} more of {} not \
+                         searched, so more may match: a narrower search, or a larger max_results, \
+                         returns them{walked}]",
                         files_in(files.len())
                     )
                 }
@@ -1933,9 +1932,9 @@ mod tests {
         assert_eq!(
             last(&capped.text),
             format!(
-                "[stopped at max_results=4: the first 4 matching lines, from 2 files; the rest of \
-                 {stopped_in}, and 3 more of 5 files under {base} not searched, so more may match: \
-                 a narrower search, or a larger max_results, returns them; {walked}]"
+                "[stopped at max_results=4: the first 4 matching lines, from 2 files, the last in \
+                 {stopped_in}; 3 more of 5 files under {base} not searched, so more may match: a \
+                 narrower search, or a larger max_results, returns them; {walked}]"
             )
         );
         assert_eq!(
