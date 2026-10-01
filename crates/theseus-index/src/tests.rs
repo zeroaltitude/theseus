@@ -601,6 +601,77 @@ fn a_replaced_wal_or_another_build_s_index_is_rebuilt() {
 }
 
 #[test]
+fn the_tender_waits_at_a_torn_tail_and_indexes_on_after_the_cores_repair() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (store, index) = (tmp.path().join("store"), tmp.path().join("index"));
+    let wal_dir = store.join("wal");
+    let cfg = WalConfig {
+        fsync: false,
+        ..WalConfig::default()
+    };
+    let wal = Wal::open(&wal_dir, cfg.clone()).unwrap();
+    wal.append(&[user("ses_1", "said before the tear").record().unwrap()])
+        .unwrap();
+    drop(wal);
+    // The core dies inside its next frame: half a frame at the log's end.
+    let seg = theseus_store::wal::segment_path(&wal_dir, 1);
+    let mut torn = theseus_store::wal::MAGIC.to_le_bytes().to_vec();
+    torn.extend_from_slice(&900u32.to_le_bytes());
+    torn.extend_from_slice(&[0u8; 30]);
+    std::io::Write::write_all(
+        &mut std::fs::OpenOptions::new().append(true).open(&seg).unwrap(),
+        &torn,
+    )
+    .unwrap();
+
+    let mut t = Tender::open(Config::new(&store, &index)).unwrap();
+    settle(&mut t);
+    let s = t.shared().status();
+    assert_eq!(s.state, "ready");
+    assert_eq!(s.nodes, 1);
+    assert_eq!(
+        s.lag.bytes,
+        torn.len() as u64,
+        "the torn bytes are after its cursor"
+    );
+    assert!(
+        s.waiting
+            .as_deref()
+            .is_some_and(|w| w.contains("not yet whole")),
+        "{s:?}"
+    );
+
+    // The core's next open cuts the tail and appends on; the tender follows.
+    let wal = Wal::open(&wal_dir, cfg).unwrap();
+    wal.append(&[user("ses_1", "said after the repair").record().unwrap()])
+        .unwrap();
+    settle(&mut t);
+    let s = t.shared().status();
+    assert_eq!((s.nodes, s.lag.bytes, s.waiting), (2, 0, None));
+    assert_eq!(query(&t.shared(), "repair").hits.len(), 1);
+}
+
+#[test]
+fn an_index_that_will_not_open_is_rebuilt_even_after_a_kill_before_its_first_commit() {
+    let rig = Rig::new();
+    many(&rig, 0, 6);
+    let mut t = rig.open();
+    settle(&mut t);
+    drop(t);
+    std::fs::write(rig.index.join("bm25").join("meta.json"), b"not an index").unwrap();
+    // Recreated empty, and killed before it commits anything.
+    let t = rig.open();
+    assert_eq!(t.shared().status().rebuilds, 1);
+    assert!(t.cursor().at_start());
+    drop(t);
+    // The next start must not trust the old cursor over the empty index.
+    let mut t = rig.open();
+    assert!(t.cursor().at_start(), "resumed at {:?}", t.cursor());
+    settle(&mut t);
+    assert_eq!(dump(&t).iter().filter(|c| c.chunk == 0).count(), 6);
+}
+
+#[test]
 fn a_second_tender_on_the_same_index_is_refused() {
     let rig = Rig::new();
     let t = rig.open();

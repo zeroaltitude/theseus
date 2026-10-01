@@ -228,6 +228,20 @@ impl Tender {
             }
             Err(e) => return Err(anyhow::Error::from(e).context("opening the WAL").into()),
         };
+        if cursor.at_start() {
+            // An older cursor must not outlive the index it described: were
+            // this index recreated empty and the tender killed before its
+            // first commit, that cursor would skip every node before it.
+            match fs::remove_file(paths.cursor()) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(anyhow::Error::from(e)
+                        .context("removing an old cursor")
+                        .into())
+                }
+            }
+        }
         let waker = Waker::new(&wal_dir).context("watching the WAL")?;
         let total = wal_bytes_after(&wal_dir, cursor.segment, cursor.offset);
         let shared = Arc::new(Shared {
@@ -429,12 +443,23 @@ impl Tender {
             done_bytes: bytes_between(&self.cfg.wal_dir(), from, &c),
             total_bytes: *total,
         });
+        let waiting = match stop {
+            Stop::Partial {
+                segment,
+                offset,
+                reason,
+            } => Some(format!(
+                "a frame not yet whole at segment {segment}, offset {offset} ({reason})"
+            )),
+            _ => None,
+        };
         self.shared.set(|s| {
             s.state = if behind { "backfilling" } else { "ready" }.into();
             s.position = c.position;
             s.segment = c.segment;
             s.offset = c.offset;
             s.backfill = backfill;
+            s.waiting = waiting;
             s.last_error = None;
         });
     }

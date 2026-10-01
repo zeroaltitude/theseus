@@ -160,6 +160,11 @@ pub struct IndexStatus {
     pub documents: u64,
     pub nodes: u64,
     pub lag: Lag,
+    /// Why a ready tender has bytes after its cursor: a frame not yet whole
+    /// at the WAL's end (one being written, or a torn tail that the core's
+    /// next open cuts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backfill: Option<Backfill>,
     pub commits: u64,
