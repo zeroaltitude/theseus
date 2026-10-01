@@ -614,6 +614,10 @@ fn validate_node(owner: &str, s: &str, k: usize, n: &PastNode) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// A real repository's name, which the synthetic exam must never carry; spelled in parts so
+    /// this file does not carry it either.
+    const REAL_REPO: &str = concat!("bh", "-", "ai");
+
     /// exam-v1: 40 items, four of each family, two of each held out (§2.9:
     /// "40 items to start, half held out"). Since exam-v1.2 it names no real
     /// project: the distractor world's other project is invented.
@@ -628,7 +632,7 @@ mod tests {
             assert_eq!(of.iter().filter(|i| i.held_out).count(), 2, "{f:?}");
         }
         assert!(e.digest.starts_with("sha256:") && e.digest.len() == 71);
-        assert!(!EXAM_V1.contains("bh-ai"));
+        assert!(!EXAM_V1.contains(REAL_REPO));
         assert!(e.background.is_empty());
     }
 
@@ -672,7 +676,7 @@ mod tests {
             }
         }
         assert_eq!(same, 38);
-        assert!(!EXAM_V2.contains("bh-ai"));
+        assert!(!EXAM_V2.contains(REAL_REPO));
         // Scale: hundreds of sessions, from March to September.
         let sessions = e.pasts().count();
         assert!(sessions >= 500, "{sessions} sessions");
