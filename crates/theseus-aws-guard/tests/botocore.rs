@@ -7,17 +7,40 @@
 //! - every pattern that compacts the boundary matches only writes, and what it matches beyond the list
 //!   is printed for the record.
 //!
-//! The models are not in the repository. They are read from `THESEUS_BOTOCORE_DATA`, or from the AWS
-//! CLI v2's install; where neither exists (CI has no AWS CLI), each test says so and passes. Checked
+//! The models are not in the repository. They are read from `THESEUS_BOTOCORE_DATA`, or found beside
+//! the `aws` on PATH; where neither exists (CI has no AWS CLI), each test says so and passes. Checked
 //! here against the CLI 2.34.15's models.
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 use theseus_aws_guard::{embedded, glob, When};
 
-const CLI_MODELS: &str = "/usr/local/aws-cli/v2/current/dist/awscli/botocore/data";
+/// The botocore data directory of the `aws` on PATH, found from its real path: AWS's installer keeps
+/// the models under `dist/awscli`, and a Python install (Homebrew's, a virtualenv) under
+/// `lib/python3.*/site-packages/awscli`, Homebrew's below `libexec`.
+fn cli_models() -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    let aws = std::env::split_paths(&path)
+        .map(|d| d.join("aws"))
+        .find(|a| a.is_file())?;
+    let aws = std::fs::canonicalize(aws).ok()?;
+    let in_python = |lib: &Path| {
+        std::fs::read_dir(lib).ok()?.flatten().find_map(|py| {
+            let data = py.path().join("site-packages/awscli/botocore/data");
+            (py.file_name().to_string_lossy().starts_with("python3") && data.is_dir())
+                .then_some(data)
+        })
+    };
+    aws.ancestors().skip(1).find_map(|dir| {
+        let installer = dir.join("dist/awscli/botocore/data");
+        if installer.is_dir() {
+            return Some(installer);
+        }
+        in_python(&dir.join("lib")).or_else(|| in_python(&dir.join("libexec/lib")))
+    })
+}
 
 /// IAM's service prefixes, by botocore's service ids where the two differ.
 const IAM_PREFIX: [(&str, &[&str]); 6] = [
@@ -38,18 +61,23 @@ struct Models {
 impl Models {
     fn open() -> Option<Models> {
         let dir = std::env::var_os("THESEUS_BOTOCORE_DATA")
-            .map_or_else(|| PathBuf::from(CLI_MODELS), PathBuf::from);
-        if dir.is_dir() {
-            Some(Models {
-                dir,
-                loaded: BTreeMap::new(),
-            })
-        } else {
-            eprintln!(
-                "skipped: no botocore models at {} (set THESEUS_BOTOCORE_DATA, or install the AWS CLI v2)",
-                dir.display()
-            );
-            None
+            .map(PathBuf::from)
+            .or_else(cli_models);
+        match dir {
+            Some(dir) if dir.is_dir() => {
+                eprintln!("botocore models: {}", dir.display());
+                Some(Models {
+                    dir,
+                    loaded: BTreeMap::new(),
+                })
+            }
+            dir => {
+                eprintln!(
+                    "skipped: no botocore models{} (set THESEUS_BOTOCORE_DATA, or put the AWS CLI v2 on PATH)",
+                    dir.map_or_else(String::new, |d| format!(" at {}", d.display()))
+                );
+                None
+            }
         }
     }
 
