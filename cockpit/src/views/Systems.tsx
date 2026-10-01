@@ -10,6 +10,7 @@ import { useTick } from '@/lib/hooks'
 import { ago, ms, stamp, tokens, uptime, us, usd } from '@/lib/format'
 import { stateTone } from '@/lib/taxonomy'
 import { Startup } from '@/components/instruments'
+import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
 
 export default function Systems() {
@@ -179,6 +180,8 @@ export default function Systems() {
         </table>
         <div className="mt-1 text-[10.5px] text-ink-faint">US dollars per million tokens</div>
       </Card>
+
+      <RpcConsole />
 
       <Card title="Network" icon={<Network size={13} />}>
         <div className="text-[12px] text-ink-dim">This page talks to the daemon over one WebSocket (<span className="num">/ws</span>), JSON-RPC 2.0, the same protocol as the CLI and the classic Observatory.</div>

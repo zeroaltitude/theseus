@@ -18,6 +18,7 @@ import { Echart } from '@/components/Echart'
 import { Flame } from '@/components/Flame'
 import { JsonView } from '@/components/JsonView'
 import { Transcript } from '@/components/Transcript'
+import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
 import { Btn, Empty, Field, LiveDot, Meter, Panel, Pill, StatePill } from '@/components/ui'
@@ -80,7 +81,7 @@ export default function SessionDeck() {
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
         <RPanel defaultSize="42" minSize={360} className="min-h-0">
-          <Inspector turns={turns} traces={traces} comps={comps?.compilations ?? []} rows={rows} calls={calls} session={s} />
+          <Inspector turns={turns} traces={traces} comps={comps?.compilations ?? []} rows={rows} calls={calls} session={s} nodes={hist.nodes} />
         </RPanel>
       </Group>
     </div>
@@ -204,11 +205,12 @@ const TABS = [
   { v: 'timeline', label: 'Timeline', icon: Timer },
   { v: 'context', label: 'Context', icon: Brain },
   { v: 'spend', label: 'Spend', icon: Coins },
+  { v: 'graph', label: 'Graph', icon: GitBranch },
   { v: 'ledger', label: 'Ledger', icon: ScrollText },
 ] as const
 
-function Inspector({ turns, traces, comps, rows, calls, session }: {
-  turns: TurnRow[]; traces: Map<string, Span>; comps: CompilationInfo[]; rows: Rows; calls: ProviderCall[]; session: SessionHistory['session']
+function Inspector({ turns, traces, comps, rows, calls, session, nodes }: {
+  turns: TurnRow[]; traces: Map<string, Span>; comps: CompilationInfo[]; rows: Rows; calls: ProviderCall[]; session: SessionHistory['session']; nodes: SessionHistory['nodes']
 }) {
   return (
     <Tabs.Root defaultValue="timeline" className="panel flex h-full min-h-0 flex-col">
@@ -223,6 +225,7 @@ function Inspector({ turns, traces, comps, rows, calls, session }: {
       <Tabs.Content value="timeline" className="min-h-0 flex-1"><TimelineTab turns={turns} traces={traces} /></Tabs.Content>
       <Tabs.Content value="context" className="min-h-0 flex-1 overflow-auto"><ContextTab comps={comps} rows={rows} session={session} /></Tabs.Content>
       <Tabs.Content value="spend" className="min-h-0 flex-1 overflow-auto"><SpendTab turns={turns} calls={calls} /></Tabs.Content>
+      <Tabs.Content value="graph" className="min-h-0 flex-1"><SessionGraph nodes={nodes} /></Tabs.Content>
       <Tabs.Content value="ledger" className="min-h-0 flex-1"><LedgerTab rows={rows} /></Tabs.Content>
     </Tabs.Root>
   )

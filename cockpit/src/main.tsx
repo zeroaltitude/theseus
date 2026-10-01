@@ -8,6 +8,7 @@ import './index.css'
 import './lib/rpc'
 import { Shell } from './components/Shell'
 import { Bridge } from './views/Bridge'
+import { Crash } from './components/Crash'
 
 // Heavier views load on first visit, so the bridge paints fast.
 const Fleet = lazy(() => import('./views/Fleet'))
@@ -29,13 +30,19 @@ const router = createBrowserRouter(
       path: '/',
       element: <Shell />,
       children: [
-        { index: true, element: <Bridge /> },
-        { path: 'fleet', element: wrap(<Fleet />) },
-        { path: 'session/:id', element: wrap(<SessionDeck />) },
-        { path: 'actions', element: wrap(<Actions />) },
-        { path: 'ledger', element: wrap(<Ledger />) },
-        { path: 'economics', element: wrap(<Economics />) },
-        { path: 'systems', element: wrap(<Systems />) },
+        {
+          // One boundary for every view: a view that throws shows what broke, and the shell keeps running.
+          errorElement: <Crash />,
+          children: [
+            { index: true, element: <Bridge /> },
+            { path: 'fleet', element: wrap(<Fleet />) },
+            { path: 'session/:id', element: wrap(<SessionDeck />) },
+            { path: 'actions', element: wrap(<Actions />) },
+            { path: 'ledger', element: wrap(<Ledger />) },
+            { path: 'economics', element: wrap(<Economics />) },
+            { path: 'systems', element: wrap(<Systems />) },
+          ],
+        },
       ],
     },
   ],

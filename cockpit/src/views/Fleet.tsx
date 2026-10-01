@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import ELK from 'elkjs/lib/elk.bundled.js'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { ArrowDownUp, Layers, Network, Search, Wrench } from 'lucide-react'
 import type { ExecutionInfo, SessionInfo } from '@protocol'
@@ -163,7 +162,11 @@ function SessionNode({ data }: NodeProps<Node<SessionNodeData>>) {
 }
 
 const nodeTypes = { session: SessionNode }
-const elk = new ELK()
+
+// The layout engine is large (about 1.4 MB): load it when a graph first draws, so the table shows at once.
+type Elk = InstanceType<typeof import('elkjs/lib/elk.bundled.js').default>
+let elkReady: Promise<Elk> | null = null
+const getElk = () => (elkReady ??= import('elkjs/lib/elk.bundled.js').then((m) => new m.default()))
 
 function FleetGraph({ sessions, executions, onOpen }: { sessions: SessionInfo[]; executions: ExecutionInfo[]; onOpen: (sid: string) => void }) {
   const [laid, setLaid] = useState<{ nodes: Node<SessionNodeData>[]; edges: Edge[] }>({ nodes: [], edges: [] })
@@ -186,7 +189,7 @@ function FleetGraph({ sessions, executions, onOpen }: { sessions: SessionInfo[];
       }
     }
     let cancelled = false
-    elk.layout({
+    getElk().then((elk) => elk.layout({
       id: 'root',
       layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'RIGHT', 'elk.spacing.nodeNode': '22', 'elk.layered.spacing.nodeNodeBetweenLayers': '60', 'elk.separateConnectedComponents': 'true', 'elk.spacing.componentComponent': '26' },
       children: sessions.map((s) => ({ id: s.session_id, width: 214, height: 74 })),
@@ -198,7 +201,7 @@ function FleetGraph({ sessions, executions, onOpen }: { sessions: SessionInfo[];
         nodes: sessions.map((s) => ({ id: s.session_id, type: 'session', position: pos.get(s.session_id) ?? { x: 0, y: 0 }, data: { s, e: s.execution_id ? byExec.get(s.execution_id) : undefined } })),
         edges,
       })
-    }).catch(() => {})
+    })).catch(() => {})
     return () => { cancelled = true }
     // Lay out again only when the graph's shape changes; node data refreshes below.
   }, [shape])
