@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.68
+# The Ship of Theseus — v0.69
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -583,6 +583,21 @@ Rules: one execution per session, one turn at a time per execution; an execution
 - **What stays.** The execution waits on its next input, and the next message continues the same session and execution. Its history, budget and spend, pending wakes, and tasks are kept, and `/cancel <id>` stops a task or cancels a wake. A stopped job's result reaches the next turn as a late result, `[cancelled: stopped by <who>]`.
 - **Once.** A stop is one frame. After a crash, startup does not resume a turn that a stop had stopped. A task cannot be stopped; its cancel ends it.
 - `/new` alone starts a fresh session.
+
+**Cancelling** (theseus-w98; built 2026-10-01, Part III A4 Item 17) ends an execution for good
+(`execution.cancel`, `Kernel::cancel_execution`). Its running jobs and calls are told to stop, and their backends
+terminated, as for a stop. Everything it planned and never sent ends in the cancel's own frame:
+- what it ends: a tool call waiting for the operator, a call between its plan and its dispatch, and the budget
+  question;
+- how each ends: it settles cancelled, its resolution "the execution was cancelled by <who>", and its
+  reservation released;
+- what follows in the same frame: each such tool call's result, as the next turn would have written it ("Not run:
+  the execution was cancelled by <who>."), unless a turn holds the execution;
+- afterwards: each question's card settles where it was posted.
+
+So nothing of a cancelled execution counts as waiting: not in the session list, the history, or `confirm.list`. A
+turn that ends its execution (complete, failed) ends what it left unsent in the same way. A turn that planned a call
+the cancel ended hears the cancel at its next step, as before.
 
 **A continuation's model** (theseus-kol; built 2026-09-30). A continuation is a turn no input started: a job's late result, a restart's resume, the retry of a failed turn, a wake's or a report's turn. It runs on what the session's last turn ran on (its profile, provider, and model), never on the live profile. So a conversation does not change model under its own thinking blocks, and a `-P glm` turn's job is answered by GLM.
 - A turn records its target from its start, in the session record. An input that changes it writes it in the input's own frame. Every other session write the turn makes (a recompile's, a failure's, its end's) carries it, so a crash or a failed call leaves it as the turn ran.
@@ -1237,6 +1252,15 @@ theseus (core)                          theseus --tender <role>  (children of th
 - **The logical graph is permanent; the resident graph is a bounded cache over durable history.** Nothing about append-only requires anything to stay in RAM. Resident memory scales with the active working set, not lifetime traffic.
 - **Arena.** Nodes by monotonic id; edge storage as immutable sorted segments per edge type with an in-memory delta, compacted in the background (compressed-sparse-row columns are a benchmark candidate for cold segments, not a commitment); per-channel logs as segments in a shared append file with an allocation index. Cold nodes leave RAM entirely, metadata and adjacency included, represented only by their id in a compact presence filter, and rehydrate from the SSD index on demand. Memory targets (§9) cover the whole process tree including tenders and loaded embedding weights.
 - **Storage kernel (built in M1; Part III A1).** Two layers, one contract. The **WAL** is the truth: segment files of checksummed frames, one frame per append, one `fdatasync` per frame; a frame holding several records is atomic, which is how `settle(completion, continuation)` commits both or neither. Recovery checks the WAL from the frame after the index's checkpoint to its end, where the next position and any torn frame are, and truncates a torn tail in the last segment. When the log there is not what the index says, it checks every segment, as it always did, and refuses to guess at corruption anywhere else. The history before the checkpoint is checked after serving, by a thread using about 5 % of a core. A corrupt frame there is an error in the log, a `store.corrupt` ledger row, and a refusal of that frame's reads, since record reads check no checksum of their own. A checkpoint is taken with no append between its WAL write and its index write, so the position it claims is synced and indexed. Every record carries its kind and its kind's schema number. `MANIFEST.json` (format 3) names the newest schema written for each kind, and a build that finds one newer than it reads, or a kind it does not know, refuses to open the store and says to install the newer build. The manifest is marked, durably and before the record, the first time a build appends a record newer than it says, so a start never writes it. _(Since F4a, theseus-qa0 and theseus-8ni; Part III A3c.)_ The **index** is a rebuildable projection of the WAL in a pure-Rust embedded store, `redb` (the M1 benchmark's pick; `fjall`, the other candidate, was removed in batch C, theseus-0g4): position → location, (kind, key) → latest position, (kind, position) for per-kind scans, and a checkpoint position. Index writes are non-durable; a checkpoint makes them durable; open replays the WAL past the checkpoint, so deleting the index entirely loses nothing. The arena remains the cache over this, never a second source of truth. Pure Rust keeps the static musl build honest.
+  - **An index that is not a database** is moved aside, never deleted, to `index.redb.bad-<unix ms>`, and the
+    open builds a new index from the whole WAL, as `restore` does (theseus-0b8; built 2026-10-01, Part III A4
+    Item 17). A kill inside the store's very first open, while redb writes the file's header, leaves such a
+    file. The open says so in a WARN, in the startup store phase's `index_moved_aside`, and in a
+    `store.index_replaced` ledger row once serving. redb's error kind tells this case from the others (never
+    its text), and the move happens under the file's lock:
+    - a file another process holds is that process's: the open waits for it, then refuses, as it always did;
+    - a redb database that fails some other way (a newer format, a bad commit slot, a file cut short) is
+      refused and left where it is.
 - **The turn lock and eventual durability.** "Speed first" is preserved by *where* the time goes, not by skipping durability. Within a channel exactly one turn advances at a time; that lock is held only while the core is doing local work. A turn is mostly waiting: a Messages API call is seconds, a shell job is seconds to hours, a judge call is hundreds of milliseconds, a human is minutes. At every such offload boundary the turn releases the lock and the core spends the surrendered time on **asynchronous durability work**: sealing the current WAL segment and handing it to the durability tender, taking checkpoints, flushing index updates, compacting edge segments, running the memory pass, uploading. The floor remains unchanged (intent is fsynced locally before dispatch); what changes is the off-node recovery point, which becomes **eventual: 5–60 s** rather than 1–2 minutes, achieved for free from time the loop was not using anyway. The tender scheduler prioritizes by staleness: the oldest unshipped committed record bounds the current recovery-point exposure, and that number is exported as a metric and alarmed on.
 - **WAL.** Every record appends to the local SSD and is fsynced on a short group-commit interval before the turn proceeds. Records carry a length prefix and checksum; a torn tail is truncated on recovery. Periodic **checkpoints** snapshot the arena so recovery is checkpoint plus tail, not full-history replay. Schema versions are stamped on every record, by kind. Old layouts are read in place, through serde's defaults or a reader such as `Execution::from_stored`. A layout that needs rewriting will get a forward-only transform run by a tender; none has needed one yet. Disk-full is handled by refusing new turns with a clear message while tenders continue to drain. The SSD is a persistent volume that survives instance death and is encrypted at rest by the platform (EBS encryption, LUKS on a desktop), not by Theseus.
 - **Tenders** consume the WAL and answer rehydration over a local socket; they never touch the arena directly. Durability ships to S3 and DynamoDB when configured, with a 5–60 s target measured as "age of the oldest unshipped committed record." Tiering demotes payloads by heat and retention (stub stays in the arena, payload on SSD and S3; nothing is removed from the graph), with a Jev backup opinion for lower heat bands; rehydration misses are logged. Index owns embeddings: 768-d stored, 256-d indexed, 768-d rerank; usearch memory-mapped from SSD; tantivy BM25; reciprocal-rank fusion then Jev relevance; asynchronous after commit; long nodes chunked with `part_of`. Memory runs consolidation and decay sweeps.
@@ -1297,6 +1321,7 @@ Handles index every column directly, so a node's metadata is a few contiguous re
 | Failure | Guarantee |
 |---|---|
 | Harness process crash, SSD intact | Committed intent, results, and pending continuations recover exactly (WAL + spool) |
+| A kill inside the store's first open, the index half written | The index is moved aside and built again from the WAL; nothing is lost (theseus-0b8) |
 | Node restart, persistent disk intact | Same, plus job reconciliation; uncertainty reported where execution evidence is unavailable |
 | SSD loss | Recover to the backed-up prefix with the stated 5–60 s recovery-point loss; actions in the gap may have happened externally without an intent record, so restore runs reconciliation of surviving external work with a conservative policy near the gap, and never reuses action identities after rollback |
 | External side effect without recoverable evidence | Report uncertainty; never invent success, never blindly repeat |
@@ -1351,6 +1376,10 @@ Two test targets are first-class from the first commit.
 What it buys: invariants as property tests (a destructive tool never runs without a recorded confirm from the right person; the loop never exceeds a ceiling without a logged judge failure; a user `/model` pin is never overwritten; a compaction root is always reachable back to its range); regression tests for every incident, by turning a redacted production ledger slice into a scenario; and a way to develop the loop, roles, and memory pass for weeks before the Discord plugin is finished. It also gives the learning loop a dry-run: promote a pack in the simulator first, then in shadow, then canary, then live.
 
 **Standing scenario sets:** crash at every external-action boundary (§3.16); lost completion (event never delivered, reconciler must find the spooled result); duplicate completion (second delivery is a logged no-op); completion arriving during harness restart; `/cancel` of a detached job and proof the scope died; completion with no matching record quarantined; a low-privilege user schedules a privileged action; crash after settlement but before continuation delivery; `outcome_unknown` followed by a genuine success; a late completion after cancellation; arguments changed after confirmation (a hook mutation, until the hooks were deleted on 2026-09-28); two executions on the same task or workspace; interrupted provider streaming with unknown usage; restore from a stale backup containing later-redacted content; a task promoted from a conversation runs while the conversation continues and a human message is routed to each correctly; a task waits a week for an answer and resumes with intact context; a hot thread of two hundred turns appends throughout with a stable cached prefix and a disclosure change forces exactly one recompile; a thousand sessions with distinct compilations survive a restart and each next turn reproduces its prefix byte-for-byte from the manifest; the admission ceiling is hit with a `/cancel` still honored immediately; authority edge cases (role revoked mid-execution, coalesced messages from two principals, confirm with changed arguments); redaction lineage; disk-full and Jev-outage behaviour. **First vertical slice:** one human request, one constrained typed tool action with a confirm, a task that goes `waiting` on a due time, a `/cancel`, and a crash during a dispatched action, all green in the simulator before any Discord code is written.
+- **The store's crash test** kills its writer at any moment, its very first open included, then tears the WAL's tail past
+  what was reported durable or read back by an open (theseus-0b8, theseus-4x6; Part III A4 Item 17).
+- **The kernel simulator's invariants** include: an execution that has ended has no action planned or authorized
+  (theseus-w98).
 
 ## 9. Efficiency targets (to measure, not assert)
 
@@ -5144,3 +5173,152 @@ the vectors.
 
 **Reviewed** (Tabitha, 2026-10-01, 02:56 to 03:24). The batch is this review: each lane was read when its report
 landed (Items 12 to 14's dates), its join is above, and its gate log is in `~/reports/theseus-merge/`.
+
+### Item 17. Fix batch 1, part 3: a first open a kill can't brick, a tear that respects durability, and a
+cancel that cancels everything (theseus-0b8, theseus-4x6, theseus-w98; 2026-10-01 03:24 to 04:30; c79a903,
+8f1f293, fe28405, 69c1e7e)
+
+**Why.** The rest of fix batch 1, the roadmap re-cut's row 3.
+- A SIGKILL inside the store's very first open left `index.redb` unopenable, and the fix was deleting it
+  by hand (theseus-0b8).
+- The crash test's `--tear` could damage durable bytes, so the gate ran it with tearing off
+  (theseus-4x6).
+- A cancel left a call waiting for approval planned, so it still counted as waiting (theseus-w98).
+
+**What exists.**
+- **0b8, an index that is not a database is moved aside and rebuilt** (§6):
+  - redb's error kind (`Storage(Io)` of kind `InvalidData` or `UnexpectedEof`) tells it from a held file
+    (`DatabaseAlreadyOpen`) and from a real database that fails another way (`Corrupted`);
+  - the move happens under the file's lock, on the file the name still names, and keeps it as
+    `index.redb.bad-<unix ms>`;
+  - the index is built again from the WAL, and the open says so in a WARN, the startup store phase, and a
+    `store.index_replaced` row;
+  - the crash test's workaround is gone, so a kill lands inside the first open again.
+- **4x6, a tear stays out of durable bytes** (§8). The bound is the longest length the worker reported
+  durable, or an open read back after a kill. The worker's reports alone were not enough: an open
+  checkpoints frames no worker reported, and a later tear could cut them. `--tear` defaults on again, and
+  the gate tears.
+- **w98, a cancel ends everything unsent** (§3.15):
+  - every action planned or authorized and not dispatched settles cancelled in the cancel's frame, with
+    its resolution;
+  - each tool call's "Not run" result rides in the same frame, and the cards settle;
+  - a turn that ends its execution does the same;
+  - the simulator checks that no ended execution keeps one, and its turns now ask the operator.
+
+**How it is proven.**
+- 0b8:
+  - three store tests: a partial header, random bytes, and zeros, each moved and rebuilt; a held index,
+    even one not yet a database, refused and never moved; a real redb file with another failure left;
+  - a second process holding the store, refused;
+  - the crash test: seeds 3, 7, and 11, loops of 40 and of 30 × 8 restarts, and six runs at once with 32
+    kills inside the first open;
+  - live, on a copy of Eddie's store with a 37-byte partial header for its index:
+    - the file is moved aside and the index rebuilt from 1,490 records;
+    - `theseus sessions` and all five histories are byte-identical to the copy with its index intact;
+    - a second daemon beside it refuses after 3 s, as before, and moves nothing.
+- 4x6:
+  - a unit test: no tear lands inside the bound, over 9 bounds × 200 seeds;
+  - the loaded A/B: 4 of 6 runs pass with the reports alone, 6 of 6 with the bound;
+  - live, the release build with `--tear`: seeds 7, 3, and 11, a loop of 50, and 25 × 8 restarts all pass,
+    with 4 kills inside the first open between them.
+- w98:
+  - kernel, core, and Discord tests;
+  - the simulator's invariant fails against the old cancel at seed 1, step 18, and holds over 16 seeds;
+  - live: a GLM `proc.run` of `dd --version` waits for approval, and `theseus executions cancel` follows.
+    The session list goes from 1 waiting to 0, `confirm` from the question to "nothing is waiting", and
+    the history ends with "← proc.run cancelled · Not run: the execution was cancelled by the CLI.".
+- The gate was green at each commit: 945, 946, and 950 tests, with the lifecycle bench within its budgets
+  and a plain turn still 5 frames.
+
+**Divergence from the brief and the issues.**
+- 4x6's bound adds what an open read back to the worker's reports, as the loaded A/B found it must.
+- w98 also covers a turn that ends its execution, not only a cancel: the new invariant needs it.
+- w98 also refuses `authorize`, `dispatch`, and `authorize_and_dispatch` on a call a cancel settled as
+  `NotRunnable`, so a running turn hears the cancel as it did before.
+- w98 also gives the core a "Not run" result in the cancel's frame, which is what makes the history show
+  the call cancelled.
+- The crash between plan and authorization is filed as theseus-ni5, not fixed: the product can't
+  produce it any more.
+
+**Known gaps.**
+- theseus-0o8: a cancelled execution's dispatched calls, and a running turn's planned ones, get no
+  result in the transcript.
+- theseus-ni5: the never-asked planned call (the kernel API only).
+- theseus-2fs: the sandbox lane's flaky `clause_10` test.
+- theseus-2qt: a cancel, and a turn that ends its execution, scan every action in the store
+  (`open_actions`), as a stop already did. That costs little on Eddie's store (62 actions), and grows
+  with the store.
+- An execution an older build cancelled may still hold a planned call that counts as waiting. Eddie's
+  store holds none.
+
+**Reviewed** (Tabitha, 2026-10-01, 04:31 to 04:40).
+- **Reading the code.**
+  - `move_aside`: it takes the file's lock, and checks that the name still names the locked inode. A file of 320
+    bytes or more that starts with redb's magic is a database and stays. Anything else is renamed, never
+    deleted, and the directory is synced.
+  - `end_unsent`: only this execution's planned or authorized actions, each with its resolution, its row, and
+    its reservation released. Its scan of every action (theseus-2qt) runs only when an execution ends, never on
+    a turn.
+- **The gate rerun** at 69c1e7e (04:32 to 04:34; it first waited for the vectors lane's gate to release the
+  shared lock): 950 tests, lifecycle OK in 7.0 s.
+- **A second live check**, on the release build, over fresh copies of Eddie's store:
+  - an empty `index.redb` is recreated by redb itself, with nothing moved and every history identical;
+  - 100 zero bytes are moved aside and rebuilt, with every history identical;
+  - the installed 8ed512f then serves the rebuilt copy, so rolling back still opens a store this build
+    rebuilt.
+- **What stays as it was.** A redb file that is a database but `Corrupted` (cut below its layout, bad commit
+  slots) is still refused, and its recovery is still `theseusd restore` from the WAL directory. The lane's
+  crash loops never made one: 32 kills inside a first open under load, each moved and rebuilt.
+- **Eddie's store was copied** to `~/.theseus-backups/store-pre-fb1c-20261001-043807`, and the build **installed
+  at 04:38** from 69c1e7e. No layout changed, so the copy is a precaution, not the only rollback.
+
+### Item 18. Two more lanes on `main`: the AWS client, and `theseusd install`, proved as root (theseus-mgw.2, theseus-7hh; 2026-10-01, merged 04:41 and 04:43; f3b2eeb, fcf833c)
+
+**Why.** The lane recipe's rule 3 (Item 16): a reviewed lane merges at once, ahead of its reader. Both waited
+only for fix batch 1's last step (Item 17), which held `main`.
+
+**What landed.**
+
+| Lane | What | Its reader | Landed |
+|---|---|---|---|
+| aws-client | `theseus-aws-catalog` (every operation of 416 AWS services, from the CLI 2.34.15's botocore models: a 2.27 MB brotli blob, one service decoded on first use, in milliseconds) and `theseus-aws` (one caller for all six protocols: SigV4 through `aws-sigv4`, per-operation endpoints, retries by retry class, pagination, denials that name their enforcer) | C1 (14a) | 04:41, f3b2eeb; gate 1,022 tests |
+| installer | `theseusd install`: a plan by default, `--apply`, `--check`, `--user`, and `--separate` with `--remove` and `--migrate-state` | 22b | 04:43, fcf833c; gate 1,053 tests |
+
+**The AWS client's review** (2026-10-01, 03:30 to 03:45).
+- **Its proof.** 34 requests and 28 answers generated by the CLI's own botocore, offline. AWS's SigV4 suite, 40 of
+  40. A fake endpoint for retries, pages, and caps. A read-only live check on the Home account: 8 reads, plus 7
+  reads of what doesn't exist, each failing as expected, across all six protocols. Rerun on the reviewed build, it
+  matched.
+- **A bug fixed at review** (0ac3b4e on the lane, f3b2eeb on `main`). The call's last attempt decided its error. So a repeatable write whose first
+  attempt dropped after sending, then never reconnected (or was refused, or throttled), came back as never sent,
+  and `may_have_run()` said no. That would let a model retry an EC2 launch under a new token and launch twice.
+  An attempt that may have run now leaves the call's outcome unknown, whatever follows. The test fails without
+  the fix.
+- **A smaller one:** a deny that names `theseus-boundary`, the hands' boundary that carries the guards, is the
+  guard's, not IAM's.
+- **Filed:** theseus-fln (P3). The catalog generator should find the models beside the `aws` on PATH, and the
+  guard's model tests could read the embedded catalog.
+
+**The installer's review** (04:33 to 04:42). Eddie ruled out Docker for its proof, so the real `--separate` ran
+on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:58).
+- **Reading the code that runs as root.**
+  - Every deletion is one planned file, an empty directory (never recursive), or a socket.
+  - Ownership changes use `lchown`.
+  - The account tools run by absolute path. `useradd` makes no home, and `userdel` runs without `-r`, so the
+    state dir never goes with its user.
+- **The run.** As root, the plan listed 12 actions, as the lane's report had them verbatim.
+  - `--apply` made 12 changes, `--check` matched, and a second `--apply` found nothing to do.
+  - The layout read back as §2.9 says, `systemd-analyze verify` passed the unit, and nothing was enabled or
+    started.
+  - `--remove --apply` made 12 changes: `userdel` had already taken the user's own group, so that step had
+    nothing left. `--remove --check` matched.
+  - A read-only snapshot of the machine was identical before and after: no user, no groups, no files, and no
+    membership.
+- **Findings for the chain.**
+  - **The daemon stops cleanly only on SIGINT** (theseus-bv5, P2). A SIGTERM, which is systemd's stop, skips the
+    clean path. The next spine step takes it. Until then, the units set `KillSignal=SIGINT`.
+  - 22b's: the daemon's own toollets, run as `theseus`, can't read the operator's home. The separated socket stays
+    0600. `op` isn't on the unit's PATH.
+
+**Both merges** were gated on `main` (`~/reports/theseus-merge/<lane>-gate.log`), each with the lifecycle bench OK in
+7.0 s, and both branches and worktrees are deleted. Only `lane/vectors` remains.
