@@ -8,7 +8,12 @@ import { useQuery, type UseQueryOptions } from '@tanstack/react-query'
 import { create } from 'zustand'
 import { ProtocolClient, type NarrativeLine, type NarrativeWatchResult, type Status } from '@protocol'
 
-export const client = new ProtocolClient()
+// Served by the daemon, the page connects to its own address. The dev page (`npm run dev`) connects straight to the
+// daemon named by THESEUS_DEV_DAEMON (vite.config.ts), never through a proxy, which would relay other pages and
+// other users' processes (theseus-88im). That daemon's `[web] dev_origin` must name this page.
+export const client = new ProtocolClient(
+  import.meta.env.DEV ? `ws://${import.meta.env.VITE_THESEUS_DEV_DAEMON as string}/ws` : undefined,
+)
 
 // ---------------------------------------------------------------- the connection
 
