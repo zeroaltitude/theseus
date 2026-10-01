@@ -918,6 +918,15 @@ fn apply_usage(u: &mut Usage, v: &Value) {
     if let Some(x) = g("cache_creation_input_tokens") {
         u.cache_creation_input_tokens = x;
     }
+    // The writes split by TTL (theseus-ev1): a 1-hour write is priced apart.
+    // Z.ai reports no split, and its writes stay 5-minute ones.
+    if let Some(x) = v
+        .get("cache_creation")
+        .and_then(|c| c.get("ephemeral_1h_input_tokens"))
+        .and_then(Value::as_u64)
+    {
+        u.cache_creation_1h_input_tokens = x;
+    }
 }
 
 // -------------------------------------------------------------------- fake

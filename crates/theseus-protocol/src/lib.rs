@@ -1567,8 +1567,15 @@ pub struct Usage {
     pub output_tokens: u64,
     #[serde(default)]
     pub cache_read_input_tokens: u64,
+    /// Every cache write, whatever its TTL.
     #[serde(default)]
     pub cache_creation_input_tokens: u64,
+    /// Of `cache_creation_input_tokens`, those written with the 1-hour TTL
+    /// (Anthropic's `usage.cache_creation.ephemeral_1h_input_tokens`), which
+    /// cost 2 × input against 1.25 × for the rest (theseus-ev1). Absent when
+    /// 0, so a row or record from before it reads as none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cache_creation_1h_input_tokens: u64,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

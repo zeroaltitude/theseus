@@ -2576,6 +2576,7 @@ async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
         output_tokens: 900,
         cache_read_input_tokens: 40_000,
         cache_creation_input_tokens: 3_000,
+        ..Default::default()
     };
     let r = rig(vec![Scripted::Billed {
         usage,
@@ -2618,6 +2619,186 @@ async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
         "{row}"
     );
     assert!((res.cost_usd.unwrap() - 0.0269).abs() < 1e-12);
+}
+
+/// A 1-hour cache write is priced at 2 × input (theseus-ev1), in the budget,
+/// the session, the ledger, and health alike. On Sonnet 5.5: 1,000 in at $2,
+/// 100 out at $10, and 50,000 cache writes, 30,000 of them 1-hour ones, so
+/// 20,000 at $2.50 and 30,000 at $4.00: 2,000 + 1,000 + 50,000 + 120,000 µ$
+/// = $0.173. Priced all as 5-minute writes, as before, it was $0.128.
+#[tokio::test]
+async fn a_one_hour_cache_write_costs_twice_the_input_price_everywhere() {
+    let usage = theseus_protocol::Usage {
+        input_tokens: 1_000,
+        output_tokens: 100,
+        cache_creation_input_tokens: 50_000,
+        cache_creation_1h_input_tokens: 30_000,
+        ..Default::default()
+    };
+    let r = rig(vec![Scripted::Billed {
+        usage: usage.clone(),
+        then: Box::new(Scripted::text("An hour.")),
+    }]);
+    let res = turn(&r.core, None, "write for an hour").await;
+    assert_eq!(res.output, "An hour.");
+    let e = r
+        .core
+        .kernel
+        .execution(res.execution_id.as_deref().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(e.budget.spent_micros, 2_000 + 1_000 + 50_000 + 120_000);
+    let s = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&res.session_id)
+        .unwrap()
+        .unwrap();
+    assert!((s.cost_usd - 0.173).abs() < 1e-12, "{}", s.cost_usd);
+    assert_eq!(s.usage.cache_creation_1h_input_tokens, 30_000);
+    let row = &ledgered(&r, "provider.call")[0];
+    assert_eq!(
+        row["usage"]["cache_creation_1h_input_tokens"], 30_000,
+        "{row}"
+    );
+    assert!(
+        (row["cost_usd"].as_f64().unwrap() - 0.173).abs() < 1e-12,
+        "{row}"
+    );
+    assert_eq!(res.usage.cache_creation_1h_input_tokens, 30_000);
+    let h = r.core.health();
+    assert_eq!(h.usage_total.cache_creation_1h_input_tokens, 30_000);
+    assert!((h.cost_usd_total - 0.173).abs() < 1e-12);
+}
+
+/// A turn in a new conversation on `target`.
+async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> TurnSubmitResult {
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
+    core.runner
+        .run(TurnRequest {
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink,
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            config_wait_us: 0,
+            reply_to: None,
+        })
+        .await
+        .unwrap()
+}
+
+/// The real header, the persona, the tools note, and the tools, is about
+/// 3.3k tokens: above every Anthropic model's caching minimum but Haiku
+/// 4.5's 4,096 (theseus-ev1). On Haiku it gets no breakpoint of its own, and
+/// the compilation's manifest and the narrative say so; the conversation's
+/// breakpoint stays. On the template's Sonnet 5.5 (512) it has one.
+#[tokio::test]
+async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
+    let r = rig(vec![Scripted::text("Small.")]);
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    assert!(r.core.narrator.watch("watcher", tx).is_some());
+    let (live, _) = r.core.live_profile();
+    let haiku = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, Some("claude-haiku-4-5"))
+        .unwrap();
+    let res = turn_on(&r.core, haiku, "hello").await;
+    assert_eq!(res.model, "claude-haiku-4-5");
+    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
+    let layout = comps[0].manifest.cache.clone().unwrap();
+    assert_eq!(layout.min_tokens, 4_096);
+    let header = &layout.blocks[0];
+    assert_eq!(header.block, "header");
+    assert!(
+        header.prefix_tokens < 4_096,
+        "the header grew past Haiku's minimum ({} tokens): it now gets a breakpoint there too",
+        header.prefix_tokens
+    );
+    assert!(!header.marked && layout.caches);
+    let sent = r.fake.requests().pop().unwrap();
+    assert_eq!(sent.system.len(), 1, "no context files: one block");
+    assert!(sent.system[0].get("cache_control").is_none());
+    assert_eq!(sent.cache_control, Some(json!({"type": "ephemeral"})));
+    let row = &ledgered(&r, "context.compiled")[0];
+    assert_eq!(
+        row["cache"]["breakpoints"],
+        json!(["conversation"]),
+        "{row}"
+    );
+    assert_eq!(row["cache"]["ttl"], "5m");
+    let lines = narrated(&r, &res.session_id);
+    assert!(
+        said(
+            &lines,
+            "context",
+            "no cache breakpoint on the system's header block"
+        ),
+        "{lines:?}"
+    );
+
+    // The template's Sonnet 5.5: the header is marked.
+    let r = rig(vec![Scripted::text("Small.")]);
+    let res = turn(&r.core, None, "hello").await;
+    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
+    let layout = comps[0].manifest.cache.clone().unwrap();
+    assert_eq!(layout.min_tokens, 512);
+    assert!(layout.blocks[0].marked, "{layout:?}");
+    let sent = r.fake.requests().pop().unwrap();
+    assert_eq!(
+        sent.system[0]["cache_control"],
+        json!({"type": "ephemeral"})
+    );
+}
+
+/// A task's own conversation is cached for 5 minutes on a 1-hour profile,
+/// while its header keeps the hour its parent's requests write; a
+/// conversation's every breakpoint is an hour long (theseus-ev1).
+#[tokio::test]
+async fn a_task_caches_its_own_conversation_for_five_minutes() {
+    let r = rig(vec![Scripted::text("one"), Scripted::text("two")]);
+    let (live, _) = r.core.live_profile();
+    let mut target = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, None)
+        .unwrap();
+    assert_eq!(
+        target.cache_ttl,
+        crate::config::CacheTtl::FiveMinutes,
+        "the default"
+    );
+    // As a profile with `cache_ttl = "1h"` resolves (config's tests parse one).
+    target.cache_ttl = crate::config::CacheTtl::OneHour;
+    let hour = json!({"type": "ephemeral", "ttl": "1h"});
+    let (spec, _) = r
+        .core
+        .runner
+        .request_spec(&target, SessionKind::Conversation);
+    assert_eq!(
+        (spec.cache_ttl, spec.conversation_ttl),
+        (
+            crate::config::CacheTtl::OneHour,
+            crate::config::CacheTtl::OneHour
+        )
+    );
+    let (task, _) = r.core.runner.request_spec(&target, SessionKind::Task);
+    assert_eq!(task.conversation_ttl, crate::config::CacheTtl::FiveMinutes);
+    assert_eq!(task.cache_ttl, crate::config::CacheTtl::OneHour);
+    let res = turn_on(&r.core, target, "for an hour").await;
+    let sent = r.fake.requests().pop().unwrap();
+    assert_eq!(sent.system[0]["cache_control"], hour);
+    assert_eq!(sent.cache_control, Some(hour));
+    let row = &ledgered(&r, "context.compiled")[0];
+    assert_eq!(row["cache"]["ttl"], "1h");
+    assert_eq!(row["cache"]["conversation_ttl"], "1h");
+    assert_eq!(res.output, "one");
 }
 
 /// A model with no price never runs (budgets are dollars): the turn fails
@@ -2675,11 +2856,16 @@ fn aged(path: &str, secs: u64) {
 }
 
 /// The system block of the `i`th provider request.
+/// The system the model reads in request `i`: its blocks' texts (the header,
+/// then the context files: theseus-ev1), joined as the single block before
+/// the split joined them.
 fn system_of(r: &Rig, i: usize) -> String {
-    r.fake.requests()[i].system[0]["text"]
-        .as_str()
-        .unwrap()
-        .to_string()
+    r.fake.requests()[i]
+        .system
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn sha16(s: &str) -> String {
@@ -2720,6 +2906,11 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
         )),
         "{system}"
     );
+    // The file is the system's second block, after the header (theseus-ev1).
+    let sent = &r.fake.requests()[0].system;
+    assert_eq!(sent.len(), 2);
+    assert!(sent[1]["text"].as_str().unwrap().starts_with(&header));
+    assert!(!sent[0]["text"].as_str().unwrap().contains("Context file"));
     let want = crate::compiler::ContextFileRef {
         path: path.clone(),
         digest: Some(sha16(rule)),

@@ -6,7 +6,12 @@
 //! system's and the persona's), and a profile `system`:
 //! - the first requests of two sessions carry byte-identical tools and
 //!   system, and differ in nothing but their messages;
-//! - so do the first requests of a session and of the task it starts.
+//! - so do the first requests of a session and of the task it starts;
+//! - the system is two blocks (13c): the header (the persona, the tools
+//!   note, the profile's `system`) and the context files, each with its
+//!   breakpoint, and the conversation's is the top-level one;
+//! - after an edit to a context file, a new session's header block is the
+//!   same bytes, and only its context block changed.
 //!
 //! It guards against a change that puts a session's own byte (a date, an id)
 //! into the header. The stand-in for the Messages API keeps each request's
@@ -37,6 +42,10 @@ const FAKE_OP: &str = "#!/bin/sh\n\
 const START: &str = "Start the task";
 /// The second session's prompt.
 const OTHER: &str = "A second session";
+/// The third session's prompt, after the persona's context file is edited.
+const EDITED: &str = "A third session, after an edit";
+/// The line the edit adds to the persona's context file.
+const EDIT: &str = "Keep a log of each change.";
 /// The task's brief.
 const BRIEF: &str = "Say one word.";
 
@@ -229,6 +238,18 @@ fn header_fields(req: &Value) -> Value {
     Value::Object(m)
 }
 
+/// The first request among `raw` whose first user message `pick` takes.
+fn first_request(raw: &[Vec<u8>], what: &str, pick: &dyn Fn(&str) -> bool) -> (Vec<u8>, Value) {
+    raw.iter()
+        .map(|b| (b.clone(), parsed(b)))
+        .find(|(_, v)| pick(&first_text(v)))
+        .unwrap_or_else(|| panic!("no first request of {what} among {}", raw.len()))
+}
+
+fn text(block: &Value) -> &str {
+    block["text"].as_str().unwrap_or_default()
+}
+
 fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     let r = Rig::start();
     r.turn(profile, "first", START);
@@ -241,12 +262,7 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
             .cloned()
     });
     let raw = r.model.raw_requests();
-    let first = |what: &str, pick: &dyn Fn(&str) -> bool| -> (Vec<u8>, Value) {
-        raw.iter()
-            .map(|b| (b.clone(), parsed(b)))
-            .find(|(_, v)| pick(&first_text(v)))
-            .unwrap_or_else(|| panic!("no first request of {what} among {}", raw.len()))
-    };
+    let first = |what: &str, pick: &dyn Fn(&str) -> bool| first_request(&raw, what, pick);
     let (a_raw, a) = first("the first session", &|t| t.starts_with(START));
     let (b_raw, b) = first("the second session", &|t| t.starts_with(OTHER));
     let (t_raw, t) = first("the task", &|t| t.contains(BRIEF));
@@ -293,13 +309,95 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     }
     assert_eq!(task["state"], "complete");
 
+    // Two blocks (13c, theseus-ev1): the header, then the context files,
+    // each with its breakpoint; the conversation's is the top-level one.
+    let blocks = a["system"].as_array().unwrap();
+    assert_eq!(blocks.len(), 2, "{profile}: {}", bytes(&a["system"]));
+    let (header, context) = (&blocks[0], &blocks[1]);
+    for part in ["You are Theseus", PROFILE_SYSTEM] {
+        assert!(
+            text(header).contains(part),
+            "{part:?} is not in the header block"
+        );
+        assert!(
+            !text(context).contains(part),
+            "{part:?} is in the context block"
+        );
+    }
+    for part in [SYSTEM_FILE, PERSONA_FILE] {
+        assert!(
+            text(context).contains(part),
+            "{part:?} is not in the context block"
+        );
+        assert!(
+            !text(header).contains(part),
+            "{part:?} is in the header block"
+        );
+    }
+    assert!(
+        text(context).find(SYSTEM_FILE) < text(context).find(PERSONA_FILE),
+        "the system level's file comes first"
+    );
+    let five = json!({"type": "ephemeral"});
+    for (i, b) in blocks.iter().enumerate() {
+        assert_eq!(b["cache_control"], five, "{profile}: system block {i}");
+    }
+    assert_eq!(
+        a["cache_control"], five,
+        "{profile}: the top-level breakpoint"
+    );
+    // The header block alone, byte for byte, in the second session and the task.
+    for (what, other) in [("the second session", &b), ("the task", &t)] {
+        assert!(
+            bytes(header) == bytes(&other["system"][0]),
+            "{profile}: the header block differs between the first session and {what}"
+        );
+    }
+
+    // An edit to the persona's context file: a new session's header block is
+    // the same bytes, so it and the tools still read from the cache, and only
+    // the context block changed.
+    std::fs::write(
+        r.path("context/persona.md"),
+        format!("{PERSONA_FILE}\n{EDIT}"),
+    )
+    .unwrap();
+    r.turn(profile, "third", EDITED);
+    let raw = r.model.raw_requests();
+    let (_, e) = first_request(&raw, "the session after the edit", &|t| {
+        t.starts_with(EDITED)
+    });
+    let edited = e["system"].as_array().unwrap();
+    assert_eq!(edited.len(), 2, "{profile}: {}", bytes(&e["system"]));
+    assert!(
+        bytes(&edited[0]) == bytes(header),
+        "{profile}: the header block changed with a context file:\n{}\n{}",
+        bytes(header),
+        bytes(&edited[0])
+    );
+    assert!(
+        bytes(&e["tools"]) == bytes(&a["tools"]),
+        "{profile}: the tools changed"
+    );
+    assert_ne!(
+        edited[1], *context,
+        "{profile}: the context block did not change"
+    );
+    assert!(
+        text(&edited[1]).contains(EDIT),
+        "{profile}: the edit is not in the block"
+    );
+    assert_eq!(edited[1]["cache_control"], five);
+
     eprintln!(
-        "{profile} ({provider}): model {}; tools {} bytes ({tools} tools); system {} bytes ({} block); \
-         first requests {}, {}, and {} bytes",
+        "{profile} ({provider}): model {}; tools {} bytes ({tools} tools); system {} bytes in {} \
+         blocks (header {}, context {}); first requests {}, {}, and {} bytes",
         a["model"],
         bytes(&a["tools"]).len(),
         system.len(),
-        a["system"].as_array().map_or(0, Vec::len),
+        blocks.len(),
+        bytes(header).len(),
+        bytes(context).len(),
         a_raw.len(),
         b_raw.len(),
         t_raw.len()

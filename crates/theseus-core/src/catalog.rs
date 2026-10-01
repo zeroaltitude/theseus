@@ -5,11 +5,25 @@
 //! prices), so every priced ledger row names the catalog version that priced it.
 //!
 //! Sources for the built-in rows: the Claude API reference (Anthropic models;
-//! cache writes are the 5-minute TTL rate) and OpenClaw's model catalog (GLM).
+//! cache writes at 1.25 × input for the 5-minute TTL and 2 × for the 1-hour
+//! one) and OpenClaw's model catalog (GLM).
 //! OpenClaw lists Sonnet 5 at 3/15 and Haiku 4.5 at 0.8/4 with an 8,192-token
 //! output cap; the reference says 2/10 and 1/5 with 64K, and the reference wins.
 //! Sonnet 5.5 (released 2026-09-28) comes from the Anthropic Models API (window
 //! and output cap) and the live pricing page, read on release day.
+//!
+//! `caches` says the provider reads a prompt's repeated prefix from its cache
+//! and reports the tokens it read, which the ledger prices. It does not say the
+//! provider honors cache breakpoints: Z.ai caches GLM prompts with or without
+//! markers, and read nothing of a prefix that matched only up to a breakpoint
+//! (the cache lane's probe, 2026-09-30). Every built-in model caches. A model
+//! that does not gets no breakpoints, and its manifest says so (theseus-ev1).
+//!
+//! `cache_min_tokens` is the shortest prefix the provider caches: a breakpoint
+//! on a shorter one is silently not cached. From the claude-api skill's
+//! caching reference (2026-10-01): 512 on Fable 5 and 5.1, Opus 5 and 5.5, and
+//! Sonnet 5.5; 1,024 on Opus 4.8 and Sonnet 5; 4,096 on Haiku 4.5. The
+//! reference marks Sonnet 5.5's 512 as one to confirm in the docs.
 
 use std::collections::BTreeMap;
 
@@ -17,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-09-29.1";
+pub const BUILTIN_VERSION: &str = "2026-10-01.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -49,6 +63,12 @@ pub struct CatalogEntry {
     pub cache_read_per_mtok: f64,
     /// 5-minute cache writes.
     pub cache_write_per_mtok: f64,
+    /// 1-hour cache writes (theseus-ev1): 2 × input on Anthropic's models.
+    pub cache_write_1h_per_mtok: f64,
+    /// The provider reads repeated prefixes from its cache and reports it
+    /// (the module's notes); without it a request carries no breakpoints.
+    #[serde(default = "yes")]
+    pub caches: bool,
     #[serde(default)]
     pub thinking: ThinkingMode,
     /// `output_config.effort` is accepted.
@@ -67,14 +87,18 @@ pub struct CatalogEntry {
     pub source: String,
 }
 
+fn yes() -> bool {
+    true
+}
+
 impl CatalogEntry {
     /// Dollars for one call's usage. Input fields are disjoint in the API's
     /// accounting: `input_tokens` is the uncached remainder.
     pub fn cost_usd(&self, u: &Usage) -> f64 {
-        (u.input_tokens as f64 * self.input_per_mtok
-            + u.output_tokens as f64 * self.output_per_mtok
-            + u.cache_read_input_tokens as f64 * self.cache_read_per_mtok
-            + u.cache_creation_input_tokens as f64 * self.cache_write_per_mtok)
+        self.terms(u)
+            .iter()
+            .map(|&(tokens, per_mtok)| tokens as f64 * per_mtok)
+            .sum::<f64>()
             / 1_000_000.0
     }
 
@@ -82,12 +106,26 @@ impl CatalogEntry {
     /// output, cache reads, and cache writes each at its own price, rounded
     /// up to the next micro-dollar (theseus-0sg).
     pub fn cost_micros(&self, u: &Usage) -> Micros {
-        micros_of(&[
+        micros_of(&self.terms(u))
+    }
+
+    /// Each token class of a usage with its price. The writes are split by
+    /// TTL: those of `cache_creation_1h_input_tokens` at the 1-hour price, the
+    /// rest at the 5-minute one (theseus-ev1).
+    fn terms(&self, u: &Usage) -> [(u64, f64); 5] {
+        let w1h = u
+            .cache_creation_1h_input_tokens
+            .min(u.cache_creation_input_tokens);
+        [
             (u.input_tokens, self.input_per_mtok),
             (u.output_tokens, self.output_per_mtok),
             (u.cache_read_input_tokens, self.cache_read_per_mtok),
-            (u.cache_creation_input_tokens, self.cache_write_per_mtok),
-        ])
+            (
+                u.cache_creation_input_tokens - w1h,
+                self.cache_write_per_mtok,
+            ),
+            (w1h, self.cache_write_1h_per_mtok),
+        ]
     }
 
     /// What a call reserves before it runs: its output cap at the output
@@ -151,6 +189,13 @@ pub struct CatalogRow {
     pub cache_read_per_mtok: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_per_mtok: Option<f64>,
+    /// Omitted on a new model: 2 × its input price, Anthropic's rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_1h_per_mtok: Option<f64>,
+    /// Omitted on a new model: true, so its requests carry breakpoints as
+    /// every request did before the catalog said (theseus-ev1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caches: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<ThinkingMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -166,13 +211,15 @@ pub struct CatalogRow {
 }
 
 impl CatalogRow {
-    /// The prices this row sets, by key, for checking them.
-    pub fn prices(&self) -> [(&'static str, Option<f64>); 4] {
+    /// The prices this row sets, by key, for checking them. A new model
+    /// must name the first four; the 1-hour write price has a default.
+    pub fn prices(&self) -> [(&'static str, Option<f64>); 5] {
         [
             ("input_per_mtok", self.input_per_mtok),
             ("output_per_mtok", self.output_per_mtok),
             ("cache_read_per_mtok", self.cache_read_per_mtok),
             ("cache_write_per_mtok", self.cache_write_per_mtok),
+            ("cache_write_1h_per_mtok", self.cache_write_1h_per_mtok),
         ]
     }
 
@@ -188,7 +235,7 @@ impl CatalogRow {
                     ("max_output_tokens", self.max_output_tokens.is_none()),
                 ]
                 .into_iter()
-                .chain(self.prices().map(|(k, v)| (k, v.is_none())))
+                .chain(self.prices()[..4].iter().map(|&(k, v)| (k, v.is_none())))
                 .filter_map(|(k, gone)| gone.then_some(k))
                 .collect();
                 if !missing.is_empty() {
@@ -202,6 +249,8 @@ impl CatalogRow {
                     output_per_mtok: 0.0,
                     cache_read_per_mtok: 0.0,
                     cache_write_per_mtok: 0.0,
+                    cache_write_1h_per_mtok: 2.0 * self.input_per_mtok.unwrap_or(0.0),
+                    caches: true,
                     thinking: ThinkingMode::None,
                     effort: false,
                     refusal_fallbacks: false,
@@ -220,6 +269,10 @@ impl CatalogRow {
             output_per_mtok: r.output_per_mtok.unwrap_or(entry.output_per_mtok),
             cache_read_per_mtok: r.cache_read_per_mtok.unwrap_or(entry.cache_read_per_mtok),
             cache_write_per_mtok: r.cache_write_per_mtok.unwrap_or(entry.cache_write_per_mtok),
+            cache_write_1h_per_mtok: r
+                .cache_write_1h_per_mtok
+                .unwrap_or(entry.cache_write_1h_per_mtok),
+            caches: r.caches.unwrap_or(entry.caches),
             thinking: r.thinking.unwrap_or(entry.thinking),
             effort: r.effort.unwrap_or(entry.effort),
             refusal_fallbacks: r.refusal_fallbacks.unwrap_or(entry.refusal_fallbacks),
@@ -256,6 +309,8 @@ fn claude(
         output_per_mtok: output,
         cache_read_per_mtok: cache_read,
         cache_write_per_mtok: cache_write,
+        cache_write_1h_per_mtok: 2.0 * input,
+        caches: true,
         thinking,
         effort: thinking != ThinkingMode::Budget,
         refusal_fallbacks: fallbacks,
@@ -281,6 +336,9 @@ fn glm(
         output_per_mtok: output,
         cache_read_per_mtok: cache_read,
         cache_write_per_mtok: cache_write,
+        // Z.ai reports no writes split by TTL, so any write is priced as one.
+        cache_write_1h_per_mtok: cache_write,
+        caches: true,
         thinking: ThinkingMode::None,
         effort: false,
         refusal_fallbacks: false,
@@ -315,11 +373,13 @@ impl Catalog {
             "claude-opus-4-8".into(),
             claude(m, 128_000, 5.0, 25.0, 0.50, 6.25, Adaptive, false, 1024),
         );
+        // The caching minimum is the reference's 512 (theseus-ev1); the
+        // table said 1,024, Sonnet 5's, until 2026-10-01.
         e.insert(
             "claude-sonnet-5-5".into(),
             CatalogEntry {
                 source: "Anthropic Models API and pricing page, 2026-09-28".into(),
-                ..claude(m, 128_000, 2.0, 10.0, 0.20, 2.50, Adaptive, false, 1024)
+                ..claude(m, 128_000, 2.0, 10.0, 0.20, 2.50, Adaptive, false, 512)
             },
         );
         e.insert(
@@ -399,7 +459,7 @@ impl Catalog {
         self.get(model).map(|e| e.cost_usd(usage))
     }
 
-    /// The template's `[catalog]` tables: every built-in model with its four
+    /// The template's `[catalog]` tables: every built-in model with its five
     /// prices. The template holds this text verbatim, and a test compares
     /// the two, so the prices Eddie reads in his config are the built-in ones.
     pub fn template_tables() -> String {
@@ -417,6 +477,7 @@ impl Catalog {
                 ("output_per_mtok", e.output_per_mtok),
                 ("cache_read_per_mtok", e.cache_read_per_mtok),
                 ("cache_write_per_mtok", e.cache_write_per_mtok),
+                ("cache_write_1h_per_mtok", e.cache_write_1h_per_mtok),
             ] {
                 out.push_str(&format!("{key} = {price:?}\n"));
             }
@@ -438,12 +499,37 @@ mod tests {
             assert!(e.max_output_tokens >= 64_000, "{id}");
             assert!(e.output_per_mtok >= e.input_per_mtok, "{id}");
             assert!(e.cache_read_per_mtok < e.input_per_mtok, "{id}");
+            assert!(e.caches, "{id}: every built-in model caches");
+            if e.provider == "anthropic" {
+                // The reference: 1.25 × input for 5 minutes, 2 × for an hour.
+                assert_eq!(e.cache_write_per_mtok, 1.25 * e.input_per_mtok, "{id}");
+                assert_eq!(e.cache_write_1h_per_mtok, 2.0 * e.input_per_mtok, "{id}");
+            } else {
+                assert_eq!(e.cache_write_1h_per_mtok, e.cache_write_per_mtok, "{id}");
+            }
         }
+        // The caching minimums, from the claude-api skill's reference.
+        let min = |id: &str| c.get(id).unwrap().cache_min_tokens;
+        for id in [
+            "claude-fable-5-1",
+            "claude-fable-5",
+            "claude-opus-5-5",
+            "claude-opus-5",
+            "claude-sonnet-5-5",
+        ] {
+            assert_eq!(min(id), 512, "{id}");
+        }
+        assert_eq!(
+            (min("claude-opus-4-8"), min("claude-sonnet-5")),
+            (1024, 1024)
+        );
+        assert_eq!(min("claude-haiku-4-5"), 4096);
         let u = Usage {
             input_tokens: 1_000_000,
             output_tokens: 1_000_000,
             cache_read_input_tokens: 1_000_000,
             cache_creation_input_tokens: 1_000_000,
+            ..Default::default()
         };
         // Sonnet 5 and Sonnet 5.5: 2 + 10 + 0.20 + 2.50
         for id in ["claude-sonnet-5", "claude-sonnet-5-5"] {
@@ -533,14 +619,119 @@ mod tests {
             cache_write_per_mtok: Some(0.0),
             ..Default::default()
         };
-        o.insert("new-model".into(), full);
+        o.insert("new-model".into(), full.clone());
         let c = Catalog::with_overrides(&o);
-        assert_eq!(c.get("new-model").unwrap().max_output_tokens, 8_192);
+        let new = c.get("new-model").unwrap();
+        assert_eq!(new.max_output_tokens, 8_192);
+        // Unnamed, a new model's 1-hour writes cost 2 × input, and it caches.
+        assert_eq!((new.cache_write_1h_per_mtok, new.caches), (2.0, true));
         assert!(c.version.ends_with("+config:2"), "{}", c.version);
         assert_eq!(
             Catalog::missing_from(&o).len(),
             Catalog::builtin().entries.len() - 1
         );
+        // Named, they replace the defaults; over a built-in row, the rest stays.
+        let named = CatalogRow {
+            cache_write_1h_per_mtok: Some(1.5),
+            caches: Some(false),
+            ..full
+        };
+        let e = named.over(None).unwrap();
+        assert_eq!((e.cache_write_1h_per_mtok, e.caches), (1.5, false));
+        let s55 = CatalogRow {
+            caches: Some(false),
+            ..Default::default()
+        }
+        .over(Catalog::builtin().get("claude-sonnet-5-5"))
+        .unwrap();
+        assert_eq!((s55.cache_write_1h_per_mtok, s55.caches), (4.0, false));
+    }
+
+    /// A 1-hour cache write costs 2 × input, against 1.25 × for a 5-minute
+    /// one (theseus-ev1). `cache_creation_input_tokens` counts both, and
+    /// `cache_creation_1h_input_tokens` the 1-hour part, so 10,000 writes of
+    /// which 4,000 are 1-hour cost 6,000 × $2.50 + 4,000 × $4.00 on Sonnet
+    /// 5.5: 15,000 + 16,000 µ$. Priced all at the 5-minute rate, as before,
+    /// they would cost 25,000 µ$, 37.5% short on the 1-hour part.
+    #[test]
+    fn one_hour_cache_writes_cost_twice_the_input_price() {
+        let s55 = Catalog::builtin().get("claude-sonnet-5-5").unwrap().clone();
+        assert_eq!(
+            (s55.cache_write_per_mtok, s55.cache_write_1h_per_mtok),
+            (2.5, 4.0)
+        );
+        let u = Usage {
+            cache_creation_input_tokens: 10_000,
+            cache_creation_1h_input_tokens: 4_000,
+            ..Default::default()
+        };
+        assert_eq!(s55.cost_micros(&u), 31_000);
+        assert!((s55.cost_usd(&u) - 0.031).abs() < 1e-12);
+        let all_5m = Usage {
+            cache_creation_1h_input_tokens: 0,
+            ..u
+        };
+        assert_eq!(s55.cost_micros(&all_5m), 25_000);
+        // Every write an hour long: 2 × input exactly.
+        let all_1h = Usage {
+            cache_creation_input_tokens: 1_000_000,
+            cache_creation_1h_input_tokens: 1_000_000,
+            ..Default::default()
+        };
+        assert_eq!(
+            s55.cost_micros(&all_1h),
+            2 * s55.cost_micros(&Usage {
+                input_tokens: 1_000_000,
+                ..Default::default()
+            })
+        );
+        // A count above the total is held to it, never a negative 5-minute part.
+        let odd = Usage {
+            cache_creation_input_tokens: 100,
+            cache_creation_1h_input_tokens: 300,
+            ..Default::default()
+        };
+        assert_eq!(s55.cost_micros(&odd), 400);
+        // Opus 5.5 and Haiku 4.5: $8 and $2 per million 1-hour writes.
+        let c = Catalog::builtin();
+        assert_eq!(
+            c.get("claude-opus-5-5").unwrap().cache_write_1h_per_mtok,
+            8.0
+        );
+        assert_eq!(
+            c.get("claude-haiku-4-5").unwrap().cache_write_1h_per_mtok,
+            2.0
+        );
+    }
+
+    /// The 1-hour count is new in `Usage`: a row or record written before it
+    /// reads as none, and a usage without 1-hour writes serializes as before.
+    #[test]
+    fn a_usage_from_before_the_1h_count_reads_as_none() {
+        let old = r#"{"input_tokens":5,"output_tokens":7,"cache_read_input_tokens":11,"cache_creation_input_tokens":13}"#;
+        let u: Usage = serde_json::from_str(old).unwrap();
+        assert_eq!(u.cache_creation_1h_input_tokens, 0);
+        assert_eq!(u.cache_creation_input_tokens, 13);
+        assert_eq!(serde_json::to_string(&u).unwrap(), old);
+        let older: Usage = serde_json::from_str(r#"{"input_tokens":1,"output_tokens":2}"#).unwrap();
+        assert_eq!(
+            older,
+            Usage {
+                input_tokens: 1,
+                output_tokens: 2,
+                ..Default::default()
+            }
+        );
+        let with = Usage {
+            cache_creation_1h_input_tokens: 3,
+            ..u
+        };
+        let text = serde_json::to_string(&with).unwrap();
+        assert!(
+            text.ends_with(r#""cache_creation_1h_input_tokens":3}"#),
+            "{text}"
+        );
+        assert_eq!(serde_json::from_str::<Usage>(&text).unwrap(), with);
     }
 
     /// One call's reservation and settlement in micro-dollars, by hand from
@@ -560,6 +751,7 @@ mod tests {
             output_tokens: 900,
             cache_read_input_tokens: 40_000,
             cache_creation_input_tokens: 3_000,
+            ..Default::default()
         };
         assert_eq!(s55.cost_micros(&u), 26_900);
         assert!((s55.cost_usd(&u) - 0.0269).abs() < 1e-12);

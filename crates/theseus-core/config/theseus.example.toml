@@ -40,6 +40,7 @@ model = "claude-sonnet-5-5"
 thinking_display = "summarized"         # summarized | omitted | updates (Fable 5.x, Opus 5.5)
 max_loops = 40                          # tool loops per turn before the Advancer ends it
 refusal_fallbacks = true                # server-side refusal fallbacks where the model supports them
+# cache_ttl = "1h"                      # 5m (the default) | 1h; see [profiles.sonnet]
 api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
 api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding its key
 
@@ -64,6 +65,12 @@ model = "claude-sonnet-5-5"
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
+# How long the provider keeps this profile's cached prompt prefixes: 5m (the default)
+# or 1h. A 1-hour entry costs 2x input to write instead of 1.25x, and pays when a
+# conversation pauses 5 to 60 minutes after most of its prefix is written: then the
+# next call reads the prefix instead of writing it again. It applies to every cache
+# breakpoint, the conversation's included; a task's own conversation stays 5m.
+# cache_ttl = "1h"
 
 [profiles.glm]
 provider = "zai"
@@ -264,9 +271,9 @@ external_text = "ask"                   # ask | notify: notify runs those calls 
 # Every model's prices, in US dollars per million tokens. Budgets count in
 # dollars at these prices (theseus-0sg): a call reserves its output cap at the
 # output price plus its input estimate at the input price, and settles at its
-# real cost, with input, output, cache reads, and cache writes (5-minute TTL)
-# each at its own price. One table per built-in model (catalog version
-# 2026-09-28.1). Edit a price here and restart: every priced ledger row then
+# real cost, with input, output, cache reads, and cache writes (5-minute and
+# 1-hour TTLs) each at its own price. One table per built-in model (catalog version
+# 2026-10-01.1). Edit a price here and restart: every priced ledger row then
 # names the version `+config:N`. A built-in model left out keeps its built-in
 # price, and startup warns, naming it. A table may set any other catalog
 # field too (see the new model below); `theseus catalog` lists what loaded.
@@ -275,72 +282,84 @@ input_per_mtok = 10.0
 output_per_mtok = 50.0
 cache_read_per_mtok = 1.0
 cache_write_per_mtok = 12.5
+cache_write_1h_per_mtok = 20.0
 
 [catalog."claude-fable-5-1"]            # anthropic · 1,000,000-token window · 128,000 out
 input_per_mtok = 10.0
 output_per_mtok = 50.0
 cache_read_per_mtok = 0.25
 cache_write_per_mtok = 12.5
+cache_write_1h_per_mtok = 20.0
 
 [catalog."claude-haiku-4-5"]            # anthropic · 200,000-token window · 64,000 out
 input_per_mtok = 1.0
 output_per_mtok = 5.0
 cache_read_per_mtok = 0.1
 cache_write_per_mtok = 1.25
+cache_write_1h_per_mtok = 2.0
 
 [catalog."claude-opus-4-8"]             # anthropic · 1,000,000-token window · 128,000 out
 input_per_mtok = 5.0
 output_per_mtok = 25.0
 cache_read_per_mtok = 0.5
 cache_write_per_mtok = 6.25
+cache_write_1h_per_mtok = 10.0
 
 [catalog."claude-opus-5"]               # anthropic · 1,000,000-token window · 128,000 out
 input_per_mtok = 5.0
 output_per_mtok = 25.0
 cache_read_per_mtok = 0.5
 cache_write_per_mtok = 6.25
+cache_write_1h_per_mtok = 10.0
 
 [catalog."claude-opus-5-5"]             # anthropic · 1,000,000-token window · 128,000 out
 input_per_mtok = 4.0
 output_per_mtok = 20.0
 cache_read_per_mtok = 0.2
 cache_write_per_mtok = 5.0
+cache_write_1h_per_mtok = 8.0
 
 [catalog."claude-sonnet-5"]             # anthropic · 1,000,000-token window · 128,000 out
 input_per_mtok = 2.0
 output_per_mtok = 10.0
 cache_read_per_mtok = 0.2
 cache_write_per_mtok = 2.5
+cache_write_1h_per_mtok = 4.0
 
 [catalog."claude-sonnet-5-5"]           # anthropic · 1,000,000-token window · 128,000 out
 input_per_mtok = 2.0
 output_per_mtok = 10.0
 cache_read_per_mtok = 0.2
 cache_write_per_mtok = 2.5
+cache_write_1h_per_mtok = 4.0
 
 [catalog."glm-5.2"]                     # zai · 1,000,000-token window · 128,000 out
 input_per_mtok = 1.4
 output_per_mtok = 4.4
 cache_read_per_mtok = 0.26
 cache_write_per_mtok = 1.4
+cache_write_1h_per_mtok = 1.4
 
 [catalog."glm-5.3"]                     # zai · 1,000,000-token window · 128,000 out
 input_per_mtok = 1.4
 output_per_mtok = 4.4
 cache_read_per_mtok = 0.26
 cache_write_per_mtok = 1.4
+cache_write_1h_per_mtok = 1.4
 
 [catalog."glm-5.3-flash"]               # zai · 1,048,576-token window · 131,072 out
 input_per_mtok = 0.15
 output_per_mtok = 0.5
 cache_read_per_mtok = 0.03
 cache_write_per_mtok = 0.0
+cache_write_1h_per_mtok = 0.0
 
 [catalog."glm-5.3-flashx"]              # zai · 1,048,576-token window · 131,072 out
 input_per_mtok = 0.37
 output_per_mtok = 1.25
 cache_read_per_mtok = 0.075
 cache_write_per_mtok = 0.0
+cache_write_1h_per_mtok = 0.0
 
 # A model the built-in table lacks needs every figure a call uses:
 # [catalog."some-new-model"]
@@ -351,10 +370,13 @@ cache_write_per_mtok = 0.0
 # output_per_mtok = 15.0
 # cache_read_per_mtok = 0.3
 # cache_write_per_mtok = 3.75           # 5-minute TTL writes
+# cache_write_1h_per_mtok = 6.0         # 1-hour TTL writes; omitted: 2x input
+# caches = true                         # the provider reads repeated prefixes and reports
+#                                       # it; false sends no cache breakpoints. Omitted: true
 # thinking = "adaptive"                 # none | adaptive | always | budget
 # effort = true
 # refusal_fallbacks = false
-# cache_min_tokens = 1024
+# cache_min_tokens = 1024               # a shorter prefix gets no breakpoint of its own
 # vision = true
 # source = "config"
 

@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 
 use crate::attach::Media;
 use crate::catalog::{Catalog, ThinkingMode};
-use crate::config::{Effort, ThinkingDisplay};
+use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, ProviderRequest};
 
@@ -59,10 +59,64 @@ pub struct Manifest {
     /// The prefix is rendered without thinking blocks.
     #[serde(default)]
     pub strip_thinking: bool,
-    /// The context files the system block carried, in order (theseus-58a).
-    /// Their text is in the system block, so `system_digest` covers it.
+    /// The context files the system's second block carried, in order
+    /// (theseus-58a). Their text is in that block, so `system_digest` covers
+    /// it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_files: Vec<ContextFileRef>,
+    /// Where the requests' cache breakpoints go (theseus-ev1); absent in a
+    /// manifest from before 13c.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<CacheLayout>,
+}
+
+/// The cache breakpoints of a compilation's requests (theseus-ev1). The
+/// provider caches a request's prefix in the order tools, system, messages,
+/// up to each breakpoint. Each system block gets one, so an edit to a
+/// context file rewrites the second block and what follows while the tools
+/// and the header still read from the cache; the top-level automatic one
+/// follows the conversation. That is 3 of the provider's 4. Fixed for the
+/// compilation's life: the blocks, the tools, and the model are in its
+/// digests. The TTLs are not: they are each request's (`context.compiled`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CacheLayout {
+    /// The catalog's `caches`: the provider reads repeated prefixes. Without
+    /// it no request carries a breakpoint.
+    pub caches: bool,
+    /// The model's shortest cacheable prefix, from the catalog.
+    pub min_tokens: u32,
+    /// The system blocks, in order, with their breakpoints.
+    pub blocks: Vec<BlockBreakpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockBreakpoint {
+    /// `header` (the persona, the tools note, the profile's `system`) or
+    /// `context` (the context files).
+    pub block: String,
+    /// The prefix the breakpoint closes, the tools and the system through
+    /// this block, in tokens at chars/4.
+    pub prefix_tokens: u64,
+    /// The block carries `cache_control`. Not when the provider does not
+    /// cache, nor when the prefix is under `min_tokens`: the provider would
+    /// never cache it, so the breakpoint would take a slot for nothing.
+    pub marked: bool,
+}
+
+impl CacheLayout {
+    /// The breakpoints set, by name, the conversation's last.
+    pub fn breakpoints(&self) -> Vec<&str> {
+        let mut out: Vec<&str> = self
+            .blocks
+            .iter()
+            .filter(|b| b.marked)
+            .map(|b| b.block.as_str())
+            .collect();
+        if self.caches {
+            out.push("conversation");
+        }
+        out
+    }
 }
 
 /// A context file as the system block carried it (theseus-58a).
@@ -126,12 +180,17 @@ pub struct RequestSpec {
     pub provider: String,
     pub model: String,
     pub max_tokens: u32,
-    /// The whole system block, context files included.
+    /// The system's first block, the header every session of the profile
+    /// shares: the built-in persona, the tools note, and the profile's own
+    /// `system` (theseus-ev1).
     pub system_text: String,
-    /// The context files `system_text` carries, for the manifest.
+    /// The system's second block: the context files, the system level's,
+    /// then the persona's; empty without any.
+    pub context_text: String,
+    /// The context files `context_text` carries, for the manifest.
     pub context_files: Vec<ContextFileRef>,
     /// The persona in play when the spec was built (theseus-c48), whose
-    /// files follow the system level's in `system_text`.
+    /// files follow the system level's in `context_text`.
     pub persona: Option<String>,
     /// Wire tool definitions, sorted by name.
     pub tools: Vec<Value>,
@@ -140,6 +199,13 @@ pub struct RequestSpec {
     pub refusal_fallbacks: bool,
     /// The provider is Anthropic's own API (server-side fallbacks exist only there).
     pub first_party: bool,
+    /// The profile's cache TTL, on the system blocks' breakpoints.
+    pub cache_ttl: CacheTtl,
+    /// The TTL of the conversation's breakpoint, the top-level automatic one:
+    /// the profile's, or 5 minutes in a task. Never longer than `cache_ttl`,
+    /// so a longer-lived entry never follows a shorter one, as the provider
+    /// requires.
+    pub conversation_ttl: CacheTtl,
 }
 
 #[derive(Clone, Copy)]
@@ -182,6 +248,8 @@ pub struct Compiled {
     pub digest: String,
     /// tool_use ids that had no recorded result and got a synthetic one.
     pub repairs: Vec<String>,
+    /// Where the request's cache breakpoints went (theseus-ev1).
+    pub cache: CacheLayout,
 }
 
 impl Compiled {
@@ -197,6 +265,56 @@ impl Compiled {
 fn sha(s: &str) -> String {
     use sha2::{Digest, Sha256};
     hex::encode(Sha256::digest(s.as_bytes()))[..16].to_string()
+}
+
+/// The system blocks' names and texts, in order; an empty one is left out.
+fn system_blocks(spec: &RequestSpec) -> Vec<(&'static str, &str)> {
+    [
+        ("header", spec.system_text.as_str()),
+        ("context", spec.context_text.as_str()),
+    ]
+    .into_iter()
+    .filter(|(_, text)| !text.is_empty())
+    .collect()
+}
+
+/// The digest of the system blocks' texts. A lone block's is its text's, as
+/// before the split; two are joined by a NUL, which the old single block,
+/// joined by blank lines, never was. So a compilation from before the split
+/// recompiles once (`system_changed`) and drops its prefix's thinking, whose
+/// signatures were made over the old system (theseus-ev1).
+fn system_digest(spec: &RequestSpec) -> String {
+    let texts: Vec<&str> = system_blocks(spec).into_iter().map(|(_, t)| t).collect();
+    sha(&texts.join("\u{0}"))
+}
+
+/// Where the breakpoints go (theseus-ev1): on each system block whose
+/// prefix, the tools and the system through it, reaches the model's
+/// minimum, when the provider caches at all. Sizes are chars/4, the
+/// compiler's estimate everywhere.
+pub fn cache_layout(spec: &RequestSpec, catalog: &Catalog) -> CacheLayout {
+    let entry = catalog.get(&spec.model);
+    let caches = entry.is_none_or(|e| e.caches);
+    let min_tokens = entry.map_or(0, |e| e.cache_min_tokens);
+    let len = |v: &Value| serde_json::to_string(v).map_or(0, |s| s.len());
+    let mut chars = len(&Value::Array(spec.tools.clone()));
+    let blocks = system_blocks(spec)
+        .into_iter()
+        .map(|(block, text)| {
+            chars += len(&json!({"type": "text", "text": text}));
+            let prefix_tokens = (chars / 4) as u64;
+            BlockBreakpoint {
+                block: block.into(),
+                prefix_tokens,
+                marked: caches && prefix_tokens >= min_tokens as u64,
+            }
+        })
+        .collect();
+    CacheLayout {
+        caches,
+        min_tokens,
+        blocks,
+    }
 }
 
 pub fn manifest_for(
@@ -217,7 +335,7 @@ pub fn manifest_for(
         profile: spec.profile.clone(),
         provider: spec.provider.clone(),
         model: spec.model.clone(),
-        system_digest: sha(&spec.system_text),
+        system_digest: system_digest(spec),
         tools_digest: theseus_kernel::digest_json(&Value::Array(spec.tools.clone()))[..16]
             .to_string(),
         tools,
@@ -225,6 +343,7 @@ pub fn manifest_for(
         context_window: window,
         strip_thinking: strip,
         context_files: spec.context_files.clone(),
+        cache: Some(cache_layout(spec, catalog)),
     }
 }
 
@@ -377,6 +496,7 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         est_tokens: est,
         digest,
         repairs,
+        cache: cache_layout(spec, input.catalog),
     }
 }
 
@@ -445,13 +565,23 @@ pub fn render_request(
         betas.push(BETA_FALLBACKS.to_string());
         extra.insert("fallbacks".to_string(), Value::String("default".into()));
     }
-    let system = if spec.system_text.is_empty() {
-        Vec::new()
-    } else {
-        vec![
-            json!({"type": "text", "text": spec.system_text, "cache_control": {"type": "ephemeral"}}),
-        ]
-    };
+    // The system in its blocks, each with its breakpoint where the layout
+    // puts one, at the profile's TTL; the conversation's breakpoint is the
+    // top-level automatic one. A longer-lived entry never follows a shorter
+    // one (the provider's order rule), whatever the spec says.
+    let layout = cache_layout(spec, catalog);
+    let system = system_blocks(spec)
+        .into_iter()
+        .zip(&layout.blocks)
+        .map(|((_, text), b)| {
+            let mut block = json!({"type": "text", "text": text});
+            if b.marked {
+                block["cache_control"] = spec.cache_ttl.marker();
+            }
+            block
+        })
+        .collect();
+    let conversation_ttl = spec.conversation_ttl.min(spec.cache_ttl);
     let req = ProviderRequest {
         model: spec.model.clone(),
         max_tokens: spec.max_tokens,
@@ -460,7 +590,7 @@ pub fn render_request(
         tools: spec.tools.clone(),
         thinking,
         output_config,
-        cache_control: Some(json!({"type": "ephemeral"})),
+        cache_control: layout.caches.then(|| conversation_ttl.marker()),
         betas,
         extra,
         image_tokens,
@@ -646,6 +776,7 @@ mod tests {
             model: model.into(),
             max_tokens: 1000,
             system_text: system.into(),
+            context_text: String::new(),
             context_files: vec![],
             persona: None,
             tools: vec![
@@ -655,6 +786,8 @@ mod tests {
             thinking_display: ThinkingDisplay::Summarized,
             refusal_fallbacks: true,
             first_party: true,
+            cache_ttl: CacheTtl::FiveMinutes,
+            conversation_ttl: CacheTtl::FiveMinutes,
         }
     }
 
@@ -757,7 +890,10 @@ mod tests {
         assert_eq!(c1.request.output_config.as_ref().unwrap()["effort"], "high");
         assert_eq!(c1.request.extra["fallbacks"], "default");
         assert!(c1.request.betas.contains(&BETA_FALLBACKS.to_string()));
-        assert_eq!(c1.request.system[0]["cache_control"]["type"], "ephemeral");
+        // A header this short is under Opus 5's caching minimum, so the only
+        // breakpoint is the conversation's (theseus-ev1).
+        assert!(c1.request.system[0].get("cache_control").is_none());
+        assert_eq!(c1.request.cache_control, Some(json!({"type": "ephemeral"})));
 
         nodes.push((
             2,
@@ -1031,5 +1167,241 @@ mod tests {
             .unwrap()
             .iter()
             .all(|b| !is_thinking(b))));
+    }
+
+    /// A spec whose header and context blocks have these many characters.
+    fn two_blocks(model: &str, header: usize, context: usize) -> RequestSpec {
+        let mut s = spec(model, &"h".repeat(header));
+        s.context_text = "c".repeat(context);
+        s
+    }
+
+    fn hi() -> Vec<(u64, Node)> {
+        vec![(1, Node::user("s", None, "web", "hi"))]
+    }
+
+    /// Each system block's `cache_control`, then the top-level one.
+    fn marks(c: &Compiled) -> Vec<Value> {
+        c.request
+            .system
+            .iter()
+            .map(|b| b.get("cache_control").cloned().unwrap_or(Value::Null))
+            .chain([c.request.cache_control.clone().unwrap_or(Value::Null)])
+            .collect()
+    }
+
+    /// The system goes out in two blocks, the header and the context files,
+    /// each with its breakpoint, and the conversation's is the top-level one:
+    /// 3 of the provider's 4 (theseus-ev1). An edit to a context file changes
+    /// the second block only: the header's bytes, and with the tools before
+    /// them its cache entry, stay.
+    #[test]
+    fn the_system_is_two_blocks_each_with_a_breakpoint() {
+        let sp = two_blocks("claude-opus-5", 4_000, 2_000);
+        let c = run(&hi(), None, &sp, 1);
+        let sys = &c.request.system;
+        assert_eq!(sys.len(), 2);
+        assert_eq!(sys[0]["text"], sp.system_text);
+        assert_eq!(sys[1]["text"], sp.context_text);
+        let five = json!({"type": "ephemeral"});
+        assert_eq!(marks(&c), [five.clone(), five.clone(), five]);
+        assert_eq!(c.cache.breakpoints(), ["header", "context", "conversation"]);
+        let m = c.compilation.manifest.cache.clone().unwrap();
+        assert_eq!(m, c.cache);
+        assert!(m.caches && m.blocks.iter().all(|b| b.marked));
+        assert_eq!(m.min_tokens, 512);
+        // Each prefix is the tools and the system through its block, at chars/4.
+        let len = |v: &Value| serde_json::to_string(v).unwrap().len();
+        let tools = len(&Value::Array(sp.tools.clone()));
+        let header = len(&json!({"type": "text", "text": sp.system_text}));
+        let context = len(&json!({"type": "text", "text": sp.context_text}));
+        assert_eq!(m.blocks[0].prefix_tokens, ((tools + header) / 4) as u64);
+        assert_eq!(
+            m.blocks[1].prefix_tokens,
+            ((tools + header + context) / 4) as u64
+        );
+
+        // An edited context file recompiles; the header's bytes do not move.
+        let mut edited = sp;
+        edited.context_text.push_str(" and one more line");
+        let c2 = run(&hi(), Some(&c.compilation), &edited, 1);
+        assert_eq!(c2.trigger.as_deref(), Some("system_changed"));
+        assert_eq!(
+            serde_json::to_string(&c2.request.system[0]).unwrap(),
+            serde_json::to_string(&c.request.system[0]).unwrap()
+        );
+        assert_ne!(c2.request.system[1], c.request.system[1]);
+        assert_eq!(c2.request.tools, c.request.tools);
+    }
+
+    /// Without context files the system is one block, with the digest and
+    /// the bytes it had before the split, so those sessions do not recompile.
+    /// With them the digest is new, so a compilation from before the split
+    /// recompiles once and drops its prefix's thinking, whose signatures were
+    /// made over the old single block (theseus-ev1).
+    #[test]
+    fn one_block_keeps_its_old_digest_and_two_recompile_once() {
+        // A header over the minimum, as every real one is but on Haiku 4.5.
+        let header = format!("You are Theseus. {}", "h".repeat(4_000));
+        let one = spec("claude-opus-5", &header);
+        let m = manifest_for(&one, &Catalog::builtin(), None, false);
+        assert_eq!(m.system_digest, sha(&header));
+        let c = run(&hi(), None, &one, 1);
+        assert_eq!(
+            c.request.system,
+            vec![json!({"type": "text", "text": header, "cache_control": {"type": "ephemeral"}})]
+        );
+        // The old layout: one block, the files after a blank line.
+        let mut two = one;
+        two.context_text = "## A context file".into();
+        let mut old = c.compilation;
+        old.manifest.system_digest = sha(&format!("{}\n\n{}", two.system_text, two.context_text));
+        old.manifest.cache = None;
+        let nodes = vec![
+            (1, Node::user("s", None, "web", "hi")),
+            (
+                2,
+                assistant(vec![thinking(), json!({"type": "text", "text": "hello"})]),
+            ),
+            (3, Node::user("s", None, "web", "again")),
+        ];
+        let c2 = run(&nodes, Some(&old), &two, 3);
+        assert_eq!(c2.trigger.as_deref(), Some("system_changed"));
+        assert!(c2.compilation.manifest.strip_thinking);
+        assert_eq!(c2.request.system.len(), 2);
+    }
+
+    /// A breakpoint whose prefix is under the model's minimum gets none: the
+    /// provider would never cache it, and it would take a slot (theseus-ev1).
+    /// Haiku 4.5's minimum, 4,096 tokens, is above this header's prefix of
+    /// about 1,000; the context block's prefix clears it. The manifest says
+    /// which is which. On Opus 5, whose minimum is 512, both are marked.
+    #[test]
+    fn a_prefix_under_the_models_minimum_gets_no_breakpoint() {
+        let sp = two_blocks("claude-haiku-4-5", 4_000, 20_000);
+        let c = run(&hi(), None, &sp, 1);
+        let five = json!({"type": "ephemeral"});
+        assert_eq!(marks(&c), [Value::Null, five.clone(), five.clone()]);
+        let m = c.compilation.manifest.cache.clone().unwrap();
+        assert_eq!(m.min_tokens, 4_096);
+        let header = &m.blocks[0];
+        assert_eq!((header.block.as_str(), header.marked), ("header", false));
+        assert!((1_000..4_096).contains(&header.prefix_tokens), "{header:?}");
+        let context = &m.blocks[1];
+        assert_eq!((context.block.as_str(), context.marked), ("context", true));
+        assert!(context.prefix_tokens >= 4_096, "{context:?}");
+        assert_eq!(c.cache.breakpoints(), ["context", "conversation"]);
+        let stored = serde_json::to_value(&c.compilation.manifest).unwrap();
+        assert_eq!(stored["cache"]["blocks"][0]["marked"], false, "{stored}");
+
+        // Without context files, Haiku's only breakpoint is the conversation's.
+        let alone = spec("claude-haiku-4-5", &"h".repeat(4_000));
+        let c = run(&hi(), None, &alone, 1);
+        assert_eq!(marks(&c), [Value::Null, five.clone()]);
+
+        let mut opus = sp;
+        opus.model = "claude-opus-5".into();
+        let c = run(&hi(), None, &opus, 1);
+        assert_eq!(marks(&c), [five.clone(), five.clone(), five]);
+    }
+
+    /// The TTL on the wire (theseus-ev1). `5m` is the API's default, so its
+    /// markers name none: the bytes of every request before 13c. `1h` is on
+    /// every breakpoint, the top-level automatic one included. A task keeps
+    /// its own conversation at 5 minutes after the header's 1-hour entries,
+    /// the order the provider allows, and no spec puts a longer-lived entry
+    /// after a shorter one. A TTL is in no digest, so changing it does not
+    /// recompile.
+    #[test]
+    fn the_ttl_goes_on_every_breakpoint_longest_first() {
+        let five = json!({"type": "ephemeral"});
+        let hour = json!({"type": "ephemeral", "ttl": "1h"});
+        let mut sp = two_blocks("claude-opus-5", 4_000, 2_000);
+        let c = run(&hi(), None, &sp, 1);
+        assert_eq!(marks(&c), [five.clone(), five.clone(), five.clone()]);
+        assert_eq!(c.request.body()["cache_control"], five);
+
+        sp.cache_ttl = CacheTtl::OneHour;
+        sp.conversation_ttl = CacheTtl::OneHour;
+        let c = run(&hi(), None, &sp, 1);
+        assert_eq!(marks(&c), [hour.clone(), hour.clone(), hour.clone()]);
+        assert_eq!(c.request.body()["cache_control"], hour);
+        assert_eq!(c.request.body()["system"][0]["cache_control"]["ttl"], "1h");
+
+        // A task on a 1-hour profile: the header's entries for an hour, its
+        // own conversation's for 5 minutes.
+        sp.conversation_ttl = CacheTtl::FiveMinutes;
+        let c = run(&hi(), None, &sp, 1);
+        assert_eq!(marks(&c), [hour.clone(), hour, five.clone()]);
+
+        // Never a 1-hour entry after a 5-minute one.
+        sp.cache_ttl = CacheTtl::FiveMinutes;
+        sp.conversation_ttl = CacheTtl::OneHour;
+        let c = run(&hi(), None, &sp, 1);
+        assert_eq!(marks(&c), [five.clone(), five.clone(), five]);
+
+        // A TTL change keeps the compilation, and so the prefix's thinking.
+        let mut longer = sp;
+        longer.cache_ttl = CacheTtl::OneHour;
+        longer.conversation_ttl = CacheTtl::OneHour;
+        let again = run(&hi(), Some(&c.compilation), &longer, 1);
+        assert!(!again.new_compilation);
+    }
+
+    /// A model whose provider does not cache gets no breakpoints at all, and
+    /// its manifest says so (theseus-ev1). Every built-in model caches, so
+    /// it takes a config's `caches = false`.
+    #[test]
+    fn a_model_that_does_not_cache_gets_no_breakpoints() {
+        let mut rows = std::collections::BTreeMap::new();
+        rows.insert(
+            "claude-opus-5".to_string(),
+            crate::catalog::CatalogRow {
+                caches: Some(false),
+                ..Default::default()
+            },
+        );
+        let catalog = Catalog::with_overrides(&rows);
+        let sp = two_blocks("claude-opus-5", 4_000, 2_000);
+        let nodes: Vec<(u64, Arc<Node>)> =
+            hi().into_iter().map(|(p, n)| (p, Arc::new(n))).collect();
+        let c = compile(CompileInput {
+            session_id: "s",
+            current: None,
+            nodes: &nodes,
+            last_position: 1,
+            spec: &sp,
+            catalog: &catalog,
+            force: None,
+            window_override: None,
+            blobs: None,
+            hidden: &[],
+            strip: None,
+        });
+        assert_eq!(c.request.system.len(), 2);
+        assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
+        assert!(c.request.body().get("cache_control").is_none());
+        let m = c.compilation.manifest.cache.unwrap();
+        assert!(!m.caches && m.blocks.iter().all(|b| !b.marked));
+        assert!(c.cache.breakpoints().is_empty());
+    }
+
+    /// A compilation stored before 13c has no `cache` in its manifest. It
+    /// reads as none, and with the same one-block system the next turn
+    /// appends to it, rendering the same bytes.
+    #[test]
+    fn a_manifest_from_before_the_cache_layout_reads_as_none() {
+        let sp = spec("claude-opus-5", "You are Theseus.");
+        let c = run(&hi(), None, &sp, 1);
+        let mut v = serde_json::to_value(&c.compilation).unwrap();
+        assert!(v["manifest"]["cache"].is_object());
+        v["manifest"].as_object_mut().unwrap().remove("cache");
+        let old: Compilation = serde_json::from_value(v).unwrap();
+        assert!(old.manifest.cache.is_none());
+        let mut nodes = hi();
+        nodes.push((2, Node::user("s", None, "web", "again")));
+        let c2 = run(&nodes, Some(&old), &sp, 2);
+        assert!(!c2.new_compilation, "{:?}", c2.trigger);
+        assert_eq!(c2.request.system, c.request.system);
     }
 }

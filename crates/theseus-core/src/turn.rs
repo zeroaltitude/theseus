@@ -25,8 +25,8 @@ use theseus_kernel::{
     BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{
-    notify, BudgetAsk, ConfirmRequest, LoopEnded, LoopStarted, ModelDelta, Span, TurnStarted,
-    TurnSubmitResult, Usage,
+    notify, BudgetAsk, ConfirmRequest, LoopEnded, LoopStarted, ModelDelta, SessionKind, Span,
+    TurnStarted, TurnSubmitResult, Usage,
 };
 use theseus_store::NewRecord;
 
@@ -34,7 +34,7 @@ use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
 use crate::compiler::{compile, CompileInput, Compiled, Recompile, RequestSpec};
-use crate::config::{Effort, ThinkingDisplay};
+use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::ledger::LedgerRow;
 use crate::narrative::{self, narrate, narrate_turn, Narrator};
@@ -67,6 +67,8 @@ pub struct Target {
     pub thinking_display: ThinkingDisplay,
     pub max_loops: u32,
     pub refusal_fallbacks: bool,
+    /// The profile's prompt-cache TTL (theseus-ev1).
+    pub cache_ttl: CacheTtl,
 }
 
 impl From<&Target> for TargetRef {
@@ -475,6 +477,7 @@ impl TurnRunner {
             thinking_display: prof.thinking_display,
             max_loops: prof.max_loops,
             refusal_fallbacks: prof.refusal_fallbacks,
+            cache_ttl: prof.cache_ttl,
         })
     }
 
@@ -509,12 +512,15 @@ impl TurnRunner {
             .unwrap_or(false)
     }
 
-    /// The system prompt: persona, the tools paragraph, the profile's own
-    /// text, then each context file under its header (theseus-58a): the
-    /// system level's, then the persona's, each header naming its level
-    /// (theseus-c48). Deterministic for a config and the files' contents; a
-    /// change is a `system_changed` recompile.
-    pub fn system_text(&self, target: &Target, files: &[ContextFile]) -> String {
+    /// The system prompt, as its two blocks (theseus-ev1). The header, which
+    /// every session of the profile and their tasks share: the persona, the
+    /// tools paragraph, and the profile's own text. Then the context: each
+    /// context file under its header (theseus-58a), the system level's, then
+    /// the persona's, each header naming its level (theseus-c48); empty
+    /// without files. Deterministic for a config and the files' contents; a
+    /// change is a `system_changed` recompile. Nothing retractable belongs in
+    /// the header (Appendix F, theseus-3nk): it is every session's prefix.
+    pub fn system_blocks(&self, target: &Target, files: &[ContextFile]) -> (String, String) {
         let mut parts = vec![PERSONA.to_string()];
         let note = self.tools.system_note();
         if !note.is_empty() {
@@ -523,21 +529,31 @@ impl TurnRunner {
         if let Some(s) = target.system.as_ref().filter(|s| !s.trim().is_empty()) {
             parts.push(s.clone());
         }
-        parts.extend(files.iter().map(|f| f.section.clone()));
-        parts.join("\n\n")
+        let sections: Vec<&str> = files.iter().map(|f| f.section.as_str()).collect();
+        (parts.join("\n\n"), sections.join("\n\n"))
     }
 
     /// The turn's request spec, fixed for all its loops, and the context
-    /// files this daemon run finds unreadable for the first time.
-    pub fn request_spec(&self, target: &Target) -> (RequestSpec, Vec<Unreadable>) {
+    /// files this daemon run finds unreadable for the first time. A task's
+    /// own conversation is cached for 5 minutes whatever the profile says
+    /// (theseus-ev1): its loops run seconds apart, so a 1-hour entry would
+    /// only add its write premium. Its header keeps the profile's TTL, the
+    /// one its parent's requests write.
+    pub fn request_spec(
+        &self,
+        target: &Target,
+        kind: SessionKind,
+    ) -> (RequestSpec, Vec<Unreadable>) {
         let paths = self.cfg.context_paths(target.persona.as_deref());
         let (files, unreadable) = self.context_files.load(&paths);
+        let (system_text, context_text) = self.system_blocks(target, &files);
         let spec = RequestSpec {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
             model: target.model.clone(),
             max_tokens: target.max_tokens,
-            system_text: self.system_text(target, &files),
+            system_text,
+            context_text,
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
             tools: self.tools.definitions(),
@@ -545,6 +561,11 @@ impl TurnRunner {
             thinking_display: target.thinking_display,
             refusal_fallbacks: target.refusal_fallbacks,
             first_party: self.first_party(&target.provider),
+            cache_ttl: target.cache_ttl,
+            conversation_ttl: match kind {
+                SessionKind::Task => CacheTtl::FiveMinutes,
+                SessionKind::Conversation => target.cache_ttl,
+            },
         };
         (spec, unreadable)
     }
@@ -1274,7 +1295,7 @@ impl TurnRunner {
         let mut run_model = Self::has_news(&mut t, input.is_some() || caught_up > 0)?;
         // The spec is fixed for the turn: a context file edited during it
         // recompiles the next turn, never between a tool call and its result.
-        let (spec, unreadable) = self.request_spec(&target);
+        let (spec, unreadable) = self.request_spec(&target, session.kind);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
@@ -1756,6 +1777,12 @@ impl TurnRunner {
         if let Some(p) = &spec.persona {
             summary["persona"] = json!(p);
         }
+        // The request's cache breakpoints and their TTLs (theseus-ev1).
+        summary["cache"] = json!({
+            "breakpoints": compiled.cache.breakpoints(),
+            "ttl": spec.cache_ttl.as_str(),
+            "conversation_ttl": spec.conversation_ttl.min(spec.cache_ttl).as_str(),
+        });
         t.trace
             .record("compile", "compile", c0, c1, summary.clone());
         t.tc.ledger("context.compiled", summary.clone());
@@ -1806,6 +1833,31 @@ impl TurnRunner {
                 narrative::short(&compiled.compilation.id),
                 sizes(&compiled)
             );
+        }
+        // A system block left without its cache breakpoint is said once, when
+        // the compilation is made (theseus-ev1); its manifest records it.
+        if compiled.new_compilation {
+            let layout = &compiled.cache;
+            if !layout.caches {
+                narrate_turn!(
+                    t.tc,
+                    Context,
+                    "Context: no cache breakpoints, since the catalog says {} does not cache.",
+                    spec.model
+                );
+            }
+            for b in layout.blocks.iter().filter(|b| layout.caches && !b.marked) {
+                narrate_turn!(
+                    t.tc,
+                    Context,
+                    "Context: no cache breakpoint on the system's {} block: with the tools, its \
+                     prefix is about {} tokens, under {}'s minimum of {}.",
+                    b.block,
+                    narrative::thousands(b.prefix_tokens),
+                    spec.model,
+                    narrative::thousands(layout.min_tokens as u64)
+                );
+            }
         }
         if !compiled.repairs.is_empty() {
             narrate_turn!(
@@ -3035,4 +3087,5 @@ pub fn add_usage(into: &mut Usage, u: &Usage) {
     into.output_tokens += u.output_tokens;
     into.cache_read_input_tokens += u.cache_read_input_tokens;
     into.cache_creation_input_tokens += u.cache_creation_input_tokens;
+    into.cache_creation_1h_input_tokens += u.cache_creation_1h_input_tokens;
 }

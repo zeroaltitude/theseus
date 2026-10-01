@@ -345,6 +345,7 @@ fn two_loops_result() -> TurnSubmitResult {
             output_tokens: 80,
             cache_read_input_tokens: 300,
             cache_creation_input_tokens: 0,
+            ..Default::default()
         },
         elapsed_ms: 2400,
         first_token_ms: Some(450),
