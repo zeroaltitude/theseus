@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.65
+# The Ship of Theseus — v0.66
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -513,6 +513,7 @@ Budgets are a first-class notion: a `Budget` is a named ceiling with a unit (mon
   - The session's lifetime cost keeps counting (`cost_usd`, and the total in health), so a reset never hides money already spent.
   - A decline keeps the session waiting, and new input asks again. The operator can also cancel the session or start a new one.
   - A reset is the only way spend goes down, and an execution has one open question at a time.
+  - *A call bigger than the whole limit* (theseus-kks, built by Theseus itself, Part III A4 Item 14). No reset can make it fit, so its question says so: "…which alone reserves $1.29: more than its whole $1 limit, so resetting its spend to $0 cannot make it fit". It names both remedies: raise `spend_limit_usd`, or lower the profile's `max_output_tokens` (with its value). An approval resets the spend and tries the call once more. If it still does not fit, the turn fails with the class `over_limit` (not transient), a `budget.over_limit` row, and a notice that names the remedies. It does not ask again. The question's proposal keeps the call's profile, model, and cap as `args.call`, and `budget.asked` says `exceeds_limit`.
 - **No control reserve.** Nothing at the limit ends work or refuses a cancel, so nothing needs holding back for cleanup.
 - **Unit budgets are retired.** `[kernel] default_budget` and `control_reserve` still load, are ignored, and warn. A versioned reader serves executions stored with unit budgets: each gets the configured limit, its spend comes from its session's recorded `cost_usd`, and the unit figures are kept as `units_before`. Startup rewrites each one once, with a `budget.migrated` row. An execution that already ended `budget_exhausted` stays ended.
 - **An open session follows the config's limit** (Eddie, 2026-09-29, 09:21; theseus-3pj, 430d291). A session's limit is what `[kernel] spend_limit_usd` says now, not what it said when the session opened. Since a changed config note restarts the daemon onto it (§3.19), "I changed the limit and restarted" means what it says, for the long-lived Discord place too.
@@ -4850,3 +4851,102 @@ joined here through a spine step.
 - **Installed at 18:34** from 5b13509: the binaries the live check ran.
 - When Eddie's daemon next starts on this build, it tightens `~/.theseus` and its store to 0700, once, with
   a log line each.
+
+### Item 14. The dogfood pilot: Theseus builds theseus-kks itself (theseus-14s, theseus-kks; 2026-09-30, 21:21–22:51; d10294f)
+
+**Why.** Eddie, 2026-09-30 15:17: "It would be fantastic to start developing theseus on theseus -- very on
+brand". The re-cut made the pilot spine row 2: Theseus builds one small fix to itself, and Tabitha reviews it as
+any step. At 19:37 Eddie decided its isolation: the builder runs as him, in the same general context, with the
+same approvals and notifications as a normal agent. So the pilot has no second user and no sandbox.
+
+**What exists.**
+- **The pilot's harness**, which is not product code:
+  - A builder daemon: the installed build (5b13509), with its own state dir (`~/.theseus-builder`), socket,
+    and worktree (`lane/pilot`), bound only to `#theseus-test`, with Eddie's posture unchanged.
+  - A `theseus-dev` persona: the agents' operating notes for the repo, plus a short "How you work here". 52 KB.
+  - A profile `opus` on `claude-opus-5-5`, and `spend_limit_usd = 40`.
+  - A runner (an OpenClaw subagent) set it up, sent the step brief as the first message of the channel's
+    session, watched, and measured. It never touched the step's work.
+- **theseus-kks, as the builder built it** (§3.13's new sub-bullet):
+  - `turn::budget_question` is the one text, for the turn's `confirm.requested` and for every surface that
+    renders the question again. It is unchanged, byte for byte, for an ordinary over-budget call.
+  - `Kernel::ask_budget_for` keeps the call's profile, model, and output cap in the question's proposal as
+    `args.call`. `ask_budget` delegates with `Null`, so the kernel's tests and kernel-sim are untouched.
+    `budget.asked` gains `exceeds_limit`.
+  - After an approved reset of a call over the whole limit, `catch_up` sets `retry_over_limit`. If the retry's
+    call still does not fit, the turn fails with class `over_limit` (not transient) and a `budget.over_limit`
+    row. It does not ask again. A call that fits clears the flag, so a later call over the limit asks as usual.
+  - No record layout changed: `args` is the proposal's JSON, and `exceeds_limit` is a ledger field.
+
+**How it is proven.**
+- **The builder's three tests** in `tests_m3`:
+  - a call over the whole limit asks once and names the remedies;
+  - an approved reset of it does not ask again;
+  - an ordinary over-budget call still asks, resets, and goes ahead.
+
+  Its revert proof: the first two failed on the bug itself. The third guards the unchanged path, so it failed
+  only on the new `exceeds_limit` field, as the builder's report says plainly.
+- **The gate:** the builder's run passed (562 tests, lifecycle OK, deny OK) after it fixed its own clippy slip.
+  The runner reran it, and the revert, in a throwaway worktree: green, and each test failed without the fix.
+- **The builder's live check was not done.** Its two scratch-file writes outside its roots waited for
+  approval in `#theseus-test`, and nobody answered: the cards ping no one (theseus-9j9). The runner declined
+  each after 30 minutes. The builder treated each decline as final, and reported the check as not done
+  rather than route around it through the shell.
+
+**The pilot's numbers.**
+- **Time:** 75 minutes from the first message to "Done.", of which the two unanswered approvals took an hour.
+  About 14 minutes was work.
+- **Cost:** $3.22, over 57 Opus 5.5 calls.
+- **Help:** no operator intervention, and no correction.
+- **Snags:** one tool error (`fs.patch`; it used `fs.edit` 19 times after that).
+- **Channel noise:** 49 messages and 56 edits in the channel for one step.
+
+**Divergence from the brief.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| The step's live check, by the builder | Not done by the builder; done at review | Its scratch writes outside its roots needed approval, and the cards notified nobody | theseus-9j9 (P1); theseus-2tw (a scratch root for a builder) |
+| Approvals answered by Eddie in the channel | None answered; both declined after 30 minutes | `allowed_mentions` is empty on a card | theseus-9j9 |
+| kks's behaviour after an approval: the brief left it to the builder | One retry, then `over_limit` | It keeps the kernel's invariant that reservations fit the limit, and an approval after a config change is useful | Keep |
+
+**Known gaps.**
+- **A reset leaves amounts held unknown in place** (theseus-6g6, found by the builder). A call with
+  `needed ≤ limit` but `needed > limit − held_unknown` comes back after each approval too.
+- **The pilot's friction, each filed:**
+  - theseus-9j9 (P1): a card pings nobody;
+  - theseus-2tw: a builder has no scratch root;
+  - theseus-6i0: a batch's approvals come one at a time;
+  - theseus-830: a card says it expires, but a request never does;
+  - theseus-lqk: `max_loops` (40) parks a builder's step;
+  - theseus-8wm: notices flood the channel;
+  - theseus-ewi: `proc.run` may write outside the roots under `notify` while `fs.write` asks (a decision for
+    Eddie);
+  - theseus-inw: `fs.patch` rejects a hunk whose header counts are off.
+- **The persona's nextest wording** ("`-j 4`") led to one failed command. The next pilot's persona says
+  `--build-jobs 4 --test-threads 4`.
+
+**Reviewed** (Tabitha, 2026-09-30, 23:15 to 23:26).
+- **Reading the code.**
+  - `retry_over_limit` comes only from a settled, approved budget question whose own proposal says
+    `needed > limit`. A raise that withdraws the question is not an approval, so it doesn't set the flag.
+  - The failing path runs before any provider call, so the turn has no settled call of its own, and no fault
+    wake follows (the pattern of theseus-ljr). The builder's test holds the execution at `Waiting` on input.
+  - A question asked before this build has no `args.call`, and renders the generic remedy.
+- **The live check the builder could not run.** It used the release build of d10294f, on a fresh state dir
+  under `/tmp`, with Eddie's note (Discord and the web UI off) and `spend_limit_usd = 0.002`.
+  - The question read: "This session is waiting on the call to claude-sonnet-5-5, which alone reserves $1.29:
+    more than its whole $0.002 limit, so resetting its spend to $0 cannot make it fit. Raise `[kernel]
+    spend_limit_usd` above $1.29, or lower `max_output_tokens` under `[profiles.sonnet]` (now 128,000)." It
+    cost $0 and 0 tokens, and made no provider call.
+  - The ledger: `budget.asked` with `exceeds_limit: true`. Then, after `theseus confirm` approved it,
+    `budget.reset`, one continuation turn, `budget.over_limit` (needed $1.2867), and `turn.failed`
+    (`over_limit`, $0).
+  - Nothing was waiting for confirmation. Twelve seconds later there were still two turns, and the execution
+    was `waiting` with nothing queued: no loop.
+- **The gate rerun** at d10294f on `main` (23:22 to 23:24, the lanes paused): 562 tests, lifecycle OK.
+- Eddie's unchanged note loads under the new binary: 8 secrets resolved.
+- **`main` fast-forwarded** to d10294f and pushed. **Installed at 23:24** from d10294f: the binaries the live
+  check ran.
+- **The verdict on more builders:** yes for the coding. Not yet for unattended steps with a live check, until
+  theseus-9j9 and theseus-2tw land. The next spine step folds in 9j9, which is cheap and recovers the pilot's
+  hour.
