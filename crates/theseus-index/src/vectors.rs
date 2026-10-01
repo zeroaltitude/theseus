@@ -28,7 +28,7 @@ use std::cmp::{Ordering as CmpOrdering, Reverse};
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{DirBuilderExt, FileExt};
+use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
@@ -39,7 +39,8 @@ use sha2::{Digest, Sha256};
 
 use crate::embedder::{self, dot_i8, quantize, stamp_key, Embedder, ModelSpec, Vector, Windows};
 use crate::proto::{
-    EmbedParams, EmbedResult, EmbedStats, Filters, Neighbour, Reembed, Stamp, Task, VectorStatus,
+    Compactions, EmbedParams, EmbedResult, EmbedStats, Filters, Neighbour, Reembed, Stamp, Task,
+    VectorStatus,
 };
 use crate::weights::LoadError;
 
@@ -138,23 +139,74 @@ pub struct Cache {
     full: usize,
     rec: usize,
     by_hash: HashMap<u128, u32>,
+    /// Each entry's text hash.
+    hashes: Vec<u128>,
     q: Vec<i8>,
     scale: Vec<f32>,
+    /// Entries whose text no chunk holds (theseus-64x): no row points at
+    /// them, so they answer nothing, and the next compaction drops them.
+    dead: Vec<bool>,
+    dead_count: usize,
 }
 
 fn rec_len(cut: usize, full: usize) -> usize {
     16 + 4 + cut + 2 * full + 4
 }
 
+/// What a compaction did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Compacted {
+    /// Files rewritten.
+    pub files: u64,
+    /// Records dropped.
+    pub dropped: u64,
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+}
+
+impl Compacted {
+    fn add(&mut self, o: Compacted) {
+        self.files += o.files;
+        self.dropped += o.dropped;
+        self.bytes_before += o.bytes_before;
+        self.bytes_after += o.bytes_after;
+    }
+}
+
+/// A compaction's steps, at whose ends a test stops it as a crash would.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
+    /// Half the kept records copied.
+    HalfCopied,
+    /// The copy whole and synced, not yet renamed.
+    Copied,
+    /// Renamed over the file; the directory not yet synced.
+    Renamed,
+}
+
+/// Make a rename in `dir` durable.
+fn sync_dir(dir: &Path) -> io::Result<()> {
+    File::open(dir)?.sync_all()
+}
+
 impl Cache {
     /// Open `<dir>/<key>.vec` for `stamp`, or start it. A torn or corrupt
-    /// tail (a crash mid-append) is cut at the last whole record.
+    /// tail (a crash mid-append) is cut at the last whole record, and a
+    /// compaction's copy that a crash left unrenamed is removed.
     pub fn open(dir: &Path, stamp: &Stamp) -> anyhow::Result<Cache> {
         let key = stamp_key(stamp);
         let path = dir.join(format!("{key}.vec"));
         let meta = dir.join(format!("{key}.json"));
         if !meta.exists() {
             crate::state::save(&meta, stamp).context("writing a stamp's file")?;
+        }
+        match fs::remove_file(path.with_extension("vec.tmp")) {
+            Ok(()) => tracing::warn!(
+                file = %path.display(),
+                "index: a compaction's copy left by a crash, removed (the file is the old one)"
+            ),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).context("removing a compaction's copy"),
         }
         let file = OpenOptions::new()
             .read(true)
@@ -173,8 +225,11 @@ impl Cache {
             full,
             rec,
             by_hash: HashMap::new(),
+            hashes: Vec::new(),
             q: Vec::new(),
             scale: Vec::new(),
+            dead: Vec::new(),
+            dead_count: 0,
         };
         let len = c.file.metadata()?.len();
         let mut head = [0u8; HEADER as usize];
@@ -225,8 +280,10 @@ impl Cache {
         let scale = f32::from_le_bytes(b[16..20].try_into().unwrap_or_default());
         let entry = self.scale.len() as u32;
         self.by_hash.insert(hash, entry);
+        self.hashes.push(hash);
         self.scale.push(scale);
         self.q.extend(b[20..20 + self.cut].iter().map(|&x| x as i8));
+        self.dead.push(false);
     }
 
     pub fn len(&self) -> usize {
@@ -239,6 +296,40 @@ impl Cache {
 
     pub fn get(&self, hash: u128) -> Option<u32> {
         self.by_hash.get(&hash).copied()
+    }
+
+    /// Records whose text no chunk holds.
+    pub fn dead(&self) -> usize {
+        self.dead_count
+    }
+
+    /// The file's length: its header and its whole records.
+    pub fn bytes(&self) -> u64 {
+        HEADER + (self.len() * self.rec) as u64
+    }
+
+    /// Mark the record of `hash`, if this file holds one, dead or alive.
+    fn set_dead(&mut self, hash: u128, dead: bool) {
+        if let Some(e) = self.get(hash) {
+            let d = &mut self.dead[e as usize];
+            if *d != dead {
+                *d = dead;
+                if dead {
+                    self.dead_count += 1;
+                } else {
+                    self.dead_count -= 1;
+                }
+            }
+        }
+    }
+
+    /// Every record dead unless `alive` holds its text.
+    fn recount(&mut self, alive: &dyn Fn(u128) -> bool) {
+        self.dead_count = 0;
+        for (e, h) in self.hashes.iter().enumerate() {
+            self.dead[e] = !alive(*h);
+            self.dead_count += usize::from(self.dead[e]);
+        }
     }
 
     fn q(&self, e: u32) -> &[i8] {
@@ -300,34 +391,97 @@ impl Cache {
         )
     }
 
-    /// Rewrite the file with only the records `keep` holds.
-    fn compact(&mut self, keep: &HashSet<u128>) -> anyhow::Result<()> {
+    /// Rewrite the file with only the records whose text `keep` admits
+    /// (theseus-64x), atomically: a copy beside it (mode 0600) synced, then
+    /// renamed over it, then the directory synced. A crash leaves the old
+    /// file or the new one, never part of either: the copy is renamed only
+    /// whole, and the next open removes one a crash left. Nothing is
+    /// rewritten when every record stays.
+    pub fn compact(&mut self, keep: &dyn Fn(u128) -> bool) -> anyhow::Result<Compacted> {
+        self.rewrite(keep, &mut |_| Ok(()))
+    }
+
+    /// [`Cache::compact`], calling `at` at each step's end: a test returns an
+    /// error there to stop it as a crash would.
+    pub(crate) fn rewrite(
+        &mut self,
+        keep: &dyn Fn(u128) -> bool,
+        at: &mut dyn FnMut(Step) -> io::Result<()>,
+    ) -> anyhow::Result<Compacted> {
+        let kept: Vec<u32> = (0..self.len() as u32)
+            .filter(|&e| keep(self.hashes[e as usize]))
+            .collect();
+        if kept.len() == self.len() {
+            return Ok(Compacted::default());
+        }
+        let before = self.bytes();
         let (path, _) = self.paths();
         let tmp = path.with_extension("vec.tmp");
+        let mut out = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .with_context(|| format!("creating {}", tmp.display()))?;
         {
-            let mut out = File::create(&tmp)?;
-            let mut h = MAGIC.to_vec();
-            h.extend_from_slice(&(self.cut as u32).to_le_bytes());
-            h.extend_from_slice(&(self.full as u32).to_le_bytes());
-            out.write_all(&h)?;
+            let mut w = io::BufWriter::with_capacity(1 << 20, &mut out);
+            w.write_all(MAGIC)?;
+            w.write_all(&(self.cut as u32).to_le_bytes())?;
+            w.write_all(&(self.full as u32).to_le_bytes())?;
             let mut rec = vec![0u8; self.rec];
-            let mut entries: Vec<(u128, u32)> = self
-                .by_hash
-                .iter()
-                .filter(|(h, _)| keep.contains(h))
-                .map(|(h, e)| (*h, *e))
-                .collect();
-            entries.sort_by_key(|(_, e)| *e);
-            for (_, e) in entries {
+            for (n, &e) in kept.iter().enumerate() {
+                if n == kept.len() / 2 {
+                    w.flush()?;
+                    at(Step::HalfCopied)?;
+                }
                 self.file
-                    .read_exact_at(&mut rec, HEADER + e as u64 * self.rec as u64)?;
-                out.write_all(&rec)?;
+                    .read_exact_at(&mut rec, HEADER + u64::from(e) * self.rec as u64)?;
+                w.write_all(&rec)?;
             }
-            out.sync_data()?;
+            w.flush()?;
         }
-        fs::rename(&tmp, &path)?;
-        *self = Cache::open(&self.dir, &self.stamp)?;
-        Ok(())
+        out.sync_all()?;
+        drop(out);
+        at(Step::Copied)?;
+        fs::rename(&tmp, &path).with_context(|| format!("renaming over {}", path.display()))?;
+        at(Step::Renamed)?;
+        sync_dir(&self.dir)?;
+        // The new file, and in memory its records as the copy wrote them.
+        let file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .open(&path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        let mut by_hash = HashMap::with_capacity(kept.len());
+        let mut hashes = Vec::with_capacity(kept.len());
+        let mut q = Vec::with_capacity(kept.len() * self.cut);
+        let mut scale = Vec::with_capacity(kept.len());
+        let mut dead = Vec::with_capacity(kept.len());
+        for (n, &e) in kept.iter().enumerate() {
+            let h = self.hashes[e as usize];
+            by_hash.insert(h, n as u32);
+            hashes.push(h);
+            q.extend_from_slice(self.q(e));
+            scale.push(self.scale[e as usize]);
+            dead.push(self.dead[e as usize]);
+        }
+        let dropped = (self.len() - kept.len()) as u64;
+        self.dead_count = dead.iter().filter(|d| **d).count();
+        (
+            self.file,
+            self.by_hash,
+            self.hashes,
+            self.q,
+            self.scale,
+            self.dead,
+        ) = (file, by_hash, hashes, q, scale, dead);
+        Ok(Compacted {
+            files: 1,
+            dropped,
+            bytes_before: before,
+            bytes_after: self.bytes(),
+        })
     }
 
     fn remove(self) {
@@ -547,6 +701,15 @@ pub struct Table {
     /// The vector files are read: until then the backlog waits.
     opened: bool,
     reconciled: bool,
+    /// The ingest thread has caught up with the WAL since the tender started
+    /// or the index was dropped: until then the rows are not every chunk.
+    caught_up: bool,
+    /// A compaction asked for once the table settles, and why (a rebuild).
+    compact_asked: Option<&'static str>,
+    /// Nodes and chunks forgotten before the rows were reconciled with the
+    /// index, which a reconcile that read the index first must not add.
+    forgot_nodes: HashSet<String>,
+    forgot_chunks: HashSet<(String, u32)>,
 }
 
 impl Table {
@@ -557,14 +720,67 @@ impl Table {
             .find_map(|(i, c)| c.get(hash).map(|e| (i as u8, e)))
     }
 
-    /// Point row `i` at its vector, or queue its text.
+    /// Point row `i` at its vector, or queue its text. A record its text had
+    /// left dead lives again.
     fn place(&mut self, i: u32) {
         let r = &self.rows[i as usize];
         let vec = self.resolve(r.hash);
         let (hash, tokens, position) = (r.hash, r.tokens, r.position);
         self.rows[i as usize].vec = vec;
+        if vec.is_some() {
+            self.mark(hash, false);
+        }
         if self.opened && !matches!(vec, Some((0, _))) {
             self.backlog.add(hash, tokens, position, vec.is_some());
+        }
+    }
+
+    /// The rows are every chunk the index holds: the files are read, the
+    /// index's chunks reconciled, and the ingest thread caught up. Only then
+    /// is a record whose text has no row truly dead.
+    fn settled(&self) -> bool {
+        self.opened && self.reconciled && self.caught_up
+    }
+
+    /// `hash`'s records, in every file that holds one, dead or alive.
+    fn mark(&mut self, hash: u128, dead: bool) {
+        for c in &mut self.caches {
+            c.set_dead(hash, dead);
+        }
+    }
+
+    /// Every record dead unless a row holds its text.
+    fn recount(&mut self) {
+        let by_hash = &self.by_hash;
+        for c in &mut self.caches {
+            c.recount(&|h| by_hash.contains_key(&h));
+        }
+    }
+
+    /// Records in the files, and the dead among them.
+    fn records(&self) -> (usize, usize) {
+        self.caches
+            .iter()
+            .fold((0, 0), |(n, d), c| (n + c.len(), d + c.dead()))
+    }
+
+    /// Row `i` is gone: its text, when no other row holds it, leaves the
+    /// backlog, and its record is dead.
+    fn kill_row(&mut self, i: u32) {
+        let r = &mut self.rows[i as usize];
+        if !r.alive {
+            return;
+        }
+        r.alive = false;
+        let h = r.hash;
+        self.dead += 1;
+        if let Some(v) = self.by_hash.get_mut(&h) {
+            v.retain(|&x| x != i);
+            if v.is_empty() {
+                self.by_hash.remove(&h);
+                self.backlog.remove(h);
+                self.mark(h, true);
+            }
         }
     }
 
@@ -615,23 +831,38 @@ impl Table {
         self.by_node.insert(node, ids);
     }
 
-    fn remove_node(&mut self, node: &str) {
+    /// A node's rows go; the texts it held, by hash.
+    fn remove_node(&mut self, node: &str) -> Vec<u128> {
         let Some(ids) = self.by_node.remove(node) else {
-            return;
+            return Vec::new();
         };
+        let mut held = Vec::with_capacity(ids.len());
         for i in ids {
-            let r = &mut self.rows[i as usize];
-            r.alive = false;
-            let h = r.hash;
-            self.dead += 1;
-            if let Some(v) = self.by_hash.get_mut(&h) {
-                v.retain(|&x| x != i);
-                if v.is_empty() {
-                    self.by_hash.remove(&h);
-                    self.backlog.remove(h);
-                }
-            }
+            held.push(self.rows[i as usize].hash);
+            self.kill_row(i);
         }
+        self.maybe_compact_rows();
+        held
+    }
+
+    /// One chunk's row goes; its text's hash, if the table had the chunk.
+    fn remove_chunk(&mut self, node: &str, chunk: u32) -> Option<u128> {
+        let ids = self.by_node.get(node)?;
+        let at = ids
+            .iter()
+            .position(|&i| self.rows[i as usize].chunk == chunk)?;
+        let ids = self.by_node.get_mut(node)?;
+        let i = ids.remove(at);
+        if ids.is_empty() {
+            self.by_node.remove(node);
+        }
+        let h = self.rows[i as usize].hash;
+        self.kill_row(i);
+        self.maybe_compact_rows();
+        Some(h)
+    }
+
+    fn maybe_compact_rows(&mut self) {
         if self.dead > 1024 && self.dead > self.rows.len() / 2 {
             self.compact_rows();
         }
@@ -650,6 +881,9 @@ impl Table {
         self.dead = 0;
     }
 
+    /// Every row goes (the index was dropped): until the ingest thread has
+    /// caught up again, no record counts as dead, and then the files are
+    /// compacted.
     fn clear(&mut self) {
         self.generation += 1;
         self.rows.clear();
@@ -657,6 +891,8 @@ impl Table {
         self.by_hash.clear();
         self.backlog = Backlog::default();
         self.dead = 0;
+        self.caught_up = false;
+        self.compact_asked = Some("rebuild");
     }
 
     /// Point every row at its vector again (the files were read, or a
@@ -787,6 +1023,14 @@ struct ModelState {
     loaded_at_ms: u64,
 }
 
+/// What `index.forget` did to the vector files.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Forgot {
+    /// Chunks not forgotten that hold a text asked to go: its record stays.
+    pub held: Vec<(String, u32)>,
+    pub compacted: Compacted,
+}
+
 /// A hit of the vector source.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VectorHit {
@@ -810,6 +1054,16 @@ pub struct Vectors {
     kicked: Condvar,
     stop: AtomicBool,
     stats: Mutex<(EmbedStats, Option<String>, u64)>,
+    compactions: Mutex<CompactState>,
+    /// Held while the files are read, so they are read once.
+    opening: Mutex<()>,
+}
+
+/// The compactions so far, and when a failed one may be tried again.
+#[derive(Debug, Default)]
+struct CompactState {
+    stats: Compactions,
+    retry_at: Option<Instant>,
 }
 
 /// What one turn of the embedding thread did.
@@ -889,6 +1143,8 @@ impl Vectors {
             kicked: Condvar::new(),
             stop: AtomicBool::new(false),
             stats: Mutex::new((EmbedStats::default(), None, 0)),
+            compactions: Mutex::new(CompactState::default()),
+            opening: Mutex::new(()),
             cfg,
         }
     }
@@ -944,20 +1200,236 @@ impl Vectors {
         self.wake();
     }
 
-    /// The index was dropped (a rebuild): every row goes; the files stay, so
-    /// the rebuilt chunks find their vectors again.
+    /// The index was dropped (a rebuild, or a tender that builds its index
+    /// from the WAL's start): every row goes; the files stay, so the rebuilt
+    /// chunks find their vectors again, and once the ingest thread has caught
+    /// up the files are compacted to the texts the index still holds.
     pub fn on_clear(&self) {
         if self.enabled() {
             self.table.write().unwrap().clear();
         }
     }
 
+    /// Nodes a re-ingest skipped (their record now gives the index nothing,
+    /// as an erased payload will): their rows go, and their texts' records
+    /// die unless another chunk holds them.
+    pub fn on_remove(&self, nodes: &[String]) {
+        if !self.enabled() || nodes.is_empty() {
+            return;
+        }
+        let mut t = self.table.write().unwrap();
+        for n in nodes {
+            t.remove_node(n);
+        }
+        drop(t);
+        self.wake();
+    }
+
+    /// The ingest thread has read the WAL to its end, after the tender's
+    /// start or a rebuild: the rows are every chunk now, so a record no row
+    /// holds is dead, and a rebuild's compaction is due.
+    pub fn on_caught_up(&self) {
+        if !self.enabled() {
+            return;
+        }
+        let mut t = self.table.write().unwrap();
+        if t.caught_up {
+            return;
+        }
+        t.caught_up = true;
+        Self::on_settled(&mut t);
+        drop(t);
+        self.wake();
+    }
+
+    /// Count the dead once the table has every row.
+    fn on_settled(t: &mut Table) {
+        if t.settled() {
+            t.recount();
+        }
+    }
+
+    /// Why the files should be compacted now, if they should: a quarter of
+    /// a file dead, or a rebuild that asked. Never while the rows are not yet
+    /// every chunk (a start, a rebuild's backfill): a text would look dead
+    /// only because its row has not come back yet.
+    fn compaction_due(&self) -> Option<&'static str> {
+        if self
+            .compactions
+            .lock()
+            .unwrap()
+            .retry_at
+            .is_some_and(|at| Instant::now() < at)
+        {
+            return None;
+        }
+        let t = self.table.read().unwrap();
+        if !t.settled() {
+            return None;
+        }
+        if let Some(why) = t.compact_asked {
+            return Some(why);
+        }
+        t.caches
+            .iter()
+            .any(|c| 4 * c.dead() > c.len())
+            .then_some("dead")
+    }
+
+    /// Rewrite every vector file without the records `gone` names: this
+    /// stamp's, its space's older ones, and other spaces' (theirs answer
+    /// nothing, but they hold the same texts' meaning). The rows are pointed
+    /// at the new files.
+    fn compact_files(
+        t: &mut Table,
+        dir: &Path,
+        gone: &dyn Fn(u128) -> bool,
+    ) -> anyhow::Result<Compacted> {
+        let mut done = Compacted::default();
+        let mut failed: Option<anyhow::Error> = None;
+        for c in &mut t.caches {
+            match c.compact(&|h| !gone(h)) {
+                Ok(x) => done.add(x),
+                Err(e) => {
+                    failed.get_or_insert(e);
+                }
+            }
+        }
+        for (stamp, _, _) in &t.others {
+            match Cache::open(dir, stamp).and_then(|mut c| c.compact(&|h| !gone(h))) {
+                Ok(x) => done.add(x),
+                Err(e) => {
+                    failed.get_or_insert(e);
+                }
+            }
+        }
+        t.resolve_all();
+        match failed {
+            Some(e) => Err(e.context("compacting the vector files")),
+            None => Ok(done),
+        }
+    }
+
+    /// Drop every dead record from the files, now (the quarter rule, or a
+    /// rebuild's ask).
+    fn compact_now(&self, why: &'static str) {
+        let t0 = Instant::now();
+        let mut t = self.table.write().unwrap();
+        if !t.settled() {
+            return;
+        }
+        t.compact_asked = None;
+        let live: HashSet<u128> = t.by_hash.keys().copied().collect();
+        let r = Self::compact_files(&mut t, &self.dir, &|h| !live.contains(&h));
+        drop(t);
+        self.compacted(why, t0, &r);
+    }
+
+    fn compacted(&self, why: &str, t0: Instant, r: &anyhow::Result<Compacted>) {
+        let ms = t0.elapsed().as_secs_f64() * 1e3;
+        match r {
+            Ok(c) => {
+                if c.files > 0 {
+                    tracing::info!(
+                        why,
+                        files = c.files,
+                        dropped = c.dropped,
+                        bytes_before = c.bytes_before,
+                        bytes_after = c.bytes_after,
+                        ms,
+                        "index: vector files compacted"
+                    );
+                }
+                let mut s = self.compactions.lock().unwrap();
+                s.retry_at = None;
+                if c.files == 0 {
+                    return;
+                }
+                s.stats.count += 1;
+                s.stats.dropped += c.dropped;
+                s.stats.last_at_ms = now_ms();
+                s.stats.last_why = why.to_string();
+                s.stats.last_ms = ms;
+                s.stats.last_bytes_before = c.bytes_before;
+                s.stats.last_bytes_after = c.bytes_after;
+            }
+            Err(e) => {
+                // Not again for a minute: a disk that refused a rewrite
+                // would otherwise be asked again at once, forever.
+                self.compactions.lock().unwrap().retry_at = Some(Instant::now() + BACKSTOP);
+                self.error(format!("{e:#}"));
+            }
+        }
+    }
+
+    /// `index.forget`'s vector side (theseus-64x), once the index has
+    /// dropped `nodes` whole and `chunks` one by one: their rows go now, and
+    /// every file is rewritten without the records of `asked` (the texts
+    /// they held, and those named) unless a chunk not forgotten still holds
+    /// one (`held` names those chunks), and, once the rows are every chunk,
+    /// without every other dead record too.
+    pub fn forget(
+        &self,
+        nodes: &[String],
+        chunks: &[(String, u32)],
+        asked: &HashSet<u128>,
+    ) -> anyhow::Result<Forgot> {
+        if !self.enabled() {
+            return Ok(Forgot::default());
+        }
+        let t0 = Instant::now();
+        // The files are read first, so their records can be dropped even
+        // before the embedding thread has started.
+        self.open_files()?;
+        let mut t = self.table.write().unwrap();
+        for n in nodes {
+            t.remove_node(n);
+        }
+        for (n, c) in chunks {
+            t.remove_chunk(n, *c);
+        }
+        if !t.reconciled {
+            // A reconcile reading the index now must not bring them back.
+            t.forgot_nodes.extend(nodes.iter().cloned());
+            t.forgot_chunks.extend(chunks.iter().cloned());
+        }
+        let mut held: Vec<(String, u32)> = asked
+            .iter()
+            .filter_map(|h| t.by_hash.get(h))
+            .flatten()
+            .map(|&i| {
+                let r = &t.rows[i as usize];
+                (r.node.to_string(), r.chunk)
+            })
+            .collect();
+        held.sort();
+        let settled = t.settled();
+        let live: HashSet<u128> = t.by_hash.keys().copied().collect();
+        let r = Self::compact_files(&mut t, &self.dir, &|h| {
+            !live.contains(&h) && (settled || asked.contains(&h))
+        });
+        if settled {
+            t.compact_asked = None;
+        }
+        drop(t);
+        self.compacted("forget", t0, &r);
+        Ok(Forgot {
+            held,
+            compacted: r?,
+        })
+    }
+
     // -- The embedding thread.
 
     /// Read this stamp's file, and any older stamp's of its space (they
-    /// answer until re-embedded).
+    /// answer until re-embedded), once: the embedding thread at its start,
+    /// or a forget that comes first.
     pub fn open_files(&self) -> anyhow::Result<()> {
         if !self.enabled() {
+            return Ok(());
+        }
+        let _one = self.opening.lock().unwrap();
+        if self.table.read().unwrap().opened {
             return Ok(());
         }
         fs::DirBuilder::new()
@@ -997,6 +1469,7 @@ impl Vectors {
         t.others = others;
         t.opened = true;
         t.resolve_all();
+        Self::on_settled(&mut t);
         Ok(())
     }
 
@@ -1012,12 +1485,22 @@ impl Vectors {
         let mut t = self.table.write().unwrap();
         if t.generation == generation {
             for n in &nodes {
-                if !t.by_node.contains_key(n.node_id.as_str()) {
-                    t.add_node(n);
+                if t.by_node.contains_key(n.node_id.as_str()) || t.forgot_nodes.contains(&n.node_id)
+                {
+                    continue;
+                }
+                let mut n = n.clone();
+                n.chunks
+                    .retain(|c| !t.forgot_chunks.contains(&(n.node_id.clone(), c.chunk)));
+                if !n.chunks.is_empty() {
+                    t.add_node(&n);
                 }
             }
         }
         t.reconciled = true;
+        t.forgot_nodes.clear();
+        t.forgot_chunks.clear();
+        Self::on_settled(&mut t);
         Ok(())
     }
 
@@ -1058,6 +1541,10 @@ impl Vectors {
         let Some(dir) = self.cfg.weights_dir.clone() else {
             return Work::Idle(BACKSTOP);
         };
+        if let Some(why) = self.compaction_due() {
+            self.compact_now(why);
+            return Work::Did;
+        }
         let (opened, pending) = {
             let t = self.table.read().unwrap();
             (t.opened && t.reconciled, t.backlog.len())
@@ -1202,7 +1689,14 @@ impl Vectors {
             }
         };
         let mut t = self.table.write().unwrap();
-        let items: Vec<(u128, &Vector)> = batch.iter().map(|(h, _)| *h).zip(&vectors).collect();
+        // Only texts a chunk still holds: one forgotten while it was being
+        // embedded must not come back into the file (theseus-64x).
+        let items: Vec<(u128, &Vector)> = batch
+            .iter()
+            .map(|(h, _)| *h)
+            .zip(&vectors)
+            .filter(|(h, _)| t.by_hash.contains_key(h))
+            .collect();
         let Some(cache) = t.caches.first_mut() else {
             return;
         };
@@ -1235,8 +1729,8 @@ impl Vectors {
     }
 
     /// The backlog is empty: once every chunk has this stamp's vector, the
-    /// older stamps' files go; and this stamp's file is compacted when most
-    /// of it is texts no chunk holds any more.
+    /// older stamps' files go. (Dead records go by the compaction rules, in
+    /// `work_once`.)
     fn finish_stamp(t: &mut Table) {
         let covered = t.alive().all(|r| matches!(r.vec, Some((0, _))));
         if !covered {
@@ -1251,14 +1745,6 @@ impl Vectors {
                 let _ = fs::remove_file(vec);
                 let _ = fs::remove_file(json);
             }
-        }
-        let live: HashSet<u128> = t.by_hash.keys().copied().collect();
-        let n = t.caches[0].len();
-        if n > 1024 && n > 2 * live.len() {
-            if let Err(e) = t.caches[0].compact(&live) {
-                tracing::warn!(error = %format!("{e:#}"), "index: compacting the vector file");
-            }
-            t.resolve_all();
         }
     }
 
@@ -1518,6 +2004,8 @@ impl Vectors {
                 }
             }
             s.pending = t.backlog.len() as u64;
+            let (records, dead) = t.records();
+            (s.records, s.dead) = (records as u64, dead as u64);
             if t.caches.len() > 1 || !t.others.is_empty() {
                 s.reembed = Some(Reembed {
                     from: t
@@ -1538,6 +2026,8 @@ impl Vectors {
             s.last_error = stats.1.clone();
         }
         s.last_error_ms = stats.2;
+        drop(stats);
+        s.compactions = self.compactions.lock().unwrap().stats.clone();
         s
     }
 }
@@ -1559,6 +2049,7 @@ fn release_memory() {}
 mod tests {
     use super::*;
     use crate::weights::SplitMix;
+    use std::os::unix::fs::PermissionsExt;
 
     fn stamp(cut: usize, full: usize) -> Stamp {
         Stamp {
@@ -1865,5 +2356,157 @@ mod tests {
                 assert_eq!(t.search(&q.full, 256, &all, 30).unwrap().len(), 30);
             },
         );
+    }
+
+    /// A file of 40 records (hashes 0..40), and the bytes a compaction that
+    /// keeps the even hashes must leave.
+    fn forty(dir: &Path) -> (Cache, Vec<u8>, Vec<u8>) {
+        let mut rng = SplitMix(64);
+        let mut c = Cache::open(dir, &stamp(16, 48)).unwrap();
+        let vs: Vec<Vector> = (0..40).map(|_| random_vector(&mut rng, 48, 16)).collect();
+        let items: Vec<(u128, &Vector)> =
+            vs.iter().enumerate().map(|(i, v)| (i as u128, v)).collect();
+        c.append(&items).unwrap();
+        let path = dir.join(format!("{}.vec", stamp_key(&stamp(16, 48))));
+        let old = fs::read(&path).unwrap();
+        let rec = c.rec;
+        let mut new = old[..HEADER as usize].to_vec();
+        for e in (0..40).step_by(2) {
+            let at = HEADER as usize + e * rec;
+            new.extend_from_slice(&old[at..at + rec]);
+        }
+        (c, old, new)
+    }
+
+    fn even(h: u128) -> bool {
+        h.is_multiple_of(2)
+    }
+
+    /// theseus-64x: a compaction stopped at each of its steps, as a crash
+    /// would stop it, leaves the old file whole (the copy unfinished, or
+    /// whole but not renamed) or the new one whole (renamed), never a part of
+    /// either; the next open removes a copy left behind and reads every
+    /// record of whichever file it finds. Uninterrupted, the file is exactly
+    /// the kept records, and every record still reads back.
+    #[test]
+    fn a_crash_during_the_rewrite_leaves_the_old_file_or_the_new_never_a_torn_one() {
+        for (stop, want_new) in [
+            (Step::HalfCopied, false),
+            (Step::Copied, false),
+            (Step::Renamed, true),
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let (mut c, old, new) = forty(tmp.path());
+            let path = c.paths().0;
+            let copy = path.with_extension("vec.tmp");
+            let err = c
+                .rewrite(&even, &mut |s| {
+                    if s == stop {
+                        Err(io::Error::other("killed (test)"))
+                    } else {
+                        Ok(())
+                    }
+                })
+                .unwrap_err();
+            assert!(format!("{err:#}").contains("killed"), "{stop:?}: {err:#}");
+            drop(c);
+            let on_disk = fs::read(&path).unwrap();
+            assert!(
+                on_disk == if want_new { new } else { old },
+                "{stop:?}: the file is neither the old one nor the new"
+            );
+            // The copy is left where a crash before the rename leaves it.
+            assert_eq!(copy.exists(), !want_new, "{stop:?}");
+            let again = Cache::open(tmp.path(), &stamp(16, 48)).unwrap();
+            assert!(!copy.exists(), "{stop:?}: the open removes the copy");
+            let mut hashes: Vec<u128> = again.by_hash.keys().copied().collect();
+            hashes.sort_unstable();
+            let want: Vec<u128> = (0..40).filter(|h| !want_new || even(*h)).collect();
+            assert_eq!(hashes, want, "{stop:?}");
+            assert_eq!(fs::read(&path).unwrap(), on_disk, "{stop:?}: nothing cut");
+        }
+
+        // Uninterrupted: exactly the kept records, in memory as on disk.
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut c, old, new) = forty(tmp.path());
+        let full_before: Vec<Vec<f32>> = (0..40).map(|e| c.full(e).unwrap()).collect();
+        let done = c.compact(&even).unwrap();
+        assert_eq!(
+            done,
+            Compacted {
+                files: 1,
+                dropped: 20,
+                bytes_before: old.len() as u64,
+                bytes_after: new.len() as u64,
+            }
+        );
+        let path = c.paths().0;
+        assert_eq!(fs::read(&path).unwrap(), new);
+        assert!(!path.with_extension("vec.tmp").exists());
+        for h in (0..40u128).step_by(2) {
+            let e = c.get(h).unwrap();
+            assert_eq!(c.full(e).unwrap(), full_before[h as usize]);
+        }
+        assert!((1..40u128).step_by(2).all(|h| c.get(h).is_none()));
+        // The copy was made 0600, as the file is private.
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        // Keeping everything rewrites nothing; an append after a compaction
+        // goes to the new file.
+        assert_eq!(c.compact(&|_| true).unwrap(), Compacted::default());
+        let mut rng = SplitMix(5);
+        let v = random_vector(&mut rng, 48, 16);
+        c.append(&[(1000, &v)]).unwrap();
+        let again = Cache::open(tmp.path(), &stamp(16, 48)).unwrap();
+        assert_eq!(again.len(), 21);
+        assert!(again.get(1000).is_some());
+    }
+
+    /// A text that loses its last row is dead at once, in every file that
+    /// holds it, and alive again when a row holds it again; a recount from
+    /// the rows agrees with the marks.
+    #[test]
+    fn a_record_is_dead_once_no_row_holds_its_text() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = table(tmp.path(), 60, 3);
+        t.reconciled = true;
+        t.caught_up = true;
+        t.recount();
+        let marks = |t: &Table| -> Vec<bool> { t.caches[0].dead.clone() };
+        let counted = marks(&t);
+        // Rows removed by `table` (every 11th) left their texts dead.
+        for e in (0..60).step_by(11) {
+            assert!(counted[e], "{e}");
+        }
+        let (n, dead) = t.records();
+        assert_eq!((n, dead), (60, counted.iter().filter(|d| **d).count()));
+        // A node removed now: its record dies at once.
+        assert!(!t.caches[0].dead[5]);
+        t.remove_node("nd_5");
+        assert!(t.caches[0].dead[5]);
+        // Its text said again by another node: alive again.
+        t.add_node(&NodeChunks {
+            node_id: "nd_again".into(),
+            position: 1,
+            session: "ses_1".into(),
+            kind: "user_message".into(),
+            external: false,
+            chunks: vec![ChunkKey {
+                chunk: 0,
+                hash: 5,
+                tokens: 10,
+            }],
+        });
+        assert!(!t.caches[0].dead[5]);
+        // One chunk of a node goes alone.
+        assert_eq!(t.remove_chunk("nd_again", 0), Some(5));
+        assert!(t.caches[0].dead[5] && !t.by_node.contains_key("nd_again"));
+        assert_eq!(t.remove_chunk("nd_none", 0), None);
+        // Incremental marks and a recount from the rows agree.
+        let incremental = marks(&t);
+        t.recount();
+        assert_eq!(marks(&t), incremental);
     }
 }

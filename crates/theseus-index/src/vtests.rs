@@ -14,7 +14,7 @@ use crate::embedder::{cosine, Embedder, ModelSpec};
 use crate::model::NomicConfig;
 use crate::proto::{
     method, EmbedParams, EmbedResult, IndexStatus, NeighboursParams, NeighboursResult, QueryParams,
-    QueryResult, Task, WarmResult,
+    QueryResult, Task, WarmResult, Weights,
 };
 use crate::server;
 use crate::tender::{Config, Shared, Tender};
@@ -147,21 +147,21 @@ pub(crate) fn tiny_files(weights: &Path) -> ModelSpec {
 }
 
 /// A rig whose tender has the tiny model.
-struct VRig {
-    rig: Rig,
+pub(crate) struct VRig {
+    pub(crate) rig: Rig,
     weights: PathBuf,
     spec: ModelSpec,
 }
 
 impl VRig {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let rig = Rig::new();
         let weights = rig._tmp.path().join("models");
         let spec = tiny_files(&weights);
         Self { rig, weights, spec }
     }
 
-    fn cfg(&self, engine: &str) -> Config {
+    pub(crate) fn cfg(&self, engine: &str) -> Config {
         let mut c = self.rig.cfg(&self.rig.index);
         c.vectors = VectorConfig {
             weights_dir: Some(self.weights.clone()),
@@ -172,18 +172,23 @@ impl VRig {
         c
     }
 
-    fn open(&self) -> Tender {
+    pub(crate) fn open(&self) -> Tender {
         Tender::open(self.cfg("test-engine-1")).unwrap()
     }
 }
 
 /// Follow the WAL to its end, embed everything pending, and have the model
 /// loaded (as the embedding thread would for a query that may wait).
-fn settle_all(t: &mut Tender) {
+pub(crate) fn settle_all(t: &mut Tender) {
     settle(t);
     let s = t.shared();
     s.vectors.settle(&s.engine).unwrap();
-    if s.warm().model == "loading" {
+    // A turn may compact the files first (the vector side's housekeeping),
+    // and the next one loads.
+    for _ in 0..4 {
+        if s.warm().model != "loading" {
+            break;
+        }
         s.vectors.work_once(&s.engine);
     }
 }
@@ -196,7 +201,7 @@ fn vector_query(text: &str, k: usize) -> QueryParams {
     p
 }
 
-fn status(s: &Shared) -> crate::proto::VectorStatus {
+pub(crate) fn status(s: &Shared) -> crate::proto::VectorStatus {
     s.status().vectors.unwrap()
 }
 
@@ -205,7 +210,7 @@ fn as_stored(v: &[f32]) -> Vec<f32> {
     v.iter().map(|&x| half::f16::from_f32(x).to_f32()).collect()
 }
 
-const TEXTS: [&str; 12] = [
+pub(crate) const TEXTS: [&str; 12] = [
     "the cat sat on the mat",
     "a dog barked at the mailman all night",
     "kumquats are small citrus fruits",
@@ -252,6 +257,7 @@ fn the_vector_source_ranks_by_the_cosine_of_the_768_d_vectors() {
     want.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
     let got: Vec<u64> = r.hits.iter().map(|h| h.position).collect();
     assert_eq!(got, want.iter().map(|w| w.1).collect::<Vec<_>>());
+    let weight = r.weights["vector"];
     for (i, (h, w)) in r.hits.iter().zip(&want).enumerate() {
         let src = &h.sources["vector"];
         assert_eq!(src.rank, i + 1);
@@ -261,7 +267,7 @@ fn the_vector_source_ranks_by_the_cosine_of_the_768_d_vectors() {
             src.score,
             w.0
         );
-        assert!((h.fused - 1.0 / (60.0 + (i + 1) as f64)).abs() < 1e-12);
+        assert!((h.fused - weight / (60.0 + (i + 1) as f64)).abs() < 1e-12);
         assert_eq!(h.sources.len(), 1);
     }
     assert!(r.timings.embed_ms > 0.0);
@@ -338,11 +344,15 @@ fn a_hybrid_query_fuses_bm25_entities_and_vectors() {
         3,
         "every node, the vector source ranks them all"
     );
+    assert_eq!(
+        r.weights.keys().collect::<Vec<_>>(),
+        ["bm25", "entity", "vector"]
+    );
     for h in &r.hits {
         let want: f64 = h
             .sources
-            .values()
-            .map(|s| 1.0 / (60.0 + s.rank as f64))
+            .iter()
+            .map(|(name, s)| r.weights[name] / (60.0 + s.rank as f64))
             .sum();
         assert!((h.fused - want).abs() < 1e-12);
         assert!(h.sources.contains_key("vector"));
@@ -695,4 +705,137 @@ fn the_socket_answers_neighbours_embed_and_warm() {
     shared.request_stop();
     ingest.join().unwrap().unwrap();
     embedding.join().unwrap();
+}
+
+/// theseus-jz8: a query's weights override the tender's defaults source by
+/// source; weights of 1 give 29c's fusion exactly (`Σ 1 / (60 + rank)`, to
+/// the bit, and its order); a weight that is negative or names no source is
+/// refused; status says the defaults; and the socket carries them.
+#[test]
+fn fusion_weights_are_the_querys_over_the_tenders_and_ones_are_the_old_fusion() {
+    let v = VRig::new();
+    v.rig.put(&TEXTS.map(|t| user("ses_1", t)));
+    v.rig.put(&[
+        user("ses_2", "the cat and crates/theseus-store/src/wal.rs"),
+        result(
+            "ses_2",
+            "fs.read",
+            "port 7433 in crates/theseus-store/src/wal.rs",
+            false,
+        ),
+    ]);
+    let mut cfg = v.cfg("test-engine-1");
+    let defaults = Weights {
+        bm25: 1.0,
+        entity: 1.0,
+        vector: 3.0,
+    };
+    cfg.weights = defaults;
+    let mut t = Tender::open(cfg).unwrap();
+    settle_all(&mut t);
+    let shared = t.shared();
+    assert_eq!(shared.status().weights, Some(defaults));
+    let ask = |w: &[(&str, f64)]| {
+        let mut p = QueryParams::new("the cat on port 7433 crates/theseus-store/src/wal.rs");
+        p.k = 14;
+        p.wait_ms = 10_000;
+        p.weights = w.iter().map(|(s, x)| (s.to_string(), *x)).collect();
+        shared.query(&p)
+    };
+    let fused_with = |r: &QueryResult, w: &Weights| -> Vec<f64> {
+        r.hits
+            .iter()
+            .map(|h| {
+                h.sources
+                    .iter()
+                    .map(|(name, s)| w.get(name) / (60.0 + s.rank as f64))
+                    .sum()
+            })
+            .collect()
+    };
+
+    // Ones: each hit's score is Σ 1 / (60 + rank) to the bit, best first.
+    let ones = ask(&[("bm25", 1.0), ("entity", 1.0), ("vector", 1.0)]).unwrap();
+    assert_eq!(ones.hits.len(), 14);
+    assert!(ones.hits.iter().any(|h| h.sources.len() == 3));
+    let want = fused_with(&ones, &Weights::EQUAL);
+    for (h, w) in ones.hits.iter().zip(&want) {
+        assert_eq!(h.fused.to_bits(), w.to_bits(), "{h:?}");
+    }
+    assert!(ones.hits.windows(2).all(|p| p[0].fused >= p[1].fused));
+    assert_eq!(
+        ones.weights,
+        Weights::EQUAL.of(&["bm25", "entity", "vector"])
+    );
+
+    // No weights: the tender's (vector 3); one named: it alone changes.
+    let dflt = ask(&[]).unwrap();
+    assert_eq!(dflt.weights, defaults.of(&["bm25", "entity", "vector"]));
+    for (h, w) in dflt.hits.iter().zip(fused_with(&dflt, &defaults)) {
+        assert!((h.fused - w).abs() < 1e-15);
+    }
+    let half = ask(&[("vector", 0.5)]).unwrap();
+    assert_eq!(half.weights["vector"], 0.5);
+    assert_eq!(half.weights["bm25"], 1.0);
+    // The same hits, ranked in each source alike, but fused differently.
+    let ranks = |r: &QueryResult| {
+        let mut v: Vec<_> = r
+            .hits
+            .iter()
+            .map(|h| (h.node_id.clone(), h.chunk, h.sources.clone()))
+            .collect();
+        v.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+        v
+    };
+    assert_eq!(ranks(&ones), ranks(&dflt));
+    let one: std::collections::BTreeMap<_, f64> = ones
+        .hits
+        .iter()
+        .map(|h| ((h.node_id.clone(), h.chunk), h.fused))
+        .collect();
+    for h in &dflt.hits {
+        let before = one[&(h.node_id.clone(), h.chunk)];
+        if h.sources.contains_key("vector") {
+            assert!(h.fused > before, "{h:?}");
+        } else {
+            assert_eq!(h.fused, before);
+        }
+    }
+
+    // Refused: a negative weight, a source that is not one.
+    for bad in [&[("vector", -1.0)][..], &[("recency", 1.0)][..]] {
+        let e = format!("{:#}", ask(bad).unwrap_err());
+        assert!(e.contains("weight") || e.contains("weigh"), "{e}");
+    }
+    assert!(Weights::EQUAL
+        .with(&[("vector".to_string(), f64::NAN)].into())
+        .is_err());
+    assert_eq!(
+        Weights::EQUAL.parse_over("vector=2, bm25=0.5").unwrap(),
+        Weights {
+            bm25: 0.5,
+            entity: 1.0,
+            vector: 2.0
+        }
+    );
+    assert!(Weights::EQUAL.parse_over("vector").is_err());
+
+    // Through the socket, as JSON.
+    let sock = t.paths().socket();
+    drop(server::spawn(&sock, shared.clone()).unwrap());
+    let mut c = Client::connect(&sock, Duration::from_secs(10)).unwrap();
+    let r: QueryResult = c
+        .call(
+            method::QUERY,
+            json!({"text": "tides", "k": 3, "wait_ms": 5000, "weights": {"vector": 2.0}}),
+        )
+        .unwrap();
+    assert_eq!(r.weights["vector"], 2.0);
+    let e = c
+        .call::<QueryResult>(
+            method::QUERY,
+            json!({"text": "tides", "weights": {"vector": -2.0}}),
+        )
+        .unwrap_err();
+    assert!(format!("{e:#}").contains("finite number"), "{e:#}");
 }

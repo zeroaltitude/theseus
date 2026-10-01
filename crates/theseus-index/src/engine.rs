@@ -7,9 +7,9 @@
 //! so `127.0.0.1:7433` holds the token `7433`), and the entity field (exact
 //! `type:value` terms, from the same rules the text went through). The third,
 //! vectors (29c), ranks by cosine in `vectors.rs`, and its hits join here by
-//! node and chunk. Their ranks are fused by reciprocal rank fusion,
-//! `Σ 1 / (60 + rank)`, so no source's raw scores are weighed against
-//! another's.
+//! node and chunk. Their ranks are fused by reciprocal rank fusion, weighted
+//! by source, `Σ w / (60 + rank)`, so no source's raw scores are weighed
+//! against another's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
@@ -28,8 +28,8 @@ use tantivy::{
 use crate::chunk;
 use crate::entity::entities;
 use crate::extract::Extracted;
-use crate::fuse::fuse;
-use crate::proto::{Hit, QueryParams, Timings};
+use crate::fuse::{fuse, Ranked};
+use crate::proto::{Hit, QueryParams, Timings, Weights};
 use crate::vectors::{text_hash, ChunkKey, NodeChunks, Texts, VectorHit};
 
 /// Bumped when the fields change: an index of another version is rebuilt.
@@ -165,6 +165,34 @@ impl Writer {
         Ok(keys)
     }
 
+    /// Node `id` leaves the index, all its chunks, at the next commit.
+    pub fn delete_node(&self, id: &str) {
+        self.writer
+            .delete_term(Term::from_field_text(self.f.node_id, id));
+    }
+
+    /// One chunk of node `id` leaves the index, at the next commit.
+    pub fn delete_chunk(&self, id: &str, chunk: u64) -> tantivy::Result<()> {
+        let q: Vec<(Occur, Box<dyn Query>)> = vec![
+            (
+                Occur::Must,
+                Box::new(TermQuery::new(
+                    Term::from_field_text(self.f.node_id, id),
+                    IndexRecordOption::Basic,
+                )),
+            ),
+            (
+                Occur::Must,
+                Box::new(TermQuery::new(
+                    Term::from_field_u64(self.f.chunk, chunk),
+                    IndexRecordOption::Basic,
+                )),
+            ),
+        ];
+        self.writer.delete_query(Box::new(BooleanQuery::new(q)))?;
+        Ok(())
+    }
+
     /// Make everything added durable and visible to a reload.
     pub fn commit(&mut self) -> tantivy::Result<()> {
         self.writer.commit()?;
@@ -236,6 +264,70 @@ impl Engine {
             &Count,
         )?;
         Ok((s.num_docs(), nodes as u64))
+    }
+
+    /// The last commit holds node `id`.
+    pub fn holds(&self, id: &str) -> tantivy::Result<bool> {
+        let q = TermQuery::new(
+            Term::from_field_text(self.f.node_id, id),
+            IndexRecordOption::Basic,
+        );
+        Ok(self.reader.searcher().search(&q, &Count)? > 0)
+    }
+
+    /// Node `id`'s chunks, as the last commit holds them: each one's index
+    /// and text.
+    pub fn node_chunks(&self, id: &str) -> tantivy::Result<Vec<(u64, String)>> {
+        let s = self.reader.searcher();
+        let q = TermQuery::new(
+            Term::from_field_text(self.f.node_id, id),
+            IndexRecordOption::Basic,
+        );
+        let n = s.search(&q, &Count)?;
+        let mut out = Vec::with_capacity(n);
+        for (_, a) in s.search(&q, &TopDocs::with_limit(n.max(1)).order_by_score())? {
+            let c = self.stored(&s.doc(a)?);
+            out.push((c.chunk, c.text));
+        }
+        out.sort();
+        Ok(out)
+    }
+
+    /// Every chunk whose text is `text`, exactly: (node, chunk), sorted. The
+    /// text's words find the candidates, and each candidate's stored text is
+    /// compared whole; a text with no word is looked for in every chunk.
+    pub fn chunks_holding(&self, text: &str) -> tantivy::Result<Vec<(String, u64)>> {
+        let terms = self.text_terms(text)?;
+        let mut out: Vec<(String, u64)> = if terms.is_empty() {
+            self.dump()?
+                .into_iter()
+                .filter(|c| c.text == text)
+                .map(|c| (c.node_id, c.chunk))
+                .collect()
+        } else {
+            let s = self.reader.searcher();
+            let all: Box<dyn Query> = Box::new(BooleanQuery::new(
+                terms
+                    .into_iter()
+                    .map(|t| {
+                        let q: Box<dyn Query> =
+                            Box::new(TermQuery::new(t, IndexRecordOption::Basic));
+                        (Occur::Must, q)
+                    })
+                    .collect(),
+            ));
+            let n = s.search(&all, &Count)?;
+            let mut out = Vec::new();
+            for (_, a) in s.search(&all, &TopDocs::with_limit(n.max(1)).order_by_score())? {
+                let c = self.stored(&s.doc(a)?);
+                if c.text == text {
+                    out.push((c.node_id, c.chunk));
+                }
+            }
+            out
+        };
+        out.sort();
+        Ok(out)
     }
 
     /// Every chunk, sorted: what a rebuild must reproduce.
@@ -392,12 +484,14 @@ impl Engine {
 
     /// Hits for `p` from `sources` (validated by the caller): BM25's and the
     /// entities' top documents, and `vector`'s hits, joined by node and
-    /// chunk and filtered as the others are; fused, the best `k`.
+    /// chunk and filtered as the others are; fused with `weights`, the best
+    /// `k`.
     pub fn query(
         &self,
         p: &QueryParams,
         sources: &[&str],
         vector: Option<&[VectorHit]>,
+        weights: &Weights,
     ) -> anyhow::Result<(Vec<Hit>, Timings)> {
         let t0 = Instant::now();
         let mut timings = Timings::default();
@@ -405,8 +499,8 @@ impl Engine {
         let fetch = fetch_for(k);
         let searcher = self.reader.searcher();
         let query_entities: BTreeSet<String> = entities(&p.text);
-        // source -> ranked (address, score)
-        let mut ranked: Vec<(&str, Vec<(DocAddress, f64)>)> = Vec::new();
+        // source -> its weight, and its ranked (address, score)
+        let mut ranked: Vec<Ranked<'_, DocAddress>> = Vec::new();
         for source in sources {
             let ts = Instant::now();
             let terms: Vec<Term> = match *source {
@@ -426,7 +520,7 @@ impl Engine {
                             }
                         }
                         timings.vector_ms = ts.elapsed().as_secs_f64() * 1000.0;
-                        ranked.push(("vector", list));
+                        ranked.push(("vector", weights.vector, list));
                     }
                     continue;
                 }
@@ -462,11 +556,12 @@ impl Engine {
             }
             ranked.push((
                 source,
+                weights.get(source),
                 hits.into_iter().map(|(s, a)| (a, f64::from(s))).collect(),
             ));
         }
 
-        // Fuse: Σ 1 / (60 + rank), rank from 1.
+        // Fuse: Σ w / (60 + rank), rank from 1.
         let tf = Instant::now();
         // Ties go to the earlier position, so an index rebuilt with the same
         // nodes orders them the same (document addresses differ).

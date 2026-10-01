@@ -15,6 +15,9 @@
 //! - `stats` and `report`: paired by item, clustered by item, with intervals.
 //! - `probe`: BM25's recall of the gold, per family, at no model cost: how
 //!   hard an exam is for lexical retrieval.
+//! - `tender`: the same question asked of a running index tender over its
+//!   socket, per arm of sources and fusion weights, so the exam can judge
+//!   vectors and fusion without building a model (theseus-emc).
 //!
 //! The crate is a lane (34a): it changes nothing in the core. At the join
 //! (34b) its driver becomes `theseus-sim exam`, and its scoring moves to
@@ -31,4 +34,5 @@ pub mod render;
 pub mod report;
 pub mod rng;
 pub mod stats;
+pub mod tender;
 pub mod time;

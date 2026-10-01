@@ -59,6 +59,8 @@ pub fn serve(cfg: Config) -> Result<(), OpenError> {
 }
 
 #[cfg(test)]
+mod ftests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod vtests;

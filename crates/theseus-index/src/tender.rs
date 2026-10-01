@@ -14,11 +14,11 @@
 //!   from (a frame that checks but is wrong) leaves the index where it is,
 //!   says so in its status, and tries again at each wake.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
@@ -28,11 +28,17 @@ use theseus_store::{kinds, wal, Record};
 use crate::engine::{self, Engine, Writer, SCHEMA_VERSION, SOURCES};
 use crate::extract::{extract, Extract, EXTRACTOR_VERSION};
 use crate::proto::{
-    Backfill, EmbedParams, EmbedResult, IndexStatus, Lag, NeighboursParams, NeighboursResult,
-    QueryParams, QueryResult, WarmResult,
+    Backfill, ChunkRef, EmbedParams, EmbedResult, ForgetParams, ForgetResult, IndexStatus, Lag,
+    NeighboursParams, NeighboursResult, QueryParams, QueryResult, WarmResult, Weights,
 };
 use crate::state::{self, Lock, Paths, Places, Saved, CURSOR_FORMAT};
-use crate::vectors::{NodeChunks, VectorConfig, Vectors};
+use crate::vectors::{text_hash, NodeChunks, VectorConfig, Vectors};
+
+/// How long `index.forget` waits for the ingest thread.
+const FORGET_WAIT: Duration = Duration::from_secs(60);
+
+/// A queued `index.forget`, and where its answer goes.
+type Forget = (ForgetParams, mpsc::Sender<Result<ForgetResult, String>>);
 
 /// The core's META keys that say where a session lives
 /// (`theseus_core::outbox`; this crate's tests hold them equal): a Discord
@@ -52,6 +58,8 @@ pub struct Config {
     pub backstop: Duration,
     /// The vector side: off unless given a weights directory.
     pub vectors: VectorConfig,
+    /// The fusion's weights by source, unless a query names its own.
+    pub weights: Weights,
 }
 
 impl Config {
@@ -62,6 +70,7 @@ impl Config {
             batch_bytes: 4 << 20,
             backstop: Duration::from_secs(60),
             vectors: VectorConfig::off(),
+            weights: Weights::default(),
         }
     }
 
@@ -83,6 +92,11 @@ pub enum OpenError {
 pub struct Shared {
     pub engine: Engine,
     pub vectors: Vectors,
+    /// The fusion's default weights.
+    pub weights: Weights,
+    /// `index.forget` calls waiting for the ingest thread, which owns the
+    /// index's writer.
+    forgets: Mutex<Vec<Forget>>,
     status: Mutex<IndexStatus>,
     /// When the index last caught up with the WAL (ms since the epoch).
     caught_up_ms: Mutex<u64>,
@@ -103,6 +117,7 @@ impl Shared {
         }
         s.mode = self.vectors.mode().into();
         s.vectors = Some(self.vectors.status());
+        s.weights = Some(self.weights);
         s.rss_bytes = rss_bytes();
         s
     }
@@ -120,11 +135,12 @@ impl Shared {
     }
 
     /// `index.query`: the sources it names (by default BM25 and entities,
-    /// and vectors in `hybrid` mode), fused. A vector source that cannot
-    /// answer (the model loading, no weights) is left out and named in
-    /// `skipped`; the others still answer.
+    /// and vectors in `hybrid` mode), fused with the query's weights over the
+    /// tender's. A vector source that cannot answer (the model loading, no
+    /// weights) is left out and named in `skipped`; the others still answer.
     pub fn query(&self, p: &QueryParams) -> anyhow::Result<QueryResult> {
         let t0 = Instant::now();
+        let weights = self.weights.with(&p.weights).map_err(anyhow::Error::msg)?;
         let mut wanted: Vec<&str> = if p.sources.is_empty() {
             let mut v = vec!["bm25", "entity"];
             if self.vectors.mode() == "hybrid" {
@@ -162,7 +178,7 @@ impl Shared {
                 }
             }
         }
-        let (hits, mut timings) = self.engine.query(p, &wanted, vector.as_deref())?;
+        let (hits, mut timings) = self.engine.query(p, &wanted, vector.as_deref(), &weights)?;
         timings.embed_ms = embed_ms;
         timings.vector_ms += scan_ms;
         timings.total_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -170,12 +186,18 @@ impl Shared {
             let s = self.status.lock().unwrap();
             (s.position, s.segment, s.offset)
         };
+        let fused: Vec<&str> = wanted
+            .iter()
+            .copied()
+            .filter(|s| !skipped.contains_key(*s))
+            .collect();
         Ok(QueryResult {
             hits,
             indexed_through: position,
             lag: self.lag(segment, offset),
             timings,
             skipped,
+            weights: weights.of(&fused),
         })
     }
 
@@ -202,6 +224,22 @@ impl Shared {
         WarmResult {
             model: self.vectors.warm(),
             mode: self.vectors.mode().into(),
+        }
+    }
+
+    /// `index.forget` (theseus-64x): handed to the ingest thread, which owns
+    /// the index's writer, and answered when it has done it (or after
+    /// `FORGET_WAIT`, still queued).
+    pub fn forget(&self, p: ForgetParams) -> anyhow::Result<ForgetResult> {
+        let (tx, rx) = mpsc::channel();
+        self.forgets.lock().unwrap().push((p, tx));
+        self.kicker.kick();
+        match rx.recv_timeout(FORGET_WAIT) {
+            Ok(r) => r.map_err(anyhow::Error::msg),
+            Err(_) => anyhow::bail!(
+                "the ingest thread has not done the forget in {} s; it is still queued",
+                FORGET_WAIT.as_secs()
+            ),
         }
     }
 
@@ -251,6 +289,8 @@ pub struct Step {
     pub stop: Stop,
     pub records: usize,
     pub indexed: usize,
+    /// Nodes the index held that a re-ingest skipped, so they left it.
+    pub removed: usize,
     pub committed: bool,
 }
 
@@ -331,8 +371,15 @@ impl Tender {
         let waker = Waker::new(&wal_dir).context("watching the WAL")?;
         let total = wal_bytes_after(&wal_dir, cursor.segment, cursor.offset);
         let vectors = Vectors::new(cfg.vectors.clone(), &paths.dir);
+        if cursor.at_start() {
+            // Built from the WAL's start: the vector files are a rebuild's,
+            // compacted to what the index holds once it has caught up.
+            vectors.on_clear();
+        }
         let shared = Arc::new(Shared {
             engine,
+            weights: cfg.weights,
+            forgets: Mutex::new(Vec::new()),
             status: Mutex::new(IndexStatus {
                 mode: vectors.mode().into(),
                 state: "starting".into(),
@@ -408,6 +455,7 @@ impl Tender {
                     stop: Stop::Budget,
                     records: 0,
                     indexed: 0,
+                    removed: 0,
                     committed: true,
                 });
             }
@@ -418,13 +466,15 @@ impl Tender {
             stop: stop.clone(),
             records: batch.records.len(),
             indexed: 0,
+            removed: 0,
             committed: false,
         };
         let mut nodes = Vec::new();
+        let mut removed = Vec::new();
         let indexed = self
-            .ingest(&batch.records, &mut step, &mut nodes)
+            .ingest(&batch.records, &mut step, &mut nodes, &mut removed)
             .and_then(|()| {
-                if step.indexed > 0 {
+                if step.indexed + step.removed > 0 {
                     self.writer.commit().context("committing the index")?;
                 }
                 Ok(())
@@ -436,14 +486,16 @@ impl Tender {
             self.follower = WalFollower::open(&self.cfg.wal_dir(), self.saved.clone())?;
             return Err(e);
         }
-        if step.indexed > 0 {
+        if step.indexed + step.removed > 0 {
             #[cfg(test)]
             if self.crash_after_commit {
                 anyhow::bail!("killed between the commit and the cursor (test)");
             }
             self.save()?;
             self.shared.engine.reload().context("reloading the index")?;
-            // Rows only for what a reader can now see.
+            // Rows only for what a reader can now see, and none for what it
+            // no longer can.
+            self.shared.vectors.on_remove(&removed);
             self.shared.vectors.on_commit(&nodes);
             step.committed = true;
             self.shared.set(|s| {
@@ -464,6 +516,7 @@ impl Tender {
         records: &[Record],
         step: &mut Step,
         nodes: &mut Vec<NodeChunks>,
+        removed: &mut Vec<String>,
     ) -> anyhow::Result<()> {
         let (mut skipped, mut undecodable) = (0u64, 0u64);
         for r in records {
@@ -476,6 +529,7 @@ impl Tender {
                             .replace(r.position, place, &e)
                             .with_context(|| format!("indexing node {}", e.node_id))?;
                         if self.shared.vectors.enabled() {
+                            nodes.retain(|n| n.node_id != e.node_id);
                             nodes.push(NodeChunks {
                                 node_id: e.node_id,
                                 position: r.position,
@@ -487,7 +541,21 @@ impl Tender {
                         }
                         step.indexed += 1;
                     }
-                    Ok(Extract::Skip { .. }) => skipped += 1,
+                    Ok(Extract::Skip { node_id, .. }) => {
+                        skipped += 1;
+                        // A node the index holds, written again with nothing
+                        // to index (an erased payload, say), leaves it: its
+                        // earlier copy is deleted, and its rows go.
+                        let earlier = nodes.iter().position(|n| n.node_id == node_id);
+                        if let Some(i) = earlier {
+                            nodes.remove(i);
+                        }
+                        if earlier.is_some() || self.shared.engine.holds(&node_id)? {
+                            self.writer.delete_node(&node_id);
+                            removed.push(node_id);
+                            step.removed += 1;
+                        }
+                    }
                     Err(err) => {
                         undecodable += 1;
                         tracing::warn!(position = r.position, error = %err, "index: a node record it could not read");
@@ -546,6 +614,8 @@ impl Tender {
             *self.shared.caught_up_ms.lock().unwrap() = now_ms();
             if self.backfill.take().is_some() {
                 tracing::info!(position = c.position, "index: caught up with the WAL");
+                // The rows are every chunk now: dead vectors can be counted.
+                self.shared.vectors.on_caught_up();
             }
         }
         let backfill = self.backfill.as_ref().map(|(from, total)| Backfill {
@@ -595,6 +665,97 @@ impl Tender {
         Ok(())
     }
 
+    /// `index.forget` (theseus-64x): the named nodes leave the index whole,
+    /// and every chunk holding a named text leaves it, committed at once, so
+    /// no query or neighbour finds them from the answer on; then the vectors
+    /// of the texts they held leave every vector file, rewritten atomically.
+    /// A text another chunk still holds keeps its vector (`still_held` says
+    /// where). The WAL is not touched: until the core's `Suppression` and
+    /// `Redaction` records exist and the follower obeys them, a rebuild
+    /// brings a forgotten node back (a redaction's erased payload does not:
+    /// the follower skips it, and a skip removes what was indexed).
+    pub fn forget(&mut self, p: &ForgetParams) -> anyhow::Result<ForgetResult> {
+        let t0 = Instant::now();
+        let engine = &self.shared.engine;
+        let mut asked: HashSet<u128> = HashSet::new();
+        let (mut nodes, mut chunks) = (Vec::<String>::new(), Vec::<(String, u64)>::new());
+        let mut chunk_count = 0u64;
+        for id in &p.nodes {
+            if nodes.contains(id) {
+                continue;
+            }
+            let held = engine.node_chunks(id).context("reading a node's chunks")?;
+            if held.is_empty() {
+                continue;
+            }
+            chunk_count += held.len() as u64;
+            asked.extend(held.iter().map(|(_, text)| text_hash(text)));
+            nodes.push(id.clone());
+        }
+        for text in &p.texts {
+            asked.insert(text_hash(text));
+            for (node, chunk) in engine
+                .chunks_holding(text)
+                .context("finding a text's chunks")?
+            {
+                if !nodes.contains(&node) && !chunks.contains(&(node.clone(), chunk)) {
+                    chunks.push((node, chunk));
+                }
+            }
+        }
+        chunk_count += chunks.len() as u64;
+        for id in &nodes {
+            self.writer.delete_node(id);
+        }
+        for (node, chunk) in &chunks {
+            self.writer
+                .delete_chunk(node, *chunk)
+                .context("deleting a chunk")?;
+        }
+        if !nodes.is_empty() || !chunks.is_empty() {
+            if let Err(e) = self.writer.commit() {
+                self.writer.rollback().ok();
+                return Err(anyhow::Error::from(e).context("committing the forget"));
+            }
+            engine.reload().context("reloading the index")?;
+        }
+        let keys: Vec<(String, u32)> = chunks.iter().map(|(n, c)| (n.clone(), *c as u32)).collect();
+        let v = self.shared.vectors.forget(&nodes, &keys, &asked)?;
+        tracing::info!(
+            nodes = nodes.len(),
+            chunks = chunk_count,
+            vectors_dropped = v.compacted.dropped,
+            still_held = v.held.len(),
+            "index: forgotten"
+        );
+        Ok(ForgetResult {
+            nodes: nodes.len() as u64,
+            chunks: chunk_count,
+            vectors_dropped: v.compacted.dropped,
+            still_held: v
+                .held
+                .into_iter()
+                .map(|(node_id, chunk)| ChunkRef {
+                    node_id,
+                    chunk: u64::from(chunk),
+                })
+                .collect(),
+            files: v.compacted.files,
+            bytes_before: v.compacted.bytes_before,
+            bytes_after: v.compacted.bytes_after,
+            ms: t0.elapsed().as_secs_f64() * 1e3,
+        })
+    }
+
+    /// Do the `index.forget` calls waiting, and answer them.
+    pub fn serve_forgets(&mut self) {
+        let waiting = std::mem::take(&mut *self.shared.forgets.lock().unwrap());
+        for (p, reply) in waiting {
+            let r = self.forget(&p).map_err(|e| format!("{e:#}"));
+            let _ = reply.send(r);
+        }
+    }
+
     /// Follow until [`Shared::request_stop`]: read while there is more, then
     /// wait for the WAL to change, a kick, or the backstop.
     pub fn run(mut self) -> anyhow::Result<()> {
@@ -607,6 +768,7 @@ impl Tender {
                     self.stalled(&e);
                 }
             }
+            self.serve_forgets();
             let more = match self.step() {
                 Ok(s) => s.stop == Stop::Budget,
                 Err(e) => {

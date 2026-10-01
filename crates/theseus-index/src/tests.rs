@@ -147,7 +147,7 @@ fn assistant(session: &str, blocks: serde_json::Value) -> Node {
     )
 }
 
-fn call(session: &str, tool: &str, input: serde_json::Value) -> Node {
+pub(crate) fn call(session: &str, tool: &str, input: serde_json::Value) -> Node {
     Node::tool_call(
         session,
         Some("turn_1"),

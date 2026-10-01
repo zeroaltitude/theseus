@@ -9,8 +9,8 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use theseus_index::client::Client;
 use theseus_index::proto::{
-    method, EmbedParams, EmbedResult, IndexStatus, NeighboursParams, NeighboursResult, QueryParams,
-    QueryResult, RebuildResult, Task, WarmResult,
+    method, EmbedParams, EmbedResult, ForgetParams, ForgetResult, IndexStatus, NeighboursParams,
+    NeighboursResult, QueryParams, QueryResult, RebuildResult, Task, WarmResult,
 };
 use theseus_index::vectors::VectorConfig;
 use theseus_index::{Config, OpenError};
@@ -57,6 +57,10 @@ enum Cmd {
         /// `CANDLE_NUM_THREADS`, set for this process before anything starts.
         #[arg(long, default_value_t = 1)]
         threads: usize,
+        /// The fusion's default weights, over the built-in ones
+        /// (`bm25=1,entity=1,vector=2`; `[index] fusion` at the wire-in).
+        #[arg(long)]
+        weights: Option<String>,
     },
     /// Hits for a text.
     Query {
@@ -74,6 +78,10 @@ enum Cmd {
         /// vectors.
         #[arg(long, default_value_t = 0)]
         wait_ms: u64,
+        /// Fusion weights for this query (`vector=2`); the tender's own for
+        /// any source not named.
+        #[arg(long)]
+        weights: Option<String>,
         /// The whole answer, as JSON.
         #[arg(long)]
         json: bool,
@@ -114,6 +122,18 @@ enum Cmd {
         #[arg(long)]
         socket: PathBuf,
     },
+    /// Nodes, or the chunks that hold texts, leave the index now, and their
+    /// vectors leave every vector file.
+    Forget {
+        #[arg(long)]
+        socket: PathBuf,
+        /// A node that leaves whole (repeat for more).
+        #[arg(long = "node")]
+        nodes: Vec<String>,
+        /// A chunk text, exactly as a hit gives it (repeat for more).
+        #[arg(long = "text")]
+        texts: Vec<String>,
+    },
 }
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
@@ -140,6 +160,7 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             no_vectors,
             idle_unload_mins,
             threads,
+            weights,
         } => {
             // Before any thread starts: candle reads these at every matmul,
             // and rayon's pool at its first use. Every core when unset.
@@ -162,6 +183,12 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             }
             let mut cfg = Config::new(&store, &index);
             cfg.backstop = Duration::from_secs(backstop_secs.max(1));
+            if let Some(w) = weights {
+                cfg.weights = cfg
+                    .weights
+                    .parse_over(&w)
+                    .map_err(|e| anyhow::anyhow!("--weights: {e}"))?;
+            }
             if !no_vectors {
                 let dir = weights_dir.or_else(|| {
                     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/theseus/models"))
@@ -184,6 +211,7 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             as_of,
             sources,
             wait_ms,
+            weights,
             json,
             text,
         } => {
@@ -192,6 +220,14 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             p.as_of = as_of;
             p.sources = sources;
             p.wait_ms = wait_ms;
+            if let Some(w) = weights {
+                for part in w.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    let (s, x) = part
+                        .split_once('=')
+                        .ok_or_else(|| anyhow::anyhow!("--weights {part:?}: source=weight"))?;
+                    p.weights.insert(s.trim().to_string(), x.trim().parse()?);
+                }
+            }
             let timeout = CALL_TIMEOUT + Duration::from_millis(wait_ms);
             let r: QueryResult = Client::connect(&socket, timeout)?.call(method::QUERY, &p)?;
             if json {
@@ -290,6 +326,16 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             let r: RebuildResult =
                 Client::connect(&socket, CALL_TIMEOUT)?.call(method::REBUILD, ())?;
             println!("rebuild accepted: {}", r.accepted);
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Forget {
+            socket,
+            nodes,
+            texts,
+        } => {
+            let r: ForgetResult = Client::connect(&socket, Duration::from_secs(70))?
+                .call(method::FORGET, ForgetParams { nodes, texts })?;
+            println!("{}", serde_json::to_string_pretty(&r)?);
             Ok(ExitCode::SUCCESS)
         }
     }

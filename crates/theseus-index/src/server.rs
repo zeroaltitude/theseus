@@ -15,7 +15,9 @@ use std::thread;
 use serde_json::Value;
 use theseus_protocol::{error_code, Id, Request, Response};
 
-use crate::proto::{method, EmbedParams, NeighboursParams, QueryParams, RebuildResult};
+use crate::proto::{
+    method, EmbedParams, ForgetParams, NeighboursParams, QueryParams, RebuildResult,
+};
 use crate::tender::Shared;
 
 pub const MAX_CONNECTIONS: usize = 16;
@@ -118,6 +120,16 @@ pub fn answer(line: &str, shared: &Shared) -> Response {
             }
         }
         method::WARM => Response::ok(id, shared.warm()),
+        method::FORGET => {
+            let p: ForgetParams = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => return Response::err(id, error_code::INVALID_PARAMS, e.to_string()),
+            };
+            match shared.forget(p) {
+                Ok(r) => Response::ok(id, r),
+                Err(e) => Response::err(id, error_code::INTERNAL, format!("{e:#}")),
+            }
+        }
         other => Response::err_with(
             id,
             error_code::METHOD_NOT_FOUND,

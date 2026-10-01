@@ -22,6 +22,9 @@ pub mod method {
     /// Start loading the model, and answer at once (the core, as a turn
     /// begins).
     pub const WARM: &str = "index.warm";
+    /// Nodes, or the chunks holding texts, leave the index now, and their
+    /// vectors leave every vector file (the core's forget and redaction).
+    pub const FORGET: &str = "index.forget";
 }
 
 fn default_k() -> usize {
@@ -55,6 +58,10 @@ pub struct QueryParams {
     /// without vectors, saying so in `skipped`.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub wait_ms: u64,
+    /// Weights for the fusion, by source (`bm25`, `entity`, `vector`); a
+    /// source not named takes the tender's default ([`Weights`]).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub weights: BTreeMap<String, f64>,
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -71,7 +78,85 @@ impl QueryParams {
             filters: Filters::default(),
             sources: Vec::new(),
             wait_ms: 0,
+            weights: BTreeMap::new(),
         }
+    }
+}
+
+/// Each source's weight in the fusion, `Σ w_s / (60 + rank_s)` (theseus-jz8):
+/// the tender's defaults (`[index] fusion` at the wire-in), which a query's
+/// `weights` override source by source.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Weights {
+    pub bm25: f64,
+    pub entity: f64,
+    pub vector: f64,
+}
+
+impl Weights {
+    /// Every source alike: reciprocal rank fusion as M6 §2.2 first gave it.
+    pub const EQUAL: Weights = Weights {
+        bm25: 1.0,
+        entity: 1.0,
+        vector: 1.0,
+    };
+
+    /// A source's weight; 0 for one this tender does not rank.
+    pub fn get(&self, source: &str) -> f64 {
+        match source {
+            "bm25" => self.bm25,
+            "entity" => self.entity,
+            "vector" => self.vector,
+            _ => 0.0,
+        }
+    }
+
+    /// These weights with `overrides` in their place, each a known source
+    /// and a finite number, 0 or more.
+    pub fn with(&self, overrides: &BTreeMap<String, f64>) -> Result<Weights, String> {
+        let mut w = *self;
+        for (source, &x) in overrides {
+            if !x.is_finite() || x < 0.0 {
+                return Err(format!(
+                    "the weight {x} for {source}: a finite number, 0 or more"
+                ));
+            }
+            match source.as_str() {
+                "bm25" => w.bm25 = x,
+                "entity" => w.entity = x,
+                "vector" => w.vector = x,
+                o => return Err(format!("no source {o:?} to weigh: bm25, entity, vector")),
+            }
+        }
+        Ok(w)
+    }
+
+    /// `bm25=1,entity=1,vector=3`, over these weights.
+    pub fn parse_over(&self, s: &str) -> Result<Weights, String> {
+        let mut o = BTreeMap::new();
+        for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let (k, v) = part
+                .split_once('=')
+                .ok_or_else(|| format!("{part:?}: source=weight"))?;
+            let v: f64 = v.trim().parse().map_err(|e| format!("{part:?}: {e}"))?;
+            o.insert(k.trim().to_string(), v);
+        }
+        self.with(&o)
+    }
+
+    /// The weights of `sources`, by name.
+    pub fn of(&self, sources: &[&str]) -> BTreeMap<String, f64> {
+        sources
+            .iter()
+            .map(|s| (s.to_string(), self.get(s)))
+            .collect()
+    }
+}
+
+impl Default for Weights {
+    /// The tender's defaults.
+    fn default() -> Self {
+        Weights::EQUAL
     }
 }
 
@@ -164,6 +249,9 @@ pub struct QueryResult {
     /// model loading, or no weights.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub skipped: BTreeMap<String, String>,
+    /// Each fused source's weight: the query's, or the tender's default.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub weights: BTreeMap<String, f64>,
 }
 
 /// What every vector carries: the model and its files, the code that made
@@ -273,6 +361,48 @@ pub struct EmbedResult {
     pub embed_ms: f64,
 }
 
+/// `index.forget` (theseus-64x): what must leave the index now. The core's
+/// removal paths call it: an operator's forget (a `Suppression`) and a
+/// redaction (§5.6) name nodes; a text found copied where the lineage walk
+/// did not reach can be named as a hit gave it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ForgetParams {
+    /// Nodes that leave the index whole.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<String>,
+    /// Chunk texts, exactly as a hit's `text` gives them: every chunk that
+    /// holds one leaves the index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub texts: Vec<String>,
+}
+
+/// A chunk the index still holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChunkRef {
+    pub node_id: String,
+    pub chunk: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ForgetResult {
+    /// Nodes that left the index whole (those it held).
+    pub nodes: u64,
+    /// Chunks that left it: the nodes' and the texts'.
+    pub chunks: u64,
+    /// Records dropped from the vector files: the texts that left, and
+    /// every other dead record.
+    pub vectors_dropped: u64,
+    /// Chunks not forgotten that hold the same text as one that left, so its
+    /// vector stays: name them too if the text must go.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub still_held: Vec<ChunkRef>,
+    /// The vector files rewritten, and their bytes before and after.
+    pub files: u64,
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+    pub ms: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WarmResult {
     /// The model's state after the call: `loaded`, `loading` (a load was
@@ -301,6 +431,9 @@ pub struct IndexStatus {
     /// The vector side.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vectors: Option<VectorStatus>,
+    /// The fusion's default weights, by source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weights: Option<Weights>,
     pub pid: u32,
     pub index_dir: String,
     pub wal_dir: String,
@@ -353,6 +486,15 @@ pub struct VectorStatus {
     pub chunks: u64,
     pub vectors: u64,
     pub pending: u64,
+    /// Records in the vector files this space answers from, and the dead
+    /// among them: texts no chunk holds, which answer nothing and go at the
+    /// next compaction (a quarter of a file dead, a rebuild, a forget).
+    #[serde(default)]
+    pub records: u64,
+    #[serde(default)]
+    pub dead: u64,
+    #[serde(default)]
+    pub compactions: Compactions,
     /// While an older stamp's vectors answer, their stamps, and the chunks
     /// already re-embedded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -372,6 +514,21 @@ pub struct VectorStatus {
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_error_ms: u64,
+}
+
+/// The vector files' compactions since the tender started (theseus-64x).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Compactions {
+    pub count: u64,
+    /// Records dropped, in all.
+    pub dropped: u64,
+    /// The last one: when, why (`dead`, `rebuild`, `forget`), how long, and
+    /// the files' bytes before and after.
+    pub last_at_ms: u64,
+    pub last_why: String,
+    pub last_ms: f64,
+    pub last_bytes_before: u64,
+    pub last_bytes_after: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
