@@ -246,9 +246,12 @@ impl Writer {
                 self.flush();
                 let indent = "  ".repeat(self.lists.len().saturating_sub(1));
                 let marker = match self.lists.last_mut() {
+                    // A page's `start` can be u32::MAX: the count stops
+                    // there (theseus-s68, found by the property test).
                     Some(Some(n)) => {
-                        *n += 1;
-                        format!("{}. ", *n - 1)
+                        let this = *n;
+                        *n = n.saturating_add(1);
+                        format!("{this}. ")
                     }
                     _ => "- ".into(),
                 };
@@ -344,13 +347,22 @@ fn skip_to_end<'a>(s: &'a str, name: &str) -> &'a str {
 }
 
 /// The text before the end tag `</name>` (any case), and what follows it.
+///
+/// The candidate is compared as bytes (theseus-s68): `at + close.len()` can
+/// fall inside a character that follows a shorter end tag (`</b>中文` against
+/// `</script`), and slicing the `str` there panicked, which under the release
+/// profile's `panic = "abort"` took the daemon down. The bytes that match are
+/// the tag's ASCII, so `end` is a character boundary whenever they do.
 fn raw_until<'a>(s: &'a str, name: &str) -> (&'a str, &'a str) {
     let close = format!("</{name}");
     let mut from = 0;
     while let Some(i) = s[from..].find("</") {
         let at = from + i;
         let end = at + close.len();
-        if s.len() >= end && s[at..end].eq_ignore_ascii_case(&close) {
+        if s.as_bytes()
+            .get(at..end)
+            .is_some_and(|w| w.eq_ignore_ascii_case(close.as_bytes()))
+        {
             let rest = &s[end..];
             return (&s[..at], rest.find('>').map_or("", |e| &rest[e + 1..]));
         }
@@ -574,6 +586,45 @@ mod tests {
             text("<a href='https://x.io/' title=\"a > b\">https://x.io/</a>"),
             "https://x.io/\n"
         );
+    }
+
+    /// Review 2's page (theseus-s68): inside a raw element, a shorter end
+    /// tag followed by multibyte text put `</script`'s last byte inside 文.
+    /// Every element read raw (the dropped ones, `title`, `textarea`) takes
+    /// it, and the text around it still reads.
+    #[test]
+    fn multibyte_text_after_an_end_tag_in_a_raw_element_is_read_not_a_panic() {
+        assert_eq!(
+            text("<p>before</p><script>x = \"</b>中文\";</script><p>after 中文</p>"),
+            "before\n\nafter 中文\n"
+        );
+        for name in DROPPED.iter().chain(&["title", "textarea"]) {
+            for body in ["</b>中文", "</中文", "</b>😀", "</é", "</sCrIpT中"] {
+                let html = format!("<{name}>{body}</{name}><p>after</p>");
+                let _ = to_text(&html, None);
+                let cut = format!("<{name}>{body}");
+                let _ = to_text(&cut, None);
+            }
+        }
+        // Both keep their raw text as it is, markup and all.
+        assert_eq!(
+            to_text("<title>中</b>文</title>", None).title.as_deref(),
+            Some("中</b>文")
+        );
+        assert_eq!(text("<textarea>a</b>中文</textarea>"), "a</b>中文\n");
+    }
+
+    /// The property test's first find (theseus-s68): a list whose `start` is
+    /// the largest number overflowed at its second item, a panic in a build
+    /// with overflow checks (a debug daemon, the gate's). The count stops at
+    /// the largest number instead.
+    #[test]
+    fn a_list_that_starts_at_the_largest_number_counts_without_overflow() {
+        assert_eq!(
+            text("<ol start=4294967295><li>a</li><li>b</li></ol>"),
+            "4294967295. a\n4294967295. b\n"
+        );
+        assert_eq!(text("<ol start=7><li>a<li>b</ol>"), "7. a\n8. b\n");
     }
 
     #[test]

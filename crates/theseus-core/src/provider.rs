@@ -623,7 +623,7 @@ impl Anthropic {
             ..Default::default()
         };
         let mut acc = Accumulator::default();
-        let mut buf = String::new();
+        let mut lines = SseLines::default();
         let mut stream = resp.bytes_stream();
         let idle = Duration::from_secs(self.timeouts.stream_idle_secs);
         let mut saw_stop = false;
@@ -660,10 +660,8 @@ impl Anthropic {
                     .into());
                 }
             };
-            buf.push_str(&String::from_utf8_lossy(&chunk));
-            while let Some(pos) = buf.find('\n') {
-                let line = buf[..pos].trim_end_matches('\r').to_string();
-                buf.drain(..=pos);
+            lines.push(&chunk);
+            while let Some(line) = lines.next_line() {
                 let Some(ev) = parse_sse_line(&line) else {
                     continue;
                 };
@@ -706,6 +704,32 @@ impl Provider for Anthropic {
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         Box::pin(self.stream_message_impl(req, on_delta))
+    }
+}
+
+/// The event stream's lines, from its chunks as they arrive. The network cuts
+/// a chunk anywhere, inside a character too, so the bytes wait here until a
+/// newline ends their line, and each line is decoded whole (theseus-s68: a
+/// chunk decoded on its own turned a character it split into U+FFFDs, found
+/// by the property test in `tests_outside_text`).
+#[derive(Default)]
+pub(crate) struct SseLines {
+    buf: Vec<u8>,
+}
+
+impl SseLines {
+    pub(crate) fn push(&mut self, chunk: &[u8]) {
+        self.buf.extend_from_slice(chunk);
+    }
+
+    /// The next whole line, without its `\r\n`.
+    pub(crate) fn next_line(&mut self) -> Option<String> {
+        let pos = self.buf.iter().position(|&b| b == b'\n')?;
+        let line = String::from_utf8_lossy(&self.buf[..pos])
+            .trim_end_matches('\r')
+            .to_string();
+        self.buf.drain(..=pos);
+        Some(line)
     }
 }
 
@@ -1220,6 +1244,21 @@ mod tests {
         );
         assert_eq!(ProviderError::from_status(503, "", &h).class(), "server");
         assert_eq!(ProviderError::from_status(418, "", &h).class(), "api");
+    }
+
+    /// The property test's find (theseus-s68): a character the network cut
+    /// between two chunks arrives whole, not as U+FFFDs.
+    #[test]
+    fn a_character_split_between_chunks_arrives_whole() {
+        let body = "data: {\"text\":\"中🌀\"}\r\n\n".as_bytes();
+        for at in 1..body.len() {
+            let mut r = SseLines::default();
+            r.push(&body[..at]);
+            r.push(&body[at..]);
+            assert_eq!(r.next_line().as_deref(), Some("data: {\"text\":\"中🌀\"}"));
+            assert_eq!(r.next_line().as_deref(), Some(""));
+            assert_eq!(r.next_line(), None);
+        }
     }
 
     #[test]

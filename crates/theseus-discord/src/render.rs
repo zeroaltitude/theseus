@@ -1222,8 +1222,11 @@ pub(crate) fn clip(s: &str, max: usize) -> String {
 
 /// Split streamed text into Discord-sized parts. Cuts prefer a newline, then a
 /// space, in the second half of the budget; a code fence left open by a cut is
-/// closed at the end of the part and reopened (with its language) at the start
-/// of the next. Stable under appends: text only grows, so earlier cuts stay put.
+/// closed at the end of the part and reopened (with its language, in at most
+/// `MAX_FENCE` bytes) at the start of the next. Stable under appends: text only
+/// grows, so earlier cuts stay put. Every part moves the text on by at least a
+/// character, so a budget smaller than the next character never stalls it
+/// (theseus-s68).
 pub fn split_text(text: &str, limit: usize) -> Vec<String> {
     let mut parts = Vec::new();
     let mut rest = text;
@@ -1236,6 +1239,10 @@ pub fn split_text(text: &str, limit: usize) -> Vec<String> {
             break;
         }
         let mut cut = floor_boundary(rest, budget);
+        if cut == 0 {
+            // The budget is smaller than the next character: it goes whole.
+            cut = rest.chars().next().map_or(rest.len(), char::len_utf8);
+        }
         let head = &rest[..cut];
         if let Some(i) = head.rfind('\n').filter(|&i| i > budget / 2) {
             cut = i + 1;
@@ -1264,19 +1271,25 @@ fn floor_boundary(s: &str, mut i: usize) -> usize {
     i
 }
 
-/// The opening line of a code fence left open at the end of `s`, if any.
+/// The longest opening line a split reopens a fence with. Longer ones (the
+/// language is text anyone can write) are cut to it, so a fence line as long
+/// as the limit cannot eat the next part's budget (theseus-s68).
+const MAX_FENCE: usize = 32;
+
+/// The opening line of a code fence left open at the end of `s`, if any, in
+/// at most `MAX_FENCE` bytes.
 fn open_fence(s: &str) -> Option<String> {
-    let mut open: Option<String> = None;
+    let mut open: Option<&str> = None;
     for line in s.lines() {
         let t = line.trim_start();
         if t.starts_with("```") {
             open = match open {
                 Some(_) => None,
-                None => Some(t.trim_end().to_string()),
+                None => Some(t.trim_end()),
             };
         }
     }
-    open
+    open.map(|f| f[..floor_boundary(f, MAX_FENCE.min(f.len()))].to_string())
 }
 
 #[cfg(test)]
@@ -2386,5 +2399,82 @@ mod tests {
         let mut none = vec![("t3:L0:p0".to_string(), "hi".to_string())];
         wake_header(&mut none, &[]);
         assert_eq!(none[0].1, "hi");
+    }
+
+    /// `f`'s value, or `None` if it has not returned within `secs`: a split
+    /// that stops moving through its text never returns, and a test of it
+    /// must fail, not hang.
+    fn within<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(secs)).ok()
+    }
+
+    /// A budget smaller than the next character, or a carried fence line as
+    /// long as the limit, left no room to cut: the cut fell at 0, and the
+    /// split pushed empty parts forever without moving (theseus-s68, found by
+    /// the property test below). Each part now moves the text on, and a
+    /// reopened fence is at most `MAX_FENCE` bytes.
+    #[test]
+    fn a_split_always_moves_through_multibyte_text_and_long_fences() {
+        let parts = within(2, || split_text("中", 4)).expect("split_text(\"中\", 4) returned");
+        assert_eq!(parts.concat(), "中");
+        let fence = format!("```{}", "x".repeat(PART_LIMIT));
+        let text = format!("{fence}\n{}", "中".repeat(1000));
+        let parts = within(2, move || split_text(&text, PART_LIMIT))
+            .expect("the long fence's split returned");
+        for p in &parts {
+            assert!(p.len() <= PART_LIMIT, "{}", p.len());
+        }
+        let kept: usize = parts.iter().map(|p| p.matches('中').count()).sum();
+        assert_eq!(kept, 1000, "every character is in some part, once");
+    }
+
+    fn fenced() -> impl proptest::strategy::Strategy<Value = String> {
+        use proptest::prelude::*;
+        let piece = prop_oneof![
+            3 => proptest::sample::select(vec![
+                "```", "```rust", "\n", " ", "中", "😀", "é", "a", "\n```\n", "  ```py\n",
+            ])
+            .prop_map(str::to_string),
+            1 => any::<String>(),
+            1 => "x{0,300}",
+        ];
+        proptest::collection::vec(piece, 0..40).prop_map(|v| v.concat())
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config {
+            cases: 1500,
+            failure_persistence: None,
+            ..proptest::test_runner::Config::default()
+        })]
+
+        /// Any text splits, at any limit: every part moves the text on, a
+        /// part is never empty, it fits a real limit, and appending text
+        /// never moves an earlier cut.
+        #[test]
+        fn any_text_splits_and_keeps_its_earlier_cuts(
+            text in fenced(),
+            more in fenced(),
+            limit in proptest::prop_oneof![1usize..64, 64usize..600, proptest::strategy::Just(PART_LIMIT)],
+        ) {
+            let split = within(5, move || {
+                (split_text(&text, limit), split_text(&format!("{text}{more}"), limit))
+            });
+            proptest::prop_assert!(split.is_some(), "split_text did not return (limit {})", limit);
+            let (parts, longer) = split.unwrap();
+            proptest::prop_assert!(parts.iter().all(|p| !p.is_empty()));
+            if limit >= 64 {
+                for p in &parts {
+                    proptest::prop_assert!(p.len() <= limit, "a part of {} bytes, over {}", p.len(), limit);
+                }
+            }
+            if parts.len() > 1 {
+                proptest::prop_assert_eq!(&parts[..parts.len() - 1], &longer[..parts.len() - 1]);
+            }
+        }
     }
 }

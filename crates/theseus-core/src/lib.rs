@@ -64,6 +64,8 @@ mod tests_external;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]
+mod tests_outside_text;
+#[cfg(test)]
 mod tests_tasks;
 #[cfg(test)]
 mod tests_wakes;
