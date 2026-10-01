@@ -46,25 +46,38 @@ lifecycle() {
 # start's fsyncs for seconds, and then the bench measures the neighbour, not
 # Theseus. On 2026-10-01 an openclaw rotation held IO pressure near 50 %, and
 # a restart's p95 was 2.3 s, where the same tree had passed at 41 ms. So each
-# run first waits, for up to 10 minutes, until the kernel's IO and CPU
+# run first waits, for up to 5 minutes, until the kernel's IO and CPU
 # pressure (PSI, `some avg10`) are under 10 % and 20 %, and it says what it
 # saw. The budgets don't change. Without PSI it doesn't wait.
+#
+# Pressure alone misses one neighbour: many busy cores and nothing queued.
+# Then each thread runs slower (all-core turbo, shared SMT siblings) with
+# little CPU pressure. At 15:25 the same day every phase ran about 2x slow,
+# untouched code included, at load 14 on 16 cores and CPU pressure 2 %;
+# about 16:39 a run missed with the load near 20. So the wait also holds
+# while the 1-minute load average is at or over the core count, the cores
+# oversubscribed. That bar, not half the cores, keeps a long neighbouring
+# build from stalling every gate; the wait is bounded at 5 minutes
+# (theseus-611s).
 settle() {
   [ -r /proc/pressure/io ] && [ -r /proc/pressure/cpu ] || return 0
-  local io cpu waited=0
+  local io cpu load waited=0
+  local cores
+  cores=$(nproc)
   while :; do
     io=$(awk '/^some/ {split($2, a, "="); print int(a[2])}' /proc/pressure/io)
     cpu=$(awk '/^some/ {split($2, a, "="); print int(a[2])}' /proc/pressure/cpu)
-    if [ "$io" -lt 10 ] && [ "$cpu" -lt 20 ]; then break; fi
-    if [ "$waited" -ge 600 ]; then
-      echo "lifecycle: still busy after 10 minutes (IO pressure $io %, CPU $cpu %); measuring anyway"
+    load=$(awk '{print $1}' /proc/loadavg)
+    if [ "$io" -lt 10 ] && [ "$cpu" -lt 20 ] && awk -v l="$load" -v c="$cores" 'BEGIN {exit !(l < c)}'; then break; fi
+    if [ "$waited" -ge 300 ]; then
+      echo "lifecycle: still busy after 5 minutes (IO pressure $io %, CPU $cpu %, load $load on $cores cores); measuring anyway"
       return 0
     fi
     sleep 5
     waited=$((waited + 5))
   done
   if [ "$waited" -gt 0 ]; then
-    echo "lifecycle: waited $waited s for the machine to settle (IO pressure $io %, CPU $cpu %)"
+    echo "lifecycle: waited $waited s for the machine to settle (IO pressure $io %, CPU $cpu %, load $load on $cores cores)"
   fi
   return 0
 }
