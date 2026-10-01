@@ -88,11 +88,14 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             nice,
             backstop_secs,
         } => {
+            // tantivy logs every commit at info (five lines each): quiet
+            // unless asked, and no colour codes in a log file.
             tracing_subscriber::fmt()
                 .with_writer(std::io::stderr)
+                .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| "info".into()),
+                        .unwrap_or_else(|_| "info,tantivy=warn".into()),
                 )
                 .init();
             // SAFETY: no pointers; it sets this process's own priority.

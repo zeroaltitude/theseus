@@ -49,6 +49,9 @@ const MASK: u32 = libc::IN_MODIFY
 /// The size of `struct inotify_event` before its name.
 const EVENT_HEADER: usize = 16;
 
+/// How often a waker whose directory does not exist looks for it again.
+const UNWATCHED_RETRY: Duration = Duration::from_secs(1);
+
 pub struct Waker {
     fd: OwnedFd,
     kick: Arc<OwnedFd>,
@@ -67,7 +70,7 @@ fn owned(raw: i32) -> io::Result<OwnedFd> {
 
 impl Waker {
     /// Watch `dir`. A directory that does not exist yet is watched once it
-    /// does: until then [`Waker::wait`] sleeps out its backstop.
+    /// does: until then [`Waker::wait`] looks for it once a second.
     pub fn new(dir: &Path) -> io::Result<Self> {
         // SAFETY: neither call takes a pointer; each returns a new
         // descriptor or -1.
@@ -125,7 +128,14 @@ impl Waker {
                 revents: 0,
             },
         ];
-        let ms = i32::try_from(backstop.as_millis()).unwrap_or(i32::MAX);
+        // Unwatched (no directory yet), it looks for the directory once a
+        // second: nothing would wake it when the directory appears.
+        let wait = if self.watching {
+            backstop
+        } else {
+            backstop.min(UNWATCHED_RETRY)
+        };
+        let ms = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
         // SAFETY: two valid pollfds, and the count says two.
         let n = unsafe { libc::poll(pfds.as_mut_ptr(), 2, ms) };
         if n < 0 {

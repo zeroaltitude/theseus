@@ -316,6 +316,28 @@ fn a_frame_cut_short_in_a_sealed_segment_is_corruption() {
 }
 
 #[test]
+fn a_waker_finds_its_directory_within_a_second_of_its_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    let wal_dir = dir.path().join("wal");
+    let mut waker = Waker::new(&wal_dir).unwrap();
+    let h = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        fs::create_dir(&wal_dir).unwrap();
+    });
+    // A long backstop, but no directory to watch yet: it looks once a second.
+    let t = Instant::now();
+    let mut wakes = 0;
+    while !waker.watching() {
+        waker.wait(Duration::from_secs(60)).unwrap();
+        wakes += 1;
+        assert!(t.elapsed() < Duration::from_secs(10), "never found it");
+    }
+    h.join().unwrap();
+    assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
+    assert!(wakes <= 3, "{wakes} wakes");
+}
+
+#[test]
 fn the_waker_wakes_on_an_append_and_its_timer_is_the_backstop() {
     let dir = tempfile::tempdir().unwrap();
     let wal_dir = dir.path().join("wal");

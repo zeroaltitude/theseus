@@ -657,6 +657,7 @@ fn the_socket_answers_and_a_new_node_is_indexed_within_a_second() {
     assert_eq!(s.nodes, 2);
     assert_eq!(s.lag.bytes, 0);
     assert!(s.rss_bytes > 0);
+    assert!(s.commits >= 2 && s.last_commit_ms > 0, "{s:?}");
     assert!(c.call::<serde_json::Value>("index.nothing", ()).is_err());
     let r: RebuildResult = c.call(method::REBUILD, ()).unwrap();
     assert!(r.accepted);

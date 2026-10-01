@@ -339,6 +339,10 @@ impl Tender {
             self.save()?;
             self.shared.engine.reload().context("reloading the index")?;
             step.committed = true;
+            self.shared.set(|s| {
+                s.commits += 1;
+                s.last_commit_ms = now_ms();
+            });
         } else if (self.places_dirty || self.saved_at.elapsed() >= self.cfg.backstop)
             && *self.follower.cursor() != self.saved
         {
