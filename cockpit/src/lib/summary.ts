@@ -27,6 +27,9 @@ export function summarize(r: LedgerEntry): string {
     case 'tool.job_started': return `job pid ${d.pid}: ${(d.argv ?? []).join(' ').slice(0, 90)}`
     case 'tool.denied': return `${d.tool ?? ''} denied${d.reason ? `: ${d.reason}` : ''}`
     case 'tool.confirm_requested': return `${d.tool ?? ''} asks for approval`
+    case 'action.confirmed': return `confirmed${d.by ? ` by ${d.by}` : ''}`
+    case 'action.confirm_answered': return `${d.approved === false ? 'declined' : 'approved'}${d.by ? ` by ${d.by}` : ''}${d.note ? `: ${String(d.note).slice(0, 80)}` : ''}`
+    case 'discord.confirm': return `Discord press: ${d.approve === false ? 'decline' : 'approve'}${d.by ? ` by ${d.by}` : ''}${d.ok === false ? ` (failed${d.error ? `: ${String(d.error).slice(0, 60)}` : ''})` : ''}`
     case 'execution.waiting': return `execution waits (turn ${d.turn}, ${ms(d.turn_ms)})`
     case 'execution.running': return 'execution running'
     case 'execution.queued': return 'execution queued'

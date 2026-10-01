@@ -1,9 +1,10 @@
 // A session's content graph as a readable transcript: turns as sections, model replies as markdown with their
 // thinking, and each tool call as one card holding its input, the gate's decision, and its result.
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Bot, Brain, ChevronRight, CircleCheck, OctagonX, ShieldCheck, User, Wrench } from 'lucide-react'
+import { Bot, Brain, ChevronRight, CircleCheck, OctagonX, ScanSearch, ShieldCheck, User, Wrench } from 'lucide-react'
 import type { NodeInfo } from '@protocol'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
@@ -123,6 +124,9 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
   const d = (call.detail ?? {}) as D
   const r = (result?.detail ?? (call.kind === 'tool_result' ? call.detail : null) ?? {}) as D
   const [open, setOpen] = useState(false)
+  const [params, setParams] = useSearchParams()
+  const callKey: string | undefined = d.tool_use_id ?? r.tool_use_id ?? d.correlation_id ?? r.correlation_id
+  const inspecting = !!callKey && params.get('call') === callKey
   const tool = d.tool ?? r.tool ?? 'tool'
   const decision = d.decision as D | undefined
   // The gate's verdict is on the call's result (`{gate: allow|deny|confirm}`); older and denied calls carry
@@ -133,9 +137,16 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
   const failed = r.is_error && !denied
   const tone = denied ? 'fault' : failed ? 'fault' : result ? 'ok' : 'wait'
   return (
-    <div className="flex gap-3">
+    <div className="group flex gap-3">
       <Gutter icon={<Wrench size={13} />} at={call.at_unix_ms} tone="bg-tool/10 text-tool ring-tool/30" />
-      <div className="min-w-0 flex-1 rounded-lg bg-tool/[0.04] ring-1 ring-tool/15">
+      <div className={cn('relative min-w-0 flex-1 rounded-lg bg-tool/[0.04] ring-1', inspecting ? 'ring-tool/60' : 'ring-tool/15')}>
+        {callKey && (
+          <button
+            onClick={() => setParams((p) => { if (inspecting) p.delete('call'); else p.set('call', callKey); return p }, { replace: true })}
+            title="inspect this call: its gate, its life in the ledger, its job, its result"
+            className={cn('absolute -right-2 -top-2 z-10 rounded-md bg-deck p-1 ring-1 transition-opacity', inspecting ? 'text-tool ring-tool/60' : 'text-ink-faint opacity-0 ring-line group-hover:opacity-100 hover:text-tool')}
+          ><ScanSearch size={13} /></button>
+        )}
         <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left">
           <ChevronRight size={13} className={cn('text-ink-faint transition-transform', open && 'rotate-90')} />
           <span className="num text-[12.5px] font-medium text-tool">{tool}</span>

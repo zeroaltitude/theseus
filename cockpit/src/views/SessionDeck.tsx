@@ -18,6 +18,7 @@ import { Echart } from '@/components/Echart'
 import { Flame, flatten } from '@/components/Flame'
 import { JsonView } from '@/components/JsonView'
 import { Transcript } from '@/components/Transcript'
+import { CallInspector } from '@/components/CallInspector'
 import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
@@ -84,6 +85,7 @@ export default function SessionDeck() {
           <Inspector turns={turns} traces={traces} comps={comps?.compilations ?? []} rows={rows} calls={calls} session={s} nodes={hist.nodes} />
         </RPanel>
       </Group>
+      <CallInspector sessionId={id} />
     </div>
   )
 }

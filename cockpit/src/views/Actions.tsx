@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { CircleCheck, Hourglass, OctagonX, ShieldCheck, Siren, Workflow, Wrench, Zap } from 'lucide-react'
+import { CircleCheck, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, Zap } from 'lucide-react'
 import type { ActionInfo, ConfirmRequest, Health, ToolList } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -132,6 +132,7 @@ function Lifecycle({ actions }: { actions: ActionInfo[] }) {
               <StatePill state={a.state} />
               <span className="num font-medium text-tool">{a.tool}</span>
               <button onClick={() => nav(`/session/${a.session_id}`)} className="num text-[10.5px] text-ink-faint hover:text-live">{short(a.session_id)}</button>
+              <button onClick={() => nav(`/session/${a.session_id}?call=${a.correlation_id}`)} title="inspect this call" className="text-ink-faint hover:text-tool"><ScanSearch size={12} /></button>
               <span className="num text-[10.5px] text-ink-faint">{a.retry_class}{a.confirmed ? ' · confirmed' : ''}{a.cancel ? ` · ${a.cancel}` : ''}</span>
               <span className="num ml-auto text-[11px] text-ink-faint">{stamp(a.planned_at_ms)} · <span className="text-ink">{ms(total)}</span></span>
             </div>
