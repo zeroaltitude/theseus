@@ -1331,6 +1331,22 @@ impl Kernel {
     /// `Wake::Budget`. An earlier question still open is superseded in the
     /// same frame, so one is open at a time.
     pub fn ask_budget(&self, guard: &TurnGuard, needed_micros: Micros) -> Result<Action> {
+        self.ask_budget_for(guard, needed_micros, Value::Null)
+    }
+
+    /// `ask_budget`, with what the core knows of the call that did not fit
+    /// (`call`: its profile, model, and output cap) kept in the question's
+    /// proposal as `args.call`, so every surface that renders the question
+    /// later can name them (theseus-kks). `Null` keeps the proposal as
+    /// `ask_budget` writes it. The `budget.asked` row says `exceeds_limit`
+    /// when the call alone needs more than the whole limit: no reset can
+    /// make it fit.
+    pub fn ask_budget_for(
+        &self,
+        guard: &TurnGuard,
+        needed_micros: Micros,
+        call: Value,
+    ) -> Result<Action> {
         let _w = self.locks.lock(&guard.execution_id);
         let mut e = self
             .execution(&guard.execution_id)?
@@ -1354,9 +1370,13 @@ impl Kernel {
             }
         }
         let b = &e.budget;
+        let mut args = json!({"spent_micros": b.spent_micros, "limit_micros": b.limit_micros, "needed_micros": needed_micros, "resets": b.resets});
+        if !call.is_null() {
+            args["call"] = call;
+        }
         let proposal = Proposal {
             tool: BUDGET_TOOL.into(),
-            args: json!({"spent_micros": b.spent_micros, "limit_micros": b.limit_micros, "needed_micros": needed_micros, "resets": b.resets}),
+            args,
             resource: None,
             policy_context: json!({}),
         };
@@ -1394,6 +1414,7 @@ impl Kernel {
             "needed_usd": micros_to_usd(needed_micros),
             "available_usd": micros_to_usd(b.available()),
             "resets": b.resets,
+            "exceeds_limit": needed_micros > b.limit_micros,
         });
         e.budget.question = Some(q.correlation_id.clone());
         e.budget.question_needs_micros = needed_micros;

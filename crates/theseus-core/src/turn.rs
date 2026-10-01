@@ -215,6 +215,11 @@ struct Turn<'a> {
     awaiting: Option<String>,
     /// The budget question the turn parks on: a call did not fit.
     budget_question: Option<String>,
+    /// This turn retries a call the operator approved a reset for though it
+    /// alone needed more than the whole limit (theseus-kks). If its first
+    /// call still does not fit the limit, the turn ends instead of asking the
+    /// same question again.
+    retry_over_limit: bool,
     /// Jobs this turn started or resumed in the background.
     background: Vec<String>,
     stop_reason: String,
@@ -294,6 +299,7 @@ impl<'a> Turn<'a> {
             last: None,
             awaiting: None,
             budget_question: None,
+            retry_over_limit: false,
             background: Vec::new(),
             stop_reason: String::new(),
             said: Vec::new(),
@@ -1220,6 +1226,11 @@ impl TurnRunner {
                     spent,
                     limit,
                 } => {
+                    if needed > limit && t.retry_over_limit {
+                        t.trace.exit(json!({"decision": "over_limit"}));
+                        let f = Self::over_limit(&mut t, needed, limit);
+                        return Err(Self::fail(t, &mut session, f));
+                    }
                     self.ask_budget(&mut t, &session, needed, available, spent, limit)?;
                     t.trace.exit(json!({"decision": "budget"}));
                     break;
@@ -1231,6 +1242,8 @@ impl TurnRunner {
                 }
             };
             let uses = resp.tool_uses();
+            // A call that fit: a later one over the limit asks again.
+            t.retry_over_limit = false;
             // A stop that landed while the model answered (W1): its answer is
             // kept, and none of its calls run.
             if let Some(by) = stopped_by(&t.tc)? {
@@ -1273,6 +1286,15 @@ impl TurnRunner {
                 .any(|a| a.tool == BUDGET_TOOL && (a.state == ActionState::Succeeded) == approved)
         };
         let (reset, raised) = (budget(true), budget(false));
+        // An approved reset of a call that alone needed more than the limit
+        // (theseus-kks): the retry gets one try, and asks nothing more.
+        t.retry_over_limit = settled.iter().any(|a| {
+            a.tool == BUDGET_TOOL
+                && a.state == ActionState::Succeeded
+                && a.proposal.as_ref().is_some_and(|p| {
+                    p.args["needed_micros"].as_u64() > p.args["limit_micros"].as_u64()
+                })
+        });
         let resumed = self.tools.resume(&t.tc, has_input).await?;
         // The reports of this session's tasks that ended since its last turn
         // (DD7), after the calls above and before the new input.
@@ -1854,7 +1876,10 @@ impl TurnRunner {
         spent: Micros,
         limit: Micros,
     ) -> Result<()> {
-        let q = t.tc.kernel.ask_budget(t.tc.guard, needed)?;
+        let call = json!({"profile": t.target.profile, "model": t.target.model, "max_output_tokens": t.target.max_tokens});
+        let q =
+            t.tc.kernel
+                .ask_budget_for(t.tc.guard, needed, call.clone())?;
         // Its card rides in the turn's next frame, the one that parks it on
         // the question (theseus-q4v).
         if let Some(target) = self.outbox.target(t.tc.session_id) {
@@ -1874,11 +1899,7 @@ impl TurnRunner {
             Some(_) => format!("Task {}", crate::task::short(t.tc.session_id)),
             None => "This session".to_string(),
         };
-        let question = format!(
-            "{who} has spent {} of its {} limit. Reset its spend to $0 and continue?",
-            narrative::dollars(spent),
-            narrative::dollars(limit)
-        );
+        let question = budget_question(&who, spent, limit, needed, &call);
         let now = theseus_protocol::now_unix_ms();
         let req = ConfirmRequest {
             correlation_id: q.correlation_id.clone(),
@@ -1930,6 +1951,36 @@ impl TurnRunner {
         t.budget_question = Some(q.correlation_id);
         t.stop_reason = "budget".into();
         Ok(())
+    }
+
+    /// The operator approved a reset for a call that alone needed more than
+    /// the whole limit, and the retry's call still does (theseus-kks): no
+    /// reset can make it fit, so the turn fails instead of asking the same
+    /// question again. Its failed notice names the figures and the remedies,
+    /// and the execution waits on input (a task ends and reports it).
+    fn over_limit(t: &mut Turn<'_>, needed: Micros, limit: Micros) -> Failure {
+        let msg = format!(
+            "the call to {} alone reserves {}, more than the whole {} spend limit, so a reset \
+             cannot make it fit and the turn ends here. Raise `[kernel] spend_limit_usd` above \
+             {}, or {}, then send a message to try again",
+            t.target.model,
+            narrative::dollars(needed),
+            narrative::dollars(limit),
+            narrative::dollars(needed),
+            lower_cap(&t.target.profile, u64::from(t.target.max_tokens)),
+        );
+        narrate_turn!(t.tc, Model, "Still over the limit after the reset: {msg}.");
+        t.tc.ledger(
+            "budget.over_limit",
+            json!({"model": t.target.model, "profile": t.target.profile, "max_output_tokens": t.target.max_tokens, "needed_usd": micros_to_usd(needed), "limit_usd": micros_to_usd(limit)}),
+        );
+        Failure {
+            class: "over_limit".into(),
+            transient: false,
+            usage_unknown: false,
+            reason: "over_limit".into(),
+            source: anyhow::anyhow!("{msg}"),
+        }
     }
 
     /// Settle a call that answered: the assistant node rides in the frame of
@@ -2651,6 +2702,54 @@ impl TurnRunner {
         }
         Ok(())
     }
+}
+
+/// What a budget question says (theseus-0sg), here and wherever it is shown
+/// again (`confirm.list`, the Discord card). `call` is the question's
+/// `args.call`: the call's profile, model, and output cap, or `Null` for a
+/// question asked before theseus-kks. A call that alone needs more than the
+/// whole limit cannot fit after any reset (theseus-kks), so its question
+/// says so, with both figures, names the two remedies, and says what an
+/// approval then does: one more try, and no second question.
+pub(crate) fn budget_question(
+    who: &str,
+    spent: Micros,
+    limit: Micros,
+    needed: Micros,
+    call: &Value,
+) -> String {
+    if needed <= limit {
+        return format!(
+            "{who} has spent {} of its {} limit. Reset its spend to $0 and continue?",
+            narrative::dollars(spent),
+            narrative::dollars(limit)
+        );
+    }
+    let model = call["model"].as_str().map_or_else(
+        || "its next model call".to_string(),
+        |m| format!("the call to {m}"),
+    );
+    let lower = match (call["profile"].as_str(), call["max_output_tokens"].as_u64()) {
+        (Some(p), Some(n)) => lower_cap(p, n),
+        _ => "lower the profile's `max_output_tokens`".to_string(),
+    };
+    format!(
+        "{who} is waiting on {model}, which alone reserves {}: more than its whole {} limit, \
+         so resetting its spend to $0 cannot make it fit. Raise `[kernel] spend_limit_usd` above \
+         {}, or {lower}. Approving resets the spend and tries the call once more; if it still \
+         does not fit, the turn ends and does not ask again.",
+        narrative::dollars(needed),
+        narrative::dollars(limit),
+        narrative::dollars(needed),
+    )
+}
+
+/// The second remedy for a call over the whole limit (theseus-kks).
+fn lower_cap(profile: &str, max_output_tokens: u64) -> String {
+    format!(
+        "lower `max_output_tokens` under `[profiles.{profile}]` (now {})",
+        narrative::thousands(max_output_tokens)
+    )
 }
 
 /// A failed turn, with the classification the protocol reports in `error.data`.

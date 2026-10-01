@@ -2015,6 +2015,155 @@ async fn a_declined_reset_keeps_waiting_and_the_next_message_asks_again() {
     assert!(r.core.pending_confirms(&sid).unwrap().is_empty());
 }
 
+// ------------------------------------------- one call over the whole limit (theseus-kks)
+
+/// The template's live profile reserves $1.28 for its output cap alone, so
+/// under a $1 limit its very first call cannot fit, whatever the spend.
+fn over_limit_rig() -> Rig {
+    rig_with(vec![Scripted::text("never sent")], |c| {
+        c.kernel.spend_limit_usd = 1.0;
+    })
+}
+
+/// A call whose reservation alone is bigger than the whole limit asks once,
+/// and its question says so: both figures, and the two remedies (a higher
+/// `spend_limit_usd`, a lower `max_output_tokens` on the profile it runs on).
+/// Every surface that shows the question again (`confirm.list`, the card)
+/// says the same, and the `budget.asked` row marks it `exceeds_limit`.
+#[tokio::test]
+async fn a_call_over_the_whole_limit_asks_once_and_names_the_remedies() {
+    let r = over_limit_rig();
+    let (sid, mut rx) = watched_session(&r);
+    let res = turn(&r.core, Some(&sid), "hello").await;
+    assert_eq!(res.stop_reason, "budget", "{res:?}");
+    assert!(r.fake.requests().is_empty(), "nothing ran over the limit");
+    let exec = res.execution_id.unwrap();
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    let (needed, limit) = (e.budget.question_needs_micros, e.budget.limit_micros);
+    assert!(needed > limit, "{needed} vs {limit}");
+    let asked = sent(&mut rx, theseus_protocol::notify::CONFIRM_REQUESTED);
+    assert_eq!(asked.len(), 1, "asked once: {asked:?}");
+    let req: theseus_protocol::ConfirmRequest = serde_json::from_value(asked[0].clone()).unwrap();
+    let target = r
+        .core
+        .runner
+        .resolve_target(&r.core.live_profile().0, None, None, None)
+        .unwrap();
+    for part in [
+        format!(
+            "alone reserves {}: more than its whole {} limit",
+            crate::narrative::dollars(needed),
+            crate::narrative::dollars(limit)
+        ),
+        "cannot make it fit".to_string(),
+        format!(
+            "Raise `[kernel] spend_limit_usd` above {}",
+            crate::narrative::dollars(needed)
+        ),
+        format!(
+            "lower `max_output_tokens` under `[profiles.{}]` (now {})",
+            target.profile,
+            crate::narrative::thousands(u64::from(target.max_tokens))
+        ),
+        "does not ask again".to_string(),
+    ] {
+        assert!(req.reason.contains(&part), "{part:?} in {:?}", req.reason);
+    }
+    let pending = r.core.pending_confirms(&sid).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].reason, req.reason, "the card says the same");
+    let rows = ledgered(&r, "budget.asked");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["exceeds_limit"], json!(true));
+}
+
+/// An approved reset cannot make such a call fit, so it does not bring the
+/// same question back: the retry tries the call once, and when it still does
+/// not fit the turn fails (`over_limit`) with the figures and the remedies,
+/// asks nothing, and the session waits on its next input.
+#[tokio::test]
+async fn an_approved_reset_of_a_call_over_the_whole_limit_does_not_ask_again() {
+    use theseus_kernel::{ExecState, Wake};
+    let r = over_limit_rig();
+    let (sid, mut rx) = watched_session(&r);
+    let res = turn(&r.core, Some(&sid), "hello").await;
+    let (exec, q) = (
+        res.execution_id.clone().unwrap(),
+        res.awaiting_confirm.clone().unwrap(),
+    );
+    let _ = sent(&mut rx, theseus_protocol::notify::CONFIRM_REQUESTED);
+    let ans = r
+        .core
+        .confirm_action(&q, true, None, "discord:eddie")
+        .unwrap();
+    assert!(ans.approved && ans.resumes);
+    let err = r
+        .core
+        .continue_execution(&exec)
+        .await
+        .expect_err("the retry fails instead of asking");
+    let te = err
+        .downcast_ref::<crate::turn::TurnError>()
+        .unwrap_or_else(|| panic!("a turn failure: {err:#}"));
+    assert_eq!(te.class, "over_limit");
+    let why = format!("{:#}", te.source);
+    assert!(
+        why.contains("spend_limit_usd") && why.contains("max_output_tokens"),
+        "{why}"
+    );
+    assert!(r.fake.requests().is_empty(), "nothing ran over the limit");
+    assert!(
+        sent(&mut rx, theseus_protocol::notify::CONFIRM_REQUESTED).is_empty(),
+        "no second question"
+    );
+    assert_eq!(ledgered(&r, "budget.asked").len(), 1);
+    assert_eq!(ledgered(&r, "budget.over_limit").len(), 1);
+    assert!(r.core.pending_confirms(&sid).unwrap().is_empty());
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (e.state, e.wake.clone(), e.budget.question.clone()),
+        (ExecState::Waiting, Some(Wake::Input), None)
+    );
+    // Nothing more for the driver: the session waits on its operator.
+    assert!(!e.resume_pending);
+}
+
+/// The ordinary path is as it was: a call that fits the limit but not what
+/// is left of it asks the old question, the reset's retry makes the call,
+/// and nothing says the call is over the whole limit.
+#[tokio::test]
+async fn an_ordinary_over_budget_call_still_asks_resets_and_goes_ahead() {
+    let r = over_budget_rig(vec![Scripted::text("The diff is one line.")]);
+    let (sid, mut rx) = watched_session(&r);
+    let res = turn(&r.core, Some(&sid), "diff these").await;
+    assert_eq!(res.stop_reason, "budget", "{res:?}");
+    let (exec, q) = (
+        res.execution_id.clone().unwrap(),
+        res.awaiting_confirm.clone().unwrap(),
+    );
+    let asked = sent(&mut rx, theseus_protocol::notify::CONFIRM_REQUESTED);
+    let req: theseus_protocol::ConfirmRequest = serde_json::from_value(asked[0].clone()).unwrap();
+    assert!(
+        req.reason
+            .ends_with("limit. Reset its spend to $0 and continue?")
+            && !req.reason.contains("spend_limit_usd"),
+        "{}",
+        req.reason
+    );
+    assert_eq!(
+        ledgered(&r, "budget.asked")[0]["exceeds_limit"],
+        json!(false)
+    );
+    r.core
+        .confirm_action(&q, true, None, "discord:eddie")
+        .unwrap();
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.output, "The diff is one line.");
+    assert_eq!(r.fake.requests().len(), 2, "the waiting call ran");
+    assert!(ledgered(&r, "budget.over_limit").is_empty());
+    assert_eq!(ledgered(&r, "budget.asked").len(), 1);
+}
+
 /// One call's reservation and settlement in dollars, by hand from the
 /// catalog (Sonnet 5.5: $2 in, $10 out, $0.20 cache read, $2.50 cache write
 /// per million tokens). The call reserves 128,000 output tokens at $10 plus

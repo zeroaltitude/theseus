@@ -83,14 +83,18 @@ impl Core {
             tool: BUDGET_TOOL.into(),
             input: json!({"spent_usd": usd(b.spent_micros), "limit_usd": usd(b.limit_micros), "needed_usd": needed}),
             resource: None,
-            reason: format!(
-                "{} has spent {} of its {} limit. Reset its spend to $0 and continue?",
-                match &session.task {
+            reason: crate::turn::budget_question(
+                &match &session.task {
                     Some(_) => format!("Task {}", crate::task::short(&session.session_id)),
                     None => "This session".to_string(),
                 },
-                crate::narrative::dollars(b.spent_micros),
-                crate::narrative::dollars(b.limit_micros)
+                b.spent_micros,
+                b.limit_micros,
+                b.question_needs_micros,
+                &q.proposal
+                    .as_ref()
+                    .map(|p| p.args["call"].clone())
+                    .unwrap_or_default(),
             ),
             by: OPERATOR.into(),
             requested_at_ms: q.planned_at_ms,
