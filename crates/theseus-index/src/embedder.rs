@@ -2,11 +2,18 @@
 //! Nomic Embed Text v1.5 on candle 0.11, at f32, on the caller's thread.
 //!
 //! A text becomes a vector Nomic's way: its task prefix (`search_document: `
-//! for chunks, `search_query: ` for queries), WordPiece, `[CLS] … [SEP]` cut
-//! at 512 tokens, the encoder, masked mean pooling, a layer norm without
-//! weights, then the full 768-d vector L2-normalized, and the first 256
-//! dimensions (Matryoshka's cut) L2-normalized on their own. The 256-d one is
-//! scanned as int8; the 768-d one re-scores, and is kept at f16.
+//! for chunks, `search_query: ` for queries), WordPiece, `[CLS] … [SEP]`, the
+//! encoder, masked mean pooling, a layer norm without weights, then the full
+//! 768-d vector L2-normalized, and the first 256 dimensions (Matryoshka's
+//! cut) L2-normalized on their own. The 256-d one is scanned as int8; the
+//! 768-d one re-scores, and is kept at f16.
+//!
+//! **Windows.** A text past 512 tokens is embedded in windows of 512, each
+//! `[CLS]`, the prefix, the next stretch of the text, `[SEP]`, and its pooled
+//! vector is the mean over every window's tokens. The index's chunks are cut
+//! by an estimate (29b's), and on Eddie's store a quarter of them came out a
+//! little past 512 word pieces: windows embed all of each, not its first 512.
+//! At most [`MAX_WINDOWS`]; past that a text is cut, and says so.
 //!
 //! **One thread.** candle sizes gemm's parallelism from `RAYON_NUM_THREADS`
 //! at every matmul, and its quantized pool from `CANDLE_NUM_THREADS`, both
@@ -27,15 +34,18 @@ use crate::proto::{Stamp, Task};
 use crate::weights::{self, LoadError};
 use crate::wordpiece::WordPiece;
 
-/// The most tokens a text is embedded with, `[CLS]` and `[SEP]` included.
+/// The most tokens in one window, `[CLS]` and `[SEP]` included.
 pub const MAX_TOKENS: usize = 512;
+
+/// The most windows a text is embedded in (about 4,000 tokens).
+pub const MAX_WINDOWS: usize = 8;
 
 /// The engine, pinned in `Cargo.toml` (`=0.11.0`).
 pub const ENGINE: &str = "candle-0.11.0";
 
 /// Bumped when this code's vectors change for the same weights: the
-/// prefixes, the cap, the pooling, the cut, the quantization.
-pub const EMBED_VERSION: u32 = 1;
+/// prefixes, the windows, the pooling, the cut, the quantization.
+pub const EMBED_VERSION: u32 = 2;
 
 pub const PRECISION: &str = "f32";
 
@@ -117,10 +127,28 @@ pub struct Vector {
     pub full: Vec<f32>,
     /// Its first `cut` dimensions, unit length.
     pub cut: Vec<f32>,
-    /// Its tokens, prefix and `[CLS]`/`[SEP]` included.
+    /// Its tokens, over all its windows, each window's prefix and
+    /// `[CLS]`/`[SEP]` included.
     pub tokens: usize,
-    /// Cut at [`MAX_TOKENS`].
+    /// Embedded in more than one window.
+    pub windowed: bool,
+    /// Cut at [`MAX_WINDOWS`].
     pub truncated: bool,
+}
+
+/// A text as the model reads it: one window or more, each
+/// `[CLS] prefix … [SEP]`, at most [`MAX_TOKENS`] long.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Windows {
+    pub ids: Vec<Vec<u32>>,
+    /// Cut at [`MAX_WINDOWS`].
+    pub truncated: bool,
+}
+
+impl Windows {
+    pub fn tokens(&self) -> usize {
+        self.ids.iter().map(Vec::len).sum()
+    }
 }
 
 pub struct Embedder {
@@ -128,6 +156,19 @@ pub struct Embedder {
     tok: WordPiece,
     model: NomicBert,
     pad: u32,
+    cls: u32,
+    sep: u32,
+    /// Each task's prefix, as ids.
+    prefixes: [Vec<u32>; 4],
+}
+
+fn task_index(t: Task) -> usize {
+    match t {
+        Task::SearchDocument => 0,
+        Task::SearchQuery => 1,
+        Task::Clustering => 2,
+        Task::Classification => 3,
+    }
 }
 
 impl Embedder {
@@ -157,12 +198,28 @@ impl Embedder {
         anyhow::ensure!(spec.cut <= spec.config.hidden, "a cut past the vector");
         let vb = VarBuilder::from_tensors(tensors, DType::F32, &Device::Cpu);
         let model = NomicBert::load(vb, &spec.config).context("building the model")?;
-        let pad = tok.token_id("[PAD]").unwrap_or(0);
+        let id = |t: &str| tok.token_id(t).with_context(|| format!("no {t}"));
+        let (pad, cls, sep) = (id("[PAD]")?, id("[CLS]")?, id("[SEP]")?);
+        let prefix = |t: Task| tok.ids(t.prefix(), usize::MAX).0;
+        let prefixes = [
+            prefix(Task::SearchDocument),
+            prefix(Task::SearchQuery),
+            prefix(Task::Clustering),
+            prefix(Task::Classification),
+        ];
+        anyhow::ensure!(
+            spec.config.max_pos.min(MAX_TOKENS)
+                > 2 + prefixes.iter().map(Vec::len).max().unwrap_or(0),
+            "a model too short for its prefixes"
+        );
         Ok(Embedder {
             spec,
             tok,
             model,
             pad,
+            cls,
+            sep,
+            prefixes,
         })
     }
 
@@ -170,33 +227,87 @@ impl Embedder {
         &self.spec
     }
 
-    /// A text's ids as embedded: its task's prefix, `[CLS] … [SEP]`, at
-    /// most [`MAX_TOKENS`]; and whether it was cut.
-    pub fn tokenize(&self, task: Task, text: &str) -> (Vec<u32>, bool) {
-        let mut s = String::with_capacity(task.prefix().len() + text.len());
-        s.push_str(task.prefix());
-        s.push_str(text);
-        self.tok
-            .encode(&s, MAX_TOKENS.min(self.spec.config.max_pos))
+    /// A text as the model reads it: `[CLS]`, its task's prefix, the text,
+    /// `[SEP]`, in windows of at most [`MAX_TOKENS`], each with the prefix.
+    /// The prefix ends in a space, so the text's word pieces are the same
+    /// apart as after it.
+    pub fn tokenize(&self, task: Task, text: &str) -> Windows {
+        let prefix = &self.prefixes[task_index(task)];
+        let room = MAX_TOKENS.min(self.spec.config.max_pos) - 2 - prefix.len();
+        let (body, truncated) = self.tok.ids(text, room * MAX_WINDOWS);
+        let window = |part: &[u32]| {
+            let mut w = Vec::with_capacity(part.len() + prefix.len() + 2);
+            w.push(self.cls);
+            w.extend_from_slice(prefix);
+            w.extend_from_slice(part);
+            w.push(self.sep);
+            w
+        };
+        let ids = if body.is_empty() {
+            vec![window(&[])]
+        } else {
+            body.chunks(room).map(window).collect()
+        };
+        Windows { ids, truncated }
     }
 
-    /// The texts' vectors, as one padded batch: callers group texts of about
-    /// one length (a batch costs its longest member's length times its size).
+    /// The texts' vectors: callers group texts of about one length (a batch
+    /// costs its longest member's length times its size).
     pub fn embed(&self, task: Task, texts: &[&str]) -> anyhow::Result<Vec<Vector>> {
-        let rows: Vec<(Vec<u32>, bool)> = texts.iter().map(|t| self.tokenize(task, t)).collect();
-        self.embed_ids(&rows)
+        let items: Vec<Windows> = texts.iter().map(|t| self.tokenize(task, t)).collect();
+        self.embed_windows(&items)
     }
 
-    /// The vectors of tokenized texts, as one padded batch.
-    pub fn embed_ids(&self, rows: &[(Vec<u32>, bool)]) -> anyhow::Result<Vec<Vector>> {
+    /// The vectors of tokenized texts: one padded batch when each is one
+    /// window; otherwise one window at a time (a long window gains nothing
+    /// from a batch), each text's vector pooled over all its windows' tokens.
+    pub fn embed_windows(&self, items: &[Windows]) -> anyhow::Result<Vec<Vector>> {
+        let mut sums: Vec<(Vec<f64>, usize)> = Vec::with_capacity(items.len());
+        if items.iter().all(|w| w.ids.len() == 1) {
+            let rows: Vec<&[u32]> = items.iter().map(|w| w.ids[0].as_slice()).collect();
+            sums = self.token_sums(&rows)?;
+        } else {
+            for w in items {
+                let mut total = (vec![0f64; self.spec.config.hidden], 0usize);
+                for win in &w.ids {
+                    let (s, n) = self.token_sums(&[win.as_slice()])?.remove(0);
+                    total.0.iter_mut().zip(&s).for_each(|(a, b)| *a += b);
+                    total.1 += n;
+                }
+                sums.push(total);
+            }
+        }
+        Ok(sums
+            .iter()
+            .zip(items)
+            .map(|((sum, n), w)| {
+                let pooled: Vec<f32> = sum
+                    .iter()
+                    .map(|&s| (s / (*n).max(1) as f64) as f32)
+                    .collect();
+                let (full, short) = finish(&pooled, self.spec.cut);
+                Vector {
+                    full,
+                    cut: short,
+                    tokens: w.tokens(),
+                    windowed: w.ids.len() > 1,
+                    truncated: w.truncated,
+                }
+            })
+            .collect())
+    }
+
+    /// One padded batch through the encoder: each row's sum of its tokens'
+    /// last hidden states, and how many tokens.
+    fn token_sums(&self, rows: &[&[u32]]) -> anyhow::Result<Vec<(Vec<f64>, usize)>> {
         if rows.is_empty() {
             return Ok(Vec::new());
         }
         let batch = rows.len();
-        let seq = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
+        let seq = rows.iter().map(|r| r.len()).max().unwrap_or(0);
         let mut ids = vec![self.pad; batch * seq];
         let mut mask = vec![0u32; batch * seq];
-        for (r, (row, _)) in rows.iter().enumerate() {
+        for (r, row) in rows.iter().enumerate() {
             ids[r * seq..r * seq + row.len()].copy_from_slice(row);
             mask[r * seq..r * seq + row.len()].fill(1);
         }
@@ -205,33 +316,25 @@ impl Embedder {
         let mask_t = Tensor::from_vec(mask.clone(), (batch, seq), &dev)?;
         let hidden = self.model.forward(&ids_t, &mask_t)?;
         let hidden: Vec<f32> = hidden.flatten_all()?.to_vec1()?;
-        let dim = self.spec.config.hidden;
-        let pooled = mean_pool(&hidden, &mask, batch, seq, dim);
-        Ok(pooled
-            .iter()
-            .zip(rows)
-            .map(|(p, (row, cut))| {
-                let (full, short) = finish(p, self.spec.cut);
-                Vector {
-                    full,
-                    cut: short,
-                    tokens: row.len(),
-                    truncated: *cut,
-                }
-            })
-            .collect())
+        Ok(token_sums(
+            &hidden,
+            &mask,
+            batch,
+            seq,
+            self.spec.config.hidden,
+        ))
     }
 }
 
-/// The mean of each row's unmasked token states. `hidden` is row-major
-/// `(batch, seq, dim)`.
-pub fn mean_pool(
+/// Each row's sum of its unmasked token states, and their count. `hidden` is
+/// row-major `(batch, seq, dim)`.
+pub fn token_sums(
     hidden: &[f32],
     mask: &[u32],
     batch: usize,
     seq: usize,
     dim: usize,
-) -> Vec<Vec<f32>> {
+) -> Vec<(Vec<f64>, usize)> {
     (0..batch)
         .map(|b| {
             let mut sum = vec![0f64; dim];
@@ -246,7 +349,7 @@ pub fn mean_pool(
                     *s += f64::from(x);
                 }
             }
-            sum.iter().map(|&s| (s / n.max(1) as f64) as f32).collect()
+            (sum, n)
         })
         .collect()
 }
@@ -371,14 +474,54 @@ mod tests {
         // The prefix is part of the text: a query's vector is not a document's.
         let q = emb.embed(Task::SearchQuery, &["kumquat"]).unwrap();
         assert!(cosine(&q[0].full, &v[1].full) < 0.999);
-        assert_eq!(
-            v[0].tokens,
-            emb.tokenize(Task::SearchDocument, texts[0]).0.len()
-        );
-        // A text past the cap is cut at 512 tokens, and says so.
+        let w = emb.tokenize(Task::SearchDocument, texts[0]);
+        assert_eq!((w.ids.len(), v[0].tokens), (1, w.tokens()));
+        assert!(!v[0].windowed && !v[0].truncated);
+    }
+
+    #[test]
+    fn a_long_text_is_embedded_in_windows_and_pooled_over_all_its_tokens() {
+        let emb = tiny_embedder();
+        // "word" is four pieces (w ##o ##r ##d) in the tiny vocabulary: 2,400
+        // pieces, in windows of 506 after `[CLS]`, the prefix's 4, `[SEP]`.
         let long = "word ".repeat(600);
-        let cut = emb.embed(Task::SearchDocument, &[&long]).unwrap();
-        assert_eq!((cut[0].tokens, cut[0].truncated), (MAX_TOKENS, true));
+        let w = emb.tokenize(Task::SearchDocument, &long);
+        assert_eq!(w.ids.len(), 5);
+        assert!(w.ids.iter().all(|x| x.len() <= MAX_TOKENS));
+        assert_eq!(w.ids[0].len(), MAX_TOKENS);
+        assert_eq!(w.tokens(), 2_400 + 5 * 6);
+        let prefix = &w.ids[0][..5];
+        assert!(w
+            .ids
+            .iter()
+            .all(|x| &x[..5] == prefix && x.last() == w.ids[0].last()));
+        assert!(!w.truncated);
+        // Its vector is the mean over every window's tokens, as one pass
+        // over all of them would pool them.
+        let v = emb.embed(Task::SearchDocument, &[&long]).unwrap().remove(0);
+        assert!(v.windowed && !v.truncated);
+        assert_eq!(v.tokens, w.tokens());
+        let (mut sum, mut n) = (vec![0f64; 32], 0usize);
+        for win in &w.ids {
+            let (s, k) = emb.token_sums(&[win.as_slice()]).unwrap().remove(0);
+            sum.iter_mut().zip(&s).for_each(|(a, b)| *a += b);
+            n += k;
+        }
+        let pooled: Vec<f32> = sum.iter().map(|&s| (s / n as f64) as f32).collect();
+        assert_eq!(v.full, finish(&pooled, 16).0);
+        // Not the first window's vector alone: the rest of the text counts.
+        let first = emb
+            .embed_windows(&[Windows {
+                ids: vec![w.ids[0].clone()],
+                truncated: false,
+            }])
+            .unwrap();
+        assert!(cosine(&first[0].full, &v.full) < 0.999_999);
+        // Past the cap of windows, the text is cut, and says so.
+        let longer = "word ".repeat(1_200);
+        let w = emb.tokenize(Task::SearchDocument, &longer);
+        assert_eq!((w.ids.len(), w.truncated), (MAX_WINDOWS, true));
+        assert_eq!(w.tokens(), MAX_WINDOWS * MAX_TOKENS);
     }
 
     /// The 29a spike's sentences: six queries, each with a paraphrase that

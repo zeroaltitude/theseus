@@ -389,7 +389,10 @@ pub struct EmbedStats {
     pub batches: u64,
     /// Tokens embedded, padding not counted.
     pub tokens: u64,
-    /// Texts cut at 512 tokens.
+    /// Texts past 512 tokens, embedded in windows.
+    #[serde(default)]
+    pub windowed: u64,
+    /// Texts cut at the windows' cap (about 4,000 tokens).
     pub truncated: u64,
     /// The embedding thread's wall time and CPU time in batches.
     pub wall_ms: u64,

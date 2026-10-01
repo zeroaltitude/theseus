@@ -176,17 +176,26 @@ impl WordPiece {
     /// `[CLS]`, the text's tokens, `[SEP]`: at most `max` ids, cutting the
     /// text's tokens at `max - 2`. Also whether it was cut.
     pub fn encode(&self, text: &str, max: usize) -> (Vec<u32>, bool) {
-        let budget = max.max(2) - 2;
-        let mut ids = vec![self.cls];
+        let (body, cut) = self.ids(text, max.max(2) - 2);
+        let mut ids = Vec::with_capacity(body.len() + 2);
+        ids.push(self.cls);
+        ids.extend(body);
+        ids.push(self.sep);
+        (ids, cut)
+    }
+
+    /// The text's tokens alone (no `[CLS]` or `[SEP]`), at most `max` of
+    /// them; and whether it was cut.
+    pub fn ids(&self, text: &str, max: usize) -> (Vec<u32>, bool) {
+        let mut ids = Vec::new();
         let mut rest = text;
-        let mut cut = false;
-        while !rest.is_empty() {
+        while !rest.is_empty() && ids.len() <= max {
             let (before, special, after) = self.next_special(rest);
             if !before.is_empty() {
                 let norm = normalize(before);
                 for word in words(&norm) {
                     self.word_piece(word, &mut ids);
-                    if ids.len() > budget + 1 {
+                    if ids.len() > max {
                         break;
                     }
                 }
@@ -194,17 +203,10 @@ impl WordPiece {
             if let Some(id) = special {
                 ids.push(id);
             }
-            if ids.len() > budget + 1 {
-                cut = true;
-                break;
-            }
             rest = after;
         }
-        if ids.len() > budget + 1 {
-            cut = true;
-            ids.truncate(budget + 1);
-        }
-        ids.push(self.sep);
+        let cut = ids.len() > max;
+        ids.truncate(max);
         (ids, cut)
     }
 
@@ -442,6 +444,28 @@ mod tests {
             let engine = crate::engine::Engine::new(index, fields).unwrap();
             let chunks = engine.dump().unwrap();
             eprintln!("{} chunks from {dir}", chunks.len());
+            // The chunker's estimate against the model's count.
+            let mut ratios: Vec<(f64, usize, usize, String)> = chunks
+                .iter()
+                .map(|c| {
+                    let est = crate::chunk::tokens(&c.text);
+                    let wp = ours.encode(&c.text, usize::MAX).0.len() - 2;
+                    let head: String = c.text.chars().take(60).collect();
+                    (wp as f64 / est.max(1) as f64, est, wp, head)
+                })
+                .collect();
+            ratios.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let over = ratios.iter().filter(|r| r.2 > 510).count();
+            let q = |p: f64| ratios[((ratios.len() - 1) as f64 * p) as usize].0;
+            eprintln!(
+                "word pieces / estimate: p50 {:.2}, p90 {:.2}, max {:.2}; {over} chunks over 510 pieces",
+                q(0.5),
+                q(0.9),
+                q(1.0)
+            );
+            for r in ratios.iter().rev().take(8) {
+                eprintln!("  {:.2}  est {:>4}  pieces {:>5}  {:?}", r.0, r.1, r.2, r.3);
+            }
             texts.extend(
                 chunks
                     .into_iter()

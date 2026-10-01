@@ -37,7 +37,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::Context as _;
 use sha2::{Digest, Sha256};
 
-use crate::embedder::{self, dot_i8, quantize, stamp_key, Embedder, ModelSpec, Vector};
+use crate::embedder::{self, dot_i8, quantize, stamp_key, Embedder, ModelSpec, Vector, Windows};
 use crate::proto::{
     EmbedParams, EmbedResult, EmbedStats, Filters, Neighbour, Reembed, Stamp, Task, VectorStatus,
 };
@@ -1181,13 +1181,14 @@ impl Vectors {
             return;
         }
         let (t0, c0) = (Instant::now(), thread_cpu_ms());
-        let rows: Vec<(Vec<u32>, bool)> = batch
+        let rows: Vec<Windows> = batch
             .iter()
             .map(|(_, text)| emb.tokenize(Task::SearchDocument, text))
             .collect();
-        let tokens: u64 = rows.iter().map(|r| r.0.len() as u64).sum();
-        let truncated = rows.iter().filter(|r| r.1).count() as u64;
-        let r = emb.embed_ids(&rows);
+        let tokens: u64 = rows.iter().map(|r| r.tokens() as u64).sum();
+        let truncated = rows.iter().filter(|r| r.truncated).count() as u64;
+        let windowed = rows.iter().filter(|r| r.ids.len() > 1).count() as u64;
+        let r = emb.embed_windows(&rows);
         let (wall, cpu) = (t0.elapsed().as_millis() as u64, thread_cpu_ms() - c0);
         self.state.lock().unwrap().last_used = Instant::now();
         let vectors = match r {
@@ -1228,6 +1229,7 @@ impl Vectors {
         s.0.batches += 1;
         s.0.tokens += tokens;
         s.0.truncated += truncated;
+        s.0.windowed += windowed;
         s.0.wall_ms += wall;
         s.0.cpu_ms += cpu;
     }
@@ -1455,12 +1457,12 @@ impl Vectors {
             emb.spec().cut
         );
         let t0 = Instant::now();
-        let rows: Vec<(Vec<u32>, bool)> = p.texts.iter().map(|t| emb.tokenize(p.task, t)).collect();
-        let lens: Vec<usize> = rows.iter().map(|r| r.0.len()).collect();
+        let rows: Vec<Windows> = p.texts.iter().map(|t| emb.tokenize(p.task, t)).collect();
+        let lens: Vec<usize> = rows.iter().map(Windows::tokens).collect();
         let mut vectors = vec![Vec::new(); rows.len()];
         for b in plan_batches(&lens) {
-            let batch: Vec<(Vec<u32>, bool)> = b.iter().map(|&i| rows[i].clone()).collect();
-            for (i, v) in b.iter().zip(emb.embed_ids(&batch)?) {
+            let batch: Vec<Windows> = b.iter().map(|&i| rows[i].clone()).collect();
+            for (i, v) in b.iter().zip(emb.embed_windows(&batch)?) {
                 vectors[*i] = if dims == full { v.full } else { v.cut };
             }
         }
@@ -1576,6 +1578,7 @@ mod tests {
             full: f,
             cut: c,
             tokens: 1,
+            windowed: false,
             truncated: false,
         }
     }
@@ -1778,5 +1781,89 @@ mod tests {
             vec![vec![0, 5, 6, 7, 8, 9, 10, 11], vec![2, 3], vec![4], vec![1]]
         );
         assert!(plan_batches(&[]).is_empty());
+    }
+
+    /// The scan at the design's scale: 100,000 chunks at 256 int8 dimensions
+    /// (25.6 MB), and their 768-d vectors on disk. Prints the scan's and the
+    /// scan-and-re-score's p50 and p95; HNSW waits until the scan's p95
+    /// passes 10 ms (§2.2). Run in release:
+    /// `cargo test --release -p theseus-index --lib -- --ignored --nocapture bench_`.
+    #[test]
+    #[ignore = "a benchmark: 181 MB of vectors, timed (run in release)"]
+    fn bench_the_flat_scan_over_100k_chunks() {
+        let n = 100_000;
+        let tmp = tempfile::tempdir().unwrap();
+        let mut rng = SplitMix(2026);
+        let mut t = Table::default();
+        let mut cache = Cache::open(tmp.path(), &stamp(256, 768)).unwrap();
+        for start in (0..n).step_by(1000) {
+            let vs: Vec<Vector> = (0..1000)
+                .map(|_| random_vector(&mut rng, 768, 256))
+                .collect();
+            let items: Vec<(u128, &Vector)> = vs
+                .iter()
+                .enumerate()
+                .map(|(i, v)| ((start + i) as u128, v))
+                .collect();
+            cache.append(&items).unwrap();
+        }
+        t.caches.push(cache);
+        t.opened = true;
+        for i in 0..n {
+            t.add_node(&NodeChunks {
+                node_id: format!("nd_{i}"),
+                position: i as u64,
+                session: format!("ses_{}", i % 50),
+                kind: "tool_result".into(),
+                external: false,
+                chunks: vec![ChunkKey {
+                    chunk: 0,
+                    hash: i as u128,
+                    tokens: 100,
+                }],
+            });
+        }
+        let time = |label: &str, f: &mut dyn FnMut()| {
+            let mut ms: Vec<f64> = (0..40)
+                .map(|_| {
+                    let t0 = Instant::now();
+                    f();
+                    t0.elapsed().as_secs_f64() * 1e3
+                })
+                .collect();
+            ms.sort_by(f64::total_cmp);
+            eprintln!(
+                "{label}: p50 {:.2} ms, p95 {:.2} ms, max {:.2} ms",
+                ms[ms.len() / 2],
+                ms[ms.len() * 95 / 100],
+                ms[ms.len() - 1]
+            );
+        };
+        let q = random_vector(&mut rng, 768, 256);
+        let (qi, _) = quantize(&q.cut);
+        let all = t.filter(None, &[], &Filters::default());
+        let half = t.filter(Some(n as u64 / 2), &["ses_7".into()], &Filters::default());
+        eprintln!("{n} chunks; int8 cuts {} MB in memory", n * 256 / 1_000_000);
+        time("the int8 scan, best 100, no filter", &mut || {
+            assert_eq!(
+                Flat(&t).top(&qi, RESCORE, &|i| t.admits(&all, i)).len(),
+                RESCORE
+            );
+        });
+        time(
+            "the int8 scan, best 100, as_of and an excluded session",
+            &mut || {
+                assert_eq!(
+                    Flat(&t).top(&qi, RESCORE, &|i| t.admits(&half, i)).len(),
+                    RESCORE
+                );
+            },
+        );
+        time(
+            "the scan and the 768-d re-score of its best 100",
+            &mut || {
+                assert_eq!(t.search(&q.full, 256, &all, 30).unwrap().len(), 30);
+            },
+        );
     }
 }
