@@ -14,6 +14,7 @@
 //!   from (a frame that checks but is wrong) leaves the index where it is,
 //!   says so in its status, and tries again at each wake.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,10 +25,14 @@ use anyhow::Context as _;
 use theseus_follow::{Cursor, FollowError, Kicker, Stop, Waker, WalFollower};
 use theseus_store::{kinds, wal, Record};
 
-use crate::engine::{self, Engine, Writer, SCHEMA_VERSION};
+use crate::engine::{self, Engine, Writer, SCHEMA_VERSION, SOURCES};
 use crate::extract::{extract, Extract, EXTRACTOR_VERSION};
-use crate::proto::{Backfill, IndexStatus, Lag, QueryParams, QueryResult};
+use crate::proto::{
+    Backfill, EmbedParams, EmbedResult, IndexStatus, Lag, NeighboursParams, NeighboursResult,
+    QueryParams, QueryResult, WarmResult,
+};
 use crate::state::{self, Lock, Paths, Places, Saved, CURSOR_FORMAT};
+use crate::vectors::{NodeChunks, VectorConfig, Vectors};
 
 /// The core's META keys that say where a session lives
 /// (`theseus_core::outbox`; this crate's tests hold them equal): a Discord
@@ -45,6 +50,8 @@ pub struct Config {
     pub batch_bytes: usize,
     /// The longest a caught-up tender sleeps without an event.
     pub backstop: Duration,
+    /// The vector side: off unless given a weights directory.
+    pub vectors: VectorConfig,
 }
 
 impl Config {
@@ -54,6 +61,7 @@ impl Config {
             index_dir: index_dir.to_path_buf(),
             batch_bytes: 4 << 20,
             backstop: Duration::from_secs(60),
+            vectors: VectorConfig::off(),
         }
     }
 
@@ -70,9 +78,11 @@ pub enum OpenError {
     Other(#[from] anyhow::Error),
 }
 
-/// What the ingest thread and the socket's threads share.
+/// What the ingest thread, the embedding thread, and the socket's threads
+/// share.
 pub struct Shared {
     pub engine: Engine,
+    pub vectors: Vectors,
     status: Mutex<IndexStatus>,
     /// When the index last caught up with the WAL (ms since the epoch).
     caught_up_ms: Mutex<u64>,
@@ -91,6 +101,8 @@ impl Shared {
             s.documents = docs;
             s.nodes = nodes;
         }
+        s.mode = self.vectors.mode().into();
+        s.vectors = Some(self.vectors.status());
         s.rss_bytes = rss_bytes();
         s
     }
@@ -107,8 +119,53 @@ impl Shared {
         Lag { bytes, ms }
     }
 
+    /// `index.query`: the sources it names (by default BM25 and entities,
+    /// and vectors in `hybrid` mode), fused. A vector source that cannot
+    /// answer (the model loading, no weights) is left out and named in
+    /// `skipped`; the others still answer.
     pub fn query(&self, p: &QueryParams) -> anyhow::Result<QueryResult> {
-        let (hits, timings) = self.engine.query(p)?;
+        let t0 = Instant::now();
+        let mut wanted: Vec<&str> = if p.sources.is_empty() {
+            let mut v = vec!["bm25", "entity"];
+            if self.vectors.mode() == "hybrid" {
+                v.push("vector");
+            }
+            v
+        } else {
+            p.sources.iter().map(String::as_str).collect()
+        };
+        if let Some(bad) = wanted.iter().find(|s| !SOURCES.contains(s)) {
+            anyhow::bail!(
+                "no source {bad:?}: this tender answers {}",
+                SOURCES.join(", ")
+            );
+        }
+        wanted.dedup();
+        let mut skipped = BTreeMap::new();
+        let mut vector = None;
+        let (mut embed_ms, mut scan_ms) = (0.0, 0.0);
+        if wanted.contains(&"vector") {
+            match self.vectors.search(
+                &p.text,
+                p.as_of,
+                &p.exclude_sessions,
+                &p.filters,
+                engine::fetch_for(p.k),
+                Duration::from_millis(p.wait_ms),
+            ) {
+                Ok((hits, e, s)) => {
+                    vector = Some(hits);
+                    (embed_ms, scan_ms) = (e, s);
+                }
+                Err(why) => {
+                    skipped.insert("vector".to_string(), why);
+                }
+            }
+        }
+        let (hits, mut timings) = self.engine.query(p, &wanted, vector.as_deref())?;
+        timings.embed_ms = embed_ms;
+        timings.vector_ms += scan_ms;
+        timings.total_ms = t0.elapsed().as_secs_f64() * 1000.0;
         let (position, segment, offset) = {
             let s = self.status.lock().unwrap();
             (s.position, s.segment, s.offset)
@@ -118,7 +175,34 @@ impl Shared {
             indexed_through: position,
             lag: self.lag(segment, offset),
             timings,
+            skipped,
         })
+    }
+
+    /// `index.neighbours`.
+    pub fn neighbours(&self, p: &NeighboursParams) -> anyhow::Result<NeighboursResult> {
+        let (neighbours, vector_ms) = self
+            .vectors
+            .neighbours(&p.node_id, p.k, p.as_of)
+            .map_err(anyhow::Error::msg)?;
+        Ok(NeighboursResult {
+            node_id: p.node_id.clone(),
+            neighbours,
+            vector_ms,
+        })
+    }
+
+    /// `index.embed`.
+    pub fn embed(&self, p: &EmbedParams) -> anyhow::Result<EmbedResult> {
+        self.vectors.embed(p)
+    }
+
+    /// `index.warm`.
+    pub fn warm(&self) -> WarmResult {
+        WarmResult {
+            model: self.vectors.warm(),
+            mode: self.vectors.mode().into(),
+        }
     }
 
     /// Drop the index and backfill: the ingest thread does it at its next
@@ -128,10 +212,12 @@ impl Shared {
         self.kicker.kick();
     }
 
-    /// End [`Tender::run`] (tests, and an embedding that stops it).
+    /// End [`Tender::run`] and the embedding thread (tests, and an
+    /// embedding that stops them).
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
         self.kicker.kick();
+        self.vectors.request_stop();
     }
 
     fn set(&self, f: impl FnOnce(&mut IndexStatus)) {
@@ -244,11 +330,12 @@ impl Tender {
         }
         let waker = Waker::new(&wal_dir).context("watching the WAL")?;
         let total = wal_bytes_after(&wal_dir, cursor.segment, cursor.offset);
+        let vectors = Vectors::new(cfg.vectors.clone(), &paths.dir);
         let shared = Arc::new(Shared {
             engine,
             status: Mutex::new(IndexStatus {
+                mode: vectors.mode().into(),
                 state: "starting".into(),
-                mode: "bm25_only".into(),
                 pid: std::process::id(),
                 index_dir: paths.dir.display().to_string(),
                 wal_dir: wal_dir.display().to_string(),
@@ -266,6 +353,7 @@ impl Tender {
             stop: AtomicBool::new(false),
             kicker: waker.kicker(),
             wal_dir,
+            vectors,
         });
         match &why_rebuild {
             Some(why) => tracing::info!(%why, "index: rebuilding from the WAL's start"),
@@ -332,12 +420,15 @@ impl Tender {
             indexed: 0,
             committed: false,
         };
-        let indexed = self.ingest(&batch.records, &mut step).and_then(|()| {
-            if step.indexed > 0 {
-                self.writer.commit().context("committing the index")?;
-            }
-            Ok(())
-        });
+        let mut nodes = Vec::new();
+        let indexed = self
+            .ingest(&batch.records, &mut step, &mut nodes)
+            .and_then(|()| {
+                if step.indexed > 0 {
+                    self.writer.commit().context("committing the index")?;
+                }
+                Ok(())
+            });
         if let Err(e) = indexed {
             // Nothing of the batch counts: read it again from the cursor
             // last written.
@@ -352,6 +443,8 @@ impl Tender {
             }
             self.save()?;
             self.shared.engine.reload().context("reloading the index")?;
+            // Rows only for what a reader can now see.
+            self.shared.vectors.on_commit(&nodes);
             step.committed = true;
             self.shared.set(|s| {
                 s.commits += 1;
@@ -366,16 +459,32 @@ impl Tender {
         Ok(step)
     }
 
-    fn ingest(&mut self, records: &[Record], step: &mut Step) -> anyhow::Result<()> {
+    fn ingest(
+        &mut self,
+        records: &[Record],
+        step: &mut Step,
+        nodes: &mut Vec<NodeChunks>,
+    ) -> anyhow::Result<()> {
         let (mut skipped, mut undecodable) = (0u64, 0u64);
         for r in records {
             match r.kind {
                 kinds::NODE => match extract(&r.payload) {
                     Ok(Extract::Index(e)) => {
                         let place = self.places.get(&e.session_id).map(String::as_str);
-                        self.writer
+                        let chunks = self
+                            .writer
                             .replace(r.position, place, &e)
                             .with_context(|| format!("indexing node {}", e.node_id))?;
+                        if self.shared.vectors.enabled() {
+                            nodes.push(NodeChunks {
+                                node_id: e.node_id,
+                                position: r.position,
+                                session: e.session_id,
+                                kind: e.kind,
+                                external: e.external,
+                                chunks,
+                            });
+                        }
                         step.indexed += 1;
                     }
                     Ok(Extract::Skip { .. }) => skipped += 1,
@@ -469,6 +578,7 @@ impl Tender {
         tracing::info!(%why, "index: rebuilding from the WAL's start");
         self.writer.clear().context("clearing the index")?;
         self.shared.engine.reload().context("reloading the index")?;
+        self.shared.vectors.on_clear();
         self.places.clear();
         self.places_dirty = true;
         self.follower = WalFollower::open(&self.cfg.wal_dir(), Cursor::start())?;

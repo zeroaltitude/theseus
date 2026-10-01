@@ -9,16 +9,27 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 pub mod method {
-    /// BM25 and entity hits, fused, as of a position.
+    /// BM25, entity, and vector hits, fused, as of a position.
     pub const QUERY: &str = "index.query";
     /// The tender's health: health's `index` block.
     pub const STATUS: &str = "index.status";
     /// Drop the index and build it again from the WAL.
     pub const REBUILD: &str = "index.rebuild";
+    /// The nodes nearest a node, by the 768-d vector (the memory pass's gate).
+    pub const NEIGHBOURS: &str = "index.neighbours";
+    /// Vectors for texts (consolidation's clustering, the exam).
+    pub const EMBED: &str = "index.embed";
+    /// Start loading the model, and answer at once (the core, as a turn
+    /// begins).
+    pub const WARM: &str = "index.warm";
 }
 
 fn default_k() -> usize {
     10
+}
+
+fn default_embed_wait_ms() -> u64 {
+    30_000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,9 +46,19 @@ pub struct QueryParams {
     pub exclude_sessions: Vec<String>,
     #[serde(default, skip_serializing_if = "Filters::is_empty")]
     pub filters: Filters,
-    /// The sources to rank and fuse (`bm25`, `entity`); every one when empty.
+    /// The sources to rank and fuse (`bm25`, `entity`, `vector`); when
+    /// empty, BM25 and entities, and vectors in `hybrid` mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<String>,
+    /// How long the vector source may wait for the model to load. 0 (the
+    /// core's): a model not loaded is sent to load, and this query answers
+    /// without vectors, saying so in `skipped`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub wait_ms: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 impl QueryParams {
@@ -49,6 +70,7 @@ impl QueryParams {
             exclude_sessions: Vec::new(),
             filters: Filters::default(),
             sources: Vec::new(),
+            wait_ms: 0,
         }
     }
 }
@@ -112,6 +134,12 @@ pub struct Hit {
 pub struct Timings {
     pub bm25_ms: f64,
     pub entity_ms: f64,
+    /// Embedding the query (the vector source's first stage).
+    #[serde(default)]
+    pub embed_ms: f64,
+    /// The int8 scan and the 768-d re-score.
+    #[serde(default)]
+    pub vector_ms: f64,
     pub fuse_ms: f64,
     pub load_ms: f64,
     pub total_ms: f64,
@@ -132,6 +160,126 @@ pub struct QueryResult {
     pub indexed_through: u64,
     pub lag: Lag,
     pub timings: Timings,
+    /// Sources asked for (or defaulted to) that did not answer, and why: the
+    /// model loading, or no weights.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub skipped: BTreeMap<String, String>,
+}
+
+/// What every vector carries: the model and its files, the code that made
+/// it, and the precision. A vector answers a query embedded under the same
+/// space (model, files, dimensions); a changed stamp re-embeds.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Stamp {
+    /// `<name>@<revision>`.
+    pub model: String,
+    /// `model.safetensors`' SHA-256.
+    pub weights: String,
+    /// `tokenizer.json`'s SHA-256.
+    pub tokenizer: String,
+    /// The engine and this crate's embedding code: `candle-0.11.0+embed.1`.
+    pub engine: String,
+    pub precision: String,
+    /// The scanned cut and the full vector: `[256, 768]`.
+    pub dims: [usize; 2],
+}
+
+impl Stamp {
+    /// Vectors of one space compare with each other, whatever engine made
+    /// them: same model, same files, same dimensions.
+    pub fn same_space(&self, o: &Stamp) -> bool {
+        self.model == o.model
+            && self.weights == o.weights
+            && self.tokenizer == o.tokenizer
+            && self.dims == o.dims
+    }
+}
+
+/// Nomic's task prefixes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Task {
+    /// `search_document: `, what the index embeds its chunks with.
+    #[default]
+    SearchDocument,
+    /// `search_query: `, what a query is embedded with.
+    SearchQuery,
+    Clustering,
+    Classification,
+}
+
+impl Task {
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Task::SearchDocument => "search_document: ",
+            Task::SearchQuery => "search_query: ",
+            Task::Clustering => "clustering: ",
+            Task::Classification => "classification: ",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeighboursParams {
+    pub node_id: String,
+    #[serde(default = "default_k")]
+    pub k: usize,
+    /// Only nodes written before this position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of: Option<u64>,
+}
+
+/// A node near another, by its best chunk.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Neighbour {
+    pub node_id: String,
+    pub chunk: u64,
+    /// Cosine of the 768-d vectors.
+    pub score: f64,
+    pub position: u64,
+    pub session_id: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeighboursResult {
+    pub node_id: String,
+    pub neighbours: Vec<Neighbour>,
+    pub vector_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbedParams {
+    /// At most 64, each cut at 512 tokens.
+    pub texts: Vec<String>,
+    #[serde(default)]
+    pub task: Task,
+    /// 768 (the default) or 256 (the Matryoshka cut, as scanned).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dims: Option<usize>,
+    /// How long to wait for the model to load.
+    #[serde(default = "default_embed_wait_ms")]
+    pub wait_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbedResult {
+    /// Unit vectors, one per text.
+    pub vectors: Vec<Vec<f32>>,
+    pub dims: usize,
+    pub stamp: Stamp,
+    /// Each text's tokens, its prefix and `[CLS]`/`[SEP]` included.
+    pub tokens: Vec<usize>,
+    pub embed_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WarmResult {
+    /// The model's state after the call: `loaded`, `loading` (a load was
+    /// started or is running), or why it cannot (`off`, `no_weights`,
+    /// `refused`).
+    pub model: String,
+    pub mode: String,
 }
 
 /// A backfill's progress, in WAL bytes.
@@ -147,8 +295,12 @@ pub struct IndexStatus {
     /// `starting`, `backfilling`, `ready`, or `stalled` (the WAL could not be
     /// read past a frame: `last_error` says why). The core adds `down`.
     pub state: String,
-    /// What answers: `bm25_only` until 29c's vectors.
+    /// What answers: `hybrid` (BM25, entities, and vectors), or `bm25_only`
+    /// (no weights, or weights refused: `vectors` says which).
     pub mode: String,
+    /// The vector side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vectors: Option<VectorStatus>,
     pub pid: u32,
     pub index_dir: String,
     pub wal_dir: String,
@@ -182,6 +334,68 @@ pub struct IndexStatus {
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_error_ms: u64,
+}
+
+/// Health's `index.vectors` block.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VectorStatus {
+    /// `off` (not configured), `no_weights`, `refused` (a file is not the
+    /// pinned one), `unloaded`, `loading`, or `loaded`.
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weights_dir: Option<String>,
+    /// The stamp new vectors get.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<Stamp>,
+    /// Chunks the index holds, chunks with a vector that answers (this
+    /// stamp's, or an older one of its space), and distinct texts waiting
+    /// for this stamp's vector.
+    pub chunks: u64,
+    pub vectors: u64,
+    pub pending: u64,
+    /// While an older stamp's vectors answer, their stamps, and the chunks
+    /// already re-embedded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reembed: Option<Reembed>,
+    pub backfill: EmbedStats,
+    pub loads: u64,
+    pub unloads: u64,
+    /// The last load, from the call to a model ready to run.
+    pub load_ms: f64,
+    pub loaded_at_ms: u64,
+    pub last_used_ms: u64,
+    pub idle_unload_secs: u64,
+    /// What candle's pools run with (`RAYON_NUM_THREADS`,
+    /// `CANDLE_NUM_THREADS`): the tender's own, or the core's.
+    pub threads: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub last_error_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Reembed {
+    pub from: Vec<Stamp>,
+    pub done: u64,
+    pub total: u64,
+}
+
+/// What the embedding thread has done since the tender started.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct EmbedStats {
+    /// Distinct texts embedded, in batches.
+    pub texts: u64,
+    pub batches: u64,
+    /// Tokens embedded, padding not counted.
+    pub tokens: u64,
+    /// Texts cut at 512 tokens.
+    pub truncated: u64,
+    /// The embedding thread's wall time and CPU time in batches.
+    pub wall_ms: u64,
+    pub cpu_ms: u64,
+    /// Texts that would not embed (left without a vector).
+    pub failed: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

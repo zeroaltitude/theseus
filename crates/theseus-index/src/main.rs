@@ -8,13 +8,17 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use theseus_index::client::Client;
-use theseus_index::proto::{method, IndexStatus, QueryParams, QueryResult, RebuildResult};
+use theseus_index::proto::{
+    method, EmbedParams, EmbedResult, IndexStatus, NeighboursParams, NeighboursResult, QueryParams,
+    QueryResult, RebuildResult, Task, WarmResult,
+};
+use theseus_index::vectors::VectorConfig;
 use theseus_index::{Config, OpenError};
 
 #[derive(Parser)]
 #[command(
     name = "theseus-index",
-    about = "The index tender (M6 step 29b), and a client for its socket"
+    about = "The index tender (M6 steps 29b and 29c), and a client for its socket"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -37,8 +41,24 @@ enum Cmd {
         /// The longest a caught-up tender sleeps without an event.
         #[arg(long, default_value_t = 60)]
         backstop_secs: u64,
+        /// Where the embedding models live (`[index] weights_dir`; default
+        /// `~/.cache/theseus/models`). Nothing is fetched: without the
+        /// weights, BM25 and entities answer alone.
+        #[arg(long)]
+        weights_dir: Option<PathBuf>,
+        /// No vectors at all.
+        #[arg(long)]
+        no_vectors: bool,
+        /// Unload the model after this many minutes unused
+        /// (`[index] idle_unload_mins`).
+        #[arg(long, default_value_t = 10.0)]
+        idle_unload_mins: f64,
+        /// candle's threads (`[index] threads`): `RAYON_NUM_THREADS` and
+        /// `CANDLE_NUM_THREADS`, set for this process before anything starts.
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
     },
-    /// BM25 and entity hits for a text.
+    /// Hits for a text.
     Query {
         #[arg(long)]
         socket: PathBuf,
@@ -47,13 +67,42 @@ enum Cmd {
         /// Only nodes written before this position.
         #[arg(long)]
         as_of: Option<u64>,
-        /// Sources to fuse: bm25, entity (default both).
+        /// Sources to fuse: bm25, entity, vector (default: all the tender has).
         #[arg(long, value_delimiter = ',')]
         sources: Vec<String>,
+        /// Wait this long for the model to load, rather than answer without
+        /// vectors.
+        #[arg(long, default_value_t = 0)]
+        wait_ms: u64,
         /// The whole answer, as JSON.
         #[arg(long)]
         json: bool,
         text: Vec<String>,
+    },
+    /// The nodes nearest a node, by the 768-d vector.
+    Neighbours {
+        #[arg(long)]
+        socket: PathBuf,
+        #[arg(short, long, default_value_t = 10)]
+        k: usize,
+        node_id: String,
+    },
+    /// Vectors for texts, as JSON.
+    Embed {
+        #[arg(long)]
+        socket: PathBuf,
+        /// search_document (default), search_query, clustering, classification.
+        #[arg(long, default_value = "search_document")]
+        task: String,
+        /// 768 or 256.
+        #[arg(long)]
+        dims: Option<usize>,
+        texts: Vec<String>,
+    },
+    /// Start loading the model, and answer at once.
+    Warm {
+        #[arg(long)]
+        socket: PathBuf,
     },
     /// The tender's status (health's `index` block), as JSON.
     Status {
@@ -87,7 +136,16 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             index,
             nice,
             backstop_secs,
+            weights_dir,
+            no_vectors,
+            idle_unload_mins,
+            threads,
         } => {
+            // Before any thread starts: candle reads these at every matmul,
+            // and rayon's pool at its first use. Every core when unset.
+            let threads = threads.max(1).to_string();
+            std::env::set_var("RAYON_NUM_THREADS", &threads);
+            std::env::set_var("CANDLE_NUM_THREADS", &threads);
             // tantivy logs every commit at info (five lines each): quiet
             // unless asked, and no colour codes in a log file.
             tracing_subscriber::fmt()
@@ -104,6 +162,13 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             }
             let mut cfg = Config::new(&store, &index);
             cfg.backstop = Duration::from_secs(backstop_secs.max(1));
+            if !no_vectors {
+                let dir = weights_dir.or_else(|| {
+                    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/theseus/models"))
+                });
+                cfg.vectors = VectorConfig::new(dir);
+                cfg.vectors.idle_unload = Duration::from_secs_f64(idle_unload_mins.max(0.0) * 60.0);
+            }
             match theseus_index::serve(cfg) {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(OpenError::Held(dir)) => {
@@ -118,6 +183,7 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             k,
             as_of,
             sources,
+            wait_ms,
             json,
             text,
         } => {
@@ -125,25 +191,33 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             p.k = k;
             p.as_of = as_of;
             p.sources = sources;
-            let r: QueryResult = Client::connect(&socket, CALL_TIMEOUT)?.call(method::QUERY, &p)?;
+            p.wait_ms = wait_ms;
+            let timeout = CALL_TIMEOUT + Duration::from_millis(wait_ms);
+            let r: QueryResult = Client::connect(&socket, timeout)?.call(method::QUERY, &p)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&r)?);
                 return Ok(ExitCode::SUCCESS);
             }
+            let t = &r.timings;
             println!(
-                "{} hits; indexed through position {}, {} bytes behind; {:.1} ms (bm25 {:.1}, entity {:.1})",
+                "{} hits; indexed through position {}, {} bytes behind; {:.1} ms (bm25 {:.1}, entity {:.1}, embed {:.1}, vector {:.1})",
                 r.hits.len(),
                 r.indexed_through,
                 r.lag.bytes,
-                r.timings.total_ms,
-                r.timings.bm25_ms,
-                r.timings.entity_ms
+                t.total_ms,
+                t.bm25_ms,
+                t.entity_ms,
+                t.embed_ms,
+                t.vector_ms
             );
+            for (source, why) in &r.skipped {
+                println!("    ({source} skipped: {why})");
+            }
             for (i, h) in r.hits.iter().enumerate() {
                 let sources: Vec<String> = h
                     .sources
                     .iter()
-                    .map(|(s, r)| format!("{s} #{} {:.2}", r.rank, r.score))
+                    .map(|(s, r)| format!("{s} #{} {:.3}", r.rank, r.score))
                     .collect();
                 let preview: String = h
                     .text
@@ -169,6 +243,41 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
                     preview
                 );
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Neighbours { socket, k, node_id } => {
+            let r: NeighboursResult = Client::connect(&socket, CALL_TIMEOUT)?.call(
+                method::NEIGHBOURS,
+                NeighboursParams {
+                    node_id,
+                    k,
+                    as_of: None,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&r)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Embed {
+            socket,
+            task,
+            dims,
+            texts,
+        } => {
+            let task: Task = serde_json::from_value(serde_json::Value::String(task))?;
+            let p = EmbedParams {
+                texts,
+                task,
+                dims,
+                wait_ms: 60_000,
+            };
+            let r: EmbedResult =
+                Client::connect(&socket, Duration::from_secs(120))?.call(method::EMBED, &p)?;
+            println!("{}", serde_json::to_string(&r)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Warm { socket } => {
+            let r: WarmResult = Client::connect(&socket, CALL_TIMEOUT)?.call(method::WARM, ())?;
+            println!("model {}, mode {}", r.model, r.mode);
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Status { socket } => {

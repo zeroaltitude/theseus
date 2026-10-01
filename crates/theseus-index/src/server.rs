@@ -15,7 +15,7 @@ use std::thread;
 use serde_json::Value;
 use theseus_protocol::{error_code, Id, Request, Response};
 
-use crate::proto::{method, QueryParams, RebuildResult};
+use crate::proto::{method, EmbedParams, NeighboursParams, QueryParams, RebuildResult};
 use crate::tender::Shared;
 
 pub const MAX_CONNECTIONS: usize = 16;
@@ -97,6 +97,27 @@ pub fn answer(line: &str, shared: &Shared) -> Response {
             shared.request_rebuild();
             Response::ok(id, RebuildResult { accepted: true })
         }
+        method::NEIGHBOURS => {
+            let p: NeighboursParams = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => return Response::err(id, error_code::INVALID_PARAMS, e.to_string()),
+            };
+            match shared.neighbours(&p) {
+                Ok(r) => Response::ok(id, r),
+                Err(e) => Response::err(id, error_code::INVALID_PARAMS, format!("{e:#}")),
+            }
+        }
+        method::EMBED => {
+            let p: EmbedParams = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => return Response::err(id, error_code::INVALID_PARAMS, e.to_string()),
+            };
+            match shared.embed(&p) {
+                Ok(r) => Response::ok(id, r),
+                Err(e) => Response::err(id, error_code::INVALID_PARAMS, format!("{e:#}")),
+            }
+        }
+        method::WARM => Response::ok(id, shared.warm()),
         other => Response::err_with(
             id,
             error_code::METHOD_NOT_FOUND,

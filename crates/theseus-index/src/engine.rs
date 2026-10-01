@@ -2,15 +2,16 @@
 //! chunk. Ingest replaces a node whole (delete its id, then add its chunks),
 //! so it is idempotent: a batch read twice leaves one copy.
 //!
-//! Two sources answer a query, each ranked by BM25: the text (the default
-//! tokenizer: split on anything but letters and digits, lowercased, so
-//! `127.0.0.1:7433` holds the token `7433`), and the entity field (exact
-//! `type:value` terms, from the same rules the text went through). Their
-//! ranks are fused by reciprocal rank fusion, `Σ 1 / (60 + rank)`, so no
-//! source's raw scores are weighed against another's (29c adds vectors as a
-//! third source).
+//! Three sources answer a query. Two rank by BM25 here: the text (the
+//! default tokenizer: split on anything but letters and digits, lowercased,
+//! so `127.0.0.1:7433` holds the token `7433`), and the entity field (exact
+//! `type:value` terms, from the same rules the text went through). The third,
+//! vectors (29c), ranks by cosine in `vectors.rs`, and its hits join here by
+//! node and chunk. Their ranks are fused by reciprocal rank fusion,
+//! `Σ 1 / (60 + rank)`, so no source's raw scores are weighed against
+//! another's.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
 use std::path::Path;
 use std::time::Instant;
@@ -21,13 +22,15 @@ use tantivy::schema::{
     Field, IndexRecordOption, Schema, Value as _, FAST, INDEXED, STORED, STRING, TEXT,
 };
 use tantivy::{
-    DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Score, TantivyDocument, Term,
+    DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, TantivyDocument, Term,
 };
 
 use crate::chunk;
 use crate::entity::entities;
 use crate::extract::Extracted;
-use crate::proto::{Hit, QueryParams, SourceRank, Timings};
+use crate::fuse::fuse;
+use crate::proto::{Hit, QueryParams, Timings};
+use crate::vectors::{text_hash, ChunkKey, NodeChunks, Texts, VectorHit};
 
 /// Bumped when the fields change: an index of another version is rebuilt.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -36,11 +39,13 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// indexing thread, and the tender runs one.
 const WRITER_MEMORY: usize = 32 << 20;
 
-/// Reciprocal rank fusion's constant.
-const RRF_K: f64 = 60.0;
-
 /// The sources a query may name.
-pub const SOURCES: &[&str] = &["bm25", "entity"];
+pub const SOURCES: &[&str] = &["bm25", "entity", "vector"];
+
+/// How many hits each source ranks for a query that wants `k`.
+pub fn fetch_for(k: usize) -> usize {
+    (k.clamp(1, 100) * 3).max(30)
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Fields {
@@ -118,18 +123,21 @@ impl Writer {
         })
     }
 
-    /// Replace node `e`, written at `position`, by its chunks.
+    /// Replace node `e`, written at `position`, by its chunks; each chunk's
+    /// key for the vector side.
     pub fn replace(
         &self,
         position: u64,
         place: Option<&str>,
         e: &Extracted,
-    ) -> tantivy::Result<usize> {
+    ) -> tantivy::Result<Vec<ChunkKey>> {
         let f = &self.f;
         self.writer
             .delete_term(Term::from_field_text(f.node_id, &e.node_id));
         let chunks = chunk::chunks(&e.text, chunk::MAX_TOKENS);
+        let mut keys = Vec::with_capacity(chunks.len());
         for (i, text) in chunks.iter().enumerate() {
+            keys.push(chunk_key(i as u64, text));
             let mut d = TantivyDocument::new();
             d.add_text(f.node_id, &e.node_id);
             d.add_u64(f.chunk, i as u64);
@@ -154,7 +162,7 @@ impl Writer {
             }
             self.writer.add_document(d)?;
         }
-        Ok(chunks.len())
+        Ok(keys)
     }
 
     /// Make everything added durable and visible to a reload.
@@ -350,35 +358,78 @@ impl Engine {
             .collect())
     }
 
-    /// Hits for `p`: each source's top documents, fused, the best `k`.
-    pub fn query(&self, p: &QueryParams) -> anyhow::Result<(Vec<Hit>, Timings)> {
+    /// A chunk's document, if `searcher` holds it and it passes `extra`.
+    fn address(
+        &self,
+        searcher: &Searcher,
+        node_id: &str,
+        chunk: u32,
+        extra: Vec<(Occur, Box<dyn Query>)>,
+    ) -> tantivy::Result<Option<DocAddress>> {
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> = vec![
+            (
+                Occur::Must,
+                Box::new(TermQuery::new(
+                    Term::from_field_text(self.f.node_id, node_id),
+                    IndexRecordOption::Basic,
+                )),
+            ),
+            (
+                Occur::Must,
+                Box::new(TermQuery::new(
+                    Term::from_field_u64(self.f.chunk, u64::from(chunk)),
+                    IndexRecordOption::Basic,
+                )),
+            ),
+        ];
+        clauses.extend(extra);
+        let top = searcher.search(
+            &BooleanQuery::new(clauses),
+            &TopDocs::with_limit(1).order_by_score(),
+        )?;
+        Ok(top.first().map(|(_, a)| *a))
+    }
+
+    /// Hits for `p` from `sources` (validated by the caller): BM25's and the
+    /// entities' top documents, and `vector`'s hits, joined by node and
+    /// chunk and filtered as the others are; fused, the best `k`.
+    pub fn query(
+        &self,
+        p: &QueryParams,
+        sources: &[&str],
+        vector: Option<&[VectorHit]>,
+    ) -> anyhow::Result<(Vec<Hit>, Timings)> {
         let t0 = Instant::now();
         let mut timings = Timings::default();
         let k = p.k.clamp(1, 100);
-        let fetch = (k * 3).max(30);
+        let fetch = fetch_for(k);
         let searcher = self.reader.searcher();
-        let wanted: Vec<&str> = if p.sources.is_empty() {
-            SOURCES.to_vec()
-        } else {
-            p.sources.iter().map(String::as_str).collect()
-        };
-        if let Some(bad) = wanted.iter().find(|s| !SOURCES.contains(s)) {
-            anyhow::bail!(
-                "no source {bad:?}: this tender answers {}",
-                SOURCES.join(", ")
-            );
-        }
         let query_entities: BTreeSet<String> = entities(&p.text);
         // source -> ranked (address, score)
-        let mut ranked: Vec<(&str, Vec<(Score, DocAddress)>)> = Vec::new();
-        for source in &wanted {
+        let mut ranked: Vec<(&str, Vec<(DocAddress, f64)>)> = Vec::new();
+        for source in sources {
             let ts = Instant::now();
             let terms: Vec<Term> = match *source {
                 "bm25" => self.text_terms(&p.text)?,
-                _ => query_entities
+                "entity" => query_entities
                     .iter()
                     .map(|e| Term::from_field_text(self.f.entities, e))
                     .collect(),
+                _ => {
+                    if let Some(hits) = vector {
+                        let mut list = Vec::with_capacity(hits.len());
+                        for h in hits {
+                            if let Some(a) =
+                                self.address(&searcher, &h.node_id, h.chunk, self.filters(p))?
+                            {
+                                list.push((a, h.score));
+                            }
+                        }
+                        timings.vector_ms = ts.elapsed().as_secs_f64() * 1000.0;
+                        ranked.push(("vector", list));
+                    }
+                    continue;
+                }
             };
             let hits = if terms.is_empty() {
                 Vec::new()
@@ -409,37 +460,25 @@ impl Engine {
                 "bm25" => timings.bm25_ms = ms,
                 _ => timings.entity_ms = ms,
             }
-            ranked.push((source, hits));
+            ranked.push((
+                source,
+                hits.into_iter().map(|(s, a)| (a, f64::from(s))).collect(),
+            ));
         }
 
         // Fuse: Σ 1 / (60 + rank), rank from 1.
         let tf = Instant::now();
-        let mut fused: HashMap<DocAddress, (f64, BTreeMap<String, SourceRank>)> = HashMap::new();
-        for (source, hits) in &ranked {
-            for (i, (score, addr)) in hits.iter().enumerate() {
-                let rank = i + 1;
-                let e = fused.entry(*addr).or_default();
-                e.0 += 1.0 / (RRF_K + rank as f64);
-                e.1.insert(
-                    source.to_string(),
-                    SourceRank {
-                        rank,
-                        score: f64::from(*score),
-                    },
-                );
-            }
-        }
         // Ties go to the earlier position, so an index rebuilt with the same
         // nodes orders them the same (document addresses differ).
-        let mut order = Vec::with_capacity(fused.len());
-        for (addr, (score, sources)) in fused {
+        let mut order = Vec::new();
+        for f in fuse(&ranked) {
             let position = searcher
-                .segment_reader(addr.segment_ord)
+                .segment_reader(f.key.segment_ord)
                 .fast_fields()
                 .u64("position")?
-                .first(addr.doc_id)
+                .first(f.key.doc_id)
                 .unwrap_or(u64::MAX);
-            order.push((addr, score, sources, position));
+            order.push((f.key, f.score, f.sources, position));
         }
         order.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.3.cmp(&b.3)).then(a.0.cmp(&b.0)));
         order.truncate(k);
@@ -477,5 +516,54 @@ impl Engine {
         timings.load_ms = tl.elapsed().as_secs_f64() * 1000.0;
         timings.total_ms = t0.elapsed().as_secs_f64() * 1000.0;
         Ok((hits, timings))
+    }
+}
+
+/// A chunk's key for the vector side: its index, its text's hash, and the
+/// chunker's token estimate.
+pub fn chunk_key(chunk: u64, text: &str) -> ChunkKey {
+    ChunkKey {
+        chunk: chunk as u32,
+        hash: text_hash(text),
+        tokens: chunk::tokens(text).min(u32::MAX as usize) as u32,
+    }
+}
+
+impl Texts for Engine {
+    fn chunk_text(&self, node_id: &str, chunk: u32) -> Option<String> {
+        let s = self.reader.searcher();
+        let addr = self.address(&s, node_id, chunk, Vec::new()).ok()??;
+        let d: TantivyDocument = s.doc(addr).ok()?;
+        d.get_first(self.f.text)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    }
+
+    /// Every chunk, by node, read from the stored documents.
+    fn all_nodes(&self) -> anyhow::Result<Vec<NodeChunks>> {
+        let s = self.reader.searcher();
+        let mut by_node: BTreeMap<String, NodeChunks> = BTreeMap::new();
+        for (ord, seg) in s.segment_readers().iter().enumerate() {
+            for doc in seg.doc_ids_alive() {
+                let d: TantivyDocument = s.doc(DocAddress::new(ord as u32, doc))?;
+                let c = self.stored(&d);
+                let n = by_node
+                    .entry(c.node_id.clone())
+                    .or_insert_with(|| NodeChunks {
+                        node_id: c.node_id.clone(),
+                        position: c.position,
+                        session: c.session.clone(),
+                        kind: c.kind.clone(),
+                        external: c.external,
+                        chunks: Vec::new(),
+                    });
+                n.chunks.push(chunk_key(c.chunk, &c.text));
+            }
+        }
+        let mut out: Vec<NodeChunks> = by_node.into_values().collect();
+        for n in &mut out {
+            n.chunks.sort_by_key(|c| c.chunk);
+        }
+        Ok(out)
     }
 }

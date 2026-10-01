@@ -16,15 +16,15 @@ use crate::proto::{method, Filters, IndexStatus, QueryParams, QueryResult, Rebui
 use crate::tender::{Config, OpenError, Shared, Tender, PLACE_META_PREFIX, TASK_META_PREFIX};
 use crate::{client::Client, server};
 
-struct Rig {
-    _tmp: tempfile::TempDir,
-    store: PathBuf,
-    index: PathBuf,
-    wal: Wal,
+pub(crate) struct Rig {
+    pub(crate) _tmp: tempfile::TempDir,
+    pub(crate) store: PathBuf,
+    pub(crate) index: PathBuf,
+    pub(crate) wal: Wal,
 }
 
 impl Rig {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
         let store = tmp.path().join("store");
         let index = tmp.path().join("index");
@@ -48,19 +48,19 @@ impl Rig {
     /// Batches of 16 KB: several to a backfill here, while a commit (about
     /// 140 ms of fsyncs on this disk) comes once a batch. The follower's own
     /// tests cut reads at every boundary.
-    fn cfg(&self, index: &Path) -> Config {
+    pub(crate) fn cfg(&self, index: &Path) -> Config {
         let mut c = Config::new(&self.store, index);
         c.batch_bytes = 16 << 10;
         c.backstop = Duration::from_millis(200);
         c
     }
 
-    fn open(&self) -> Tender {
+    pub(crate) fn open(&self) -> Tender {
         Tender::open(self.cfg(&self.index)).unwrap()
     }
 
     /// Append each node as its own frame; their positions.
-    fn put(&self, nodes: &[Node]) -> Vec<u64> {
+    pub(crate) fn put(&self, nodes: &[Node]) -> Vec<u64> {
         nodes
             .iter()
             .map(|n| self.wal.append(&[n.record().unwrap()]).unwrap()[0].0)
@@ -80,7 +80,7 @@ impl Rig {
 }
 
 /// Read until the follower is caught up.
-fn settle(t: &mut Tender) {
+pub(crate) fn settle(t: &mut Tender) {
     for _ in 0..10_000 {
         if t.step().unwrap().stop != Stop::Budget {
             return;
@@ -97,11 +97,11 @@ fn ids(r: &QueryResult) -> Vec<String> {
     r.hits.iter().map(|h| h.node_id.clone()).collect()
 }
 
-fn user(session: &str, text: &str) -> Node {
+pub(crate) fn user(session: &str, text: &str) -> Node {
     Node::user(session, Some("turn_1"), "cli", text)
 }
 
-fn result(session: &str, tool: &str, content: &str, external: bool) -> Node {
+pub(crate) fn result(session: &str, tool: &str, content: &str, external: bool) -> Node {
     Node::tool_result(
         session,
         Some("turn_1"),
@@ -298,11 +298,16 @@ fn a_query_finds_a_node_by_its_words_and_by_its_entities() {
     let r = shared.query(&p).unwrap();
     assert_eq!(r.hits.len(), 1);
     assert!(!r.hits[0].sources.contains_key("bm25"));
-    // A source it does not have.
-    p.sources = vec!["vector".into()];
-    assert!(shared.query(&p).is_err());
     assert_eq!(r.indexed_through, t.cursor().position);
     assert_eq!(r.lag.bytes, 0);
+    // Vectors, on a tender without them: no hits, and it says why.
+    p.sources = vec!["vector".into()];
+    let v = shared.query(&p).unwrap();
+    assert!(v.hits.is_empty());
+    assert!(v.skipped["vector"].contains("off"), "{:?}", v.skipped);
+    // A source no tender has.
+    p.sources = vec!["nonsense".into()];
+    assert!(shared.query(&p).is_err());
 }
 
 #[test]

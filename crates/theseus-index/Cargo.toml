@@ -1,6 +1,6 @@
 [package]
 name = "theseus-index"
-description = "The index tender (M6 step 29b): follows the WAL, extracts each node's text and entities, and answers BM25 and entity queries as of a position, over its own socket."
+description = "The index tender (M6 steps 29b and 29c): follows the WAL, extracts each node's text and entities, embeds each chunk, and answers BM25, entity, and vector queries as of a position, over its own socket."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -27,12 +27,30 @@ tracing-subscriber.workspace = true
 # Pure Rust only: no zstd (C) and no stemmer; mmap for the on-disk index,
 # lz4 (lz4_flex) for its doc store.
 tantivy = { version = "0.26", default-features = false, features = ["mmap", "lz4-compression"] }
+# The embedder (29c), as the 29a spike settled it: candle's core and nn only
+# (not candle-transformers, some 200 model files for one model), pinned, since
+# the version is in every vector's stamp.
+candle-core = "=0.11.0"
+candle-nn = "=0.11.0"
+# The 768-d vectors at f16 (candle's own `half`).
+half = "2"
+# The weights' pinned hashes, and each chunk text's key.
+sha2 = "0.10"
+# Each vector record's check.
+crc32fast = "1"
+# The tokenizer's Unicode tables: the two Hugging Face's `tokenizers` uses,
+# so the hand-written WordPiece matches it character for character.
+unicode-normalization-alignments = "0.1.12"
+unicode_categories = "0.1.1"
 
 [dev-dependencies]
 # The extractor's registry test matches every `Body` variant (tests only:
 # the tender never links the core).
 theseus-core.workspace = true
 tempfile = "3"
+# The tokenizer's cross-check, id for id. candle-core already builds this
+# version, with these features, so the tests add nothing to the build.
+tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 
 [lints]
 workspace = true
