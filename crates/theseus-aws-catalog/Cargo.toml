@@ -1,0 +1,25 @@
+[package]
+name = "theseus-aws-catalog"
+description = "The AWS operation catalog (AWS design §3.1, §4): every service and operation from the AWS CLI's botocore models, compiled offline into a compact brotli-compressed table that decodes one service at a time on first use, with each operation's class, retry class, and flags."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Pure-Rust brotli, decoder only. The encoder is the generator's alone (a
+# dev-dependency, used by `examples/theseus-aws-catalog-gen.rs` and the tests).
+brotli-decompressor = { version = "6", default-features = false, features = ["std"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+brotli = "9"
+
+[[example]]
+name = "theseus-aws-catalog-gen"
+
+[lints]
+workspace = true
