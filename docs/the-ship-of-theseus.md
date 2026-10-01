@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.62
+# The Ship of Theseus — v0.63
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -360,20 +360,23 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
 
 The call's tool line and its notice say what it was given ("gh got GH_TOKEN"). A spawn gives no secret whose posture is stricter than the one the call ran at.
 
-**External text** (theseus-9bp; built 2026-09-30). This is the interim, deterministic floor for web text, until provenance labels ("Exposure", below) and Jev (M5) arrive, and it stays the floor after them.
+**External text** (theseus-9bp; built 2026-09-30; amended the same day, T1b, theseus-q4t). This is the interim, deterministic floor for web text, until provenance labels ("Exposure", below) and Jev (M5) arrive, and it stays the floor after them.
 - **When a session holds it.** A session reads external text when a result node marked `external` enters its context: `http.fetch` and `web.search` today, and MCP results and untrusted attachments when they come. The first such read since the operator last trusted the session is its **hold**, kept on the session's record, with a `session.external_read` row (the node, the tool, the URL). Both are written in the frame that writes the node, so no crash leaves the text in the context without the hold. A later read writes nothing.
 - **From another session.** A task that a holding session starts holds the text from its brief, which that session's model wrote. A session that reads a report from a holding task holds it too, from the frame that writes the report.
-- **What waits.** After the order above and a granted secret's posture, every call whose class is not `read` waits for approval: writes, edits, patches, `proc.run`, `task.create`, and `wake.at`, including the allow list's calls. The stricter posture wins, as a tightening's does. A `read` call keeps its posture, fetches and searches included, so research goes on. A call in the same response as the fetch keeps its posture too, since the model wrote it before it saw the page.
+- **What waits.** After the order above and a granted secret's posture, every call whose class is not `read` waits for approval: writes, edits, patches, `proc.run`, and `task.create`, including the allow list's calls. The stricter posture wins, as a tightening's does. A call in the same response as the fetch keeps its posture too, since the model wrote it before it saw the page.
+- **What keeps its posture** (Eddie, 2026-09-30):
+  - a `read` call, fetches and searches included. This is decided: research keeps flowing, and each fetch's notice shows its URL;
+  - `wake.at`. Setting a reminder is safe, because the wake's turn runs in the same session, so any acting call it makes still waits. `task.create` still waits: a task spends its own budget and runs turns of its own.
 - A wake's turn, and a turn that a task's report started, are the session's own turns, so the hold covers them.
 - **The confirm says why**: "this session read external text (http.fetch <url>, at 13:05), and a call that acts waits for approval after that (§3.9)". Discord, the web UI, and the CLI show it.
 - **Trusting it again.** Only the operator clears a hold, with the trusted answer an approval takes ("Approval", below), so a Theseus job's process is refused. There are two ways:
-  - `policy.trust`: `theseus policy trust <session>`, or the Observatory's "trust again";
+  - `policy.trust`: `theseus policy trust <session>`, the Observatory's "trust again", or Discord's `/trust`. `/trust` trusts the session of the place it is typed in, as the Discord user who typed it, so `[approval]` judges it as it judges a card's press. A place whose session holds nothing says so, and nothing is written;
   - an approval that trusts the session as well: the card's **Approve + trust session** button on Discord and in the web UI, or `theseus confirm --trust`. The button appears only when the hold is why the call waits.
 
   A trust is ledgered as `session.trusted` (who, how, and the hold it cleared). A trust accepts the text already in the context; a later read holds the session again.
 - Health, `theseus health`, and the Observatory list the sessions that hold external text, since when, and from what. The hold is on the session's own record, so it survives a restart.
 - `[policy] external_text = "ask" | "notify"`, `ask` by default. `notify` runs a call that acts with at least a notice.
-- The rule judges what the session has read, not what the text says. It does not stop a page from sending data out through a fetch's URL, since a read keeps its posture; each fetch's notice names its URL. It also does not follow a job's own process: a job the operator approves can open a clean session through the socket (theseus-d64).
+- The rule judges what the session has read, not what the text says. It does not stop a page from sending data out through a fetch's URL, since a read keeps its posture (decided, above); each fetch's notice names its URL. It also does not follow a job's own process: a job the operator approves can open a clean session through the socket (theseus-d64).
 
 **Notices and records.** Every call, under any posture, is recorded on its tool-call node with the gate's decision, the posture, and the reason. A call that runs under `notify` is also ledgered (`tool.notified`) and shown on every surface as a notice: what ran, the setting that made it a notice, and the outcome. In the web UI and the CLI it is its own line. On Discord it is the call's line in its loop's tool message, `🔔 notified (<setting>)` and then its outcome, and a loop that overflows one message counts the notices on the line that folds its oldest calls. _(Amended 2026-09-29, theseus-w4f: a separate Discord embed per call is `[discord] notice_embeds`, off by default, because the DM's roughly 160 shell calls a day would each post one; Part III A4, item 3.)_ A call that waits is a confirm on every surface. A declined call is recorded as declined and never runs. Only a toollet's own input validation stops a call at the gate, and it does so as an error, not a refusal.
 
@@ -4539,3 +4542,88 @@ deterministic floor, and it landed before Eddie's end-to-end test.
   cover its id and its parse, and the core's test covers the answer.
 - An older binary would drop a session's hold the next time it wrote the record. F4a closes this.
 - The model is not told that its session holds external text. It learns only when a call waits.
+
+### Item 11. T1b: `wake.at` keeps its posture after web text, a Discord `/trust`, and interactions that route as messages do (theseus-q4t, theseus-e89; 2026-09-30, 16:08–16:36; 9362474, 3aa72a8)
+
+**Why.** Eddie's answers to T1's three questions (2026-09-30, 14:25 to 14:34): fetches in a holding
+session keep their posture; `wake.at` is exempt; and a Discord command clears the conversation's hold,
+named `/trust` ("I think it's fine, I am over-worrying"). theseus-e89 came from his question at 14:42,
+whether a test channel on the same bot could isolate a scratch daemon instead of a second bot: an
+interaction found its place by channel or else by the user's DM binding, so a command typed in an
+unbound guild channel acted on his DM, and an unbound daemon answered every interaction.
+
+**What exists.**
+- **`wake.at` keeps its posture** (`external::exempt`: a `Read`, and `wake.at`). The gate returns its
+  decision unchanged and reads no session record for it. The wake's turn is the session's own, so its
+  acting calls wait. `task.create` still waits.
+- **`/trust`** (`theseus-discord/src/runtime.rs`): registered with the other commands, and named in
+  the bind notice. In a bound place it trusts the place's current session through `policy.trust` on the
+  binding's own connection, with the presser's Discord ids, so `judge_act(Act::Trust)` and `[approval]`
+  judge it as a card's press: a refusal is ledgered as `approval.refused` and the hold stays, and
+  `session.trusted` names `discord:dm` or `discord:<channel>` as `via` and the user as `by` and `who`. A
+  place whose session holds nothing says so, and nothing is written. A typed `/trust` works as the
+  other controls do.
+- **Interactions route as messages do** (`on_interaction`): a guild interaction by its channel alone,
+  a DM's by its user's DM binding. An interaction in a place the daemon does not bind gets no answer at
+  all, so a daemon on the same bot that binds it answers. A bound place still refuses a user it does
+  not list. One bot token may now serve several daemons whose bindings name different places, each on
+  a build with this fix.
+- The template's `[policy] external_text` comment no longer lists `wake.at`, and its `[discord]`
+  comment says two daemons may share a token with disjoint bindings.
+
+**How it is proven.**
+- The gate at 9362474 ran 525 tests, 2 of them new: `/trust` through `place_for_tests` (cleared, with
+  `via discord:dm`; nothing to trust, the ledger unchanged; refused under an `[approval]` that does not
+  list the user, the hold kept; typed), and the routing through `on_interaction` against the fake
+  Discord REST API (no request at all for an unbound channel, from a user whose DM is bound; a DM's
+  command reaches the DM's place; a listed user's `/trust` carries its ids; an unlisted user is
+  refused). Five were extended: the rule's unit test, `a_wakes_turn_follows_the_rule`, the command
+  list, the bind notice, and the parse. The lifecycle bench passed (cold start p95 28.1 ms).
+- The step's live check (16:26–16:32), on a copy of Eddie's store with Discord and the web UI off: a GLM
+  turn fetched the `Option` page and then set a two-minute wake, with no wait (`wake.at`'s notice has its
+  own setting, `enforcement = notify`); `proc.run echo hi` waited with the hold's reason and was
+  declined; the wake fired at 16:30:40, and its turn's `proc.run echo woke` waited with the same reason;
+  `theseus policy trust` cleared the live hold (`session.trusted`, by the CLI).
+- On real Discord, a scratch daemon on a fresh state dir bound only `#theseus-test`: the log registered
+  7 commands, and the bind notice naming `/trust` posted there (Discord message 1554999148170715180).
+  Eddie's daemon was not running. A bot cannot press, so the presses wait for Eddie.
+- Eddie's unchanged note loads under the new binary.
+
+**Divergence from the brief and the issue.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| `/trust`'s description: "Trust this conversation again after it read web text: its calls that change things stop waiting for approval" | "… its calls that change things stop waiting" | 108 characters; Discord refuses a description over 100 | Keep |
+| The name `/theseus-trust` (the issue) | `/trust` | Eddie, 14:34 | Keep |
+| "Clears the hold … through `Core::trust_session`" | Through `policy.trust` on the binding's connection, which ends in `Core::trust_session` | The connection names the surface, so only the binding can name a Discord user; the same path as the CLI's | Keep |
+| — | A typed `/trust` works too | The other controls work typed | Keep |
+| — | "Nothing to trust" is read from `session.list` before the trust | Its own reply, and nothing written | Keep |
+| — | The narrative's line names `/trust` | It lists the ways to trust again (it named no reminder) | Keep |
+| — | An ignored interaction is not counted in the binding's `interactions` | As a message in a place that is not ours is not counted | Keep |
+| "A scratch daemon over a copy of Eddie's store" for the live check | Part 2 (real Discord) on a fresh state dir | The operator lane can fall back to a copied session's place, his DM (theseus-c3e) | Keep; theseus-c3e |
+
+**Known gaps.**
+- The operator lane falls back to a session's place even where the daemon binds nothing, so a
+  Discord-enabled daemon must not run on a copy of another's store (theseus-c3e).
+- `/trust` and the routing were not pressed live, since a bot cannot press; the binding's tests drive
+  them through `place_for_tests` and `on_interaction`.
+- A card already waiting when `/trust` clears the hold keeps waiting; its Approve runs it.
+- Registering commands is global to the app, so a scratch daemon's list replaces the installed
+  build's until Eddie's daemon next starts.
+
+**Reviewed** (Tabitha, 2026-09-30, 17:03 to 17:11).
+- **The gate rerun.** The first rerun failed one test, `versions::a_start_at_once_after_a_stop_waits_for_the_store`,
+  with "the connection closed" at a shutdown. That was theseus-ur0, the lost stop answer, under load 9 from
+  the parallel lanes' builds. It passed 5 of 5 alone, and the second full rerun passed: 525 tests, with every
+  phase within budget at load about 9 (cold start p95 38.9 ms, swap 84.0). theseus-ur0 is raised to P1 and
+  folded into the next spine step, with theseus-kol.
+- **Reading the code.** `on_interaction` now finds a guild interaction's place by its channel alone, and a
+  DM's by its user's DM binding. It answers nothing in a place it does not bind, and still refuses an unlisted
+  user in a place it does. Two new tests cover the routing and `/trust` under `[approval]`.
+- **A live check on the release build of 3aa72a8**, over a copy of Eddie's store (Discord and the web UI off,
+  glm live). A GLM turn fetched the `String` page, and then set a 30-minute wake: it was set at once, with no
+  approval, while health listed the session as holding external text. The test wake was then cancelled.
+- Eddie's unchanged note loads under the new binary.
+- **Installed at 17:10** from 3aa72a8.
+- **Taken at review:** theseus-ur0 (P1, the gate's flake under the lanes' load) goes with theseus-kol in fix
+  batch 1's head. theseus-c3e (P3) keeps Discord-enabled scratch daemons on fresh stores.
