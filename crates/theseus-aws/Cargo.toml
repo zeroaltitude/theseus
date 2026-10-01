@@ -1,0 +1,38 @@
+[package]
+name = "theseus-aws"
+description = "Theseus's AWS client (AWS design §3.1): one caller for every operation of every service, driven by theseus-aws-catalog's models. The six protocols (query, ec2, JSON 1.0 and 1.1, REST-JSON, REST-XML), SigV4 signing and presigning with aws-sigv4, endpoints from the catalog, retries by retry class, pagination, and errors that name the enforcer that refused."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+theseus-aws-catalog = { path = "../theseus-aws-catalog" }
+# AWS's own signer, pure Rust (hmac and sha2; no ring, no aws-lc). SigV4a's
+# feature stays off.
+aws-sigv4 = "1.6"
+aws-credential-types = "1.3"
+aws-smithy-runtime-api = { version = "1.18", features = ["client"] }
+# Timestamps in the formats the protocols use (date-time, http-date, epoch).
+aws-smithy-types = "1.8"
+# AWS's XML reader and writer, over xmlparser.
+aws-smithy-xml = "0.62"
+base64.workspace = true
+crc32fast = "1.5"
+md-5 = "0.11"
+sha2 = "0.11"
+percent-encoding = "2"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

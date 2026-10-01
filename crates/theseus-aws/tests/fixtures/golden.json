@@ -1,0 +1,1700 @@
+{
+ "generator": "tests/fixtures/golden.py",
+ "models": "aws-cli/2.34.15",
+ "botocore": "2.0.0dev155",
+ "cases": [
+  {
+   "name": "query: iam ListRoles",
+   "service": "iam",
+   "operation": "ListRoles",
+   "region": "us-west-2",
+   "protocol": "query",
+   "input": {
+    "PathPrefix": "/theseus/",
+    "MaxItems": 10
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://iam.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "ListRoles"
+      ],
+      [
+       "Version",
+       "2010-05-08"
+      ],
+      [
+       "PathPrefix",
+       "/theseus/"
+      ],
+      [
+       "MaxItems",
+       "10"
+      ]
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amzn-requestid": "4ba1c0de-0000-4000-8000-000000000001"
+    },
+    "body": "<ListRolesResponse xmlns=\"https://iam.amazonaws.com/doc/2010-05-08/\">\n  <ListRolesResult>\n    <IsTruncated>true</IsTruncated>\n    <Marker>marker-2</Marker>\n    <Roles>\n      <member>\n        <Path>/theseus/</Path>\n        <RoleName>example-hand-basic</RoleName>\n        <RoleId>AROAEXAMPLEID00000001</RoleId>\n        <Arn>arn:aws:iam::111122223333:role/theseus/example-hand-basic</Arn>\n        <CreateDate>2026-09-30T23:45:00Z</CreateDate>\n        <AssumeRolePolicyDocument>%7B%22Version%22%3A%222012-10-17%22%7D</AssumeRolePolicyDocument>\n        <MaxSessionDuration>43200</MaxSessionDuration>\n        <Tags><member><Key>theseus:deployment</Key><Value>example-desktop</Value></member></Tags>\n      </member>\n      <member>\n        <Path>/theseus/</Path>\n        <RoleName>example-hand-read</RoleName>\n        <RoleId>AROAEXAMPLEID00000002</RoleId>\n        <Arn>arn:aws:iam::111122223333:role/theseus/example-hand-read</Arn>\n        <CreateDate>2026-09-30T23:46:01.5Z</CreateDate>\n        <MaxSessionDuration>3600</MaxSessionDuration>\n      </member>\n    </Roles>\n  </ListRolesResult>\n  <ResponseMetadata><RequestId>4ba1c0de-0000-4000-8000-000000000001</RequestId></ResponseMetadata>\n</ListRolesResponse>"
+   },
+   "output": {
+    "Roles": [
+     {
+      "Path": "/theseus/",
+      "RoleName": "example-hand-basic",
+      "RoleId": "AROAEXAMPLEID00000001",
+      "Arn": "arn:aws:iam::111122223333:role/theseus/example-hand-basic",
+      "CreateDate": "2026-09-30T23:45:00Z",
+      "AssumeRolePolicyDocument": "%7B%22Version%22%3A%222012-10-17%22%7D",
+      "MaxSessionDuration": 43200,
+      "Tags": [
+       {
+        "Key": "theseus:deployment",
+        "Value": "example-desktop"
+       }
+      ]
+     },
+     {
+      "Path": "/theseus/",
+      "RoleName": "example-hand-read",
+      "RoleId": "AROAEXAMPLEID00000002",
+      "Arn": "arn:aws:iam::111122223333:role/theseus/example-hand-read",
+      "CreateDate": "2026-09-30T23:46:01.5Z",
+      "MaxSessionDuration": 3600
+     }
+    ],
+    "IsTruncated": true,
+    "Marker": "marker-2"
+   }
+  },
+  {
+   "name": "query: iam TagRole, a list of structures",
+   "service": "iam",
+   "operation": "TagRole",
+   "region": "us-west-2",
+   "protocol": "query",
+   "input": {
+    "RoleName": "example-hand-basic",
+    "Tags": [
+     {
+      "Key": "theseus:execution",
+      "Value": "exe_example"
+     },
+     {
+      "Key": "team",
+      "Value": "R&D / tools"
+     }
+    ]
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://iam.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "TagRole"
+      ],
+      [
+       "Version",
+       "2010-05-08"
+      ],
+      [
+       "RoleName",
+       "example-hand-basic"
+      ],
+      [
+       "Tags.member.1.Key",
+       "theseus:execution"
+      ],
+      [
+       "Tags.member.1.Value",
+       "exe_example"
+      ],
+      [
+       "Tags.member.2.Key",
+       "team"
+      ],
+      [
+       "Tags.member.2.Value",
+       "R&D / tools"
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "query: sns CreateTopic, a map and an empty list",
+   "service": "sns",
+   "operation": "CreateTopic",
+   "region": "us-west-2",
+   "protocol": "query",
+   "input": {
+    "Name": "example-alerts",
+    "Attributes": {
+     "DisplayName": "Example alerts",
+     "FifoTopic": "false"
+    },
+    "Tags": []
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://sns.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "CreateTopic"
+      ],
+      [
+       "Version",
+       "2010-03-31"
+      ],
+      [
+       "Name",
+       "example-alerts"
+      ],
+      [
+       "Attributes.entry.1.key",
+       "DisplayName"
+      ],
+      [
+       "Attributes.entry.1.value",
+       "Example alerts"
+      ],
+      [
+       "Attributes.entry.2.key",
+       "FifoTopic"
+      ],
+      [
+       "Attributes.entry.2.value",
+       "false"
+      ],
+      [
+       "Tags",
+       ""
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "query: sns GetTopicAttributes, a map in the answer",
+   "service": "sns",
+   "operation": "GetTopicAttributes",
+   "region": "us-west-2",
+   "protocol": "query",
+   "input": {
+    "TopicArn": "arn:aws:sns:us-west-2:111122223333:example-alerts"
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://sns.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "GetTopicAttributes"
+      ],
+      [
+       "Version",
+       "2010-03-31"
+      ],
+      [
+       "TopicArn",
+       "arn:aws:sns:us-west-2:111122223333:example-alerts"
+      ]
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "<GetTopicAttributesResponse xmlns=\"http://sns.amazonaws.com/doc/2010-03-31/\">\n  <GetTopicAttributesResult>\n    <Attributes>\n      <entry><key>DisplayName</key><value>Example alerts</value></entry>\n      <entry><key>SubscriptionsConfirmed</key><value>2</value></entry>\n    </Attributes>\n  </GetTopicAttributesResult>\n  <ResponseMetadata><RequestId>4ba1c0de-0000-4000-8000-000000000002</RequestId></ResponseMetadata>\n</GetTopicAttributesResponse>"
+   },
+   "output": {
+    "Attributes": {
+     "DisplayName": "Example alerts",
+     "SubscriptionsConfirmed": "2"
+    }
+   }
+  },
+  {
+   "name": "query: sts GetCallerIdentity",
+   "service": "sts",
+   "operation": "GetCallerIdentity",
+   "region": "us-west-2",
+   "protocol": "query",
+   "input": {},
+   "request": {
+    "method": "POST",
+    "origin": "https://sts.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "GetCallerIdentity"
+      ],
+      [
+       "Version",
+       "2011-06-15"
+      ]
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "<GetCallerIdentityResponse xmlns=\"https://sts.amazonaws.com/doc/2011-06-15/\">\n  <GetCallerIdentityResult>\n    <Arn>arn:aws:iam::111122223333:user/example-user</Arn>\n    <UserId>AIDAEXAMPLEUSERID0001</UserId>\n    <Account>111122223333</Account>\n  </GetCallerIdentityResult>\n  <ResponseMetadata><RequestId>4ba1c0de-0000-4000-8000-000000000003</RequestId></ResponseMetadata>\n</GetCallerIdentityResponse>"
+   },
+   "output": {
+    "UserId": "AIDAEXAMPLEUSERID0001",
+    "Account": "111122223333",
+    "Arn": "arn:aws:iam::111122223333:user/example-user"
+   }
+  },
+  {
+   "name": "query: cloudformation DescribeStacks",
+   "service": "cloudformation",
+   "operation": "DescribeStacks",
+   "region": "us-west-2",
+   "protocol": "query",
+   "input": {
+    "StackName": "example-foundation"
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://cloudformation.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "DescribeStacks"
+      ],
+      [
+       "Version",
+       "2010-05-15"
+      ],
+      [
+       "StackName",
+       "example-foundation"
+      ]
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "<DescribeStacksResponse xmlns=\"http://cloudformation.amazonaws.com/doc/2010-05-15/\">\n  <DescribeStacksResult>\n    <Stacks>\n      <member>\n        <StackId>arn:aws:cloudformation:us-west-2:111122223333:stack/example-foundation/00000000-0000-4000-8000-000000000000</StackId>\n        <StackName>example-foundation</StackName>\n        <CreationTime>2026-09-30T23:45:00.123Z</CreationTime>\n        <StackStatus>CREATE_COMPLETE</StackStatus>\n        <DisableRollback>false</DisableRollback>\n        <Parameters><member><ParameterKey>Budget</ParameterKey><ParameterValue>50</ParameterValue></member></Parameters>\n        <Outputs><member><OutputKey>QueueUrl</OutputKey><OutputValue>https://sqs.us-west-2.amazonaws.com/111122223333/example-done</OutputValue></member></Outputs>\n        <Tags/>\n      </member>\n    </Stacks>\n  </DescribeStacksResult>\n  <ResponseMetadata><RequestId>4ba1c0de-0000-4000-8000-000000000004</RequestId></ResponseMetadata>\n</DescribeStacksResponse>"
+   },
+   "output": {
+    "Stacks": [
+     {
+      "StackId": "arn:aws:cloudformation:us-west-2:111122223333:stack/example-foundation/00000000-0000-4000-8000-000000000000",
+      "StackName": "example-foundation",
+      "Parameters": [
+       {
+        "ParameterKey": "Budget",
+        "ParameterValue": "50"
+       }
+      ],
+      "CreationTime": "2026-09-30T23:45:00.123Z",
+      "StackStatus": "CREATE_COMPLETE",
+      "DisableRollback": false,
+      "Outputs": [
+       {
+        "OutputKey": "QueueUrl",
+        "OutputValue": "https://sqs.us-west-2.amazonaws.com/111122223333/example-done"
+       }
+      ],
+      "Tags": []
+     }
+    ]
+   }
+  },
+  {
+   "name": "query: iam GetRole, an error",
+   "service": "iam",
+   "operation": "GetRole",
+   "region": "us-west-2",
+   "protocol": "query",
+   "input": {
+    "RoleName": "example-missing"
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://iam.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "GetRole"
+      ],
+      [
+       "Version",
+       "2010-05-08"
+      ],
+      [
+       "RoleName",
+       "example-missing"
+      ]
+     ]
+    }
+   },
+   "response": {
+    "status": 404,
+    "headers": {},
+    "body": "<ErrorResponse xmlns=\"https://iam.amazonaws.com/doc/2010-05-08/\">\n  <Error><Type>Sender</Type><Code>NoSuchEntity</Code><Message>The role with name example-missing cannot be found.</Message></Error>\n  <RequestId>4ba1c0de-0000-4000-8000-000000000005</RequestId>\n</ErrorResponse>"
+   },
+   "error": {
+    "code": "NoSuchEntity",
+    "message": "The role with name example-missing cannot be found.",
+    "request_id": "4ba1c0de-0000-4000-8000-000000000005"
+   }
+  },
+  {
+   "name": "ec2: DescribeRegions",
+   "service": "ec2",
+   "operation": "DescribeRegions",
+   "region": "us-west-2",
+   "protocol": "ec2",
+   "input": {
+    "AllRegions": true,
+    "RegionNames": [
+     "us-west-2",
+     "us-east-1"
+    ]
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://ec2.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "DescribeRegions"
+      ],
+      [
+       "Version",
+       "2016-11-15"
+      ],
+      [
+       "AllRegions",
+       "true"
+      ],
+      [
+       "RegionName.1",
+       "us-west-2"
+      ],
+      [
+       "RegionName.2",
+       "us-east-1"
+      ]
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "<DescribeRegionsResponse xmlns=\"http://ec2.amazonaws.com/doc/2016-11-15/\">\n  <requestId>4ba1c0de-0000-4000-8000-000000000006</requestId>\n  <regionInfo>\n    <item><regionName>us-west-2</regionName><regionEndpoint>ec2.us-west-2.amazonaws.com</regionEndpoint><optInStatus>opt-in-not-required</optInStatus></item>\n    <item><regionName>us-east-1</regionName><regionEndpoint>ec2.us-east-1.amazonaws.com</regionEndpoint><optInStatus>opt-in-not-required</optInStatus></item>\n  </regionInfo>\n</DescribeRegionsResponse>"
+   },
+   "output": {
+    "Regions": [
+     {
+      "OptInStatus": "opt-in-not-required",
+      "RegionName": "us-west-2",
+      "Endpoint": "ec2.us-west-2.amazonaws.com"
+     },
+     {
+      "OptInStatus": "opt-in-not-required",
+      "RegionName": "us-east-1",
+      "Endpoint": "ec2.us-east-1.amazonaws.com"
+     }
+    ]
+   }
+  },
+  {
+   "name": "ec2: DescribeInstances, nested lists",
+   "service": "ec2",
+   "operation": "DescribeInstances",
+   "region": "us-west-2",
+   "protocol": "ec2",
+   "input": {
+    "Filters": [
+     {
+      "Name": "tag:theseus:deployment",
+      "Values": [
+       "example-desktop",
+       "example-laptop"
+      ]
+     },
+     {
+      "Name": "instance-state-name",
+      "Values": [
+       "running"
+      ]
+     }
+    ],
+    "MaxResults": 5
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://ec2.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "DescribeInstances"
+      ],
+      [
+       "Version",
+       "2016-11-15"
+      ],
+      [
+       "Filter.1.Name",
+       "tag:theseus:deployment"
+      ],
+      [
+       "Filter.1.Value.1",
+       "example-desktop"
+      ],
+      [
+       "Filter.1.Value.2",
+       "example-laptop"
+      ],
+      [
+       "Filter.2.Name",
+       "instance-state-name"
+      ],
+      [
+       "Filter.2.Value.1",
+       "running"
+      ],
+      [
+       "MaxResults",
+       "5"
+      ]
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "<DescribeInstancesResponse xmlns=\"http://ec2.amazonaws.com/doc/2016-11-15/\">\n  <requestId>4ba1c0de-0000-4000-8000-000000000007</requestId>\n  <reservationSet>\n    <item>\n      <reservationId>r-0example000000001</reservationId>\n      <ownerId>111122223333</ownerId>\n      <instancesSet>\n        <item>\n          <instanceId>i-0example000000001</instanceId>\n          <imageId>ami-0example000000001</imageId>\n          <instanceState><code>16</code><name>running</name></instanceState>\n          <instanceType>t3.micro</instanceType>\n          <launchTime>2026-09-30T23:45:00.000Z</launchTime>\n          <ebsOptimized>false</ebsOptimized>\n          <tagSet><item><key>theseus:deployment</key><value>example-desktop</value></item></tagSet>\n        </item>\n      </instancesSet>\n    </item>\n  </reservationSet>\n  <nextToken>token-2</nextToken>\n</DescribeInstancesResponse>"
+   },
+   "output": {
+    "NextToken": "token-2",
+    "Reservations": [
+     {
+      "ReservationId": "r-0example000000001",
+      "OwnerId": "111122223333",
+      "Instances": [
+       {
+        "EbsOptimized": false,
+        "Tags": [
+         {
+          "Key": "theseus:deployment",
+          "Value": "example-desktop"
+         }
+        ],
+        "InstanceId": "i-0example000000001",
+        "ImageId": "ami-0example000000001",
+        "State": {
+         "Code": 16,
+         "Name": "running"
+        },
+        "InstanceType": "t3.micro",
+        "LaunchTime": "2026-09-30T23:45:00Z"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "ec2: RunInstances, with its token",
+   "service": "ec2",
+   "operation": "RunInstances",
+   "region": "us-west-2",
+   "protocol": "ec2",
+   "input": {
+    "ImageId": "ami-0example000000001",
+    "MinCount": 1,
+    "MaxCount": 1,
+    "InstanceType": "t3.micro",
+    "ClientToken": "exe_example.call_1",
+    "TagSpecifications": [
+     {
+      "ResourceType": "instance",
+      "Tags": [
+       {
+        "Key": "theseus:ttl",
+        "Value": "1h"
+       }
+      ]
+     }
+    ]
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://ec2.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "RunInstances"
+      ],
+      [
+       "Version",
+       "2016-11-15"
+      ],
+      [
+       "ImageId",
+       "ami-0example000000001"
+      ],
+      [
+       "MinCount",
+       "1"
+      ],
+      [
+       "MaxCount",
+       "1"
+      ],
+      [
+       "InstanceType",
+       "t3.micro"
+      ],
+      [
+       "ClientToken",
+       "exe_example.call_1"
+      ],
+      [
+       "TagSpecification.1.ResourceType",
+       "instance"
+      ],
+      [
+       "TagSpecification.1.Tag.1.Key",
+       "theseus:ttl"
+      ],
+      [
+       "TagSpecification.1.Tag.1.Value",
+       "1h"
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "ec2: an error with its enforcer",
+   "service": "ec2",
+   "operation": "DescribeVpcs",
+   "region": "us-west-2",
+   "protocol": "ec2",
+   "input": {},
+   "request": {
+    "method": "POST",
+    "origin": "https://ec2.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+    },
+    "body": {
+     "form": [
+      [
+       "Action",
+       "DescribeVpcs"
+      ],
+      [
+       "Version",
+       "2016-11-15"
+      ]
+     ]
+    }
+   },
+   "response": {
+    "status": 403,
+    "headers": {},
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Errors><Error><Code>UnauthorizedOperation</Code><Message>You are not authorized to perform this operation. User: arn:aws:sts::111122223333:assumed-role/example-owner/exe_example is not authorized to perform: ec2:DescribeVpcs with an explicit deny in a service control policy</Message></Error></Errors><RequestID>4ba1c0de-0000-4000-8000-000000000008</RequestID></Response>"
+   },
+   "error": {
+    "code": "UnauthorizedOperation",
+    "message": "You are not authorized to perform this operation. User: arn:aws:sts::111122223333:assumed-role/example-owner/exe_example is not authorized to perform: ec2:DescribeVpcs with an explicit deny in a service control policy",
+    "request_id": "4ba1c0de-0000-4000-8000-000000000008"
+   }
+  },
+  {
+   "name": "json 1.0: dynamodb Query, a union with a blob",
+   "service": "dynamodb",
+   "operation": "Query",
+   "region": "us-west-2",
+   "protocol": "json",
+   "input": {
+    "TableName": "example-durability",
+    "KeyConditionExpression": "pk = :v",
+    "ExpressionAttributeValues": {
+     ":v": {
+      "S": "exe_example"
+     }
+    },
+    "Limit": 5
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://dynamodb.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "X-Amz-Target": "DynamoDB_20120810.Query",
+     "Content-Type": "application/x-amz-json-1.0"
+    },
+    "body": {
+     "json": {
+      "TableName": "example-durability",
+      "KeyConditionExpression": "pk = :v",
+      "ExpressionAttributeValues": {
+       ":v": {
+        "S": "exe_example"
+       }
+      },
+      "Limit": 5
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amzn-requestid": "DDB0EXAMPLE0000000000000000000000000000000000000000001"
+    },
+    "body": "{\"Count\": 1, \"ScannedCount\": 1, \"Items\": [{\"pk\": {\"S\": \"exe_example\"}, \"n\": {\"N\": \"42\"}, \"raw\": {\"B\": \"AAEC\"}, \"ok\": {\"BOOL\": true}, \"tags\": {\"SS\": [\"a\", \"b\"]}, \"doc\": {\"M\": {\"k\": {\"S\": \"v\"}}}}], \"LastEvaluatedKey\": {\"pk\": {\"S\": \"exe_example\"}}}"
+   },
+   "output": {
+    "Items": [
+     {
+      "pk": {
+       "S": "exe_example"
+      },
+      "n": {
+       "N": "42"
+      },
+      "raw": {
+       "B": {
+        "base64": "AAEC"
+       }
+      },
+      "ok": {
+       "BOOL": true
+      },
+      "tags": {
+       "SS": [
+        "a",
+        "b"
+       ]
+      },
+      "doc": {
+       "M": {
+        "k": {
+         "S": "v"
+        }
+       }
+      }
+     }
+    ],
+    "Count": 1,
+    "ScannedCount": 1,
+    "LastEvaluatedKey": {
+     "pk": {
+      "S": "exe_example"
+     }
+    }
+   }
+  },
+  {
+   "name": "json 1.0: sqs SendMessage, query-compatible",
+   "service": "sqs",
+   "operation": "SendMessage",
+   "region": "us-west-2",
+   "protocol": "json",
+   "input": {
+    "QueueUrl": "https://sqs.us-west-2.amazonaws.com/111122223333/example-done",
+    "MessageBody": "{\"job\":\"j1\"}",
+    "DelaySeconds": 0,
+    "MessageAttributes": {
+     "kind": {
+      "DataType": "String",
+      "StringValue": "completion"
+     }
+    }
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://sqs.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "X-Amz-Target": "AmazonSQS.SendMessage",
+     "Content-Type": "application/x-amz-json-1.0",
+     "x-amzn-query-mode": "true"
+    },
+    "body": {
+     "json": {
+      "QueueUrl": "https://sqs.us-west-2.amazonaws.com/111122223333/example-done",
+      "MessageBody": "{\"job\":\"j1\"}",
+      "DelaySeconds": 0,
+      "MessageAttributes": {
+       "kind": {
+        "DataType": "String",
+        "StringValue": "completion"
+       }
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amzn-requestid": "00000000-0000-4000-8000-0000000000aa"
+    },
+    "body": "{\"MD5OfMessageBody\": \"0123456789abcdef0123456789abcdef\", \"MessageId\": \"00000000-0000-4000-8000-0000000000ab\"}"
+   },
+   "output": {
+    "MD5OfMessageBody": "0123456789abcdef0123456789abcdef",
+    "MessageId": "00000000-0000-4000-8000-0000000000ab"
+   }
+  },
+  {
+   "name": "json 1.0: sqs, a query-compatible error",
+   "service": "sqs",
+   "operation": "GetQueueUrl",
+   "region": "us-west-2",
+   "protocol": "json",
+   "input": {
+    "QueueName": "example-missing"
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://sqs.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "X-Amz-Target": "AmazonSQS.GetQueueUrl",
+     "Content-Type": "application/x-amz-json-1.0",
+     "x-amzn-query-mode": "true"
+    },
+    "body": {
+     "json": {
+      "QueueName": "example-missing"
+     }
+    }
+   },
+   "response": {
+    "status": 400,
+    "headers": {
+     "x-amzn-requestid": "00000000-0000-4000-8000-0000000000ac",
+     "x-amzn-query-error": "AWS.SimpleQueueService.NonExistentQueue;Sender"
+    },
+    "body": "{\"__type\": \"com.amazonaws.sqs#QueueDoesNotExist\", \"message\": \"The specified queue does not exist.\"}"
+   },
+   "error": {
+    "code": "AWS.SimpleQueueService.NonExistentQueue",
+    "message": "The specified queue does not exist.",
+    "request_id": "00000000-0000-4000-8000-0000000000ac"
+   }
+  },
+  {
+   "name": "json 1.0: dynamodb, an error",
+   "service": "dynamodb",
+   "operation": "DescribeTable",
+   "region": "us-west-2",
+   "protocol": "json",
+   "input": {
+    "TableName": "example-missing"
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://dynamodb.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "X-Amz-Target": "DynamoDB_20120810.DescribeTable",
+     "Content-Type": "application/x-amz-json-1.0"
+    },
+    "body": {
+     "json": {
+      "TableName": "example-missing"
+     }
+    }
+   },
+   "response": {
+    "status": 400,
+    "headers": {
+     "x-amzn-requestid": "DDB0EXAMPLE0000000000000000000000000000000000000000002"
+    },
+    "body": "{\"__type\": \"com.amazonaws.dynamodb.v20120810#ResourceNotFoundException\", \"message\": \"Requested resource not found: Table: example-missing not found\"}"
+   },
+   "error": {
+    "code": "ResourceNotFoundException",
+    "message": "Requested resource not found: Table: example-missing not found",
+    "request_id": "DDB0EXAMPLE0000000000000000000000000000000000000000002"
+   }
+  },
+  {
+   "name": "json 1.1: sagemaker ListEndpoints, epoch timestamps",
+   "service": "sagemaker",
+   "operation": "ListEndpoints",
+   "region": "us-west-2",
+   "protocol": "json",
+   "input": {
+    "MaxResults": 2,
+    "SortBy": "CreationTime",
+    "CreationTimeAfter": "2026-01-01T00:00:00Z"
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://api.sagemaker.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "X-Amz-Target": "SageMaker.ListEndpoints",
+     "Content-Type": "application/x-amz-json-1.1"
+    },
+    "body": {
+     "json": {
+      "MaxResults": 2,
+      "SortBy": "CreationTime",
+      "CreationTimeAfter": 1767225600
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amzn-requestid": "00000000-0000-4000-8000-0000000000b0"
+    },
+    "body": "{\"Endpoints\": [{\"EndpointName\": \"example-embed\", \"EndpointArn\": \"arn:aws:sagemaker:us-west-2:111122223333:endpoint/example-embed\", \"CreationTime\": 1790000000.123, \"LastModifiedTime\": 1790000100, \"EndpointStatus\": \"InService\"}], \"NextToken\": \"page-2\"}"
+   },
+   "output": {
+    "Endpoints": [
+     {
+      "EndpointName": "example-embed",
+      "EndpointArn": "arn:aws:sagemaker:us-west-2:111122223333:endpoint/example-embed",
+      "CreationTime": "2026-09-21T14:13:20.123Z",
+      "LastModifiedTime": "2026-09-21T14:15:00Z",
+      "EndpointStatus": "InService"
+     }
+    ],
+    "NextToken": "page-2"
+   }
+  },
+  {
+   "name": "json 1.1: logs FilterLogEvents",
+   "service": "logs",
+   "operation": "FilterLogEvents",
+   "region": "us-west-2",
+   "protocol": "json",
+   "input": {
+    "logGroupName": "/theseus/example",
+    "startTime": 1790000000000,
+    "filterPattern": "ERROR",
+    "limit": 2
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://logs.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "X-Amz-Target": "Logs_20140328.FilterLogEvents",
+     "Content-Type": "application/x-amz-json-1.1"
+    },
+    "body": {
+     "json": {
+      "logGroupName": "/theseus/example",
+      "startTime": 1790000000000,
+      "filterPattern": "ERROR",
+      "limit": 2
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "{\"events\": [{\"logStreamName\": \"s1\", \"timestamp\": 1790000000123, \"message\": \"ERROR one\", \"ingestionTime\": 1790000000200, \"eventId\": \"e1\"}], \"searchedLogStreams\": [], \"nextToken\": \"t2\"}"
+   },
+   "output": {
+    "events": [
+     {
+      "logStreamName": "s1",
+      "timestamp": 1790000000123,
+      "message": "ERROR one",
+      "ingestionTime": 1790000000200,
+      "eventId": "e1"
+     }
+    ],
+    "searchedLogStreams": [],
+    "nextToken": "t2"
+   }
+  },
+  {
+   "name": "json 1.1: kms Encrypt, a blob both ways",
+   "service": "kms",
+   "operation": "Encrypt",
+   "region": "us-west-2",
+   "protocol": "json",
+   "input": {
+    "KeyId": "alias/example",
+    "Plaintext": "hello",
+    "EncryptionContext": {
+     "purpose": "test"
+    }
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://kms.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "X-Amz-Target": "TrentService.Encrypt",
+     "Content-Type": "application/x-amz-json-1.1"
+    },
+    "body": {
+     "json": {
+      "KeyId": "alias/example",
+      "Plaintext": "aGVsbG8=",
+      "EncryptionContext": {
+       "purpose": "test"
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "{\"CiphertextBlob\": \"AAECAwQFBgcICQoLDA0ODw==\", \"KeyId\": \"arn:aws:kms:us-west-2:111122223333:key/00000000-0000-4000-8000-000000000000\", \"EncryptionAlgorithm\": \"SYMMETRIC_DEFAULT\"}"
+   },
+   "output": {
+    "CiphertextBlob": {
+     "base64": "AAECAwQFBgcICQoLDA0ODw=="
+    },
+    "KeyId": "arn:aws:kms:us-west-2:111122223333:key/00000000-0000-4000-8000-000000000000",
+    "EncryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   }
+  },
+  {
+   "name": "json 1.1: an implicit deny",
+   "service": "ecs",
+   "operation": "ListClusters",
+   "region": "us-west-2",
+   "protocol": "json",
+   "input": {},
+   "request": {
+    "method": "POST",
+    "origin": "https://ecs.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {
+     "X-Amz-Target": "AmazonEC2ContainerServiceV20141113.ListClusters",
+     "Content-Type": "application/x-amz-json-1.1"
+    },
+    "body": {
+     "json": {}
+    }
+   },
+   "response": {
+    "status": 400,
+    "headers": {
+     "x-amzn-requestid": "00000000-0000-4000-8000-0000000000b1"
+    },
+    "body": "{\"__type\": \"AccessDeniedException\", \"Message\": \"User: arn:aws:sts::111122223333:assumed-role/example-owner/exe_example is not authorized to perform: ecs:ListClusters because no identity-based policy allows the ecs:ListClusters action\"}"
+   },
+   "error": {
+    "code": "AccessDeniedException",
+    "message": "User: arn:aws:sts::111122223333:assumed-role/example-owner/exe_example is not authorized to perform: ecs:ListClusters because no identity-based policy allows the ecs:ListClusters action",
+    "request_id": "00000000-0000-4000-8000-0000000000b1"
+   }
+  },
+  {
+   "name": "rest-json: lambda ListFunctions",
+   "service": "lambda",
+   "operation": "ListFunctions",
+   "region": "us-west-2",
+   "protocol": "rest-json",
+   "input": {
+    "MaxItems": 10,
+    "FunctionVersion": "ALL"
+   },
+   "request": {
+    "method": "GET",
+    "origin": "https://lambda.us-west-2.amazonaws.com",
+    "path": "/2015-03-31/functions",
+    "query": [
+     [
+      "MaxItems",
+      "10"
+     ],
+     [
+      "FunctionVersion",
+      "ALL"
+     ]
+    ],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amzn-requestid": "00000000-0000-4000-8000-0000000000c0"
+    },
+    "body": "{\"Functions\": [{\"FunctionName\": \"example-reaper\", \"FunctionArn\": \"arn:aws:lambda:us-west-2:111122223333:function:example-reaper\", \"Runtime\": \"provided.al2023\", \"MemorySize\": 128, \"Timeout\": 30, \"LastModified\": \"2026-09-30T23:45:00.000+0000\", \"Architectures\": [\"arm64\"], \"Environment\": {\"Variables\": {\"STAGE\": \"test\"}}}], \"NextMarker\": \"m2\"}"
+   },
+   "output": {
+    "NextMarker": "m2",
+    "Functions": [
+     {
+      "FunctionName": "example-reaper",
+      "FunctionArn": "arn:aws:lambda:us-west-2:111122223333:function:example-reaper",
+      "Runtime": "provided.al2023",
+      "Timeout": 30,
+      "MemorySize": 128,
+      "LastModified": "2026-09-30T23:45:00.000+0000",
+      "Environment": {
+       "Variables": {
+        "STAGE": "test"
+       }
+      },
+      "Architectures": [
+       "arm64"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "rest-json: lambda Invoke, headers and a raw payload",
+   "service": "lambda",
+   "operation": "Invoke",
+   "region": "us-west-2",
+   "protocol": "rest-json",
+   "input": {
+    "FunctionName": "example-reaper",
+    "InvocationType": "RequestResponse",
+    "LogType": "Tail",
+    "Qualifier": "live",
+    "Payload": "{\"dry_run\": true}"
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://lambda.us-west-2.amazonaws.com",
+    "path": "/2015-03-31/functions/example-reaper/invocations",
+    "query": [
+     [
+      "Qualifier",
+      "live"
+     ]
+    ],
+    "headers": {
+     "X-Amz-Invocation-Type": "RequestResponse",
+     "X-Amz-Log-Type": "Tail"
+    },
+    "body": {
+     "json": {
+      "dry_run": true
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amzn-requestid": "00000000-0000-4000-8000-0000000000c1",
+     "X-Amz-Executed-Version": "7",
+     "X-Amz-Function-Error": "Unhandled",
+     "X-Amz-Log-Result": "U1RBUlQgUmVxdWVzdElkOiB4Cg=="
+    },
+    "body": "{\"errorMessage\": \"boom\"}"
+   },
+   "output": {
+    "StatusCode": 200,
+    "FunctionError": "Unhandled",
+    "LogResult": "U1RBUlQgUmVxdWVzdElkOiB4Cg==",
+    "ExecutedVersion": "7",
+    "Payload": "{\"errorMessage\": \"boom\"}"
+   }
+  },
+  {
+   "name": "rest-json: eks DescribeCluster",
+   "service": "eks",
+   "operation": "DescribeCluster",
+   "region": "us-west-2",
+   "protocol": "rest-json",
+   "input": {
+    "name": "example-cluster"
+   },
+   "request": {
+    "method": "GET",
+    "origin": "https://eks.us-west-2.amazonaws.com",
+    "path": "/clusters/example-cluster",
+    "query": [],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "{\"cluster\": {\"name\": \"example-cluster\", \"arn\": \"arn:aws:eks:us-west-2:111122223333:cluster/example-cluster\", \"createdAt\": 1790000000.5, \"version\": \"1.33\", \"status\": \"ACTIVE\", \"tags\": {\"theseus:deployment\": \"example-desktop\"}}}"
+   },
+   "output": {
+    "cluster": {
+     "name": "example-cluster",
+     "arn": "arn:aws:eks:us-west-2:111122223333:cluster/example-cluster",
+     "createdAt": "2026-09-21T14:13:20.5Z",
+     "version": "1.33",
+     "status": "ACTIVE",
+     "tags": {
+      "theseus:deployment": "example-desktop"
+     }
+    }
+   }
+  },
+  {
+   "name": "rest-json: an error in the header",
+   "service": "lambda",
+   "operation": "GetFunction",
+   "region": "us-west-2",
+   "protocol": "rest-json",
+   "input": {
+    "FunctionName": "example-missing"
+   },
+   "request": {
+    "method": "GET",
+    "origin": "https://lambda.us-west-2.amazonaws.com",
+    "path": "/2015-03-31/functions/example-missing",
+    "query": [],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "x-amzn-requestid": "00000000-0000-4000-8000-0000000000c2",
+     "x-amzn-ErrorType": "ResourceNotFoundException:http://internal.example/"
+    },
+    "body": "{\"Type\": \"User\", \"Message\": \"Function not found: arn:aws:lambda:us-west-2:111122223333:function:example-missing\"}"
+   },
+   "error": {
+    "code": "ResourceNotFoundException",
+    "message": "Function not found: arn:aws:lambda:us-west-2:111122223333:function:example-missing",
+    "request_id": "00000000-0000-4000-8000-0000000000c2"
+   }
+  },
+  {
+   "name": "rest-xml: s3 ListObjectsV2, flattened lists",
+   "service": "s3",
+   "operation": "ListObjectsV2",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "Bucket": "example-theseus-bucket",
+    "Prefix": "logs/",
+    "Delimiter": "/",
+    "MaxKeys": 2
+   },
+   "request": {
+    "method": "GET",
+    "origin": "https://example-theseus-bucket.s3.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [
+     [
+      "list-type",
+      "2"
+     ],
+     [
+      "prefix",
+      "logs/"
+     ],
+     [
+      "delimiter",
+      "/"
+     ],
+     [
+      "max-keys",
+      "2"
+     ]
+    ],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amz-request-id": "EXAMPLE0000000001",
+     "x-amz-id-2": "host-id"
+    },
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\n  <Name>example-theseus-bucket</Name><Prefix>logs/</Prefix><KeyCount>3</KeyCount><MaxKeys>2</MaxKeys><Delimiter>/</Delimiter>\n  <IsTruncated>true</IsTruncated><NextContinuationToken>token-2</NextContinuationToken>\n  <Contents><Key>logs/a.txt</Key><LastModified>2026-09-30T23:45:00.000Z</LastModified><ETag>\"0123456789abcdef0123456789abcdef\"</ETag><Size>12</Size><StorageClass>STANDARD</StorageClass></Contents>\n  <Contents><Key>logs/b &amp; c.txt</Key><LastModified>2026-09-30T23:46:00.000Z</LastModified><ETag>\"fedcba9876543210fedcba9876543210\"</ETag><Size>0</Size><StorageClass>STANDARD</StorageClass></Contents>\n  <CommonPrefixes><Prefix>logs/2026/</Prefix></CommonPrefixes>\n</ListBucketResult>"
+   },
+   "output": {
+    "IsTruncated": true,
+    "Contents": [
+     {
+      "Key": "logs/a.txt",
+      "LastModified": "2026-09-30T23:45:00Z",
+      "ETag": "\"0123456789abcdef0123456789abcdef\"",
+      "Size": 12,
+      "StorageClass": "STANDARD"
+     },
+     {
+      "Key": "logs/b & c.txt",
+      "LastModified": "2026-09-30T23:46:00Z",
+      "ETag": "\"fedcba9876543210fedcba9876543210\"",
+      "Size": 0,
+      "StorageClass": "STANDARD"
+     }
+    ],
+    "Name": "example-theseus-bucket",
+    "Prefix": "logs/",
+    "Delimiter": "/",
+    "MaxKeys": 2,
+    "CommonPrefixes": [
+     {
+      "Prefix": "logs/2026/"
+     }
+    ],
+    "KeyCount": 3,
+    "NextContinuationToken": "token-2"
+   }
+  },
+  {
+   "name": "rest-xml: s3 ListBuckets",
+   "service": "s3",
+   "operation": "ListBuckets",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {},
+   "request": {
+    "method": "GET",
+    "origin": "https://s3.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amz-request-id": "EXAMPLE0000000002"
+    },
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\n  <Owner><ID>0123456789abcdef</ID></Owner>\n  <Buckets>\n    <Bucket><Name>example-theseus-bucket</Name><CreationDate>2026-09-30T23:45:00.000Z</CreationDate><BucketRegion>us-west-2</BucketRegion></Bucket>\n    <Bucket><Name>example.dotted.bucket</Name><CreationDate>2026-01-02T03:04:05.000Z</CreationDate></Bucket>\n  </Buckets>\n</ListAllMyBucketsResult>"
+   },
+   "output": {
+    "Buckets": [
+     {
+      "Name": "example-theseus-bucket",
+      "CreationDate": "2026-09-30T23:45:00Z",
+      "BucketRegion": "us-west-2"
+     },
+     {
+      "Name": "example.dotted.bucket",
+      "CreationDate": "2026-01-02T03:04:05Z"
+     }
+    ],
+    "Owner": {
+     "ID": "0123456789abcdef"
+    }
+   }
+  },
+  {
+   "name": "rest-xml: s3 PutObject, a raw body and headers",
+   "service": "s3",
+   "operation": "PutObject",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "Bucket": "example-theseus-bucket",
+    "Key": "out/a b+c.txt",
+    "Body": "hello",
+    "ContentType": "text/plain",
+    "Metadata": {
+     "theseus-call": "call_1"
+    }
+   },
+   "request": {
+    "method": "PUT",
+    "origin": "https://example-theseus-bucket.s3.us-west-2.amazonaws.com",
+    "path": "/out/a%20b%2Bc.txt",
+    "query": [],
+    "headers": {
+     "Content-Type": "text/plain",
+     "x-amz-meta-theseus-call": "call_1"
+    },
+    "body": {
+     "raw": "hello"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amz-request-id": "EXAMPLE0000000003",
+     "ETag": "\"5d41402abc4b2a76b9719d911017c592\"",
+     "x-amz-version-id": "v1",
+     "x-amz-server-side-encryption": "AES256"
+    },
+    "body": ""
+   },
+   "output": {
+    "ETag": "\"5d41402abc4b2a76b9719d911017c592\"",
+    "ServerSideEncryption": "AES256",
+    "VersionId": "v1"
+   }
+  },
+  {
+   "name": "rest-xml: s3 HeadObject, headers into members",
+   "service": "s3",
+   "operation": "HeadObject",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "Bucket": "example-theseus-bucket",
+    "Key": "out/a.txt"
+   },
+   "request": {
+    "method": "HEAD",
+    "origin": "https://example-theseus-bucket.s3.us-west-2.amazonaws.com",
+    "path": "/out/a.txt",
+    "query": [],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amz-request-id": "EXAMPLE0000000004",
+     "Content-Length": "12",
+     "Last-Modified": "Mon, 21 Sep 2026 14:13:20 GMT",
+     "ETag": "\"abc\"",
+     "Content-Type": "text/plain",
+     "x-amz-meta-theseus-call": "call_1",
+     "x-amz-server-side-encryption-bucket-key-enabled": "true"
+    },
+    "body": ""
+   },
+   "output": {
+    "LastModified": "2026-09-21T14:13:20Z",
+    "ContentLength": 12,
+    "ETag": "\"abc\"",
+    "ContentType": "text/plain",
+    "Metadata": {
+     "theseus-call": "call_1"
+    },
+    "BucketKeyEnabled": true
+   }
+  },
+  {
+   "name": "rest-xml: s3 PutBucketTagging, an XML payload",
+   "service": "s3",
+   "operation": "PutBucketTagging",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "Bucket": "example-theseus-bucket",
+    "Tagging": {
+     "TagSet": [
+      {
+       "Key": "theseus:deployment",
+       "Value": "example-desktop"
+      },
+      {
+       "Key": "cost",
+       "Value": "lab"
+      }
+     ]
+    }
+   },
+   "request": {
+    "method": "PUT",
+    "origin": "https://example-theseus-bucket.s3.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [
+     [
+      "tagging",
+      ""
+     ]
+    ],
+    "headers": {},
+    "body": {
+     "xml": "<Tagging xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><TagSet><Tag><Key>theseus:deployment</Key><Value>example-desktop</Value></Tag><Tag><Key>cost</Key><Value>lab</Value></Tag></TagSet></Tagging>"
+    }
+   }
+  },
+  {
+   "name": "rest-xml: s3 DeleteObjects, a flattened list in a payload",
+   "service": "s3",
+   "operation": "DeleteObjects",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "Bucket": "example-theseus-bucket",
+    "Delete": {
+     "Objects": [
+      {
+       "Key": "a.txt"
+      },
+      {
+       "Key": "b.txt",
+       "VersionId": "v2"
+      }
+     ],
+     "Quiet": true
+    }
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://example-theseus-bucket.s3.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [
+     [
+      "delete",
+      ""
+     ]
+    ],
+    "headers": {},
+    "body": {
+     "xml": "<Delete xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Object><Key>a.txt</Key></Object><Object><Key>b.txt</Key><VersionId>v2</VersionId></Object><Quiet>true</Quiet></Delete>"
+    }
+   }
+  },
+  {
+   "name": "rest-xml: route53 ListHostedZones",
+   "service": "route53",
+   "operation": "ListHostedZones",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "MaxItems": "10"
+   },
+   "request": {
+    "method": "GET",
+    "origin": "https://route53.amazonaws.com",
+    "path": "/2013-04-01/hostedzone",
+    "query": [
+     [
+      "maxitems",
+      "10"
+     ]
+    ],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "x-amzn-requestid": "00000000-0000-4000-8000-0000000000d0"
+    },
+    "body": "<?xml version=\"1.0\"?>\n<ListHostedZonesResponse xmlns=\"https://route53.amazonaws.com/doc/2013-04-01/\">\n  <HostedZones>\n    <HostedZone><Id>/hostedzone/Z0EXAMPLE00001</Id><Name>example.test.</Name><CallerReference>ref-1</CallerReference>\n      <Config><Comment>lab</Comment><PrivateZone>false</PrivateZone></Config><ResourceRecordSetCount>4</ResourceRecordSetCount></HostedZone>\n  </HostedZones>\n  <IsTruncated>false</IsTruncated><MaxItems>10</MaxItems>\n</ListHostedZonesResponse>"
+   },
+   "output": {
+    "HostedZones": [
+     {
+      "Id": "/hostedzone/Z0EXAMPLE00001",
+      "Name": "example.test.",
+      "CallerReference": "ref-1",
+      "Config": {
+       "Comment": "lab",
+       "PrivateZone": false
+      },
+      "ResourceRecordSetCount": 4
+     }
+    ],
+    "IsTruncated": false,
+    "MaxItems": "10"
+   }
+  },
+  {
+   "name": "rest-xml: route53 ChangeResourceRecordSets, a root from the input",
+   "service": "route53",
+   "operation": "ChangeResourceRecordSets",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "HostedZoneId": "Z0EXAMPLE00001",
+    "ChangeBatch": {
+     "Comment": "lab",
+     "Changes": [
+      {
+       "Action": "UPSERT",
+       "ResourceRecordSet": {
+        "Name": "x.example.test.",
+        "Type": "A",
+        "TTL": 300,
+        "ResourceRecords": [
+         {
+          "Value": "192.0.2.10"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "request": {
+    "method": "POST",
+    "origin": "https://route53.amazonaws.com",
+    "path": "/2013-04-01/hostedzone/Z0EXAMPLE00001/rrset/",
+    "query": [],
+    "headers": {},
+    "body": {
+     "xml": "<ChangeResourceRecordSetsRequest xmlns=\"https://route53.amazonaws.com/doc/2013-04-01/\"><ChangeBatch><Comment>lab</Comment><Changes><Change><Action>UPSERT</Action><ResourceRecordSet><Name>x.example.test.</Name><Type>A</Type><TTL>300</TTL><ResourceRecords><ResourceRecord><Value>192.0.2.10</Value></ResourceRecord></ResourceRecords></ResourceRecordSet></Change></Changes></ChangeBatch></ChangeResourceRecordSetsRequest>"
+    }
+   }
+  },
+  {
+   "name": "rest-xml: s3, an error",
+   "service": "s3",
+   "operation": "ListObjectsV2",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "Bucket": "example-missing-bucket"
+   },
+   "request": {
+    "method": "GET",
+    "origin": "https://example-missing-bucket.s3.us-west-2.amazonaws.com",
+    "path": "/",
+    "query": [
+     [
+      "list-type",
+      "2"
+     ]
+    ],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "x-amz-request-id": "EXAMPLE0000000005"
+    },
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>example-missing-bucket</BucketName><RequestId>EXAMPLE0000000005</RequestId><HostId>h</HostId></Error>"
+   },
+   "error": {
+    "code": "NoSuchBucket",
+    "message": "The specified bucket does not exist",
+    "request_id": "EXAMPLE0000000005"
+   }
+  },
+  {
+   "name": "rest-xml: s3 HeadObject, an error with no body",
+   "service": "s3",
+   "operation": "HeadObject",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "Bucket": "example-theseus-bucket",
+    "Key": "missing.txt"
+   },
+   "request": {
+    "method": "HEAD",
+    "origin": "https://example-theseus-bucket.s3.us-west-2.amazonaws.com",
+    "path": "/missing.txt",
+    "query": [],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "x-amz-request-id": "EXAMPLE0000000006"
+    },
+    "body": ""
+   },
+   "error": {
+    "code": "404",
+    "message": "Not Found",
+    "request_id": "EXAMPLE0000000006"
+   }
+  },
+  {
+   "name": "rest-xml: route53, an error",
+   "service": "route53",
+   "operation": "GetHostedZone",
+   "region": "us-west-2",
+   "protocol": "rest-xml",
+   "input": {
+    "Id": "Z0EXAMPLE00009"
+   },
+   "request": {
+    "method": "GET",
+    "origin": "https://route53.amazonaws.com",
+    "path": "/2013-04-01/hostedzone/Z0EXAMPLE00009",
+    "query": [],
+    "headers": {},
+    "body": null
+   },
+   "response": {
+    "status": 404,
+    "headers": {},
+    "body": "<?xml version=\"1.0\"?>\n<ErrorResponse xmlns=\"https://route53.amazonaws.com/doc/2013-04-01/\"><Error><Type>Sender</Type><Code>NoSuchHostedZone</Code><Message>No hosted zone found with ID: Z0EXAMPLE00009</Message></Error><RequestId>00000000-0000-4000-8000-0000000000d1</RequestId></ErrorResponse>"
+   },
+   "error": {
+    "code": "NoSuchHostedZone",
+    "message": "No hosted zone found with ID: Z0EXAMPLE00009",
+    "request_id": "00000000-0000-4000-8000-0000000000d1"
+   }
+  }
+ ]
+}

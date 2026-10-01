@@ -20,6 +20,7 @@ members = [
     "crates/theseus-index",
     "crates/theseus-aws-guard",
     "crates/theseus-aws-catalog",
+    "crates/theseus-aws",
 ]
 
 # Beyond clippy's defaults, held by the gate's `-D warnings` (theseus-0g4).

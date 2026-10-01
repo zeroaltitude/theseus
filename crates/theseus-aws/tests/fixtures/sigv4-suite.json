@@ -1,0 +1,788 @@
+{
+ "source": "aws-sigv4 1.6.0: aws-signing-test-suite/v4 (from aws-c-auth v0.9.0, Apache-2.0)",
+ "cases": [
+  {
+   "name": "double-encode-path",
+   "context": null,
+   "request": "POST /test/@connections/JBDvjfGEIAMCERw%3D HTTP/1.1\nHost:tj9n5r0m12.execute-api.us-east-1.amazonaws.com\nX-amz-date:20150830T123600Z\n",
+   "header_signed_request": "POST /test/@connections/JBDvjfGEIAMCERw%3D HTTP/1.1\nX-amz-date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=ANOTREAL/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=57d157672191bac40bae387e48bbe14b15303c001fdbb01f4abf295dccb09705\nHost:tj9n5r0m12.execute-api.us-east-1.amazonaws.com\n",
+   "header_signature": null,
+   "query_signature": null,
+   "header_canonical_request": "POST\n/test/%40connections/JBDvjfGEIAMCERw%253D\n\nhost:tj9n5r0m12.execute-api.us-east-1.amazonaws.com\nx-amz-date:20210511T154045Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "double-url-encode",
+   "context": null,
+   "request": "POST /2015-03-31/functions/arn%3Aaws%3Alambda%3Aus-west-2%3A892717189312%3Afunction%3Amy-rusty-fun/invocations HTTP/1.1\nHost:lambda.us-east-2.amazonaws.com\nX-Amz-Date:20210511T154045Z\n",
+   "header_signed_request": "POST /2015-03-31/functions/arn%3Aaws%3Alambda%3Aus-west-2%3A892717189312%3Afunction%3Amy-rusty-fun/invocations\nHost:lambda.us-east-2.amazonaws.com\nX-Amz-Date:20210511T154045Z\nAuthorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20210511/us-east-2/lambda/aws4_request, SignedHeaders=host;x-amz-date, Signature=4b93abbcc68be32bd64c18e2c71150660ab4c29bbd6c32a383a7517a88fc1804\n",
+   "header_signature": null,
+   "query_signature": null,
+   "header_canonical_request": "POST\n/2015-03-31/functions/arn%253Aaws%253Alambda%253Aus-west-2%253A892717189312%253Afunction%253Amy-rusty-fun/invocations\n\nhost:lambda.us-east-2.amazonaws.com\nx-amz-date:20210511T154045Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-header-key-duplicate",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:value2\nMy-Header1:value2\nMy-Header1:value1\n",
+   "header_signed_request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:value2\nMy-Header1:value2\nMy-Header1:value1\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;my-header1;x-amz-date, Signature=c9d5ea9f3f72853aea855b47ea873832890dbdd183b4468f858259531a5138ea\n\n",
+   "header_signature": "c9d5ea9f3f72853aea855b47ea873832890dbdd183b4468f858259531a5138ea",
+   "query_signature": "3349ee0b81b4b589da0ff28a395c3591e04de515651dd74f298fa992d1507a97",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nmy-header1:value2,value2,value1\nx-amz-date:20150830T123600Z\n\nhost;my-header1;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-header-value-multiline",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:value1\n  value2\n     value3\n",
+   "header_signed_request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:value1\n  value2\n     value3\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;my-header1;x-amz-date, Signature=cfd34249e4b1c8d6b91ef74165d41a32e5fab3306300901bb65a51a73575eefd\n\n",
+   "header_signature": "cfd34249e4b1c8d6b91ef74165d41a32e5fab3306300901bb65a51a73575eefd",
+   "query_signature": "e6f5def831211aca02987a44b96826706278c7bc078112ae0263659c5b2f2d56",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nmy-header1:value1 value2 value3\nx-amz-date:20150830T123600Z\n\nhost;my-header1;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-header-value-order",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:value4\nMy-Header1:value1\nMy-Header1:value3\nMy-Header1:value2\n",
+   "header_signed_request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:value4\nMy-Header1:value1\nMy-Header1:value3\nMy-Header1:value2\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;my-header1;x-amz-date, Signature=08c7e5a9acfcfeb3ab6b2185e75ce8b1deb5e634ec47601a50643f830c755c01\n\n",
+   "header_signature": "08c7e5a9acfcfeb3ab6b2185e75ce8b1deb5e634ec47601a50643f830c755c01",
+   "query_signature": "313720e71ca6202fdcfa9b20f88de01a4eb0638a83c833b1c184359a4eda864e",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nmy-header1:value4,value1,value3,value2\nx-amz-date:20150830T123600Z\n\nhost;my-header1;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-header-value-trim",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1: value1\nMy-Header2: \"a   b   c\"\n",
+   "header_signed_request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1: value1\nMy-Header2: \"a   b   c\"\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;my-header1;my-header2;x-amz-date, Signature=acc3ed3afb60bb290fc8d2dd0098b9911fcaa05412b367055dee359757a9c736\n\n",
+   "header_signature": "acc3ed3afb60bb290fc8d2dd0098b9911fcaa05412b367055dee359757a9c736",
+   "query_signature": "e7bb0fd515e125e1aec2ecc4c0c17484fb06f6846b927c35e46005dd3df3acd4",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nmy-header1:value1\nmy-header2:\"a b c\"\nx-amz-date:20150830T123600Z\n\nhost;my-header1;my-header2;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-relative-normalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /example/.. HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /example/.. HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31\n\n",
+   "header_signature": "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31",
+   "query_signature": "e93c787ed7f371d5c6b165c1b38ede9550f4dce4144713e844b25b7192d3865d",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-relative-relative-normalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /example1/example2/../.. HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /example1/example2/../.. HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31\n\n",
+   "header_signature": "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31",
+   "query_signature": "e93c787ed7f371d5c6b165c1b38ede9550f4dce4144713e844b25b7192d3865d",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-relative-relative-unnormalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": false,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /example1/example2/../.. HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /example1/example2/../.. HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=dc33e0856fd4baca4d7aa2146c38958283844764f38c74252a333df5e613003b\n\n",
+   "header_signature": "dc33e0856fd4baca4d7aa2146c38958283844764f38c74252a333df5e613003b",
+   "query_signature": "b45db0bfd1cf15003493b733e33aa208dd981bd0e63037a6ed953f71d2118a16",
+   "header_canonical_request": "GET\n/example1/example2/../..\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-relative-unnormalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": false,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /example/.. HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /example/.. HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=eca7ead57bb5aa5c8e28007acd4ff04e1ff9a0ff3b237ec1554a184887ff9282\n\n",
+   "header_signature": "eca7ead57bb5aa5c8e28007acd4ff04e1ff9a0ff3b237ec1554a184887ff9282",
+   "query_signature": "cbcb213b928a077e43275df47b500f1dfaa864ab3f5a18f6b95f4ff0938167ee",
+   "header_canonical_request": "GET\n/example/..\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-slash-dot-slash-normalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /./ HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /./ HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31\n\n",
+   "header_signature": "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31",
+   "query_signature": "e93c787ed7f371d5c6b165c1b38ede9550f4dce4144713e844b25b7192d3865d",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-slash-dot-slash-unnormalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": false,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /./ HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /./ HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=68714168e6557f8f2de0ef956fc24dc2593a4bd2961f8df51898d8a134695145\n\n",
+   "header_signature": "68714168e6557f8f2de0ef956fc24dc2593a4bd2961f8df51898d8a134695145",
+   "query_signature": "a9b13e8f3484d9505bf1a6f347219f8f35b0fe8f128ceea597efc146a3dfe90c",
+   "header_canonical_request": "GET\n/./\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-slash-normalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET // HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET // HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31\n\n",
+   "header_signature": "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31",
+   "query_signature": "e93c787ed7f371d5c6b165c1b38ede9550f4dce4144713e844b25b7192d3865d",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-slash-pointless-dot-normalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /./example HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /./example HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=ef75d96142cf21edca26f06005da7988e4f8dc83a165a80865db7089db637ec5\n\n",
+   "header_signature": "ef75d96142cf21edca26f06005da7988e4f8dc83a165a80865db7089db637ec5",
+   "query_signature": "35034b1a0bdd969f346975386daf8aedfd4976573b8348cf4f67eaa41c5857de",
+   "header_canonical_request": "GET\n/example\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-slash-pointless-dot-unnormalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": false,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /./example HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /./example HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=beb03f223f7deae4146464f06e29eebbee9c8afbe15c290cf07aa8b119e14cff\n\n",
+   "header_signature": "beb03f223f7deae4146464f06e29eebbee9c8afbe15c290cf07aa8b119e14cff",
+   "query_signature": "72b11f16d9530b18204bfb71f2d6ab085894c0ed8d352730a6e76234c58b5e10",
+   "header_canonical_request": "GET\n/./example\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-slash-unnormalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": false,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET // HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET // HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=c88bcd3d312d75078c0cd961d6deae3f4c754924b01669efcfcb439fd5e5b76e\n\n",
+   "header_signature": "c88bcd3d312d75078c0cd961d6deae3f4c754924b01669efcfcb439fd5e5b76e",
+   "query_signature": "b2a9542809db687769200f56a844a03f2bd0291d6eb90232d5101c6a579446cd",
+   "header_canonical_request": "GET\n//\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-slashes-normalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET //example// HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET //example// HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=9a624bd73a37c9a373b5312afbebe7a714a789de108f0bdfe846570885f57e84\n\n",
+   "header_signature": "9a624bd73a37c9a373b5312afbebe7a714a789de108f0bdfe846570885f57e84",
+   "query_signature": "c1834e8fb0307243711f0f907f6ab7311ed300d87f13792d7ee4da89ab93e082",
+   "header_canonical_request": "GET\n/example/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-slashes-unnormalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": false,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET //example// HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET //example// HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=87cca117541a147f6df867677d98a7d80dff226d2bfca9e4ffa899665623c7e5\n\n",
+   "header_signature": "87cca117541a147f6df867677d98a7d80dff226d2bfca9e4ffa899665623c7e5",
+   "query_signature": "822a5a9ba28072c5ab2bb4a6307d0c88276d40e49fec6b724c03fb4d4ba60fc2",
+   "header_canonical_request": "GET\n//example//\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-space-normalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /example%20space/ HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /example space/ HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=652487583200325589f1fba4c7e578f72c47cb61beeca81406b39ddec1366741\n\n",
+   "header_signature": "652487583200325589f1fba4c7e578f72c47cb61beeca81406b39ddec1366741",
+   "query_signature": "7a1f416954786484c9824d93c1f26ef64acb9b1b6c9154d08c9f07d0e394abf6",
+   "header_canonical_request": "GET\n/example%20space/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-space-unnormalized",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": false,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /example space/ HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /example space/ HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=652487583200325589f1fba4c7e578f72c47cb61beeca81406b39ddec1366741\n\n",
+   "header_signature": "652487583200325589f1fba4c7e578f72c47cb61beeca81406b39ddec1366741",
+   "query_signature": "7a1f416954786484c9824d93c1f26ef64acb9b1b6c9154d08c9f07d0e394abf6",
+   "header_canonical_request": "GET\n/example%20space/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-unreserved",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=07ef7494c76fa4850883e2b006601f940f8a34d404d0cfa977f52a65bbf5f24f\n\n",
+   "header_signature": "07ef7494c76fa4850883e2b006601f940f8a34d404d0cfa977f52a65bbf5f24f",
+   "query_signature": "95968482db1b9e0fadef6efc1bd24689f77c77d9ef56919c96a28cc92e0d6005",
+   "header_canonical_request": "GET\n/-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-utf8",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /\u1234 HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /\u1234 HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=8318018e0b0f223aa2bbf98705b62bb787dc9c0e678f255a891fd03141be5d85\n\n",
+   "header_signature": "8318018e0b0f223aa2bbf98705b62bb787dc9c0e678f255a891fd03141be5d85",
+   "query_signature": "10eae3f14a260bd3911cc6d008d3c576d143b05b62f09782a7a4b37f52178e44",
+   "header_canonical_request": "GET\n/%E1%88%B4\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-vanilla",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET / HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31\n\n",
+   "header_signature": "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31",
+   "query_signature": "e93c787ed7f371d5c6b165c1b38ede9550f4dce4144713e844b25b7192d3865d",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-vanilla-empty-query-key",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /?Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /?Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=a67d582fa61cc504c4bae71f336f98b97f1ea3c7a6bfe1b6e45aec72011b9aeb\n\n",
+   "header_signature": "a67d582fa61cc504c4bae71f336f98b97f1ea3c7a6bfe1b6e45aec72011b9aeb",
+   "query_signature": "49096700cbbaa5753443850f40df10f904fc2fdb544dc9512203cc77c471a9de",
+   "header_canonical_request": "GET\n/\nParam1=value1\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-vanilla-query",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET / HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31\n\n",
+   "header_signature": "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31",
+   "query_signature": "e93c787ed7f371d5c6b165c1b38ede9550f4dce4144713e844b25b7192d3865d",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-vanilla-query-order-encoded",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /?Param-3=Value3&Param=Value2&%E1%88%B4=Value1 HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /?Param-3=Value3&Param=Value2&%E1%88%B4=Value1 HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=371d3713e185cc334048618a97f809c9ffe339c62934c032af5a0e595648fcac\n\n",
+   "header_signature": "371d3713e185cc334048618a97f809c9ffe339c62934c032af5a0e595648fcac",
+   "query_signature": "c5f1848ceec943ac2ca68ee720460c23aaae30a2300586597ada94c4a65e4787",
+   "header_canonical_request": "GET\n/\n%E1%88%B4=Value1&Param=Value2&Param-3=Value3\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-vanilla-query-order-key-case",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /?Param2=value2&Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /?Param2=value2&Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=b97d918cfa904a5beff61c982a1b6f458b799221646efd99d3219ec94cdf2500\n\n",
+   "header_signature": "b97d918cfa904a5beff61c982a1b6f458b799221646efd99d3219ec94cdf2500",
+   "query_signature": "86012e2c9ad4d77369f5d81c11f75158aae4f895a085212cc6d3f923d300bed5",
+   "header_canonical_request": "GET\n/\nParam1=value1&Param2=value2\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-vanilla-query-unreserved",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /?-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz=-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /?-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz=-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=9c3e54bfcdf0b19771a7f523ee5669cdf59bc7cc0884027167c21bb143a40197\n\n",
+   "header_signature": "9c3e54bfcdf0b19771a7f523ee5669cdf59bc7cc0884027167c21bb143a40197",
+   "query_signature": "8e76a88a7433637b12778d5592799b29ad21ecd6cf6325051c21d86f0acda2bf",
+   "header_canonical_request": "GET\n/\n-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz=-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-vanilla-utf8-query",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET /?\u1234=bar HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET /?\u1234=bar HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=2cdec8eed098649ff3a119c94853b13c643bcf08f8b0a1d91e12c9027818dd04\n\n",
+   "header_signature": "2cdec8eed098649ff3a119c94853b13c643bcf08f8b0a1d91e12c9027818dd04",
+   "query_signature": "0bdd809b1519ac4f0c1dc3540e2cc46bd0c7f778eda408b2ebf3b913d21ff600",
+   "header_canonical_request": "GET\n/\n%E1%88%B4=bar\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "get-vanilla-with-session-token",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+     "token": "6e86291e8372ff2a2260956d9b8aae1d763fbf315fa00fa31553b73ebf194267"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "GET / HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "GET / HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Security-Token:6e86291e8372ff2a2260956d9b8aae1d763fbf315fa00fa31553b73ebf194267\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date;x-amz-security-token, Signature=07ec1639c89043aa0e3e2de82b96708f198cceab042d4a97044c66dd9f74e7f8\n\n",
+   "header_signature": "07ec1639c89043aa0e3e2de82b96708f198cceab042d4a97044c66dd9f74e7f8",
+   "query_signature": "7ff2b50b376cb4d151970630573d6291dc128cc5c2a12ffb237f73cc53f67b6c",
+   "header_canonical_request": "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\nx-amz-security-token:6e86291e8372ff2a2260956d9b8aae1d763fbf315fa00fa31553b73ebf194267\n\nhost;x-amz-date;x-amz-security-token\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-header-key-case",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "POST / HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "POST / HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b\n\n",
+   "header_signature": "5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b",
+   "query_signature": "2ce6e6d2e0cf2f9d1b55fafec88cd20574c31dc2e7631979f71ba2310083e95b",
+   "header_canonical_request": "POST\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-header-key-sort",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "POST / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:value1\n",
+   "header_signed_request": "POST / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:value1\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;my-header1;x-amz-date, Signature=c5410059b04c1ee005303aed430f6e6645f61f4dc9e1461ec8f8916fdf18852c\n\n",
+   "header_signature": "c5410059b04c1ee005303aed430f6e6645f61f4dc9e1461ec8f8916fdf18852c",
+   "query_signature": "c09d07e0d55871f10f2a6d350d994acf6825a3cae70673d7def55616e6119dd7",
+   "header_canonical_request": "POST\n/\n\nhost:example.amazonaws.com\nmy-header1:value1\nx-amz-date:20150830T123600Z\n\nhost;my-header1;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-header-value-case",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "POST / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:VALUE1\n",
+   "header_signed_request": "POST / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1:VALUE1\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;my-header1;x-amz-date, Signature=cdbc9802e29d2942e5e10b5bccfdd67c5f22c7c4e8ae67b53629efa58b974b7d\n\n",
+   "header_signature": "cdbc9802e29d2942e5e10b5bccfdd67c5f22c7c4e8ae67b53629efa58b974b7d",
+   "query_signature": "0698bc9e4f7f9139065ba2909c0e99da257e8e2a42492a097bcd46d792391fed",
+   "header_canonical_request": "POST\n/\n\nhost:example.amazonaws.com\nmy-header1:VALUE1\nx-amz-date:20150830T123600Z\n\nhost;my-header1;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-sts-header-after",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+     "token": "AQoDYXdzEPT//////////wEXAMPLEtc764bNrC9SAPBSM22wDOk4x4HIZ8j4FZTwdQWLWsKWHGBuFqwAeMicRXmxfpSPfIeoIYRqTflfKD8YUuwthAx7mSEI/qkPpKPi/kMcGdQrmGdeehM4IC1NtBmUpp2wUE8phUZampKsburEDy0KPkyQDYwT7WZ0wq5VSXDvp75YU9HFvlRd8Tx6q6fE8YQcHNVXAkiY9q6d+xo0rKwT38xVqr7ZD0u0iPPkUL64lIZbqBAz+scqKmlzm8FDrypNC9Yjc8fPOLn9FX9KSYvKTr4rvx3iSIlTJabIQwj2ICCR/oLxBA=="
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z",
+    "omit_session_token": true
+   },
+   "request": "POST / HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "POST / HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Security-Token:AQoDYXdzEPT//////////wEXAMPLEtc764bNrC9SAPBSM22wDOk4x4HIZ8j4FZTwdQWLWsKWHGBuFqwAeMicRXmxfpSPfIeoIYRqTflfKD8YUuwthAx7mSEI/qkPpKPi/kMcGdQrmGdeehM4IC1NtBmUpp2wUE8phUZampKsburEDy0KPkyQDYwT7WZ0wq5VSXDvp75YU9HFvlRd8Tx6q6fE8YQcHNVXAkiY9q6d+xo0rKwT38xVqr7ZD0u0iPPkUL64lIZbqBAz+scqKmlzm8FDrypNC9Yjc8fPOLn9FX9KSYvKTr4rvx3iSIlTJabIQwj2ICCR/oLxBA==\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b\n\n",
+   "header_signature": "5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b",
+   "query_signature": "2ce6e6d2e0cf2f9d1b55fafec88cd20574c31dc2e7631979f71ba2310083e95b",
+   "header_canonical_request": "POST\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-sts-header-before",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+     "token": "AQoDYXdzEPT//////////wEXAMPLEtc764bNrC9SAPBSM22wDOk4x4HIZ8j4FZTwdQWLWsKWHGBuFqwAeMicRXmxfpSPfIeoIYRqTflfKD8YUuwthAx7mSEI/qkPpKPi/kMcGdQrmGdeehM4IC1NtBmUpp2wUE8phUZampKsburEDy0KPkyQDYwT7WZ0wq5VSXDvp75YU9HFvlRd8Tx6q6fE8YQcHNVXAkiY9q6d+xo0rKwT38xVqr7ZD0u0iPPkUL64lIZbqBAz+scqKmlzm8FDrypNC9Yjc8fPOLn9FX9KSYvKTr4rvx3iSIlTJabIQwj2ICCR/oLxBA=="
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z",
+    "omit_session_token": false
+   },
+   "request": "POST / HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "POST / HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Security-Token:AQoDYXdzEPT//////////wEXAMPLEtc764bNrC9SAPBSM22wDOk4x4HIZ8j4FZTwdQWLWsKWHGBuFqwAeMicRXmxfpSPfIeoIYRqTflfKD8YUuwthAx7mSEI/qkPpKPi/kMcGdQrmGdeehM4IC1NtBmUpp2wUE8phUZampKsburEDy0KPkyQDYwT7WZ0wq5VSXDvp75YU9HFvlRd8Tx6q6fE8YQcHNVXAkiY9q6d+xo0rKwT38xVqr7ZD0u0iPPkUL64lIZbqBAz+scqKmlzm8FDrypNC9Yjc8fPOLn9FX9KSYvKTr4rvx3iSIlTJabIQwj2ICCR/oLxBA==\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date;x-amz-security-token, Signature=85d96828115b5dc0cfc3bd16ad9e210dd772bbebba041836c64533a82be05ead\n\n",
+   "header_signature": "85d96828115b5dc0cfc3bd16ad9e210dd772bbebba041836c64533a82be05ead",
+   "query_signature": "46c2e3c63c1dbe7d39f8ada16fe7f001c1f56c5791441565323677f96308871c",
+   "header_canonical_request": "POST\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\nx-amz-security-token:AQoDYXdzEPT//////////wEXAMPLEtc764bNrC9SAPBSM22wDOk4x4HIZ8j4FZTwdQWLWsKWHGBuFqwAeMicRXmxfpSPfIeoIYRqTflfKD8YUuwthAx7mSEI/qkPpKPi/kMcGdQrmGdeehM4IC1NtBmUpp2wUE8phUZampKsburEDy0KPkyQDYwT7WZ0wq5VSXDvp75YU9HFvlRd8Tx6q6fE8YQcHNVXAkiY9q6d+xo0rKwT38xVqr7ZD0u0iPPkUL64lIZbqBAz+scqKmlzm8FDrypNC9Yjc8fPOLn9FX9KSYvKTr4rvx3iSIlTJabIQwj2ICCR/oLxBA==\n\nhost;x-amz-date;x-amz-security-token\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-vanilla",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "POST / HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "POST / HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b\n\n",
+   "header_signature": "5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b",
+   "query_signature": "2ce6e6d2e0cf2f9d1b55fafec88cd20574c31dc2e7631979f71ba2310083e95b",
+   "header_canonical_request": "POST\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-vanilla-empty-query-value",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "POST /?Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "POST /?Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=28038455d6de14eafc1f9222cf5aa6f1a96197d7deb8263271d420d138af7f11\n\n",
+   "header_signature": "28038455d6de14eafc1f9222cf5aa6f1a96197d7deb8263271d420d138af7f11",
+   "query_signature": "a9ef26247f293bffe40eeff86a0480ba8c14d31503b2e0c3399e3a16bf1a3682",
+   "header_canonical_request": "POST\n/\nParam1=value1\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-vanilla-query",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": false,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "POST /?Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\n",
+   "header_signed_request": "POST /?Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\nX-Amz-Date:20150830T123600Z\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=28038455d6de14eafc1f9222cf5aa6f1a96197d7deb8263271d420d138af7f11\n\n",
+   "header_signature": "28038455d6de14eafc1f9222cf5aa6f1a96197d7deb8263271d420d138af7f11",
+   "query_signature": "a9ef26247f293bffe40eeff86a0480ba8c14d31503b2e0c3399e3a16bf1a3682",
+   "header_canonical_request": "POST\n/\nParam1=value1\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "post-x-www-form-urlencoded",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": true,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "POST / HTTP/1.1\nContent-Type:application/x-www-form-urlencoded\nHost:example.amazonaws.com\nContent-Length:13\n\nParam1=value1",
+   "header_signed_request": "POST / HTTP/1.1\nContent-Type:application/x-www-form-urlencoded\nHost:example.amazonaws.com\nContent-Length:13\nX-Amz-Date:20150830T123600Z\nx-amz-content-sha256:9095672bbd1f56dfc5b65f3e153adc8731a4a654192329106275f4c7b24d0b6e\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=content-length;content-type;host;x-amz-content-sha256;x-amz-date, Signature=d3875051da38690788ef43de4db0d8f280229d82040bfac253562e56c3f20e0b\n\nParam1=value1",
+   "header_signature": "d3875051da38690788ef43de4db0d8f280229d82040bfac253562e56c3f20e0b",
+   "query_signature": "89a40deed0f26f9461242825a082d2222717248abc7ab41f552ad84a94ad46e9",
+   "header_canonical_request": "POST\n/\n\ncontent-length:13\ncontent-type:application/x-www-form-urlencoded\nhost:example.amazonaws.com\nx-amz-content-sha256:9095672bbd1f56dfc5b65f3e153adc8731a4a654192329106275f4c7b24d0b6e\nx-amz-date:20150830T123600Z\n\ncontent-length;content-type;host;x-amz-content-sha256;x-amz-date\n9095672bbd1f56dfc5b65f3e153adc8731a4a654192329106275f4c7b24d0b6e"
+  },
+  {
+   "name": "post-x-www-form-urlencoded-parameters",
+   "context": {
+    "credentials": {
+     "access_key_id": "AKIDEXAMPLE",
+     "secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    },
+    "expiration_in_seconds": 3600,
+    "normalize": true,
+    "region": "us-east-1",
+    "service": "service",
+    "sign_body": true,
+    "timestamp": "2015-08-30T12:36:00Z"
+   },
+   "request": "POST / HTTP/1.1\nContent-Type:application/x-www-form-urlencoded; charset=utf-8\nHost:example.amazonaws.com\nContent-Length:13\n\nParam1=value1",
+   "header_signed_request": "POST / HTTP/1.1\nContent-Type:application/x-www-form-urlencoded; charset=utf-8\nHost:example.amazonaws.com\nContent-Length:13\nX-Amz-Date:20150830T123600Z\nx-amz-content-sha256:9095672bbd1f56dfc5b65f3e153adc8731a4a654192329106275f4c7b24d0b6e\nAuthorization:AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=content-length;content-type;host;x-amz-content-sha256;x-amz-date, Signature=328d1b9eaadca9f5818ef05e8392801e091653bafec24fcab71e7344e7f51422\n\nParam1=value1",
+   "header_signature": "328d1b9eaadca9f5818ef05e8392801e091653bafec24fcab71e7344e7f51422",
+   "query_signature": "0dbeb9b026c7b6675f266b8427efec9b4fa8b1f6ef1477d717aea231106eab4d",
+   "header_canonical_request": "POST\n/\n\ncontent-length:13\ncontent-type:application/x-www-form-urlencoded; charset=utf-8\nhost:example.amazonaws.com\nx-amz-content-sha256:9095672bbd1f56dfc5b65f3e153adc8731a4a654192329106275f4c7b24d0b6e\nx-amz-date:20150830T123600Z\n\ncontent-length;content-type;host;x-amz-content-sha256;x-amz-date\n9095672bbd1f56dfc5b65f3e153adc8731a4a654192329106275f4c7b24d0b6e"
+  }
+ ]
+}
