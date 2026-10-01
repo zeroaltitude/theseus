@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.72
+# The Ship of Theseus — v0.73
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -25,7 +25,12 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Comms | Discord only, text and voice. One Discord application invited to many guilds. |
 | Model path | Direct Anthropic Messages API. Bedrock is a possible later provider, not the default. |
 | Hands | AWS tool surface is deep and default. Shells are graded: local host, local native sandbox, and AWS classes, chosen per job by Jev within policy. **L0 (native host shell) is the default** for BigHat's deployment; agent-authored code and package installs go to L1; the open-source distribution ships L1 as default with L0 as documented opt-in. Committed 2026-09-24, to be revisited on evidence. |
-| Home AWS account | **Theseus owns it** (Eddie, 2026-09-30). Theseus is the complete, virtual owner of its home AWS account, not a limited user. It may mint IAM roles and session policies to narrow its own hands, as it sees fit, and every call is attributed to its execution. The operator's only hard limits are the budget (so experiments can't run up the bill) and a SOC2 security stance: no public-IP ingress, everything as infrastructure as code, and BigHat's AWS standards. Where those limits are enforced, so that the account's owner can't remove them, is open (theseus-mgw). |
+| Home AWS account | **Theseus owns it** (Eddie, 2026-09-30). Theseus is the complete, virtual owner of its home AWS account, not a limited user. It may mint IAM roles and session policies to narrow its own hands, as it sees fit, and every call is attributed to its execution. The operator's only hard limits are the budget (so experiments can't run up the bill) and a SOC2 security stance: no public-IP ingress, everything as infrastructure as code, and BigHat's AWS standards. Where those limits are enforced, so that the account's owner can't remove them, is open (theseus-mgw). The budget (Eddie, 2026-10-01) is **$50 a month, $5 a day, and $1 an hour**, a cascade of tripwires:
+
+- the month is an AWS Budget whose stop at 100 % attaches `theseus-deny-spend`;
+- the day is an AWS Budget that alerts;
+- the hour is metered by Theseus itself, since AWS's billing lags by hours: each AWS action's estimated cost is
+  reserved before it runs. |
 | Execution model | **Event-driven.** No in-flight state lives only in harness memory; every dispatched thing is a WAL record with a harness-minted correlation id; completion arrives as an event (in-process, Unix socket spool, SQS pull, loopback HTTP as the off-by-default exception); the harness is quiescent between events; the one-minute heartbeat is the level-triggered reconciler. Adopted 2026-09-24 from Eddie's all-webhook proposal, with "webhook" generalized to "completion event" and "unkillable" replaced by "detached, durable, cancellable" (§3.3, §3.16). |
 | Deployment | One large node: Theseus, source trees, and sandboxes together. Must also run on a home desktop with every AWS dependency optional at runtime. |
 | Durability | Local fsync to a persistent SSD is the floor, before any action is dispatched. Off-node durability is **eventual, 5–60 s** (measured, not asserted), produced by asynchronous durability work the core performs in the time a turn has surrendered to a remote (model call, shell, judge, human). Single node; no replication. |
@@ -509,7 +514,7 @@ Budgets are a first-class notion: a `Budget` is a named ceiling with a unit (mon
 **As built: dollars, a limit, and a reset** (Eddie, 2026-09-29, 00:09; theseus-0sg, cb824c7, fdf4813, d6183d1). In Eddie's words: "Right -- dollars is good. Let's record all model costs in the config. Let's set the spend limit in the config to 100$. Let's make it so when you hit the limit, the gateway asks the trusted operator whether the current cost can be reset to 0 to continue". The general design above stands: reservations before each call, and unknown consumption held until reconciled. What is built:
 - **Money, in micro-dollars.** An execution's budget is its limit, its spend, its reservations, and its held-unknown amounts, all in micro-dollars priced from the catalog. The arithmetic is integer, with one rounding up per call. Token counts stay in usage, the ledger, and telemetry.
 - **The limit** is `[kernel] spend_limit_usd`, $100 by default, per session. An open session follows it when it changes (below).
-- **The reservation.** A provider call reserves its output cap at the output price plus its input estimate at the input price. It settles at the real cost: input, output, cache reads, and cache writes, each at its own price.
+- **The reservation.** A provider call reserves its output cap at the output price plus its input estimate at the input price (§4.4a: the compiler's estimate, counted on the provider's own count of the last request from a compilation's second call on; theseus-f5hf). It settles at the real cost: input, output, cache reads, and cache writes, each at its own price.
 - **At the limit, Theseus asks.** A reservation that does not fit writes nothing. The turn asks the operator, "This session has spent $X of its $100 limit. Reset its spend to $0 and continue?", and the session waits, the way a call waits for approval. The question goes to the session's Discord place (only its listed users can answer), the web UI, and `theseus confirm`. When trusted-channel approval lands (§3.9, Approval), the question follows its rules like any approval.
   - An approved reset sets the spend to $0, and the waiting call goes ahead. Reservations and held amounts stay. The reset is ledgered as `budget.reset`, with who approved it, the spend before, and the limit.
   - The session's lifetime cost keeps counting (`cost_usd`, and the total in health), so a reset never hides money already spent.
@@ -747,13 +752,21 @@ The simulator (§8) crashes at every transition, drops and duplicates completion
 
 The core is a **server**. Nothing else in the system, not the CLI, not Discord, not the web UI, not the simulator, reaches into it except through one protocol. That is the isolation boundary Eddie asked for, and it is what keeps the kernel testable without a front end.
 
-**Protocol.** JSON-RPC 2.0, newline-delimited JSON, one message per line, UTF-8. Requests, responses, and server-initiated notifications; requests are correlated by id, notifications carry the session id. Chosen over gRPC because it is what MCP, LSP, and ACP already speak, so every tool in the ecosystem can debug it with a terminal, and over a bespoke binary framing because message volume is token-bounded and the serialization cost is noise next to a provider call. All message types live in one dependency-free crate, `theseus-protocol` (serde types only), with a generated JSON Schema for non-Rust clients; if a binary encoding is ever needed, MessagePack over the same types is a framing change, not a protocol change.
+**Protocol.** JSON-RPC 2.0, newline-delimited JSON, one message per line, UTF-8. Requests, responses, and server-initiated notifications; requests are correlated by id, notifications carry the session id. Chosen over gRPC because it is what MCP, LSP, and ACP already speak, so every tool in the ecosystem can debug it with a terminal, and over a bespoke binary framing because message volume is token-bounded and the serialization cost is noise next to a provider call. All message types live in one dependency-free crate, `theseus-protocol` (serde types only), with a generated JSON Schema for non-Rust clients; if a binary encoding is ever needed, MessagePack over the same types is a framing change, not a protocol change. _(Amended 2026-10-01, theseus-0g4: every notification has one typed definition there, and `Event` names them all, so senders build types and clients match on them. No JSON Schema was built. Instead the web apps' TypeScript is generated from the same types by ts-rs, a dev-dependency only, so the crate still links nothing at run time. It goes into `web/src/protocol.gen/`, and the gate fails when a type changes without it.)_
 
 **Transports, same protocol on each.**
 
 1. **stdio**, when a client spawns the core as a child. This is the developer and test mode, and the way an editor or another agent harness drives Theseus (it is the shape of the Agent Client Protocol, and Theseus should be able to present as an ACP agent with a thin adapter).
 2. **Unix domain socket**, the daemon mode and the real deployment: `theseus serve` listens on a socket in the state directory; many clients attach and detach while the core runs forever. Localhost only, by the settled reachability rule; file permissions are the authentication.
-3. **In-process**, for adapters compiled into the binary (Discord, the web UI, tenders): the identical message types over a `tokio` channel. An in-binary adapter is still a client; it has no privileged path into the kernel.
+3. **In-process**, for adapters compiled into the binary (Discord, the web UI, tenders): the identical message types over a `tokio` channel. An in-binary adapter is still a client; it has no privileged path into the kernel. _(Amended 2026-10-01, theseus-0g4. This holds for the web UI's page and the CLI, but not for the Discord binding. Every act a person makes on Discord goes through the protocol, so the core judges it as it judges the CLI's acts. But the binding runs in the daemon's process, and what it delivers and reports it reads and writes in the core directly:
+
+- the outbox whose posts it delivers (DD6);
+- the question behind each card;
+- the `[approval]` channels;
+- the bindings board and its ledger rows;
+- and at its start, the config gate, the secrets, and the startup log.
+
+Part III Item 30.)_
 
 **Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. _(Wakes, theseus-cff: `wake.list { session_id?, target? }` reads, `wake.cancel { wake, author? }` acts and waits at the config gate, and health's `wakes` lists every pending wake. A cancel's author is the request's `author`, else the surface's name, `the CLI` or `the web UI`, for executions, tasks, and wakes. The CLI has `theseus wakes` and `theseus cancel <id>`, for a wake or a task. Discord has `/wakes` and `/cancel id:<id>`, for a task or a wake; DD7 named the option `task`.)_ It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session. `policy.tighten` and `policy.untighten`, with the `policy.tightened` and `policy.untightened` notifications, arrived with "should have asked" (theseus-sgh).)_
 
@@ -1178,6 +1191,15 @@ Consequences. A long single-thread conversation appends turn after turn; its pre
 
 Recompilation never loses anything. The old compilation, the tail, and the new compilation all remain in the graph with `derived_from` edges; the manifest of every turn names which compilation and which tail range it used, so any turn is reproducible.
 
+**How the compiler sizes a request** (theseus-f5hf; built 2026-10-01, Part III A4 Item 31).
+
+- **What is counted.** From a compilation's second call on, the estimate counts on the provider. The session's latest answer came from this compilation's last request, whose input the provider counted (input, cache reads, and cache writes), and the answer re-enters the next request at its own output tokens. Only what was written since is estimated.
+- **What is estimated.** The new part is estimated from its bytes by class, at the catalog's `bytes_per_token`: JSON (tool schemas, tool inputs, tool results) and text, plus a few tokens of framing per message and block, and 15 per tool call id. A request with nothing counted (a new session, a recompile, the ring's candidates) is estimated from bytes whole.
+- **The ring.** Overflow rings when the counted part plus the estimated part × 1.4 passes the window, less the output cap and 4,096 tokens of headroom. It then drops leading turns at a user message until the estimate is under 60 % of that.
+- **What is kept.** Nothing is stored for it: the counts are on the answers' nodes, so a restart changes nothing. Every `context.compiled` row carries the estimate: its method, both parts, the bound, the request's JSON bytes (a fourth of them was the estimate before), and its bytes by class.
+
+_A session that passes its window anyway is refused by the provider every turn until it is recompiled by hand (theseus-9p88, P2)._
+
 ### 4.4b How sessions persist across runtime restarts
 
 A session is **durable by reference**, and that is the whole plan. Suppose a thousand sessions each hold a custom-selected context. Nothing about those thousand contexts is held in runtime memory that matters; each resolves in the store to a persisted **lineage**.
@@ -1215,6 +1237,7 @@ Most stable first: persona and role hints; tool schemas; frozen transcript prefi
 - **The record.** The compilation's manifest records the layout (`cache`: whether the model caches, its minimum, and each block's prefix in bytes and its mark).
 - **The TTL.** A profile's `cache_ttl` is `5m` (the default) or `1h`, and applies to every breakpoint, the automatic one included. A task's own conversation keeps `5m`, after the header's `1h` entries, so a longer-lived entry never follows a shorter one, as the provider requires.
 - **The price.** A 1-hour write costs 2 × input, against 1.25 × for 5 minutes. The usage carries the 1-hour part (`cache_creation_1h_input_tokens`), and the catalog's `cache_write_1h_per_mtok` prices it everywhere a call is priced.
+- **What a token is, by model.** The catalog's `bytes_per_token` says how densely a model's tokenizer reads a request's JSON and its prose (§4.4a uses it). On Sonnet 5.5, the header's 15 tool schemas with the provider's tool prompt run about 2.5 bytes a token, tool results and code about 2.4 (from 1.76 to 2.84 in Eddie's DM), and prose 3.35. GLM-5.3 Flash reads them at about 3.8, 3.3, and 4.5. The caching minimum's own bound, 2 bytes a token, stays below them all.
 
 **One header across sessions** (Eddie, 2026-09-26; theseus-ev1). The header is kept as static as possible and reused across sessions and the parts of sessions (derived tasks), so one provider cache entry serves many of them instead of each session warming its own. This is the **provider-safe caching** work, scheduled after M3; M3 built only a breakpoint on the system block plus automatic caching of each session's growing prefix (Part III A3). It respects each provider's rules (a header shorter than the model's `cache_min_tokens` in the catalog never caches) and never rewrites earlier history to win hits, since that breaks preserved thinking signatures. It lands together with money budgets (theseus-0sg): under a token budget a cache read counts as much as fresh input, so better caching would lower the bill without stretching the budget. _(Money budgets landed first, on 2026-09-29, after Eddie's DM hit its unit limit; a cache read now counts at its own price, §3.13. The caching work landed in two parts: the cache lane (the header test and the Observatory's cache figures, Item 16), and 13c's two blocks, minimum, TTL, and 1-hour price, Item 29, on 2026-10-01.)_
 
@@ -1905,6 +1928,12 @@ Make the durability and safety claims true, and measure them.
 - The ontology (§4.1a, theseus-8kk): the kinds table, declared memberships, guidance, and the compile walk, with topics as the first new kind.
 - Integrity labels by transmission, and the one-step-stricter rule for exposed contexts (§3.9 Exposure). Also the `external` origin, file hashes, and the `Advisory` with its correction control (theseus-3vu).
 - The consequence boundary under L1 (§7): credential brokering and egress recognition.
+- **Credentials as stand-ins** (theseus-gh7; Eddie, 2026-10-01 15:13: build it before the AWS hands' first
+  account write). A job granted a secret sees a stand-in, never the value. The L1 egress proxy terminates TLS for
+  the hosts the secret is granted to, through a per-job CA the job trusts, and swaps the value in only on those
+  connections, re-signing SigV4 for AWS. A stand-in sent anywhere else is a refused connection and a ledger row. It
+  lands with egress and credential brokering (18c, 18d), so it is in place before C2, the first account write. It
+  shares the TLS termination that egress recognition needs.
 
 **Prove.** Every row of the durability table is demonstrated by a test: process crash, node restart with disk intact, SSD loss with restore from S3, external effect without evidence. The measured off-node recovery point under a synthetic load is under 60 s at p99 and the turn-latency cost of the durability work is reported. L1 contract tests pass. Disclosure tests pass.
 
@@ -2156,7 +2185,7 @@ M3 was built in three parts: **content** (the session graph, the context compile
 - **Scrubbing.** Tool output is scrubbed before it becomes a node: exact vault values become `[redacted:<name>]`, token shapes (`sk-ant-`, `ghp_`, `github_pat_`, `gho_`, `ops_`, `xoxb-`, `xoxp-`) become `[redacted:shape]`.
 - **Protocol.** Methods `session.history`, `session.watch`, `session.unwatch`, `session.recompile`, `action.confirm` (with `watch`, which subscribes before the answer wakes anything), `catalog.list`, `compilation.list`, `node.list`, `tool.list`. Notifications `model.thinking`, `context.compiled`, `tool.proposed`, `tool.started`, `tool.ended`, `confirm.requested`, `confirm.resolved`, `node.written`, `turn.failed`. Turn results gain execution id, dollars, tool calls, the awaiting confirmation, stop details, and a continuation flag; sessions gain last activity, dollars, tool calls, profile and model, compilation, title, and pending confirmations; health gains total dollars and the catalog version.
 - **CLI.** `theseus history`, `watch`, `confirm` (without an id: everything waiting; with one: answer it and follow the turn it resumes), `tools`, `catalog`, `sessions recompile`; `ask` shows tool activity, confirmation requests, and recompiles on stderr, `--thinking` shows thinking summaries, and the status line has tool calls and dollars. SIGPIPE is back to its default, so `theseus history | head` ends quietly.
-- **Discord** (theseus-9ko, crate `theseus-discord`, twilight 0.17). A protocol client of the core, connected the way the web UI is (an in-process pipe into `serve_connection`), so a Discord turn, a button press, and `/stop` run `turn.submit`, `action.confirm`, and `execution.stop` (`execution.cancel` until W1, 2026-09-30). It watches the sessions behind its places, so continuation turns (a job's late result, a restart, an answer given in the web UI) reach Discord with nobody asking. **Places** come from the **bindings file** (P5): one guild, text channels, DMs, and the Discord users who may drive each; its SHA-256 prefix is the binding revision. The file lives in the state dir by default, beside the store that remembers each place's session, so a scratch instance with its own state dir never opens a second gateway connection on the same token; only the socket daemon binds (never `--stdio`). Each place is an actor with one conversation session (its id in store meta, replaced when that execution is cancelled or exhausted): turns are serialized, messages that arrive mid-turn are coalesced into the next turn with their authors, and a new place posts a short bind notice. **Rendering** is pure and tested: each loop's streamed text becomes messages edited in place (at most one edit per message per `edit_interval_ms`, split under Discord's 2000 characters with code fences closed and reopened across a split); each loop's tool calls are one message of lines updated as they run (proposed, running, waiting for approval, background, done with duration, denied with the reason, answered by whom); a confirmation is its own message with **Approve** and **Decline** buttons bound to the correlation id, settled (buttons removed, who answered) when it is answered anywhere; a footer carries the profile, model, loops, tool calls, dollars, and time; a failed turn says its class and error. Mentions are never pinged. **Controls**: `/stop` and `/cancel` (cancel the session's execution, then bind the place to a fresh session), `/new`, `/status`, as slash commands and as plain text. Only listed users can drive a place or press its buttons; anyone else is ignored and counted. A channel binding is **mention-only** by default (9383bdc): only a message that @mentions the bot (as a user or through its managed role) or replies to one of its messages starts a turn, with the mention stripped, so a channel shared with people or other bots does not get a turn per message. Eddie bound #openclaw this way, beside five OpenClaw agents that answer only when mentioned.
+- **Discord** (theseus-9ko, crate `theseus-discord`, twilight 0.17). A protocol client of the core for every act (its delivery and reporting reach the core directly: Item 30), connected the way the web UI is (an in-process pipe into `serve_connection`), so a Discord turn, a button press, and `/stop` run `turn.submit`, `action.confirm`, and `execution.stop` (`execution.cancel` until W1, 2026-09-30). It watches the sessions behind its places, so continuation turns (a job's late result, a restart, an answer given in the web UI) reach Discord with nobody asking. **Places** come from the **bindings file** (P5): one guild, text channels, DMs, and the Discord users who may drive each; its SHA-256 prefix is the binding revision. The file lives in the state dir by default, beside the store that remembers each place's session, so a scratch instance with its own state dir never opens a second gateway connection on the same token; only the socket daemon binds (never `--stdio`). Each place is an actor with one conversation session (its id in store meta, replaced when that execution is cancelled or exhausted): turns are serialized, messages that arrive mid-turn are coalesced into the next turn with their authors, and a new place posts a short bind notice. **Rendering** is pure and tested: each loop's streamed text becomes messages edited in place (at most one edit per message per `edit_interval_ms`, split under Discord's 2000 characters with code fences closed and reopened across a split); each loop's tool calls are one message of lines updated as they run (proposed, running, waiting for approval, background, done with duration, denied with the reason, answered by whom); a confirmation is its own message with **Approve** and **Decline** buttons bound to the correlation id, settled (buttons removed, who answered) when it is answered anywhere; a footer carries the profile, model, loops, tool calls, dollars, and time; a failed turn says its class and error. Mentions are never pinged. **Controls**: `/stop` and `/cancel` (cancel the session's execution, then bind the place to a fresh session), `/new`, `/status`, as slash commands and as plain text. Only listed users can drive a place or press its buttons; anyone else is ignored and counted. A channel binding is **mention-only** by default (9383bdc): only a message that @mentions the bot (as a user or through its managed role) or replies to one of its messages starts a turn, with the mention stripped, so a channel shared with people or other bots does not get a turn per message. Eddie bound #openclaw this way, beside five OpenClaw agents that answer only when mentioned.
 - **Restore** (theseus-at8). `theseusd restore --from <dir>` takes a WAL directory or a store directory, refuses while a daemon serves the socket, copies the segments into a staging store beside the live one, opens it (every frame's checksum checked, a torn final frame cut and reported, the index rebuilt from the WAL), writes a `store.restored` ledger row, and swaps it in. The source is only read; a store already there needs `--force` and is moved aside, never deleted.
 - **Web UI** (Eddie's observability rule). A sessions sidebar: any session can be resumed, the open one survives a reload, and a session opens with its first message rather than per page load. The transcript is rebuilt from nodes: tool cards with the gate's decision and reason, status, exit code, duration, bytes, colored diffs, and the full input and output on click; a late result both on the card of the call that started it and in the turn that received it; calls queued behind a confirmation. Confirmation cards inline, with a preview (the edit as a diff, the file content, the command line), an optional note, Approve and Decline, and the expiry. Thinking summaries collapse; dollars per turn, per session, and in total; a pulsing "N waiting for you" in the header and "needs you" in the sidebar; automatic reconnection that re-watches and reloads; timing trees for past turns from their `turn.trace` rows. The Observatory gained **Context** (compilations with trigger, strategy, as-of, prefix size, model, and thinking kept or stripped; each loop's decision with prefix and tail, messages, estimated tokens, repairs, and digest; recompile buttons), **Tools** (policy per tool, calls, roots, the shell-fallback ratio), **Nodes** (by kind, the JSON on click), **Model catalog**, and sessions with dollars, tool calls, and pending confirmations; the ledger gained `tool.*` and `context.*` chips. For M3c/d the Observatory gained a **Discord** panel (state and why, bot, guild, bindings file and revision, connection age and heartbeat, messages in and out, edits, button and command presses, ignored messages, errors and the last one; each place with its channel, its session as a link, who may drive it, and last activity; the latest `discord.*` rows), and `discord.*` and `store.*` ledger chips. Health carries `bindings[]`, and `theseus health` prints a line per binding. The protocol gained optional `author` labels on `turn.submit`, `action.confirm`, and `execution.cancel`, so the ledger and the confirm card say `discord:eddie`; they are labels, not authority.
 
@@ -5541,8 +5570,8 @@ on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:
   as the scrubber does not scrub them.
 
 **Known gaps.**
-- theseus-4xa (P2): the default 50 ms grace settles only a write near its end; real Discord takes 250 to
-  400 ms; Eddie's call.
+- ~~theseus-4xa (P2): the default 50 ms grace settles only a write near its end; real Discord takes 250 to
+  400 ms; Eddie's call.~~ Eddie kept 50 ms (2026-10-01 14:38).
 - theseus-ndw: the lifecycle bench never has a post in flight, so the gate does not hold the grace.
 - theseus-p7q: `--stdio` has no signal arm.
 - theseus-rnx: the PTY path, when built, must withhold granted values the same way.
@@ -5562,8 +5591,8 @@ on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:
 - **Eddie's store was copied** to `~/.theseus-backups/store-pre-fb2a-20261001-073547`, and the build **installed at
   07:35** from 5914183. No layout changed.
 - **The grace's default** (theseus-4xa) is Eddie's call. Tabitha recommended keeping 50 ms and §9's budget, since a
-  post the stop cuts off is sent again under its nonce and Discord returns the first one. It stays 50 ms until he
-  says otherwise.
+  post the stop cuts off is sent again under its nonce and Discord returns the first one. Eddie kept 50 ms
+  (2026-10-01 14:38: "50ms!").
 
 ### Item 20. Vectors, voice, and two small fixes on `main` (theseus-nz8, theseus-3xn, theseus-2fs, theseus-fln; 2026-10-01, merged 07:39 to 07:43; 648239e, 3a0a567, 128b3f6)
 
@@ -6311,7 +6340,9 @@ shared header, made a split possible. The stage-2 design's 13c added:
   - GLM accepts `ttl: "1h"` and caches as before.
 - **Found live, and acted on.** The compiler's chars/4 estimate runs 25 to 52 % low against Anthropic's tokenizers,
   so the minimum's check doesn't use it. Haiku 4.5 counts today's header just under its 4,096 minimum, so its
-  breakpoint is sent and skipped until the header grows.
+  breakpoint is sent and skipped until the header grows. The second commit's message (c970d36, rebased from 1531169) says Haiku counts the header at about 4,150,
+  over its minimum. That was an extrapolation, and the second Haiku check measured it under; 86adced corrected the
+  code's comments, and the message stays as pushed.
 - **The review's check of the release build** (b6be80d, installed 13:46; the lane's driver on a scratch daemon,
   $0.022):
   - a second session read 5,122 tokens from the cache;
@@ -6354,3 +6385,136 @@ shared header, made a split possible. The stage-2 design's 13c added:
 - theseus-f5hf (P2): the overflow ring still uses chars/4.
 - theseus-o388 (P3): confirm Sonnet 5.5's minimum.
 - theseus-4v1z (P3): the CLI's catalog and health lines show no 1-hour price or count.
+
+### Item 30. Batch C, part 3: the CLI's `run()`, one typed definition per wire shape with the web apps' types generated, and the Discord runtime (theseus-0g4; 2026-10-01 13:53 to 15:22, reviewed 15:25 to 15:28; 5522f85, b3b1ae1, e6992a8, 0dcceed, d6609a3, d59d990)
+
+**Why.** The roadmap re-cut's row 5, the complexity review's last batch: the three findings that waited for the
+Daily Driver. Finding 11, the CLI's `run()`, had grown to 873 lines at cognitive complexity 123. Finding 12: ten of
+the 21 notifications were `json!` read back by string keys in three renderers, the gate record a `Value` read by
+key in four places, and the web apps shared 400 hand-written lines of types that had drifted. Finding 19: two
+copies of the Discord route lookup, a 171-line `serve`, and a crate doc that called the binding a protocol client.
+Eddie approved generating the web types with ts-rs (12:17, again 12:59). Behaviour and the wire stay byte for byte.
+
+**What exists.**
+- **Finding 11** (5522f85 tests first, b3b1ae1): `main.rs` is the arguments, `Conn`, and a 25-line `run`; `cmd.rs`
+  one async fn per subcommand and `output()` (the daemon's answer as sent under `--json`, else the decoded lines);
+  `render.rs` the renderers, with `Printer` taking a `Mode` (Text, Quiet, Watch, Json) plus `thinking`.
+- **Finding 12** (e6992a8 tests first, 0dcceed, d6609a3): a struct per notification and `Event` in
+  `theseus-protocol`; `GateRecord`, with `Plan`, `Resource`, `Access`, `Proposal`, `Notice`, and `ContextFileRef`
+  moved there as single definitions; a tool-call node's gate typed and written canonically; senders build events;
+  the Discord renderer, its routing, and the CLI match on them. The web apps' types are generated into
+  `web/src/protocol.gen/` (119 types), `protocol.ts` keeps the client and re-exports them, and the gate fails when
+  they are stale.
+- **Finding 19** (d59d990): `Routes::resolve` for both handlers; `serve` as `connect`, `start_places`,
+  `event_loop`; the crate doc says the binding runs in-process, its acts through the protocol (13 methods), its
+  delivery and reporting direct (53 uses).
+
+| measure | before | after |
+|---|---:|---:|
+| CLI `run`, lines and cognitive complexity (clippy) | 873, 123 | 25, 22 (its 20 `.await`s) |
+| longest CLI subcommand | (inside `run`) | 65 (`ask`) |
+| notifications built with `json!` | 10 of 21 | 0 |
+| gate record readers by string key | 4 sites | 0 |
+| `web/src/protocol.ts` | 516 lines, hand-written | 114, the types generated |
+| Discord `serve` | 171 lines | 12, with `connect` 48, `start_places` 73, `event_loop` 81 |
+| route lookups in the Discord handlers | 2 | 1 (`Routes::resolve`) |
+| tests (gate) | 1,240 | 1,258 |
+
+**How it is proven.**
+- **The CLI:** 32 golden scenarios written against the old code pass unchanged; all 33 `--help` pages are
+  byte-identical; every subcommand ran live with the old and the new CLI, and on one shared state 33 of 34 outputs
+  were byte-identical (the 34th: the daemon's connection counter).
+- **The wire:** 43 fixtures captured from today's senders equal the typed structs byte for byte and round-trip; a
+  live session's notifications from the old daemon (166) and the new (104) decode and re-encode byte for byte, every
+  method with the same keys and types; all 32 tool-call nodes of a copy of Eddie's store, the 4 older `mode` rows
+  among them, re-encode unchanged.
+- **The web apps:** both type-check, lint, and build against the generated types with no `any` added and
+  `web/dist` unchanged; the gate's check fails on a Rust change without its TypeScript (probed); on a scratch daemon
+  of the build the cockpit's six views and the Observatory's two tabs load clean.
+- **Discord:** the resolve test; 11 of 11 live steps through local stand-ins (a channel, an unlisted author, an
+  unbound channel, a mention-only channel, a DM, a card's press refused and then approved); on `#theseus-test`, the
+  commands, READY, and the bind notice.
+- **Gates** green at each of the six commits: 1,240, 1,241, 1,250, 1,256, 1,257, and 1,258 tests.
+- **The review's gate rerun** on `main` at d59d990 was green: 1,258 tests. The lifecycle bench passed with three
+  phases within 10 % of their limits. Every phase ran about 2× slow, including code the commits never touched
+  (the config parse, 1.01 ms against 0.49; restore, 233 against 107): the openclaw rotation's typecheckers had
+  load at 14 on 16 cores, with little CPU pressure. theseus-611s makes the settle step wait on the load average
+  too.
+
+**Divergence from the brief and the review.**
+
+| Brief or review | Built | Why | Keep? |
+|---|---|---|---|
+| `Printer` takes a Mode (text, quiet, JSON) plus `thinking` | Four modes: Text, Quiet, Watch, Json | `watch` also shows each turn's start and end and every context decision; a fourth mode says so instead of a flag | Keep |
+| Cognitive complexity at most 15 per function (review) | `run` 22, `Printer::on` 23 | `run` is a flat match whose 20 `.await`s clippy counts; `Printer::on` is one flat match over 15 events | Keep |
+| `theseus confirm` with no id uses `confirm.list` | Already did (C2, 750ec12) | | n/a |
+| A typed `GateRecord`; stored rows decode unchanged | Typed, written through `canonical` (sorted keys) | Stored records are sorted maps; the typed struct's field order would otherwise change new records' bytes | Keep |
+| (not asked) | `Plan`, `Resource`, `Access`, `Proposal`, `Notice`, `ContextFileRef` moved into `theseus-protocol` | One definition per wire shape: the gate record and `context.compiled` carry them | Keep |
+| A job's `tool.started` fields | Optional fields on `ToolStarted`, `granted` absent, null, or a name | ts-rs cannot flatten an optional struct; the bytes are unchanged | Keep |
+| Notification structs strict | Each reads a missing field as its default | The renderers always read them so; serialization is unchanged | Keep |
+| Optional TS fields `field?: T` | Exactly that, through `#[ts(optional)]` on 129 fields | ts-rs alone writes `field?: T \| null` | Keep |
+| `binding.report`, or say the binding runs in-process | The doc, with the reason | One method would remove neither the courier's outbox access nor the start's gate, secrets, and log | Keep |
+| A live message and a press on `#theseus-test` | Connect, READY, and the bind notice on real Discord; the message and the press through local stand-ins | A bot can neither type nor press | theseus-kl8m |
+
+**Known gaps.**
+- `NodeInfo.detail` is still a JSON map per node kind; its TypeScript is `Record<string, unknown> | null`
+  (theseus-a6be).
+- `theseus-sim fake-discord` has no gateway and no interaction callback; C3's stand-in lives in the report
+  (theseus-6g62).
+- Two tests race under load: the sweep test checks a spawned wrapper before it exec'd (theseus-uev6), and
+  `tests_outbox::a_card_in_a_channel_mentions_its_answerers…` (already theseus-50p).
+- Stored floats re-parse one ULP off without `float_roundtrip`, so 5 of Eddie's 105 nodes re-encode differently
+  (theseus-k52m; nothing re-encodes a node today).
+- The message and the press on real Discord wait for Eddie (theseus-kl8m).
+
+### Item 31. An honest token estimate, and a timing test that holds under load (theseus-f5hf, theseus-ksfu; the `tokens` lane; 2026-10-01 13:55 to 14:55, reviewed 15:04, joined after Item 30; f9509f3, 7bbd21c, ce19342, rebased as 7335e15, 4aa13db, 042ff07)
+
+**Why.** The compiler's chars/4 estimate ran 29 to 35 % low against Sonnet 5.5's count of Theseus's requests
+(the cache2 lane found it; this lane measured it again, live and on Eddie's DM): their tool schemas and tool
+results are dense JSON. The overflow ring and the budget's reservation trusted it, so a conversation heavy in tool
+output could pass a 1M window in the provider's count while the estimate read about 650 k. And a serve-first test
+held a debug build's health to 50 ms of wall time, which a busy machine failed (403.6 ms in the telemetry lane's
+gate).
+
+**What exists** (§4.4a, §4.5):
+- the estimate counts on the provider's own count from a compilation's second call on, and estimates only what
+  is new, by class at the catalog's `bytes_per_token` (Claude 2.4 and 3.3, Haiku 4.5 2.9 and 4.0, GLM 3.7 and
+  4.4; a config may override them);
+- the ring rings on the estimate's bound (the estimated part × 1.4, the worst measured being ×1.36);
+- `context.compiled` carries `estimate`; the reservation and the narrative follow it;
+- the health test runs on tokio's paused clock, and proves health waits for nothing instead of timing it.
+
+**How it is proven.** Four compiler tests and one catalog test (the ring for JSON that chars/4 reads as fitting,
+the counted estimate by hand, nineteen loops of Eddie's DM, eight live first requests, a GLM session not rung
+early), and the reservation's test. Live, on a scratch daemon of the lane's build (Eddie's 15 tools, the lane's
+own context files, $0.029): every first request within 7 % of the provider's count, every counted one within
+1.7 %, where chars/4 was 29 to 35 % low on Sonnet 5.5. The health test passed 20 of 20 runs twice under 32 busy
+loops at nice 5, where the old one failed 3 of 20 twice, and it fails at once on a health that waits for the
+vault.
+
+**Divergences.** The brief's options were a catalog figure, a calibrated in-memory ratio, or a safety factor;
+the lane did the first and a stronger form of the second (the provider's own count, per session, from the store,
+so nothing lives in memory and a restart loses nothing), and kept a margin on the estimated part only.
+
+**The join** (Tabitha). Item 30 had made `context.compiled` a typed struct, so the lane's `estimate` field
+became `EstimateSummary`, with `CensusSummary`, in theseus-protocol: the one definition of its shape. It is
+built by `Estimate::summary`, optional and absent in older rows. The wire test's literal gained
+`estimate: None`, so its fixtures keep their bytes, and both types joined the generated TypeScript. The join
+is folded into the lane's first commit (7335e15), and the message says so.
+
+**The review's check of the release build** (042ff07, installed 15:42; the lane's driver on a scratch daemon,
+$0.028):
+- Sonnet 5.5's first requests, from bytes, were 3.5 to 4.3 % over the count: 5,473 against 5,248; 7,461 against
+  7,208; 5,487 against 5,265;
+- its counted requests were within 0.5 %: 6,337 against 6,370, and 6,390 against 6,386;
+- GLM's first requests were 1.9 to 2.3 % over;
+- GLM's counted ones were within 1.7 %: 4,288 against 4,363, 4,381 against 4,375, and 5,136 against 5,211;
+- every bound covered its count.
+
+**Known gaps.**
+- theseus-9p88, raised to P2 at the review for the next fix batch: a provider's "prompt is too long" and
+  `model_context_window_exceeded` have no handling, so a session past its window is refused every turn until a
+  manual recompile.
+- theseus-c5ba (Haiku 4.5's figures from one request), theseus-kdkv (the Observatory's view of the estimate),
+  theseus-vj9q (a recompile's bytes-only estimate rings at about 71 %), and theseus-p171 (hex and base64 as a
+  class), all P3.
