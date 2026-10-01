@@ -594,6 +594,20 @@ impl ProviderError {
         )
     }
 
+    /// The provider refused a prompt that alone passes the model's window
+    /// (theseus-9p88): a 400 whose message says "prompt is too long", with
+    /// its count and the window when it gives them. Any other error is
+    /// none, a 400 for another reason included.
+    pub fn overflow(&self) -> Option<Overflow> {
+        match self {
+            ProviderError::InvalidRequest {
+                status: 400,
+                message,
+            } => Overflow::from_message(message),
+            _ => None,
+        }
+    }
+
     pub fn from_status(status: u16, body: &str, headers: &reqwest::header::HeaderMap) -> Self {
         let message = api_error_message(body);
         match status {
@@ -611,6 +625,59 @@ impl ProviderError {
             500..=599 => ProviderError::Server { status, message },
             _ => ProviderError::Api { status, message },
         }
+    }
+}
+
+/// The stop reason of an answer cut at the model's context window, short of
+/// its `max_tokens` (theseus-9p88): on Anthropic's 4.5-and-later models a
+/// prompt plus `max_tokens` that passes the window is not refused, and the
+/// answer stops where the window ends.
+pub const WINDOW_EXCEEDED: &str = "model_context_window_exceeded";
+
+/// What a provider's refusal of a prompt past the window says
+/// (theseus-9p88). Anthropic's message is "prompt is too long: 213402
+/// tokens > 200000 maximum"; either number may be missing from another
+/// provider's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Overflow {
+    /// The provider's count of the prompt.
+    pub tokens: Option<u64>,
+    /// The window it measured the prompt against.
+    pub maximum: Option<u64>,
+}
+
+impl Overflow {
+    const PHRASE: &'static str = "prompt is too long";
+
+    /// The refusal in `message`, or none when it is not one.
+    pub fn from_message(message: &str) -> Option<Overflow> {
+        let lower = message.to_ascii_lowercase();
+        let at = lower.find(Self::PHRASE)?;
+        let rest = &lower[at + Self::PHRASE.len()..];
+        // "N tokens > M maximum": a number before "tokens", then one after
+        // the `>` and before "maximum". Commas are read as separators.
+        let number = |s: &str| -> Option<u64> {
+            let digits: String = s.chars().filter(|c| *c != ',').collect();
+            (!digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
+                .then(|| digits.parse().ok())
+                .flatten()
+        };
+        let words: Vec<&str> = rest
+            .split(|c: char| c.is_whitespace() || c == ':')
+            .filter(|w| !w.is_empty())
+            .collect();
+        let mut tokens = None;
+        let mut maximum = None;
+        for (i, w) in words.iter().enumerate() {
+            let next = words.get(i + 1).copied();
+            if tokens.is_none() && next.is_some_and(|n| n.starts_with("token")) {
+                tokens = number(w);
+            }
+            if maximum.is_none() && next.is_some_and(|n| n.starts_with("maximum")) {
+                maximum = number(w);
+            }
+        }
+        Some(Overflow { tokens, maximum })
     }
 }
 
@@ -1403,6 +1470,56 @@ mod tests {
         );
         assert_eq!(ProviderError::from_status(503, "", &h).class(), "server");
         assert_eq!(ProviderError::from_status(418, "", &h).class(), "api");
+    }
+
+    /// theseus-9p88: the provider's refusal of a prompt past the window is
+    /// read with its count and its maximum, from the body as the API sends
+    /// it; any other 400, and the same words in another class, are not one.
+    #[test]
+    fn a_prompt_past_the_window_is_read_with_its_count_and_maximum() {
+        let h = reqwest::header::HeaderMap::new();
+        let body = r#"{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 213402 tokens > 200000 maximum"},"request_id":"req_1"}"#;
+        let e = ProviderError::from_status(400, body, &h);
+        assert_eq!(
+            e.overflow(),
+            Some(Overflow {
+                tokens: Some(213_402),
+                maximum: Some(200_000)
+            })
+        );
+        let commas =
+            Overflow::from_message("Prompt is too long: 1,048,577 tokens > 1,000,000 maximum");
+        assert_eq!(
+            commas,
+            Some(Overflow {
+                tokens: Some(1_048_577),
+                maximum: Some(1_000_000)
+            })
+        );
+        // Another wording still overflows, with what it does not say unknown.
+        assert_eq!(
+            Overflow::from_message("prompt is too long"),
+            Some(Overflow {
+                tokens: None,
+                maximum: None
+            })
+        );
+        let other = ProviderError::from_status(
+            400,
+            r#"{"type":"error","error":{"type":"invalid_request_error","message":"messages: roles must alternate"}}"#,
+            &h,
+        );
+        assert_eq!(other.overflow(), None, "a 400 for another reason");
+        let not_400 = ProviderError::Api {
+            status: 418,
+            message: "prompt is too long: 3 tokens > 2 maximum".into(),
+        };
+        assert_eq!(not_400.overflow(), None);
+        let large = ProviderError::InvalidRequest {
+            status: 413,
+            message: "request_too_large: Request exceeds the maximum size".into(),
+        };
+        assert_eq!(large.overflow(), None, "the body's size is not the window");
     }
 
     /// The property test's find (theseus-s68): a character the network cut

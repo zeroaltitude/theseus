@@ -342,6 +342,7 @@ pub fn stop_phrase(stop_reason: Option<&str>, tool_uses: usize) -> String {
         ),
         Some("end_turn") => "it ended its turn".into(),
         Some("max_tokens") => "it hit its output limit".into(),
+        Some(crate::provider::WINDOW_EXCEEDED) => "it was cut at the model's context window".into(),
         Some("refusal") => "it refused".into(),
         Some("stop_sequence") => "it hit a stop sequence".into(),
         Some("pause_turn") => "it paused its turn".into(),
@@ -359,6 +360,9 @@ pub fn end_phrase(reason: &str) -> String {
         "nothing_new" => "there was nothing new for the model".into(),
         "refusal" => "the model refused".into(),
         "max_tokens" => "the model hit its output limit".into(),
+        crate::provider::WINDOW_EXCEEDED => {
+            "the model's answer was cut at its context window".into()
+        }
         "budget" => "the session reached its spend limit and asks the operator".into(),
         other => format!("the stop reason is {other}"),
     }

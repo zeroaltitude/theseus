@@ -230,6 +230,42 @@ pub struct CompileInput<'a> {
     /// (`image_not_shown`), so the history changed under that answer's
     /// thinking (theseus-0s4).
     pub strip: Option<&'a str>,
+    /// The provider said this turn's last request passed the window
+    /// (theseus-9p88): the compilation rings, whatever the estimate says.
+    pub overflowed: Option<&'a Overflowed>,
+}
+
+/// A request that passed the model's window, as the provider said it
+/// (theseus-9p88): it refused the prompt ("prompt is too long"), or cut the
+/// answer at the window (`model_context_window_exceeded`). Either way the
+/// estimate and the catalog's window were wrong about it, so the next
+/// compilation rings by the provider's numbers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overflowed {
+    /// The provider's count of the request's prompt, when it gave one.
+    pub counted: Option<u64>,
+    /// Theseus's estimate of the same request (`Estimate::tokens`).
+    pub estimated: u64,
+    /// The window the provider measured against: the refusal's maximum,
+    /// or a cut answer's prompt plus its output. The ring uses it when it
+    /// is below the catalog's.
+    pub maximum: Option<u64>,
+    /// The answer cut at the window that the next call replaces: it is not
+    /// rendered, nor are its calls.
+    pub retrying: Option<String>,
+}
+
+impl Overflowed {
+    /// `tokens` from a bytes estimate, raised by how far the provider's
+    /// count of the request that overflowed ran over its estimate.
+    fn scale(&self, tokens: u64) -> u64 {
+        match self.counted {
+            Some(n) if self.estimated > 0 && n > self.estimated => {
+                (tokens as u128 * n as u128).div_ceil(self.estimated as u128) as u64
+            }
+            _ => tokens,
+        }
+    }
 }
 
 /// How far the bytes part of an estimate may run low, in percent of itself
@@ -532,6 +568,13 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
     let spec = input.spec;
     let entry = input.catalog.get(&spec.model);
     let window = input.window_override.or(entry.map(|e| e.context_window));
+    // The provider's word on the window beats the catalog's when it is
+    // smaller (theseus-9p88): a catalog that overstates a window would let
+    // every request past it.
+    let window = match (window, input.overflowed.and_then(|o| o.maximum)) {
+        (Some(w), Some(m)) => Some(w.min(m)),
+        (w, m) => w.or(m),
+    };
     let now_manifest = manifest_for(spec, input.catalog, window, false);
 
     // 1. Append or recompile?
@@ -619,7 +662,11 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         .unwrap_or(true);
     let mut trigger = new_compilation.then(|| compilation.trigger.clone());
 
-    let media = (input.blobs, input.hidden);
+    let media = (
+        input.blobs,
+        input.hidden,
+        input.overflowed.and_then(|o| o.retrying.as_deref()),
+    );
     let (mut request, mut prefix_n, mut tail_n, mut repairs) =
         render_request(spec, input.catalog, &compilation, input.nodes, media);
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
@@ -631,11 +678,15 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
     // bytes run denser than the catalog's figures still rings in time; it
     // keeps turns while the estimate itself is under 60 %, and that
     // candidate's bound, at most 84 %, does not ring again (theseus-f5hf).
+    // A request the provider said passed the window rings whatever the
+    // estimate says, and its candidates are read at the provider's count:
+    // each estimate is raised by how far the overflowing request's count ran
+    // over its estimate (theseus-9p88).
     if let Some(w) = window {
         let budget = w
             .saturating_sub(spec.max_tokens as u64)
             .saturating_sub(4_096);
-        if est.upper > budget {
+        if est.upper > budget || input.overflowed.is_some() {
             let target = budget * 6 / 10;
             let seq: Vec<&Node> = all_renderable.iter().map(|(_, n)| &**n).collect();
             let starts: Vec<usize> = seq
@@ -651,7 +702,8 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
                     render_request(spec, input.catalog, &candidate, input.nodes, media);
                 let e = estimate(&r, rates, None);
                 let last = cut == *starts.last().unwrap();
-                if e.tokens <= target || last {
+                let tokens = input.overflowed.map_or(e.tokens, |o| o.scale(e.tokens));
+                if tokens <= target || last {
                     compilation = candidate;
                     request = r;
                     prefix_n = p;
@@ -686,14 +738,20 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
 }
 
 /// Render a compilation plus its tail into a provider request. `media` is
-/// where image blocks get their bytes, and the images the provider refused
-/// in the session, which render as their line (theseus-0s4).
+/// where image blocks get their bytes, the images the provider refused in
+/// the session, which render as their line (theseus-0s4), and the answer cut
+/// at the window that this request retries, which it leaves out
+/// (theseus-9p88).
 pub fn render_request(
     spec: &RequestSpec,
     catalog: &Catalog,
     c: &Compilation,
     nodes: &[(u64, Arc<Node>)],
-    (blobs, hidden): (Option<&crate::blobs::Blobs>, &[crate::session::NotShown]),
+    (blobs, hidden, retrying): (
+        Option<&crate::blobs::Blobs>,
+        &[crate::session::NotShown],
+        Option<&str>,
+    ),
 ) -> (ProviderRequest, usize, usize, Vec<String>) {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
     let prefix: Vec<&Node> = nodes
@@ -720,6 +778,7 @@ pub fn render_request(
         c.manifest.strip_thinking,
         &spec.provider,
         &media,
+        retrying,
     );
 
     let mut betas = Vec::new();
@@ -844,14 +903,17 @@ fn late_result_text(r: &Node) -> String {
 /// `tool_result` blocks first; consecutive same-role messages merge. An
 /// assistant message whose provider is not `provider`, the request's, keeps
 /// no thinking block: its signature is one only its own provider can verify
-/// (theseus-kol). Also returns the repaired calls and the tokens the images
-/// are estimated at.
+/// (theseus-kol). An answer cut at the window that a later call replaced is
+/// left out, with its calls (theseus-9p88): the one `retrying` names, and
+/// any that a later answer of its turn followed. Also returns the repaired
+/// calls and the tokens the images are estimated at.
 pub fn render_messages(
     prefix: &[&Node],
     tail: &[&Node],
     strip_prefix_thinking: bool,
     provider: &str,
     media: &Media,
+    retrying: Option<&str>,
 ) -> (Vec<Value>, Vec<String>, u64) {
     let mut image_tokens = 0u64;
     let mut results: HashMap<&str, &Node> = HashMap::new();
@@ -865,6 +927,7 @@ pub fn render_messages(
             results.insert(tool_use_id.as_str(), n);
         }
     }
+    let replaced = replaced_answers(prefix.iter().chain(tail.iter()).copied(), retrying);
     let mut out: Vec<(String, Vec<Value>)> = Vec::new();
     let mut repairs = Vec::new();
     fn push(out: &mut Vec<(String, Vec<Value>)>, role: &str, blocks: Vec<Value>) {
@@ -898,6 +961,7 @@ pub fn render_messages(
                 }
                 push(&mut out, "user", blocks)
             }
+            Body::AssistantMessage { .. } if replaced.contains(n.id.as_str()) => {}
             Body::AssistantMessage {
                 blocks,
                 provider: wrote,
@@ -946,6 +1010,35 @@ pub fn render_messages(
         .map(|(role, content)| json!({"role": role, "content": content}))
         .collect();
     (msgs, repairs, image_tokens)
+}
+
+/// The answers cut at the window that a later call replaced (theseus-9p88):
+/// `retrying`, the one the request being rendered replaces, and each that a
+/// later answer of its own turn followed. A turn makes that later call only
+/// to replace it, so the rule needs no record of its own, and a session
+/// from before it has no such answer.
+fn replaced_answers<'n>(
+    nodes: impl Iterator<Item = &'n Node>,
+    retrying: Option<&'n str>,
+) -> HashSet<&'n str> {
+    let mut replaced: HashSet<&str> = retrying.into_iter().collect();
+    // Each turn's cut answers not yet followed by a later answer of it.
+    let mut open: HashMap<&str, Vec<&str>> = HashMap::new();
+    for n in nodes {
+        let Body::AssistantMessage { stop_reason, .. } = &n.body else {
+            continue;
+        };
+        let Some(turn) = n.turn_id.as_deref() else {
+            continue;
+        };
+        if let Some(cut) = open.remove(turn) {
+            replaced.extend(cut);
+        }
+        if stop_reason.as_deref() == Some(crate::provider::WINDOW_EXCEEDED) {
+            open.entry(turn).or_default().push(n.id.as_str());
+        }
+    }
+    replaced
 }
 
 #[cfg(test)]
@@ -1061,6 +1154,7 @@ mod tests {
             blobs: None,
             hidden: &[],
             strip: None,
+            overflowed: None,
         })
     }
 
@@ -1308,6 +1402,7 @@ mod tests {
             blobs: None,
             hidden: &[],
             strip: None,
+            overflowed: None,
         });
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
@@ -1338,6 +1433,7 @@ mod tests {
             blobs: None,
             hidden: &[],
             strip: None,
+            overflowed: None,
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");
@@ -1571,6 +1667,7 @@ mod tests {
             blobs: None,
             hidden: &[],
             strip: None,
+            overflowed: None,
         });
         assert_eq!(c.request.system.len(), 2);
         assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
@@ -1599,6 +1696,242 @@ mod tests {
         assert_eq!(c2.request.system, c.request.system);
     }
 
+    // ------------------------------------- a request past the window (theseus-9p88)
+
+    /// `run` on a 1M-token model, after the provider said a request passed
+    /// the window.
+    fn run_over(
+        nodes: &[(u64, Node)],
+        current: Option<&Compilation>,
+        spec: &RequestSpec,
+        last: u64,
+        overflowed: Option<&Overflowed>,
+    ) -> Compiled {
+        let nodes: Vec<(u64, Arc<Node>)> = nodes
+            .iter()
+            .map(|(p, n)| (*p, Arc::new(n.clone())))
+            .collect();
+        compile(CompileInput {
+            session_id: "s",
+            current,
+            nodes: &nodes,
+            last_position: last,
+            spec,
+            catalog: &Catalog::builtin(),
+            force: None,
+            window_override: None,
+            blobs: None,
+            hidden: &[],
+            strip: None,
+            overflowed,
+        })
+    }
+
+    /// Six exchanges of about 3,000 tokens each, every answer with thinking.
+    fn six_exchanges() -> Vec<(u64, Node)> {
+        let big = "word ".repeat(2_000);
+        let mut nodes = Vec::new();
+        for i in 0..6u64 {
+            nodes.push((
+                i * 2 + 1,
+                Node::user("s", None, "web", &format!("q{i} {big}")),
+            ));
+            nodes.push((
+                i * 2 + 2,
+                assistant(vec![
+                    thinking(),
+                    json!({"type": "text", "text": format!("a{i}")}),
+                ]),
+            ));
+        }
+        nodes
+    }
+
+    /// The exchanges a request keeps: its user messages' first words.
+    fn kept(c: &Compiled) -> Vec<String> {
+        c.request
+            .messages
+            .iter()
+            .filter(|m| m["role"] == "user")
+            .map(|m| {
+                let text = m["content"][0]["text"].as_str().unwrap_or_default();
+                text.split(' ').next().unwrap_or_default().to_string()
+            })
+            .collect()
+    }
+
+    /// theseus-9p88: the provider refused a request its estimate and Opus 5's
+    /// 1M window said fit. The next compilation rings anyway, by the window
+    /// the provider named, and reads its candidates at the provider's count:
+    /// a count twice the estimate keeps fewer exchanges than the estimate
+    /// alone would. Without the provider's word, nothing rings.
+    #[test]
+    fn a_request_the_provider_refused_rings_by_its_window_and_its_count() {
+        let sp = spec("claude-opus-5", "S");
+        let nodes = six_exchanges();
+        let c0 = run_over(&nodes, None, &sp, 12, None);
+        assert_eq!(c0.compilation.strategy, "transcript", "1M fits it all");
+        let mut more = nodes;
+        more.push((13, Node::user("s", None, "web", "q6 and now?")));
+        let plain = run_over(&more, Some(&c0.compilation), &sp, 13, None);
+        assert_eq!(plain.decision(), "append", "the estimate alone fits");
+        assert_eq!(kept(&plain).len(), 7);
+
+        // The provider's window, 20,000; its count of the request unknown.
+        let by_window = Overflowed {
+            counted: None,
+            estimated: plain.est_tokens,
+            maximum: Some(20_000),
+            retrying: None,
+        };
+        let w = run_over(&more, Some(&c0.compilation), &sp, 13, Some(&by_window));
+        assert_eq!(w.trigger.as_deref(), Some("overflow"));
+        assert_eq!(w.compilation.strategy, "ring");
+        assert_eq!(w.compilation.manifest.context_window, Some(20_000));
+        let budget = 20_000 - 1_000 - 4_096;
+        assert!(w.est_tokens <= budget * 6 / 10, "{}", w.est_tokens);
+        assert_eq!(w.request.messages[0]["role"], "user");
+        // The provider counted twice the estimate: fewer exchanges fit.
+        let counted = Overflowed {
+            counted: Some(plain.est_tokens * 2),
+            ..by_window
+        };
+        let n = run_over(&more, Some(&c0.compilation), &sp, 13, Some(&counted));
+        assert_eq!(n.trigger.as_deref(), Some("overflow"));
+        assert!(
+            kept(&n).len() < kept(&w).len(),
+            "{:?} against {:?}",
+            kept(&n),
+            kept(&w)
+        );
+        assert!(
+            n.est_tokens * 2 <= budget * 6 / 10 || kept(&n) == ["q6"],
+            "the count's reading fits, or only the last exchange is left: {:?}",
+            kept(&n)
+        );
+        // A catalog window smaller than the provider's stays.
+        let bigger = Overflowed {
+            maximum: Some(5_000_000),
+            ..counted
+        };
+        let b = run_over(&more, Some(&c0.compilation), &sp, 13, Some(&bigger));
+        assert_eq!(b.compilation.manifest.context_window, Some(1_000_000));
+    }
+
+    /// theseus-9p88: a forced ring with nothing earlier to drop (the session's
+    /// only message passed the window) renders the same request, which the
+    /// turn reads as "the ring could drop nothing".
+    #[test]
+    fn a_forced_ring_with_one_message_renders_the_same_request() {
+        let sp = spec("claude-opus-5", "S");
+        let nodes = vec![(1, Node::user("s", None, "web", "one long message"))];
+        let c0 = run_over(&nodes, None, &sp, 1, None);
+        let o = Overflowed {
+            counted: Some(2_000_000),
+            estimated: c0.est_tokens,
+            maximum: Some(1_000_000),
+            retrying: None,
+        };
+        let c1 = run_over(&nodes, Some(&c0.compilation), &sp, 1, Some(&o));
+        assert!(!c1.new_compilation, "{:?}", c1.trigger);
+        assert_eq!(c1.digest, c0.digest);
+    }
+
+    /// An answer of turn `turn`'s, cut at the window, with a call.
+    fn cut_answer(turn: &str, loop_index: u32, text: &str, call_id: &str) -> Node {
+        let mut n = assistant(vec![
+            thinking(),
+            json!({"type": "text", "text": text}),
+            call(call_id),
+        ]);
+        n.turn_id = Some(turn.into());
+        n.loop_index = Some(loop_index);
+        if let Body::AssistantMessage { stop_reason, .. } = &mut n.body {
+            *stop_reason = Some(crate::provider::WINDOW_EXCEEDED.into());
+        }
+        n
+    }
+
+    fn of_turn(mut n: Node, turn: &str, loop_index: u32) -> Node {
+        n.turn_id = Some(turn.into());
+        n.loop_index = Some(loop_index);
+        n
+    }
+
+    /// theseus-9p88: the retry of an answer cut at the window leaves it out,
+    /// with its call and the call's "not run" result, so the request ends
+    /// with the operator's message, not the cut answer (a prefill the newer
+    /// models refuse). Once the retry answers, every later render leaves it
+    /// out too, by the rule alone, so each request begins with the one
+    /// before. A cut answer no later answer of its turn followed stays.
+    #[test]
+    fn an_answer_cut_at_the_window_is_left_out_once_a_retry_replaces_it() {
+        let sp = spec("claude-opus-5", "S");
+        let mut nodes = vec![
+            (1, of_turn(Node::user("s", None, "web", "q0"), "t0", 0)),
+            (
+                2,
+                of_turn(
+                    assistant(vec![json!({"type": "text", "text": "a0"})]),
+                    "t0",
+                    0,
+                ),
+            ),
+            (3, of_turn(Node::user("s", None, "web", "q1"), "t1", 0)),
+        ];
+        let c0 = run_over(&nodes, None, &sp, 3, None);
+        let cut = cut_answer("t1", 0, "the first half", "c1");
+        let cut_id = cut.id.clone();
+        nodes.push((4, cut));
+        nodes.push((5, result("c1", "not run", ResultStatus::Error, false)));
+        let o = Overflowed {
+            counted: Some(900_000),
+            estimated: c0.est_tokens,
+            maximum: Some(1_000_000),
+            retrying: Some(cut_id),
+        };
+        let retry = run_over(&nodes, Some(&c0.compilation), &sp, 5, Some(&o));
+        assert_eq!(retry.trigger.as_deref(), Some("overflow"));
+        let last = retry.request.messages.last().unwrap();
+        assert_eq!(
+            (&last["role"], &last["content"][0]["text"]),
+            (&json!("user"), &json!("q1")),
+            "{:?}",
+            retry.request.messages
+        );
+        let text = serde_json::to_string(&retry.request.messages).unwrap();
+        assert!(!text.contains("the first half") && !text.contains("\"c1\""));
+
+        // The retry's answer replaces it in every later render.
+        nodes.push((
+            6,
+            of_turn(
+                assistant(vec![json!({"type": "text", "text": "whole"})]),
+                "t1",
+                1,
+            ),
+        ));
+        nodes.push((7, of_turn(Node::user("s", None, "web", "q2"), "t2", 0)));
+        let next = run_over(&nodes, Some(&retry.compilation), &sp, 7, None);
+        assert_eq!(next.decision(), "append");
+        assert_eq!(
+            &next.request.messages[..retry.request.messages.len()],
+            &retry.request.messages[..],
+            "the next request begins with the retry's"
+        );
+        let text = serde_json::to_string(&next.request.messages).unwrap();
+        assert!(!text.contains("the first half") && text.contains("whole"));
+
+        // A cut answer nothing in its turn followed is rendered.
+        nodes.push((8, cut_answer("t2", 0, "cut and left", "c2")));
+        nodes.push((9, result("c2", "not run", ResultStatus::Error, false)));
+        nodes.push((10, of_turn(Node::user("s", None, "web", "q3"), "t3", 0)));
+        let later = run_over(&nodes, Some(&retry.compilation), &sp, 10, None);
+        let text = serde_json::to_string(&later.request.messages).unwrap();
+        assert!(text.contains("cut and left") && text.contains("\"c2\""));
+        assert!(!text.contains("the first half"));
+    }
+
     // ------------------------------------------------- the estimate (theseus-f5hf)
 
     /// `run` with a window.
@@ -1625,6 +1958,7 @@ mod tests {
             blobs: None,
             hidden: &[],
             strip: None,
+            overflowed: None,
         })
     }
 

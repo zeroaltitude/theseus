@@ -140,6 +140,10 @@ impl Failing {
     ///   the kernel's refusal to plan the call): a retry would change
     ///   nothing, so it parks at once. kks's `over_limit` is that case: its
     ///   turn is itself the retry of the call whose reset was approved.
+    /// - A request past the model's window that the turn's own ring and
+    ///   retry could not fit (`context_window`, theseus-9p88) parks at once
+    ///   too: the driver's retry would send the same request. The next
+    ///   message gives the ring a place to cut.
     ///
     /// `prev` is the run so far: none after a model's answer or new input.
     pub fn after(
@@ -165,7 +169,7 @@ impl Failing {
             Then::Backoff
         } else {
             run.lasting += 1;
-            if run.lasting == 1 {
+            if run.lasting == 1 && class != crate::turn::WINDOW_CLASS {
                 Then::Retry
             } else {
                 Then::Park

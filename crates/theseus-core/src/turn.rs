@@ -33,13 +33,15 @@ use theseus_store::NewRecord;
 use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
-use crate::compiler::{compile, CompileInput, Compiled, Recompile, RequestSpec};
+use crate::compiler::{compile, CompileInput, Compiled, Overflowed, Recompile, RequestSpec};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::ledger::LedgerRow;
 use crate::narrative::{self, narrate, narrate_turn, Narrator};
 use crate::node::{Body, Node};
-use crate::provider::{Delta, ModelResponse, Provider, ProviderError, ToolUse};
+use crate::provider::{
+    Delta, ModelResponse, Overflow, Provider, ProviderError, ToolUse, WINDOW_EXCEEDED,
+};
 use crate::secrets::{SecretBoard, Waited};
 use crate::session::{title_from, NotShown, SessionRecord, TargetRef, Then};
 use crate::startup::StartupLog;
@@ -418,6 +420,98 @@ impl<'a> Turn<'a> {
         session.tool_calls += self.tool_calls as u64;
         session.cost_usd += self.cost.unwrap_or(0.0);
         add_usage(&mut session.usage, &self.usage);
+    }
+}
+
+/// The failure class of a request past the model's window that the turn's
+/// own ring could not fit (theseus-9p88).
+pub const WINDOW_CLASS: &str = "context_window";
+
+/// A request of this turn's that the provider said passed the model's
+/// window (theseus-9p88): it refused the prompt, or cut the answer there.
+struct Overflowing {
+    /// `refused` or `cut`.
+    source: &'static str,
+    /// What the next compilation rings by.
+    hint: Overflowed,
+    /// The request's digest: a retry that would render the same request is
+    /// not made.
+    digest: String,
+    /// The catalog's window for the model.
+    window: Option<u64>,
+    /// A cut answer's output tokens.
+    output: Option<u64>,
+}
+
+impl Overflowing {
+    /// A 400 that says the prompt is too long.
+    fn refused(compiled: &Compiled, o: Overflow, window: Option<u64>) -> Self {
+        Overflowing {
+            source: "refused",
+            hint: Overflowed {
+                counted: o.tokens,
+                estimated: compiled.est_tokens,
+                maximum: o.maximum,
+                retrying: None,
+            },
+            digest: compiled.digest.clone(),
+            window,
+            output: None,
+        }
+    }
+
+    /// An answer cut at the window: its prompt as the provider counted it,
+    /// and that plus its output is where the window ended.
+    fn cut(compiled: &Compiled, resp: &ModelResponse, node: &Node, window: Option<u64>) -> Self {
+        let u = &resp.usage;
+        let prompt = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens;
+        Overflowing {
+            source: "cut",
+            hint: Overflowed {
+                counted: (prompt > 0).then_some(prompt),
+                estimated: compiled.est_tokens,
+                maximum: (prompt > 0).then_some(prompt + u.output_tokens),
+                retrying: Some(node.id.clone()),
+            },
+            digest: compiled.digest.clone(),
+            window,
+            output: Some(u.output_tokens),
+        }
+    }
+
+    /// What the provider said, in words.
+    fn said(&self) -> String {
+        let n = |v: u64| narrative::thousands(v);
+        match (self.source, self.hint.counted, self.hint.maximum) {
+            ("cut", Some(p), _) => format!(
+                "its answer was cut there after {} tokens in and {} out",
+                n(p),
+                n(self.output.unwrap_or(0))
+            ),
+            ("cut", None, _) => "its answer was cut there".into(),
+            (_, Some(c), Some(m)) => format!(
+                "the provider refused it, counting {} tokens against a maximum of {}",
+                n(c),
+                n(m)
+            ),
+            (_, Some(c), None) => format!("the provider refused it, counting {} tokens", n(c)),
+            _ => "the provider refused it as too long".into(),
+        }
+    }
+
+    /// The window, as the catalog and the provider say it.
+    fn window_words(&self) -> String {
+        let n = |v: u64| narrative::thousands(v);
+        match (self.window, self.hint.maximum) {
+            (Some(w), Some(m)) if self.source == "refused" && m < w => format!(
+                "a window of {} (the provider's; the catalog says {})",
+                n(m),
+                n(w)
+            ),
+            (Some(w), _) => format!("a window of {}", n(w)),
+            (None, Some(m)) => format!("a window of {} (the provider's)", n(m)),
+            (None, None) => "no window in the catalog".into(),
+        }
     }
 }
 
@@ -1092,7 +1186,9 @@ impl TurnRunner {
                 "Not retried: {} ({}), so the session waits on its next message, which \
                  retries.",
                 f.class,
-                if settled {
+                if f.class == WINDOW_CLASS {
+                    "the same request would pass the window again"
+                } else if settled {
                     "it failed again after its retry"
                 } else {
                     "it failed before any provider call returned"
@@ -1333,6 +1429,13 @@ impl TurnRunner {
         // next compilation to drop the thinking the change sat under.
         let mut image_retried = false;
         let mut strip: Option<&'static str> = None;
+        // A request the provider said passed the window (theseus-9p88): the
+        // next loop recompiles with a ring by the provider's numbers and calls
+        // once more (`overflow`); a request that is that retry (`retrying`)
+        // fails the turn if it passes the window too.
+        let mut overflow: Option<Overflowing> = None;
+        let mut retrying: Option<Overflowing> = None;
+        let window = self.catalog.get(&target.model).map(|e| e.context_window);
         while run_model {
             // A `/stop` that landed (W1): the turn plans nothing more.
             if let Some(by) = stopped_by(&t.tc)? {
@@ -1350,8 +1453,25 @@ impl TurnRunner {
             );
             t.trace
                 .enter(&format!("loop {i}"), "loop", json!({"loop": i}));
-            let compiled =
-                self.compile_step(&mut t, &mut session, &spec, force.take(), strip.take(), i)?;
+            let compiled = self.compile_step(
+                &mut t,
+                &mut session,
+                &spec,
+                force.take(),
+                strip.take(),
+                overflow.as_ref().map(|o| &o.hint),
+                i,
+            )?;
+            if let Some(o) = overflow.take() {
+                // The ring dropped nothing, so the same request would pass the
+                // window again: the turn fails without the call.
+                if compiled.digest == o.digest {
+                    let f = Self::window_failure(&mut t, &o, false);
+                    return Err(Self::fail(t, &mut session, f));
+                }
+                retrying = Some(o);
+            }
+            let said_before = (t.output.len(), t.said.len());
             let (resp, node) = match self
                 .call_model(&mut t, provider.as_ref(), &compiled, i)
                 .await?
@@ -1366,6 +1486,21 @@ impl TurnRunner {
                             strip = edited.then_some("image_not_shown");
                             t.trace.exit(json!({"decision": "image_not_shown"}));
                             continue;
+                        }
+                    }
+                    let refused = failure
+                        .source
+                        .downcast_ref::<ProviderError>()
+                        .and_then(ProviderError::overflow);
+                    if let Some(o) = refused {
+                        let o = Overflowing::refused(&compiled, o, window);
+                        match Self::overflowed(&mut t, o, retrying.take(), i) {
+                            Ok(next) => {
+                                overflow = Some(next);
+                                t.trace.exit(json!({"decision": WINDOW_CLASS}));
+                                continue;
+                            }
+                            Err(f) => return Err(Self::fail(t, &mut session, f)),
                         }
                     }
                     return Err(Self::fail(t, &mut session, failure));
@@ -1413,8 +1548,31 @@ impl TurnRunner {
                 break;
             }
             let answered = self.run_tools(&mut t, &resp, &uses, &node, i).await?;
-            run_model = Self::advance(&mut t, &resp, uses.len(), answered, i);
+            // An answer cut at the window (theseus-9p88): none of its calls
+            // ran, and the call is made once more on a ring, which leaves the
+            // cut answer out; so does the reply. A retry cut too fails the turn.
+            let mut window_retry = false;
+            let mut window_failed = None;
+            if resp.stop_reason.as_deref() == Some(WINDOW_EXCEEDED) {
+                let o = Overflowing::cut(&compiled, &resp, &node, window);
+                match Self::overflowed(&mut t, o, retrying.take(), i) {
+                    Ok(next) => {
+                        overflow = Some(next);
+                        window_retry = true;
+                        t.output.truncate(said_before.0);
+                        t.said.truncate(said_before.1);
+                    }
+                    Err(f) => window_failed = Some(f),
+                }
+            } else {
+                // The retry answered: a later overflow in the turn is its own.
+                retrying = None;
+            }
+            run_model = Self::advance(&mut t, &resp, uses.len(), answered, i, window_retry);
             t.last = Some(resp);
+            if let Some(f) = window_failed {
+                return Err(Self::fail(t, &mut session, f));
+            }
         }
 
         // 4. Results that settled while this turn ran, the books, the park.
@@ -1721,6 +1879,7 @@ impl TurnRunner {
     /// compilation, or a recompile (persisted with the session's pointer).
     /// The images the provider refused in the session render as their line;
     /// `strip` recompiles without the prefix's thinking (theseus-0s4).
+    #[allow(clippy::too_many_arguments)]
     fn compile_step(
         &self,
         t: &mut Turn<'_>,
@@ -1728,6 +1887,7 @@ impl TurnRunner {
         spec: &RequestSpec,
         force: Option<Recompile>,
         strip: Option<&'static str>,
+        overflowed: Option<&Overflowed>,
         i: u32,
     ) -> Result<Compiled> {
         let sid = t.tc.session_id;
@@ -1749,6 +1909,7 @@ impl TurnRunner {
             blobs: Some(self.store.blobs()),
             hidden: &session.not_shown,
             strip,
+            overflowed,
         });
         if compiled.new_compilation {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
@@ -2389,6 +2550,84 @@ impl TurnRunner {
         Ok(Some(edited))
     }
 
+    /// The provider said this loop's request passed the window
+    /// (theseus-9p88): a `context.overflow` row, and one line. The first
+    /// time, the next loop recompiles with a ring by the provider's numbers
+    /// and calls once more. A request that was that retry (`retried`) fails
+    /// the turn instead: the turn never rings twice for one call.
+    fn overflowed(
+        t: &mut Turn<'_>,
+        o: Overflowing,
+        retried: Option<Overflowing>,
+        i: u32,
+    ) -> Result<Overflowing, Failure> {
+        t.tc.ledger(
+            "context.overflow",
+            json!({"loop": i, "source": o.source, "provider_tokens": o.hint.counted,
+                   "provider_maximum": o.hint.maximum, "output_tokens": o.output,
+                   "window": o.window, "estimate": o.hint.estimated,
+                   "then": if retried.is_some() { "fail" } else { "ring" },
+                   "node_id": o.hint.retrying}),
+        );
+        if retried.is_some() {
+            return Err(Self::window_failure(t, &o, true));
+        }
+        narrate_turn!(
+            t.tc,
+            Context,
+            "Context: {}'s request passed its window: {}; Theseus estimated {} tokens against {}. \
+             The context is recompiled with a ring{}, to call once more.",
+            t.target.model,
+            o.said(),
+            narrative::thousands(o.hint.estimated),
+            o.window_words(),
+            if o.source == "cut" {
+                " that leaves the cut answer out"
+            } else {
+                ""
+            }
+        );
+        Ok(o)
+    }
+
+    /// A request past the window that the turn's ring cannot fit
+    /// (theseus-9p88): the retry passed it too (`retried`), or the ring could
+    /// drop nothing, so the same request would. The error names the window
+    /// and the estimate, and says what the operator can do.
+    fn window_failure(t: &mut Turn<'_>, o: &Overflowing, retried: bool) -> Failure {
+        let message = format!(
+            "{}'s request is past its window{}: {}; Theseus estimated {} tokens against {}. The \
+             next message lets the ring drop this exchange, or start a new session.",
+            t.target.model,
+            if retried {
+                " again, after a ring dropped earlier turns"
+            } else {
+                ", and nothing earlier in the session can be dropped to fit it"
+            },
+            o.said(),
+            narrative::thousands(o.hint.estimated),
+            o.window_words()
+        );
+        narrate_turn!(
+            t.tc,
+            Context,
+            "Context: {}, so the turn fails.",
+            if retried {
+                "the retry passed the window too"
+            } else {
+                "the ring could drop nothing earlier in the session, and the same request would \
+                 pass the window again"
+            }
+        );
+        Failure {
+            class: WINDOW_CLASS.into(),
+            transient: false,
+            usage_unknown: false,
+            reason: format!("{WINDOW_CLASS}: {message}"),
+            source: anyhow::anyhow!(message),
+        }
+    }
+
     /// Settle a call that failed: as failed, or as unknown when the provider
     /// may have done the work, and tell the ledger why.
     fn settle_failed(
@@ -2572,8 +2811,17 @@ impl TurnRunner {
     }
 
     /// The Advancer decides whether the turn continues; the loop's end is
-    /// recorded either way.
-    fn advance(t: &mut Turn<'_>, resp: &ModelResponse, uses: usize, answered: u32, i: u32) -> bool {
+    /// recorded either way. `window_retry`: the answer was cut at the window
+    /// and the call is made again (theseus-9p88), which the overflow's own
+    /// line has said.
+    fn advance(
+        t: &mut Turn<'_>,
+        resp: &ModelResponse,
+        uses: usize,
+        answered: u32,
+        i: u32,
+        window_retry: bool,
+    ) -> bool {
         let advancer = UntilNoToolCalls {
             max_loops: t.target.max_loops,
         };
@@ -2587,7 +2835,12 @@ impl TurnRunner {
         let a0 = t.trace.now_us();
         let decision = if t.awaiting.is_some() {
             Decision::EndTurn("awaiting_confirm".into())
-        } else if matches!(stop, Some("refusal") | Some("max_tokens")) {
+        } else if window_retry {
+            Decision::Continue
+        } else if matches!(
+            stop,
+            Some("refusal") | Some("max_tokens") | Some(WINDOW_EXCEEDED)
+        ) {
             Decision::EndTurn(stop.unwrap_or_default().to_string())
         } else {
             advancer.decide(&outcome)
@@ -2614,6 +2867,7 @@ impl TurnRunner {
         t.trace
             .exit(json!({"decision": decision.label(), "usage": resp.usage}));
         match &decision {
+            Decision::Continue if window_retry => {}
             Decision::Continue => narrate_turn!(
                 t.tc,
                 Loop,
