@@ -72,8 +72,14 @@ proptest = { version = "1.11", default-features = false, features = ["std"] }
 [profile.dev]
 debug = "line-tables-only"
 
+# Dependencies are optimized in debug builds too (theseus-1hk): the gate's lifecycle bench then times the start
+# path more than unoptimized serde, sha2, and redb (a debug cold start's p50 went from 25.6 to 21.7 ms), and test
+# binaries are a quarter smaller. A cold build takes about 3x the CPU, once. The workspace's crates stay at
+# opt-level 0, so their debug assertions still run. Being outside the workspace, the dependencies' build scripts
+# and proc macros take this section too, ahead of `build-override`.
 [profile.dev.package."*"]
 debug = false
+opt-level = 2
 
 [profile.release]
 lto = "fat"
