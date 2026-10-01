@@ -534,10 +534,23 @@ async fn a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_an
         .await
         .awaiting_confirm
         .expect("the write waits");
+    // The tool line can be posted after the outbox first drains, so wait for
+    // every message the test reads, not only for an empty outbox.
     let c = core.clone();
-    until("the card and the reply delivered", 10, move || {
-        pending(&c) == 0
-    })
+    let expected = ["🔗 Theseus is bound here", "Asking <@", "`fs.write`"];
+    until(
+        "the card, the tool line, and the reply delivered",
+        10,
+        || {
+            let msgs = fake.messages(CHANNEL);
+            pending(&c) == 0
+                && msgs.iter().any(|m| m.components > 0)
+                && expected.iter().all(|w| {
+                    msgs.iter()
+                        .any(|m| m.components == 0 && m.content.contains(w))
+                })
+        },
+    )
     .await;
     let msgs = fake.messages(CHANNEL);
     let (cards, others): (Vec<Msg>, Vec<Msg>) = msgs.into_iter().partition(|m| m.components > 0);
@@ -562,7 +575,7 @@ async fn a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_an
         card_out.1,
         serde_json::json!([USER.to_string(), OTHER.to_string()])
     );
-    for what in ["🔗 Theseus is bound here", "Asking <@", "`fs.write`"] {
+    for what in expected {
         assert!(
             others.iter().any(|m| m.content.contains(what)),
             "no message with {what:?}: {others:?}"
