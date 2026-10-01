@@ -744,6 +744,9 @@ async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<P
     // What the store's open left unchecked, the WAL's history, is checked
     // now, in the background (theseus-8ni).
     core.check_store_history();
+    // Raw job output no result will absorb goes, now and every hour
+    // (theseus-2ij).
+    core.sweep_spool_after_serving();
     if let Some(text) = keep {
         keep_copy(&core, &text);
     }

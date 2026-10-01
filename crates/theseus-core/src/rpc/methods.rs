@@ -79,6 +79,7 @@ impl Core {
             external_text: crate::external::listed(&sessions, theseus_protocol::now_unix_ms()),
             web: self.web_refusals.status(self.cfg.web.dev_origin.as_deref()),
             disk: self.tools.disk.status(),
+            spool: self.spool_status(),
         }
     }
 

@@ -37,6 +37,7 @@ pub mod secrets;
 pub mod session;
 pub mod startup;
 pub mod store;
+pub mod sweep;
 pub mod task;
 pub mod telemetry;
 pub mod tighten;

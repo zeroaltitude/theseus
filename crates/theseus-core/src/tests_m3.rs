@@ -924,6 +924,224 @@ async fn a_job_below_the_disk_floor_is_refused_with_its_reason() {
     assert_eq!(r.core.health().disk.state, "low");
 }
 
+/// theseus-2ij: the spool's sweep removes the raw output no result will
+/// absorb, by what the store says, and keeps what a turn may still read:
+/// - absorbed: an in-turn job's result was written, and its file came back
+///   (as a crash between the frame and the delete would leave it);
+/// - ended: a background job finished, and its execution was cancelled
+///   before a turn read its late result;
+/// - unknown: a file from before H3, 0644, three days old, no job in the
+///   store;
+/// - kept, running: a job still running, and one whose execution was
+///   cancelled (its action too) while its wrapper still lives: here a
+///   stand-in, a process whose command line names the job, with its pid in
+///   the spool, since the in-process launcher has no wrapper to keep alive;
+/// - kept, pending: a background job that finished in a session that goes on;
+/// - kept, young: a file the store does not know, written just now.
+///
+/// One `spool.swept` row says so with counts and bytes, and health shows the
+/// sweep.
+#[tokio::test]
+async fn the_sweep_removes_raw_output_no_result_will_absorb_and_keeps_the_rest() {
+    use std::os::unix::fs::PermissionsExt;
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[("t1", "proc_run", json!({"argv": ["echo", "in the turn"]}))],
+            ),
+            Scripted::text("Done."),
+            Scripted::tools(
+                "",
+                &[(
+                    "t2",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "sleep 1.2; echo ended"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+            Scripted::tools(
+                "",
+                &[(
+                    "t3",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "sleep 1.2; echo pending"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+            Scripted::tools(
+                "",
+                &[(
+                    "t4",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "echo running; while [ -e running.marker ]; do sleep 0.05; done"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+            Scripted::tools(
+                "",
+                &[(
+                    "t5",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "echo running on; while [ -e running.marker ]; do sleep 0.05; done"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.proc_sync_secs = 1;
+        },
+    );
+    std::fs::write(r.root.join("running.marker"), "").unwrap();
+    let results_dir = r.core.spool.dir().join("results");
+    let out = |corr: &str| results_dir.join(format!("{corr}.out"));
+    let job_of = |sid: &str| -> String {
+        r.core
+            .kernel
+            .actions()
+            .unwrap()
+            .into_iter()
+            .find(|a| a.session_id == sid && a.tool == "proc.run")
+            .unwrap()
+            .correlation_id
+    };
+
+    // Absorbed, then the file back, as a crash before the delete leaves it.
+    let a = turn(&r.core, None, "echo something").await;
+    let absorbed = job_of(&a.session_id);
+    assert!(
+        !out(&absorbed).exists(),
+        "deleted once its result was written"
+    );
+    std::fs::write(out(&absorbed), "in the turn\n").unwrap();
+
+    // Two background jobs that finish; the first's execution is cancelled.
+    let b = turn(&r.core, None, "start the first").await;
+    let ended = job_of(&b.session_id);
+    let c = turn(&r.core, None, "start the second").await;
+    let pending = job_of(&c.session_id);
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        r.core.heartbeat("test");
+        let settled = |corr: &str| {
+            r.core
+                .kernel
+                .action(corr)
+                .unwrap()
+                .unwrap()
+                .state
+                .is_settled()
+        };
+        if settled(&ended) && settled(&pending) {
+            break;
+        }
+    }
+    r.core
+        .cancel_execution(b.execution_id.as_deref().unwrap(), "test")
+        .await
+        .unwrap();
+
+    // A job that still runs, and one that runs on in a cancelled execution.
+    let d = turn(&r.core, None, "start the third").await;
+    let running = job_of(&d.session_id);
+    let e = turn(&r.core, None, "start the fourth").await;
+    let running_on = job_of(&e.session_id);
+    r.core
+        .cancel_execution(e.execution_id.as_deref().unwrap(), "test")
+        .await
+        .unwrap();
+    let a = r.core.kernel.action(&running_on).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    std::fs::write(
+        r.root.join("job-wrapper"),
+        "while [ -e running.marker ]; do sleep 0.05; done\n",
+    )
+    .unwrap();
+    let mut wrapper = std::process::Command::new("sh")
+        .args(["job-wrapper", "--correlation-id", &running_on])
+        .current_dir(&r.root)
+        .spawn()
+        .unwrap();
+    r.core.spool.write_pid(&running_on, wrapper.id()).unwrap();
+    assert!(theseus_kernel::job::wrapper_alive(
+        wrapper.id(),
+        &running_on
+    ));
+
+    // Two files no job in the store owns: one from before H3, one just made.
+    let pre_h3 = results_dir.join("act_invented_pre_h3.out");
+    std::fs::write(&pre_h3, "stale\n").unwrap();
+    std::fs::set_permissions(&pre_h3, std::fs::Permissions::from_mode(0o644)).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&pre_h3)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(3 * 24 * 3600))
+        .unwrap();
+    let young = results_dir.join("act_invented_young.out");
+    std::fs::write(&young, "new\n").unwrap();
+
+    for (what, path) in [
+        ("absorbed", out(&absorbed)),
+        ("ended", out(&ended)),
+        ("pending", out(&pending)),
+        ("running", out(&running)),
+        ("running on", out(&running_on)),
+    ] {
+        assert!(path.exists(), "{what}'s output is there before the sweep");
+    }
+    let s = r.core.sweep_spool(true);
+    assert!(!out(&absorbed).exists(), "absorbed");
+    assert!(!out(&ended).exists(), "ended");
+    assert!(!pre_h3.exists(), "pre-H3");
+    assert!(out(&pending).exists(), "pending is kept");
+    assert!(out(&running).exists(), "running is kept");
+    assert!(
+        out(&running_on).exists(),
+        "running on in a cancelled execution is kept"
+    );
+    assert!(young.exists(), "young is kept");
+    let by = |m: &std::collections::BTreeMap<String, u64>| -> Vec<(String, u64)> {
+        m.iter().map(|(k, v)| (k.clone(), *v)).collect()
+    };
+    assert_eq!(
+        by(&s.removed_by),
+        [
+            ("absorbed".into(), 1),
+            ("ended".into(), 1),
+            ("unknown".into(), 1)
+        ]
+    );
+    assert_eq!(
+        by(&s.kept_by),
+        [
+            ("pending".into(), 1),
+            ("running".into(), 2),
+            ("young".into(), 1)
+        ]
+    );
+    assert_eq!((s.removed, s.kept), (3, 4));
+    assert_eq!(
+        s.removed_bytes,
+        ("in the turn\n".len() + "ended\n".len() + "stale\n".len()) as u64
+    );
+    let rows = ledgered(&r, "spool.swept");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["removed"], 3);
+    assert_eq!(rows[0]["removed_by"]["unknown"], 1);
+    assert_eq!(r.core.health().spool.last_sweep, Some(s));
+
+    // A later sweep that removes nothing writes no row; health still shows it.
+    let again = r.core.sweep_spool(false);
+    assert_eq!((again.removed, again.kept), (0, 4));
+    assert_eq!(ledgered(&r, "spool.swept").len(), 1);
+    assert_eq!(r.core.health().spool.last_sweep, Some(again));
+    std::fs::remove_file(r.root.join("running.marker")).unwrap();
+    let _ = wrapper.kill();
+    let _ = wrapper.wait();
+}
+
 #[tokio::test]
 async fn a_session_keeps_its_memory_across_a_restart() {
     let dir = tempfile::tempdir().unwrap();

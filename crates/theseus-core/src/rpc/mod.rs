@@ -98,6 +98,8 @@ pub struct Core {
     restart: tokio::sync::watch::Sender<Option<ConfigRestart>>,
     /// What the web UI refused: not its own page or address (theseus-70f).
     web_refusals: Arc<crate::webui::Refusals>,
+    /// The spool's last sweep since the daemon started (theseus-2ij).
+    last_sweep: std::sync::Mutex<Option<theseus_protocol::SpoolSweep>>,
 }
 
 /// A store's completion spool, the directory beside it: `store` → `spool`,
@@ -539,6 +541,7 @@ impl Core {
             config_gate,
             restart: tokio::sync::watch::Sender::new(None),
             web_refusals: Arc::default(),
+            last_sweep: Default::default(),
         });
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
@@ -656,6 +659,67 @@ impl Core {
                 None
             }
         }
+    }
+
+    /// Sweep the spool's raw job output (theseus-2ij), then say so: a
+    /// `spool.swept` row, never content, for a sweep that removed a file, and
+    /// for the first sweep of a start that found any; and health's last
+    /// sweep, always. An empty spool writes nothing, and neither does an
+    /// hourly sweep that only keeps what a turn may still read.
+    pub fn sweep_spool(&self, first: bool) -> theseus_protocol::SpoolSweep {
+        let s = crate::sweep::sweep(
+            &self.kernel,
+            &self.store,
+            &self.spool,
+            std::time::SystemTime::now(),
+        );
+        if s.removed > 0 || (first && s.kept > 0) {
+            let row = LedgerRow::new(
+                "spool.swept",
+                None,
+                None,
+                serde_json::to_value(&s).unwrap_or(Value::Null),
+            );
+            if let Err(e) = self.store.append_ledger(&row) {
+                tracing::warn!(error = %e, "ledger append failed");
+            }
+        }
+        if s.removed > 0 {
+            tracing::info!(
+                removed = s.removed,
+                bytes = s.removed_bytes,
+                kept = s.kept,
+                "the spool's sweep removed raw job output no result will absorb"
+            );
+        }
+        *self.last_sweep.lock().unwrap() = Some(s.clone());
+        s
+    }
+
+    /// The spool's last sweep, for health.
+    pub fn spool_status(&self) -> theseus_protocol::SpoolStatus {
+        theseus_protocol::SpoolStatus {
+            last_sweep: self.last_sweep.lock().unwrap().clone(),
+        }
+    }
+
+    /// The spool's sweeps as a tender after serving (theseus-2ij), never on
+    /// the start path: the first now, then one every hour, each on the
+    /// blocking pool. Between sweeps it holds the core only weakly, so a
+    /// stopped daemon's core is dropped as before.
+    pub fn sweep_spool_after_serving(self: &Arc<Self>) {
+        let core = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut first = true;
+            loop {
+                let Some(c) = core.upgrade() else {
+                    return;
+                };
+                let _ = tokio::task::spawn_blocking(move || c.sweep_spool(first)).await;
+                first = false;
+                tokio::time::sleep(crate::sweep::EVERY).await;
+            }
+        });
     }
 
     pub fn live_profile(&self) -> (String, String) {

@@ -955,6 +955,9 @@ async fn run(cli: Cli) -> Result<()> {
                 if let Some(line) = disk_line(&h.disk) {
                     println!("{line}");
                 }
+                if let Some(line) = spool_line(&h.spool, theseus_protocol::now_unix_ms()) {
+                    println!("{line}");
+                }
                 println!("{}", broker_line(&h.broker));
                 println!(
                     "tokens total: in {} out {} cache-read {} cache-write {}",
@@ -1572,6 +1575,40 @@ fn disk_line(d: &theseus_protocol::DiskStatus) -> Option<String> {
             format!(" · {}", limits.join(", "))
         }
     ))
+}
+
+/// `spool: swept 3 min ago: removed 3 files (24 bytes): 1 absorbed, 1 ended, 1
+/// unknown · kept 2: 1 pending, 1 running` (theseus-2ij): the last sweep of the
+/// jobs' raw output that no result will absorb. Nothing before the first
+/// sweep, or from a daemon older than that.
+fn spool_line(s: &theseus_protocol::SpoolStatus, now_ms: u64) -> Option<String> {
+    let w = s.last_sweep.as_ref()?;
+    let secs = now_ms.saturating_sub(w.at_unix_ms) / 1000;
+    let ago = if secs < 120 {
+        format!("{secs} s ago")
+    } else {
+        format!("{} min ago", secs / 60)
+    };
+    let by = |m: &std::collections::BTreeMap<String, u64>| {
+        m.iter()
+            .map(|(why, n)| format!("{n} {why}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut line = format!(
+        "spool: swept {ago}: removed {} {} ({} bytes)",
+        w.removed,
+        if w.removed == 1 { "file" } else { "files" },
+        thousands(w.removed_bytes)
+    );
+    if !w.removed_by.is_empty() {
+        line.push_str(&format!(": {}", by(&w.removed_by)));
+    }
+    line.push_str(&format!(" · kept {}", w.kept));
+    if !w.kept_by.is_empty() {
+        line.push_str(&format!(": {}", by(&w.kept_by)));
+    }
+    Some(line)
 }
 
 /// `130,300`.
@@ -3008,6 +3045,37 @@ mod tests {
             disk_line(&d).unwrap(),
             "disk: unknown under /invented/state: invented failure"
         );
+    }
+
+    #[test]
+    fn the_spool_line_says_the_last_sweep() {
+        use theseus_protocol::{SpoolStatus, SpoolSweep};
+        assert_eq!(spool_line(&SpoolStatus::default(), 0), None);
+        let sweep = SpoolSweep {
+            at_unix_ms: 1_000_000,
+            took_ms: 2,
+            removed: 3,
+            removed_bytes: 1_024,
+            kept: 2,
+            kept_bytes: 10,
+            removed_by: [("absorbed", 1), ("ended", 1), ("unknown", 1)]
+                .map(|(k, v)| (k.to_string(), v))
+                .into(),
+            kept_by: [("pending", 1), ("running", 1)]
+                .map(|(k, v)| (k.to_string(), v))
+                .into(),
+        };
+        let s = SpoolStatus {
+            last_sweep: Some(sweep),
+        };
+        assert_eq!(
+            spool_line(&s, 1_000_000 + 180_000).unwrap(),
+            "spool: swept 3 min ago: removed 3 files (1,024 bytes): 1 absorbed, 1 ended, 1 unknown \
+             · kept 2: 1 pending, 1 running"
+        );
+        assert!(spool_line(&s, 1_005_000)
+            .unwrap()
+            .starts_with("spool: swept 5 s ago"));
     }
 
     #[test]

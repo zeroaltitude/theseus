@@ -368,6 +368,41 @@ pub struct HealthResult {
     /// (theseus-102).
     #[serde(default)]
     pub disk: DiskStatus,
+    /// The spool's sweeps of raw job output (theseus-2ij).
+    #[serde(default)]
+    pub spool: SpoolStatus,
+}
+
+/// The spool's sweeps (theseus-2ij): a job's raw output, what it printed
+/// before the scrubber saw it, removed once no result will absorb it. A
+/// sweep runs after serving, as the daemon starts, then every hour.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpoolStatus {
+    /// The last sweep since the daemon started; none before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sweep: Option<SpoolSweep>,
+}
+
+/// One sweep of `spool/results`: counts and bytes, never content. Its
+/// `spool.swept` row carries the same.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpoolSweep {
+    pub at_unix_ms: u64,
+    pub took_ms: u64,
+    pub removed: u64,
+    pub removed_bytes: u64,
+    pub kept: u64,
+    pub kept_bytes: u64,
+    /// The files removed, by why: `absorbed` (its result was written),
+    /// `ended` (its execution ended before a turn read it), `unknown` (no job
+    /// in the store, and a day old).
+    #[serde(default)]
+    pub removed_by: std::collections::BTreeMap<String, u64>,
+    /// The files kept, by why: `running`, `pending` (its result may still be
+    /// absorbed), `young` (no job in the store, under a day old), `unread`
+    /// (the store could not be read for it), `failed` (its delete failed).
+    #[serde(default)]
+    pub kept_by: std::collections::BTreeMap<String, u64>,
 }
 
 /// Free space on the filesystem that holds the state dir (theseus-102), from
