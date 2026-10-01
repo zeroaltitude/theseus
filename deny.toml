@@ -40,6 +40,16 @@ yanked = "deny"
 ignore = [
     # 29c (lane vectors, theseus-nz8): candle's matmul engine, gemm, needs this build-time proc-macro.
     { id = "RUSTSEC-2024-0436", reason = "paste: unmaintained, not vulnerable; a proc-macro gemm (candle) needs" },
+    # 44a (lane voice, theseus-3xn): songbird 0.6.0 and DAVE (davey, openmls, hpke-rs). None is fixable by
+    # `cargo update`. The three libcrux lines rest on 44a's trace, checked at its review: hpke-rs calls
+    # SHA-3 only to derive X-Wing or ML-KEM keys, openmls's RustCrypto provider maps only the DH KEMs, and
+    # DAVE's one ciphersuite is DH P-256 with SHA-256.
+    { id = "RUSTSEC-2024-0388", reason = "derivative: unmaintained, not vulnerable; a proc-macro songbird uses at build time" },
+    { id = "RUSTSEC-2024-0384", reason = "instant: unmaintained, not vulnerable; std's Instant off wasm, via openmls's parking_lot 0.11" },
+    { id = "RUSTSEC-2026-0207", reason = "libcrux-sha3 SHAKE: only hpke-rs's X-Wing/ML-KEM key derivation calls it; DAVE's P-256 KEM never does (44a's trace)" },
+    { id = "RUSTSEC-2026-0208", reason = "libcrux-sha3 AVX2 SHAKE-256: unreachable from DAVE, as RUSTSEC-2026-0207 (44a's trace)" },
+    { id = "RUSTSEC-2026-0212", reason = "libcrux-secrets: reached only through libcrux-sha3, unreachable from DAVE (44a's trace)" },
+    { id = "RUSTSEC-2026-0293", reason = "ringbuf: songbird's only ring is of u8, which has no Drop to panic, for HTTP/HLS inputs voice never makes" },
 ]
 
 [sources]
