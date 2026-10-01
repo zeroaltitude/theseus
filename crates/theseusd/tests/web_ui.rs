@@ -4,7 +4,8 @@
 //! `Origin` is not the UI's page (any other page in the operator's browser,
 //! or none) is refused. Health counts each refusal; the ledger has one
 //! `web.refused` row per kind at once, and the rest wait for that kind's
-//! minute.
+//! minute. Every connection here is also checked at accept for its client
+//! socket's owner (theseus-3qf), on IPv4 and IPv6, and this user's pass.
 
 mod common;
 
@@ -26,7 +27,11 @@ fn free_port() -> u16 {
 
 /// The UI on `port`: the status line it answers `head` with.
 fn status(port: u16, head: &str) -> String {
-    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    status_at(std::net::SocketAddr::from(([127, 0, 0, 1], port)), head)
+}
+
+fn status_at(ui: std::net::SocketAddr, head: &str) -> String {
+    let mut s = TcpStream::connect_timeout(&ui, Duration::from_secs(5)).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     s.write_all(head.as_bytes()).unwrap();
     let mut got = Vec::new();
@@ -118,9 +123,11 @@ fn the_web_ui_answers_only_its_own_page_and_address() {
     refused(&status(port, &upgrade(&own, None)), "no Origin");
 
     let h = s.call("health", Value::Null).unwrap();
+    // This user's own client passed the socket owner's check every time
+    // (theseus-3qf).
     assert_eq!(
         h["web"],
-        json!({"refused_host": 3, "refused_origin": 3}),
+        json!({"refused_host": 3, "refused_origin": 3, "refused_peer": 0}),
         "{h:#}"
     );
     let rows = s
@@ -143,4 +150,46 @@ fn the_web_ui_answers_only_its_own_page_and_address() {
         format!("rebind.attacker.example:{port}")
     );
     assert_eq!(rows[1]["data"]["last"]["origin"], "http://attacker.example");
+}
+
+/// theseus-3qf over IPv6: a UI bound to `::1` finds this user's client on
+/// its row in `/proc/net/tcp6`, and serves it.
+#[test]
+fn the_web_ui_on_ipv6_serves_its_own_user() {
+    let Ok(probe) = std::net::TcpListener::bind("[::1]:0") else {
+        eprintln!("skipped: this machine has no IPv6 loopback");
+        return;
+    };
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+    let s = Served::start(
+        |_| {},
+        |t| {
+            let w = t.get_mut("web").unwrap().as_table_mut().unwrap();
+            w.insert("enabled".into(), true.into());
+            w.insert("bind".into(), "::1".into());
+            w.insert("port".into(), i64::from(port).into());
+        },
+    );
+    let ui = std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port));
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while TcpStream::connect_timeout(&ui, Duration::from_millis(250)).is_err() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no web UI:\n{}",
+            s.log()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let own = format!("[::1]:{port}");
+    let st = status_at(ui, &get("/", &own));
+    assert!(st.contains(" 200 "), "the app: {st}");
+    let st = status_at(ui, &upgrade(&own, Some(&format!("http://{own}"))));
+    assert!(st.contains(" 101 "), "its own page: {st}");
+    let h = s.call("health", Value::Null).unwrap();
+    assert_eq!(
+        h["web"],
+        json!({"refused_host": 0, "refused_origin": 0, "refused_peer": 0}),
+        "{h:#}"
+    );
 }

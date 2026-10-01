@@ -3,10 +3,13 @@
 //! reach it by a name the page's own site resolves to 127.0.0.1 (DNS
 //! rebinding). So the UI refuses a request whose `Host` is not its own
 //! address and port, and a WebSocket upgrade whose `Origin` is not its own
-//! page. Health counts every refusal (`web`). The ledger has a `web.refused`
-//! row for the first of each kind at once, then at most one a minute, which
-//! says how many refusals it stands for: a page can retry thousands of times
-//! a second, and each row is a frame in the WAL. Nothing is narrated.
+//! page. Any local process can send both, so a connection whose client
+//! socket is not the daemon's own uid is refused too, as it is accepted
+//! (theseus-3qf). Health counts every refusal (`web`). The ledger has a
+//! `web.refused` row for the first of each kind at once, then at most one a
+//! minute, which says how many refusals it stands for: a page can retry
+//! thousands of times a second, and each row is a frame in the WAL. Nothing
+//! is narrated.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -28,6 +31,9 @@ pub enum Why {
     Host,
     /// A WebSocket upgrade whose `Origin` is not the UI's own page.
     Origin,
+    /// A connection whose client socket another uid owns: another local
+    /// user's process (theseus-3qf).
+    Peer,
 }
 
 impl Why {
@@ -35,13 +41,27 @@ impl Why {
         match self {
             Why::Host => "host",
             Why::Origin => "origin",
+            Why::Peer => "peer",
+        }
+    }
+
+    /// What the log line says was refused.
+    fn what(self) -> &'static str {
+        match self {
+            Why::Host | Why::Origin => "request(s) not from its own page or address",
+            Why::Peer => "connection(s) from a process of another user",
         }
     }
 }
 
+/// Health's word when the port cannot check its clients' owner.
+pub const PEER_UNCHECKED: &str = "this platform keeps no table of socket owners (not Linux), so \
+                                  a local process of any user is served";
+
 pub struct Refusals {
     host: Kind,
     origin: Kind,
+    peer: Kind,
     every: Duration,
 }
 
@@ -84,6 +104,7 @@ impl Refusals {
         Self {
             host: Kind::default(),
             origin: Kind::default(),
+            peer: Kind::default(),
             every,
         }
     }
@@ -92,6 +113,7 @@ impl Refusals {
         match why {
             Why::Host => &self.host,
             Why::Origin => &self.origin,
+            Why::Peer => &self.peer,
         }
     }
 
@@ -138,6 +160,8 @@ impl Refusals {
         theseus_protocol::WebStatus {
             refused_host: self.host.total.load(Ordering::Relaxed),
             refused_origin: self.origin.total.load(Ordering::Relaxed),
+            refused_peer: self.peer.total.load(Ordering::Relaxed),
+            peer_unchecked: (!cfg!(target_os = "linux")).then(|| PEER_UNCHECKED.to_string()),
         }
     }
 }
@@ -147,7 +171,8 @@ fn ledger(store: &Store, why: Why, count: u64, last: Value) {
         why = why.as_str(),
         count,
         last = %last,
-        "the web UI refused {count} request(s) not from its own page or address"
+        "the web UI refused {count} {}",
+        why.what()
     );
     let row = LedgerRow::new(
         "web.refused",
@@ -201,26 +226,48 @@ mod tests {
             r.refuse(&store, Why::Origin, json!({"origin": format!("page {i}")}));
         }
         r.refuse(&store, Why::Host, json!({"host": "evil.example:7433"}));
+        // Another user's process, connecting again and again (theseus-3qf).
+        for port in 0..40 {
+            r.refuse(
+                &store,
+                Why::Peer,
+                json!({"client": format!("127.0.0.1:{}", 40000 + port), "uid": 65534}),
+            );
+        }
         assert_eq!(
             r.status(),
             theseus_protocol::WebStatus {
                 refused_host: 1,
-                refused_origin: 500
+                refused_origin: 500,
+                refused_peer: 40,
+                peer_unchecked: None,
             }
         );
         let now = rows(&store);
-        assert_eq!(now.len(), 2, "{now:?}");
+        assert_eq!(now.len(), 3, "{now:?}");
         assert_eq!(now[0]["why"], "origin");
         assert_eq!(now[0]["count"], 1);
         assert_eq!(now[1]["why"], "host");
+        assert_eq!(now[2]["why"], "peer");
+        assert_eq!(now[2]["last"]["uid"], 65534);
         tokio::time::sleep(Duration::from_millis(600)).await;
         let later = rows(&store);
-        assert_eq!(later.len(), 3, "{later:?}");
-        assert_eq!(later[2]["count"], 499);
-        assert_eq!(later[2]["last"]["origin"], "page 499");
+        assert_eq!(later.len(), 5, "{later:?}");
+        let held: Vec<(&str, u64)> = later[3..]
+            .iter()
+            .map(|r| (r["why"].as_str().unwrap(), r["count"].as_u64().unwrap()))
+            .collect();
+        assert!(
+            held.contains(&("origin", 499)) && held.contains(&("peer", 39)),
+            "{held:?}"
+        );
+        let origin = later.iter().rfind(|r| r["why"] == "origin").unwrap();
+        assert_eq!(origin["last"]["origin"], "page 499");
+        let peer = later.iter().rfind(|r| r["why"] == "peer").unwrap();
+        assert_eq!(peer["last"]["client"], "127.0.0.1:40039");
         // Quiet after that: no row without a refusal.
         tokio::time::sleep(Duration::from_millis(400)).await;
-        assert_eq!(rows(&store).len(), 3);
+        assert_eq!(rows(&store).len(), 5);
     }
 
     #[test]

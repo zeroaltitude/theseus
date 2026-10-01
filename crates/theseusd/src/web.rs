@@ -17,9 +17,10 @@
 //! There is no per-start token. It would have to reach the page from this
 //! same server, so it would reach exactly the clients that already pass
 //! both checks: the UI's own page, and any local process, which can send
-//! whatever `Host` and `Origin` it likes. A boundary against another local
-//! user needs something the port does not hand out, such as the connecting
-//! socket's owner (theseus-3qf).
+//! whatever `Host` and `Origin` it likes. The boundary against another local
+//! user is the connecting socket's owner (theseus-3qf): a connection whose
+//! client socket another uid owns is refused as it is accepted, before any
+//! of its request is read (`OwnUser`).
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -44,7 +45,7 @@ use serde_json::json;
 use theseus_core::approval::{Client, Peer, Surface};
 use theseus_core::webui::{clip, Why};
 use theseus_core::Core;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Embed)]
 #[folder = "web/dist/"]
@@ -80,11 +81,95 @@ pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
         .layer(middleware::from_fn_with_state(ui.clone(), own_host))
         .with_state(ui);
     tracing::info!(url = %format!("http://{addr}/"), "web UI listening (loopback only)");
+    if !cfg!(target_os = "linux") {
+        tracing::warn!("web UI: {}", theseus_core::webui::PEER_UNCHECKED);
+    }
+    let refusals = core.clone();
+    let listener = OwnUser {
+        inner: listener,
+        uid: theseus_core::peer::own_uid(),
+        refused: Arc::new(move |detail| refusals.web_refused(Why::Peer, detail)),
+    };
     let shutdown = async move { core.shutdown.notified().await };
     axum::serve(listener, app.into_make_service_with_connect_info::<Ends>())
         .with_graceful_shutdown(shutdown)
         .await?;
     Ok(())
+}
+
+/// The UI's listener (theseus-3qf): a connection is served only when its
+/// client socket is owned by the daemon's own uid, read as it is accepted,
+/// before any of its request is read. `Host` and `Origin` keep out other
+/// pages in the operator's browser, but a local process can send any it
+/// likes, and a TCP port, unlike the Unix socket (0600), is open to every
+/// user on the machine. A client that closed before the accept (a port
+/// probe) is dropped, and not counted: no one is there to refuse.
+struct OwnUser {
+    inner: tokio::net::TcpListener,
+    /// The daemon's uid.
+    uid: u32,
+    /// Where a refusal is counted and ledgered: `web.refused`, kind `peer`.
+    refused: Arc<dyn Fn(serde_json::Value) + Send + Sync>,
+}
+
+impl axum::serve::Listener for OwnUser {
+    type Io = tokio::net::TcpStream;
+    type Addr = SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        use theseus_core::peer::{admit, client_uid, Admit};
+        loop {
+            let (io, client) = axum::serve::Listener::accept(&mut self.inner).await;
+            // The tables take a millisecond or two to read (the kernel walks
+            // every hash bucket), so off the runtime's workers.
+            let owner = match io.local_addr() {
+                Ok(server) => tokio::task::spawn_blocking(move || client_uid(server, client))
+                    .await
+                    .map_err(|e| format!("its owner's lookup failed: {e}")),
+                Err(e) => Err(format!("its server end had no address: {e}")),
+            };
+            let verdict = match owner {
+                Ok(owner) => admit(&owner, self.uid),
+                Err(why) => Admit::Refuse { why, uid: None },
+            };
+            match verdict {
+                Admit::Serve => return (io, client),
+                Admit::Gone => {
+                    tracing::debug!(%client, "web UI: the client closed before its connection was accepted");
+                }
+                Admit::Refuse { why, uid } => {
+                    (self.refused)(json!({"client": client.to_string(), "uid": uid, "why": why}));
+                    turn_away(io);
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.inner.local_addr()
+    }
+}
+
+/// A refused connection's answer: a 403, then a close. A task writes it, so
+/// the accept loop never waits on a client, and what the client sent is read
+/// and dropped (for at most 2 s) so that the close is a FIN, not a reset that
+/// could take the answer with it.
+fn turn_away(mut io: tokio::net::TcpStream) {
+    const BODY: &str = "refused: the web UI serves only the user that runs the daemon\n";
+    tokio::spawn(async move {
+        let answer = format!(
+            "HTTP/1.1 403 Forbidden\r\ncontent-type: text/plain; charset=utf-8\r\n\
+             content-length: {}\r\nconnection: close\r\n\r\n{BODY}",
+            BODY.len()
+        );
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), async move {
+            let _ = io.write_all(answer.as_bytes()).await;
+            let _ = io.shutdown().await;
+            let mut sink = [0u8; 1024];
+            while matches!(io.read(&mut sink).await, Ok(n) if n > 0) {}
+        })
+        .await;
+    });
 }
 
 /// What every route shares: the core, and the UI's own address.
@@ -174,8 +259,8 @@ struct Ends {
     client: SocketAddr,
 }
 
-impl Connected<axum::serve::IncomingStream<'_, tokio::net::TcpListener>> for Ends {
-    fn connect_info(s: axum::serve::IncomingStream<'_, tokio::net::TcpListener>) -> Self {
+impl Connected<axum::serve::IncomingStream<'_, OwnUser>> for Ends {
+    fn connect_info(s: axum::serve::IncomingStream<'_, OwnUser>) -> Self {
         Self {
             server: s.io().local_addr().ok(),
             client: *s.remote_addr(),
@@ -370,5 +455,68 @@ mod tests {
         };
         assert!(v6.host("[::1]:80") && v6.host("[::1]") && v6.host("localhost"));
         assert!(!v6.host("::1") && !v6.host("[::1]:8080") && !v6.host("127.0.0.1"));
+    }
+
+    /// theseus-3qf, at accept: a connection from this user is served while
+    /// the daemon is this user, and refused while the daemon is any other,
+    /// with a 403 and one refusal naming the client and its uid. Real sockets
+    /// and the real tables; changing the daemon's uid stands in for another
+    /// user's client, which a test cannot make without privilege.
+    #[tokio::test]
+    async fn only_the_daemons_own_users_connections_are_accepted() {
+        use axum::serve::Listener;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let me = theseus_core::peer::own_uid();
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let sink = seen.clone();
+        let inner = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = inner.local_addr().unwrap();
+        let mut own = OwnUser {
+            inner,
+            uid: me,
+            refused: Arc::new(move |v| sink.lock().unwrap().push(v)),
+        };
+        let wait = std::time::Duration::from_secs(5);
+        // A port probe, closed before the accept, is passed over uncounted;
+        // the next connection is served.
+        drop(tokio::net::TcpStream::connect(addr).await.unwrap());
+        let c = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (io, client) = tokio::time::timeout(wait, own.accept()).await.unwrap();
+        assert_eq!(client, c.local_addr().unwrap());
+        drop((io, c));
+        assert!(seen.lock().unwrap().is_empty());
+
+        own.uid = me + 1;
+        let accepting = tokio::spawn(async move {
+            let _ = own.accept().await;
+        });
+        let mut c = tokio::net::TcpStream::connect(addr).await.unwrap();
+        c.write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .await
+            .unwrap();
+        let mut got = String::new();
+        tokio::time::timeout(wait, c.read_to_string(&mut got))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            got.starts_with("HTTP/1.1 403 Forbidden\r\n")
+                && got.ends_with(
+                    "\r\n\r\nrefused: the web UI serves only the user that runs the daemon\n"
+                ),
+            "{got}"
+        );
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert_eq!(seen[0]["uid"], me);
+        assert_eq!(seen[0]["client"], c.local_addr().unwrap().to_string());
+        assert_eq!(
+            seen[0]["why"],
+            format!(
+                "its socket belongs to uid {me}, not the daemon's ({})",
+                me + 1
+            )
+        );
+        accepting.abort();
     }
 }
