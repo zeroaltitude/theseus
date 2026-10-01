@@ -2458,7 +2458,7 @@ impl TurnRunner {
             .collect();
         let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;
         t.tool_calls += batch.ran.len() as u32;
-        Self::trace_calls(&mut t.trace, uses, &batch.ran);
+        Self::trace_calls(&mut t.trace, &self.tools.registry, uses, &batch.ran);
         let mut answered = 0;
         for r in batch.ran {
             match r.outcome {
@@ -2476,14 +2476,30 @@ impl TurnRunner {
 
     /// A span per call, in the order the calls ran. The calls of a group that
     /// ran together sit under one `tools` span, so their spans overlap there.
-    fn trace_calls(trace: &mut Trace, uses: &[ToolUse], ran: &[Ran]) {
-        let span = |r: &Ran| Span {
-            name: format!("tool {}", uses[r.index].name),
-            kind: "tool".into(),
-            start_us: trace.at(r.started),
-            end_us: Some(trace.at(r.ended)),
-            attrs: json!({"tool_use_id": uses[r.index].id, "outcome": format!("{:?}", r.outcome)}),
-            children: Vec::new(),
+    /// Each names its tool, family, and backend (`none` for a tool that is
+    /// not registered), and the call's result, which telemetry's tool metrics
+    /// read (theseus-yf1).
+    fn trace_calls(
+        trace: &mut Trace,
+        tools: &theseus_tools::Registry,
+        uses: &[ToolUse],
+        ran: &[Ran],
+    ) {
+        let span = |r: &Ran| {
+            let wire = uses[r.index].name.as_str();
+            let tool = tools.by_wire(wire);
+            Span {
+                name: format!("tool {wire}"),
+                kind: "tool".into(),
+                start_us: trace.at(r.started),
+                end_us: Some(trace.at(r.ended)),
+                attrs: json!({"tool_use_id": uses[r.index].id, "outcome": format!("{:?}", r.outcome),
+                    "tool": tool.map_or(wire, |t| t.name()),
+                    "family": tool.map_or("unknown", |t| t.family()),
+                    "backend": tool.map_or("none", |t| t.backend().as_str()),
+                    "result": call_result(&r.outcome)}),
+                children: Vec::new(),
+            }
         };
         let mut groups: BTreeMap<usize, Vec<Span>> = BTreeMap::new();
         for r in ran {
@@ -2991,6 +3007,17 @@ pub struct TurnError {
     pub tool_calls: u32,
     #[source]
     pub source: anyhow::Error,
+}
+
+/// What became of a call, as its trace span says it (theseus-yf1): its result
+/// node's status, or that it waits for the operator or runs in the
+/// background.
+pub(crate) fn call_result(o: &CallOutcome) -> &'static str {
+    match o {
+        CallOutcome::Done { status } => status.as_str(),
+        CallOutcome::AwaitingConfirm { .. } => "awaiting_confirm",
+        CallOutcome::Background { .. } => "background",
+    }
 }
 
 /// Why a task's turn failed, as its report says it (DD7): the class and the

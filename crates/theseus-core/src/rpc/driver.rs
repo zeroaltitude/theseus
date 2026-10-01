@@ -417,6 +417,11 @@ impl Core {
         );
         let (live, _) = self.live_profile();
         let target = self.runner.target_for_session(&session, &live)?;
+        let ran_on = (
+            target.profile.clone(),
+            target.provider.clone(),
+            target.model.clone(),
+        );
         let sink = EventSink::new(self.bus.clone(), &session.session_id, None);
         let res = self
             .runner
@@ -432,7 +437,12 @@ impl Core {
                 config_wait_us: 0,
                 reply_to: None,
             })
-            .await?;
+            .await
+            .inspect_err(|e| {
+                if let Some(te) = e.downcast_ref::<crate::turn::TurnError>() {
+                    self.count_failed_turn(&ran_on.0, &ran_on.1, &ran_on.2, te);
+                }
+            })?;
         self.telemetry().record_turn(&res);
         Ok(Some(res))
     }

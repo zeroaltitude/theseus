@@ -157,6 +157,11 @@ fn gen_ai(attrs: &Value) -> Vec<KeyValue> {
     }
     if let Some(m) = text("model") {
         out.push(KeyValue::string(GEN_AI_REQUEST_MODEL, m));
+    }
+    // The model that answered, as the provider named it, which a fallback
+    // makes differ from the one asked for; a call that failed had no answer,
+    // so it has none (theseus-yf1: it was the requested model).
+    if let Some(m) = text("served_model").filter(|m| !m.is_empty()) {
         out.push(KeyValue::string(GEN_AI_RESPONSE_MODEL, m));
     }
     if let Some(id) = text("request_id") {
@@ -234,26 +239,67 @@ fn flatten(v: &Value, prefix: &str) -> Vec<KeyValue> {
     out
 }
 
-/// Each provider call's duration in ms, as the export walk meets them: an
-/// event kind's subtree holds none.
-pub(super) fn provider_call_ms(node: &Span, out: &mut Vec<f64>) {
+/// A span's text attribute `key`.
+fn text(node: &Span, key: &str) -> Option<String> {
+    node.attrs
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// A provider call, as its span recorded it.
+pub(super) struct ProviderCall {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub ms: f64,
+}
+
+/// Each provider call, as the export walk meets them: an event kind's
+/// subtree holds none.
+pub(super) fn provider_calls(node: &Span, out: &mut Vec<ProviderCall>) {
     if EVENT_KINDS.contains(&node.kind.as_str()) {
         return;
     }
     if node.kind == "provider" {
-        out.push(node.duration_us() as f64 / 1000.0);
+        out.push(ProviderCall {
+            provider: text(node, "provider"),
+            model: text(node, "model"),
+            ms: node.duration_us() as f64 / 1000.0,
+        });
     }
     for c in &node.children {
-        provider_call_ms(c, out);
+        provider_calls(c, out);
     }
 }
 
-/// One entry per `tool <wire name>` span, as the canonical tool name
-/// (`fs_read` → `fs.read`).
-pub(super) fn tool_calls(node: &Span, out: &mut Vec<String>) {
+/// A tool call, as its span recorded it.
+pub(super) struct ToolCall {
+    /// The canonical name (`fs.read`).
+    pub name: String,
+    pub family: String,
+    pub backend: String,
+    pub outcome: String,
+    pub ms: f64,
+}
+
+/// One entry per `tool <wire name>` span, with the tool's name, family, and
+/// backend and the call's result, as the turn recorded them (since
+/// theseus-yf1). A span from before has only its wire name, which gives the
+/// name (`fs_read` → `fs.read`) and the family; its backend and outcome are
+/// `unknown`.
+pub(super) fn tool_calls(node: &Span, out: &mut Vec<ToolCall>) {
     if node.kind == "tool" {
         if let Some(wire) = node.name.strip_prefix("tool ") {
-            out.push(wire.replacen('_', ".", 1));
+            let name = text(node, "tool").unwrap_or_else(|| wire.replacen('_', ".", 1));
+            let family = text(node, "family")
+                .unwrap_or_else(|| name.split('.').next().unwrap_or_default().to_string());
+            out.push(ToolCall {
+                family,
+                backend: text(node, "backend").unwrap_or_else(|| "unknown".into()),
+                outcome: text(node, "result").unwrap_or_else(|| "unknown".into()),
+                ms: node.duration_us() as f64 / 1000.0,
+                name,
+            });
         }
     }
     for c in &node.children {

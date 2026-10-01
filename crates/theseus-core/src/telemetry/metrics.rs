@@ -1,12 +1,14 @@
 //! The metrics, aggregated in the process with cumulative temporality: the
 //! instruments, units, and attributes the OpenTelemetry SDK exported before
-//! theseus-hee, so a dashboard built on them still works. A turn records into
-//! them when it ends; the sender exports every point each
+//! theseus-hee, with theseus-yf1's corrections: duration bounds up to 10
+//! minutes, the provider call's provider and model, each tool call's name,
+//! family, backend, outcome, and time, and the tool calls of a failed turn. A
+//! turn records into them when it ends; the sender exports every point each
 //! `metrics_interval_secs`, from the pipeline's start.
 
 use std::collections::BTreeMap;
 
-use theseus_protocol::{TurnSubmitResult, Usage};
+use theseus_protocol::{Span, TurnSubmitResult, Usage};
 
 use super::otlp::{self, AnyValue, KeyValue};
 use super::spans::{self, semconv};
@@ -70,13 +72,19 @@ const COST: Instrument = Instrument {
 };
 const TOOL_CALLS: Instrument = Instrument {
     name: "theseus.tool.calls",
-    description: "Tool calls proposed by the model, by tool",
+    description: "Tool calls proposed by the model, by tool, family, backend, and outcome",
     unit: "",
     kind: Kind::IntSum,
 };
+const TOOL_DURATION: Instrument = Instrument {
+    name: "theseus.tool.duration_ms",
+    description: "Each tool call's time in its turn, by tool, family, backend, and outcome",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 8] = [
+const INSTRUMENTS: [&Instrument; 9] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -85,13 +93,31 @@ const INSTRUMENTS: [&Instrument; 8] = [
     &FIRST_TOKEN,
     &COST,
     &TOOL_CALLS,
+    &TOOL_DURATION,
 ];
 
-/// The SDK's default histogram bounds, kept: bucket i counts the values in
-/// (bounds[i-1], bounds[i]], and the last one those above 10,000.
-pub(super) const BOUNDS: [f64; 15] = [
+/// A tool call's attributes (§3.23). `theseus.tool.name` was `theseus.tool`
+/// until theseus-yf1: OTel's naming rules keep a name from being both an
+/// attribute and the namespace of others. The shell-fallback ratio is the
+/// calls whose name is `proc.run` over all of them.
+const TOOL_NAME: &str = "theseus.tool.name";
+const TOOL_FAMILY: &str = "theseus.tool.family";
+const TOOL_BACKEND: &str = "theseus.tool.backend";
+const TOOL_OUTCOME: &str = "theseus.tool.outcome";
+
+/// Every duration histogram's bounds, in ms: bucket i counts the values in
+/// (bounds[i-1], bounds[i]], and the last one those above 10 minutes.
+/// - Up to 10 s, the SDK's defaults, kept: first tokens, tool calls, and short
+///   provider calls land there.
+/// - Then 20 s, 30 s, 1 min, 2 min, 5 min, and 10 min, where turns and long
+///   calls land (theseus-yf1; with the SDK's alone, every turn over 10 s fell
+///   in the last bucket). No step is more than 2.5×, as in the SDK's own.
+/// - 10 min is a provider call's default timeout (`[model.timeouts]
+///   total_secs`) and `proc.run`'s (`proc_timeout_secs`), so the last bucket
+///   holds turns longer than any one default call may be.
+pub(super) const BOUNDS: [f64; 21] = [
     0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0,
-    10000.0,
+    10000.0, 20000.0, 30000.0, 60000.0, 120000.0, 300000.0, 600000.0,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -198,20 +224,20 @@ impl Metrics {
             self.add_f64(&COST, attrs.clone(), c);
         }
         if let Some(t) = &r.trace {
-            let mut tools = Vec::new();
-            spans::tool_calls(t, &mut tools);
-            for tool in tools {
-                self.add(&TOOL_CALLS, with(&attrs, "theseus.tool", &tool), 1);
-            }
+            self.tool_calls(t, &attrs);
             self.provider_calls(t);
         }
     }
 
-    /// A failed turn: its outcome and time, and the failure by class.
+    /// A failed turn: its outcome and time, the failure by class, and the
+    /// tool calls and provider calls its trace holds.
     pub(super) fn failure(&mut self, f: &FailedTurn<'_>) {
         let attrs = turn_attrs(f.profile, f.provider, f.model, "failed");
         self.add(&TURNS, attrs.clone(), 1);
-        self.record(&TURN_DURATION, attrs, f.elapsed_ms as f64);
+        self.record(&TURN_DURATION, attrs.clone(), f.elapsed_ms as f64);
+        if let Some(t) = f.trace {
+            self.tool_calls(t, &attrs);
+        }
         self.add(
             &PROVIDER_ERRORS,
             sorted(vec![
@@ -243,12 +269,39 @@ impl Metrics {
         }
     }
 
-    /// Each provider call's time, with no attributes, as before.
-    fn provider_calls(&mut self, trace: &theseus_protocol::Span) {
-        let mut ms = Vec::new();
-        spans::provider_call_ms(trace, &mut ms);
-        for x in ms {
-            self.record(&PROVIDER_CALL, Vec::new(), x);
+    /// Each tool call, counted and timed, with the turn's attributes and the
+    /// tool's name, family, backend, and outcome (§3.23).
+    fn tool_calls(&mut self, trace: &Span, base: &Attrs) {
+        let mut calls = Vec::new();
+        spans::tool_calls(trace, &mut calls);
+        for c in calls {
+            let mut attrs = base.clone();
+            attrs.extend([
+                (TOOL_NAME, Attr::S(c.name)),
+                (TOOL_FAMILY, Attr::S(c.family)),
+                (TOOL_BACKEND, Attr::S(c.backend)),
+                (TOOL_OUTCOME, Attr::S(c.outcome)),
+            ]);
+            let attrs = sorted(attrs);
+            self.add(&TOOL_CALLS, attrs.clone(), 1);
+            self.record(&TOOL_DURATION, attrs, c.ms);
+        }
+    }
+
+    /// Each provider call's time, by the provider and model its span
+    /// recorded (theseus-yf1: the SDK exporter's had no attributes).
+    fn provider_calls(&mut self, trace: &Span) {
+        let mut calls = Vec::new();
+        spans::provider_calls(trace, &mut calls);
+        for c in calls {
+            let mut attrs = Vec::new();
+            if let Some(p) = c.provider {
+                attrs.push((semconv::GEN_AI_PROVIDER_NAME, Attr::S(p)));
+            }
+            if let Some(m) = c.model {
+                attrs.push((semconv::GEN_AI_REQUEST_MODEL, Attr::S(m)));
+            }
+            self.record(&PROVIDER_CALL, sorted(attrs), c.ms);
         }
     }
 

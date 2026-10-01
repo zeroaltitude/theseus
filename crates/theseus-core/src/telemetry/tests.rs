@@ -3,7 +3,7 @@
 //! it draws the picture the OpenTelemetry SDK drew (a golden file dumped from
 //! the old `otel` exporter at 964411f); and it never makes a turn wait.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -834,7 +834,7 @@ async fn what_is_posted_is_otlp_json() {
     })
     .unwrap();
     let ms = &decoded.resource_metrics[0].scope_metrics[0].metrics;
-    assert_eq!(ms.len(), 8, "every instrument has a point");
+    assert_eq!(ms.len(), 9, "every instrument has a point");
 }
 
 // ---------------------------------------------------------------- the old picture
@@ -1403,4 +1403,666 @@ fn health_says_what_telemetry_is_doing() {
         ok.summary(0),
         "exporting to http://c:4318 · sent 5 (3 traces, 2 metrics) · dropped 0 · 1 waiting"
     );
+}
+
+// ---------------------------------------------------------------- the corrections (theseus-yf1)
+
+/// Every data point of the metric `name`.
+fn points_of<'a>(metrics: &'a [Value], name: &str) -> Vec<&'a Value> {
+    metrics
+        .iter()
+        .filter(|m| m["name"] == name)
+        .flat_map(|m| {
+            m.get("sum")
+                .or_else(|| m.get("histogram"))
+                .and_then(|d| d["dataPoints"].as_array())
+                .into_iter()
+                .flatten()
+        })
+        .collect()
+}
+
+/// A point's attributes, each value as text.
+fn attrs_of(p: &Value) -> BTreeMap<String, String> {
+    p["attributes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|kv| {
+            let v = &kv["value"];
+            let text = match v.get("stringValue").and_then(Value::as_str) {
+                Some(s) => s.to_string(),
+                None => v.get("boolValue").unwrap_or(v).to_string(),
+            };
+            (kv["key"].as_str().unwrap().to_string(), text)
+        })
+        .collect()
+}
+
+/// The one point of the metric `name` whose attributes include every pair
+/// of `with`.
+fn point_with<'a>(metrics: &'a [Value], name: &str, with: &[(&str, &str)]) -> &'a Value {
+    let all = points_of(metrics, name);
+    let found: Vec<&Value> = all
+        .iter()
+        .copied()
+        .filter(|p| {
+            let a = attrs_of(p);
+            with.iter()
+                .all(|(k, v)| a.get(*k).map(String::as_str) == Some(*v))
+        })
+        .collect();
+    assert_eq!(found.len(), 1, "one {name} point with {with:?}: {all:#?}");
+    found[0]
+}
+
+fn buckets_of(p: &Value) -> Vec<u64> {
+    p["bucketCounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(u64_of)
+        .collect()
+}
+
+/// A turn of 12 s, 45 s, or 12 minutes, a provider call of 11 s, 90 s, or
+/// nearly 10 minutes, and a first token of 1.5 s, 25 s, or 400 s each land in
+/// a bucket of its own: the bounds go on past 10 s to 10 minutes. With the
+/// SDK's alone (0 to 10 s), every one over 10 s fell in the last bucket.
+#[tokio::test]
+async fn durations_past_ten_seconds_have_buckets_of_their_own() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    for (turn_ms, call_ms, first_ms) in [
+        (12_000u64, 11_000u64, 1_500u64),
+        (45_000, 90_000, 25_000),
+        (720_000, 590_000, 400_000),
+    ] {
+        let trace = s(
+            "turn",
+            "turn",
+            0,
+            turn_ms * 1000,
+            json!({"origin_unix_ms": 1_790_000_000_000u64}),
+            vec![s(
+                "provider.call",
+                "provider",
+                0,
+                call_ms * 1000,
+                json!({"provider": "zai", "model": "glm-5.1"}),
+                vec![],
+            )],
+        );
+        let mut r = result_with(trace);
+        r.elapsed_ms = turn_ms;
+        r.first_token_ms = Some(first_ms);
+        tel.record_turn(&r);
+    }
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let bounds = json!([
+        0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0,
+        7500.0, 10000.0, 20000.0, 30000.0, 60000.0, 120000.0, 300000.0, 600000.0
+    ]);
+    // Bucket i counts (bounds[i-1], bounds[i]]; bucket 21, over 10 minutes.
+    for (name, at) in [
+        ("theseus.turn.duration_ms", [15, 17, 21]),
+        ("theseus.provider.call.duration_ms", [15, 18, 20]),
+        ("theseus.provider.first_token_ms", [11, 16, 20]),
+    ] {
+        let p = point_with(&metrics, name, &[]);
+        assert_eq!(p["explicitBounds"], bounds, "{name}");
+        let b = buckets_of(p);
+        assert_eq!(b.len(), 22, "{name}: {b:?}");
+        for i in at {
+            assert_eq!(b[i], 1, "{name}: bucket {i} of {b:?}");
+        }
+        assert_eq!(b.iter().sum::<u64>(), 3, "{name}: {b:?}");
+    }
+}
+
+/// A tool span as the turn records it since theseus-yf1.
+fn tool_span(wire: &str, start: u64, end: u64, tool: [&str; 4]) -> Span {
+    let [name, family, backend, result] = tool;
+    s(
+        &format!("tool {wire}"),
+        "tool",
+        start,
+        end,
+        json!({"tool_use_id": format!("tu_{start}"), "outcome": "as recorded", "tool": name,
+            "family": family, "backend": backend, "result": result}),
+        vec![],
+    )
+}
+
+/// Every tool call is counted and timed by its tool's name, family, and
+/// backend and the call's outcome (one kind of each), with the turn's
+/// attributes, in a failed turn too; so the shell-fallback ratio, `proc.run`
+/// over every call, is one query (§3.23).
+#[tokio::test]
+async fn tool_calls_are_counted_and_timed_by_name_family_backend_and_outcome() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let ms = 1000;
+    let trace = s(
+        "turn",
+        "turn",
+        0,
+        200_000 * ms,
+        json!({"origin_unix_ms": 1_790_000_000_000u64}),
+        vec![
+            s(
+                "loop 0",
+                "loop",
+                0,
+                1_000 * ms,
+                json!({"loop": 0}),
+                vec![
+                    s(
+                        "tools",
+                        "tools",
+                        100,
+                        40_100,
+                        json!({"calls": 2, "together": true}),
+                        vec![
+                            tool_span("fs_read", 100, 40_100, ["fs.read", "fs", "inproc", "ok"]),
+                            tool_span("fs_read", 200, 2_200, ["fs.read", "fs", "inproc", "error"]),
+                        ],
+                    ),
+                    tool_span(
+                        "frob_it",
+                        50_000,
+                        50_300,
+                        ["frob_it", "unknown", "none", "error"],
+                    ),
+                ],
+            ),
+            s(
+                "loop 1",
+                "loop",
+                1_000 * ms,
+                200_000 * ms,
+                json!({"loop": 1}),
+                vec![
+                    tool_span(
+                        "proc_run",
+                        1_000 * ms,
+                        13_000 * ms,
+                        ["proc.run", "proc", "job", "ok"],
+                    ),
+                    tool_span(
+                        "proc_run",
+                        13_000 * ms,
+                        73_000 * ms,
+                        ["proc.run", "proc", "job", "background"],
+                    ),
+                    tool_span(
+                        "proc_run",
+                        73_000 * ms,
+                        73_001 * ms,
+                        ["proc.run", "proc", "job", "awaiting_confirm"],
+                    ),
+                    tool_span(
+                        "proc_run",
+                        74_000 * ms,
+                        74_002 * ms,
+                        ["proc.run", "proc", "job", "cancelled"],
+                    ),
+                    tool_span(
+                        "proc_run",
+                        75_000 * ms,
+                        75_003 * ms,
+                        ["proc.run", "proc", "job", "unknown"],
+                    ),
+                    tool_span(
+                        "http_fetch",
+                        76_000 * ms,
+                        76_500 * ms,
+                        ["http.fetch", "http", "async", "declined"],
+                    ),
+                ],
+            ),
+        ],
+    );
+    tel.record_turn(&result_with(trace));
+    // A failed turn's calls are counted too, under its outcome.
+    let failed = s(
+        "turn",
+        "turn",
+        0,
+        3_000 * ms,
+        json!({"origin_unix_ms": 1_790_000_100_000u64, "outcome": "failed", "class": "overloaded"}),
+        vec![s(
+            "loop 0",
+            "loop",
+            0,
+            3_000 * ms,
+            json!({"loop": 0}),
+            vec![
+                tool_span(
+                    "proc_run",
+                    10,
+                    2_000_010,
+                    ["proc.run", "proc", "job", "error"],
+                ),
+                s(
+                    "provider.call",
+                    "provider",
+                    2_000_100,
+                    3_000 * ms,
+                    json!({"provider": "zai", "model": "glm-5.1", "error": "overloaded"}),
+                    vec![],
+                ),
+            ],
+        )],
+    );
+    tel.record_failure(&FailedTurn {
+        class: "overloaded",
+        elapsed_ms: 3000,
+        ..failed_turn(&failed)
+    });
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let want = [
+        (["fs.read", "fs", "inproc", "ok"], "complete", 40.0),
+        (["fs.read", "fs", "inproc", "error"], "complete", 2.0),
+        (["frob_it", "unknown", "none", "error"], "complete", 0.3),
+        (["proc.run", "proc", "job", "ok"], "complete", 12_000.0),
+        (
+            ["proc.run", "proc", "job", "background"],
+            "complete",
+            60_000.0,
+        ),
+        (
+            ["proc.run", "proc", "job", "awaiting_confirm"],
+            "complete",
+            1.0,
+        ),
+        (["proc.run", "proc", "job", "cancelled"], "complete", 2.0),
+        (["proc.run", "proc", "job", "unknown"], "complete", 3.0),
+        (
+            ["http.fetch", "http", "async", "declined"],
+            "complete",
+            500.0,
+        ),
+        (["proc.run", "proc", "job", "error"], "failed", 2_000.0),
+    ];
+    let calls = points_of(&metrics, "theseus.tool.calls");
+    assert_eq!(calls.len(), want.len(), "{calls:#?}");
+    assert_eq!(
+        points_of(&metrics, "theseus.tool.duration_ms").len(),
+        want.len()
+    );
+    for ([name, family, backend, outcome], turn, took) in want {
+        let with = [
+            ("theseus.tool.name", name),
+            ("theseus.tool.family", family),
+            ("theseus.tool.backend", backend),
+            ("theseus.tool.outcome", outcome),
+            ("theseus.outcome", turn),
+        ];
+        let c = point_with(&metrics, "theseus.tool.calls", &with);
+        assert_eq!(c["asInt"], "1", "{with:?}");
+        let a = attrs_of(c);
+        assert_eq!(a.len(), 8, "the turn's four, and the tool's four: {a:?}");
+        let model = if turn == "failed" {
+            "glm-5.1"
+        } else {
+            "claude-x"
+        };
+        assert_eq!(a["gen_ai.request.model"], model);
+        let d = point_with(&metrics, "theseus.tool.duration_ms", &with);
+        assert_eq!(
+            (&d["count"], &d["sum"]),
+            (&json!("1"), &json!(took)),
+            "{with:?}"
+        );
+        assert_eq!(attrs_of(d), a, "one attribute set for both");
+    }
+    // The shell-fallback ratio: the calls named proc.run over all of them.
+    let count = |p: &&Value| u64_of(&p["asInt"]);
+    let all: u64 = calls.iter().map(count).sum();
+    let shell: u64 = calls
+        .iter()
+        .filter(|p| attrs_of(p)["theseus.tool.name"] == "proc.run")
+        .map(count)
+        .sum();
+    assert_eq!((shell, all), (6, 10));
+}
+
+/// What became of each call, as its span's `result` says it: the result
+/// node's status, or that it waits for the operator or runs in the
+/// background.
+#[test]
+fn a_calls_result_names_each_outcome() {
+    use crate::node::ResultStatus;
+    use crate::toolrun::CallOutcome;
+    let done = |status| CallOutcome::Done { status };
+    for (o, want) in [
+        (done(ResultStatus::Ok), "ok"),
+        (done(ResultStatus::Error), "error"),
+        (done(ResultStatus::Declined), "declined"),
+        (done(ResultStatus::Background), "background"),
+        (done(ResultStatus::Unknown), "unknown"),
+        (done(ResultStatus::Cancelled), "cancelled"),
+        (
+            CallOutcome::AwaitingConfirm {
+                correlation_id: "cor_1".into(),
+            },
+            "awaiting_confirm",
+        ),
+        (
+            CallOutcome::Background {
+                correlation_id: "cor_2".into(),
+            },
+            "background",
+        ),
+    ] {
+        assert_eq!(crate::turn::call_result(&o), want, "{o:?}");
+    }
+}
+
+/// `gen_ai.response.model` is the model that answered, as the provider named
+/// it, not the one asked for; a call that failed had no answer, so it has
+/// none.
+#[tokio::test]
+async fn the_response_model_is_the_served_model() {
+    use spans::semconv::{GEN_AI_REQUEST_MODEL, GEN_AI_RESPONSE_MODEL};
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let trace = s(
+        "turn",
+        "turn",
+        0,
+        1_000_000,
+        json!({"origin_unix_ms": 1_790_000_000_000u64}),
+        vec![s(
+            "loop 0",
+            "loop",
+            0,
+            1_000_000,
+            json!({"loop": 0}),
+            vec![s(
+                "provider.call",
+                "provider",
+                10,
+                900_000,
+                json!({"provider": "zai", "model": "glm-5.3", "served_model": "glm-5.3-0815",
+                    "request_id": "req_1", "stop_reason": "end_turn"}),
+                vec![],
+            )],
+        )],
+    );
+    tel.record_turn(&result_with(trace));
+    let failed = failed_trace();
+    tel.record_failure(&failed_turn(&failed));
+    flushed(&tel).await;
+    let spans = spans_of(&rx.got());
+    let calls: Vec<&Value> = spans
+        .iter()
+        .filter(|s| s["name"] == "provider.call")
+        .collect();
+    assert_eq!(calls.len(), 2);
+    let text = |v: &str| Some(json!({ "stringValue": v }));
+    let answered = calls.iter().find(|s| s.get("status").is_none()).unwrap();
+    assert_eq!(
+        attr(answered, GEN_AI_REQUEST_MODEL).cloned(),
+        text("glm-5.3")
+    );
+    assert_eq!(
+        attr(answered, GEN_AI_RESPONSE_MODEL).cloned(),
+        text("glm-5.3-0815")
+    );
+    let failed = calls.iter().find(|s| s.get("status").is_some()).unwrap();
+    assert_eq!(attr(failed, GEN_AI_REQUEST_MODEL).cloned(), text("glm-5.1"));
+    assert_eq!(attr(failed, GEN_AI_RESPONSE_MODEL), None);
+}
+
+/// Each provider call's time carries the provider and model its span
+/// recorded, one series for each pair. It had no attributes, so every
+/// model's calls were one series.
+#[tokio::test]
+async fn a_provider_calls_time_carries_its_provider_and_model() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    tel.record_turn(&two_loops_result());
+    tel.record_turn(&result_with(sample_trace()));
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let name = "theseus.provider.call.duration_ms";
+    assert_eq!(points_of(&metrics, name).len(), 2);
+    let zai = point_with(&metrics, name, &[("gen_ai.provider.name", "zai")]);
+    assert_eq!(
+        attrs_of(zai),
+        BTreeMap::from([
+            ("gen_ai.provider.name".to_string(), "zai".to_string()),
+            ("gen_ai.request.model".to_string(), "glm-5.1".to_string()),
+        ])
+    );
+    assert_eq!(
+        (&zai["count"], &zai["min"], &zai["max"]),
+        (&json!("2"), &json!(890.0), &json!(891.9))
+    );
+    let anthropic = point_with(&metrics, name, &[("gen_ai.provider.name", "anthropic")]);
+    assert_eq!(attrs_of(anthropic)["gen_ai.request.model"], "claude-x");
+    assert_eq!(anthropic["count"], "1");
+}
+
+// ---------------------------------------------------------------- the corrections, through the whole core
+
+/// A core whose provider follows `script`, whose tools work in a scratch
+/// folder holding `harbor.txt`, and whose telemetry posts to `endpoint`.
+/// What the template leaves to enforcement (the writers and `proc.run`)
+/// waits for the operator.
+fn core_with(script: Vec<crate::provider::Scripted>, endpoint: &str) -> CoreRig {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("harbor.txt"), "the tide turns at four\n").unwrap();
+    let root = root.canonicalize().unwrap();
+    let mut c = crate::Config::example();
+    c.server.state_dir = dir.path().to_string_lossy().into_owned();
+    c.tools.projects_dir = Some(root.to_string_lossy().into_owned());
+    c.tools.roots = vec![];
+    c.policy.enforcement = crate::policy::Posture::Approve;
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(crate::provider::FakeProvider::scripted(script));
+    let core = crate::Core::build(crate::rpc::Parts {
+        telemetry: Some(pipeline(endpoint, None, tuning())),
+        ..crate::rpc::Parts::for_tests(c, fake, store)
+    })
+    .unwrap();
+    CoreRig { core, _dir: dir }
+}
+
+struct CoreRig {
+    core: Arc<crate::Core>,
+    _dir: tempfile::TempDir,
+}
+
+/// `turn.submit` through the protocol, as a client sends it: its answer.
+async fn submit(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::Response {
+    use theseus_protocol::{method, Id, Message, Request, TurnSubmitParams};
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let (client, server) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(server);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "test".into()));
+    let (cr, mut cw) = tokio::io::split(client);
+    let params = TurnSubmitParams {
+        session_id: None,
+        input: input.into(),
+        profile: None,
+        provider: None,
+        model: None,
+        author: None,
+        attachments: vec![],
+        reply_to: None,
+    };
+    let mut line =
+        serde_json::to_string(&Request::new(Id::Num(1), method::TURN_SUBMIT, params)).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = BufReader::new(cr).lines();
+    let answer = loop {
+        let line = lines.next_line().await.unwrap().unwrap();
+        if let Message::Response(r) = serde_json::from_str(&line).unwrap() {
+            break r;
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop((cw, lines));
+    let _ = srv.await;
+    answer
+}
+
+/// A real turn's calls, through the gate and the tool runtime, reach the
+/// tool metrics, and their spans, with the registered tool's name, family,
+/// and backend and what became of each: a read that answered, a read that
+/// failed, a tool that is not registered, and a program that waits for the
+/// operator.
+#[tokio::test]
+async fn a_turns_calls_reach_the_tool_metrics_as_the_runtime_ran_them() {
+    use crate::provider::Scripted;
+    let rx = Receiver::start(vec![]).await;
+    let r = core_with(
+        vec![
+            Scripted::tools(
+                "Looking.",
+                &[
+                    ("t1", "fs_read", json!({"path": "harbor.txt"})),
+                    ("t2", "fs_read", json!({"path": "missing.txt"})),
+                    ("t3", "frob_it", json!({})),
+                ],
+            ),
+            Scripted::tools("", &[("t4", "proc_run", json!({"argv": ["echo", "tide"]}))]),
+        ],
+        &rx.endpoint(),
+    );
+    let answer = submit(&r.core, "what does harbor.txt say?").await;
+    assert!(answer.error.is_none(), "{answer:?}");
+    flushed(r.core.telemetry()).await;
+    let got = rx.got();
+    let metrics = last_metrics(&got);
+    let want = [
+        ["fs.read", "fs", "inproc", "ok"],
+        ["fs.read", "fs", "inproc", "error"],
+        ["frob_it", "unknown", "none", "error"],
+        ["proc.run", "proc", "job", "awaiting_confirm"],
+    ];
+    assert_eq!(
+        points_of(&metrics, "theseus.tool.calls").len(),
+        want.len(),
+        "{metrics:#?}"
+    );
+    for [name, family, backend, outcome] in want {
+        let with = [
+            ("theseus.tool.name", name),
+            ("theseus.tool.family", family),
+            ("theseus.tool.backend", backend),
+            ("theseus.tool.outcome", outcome),
+            ("theseus.outcome", "complete"),
+        ];
+        assert_eq!(
+            point_with(&metrics, "theseus.tool.calls", &with)["asInt"],
+            "1"
+        );
+        assert_eq!(
+            point_with(&metrics, "theseus.tool.duration_ms", &with)["count"],
+            "1"
+        );
+    }
+    let spans = spans_of(&got);
+    let run = named(&spans, "tool proc_run");
+    for (k, v) in [
+        ("tool", "proc.run"),
+        ("family", "proc"),
+        ("backend", "job"),
+        ("result", "awaiting_confirm"),
+    ] {
+        assert_eq!(attr(run, k), Some(&json!({ "stringValue": v })), "{k}");
+    }
+}
+
+/// A continuation turn that fails (here the driver's retry of a 529) is
+/// counted as the client's own failed turn is: in `theseus.turns` as failed
+/// and in `theseus.provider.errors`, in the same series, and in health's
+/// count. Until theseus-yf1 only `turn.submit` counted a failure. The retry
+/// that answers is counted complete.
+#[tokio::test]
+async fn a_failed_continuation_is_counted_as_a_failed_turn_is() {
+    use crate::provider::{ProviderError, Scripted};
+    let overloaded = || {
+        Scripted::Fail(ProviderError::Overloaded {
+            message: "overloaded_error: Overloaded".into(),
+        })
+    };
+    let rx = Receiver::start(vec![]).await;
+    let r = core_with(
+        vec![
+            overloaded(),
+            overloaded(),
+            Scripted::text("The tide turns at four."),
+        ],
+        &rx.endpoint(),
+    );
+    let answer = submit(&r.core, "when does the tide turn?").await;
+    let data = answer.error.expect("the provider is overloaded").data;
+    assert_eq!(data["class"], "overloaded");
+    let session: crate::session::SessionRecord = r
+        .core
+        .store
+        .get_session(data["session_id"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    let exec = session.execution_id.clone().unwrap();
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert!(e.resume_pending, "the retry waits for the driver: {e:?}");
+    assert_eq!(r.core.health().provider_errors, 1);
+
+    let failed = r
+        .core
+        .continue_execution(&exec)
+        .await
+        .expect_err("the retry fails the same way");
+    assert_eq!(
+        failed
+            .downcast_ref::<crate::turn::TurnError>()
+            .unwrap()
+            .class,
+        "overloaded"
+    );
+    assert_eq!(r.core.health().provider_errors, 2, "health counts it");
+    let answered = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(answered.output, "The tide turns at four.");
+
+    flushed(r.core.telemetry()).await;
+    let got = rx.got();
+    let metrics = last_metrics(&got);
+    let failed = [("theseus.outcome", "failed")];
+    assert_eq!(
+        point_with(&metrics, "theseus.turns", &failed)["asInt"],
+        "2",
+        "the client's failed turn and the driver's, in one series"
+    );
+    assert_eq!(
+        point_with(&metrics, "theseus.turn.duration_ms", &failed)["count"],
+        "2"
+    );
+    let errors = points_of(&metrics, "theseus.provider.errors");
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    assert_eq!(errors[0]["asInt"], "2");
+    let a = attrs_of(errors[0]);
+    assert_eq!(
+        (
+            a["theseus.error.class"].as_str(),
+            a["theseus.error.transient"].as_str()
+        ),
+        ("overloaded", "true")
+    );
+    let complete = [("theseus.outcome", "complete")];
+    assert_eq!(
+        point_with(&metrics, "theseus.turns", &complete)["asInt"],
+        "1"
+    );
+    assert_eq!(rx.at("/v1/traces").len(), 3, "each turn's trace");
 }

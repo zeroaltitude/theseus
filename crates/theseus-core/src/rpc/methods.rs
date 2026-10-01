@@ -419,17 +419,7 @@ impl Core {
             }
             Err(e) => Err(match e.downcast::<TurnError>() {
                 Ok(te) => {
-                    self.provider_errors.fetch_add(1, Ordering::Relaxed);
-                    self.telemetry()
-                        .record_failure(&crate::telemetry::FailedTurn {
-                            profile: &t_profile,
-                            provider: &t_provider,
-                            model: &t_model,
-                            class: &te.class,
-                            transient: te.transient,
-                            elapsed_ms: te.elapsed_ms,
-                            trace: te.trace.as_ref(),
-                        });
+                    self.count_failed_turn(&t_profile, &t_provider, &t_model, &te);
                     let data = serde_json::to_value(ProviderErrorData {
                         class: te.class.clone(),
                         transient: te.transient,
@@ -456,6 +446,31 @@ impl Core {
                 },
             }),
         }
+    }
+
+    /// A turn that failed with a classified error, on the target it ran on,
+    /// whoever ran it: a client's `turn.submit`, or the driver's continuation
+    /// (theseus-yf1: until then a continuation's failure was counted
+    /// nowhere). Health's count, and telemetry's turns, provider errors, and
+    /// the calls its trace holds.
+    pub(crate) fn count_failed_turn(
+        &self,
+        profile: &str,
+        provider: &str,
+        model: &str,
+        te: &TurnError,
+    ) {
+        self.provider_errors.fetch_add(1, Ordering::Relaxed);
+        self.telemetry()
+            .record_failure(&crate::telemetry::FailedTurn {
+                profile,
+                provider,
+                model,
+                class: &te.class,
+                transient: te.transient,
+                elapsed_ms: te.elapsed_ms,
+                trace: te.trace.as_ref(),
+            });
     }
 
     /// A session's record, or `NOT_FOUND`.
