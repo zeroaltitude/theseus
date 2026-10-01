@@ -51,14 +51,20 @@ fn it_reads_every_frame_in_order_from_the_start() {
     assert_eq!(b.records[1].payload, b"row 100");
     assert_eq!(*f.stop(), Stop::CaughtUp);
     assert_eq!(f.cursor().position, 10);
-    assert_eq!(
-        f.cursor().offset,
-        fs::metadata(seg(dir.path(), 1)).unwrap().len()
-    );
+    let len = fs::metadata(seg(dir.path(), 1)).unwrap().len();
+    assert_eq!(f.cursor().offset, len);
+    // The bytes read, as a shipper would copy them: the whole segment so far.
+    assert_eq!(b.spans, vec![(1, 0, len)]);
+    assert_eq!(b.bytes, len);
     // Caught up: an empty read, and the cursor stays.
     let c = f.cursor().clone();
     assert!(f.read(1 << 20).unwrap().is_empty());
     assert_eq!(*f.cursor(), c);
+    // A later frame's span starts where the last one ended.
+    w.append(&[row(9)]).unwrap();
+    let b = f.read(1 << 20).unwrap();
+    let now = fs::metadata(seg(dir.path(), 1)).unwrap().len();
+    assert_eq!(b.spans, vec![(1, len, now)]);
 }
 
 #[test]
@@ -176,10 +182,12 @@ fn it_crosses_segment_rotations() {
     // between reads and inside them.
     let mut seen = Vec::new();
     let mut sealed = Vec::new();
+    let mut spans = Vec::new();
     loop {
         let b = f.read(90).unwrap();
         seen.extend(b.records.iter().map(|r| r.position));
         sealed.extend(b.sealed);
+        spans.extend(b.spans);
         if *f.stop() == Stop::CaughtUp {
             break;
         }
@@ -188,6 +196,20 @@ fn it_crosses_segment_rotations() {
     let last = w.segment_count();
     assert_eq!(sealed, (1..last).collect::<Vec<_>>());
     assert_eq!(f.cursor().segment, last);
+    // The spans tile every segment once, in order: a shipper that copies
+    // them copies each byte once.
+    for s in 1..=last {
+        let mut at = 0;
+        for (_, from, to) in spans.iter().filter(|(seg, ..)| *seg == s) {
+            assert_eq!(*from, at, "segment {s}: a gap or an overlap at {at}");
+            at = *to;
+        }
+        assert_eq!(
+            at,
+            fs::metadata(seg(dir.path(), s)).unwrap().len(),
+            "segment {s}"
+        );
+    }
 
     // The writer rolls again while the follower is caught up.
     for i in 30..60 {
