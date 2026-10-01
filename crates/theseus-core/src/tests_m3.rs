@@ -1196,7 +1196,7 @@ async fn a_cancel_ends_a_call_waiting_for_approval_and_nothing_counts_it_waiting
     };
     assert_eq!(waiting(&r.core), 1);
 
-    let (e, to_kill) = r.core.cancel_execution(&exec, "operator").unwrap();
+    let (e, to_kill) = r.core.cancel_execution(&exec, "operator").await.unwrap();
     assert_eq!(e.state, theseus_kernel::ExecState::Cancelled);
     assert!(to_kill.is_empty(), "nothing was dispatched");
     let a = r.core.kernel.action(&corr).unwrap().unwrap();
@@ -1237,7 +1237,7 @@ async fn a_cancel_ends_a_call_waiting_for_approval_and_nothing_counts_it_waiting
         .expect_err("nothing waits");
     assert!(format!("{e:#}").contains("not waiting"), "{e:#}");
     // A second cancel writes nothing more.
-    r.core.cancel_execution(&exec, "operator").unwrap();
+    r.core.cancel_execution(&exec, "operator").await.unwrap();
     assert_eq!(results(&r.core, &res.session_id).len(), 1);
 }
 
@@ -2177,7 +2177,10 @@ async fn a_declined_reset_keeps_waiting_and_the_next_message_asks_again() {
         "a replaced question is closed"
     );
 
-    r.core.cancel_execution(&exec, "discord:eddie").unwrap();
+    r.core
+        .cancel_execution(&exec, "discord:eddie")
+        .await
+        .unwrap();
     assert_eq!(
         r.core.kernel.action(&q3).unwrap().unwrap().state,
         ActionState::Cancelled
@@ -5186,7 +5189,7 @@ mod parallel {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         let exec = dispatched()[0].execution_id.clone();
-        let (_, stopped) = r.core.cancel_execution(&exec, "test").unwrap();
+        let (_, stopped) = r.core.cancel_execution(&exec, "test").await.unwrap();
         assert_eq!(stopped.len(), 4, "the four running calls");
         let err = running
             .await

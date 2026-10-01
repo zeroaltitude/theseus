@@ -2,7 +2,7 @@
 //! continuation turns, and the cancel control path.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 use serde_json::Value;
@@ -159,7 +159,7 @@ impl Core {
     /// written it, unless a turn holds the execution, whose transcript is its
     /// own. Then each question's card settles where it was posted, and the
     /// session's watchers hear that it closed.
-    pub fn cancel_execution(&self, id: &str, by: &str) -> Result<(Execution, Vec<String>)> {
+    pub async fn cancel_execution(&self, id: &str, by: &str) -> Result<(Execution, Vec<String>)> {
         let mut report = None;
         let cancel = self.kernel.cancel_execution_with(id, by, |end| {
             let (mut records, post) =
@@ -194,7 +194,7 @@ impl Core {
             }
         }
         let to_kill = cancel.to_kill;
-        self.terminate_all(&to_kill);
+        self.terminate_all(&to_kill).await;
         self.admission.notify_waiters();
         let e = self
             .kernel
@@ -216,22 +216,39 @@ impl Core {
     /// Terminate the backends of actions a cancel or a stop told to stop,
     /// and walk each one's cancel: a job's wrapper through the spool, and an
     /// in-process call, which nothing can reach, as unsupported.
-    fn terminate_all(&self, to_kill: &[String]) {
+    ///
+    /// The jobs are stopped together (theseus-bzq): every one gets SIGTERM
+    /// first, they share one grace, and the stragglers get SIGKILL together.
+    /// The waits are the runtime's timer, so no worker is held meanwhile, and
+    /// N jobs that ignore SIGTERM cost one grace, not N.
+    async fn terminate_all(&self, to_kill: &[String]) {
+        let mut jobs = Vec::new();
         for corr in to_kill {
             match self.spool.read_pid(corr) {
                 Some(pid) => {
                     let _ = self.kernel.cancel_acknowledged(corr);
-                    if theseus_kernel::job::terminate(pid, corr, Duration::from_secs(2)) {
-                        let _ = self.kernel.cancel_verified(corr);
-                    } else {
-                        let _ = self.kernel.cancel_uncertain(corr);
-                    }
+                    jobs.push((pid, corr.clone()));
                 }
                 None => {
                     // In-process or already gone: nothing to reach.
                     let _ = self.kernel.cancel_unsupported(corr);
                 }
             }
+        }
+        if jobs.is_empty() {
+            return;
+        }
+        let mut stopping =
+            theseus_kernel::job::Stopping::start(jobs, theseus_kernel::job::STOP_GRACE);
+        while let Some(wait) = stopping.poll() {
+            tokio::time::sleep(wait).await;
+        }
+        for (corr, gone) in stopping.outcome() {
+            let _ = if gone {
+                self.kernel.cancel_verified(corr)
+            } else {
+                self.kernel.cancel_uncertain(corr)
+            };
         }
     }
 
@@ -241,7 +258,7 @@ impl Core {
     /// each job's backend is terminated, and each declined question's card
     /// settles where it was posted. A running turn ends at its next step.
     /// The session's tasks and pending wakes go on.
-    pub fn stop_execution(
+    pub async fn stop_execution(
         &self,
         id: &str,
         by: &str,
@@ -276,7 +293,7 @@ impl Core {
                     "approved": false, "stopped": true, "by": by}),
             );
         }
-        self.terminate_all(&stop.to_kill);
+        self.terminate_all(&stop.to_kill).await;
         self.admission.notify_waiters();
         let e = self
             .kernel

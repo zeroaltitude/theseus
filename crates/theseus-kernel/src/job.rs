@@ -11,7 +11,8 @@
 //! theseus-z4b), so a wrapper's pid can be another process's afterwards: a
 //! wrapper is alive only while its pid's command line still names its job.
 //! Cancellation kills the wrapper's process group by correlation id and
-//! verifies the pid is gone; `WrapperEvidence` is what the reconciler asks.
+//! verifies that no live process is left in it (`Stopping`, several jobs at
+//! once); `WrapperEvidence` is what the reconciler asks.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -552,45 +553,178 @@ pub fn wrapper_alive(pid: u32, job: &str) -> bool {
     wrapper_job(pid).as_deref() == Some(job)
 }
 
-/// Terminate a job's wrapper and its whole process group: SIGTERM, wait up
-/// to `grace`, then SIGKILL. Returns true if the wrapper is gone afterwards.
+/// How long `execution.cancel` and `/stop` give the jobs they stop, after
+/// SIGTERM, before SIGKILL.
+pub const STOP_GRACE: Duration = Duration::from_secs(2);
+
+/// How long a SIGKILLed job has to be gone before a stop says it may still
+/// run.
+const KILL_WAIT: Duration = Duration::from_millis(500);
+
+/// The longest a stop waits between two looks at its jobs.
+const STOP_POLL_MAX: Duration = Duration::from_millis(50);
+
+/// Jobs stopped together (theseus-bzq): each job's process group gets SIGTERM
+/// at once, they share one grace, and the stragglers get SIGKILL together, so
+/// N jobs that ignore SIGTERM cost one grace, not N. It never sleeps: its
+/// owner waits between polls, a task on the runtime's timer (the daemon's
+/// cancel and stop) or a thread (`terminate`), so no runtime worker is held
+/// while a job takes its time.
+///
+/// A job is gone when its wrapper is and no live process is left in its
+/// process group (a zombie is not live). The wrapper dies at SIGTERM, so a
+/// wait on it alone ended at once and left a command that traps SIGTERM
+/// running, orphaned to the daemon, while the cancel said
+/// `termination_verified`. A descendant that left the group (`setsid`) was
+/// never in a stop's reach, and is not waited for.
+///
 /// A group is signalled only while `pid` is still this job's wrapper, or no
 /// live process at all: while any process of the group lives, its id is not
 /// handed out again, but once the wrapper has been reaped and the group is
 /// empty, `pid` may be another process's, which is left alone.
+pub struct Stopping {
+    jobs: Vec<Stopped>,
+    grace: Duration,
+    started: Instant,
+    killed: Option<Instant>,
+    polls: u32,
+}
+
+/// One job a stop reaches: its wrapper's pid, which is its process group.
+struct Stopped {
+    pid: u32,
+    job: String,
+    gone: bool,
+}
+
+impl Stopping {
+    /// SIGTERM every job's process group, now.
+    pub fn start(jobs: impl IntoIterator<Item = (u32, String)>, grace: Duration) -> Self {
+        let jobs = jobs
+            .into_iter()
+            .map(|(pid, job)| {
+                // Another process holds the pid: the job is long gone.
+                let gone = pid_alive(pid) && !wrapper_alive(pid, &job);
+                if !gone {
+                    signal_group(pid, libc::SIGTERM);
+                }
+                Stopped { pid, job, gone }
+            })
+            .collect();
+        Self {
+            jobs,
+            grace,
+            started: Instant::now(),
+            killed: None,
+            polls: 0,
+        }
+    }
+
+    /// Look at every job not yet gone; past the grace, SIGKILL the group of
+    /// each, once. How long to wait before the next look, or `None` once the
+    /// stop has settled: every job gone, or the kill's wait over.
+    pub fn poll(&mut self) -> Option<Duration> {
+        let running: Vec<u32> = self
+            .jobs
+            .iter()
+            .filter(|j| !j.gone)
+            .map(|j| j.pid)
+            .collect();
+        let live = live_groups(&running);
+        for j in self.jobs.iter_mut().filter(|j| !j.gone) {
+            j.gone = !live.contains(&j.pid) && !wrapper_alive(j.pid, &j.job);
+        }
+        if self.all_gone() {
+            return None;
+        }
+        let now = Instant::now();
+        let left = match self.killed {
+            None if now >= self.started + self.grace => {
+                for j in self.jobs.iter().filter(|j| !j.gone) {
+                    signal_group(j.pid, libc::SIGKILL);
+                }
+                self.killed = Some(now);
+                KILL_WAIT
+            }
+            None => self.started + self.grace - now,
+            Some(k) if now >= k + KILL_WAIT => return None,
+            Some(k) => k + KILL_WAIT - now,
+        };
+        // Soon at first, since most jobs end at SIGTERM; then less often.
+        self.polls += 1;
+        let step = Duration::from_millis(5 << self.polls.min(4)).min(STOP_POLL_MAX);
+        Some(step.min(left))
+    }
+
+    /// Each job, and whether it is gone.
+    pub fn outcome(&self) -> impl Iterator<Item = (&str, bool)> {
+        self.jobs.iter().map(|j| (j.job.as_str(), j.gone))
+    }
+
+    /// Every job is gone.
+    pub fn all_gone(&self) -> bool {
+        self.jobs.iter().all(|j| j.gone)
+    }
+}
+
+/// Terminate one job and wait for it on this thread: SIGTERM to its process
+/// group, up to `grace` for every live process of it to exit, then SIGKILL.
+/// True if the job is gone afterwards. See `Stopping`.
 pub fn terminate(pid: u32, job: &str, grace: Duration) -> bool {
-    #[cfg(unix)]
-    {
-        if pid_alive(pid) && !wrapper_alive(pid, job) {
-            return true;
-        }
-        unsafe {
-            libc::kill(-(pid as i32), libc::SIGTERM);
-        }
-        let t0 = Instant::now();
-        while t0.elapsed() < grace {
-            if !wrapper_alive(pid, job) {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        unsafe {
-            libc::kill(-(pid as i32), libc::SIGKILL);
-        }
-        let t0 = Instant::now();
-        while t0.elapsed() < Duration::from_millis(500) {
-            if !wrapper_alive(pid, job) {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        !wrapper_alive(pid, job)
+    let mut s = Stopping::start([(pid, job.to_string())], grace);
+    while let Some(wait) = s.poll() {
+        std::thread::sleep(wait);
     }
-    #[cfg(not(unix))]
-    {
-        let _ = (pid, job, grace);
-        false
+    s.all_gone()
+}
+
+/// Signal the process group `pgid`. One with no member left is a no-op.
+fn signal_group(pgid: u32, signal: libc::c_int) {
+    // SAFETY: kill(2) on a negated pid signals that group; no memory is shared.
+    unsafe {
+        libc::kill(-(pgid as i32), signal);
     }
+}
+
+/// The process groups among `pgids` with a live member: running, sleeping,
+/// or stopped, never a zombie. A group with no member at all fails
+/// `kill(-pgid, 0)` and costs no scan; the rest are found in one pass over
+/// `/proc`. When `/proc` cannot be read, every group that has a member is
+/// taken for live.
+fn live_groups(pgids: &[u32]) -> Vec<u32> {
+    // SAFETY: signal 0 only checks that the group exists and may be signalled.
+    let members: Vec<u32> = pgids
+        .iter()
+        .copied()
+        .filter(|&g| unsafe { libc::kill(-(g as i32), 0) } == 0)
+        .collect();
+    if members.is_empty() {
+        return members;
+    }
+    let Ok(dir) = std::fs::read_dir("/proc") else {
+        return members;
+    };
+    let mut live = Vec::new();
+    for e in dir.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        if let Some((state, pgrp)) = state_and_group(pid) {
+            if members.contains(&pgrp) && !matches!(state, 'Z' | 'X') && !live.contains(&pgrp) {
+                live.push(pgrp);
+            }
+        }
+    }
+    live
+}
+
+/// A process's state letter and process group, from `/proc/<pid>/stat`.
+fn state_and_group(pid: u32) -> Option<(char, u32)> {
+    let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let mut f = s[s.rfind(')')? + 1..].split_whitespace();
+    let state = f.next()?.chars().next()?;
+    f.next()?; // the parent's pid
+    Some((state, f.next()?.parse().ok()?))
 }
 
 /// Evidence from the spool and the wrapper pids.

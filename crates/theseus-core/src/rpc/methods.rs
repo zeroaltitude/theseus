@@ -245,12 +245,13 @@ impl Core {
 
     /// Stop a task and its jobs, as `execution.cancel` does; the place hears
     /// it once (DD7). A task that has ended already is left as it is.
-    pub(super) fn task_cancel(
+    pub(super) async fn task_cancel(
         &self,
         p: theseus_protocol::TaskCancelParams,
         conn: Conn<'_>,
     ) -> Result<theseus_protocol::TaskCancelResult, RpcFailure> {
         self.task_cancel_by(&p.task, &conn.actor(p.author.as_deref()))
+            .await
             .map_err(|e| match e.downcast::<crate::task::NoSuchTask>() {
                 Ok(n) => RpcFailure::new(error_code::NOT_FOUND, n.0),
                 Err(e) => RpcFailure::invalid(e),
@@ -341,7 +342,7 @@ impl Core {
     }
 
     /// Cancel the task `name` names (its id, or the end of it), for `by`.
-    pub fn task_cancel_by(
+    pub async fn task_cancel_by(
         &self,
         name: &str,
         by: &str,
@@ -351,7 +352,7 @@ impl Core {
             .map_err(crate::task::NoSuchTask)?
             .id
             .clone();
-        let (e, cancelled) = self.cancel_execution(&id, by)?;
+        let (e, cancelled) = self.cancel_execution(&id, by).await?;
         let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
         Ok(theseus_protocol::TaskCancelResult {
             task: crate::task::info(&e, rec.as_ref(), 0),
@@ -786,7 +787,7 @@ impl Core {
         })
     }
 
-    pub(super) fn execution_cancel(
+    pub(super) async fn execution_cancel(
         &self,
         p: theseus_protocol::ExecutionCancelParams,
         conn: Conn<'_>,
@@ -797,8 +798,9 @@ impl Core {
                 format!("no execution {}", p.execution_id),
             ));
         }
-        let (e, cancelled) =
-            self.cancel_execution(&p.execution_id, &conn.actor(p.author.as_deref()))?;
+        let (e, cancelled) = self
+            .cancel_execution(&p.execution_id, &conn.actor(p.author.as_deref()))
+            .await?;
         Ok(theseus_protocol::ExecutionCancelResult {
             execution: Self::execution_info(&e),
             cancelled_actions: cancelled,
@@ -807,7 +809,7 @@ impl Core {
 
     /// `execution.stop` (W1): `/stop`, which halts the work and keeps the
     /// conversation. A task is refused: `task.cancel` stops it.
-    pub(super) fn execution_stop(
+    pub(super) async fn execution_stop(
         &self,
         p: theseus_protocol::ExecutionStopParams,
         conn: Conn<'_>,
@@ -819,7 +821,7 @@ impl Core {
             ));
         }
         let by = conn.actor(p.author.as_deref());
-        match self.stop_execution(&p.execution_id, &by) {
+        match self.stop_execution(&p.execution_id, &by).await {
             Ok(r) => Ok(r),
             Err(e) => match e.downcast_ref::<theseus_kernel::KernelError>() {
                 Some(theseus_kernel::KernelError::StopTask { .. }) => {

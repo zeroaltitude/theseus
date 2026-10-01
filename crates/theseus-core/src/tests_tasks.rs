@@ -550,11 +550,13 @@ async fn a_cancel_stops_the_task_and_reports_once() {
     let res = r
         .core
         .task_cancel_by(&crate::task::short(&task.session_id), "discord:eddie")
+        .await
         .unwrap();
     assert_eq!(res.task.state, "cancelled");
     let again = r
         .core
         .task_cancel_by(&task.session_id, "discord:eddie")
+        .await
         .unwrap();
     assert_eq!(again.task.state, "cancelled");
     r.model.gate.add_permits(1);
@@ -815,6 +817,7 @@ async fn a_cancelled_task_with_wake_parent_wakes_nothing() {
     r.entered.recv().await.unwrap();
     r.core
         .task_cancel_by(&task.session_id, "discord:eddie")
+        .await
         .unwrap();
     r.model.gate.add_permits(1);
     until("the held turn ended", || !r.core.kernel.is_held(&task.id)).await;
@@ -856,7 +859,7 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
     let first = tokio::spawn(async move { turn(&core, &s, "FIRST write a file").await });
     r.entered.recv().await.unwrap();
     let eid = parent_exec(&r.core, &sid).id;
-    let stop = r.core.stop_execution(&eid, "discord:eddie").unwrap();
+    let stop = r.core.stop_execution(&eid, "discord:eddie").await.unwrap();
     assert!(stop.stopped && stop.turn_running, "{stop:?}");
     assert!(stop.stopped_actions.is_empty(), "the model call finishes");
     r.model.gate.add_permits(1);
@@ -937,7 +940,7 @@ async fn a_stop_declines_a_waiting_approval_and_the_next_turn_hears_it() {
     let res = turn(&r.core, &sid, "FIRST write a file").await;
     let q = res.awaiting_confirm.clone().expect("it asks");
     let eid = parent_exec(&r.core, &sid).id;
-    let stop = r.core.stop_execution(&eid, "discord:eddie").unwrap();
+    let stop = r.core.stop_execution(&eid, "discord:eddie").await.unwrap();
     assert!(stop.stopped && !stop.turn_running, "{stop:?}");
     assert_eq!(stop.declined, vec![q.clone()]);
     let settles: Vec<_> = posts(&r.core, "settle")

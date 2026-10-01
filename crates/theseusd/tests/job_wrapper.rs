@@ -283,6 +283,59 @@ fn a_job_that_prints_past_the_cap_leaves_its_file_at_the_cap_and_runs_to_its_end
     assert!(out.iter().all(|&b| b == 0), "the first bytes it printed");
 }
 
+/// A command that ignores SIGTERM, as `trap '' TERM` makes it (its `sleep`s
+/// inherit the ignore), writing `main<i>.pid`, until the rig is gone.
+fn stubborn(i: usize) -> String {
+    format!("trap '' TERM; echo $$ > main{i}.pid; while [ -d \"$1\" ]; do sleep 0.05; done")
+}
+
+/// What review 2's S2 hid (theseus-bzq): the wrapper dies at SIGTERM, so a
+/// cancel that waited on the wrapper alone said the job was gone at once,
+/// and a command that ignores SIGTERM ran on, orphaned. The cancel now waits
+/// on the job's process group: the grace passes, SIGKILL ends the command,
+/// and only then is the job gone.
+#[test]
+fn a_cancel_waits_out_a_command_that_ignores_sigterm_then_kills_it() {
+    let rig = Rig::new();
+    let wrapper = rig.start("act_stubborn", &stubborn(0));
+    let main = rig.pid("main0.pid");
+    let grace = Duration::from_millis(400);
+    let t0 = Instant::now();
+    assert!(job::terminate(wrapper, "act_stubborn", grace));
+    let took = t0.elapsed();
+    assert!(!alive(main), "the command is gone");
+    assert!(took >= grace, "it waited out the grace: {took:?}");
+    assert!(took < grace + Duration::from_secs(1), "{took:?}");
+}
+
+/// Review 2's S2 (theseus-bzq): three jobs that ignore SIGTERM, stopped
+/// together, cost one grace, not three: each group gets SIGTERM at once, the
+/// grace is shared, and the stragglers get SIGKILL together. Every command
+/// is gone after it.
+#[test]
+fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
+    let rig = Rig::new();
+    let (mut jobs, mut mains) = (vec![], vec![]);
+    for i in 0..3 {
+        let id = format!("act_stubborn_{i}");
+        jobs.push((rig.start(&id, &stubborn(i)), id));
+        mains.push(rig.pid(&format!("main{i}.pid")));
+    }
+    let grace = Duration::from_millis(600);
+    let t0 = Instant::now();
+    let mut stop = job::Stopping::start(jobs, grace);
+    while let Some(wait) = stop.poll() {
+        std::thread::sleep(wait);
+    }
+    let took = t0.elapsed();
+    assert!(stop.all_gone());
+    for main in mains {
+        assert!(!alive(main), "command {main} is gone");
+    }
+    assert!(took >= grace, "{took:?}");
+    assert!(took < grace * 2, "one grace, not three: {took:?}");
+}
+
 /// A cancel kills what it killed before: the wrapper's process group, which
 /// is the wrapper, the command, and the descendants that stayed in it. A
 /// descendant that left the group with `setsid` was never in reach of a

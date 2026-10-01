@@ -255,14 +255,16 @@ impl Core {
             method::TOOL_LIST => reply(self.tool_list()),
             method::EXECUTION_LIST => reply(self.execution_list()?),
             method::ACTION_LIST => route(params, |p| self.action_list(p)),
-            method::EXECUTION_CANCEL => route(params, |p| self.execution_cancel(p, conn)),
-            method::EXECUTION_STOP => route(params, |p| self.execution_stop(p, conn)),
+            // A cancel and a stop wait for the jobs they end on the runtime's
+            // timer, never holding a worker (theseus-bzq).
+            method::EXECUTION_CANCEL => reply(self.execution_cancel(parse(params)?, conn).await?),
+            method::EXECUTION_STOP => reply(self.execution_stop(parse(params)?, conn).await?),
             method::TASK_LIST => {
                 // Its filters are optional: no params lists every task.
                 let params = if params.is_null() { json!({}) } else { params };
                 route(params, |p| self.task_list(p))
             }
-            method::TASK_CANCEL => route(params, |p| self.task_cancel(p, conn)),
+            method::TASK_CANCEL => reply(self.task_cancel(parse(params)?, conn).await?),
             method::WAKE_LIST => {
                 // Its filters are optional: no params lists every wake.
                 let params = if params.is_null() { json!({}) } else { params };
