@@ -66,6 +66,15 @@ shellexpand = "3"
 # no forking runner, so each case runs in the test's own process.
 proptest = { version = "1.11", default-features = false, features = ["std"] }
 
+# Debug builds keep line tables for the workspace (backtraces still name file and line) and no debug info
+# for dependencies. With full debug info, each test binary was about 400 MB, and the spine's target reached
+# 84 GB (theseus-x10i). Debug assertions are unchanged: they come from the profile, not from debug info.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "fat"
 codegen-units = 1
