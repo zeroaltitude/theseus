@@ -29,10 +29,38 @@ label="$(git rev-parse --abbrev-ref HEAD) $(git describe --always --dirty)"
 lifecycle() {
   target/debug/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label"
 }
+# A neighbour's sustained IO (a parallel build, a package install) stalls a
+# start's fsyncs for seconds, and then the bench measures the neighbour, not
+# Theseus. On 2026-10-01 an openclaw rotation held IO pressure near 50 %, and
+# a restart's p95 was 2.3 s, where the same tree had passed at 41 ms. So each
+# run first waits, for up to 10 minutes, until the kernel's IO and CPU
+# pressure (PSI, `some avg10`) are under 10 % and 20 %, and it says what it
+# saw. The budgets don't change. Without PSI it doesn't wait.
+settle() {
+  [ -r /proc/pressure/io ] && [ -r /proc/pressure/cpu ] || return 0
+  local io cpu waited=0
+  while :; do
+    io=$(awk '/^some/ {split($2, a, "="); print int(a[2])}' /proc/pressure/io)
+    cpu=$(awk '/^some/ {split($2, a, "="); print int(a[2])}' /proc/pressure/cpu)
+    if [ "$io" -lt 10 ] && [ "$cpu" -lt 20 ]; then break; fi
+    if [ "$waited" -ge 600 ]; then
+      echo "lifecycle: still busy after 10 minutes (IO pressure $io %, CPU $cpu %); measuring anyway"
+      return 0
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+  if [ "$waited" -gt 0 ]; then
+    echo "lifecycle: waited $waited s for the machine to settle (IO pressure $io %, CPU $cpu %)"
+  fi
+  return 0
+}
 sync
+settle
 lifecycle || {
   echo "lifecycle: a budget was missed; running the bench once more"
   sync
+  settle
   lifecycle
 }
 cargo deny --log-level error check
