@@ -758,7 +758,20 @@ pub struct ServerConfig {
     /// accepted so a config that names it loads; any other value is refused.
     #[serde(default)]
     pub store_engine: theseus_store::Engine,
+    /// How long a clean stop waits, from its start, for the posts it has
+    /// already sent to settle (theseus-pfv). §9 holds a clean stop to 100 ms.
+    /// A post still in flight then stays dispatched, and the next start sends
+    /// it again under the same nonce. 0 waits for none.
+    #[serde(default = "default_stop_grace_ms")]
+    pub stop_grace_ms: u64,
 }
+
+fn default_stop_grace_ms() -> u64 {
+    50
+}
+
+/// The longest grace a clean stop may give the posts in flight.
+const MAX_STOP_GRACE_MS: u64 = 10_000;
 
 fn default_model() -> String {
     "claude-sonnet-5-5".into()
@@ -811,6 +824,7 @@ impl Default for ServerConfig {
             state_dir: default_state_dir(),
             socket: default_socket(),
             store_engine: theseus_store::Engine::Redb,
+            stop_grace_ms: default_stop_grace_ms(),
         }
     }
 }
@@ -939,6 +953,13 @@ impl Config {
             anyhow::bail!(
                 "model.provider = {:?} is not the implicit \"anthropic\" provider nor a key of [providers]",
                 self.model.provider
+            );
+        }
+        if self.server.stop_grace_ms > MAX_STOP_GRACE_MS {
+            anyhow::bail!(
+                "server.stop_grace_ms = {} is over {MAX_STOP_GRACE_MS}: a clean stop waits at most \
+                 10 s for the posts in flight",
+                self.server.stop_grace_ms
             );
         }
         let providers = self.all_providers();

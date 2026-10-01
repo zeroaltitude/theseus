@@ -89,6 +89,9 @@ pub struct WalStore {
     /// Checkpoint every N appended records (0 = manual only).
     checkpoint_every: u64,
     since_checkpoint: AtomicU64,
+    /// The position the index's last checkpoint claims: a checkpoint with
+    /// nothing written since costs nothing (theseus-pfv).
+    checkpointed: AtomicU64,
     /// The newest schema written per kind, as the manifest says; an append
     /// of a newer one rewrites the manifest first (F4a).
     marks: RwLock<BTreeMap<RecordKind, u16>>,
@@ -411,6 +414,7 @@ impl WalStore {
             replayed: AtomicU64::new(replayed),
             checkpoint_every: 1000,
             since_checkpoint: AtomicU64::new(0),
+            checkpointed: AtomicU64::new(cp),
             marks: RwLock::new(marks),
             fsync,
             appending: RwLock::new(()),
@@ -638,7 +642,15 @@ impl Store for WalStore {
         // up to `last` is synced and indexed.
         let _alone = self.appending.write().unwrap();
         let last = self.wal.last_position();
+        // Nothing written since the last checkpoint: the index is durable to
+        // `last` already, and only an append writes it between checkpoints.
+        // So a clean stop's last checkpoint, after its own, is free when
+        // nothing came between them (theseus-pfv).
+        if self.checkpointed.load(Ordering::Relaxed) == last {
+            return Ok(last);
+        }
         self.index.set_checkpoint(last)?;
+        self.checkpointed.store(last, Ordering::Relaxed);
         self.since_checkpoint.store(0, Ordering::Relaxed);
         Ok(last)
     }
@@ -1158,6 +1170,35 @@ mod tests {
             "a longer record 5"
         );
         assert!(s.get(2).is_err(), "a stale entry's read is refused");
+    }
+
+    /// A checkpoint with nothing written since the last one claims the same
+    /// position and commits nothing (theseus-pfv: a clean stop's last
+    /// checkpoint, after its own). One after new records claims them, and the
+    /// next open replays nothing either way.
+    #[test]
+    fn a_checkpoint_with_nothing_new_claims_the_same_and_the_next_open_replays_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(dir.path());
+        for i in 0..5u32 {
+            s.append(&[NewRecord::json(kinds::LEDGER, None, &i).unwrap()])
+                .unwrap();
+        }
+        assert_eq!(s.checkpoint().unwrap(), 5);
+        assert_eq!(s.checkpoint().unwrap(), 5, "nothing new");
+        assert_eq!(s.index.checkpoint().unwrap(), Some(5));
+        drop(s);
+        let s = open(dir.path());
+        assert_eq!(s.stats().unwrap().replayed_into_index, 0);
+        assert_eq!(s.checkpoint().unwrap(), 5, "nothing new since the open");
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &9u32).unwrap()])
+            .unwrap();
+        assert_eq!(s.checkpoint().unwrap(), 6);
+        assert_eq!(s.index.checkpoint().unwrap(), Some(6));
+        drop(s);
+        let s = open(dir.path());
+        assert_eq!(s.stats().unwrap().replayed_into_index, 0);
+        assert_eq!(s.count_of_kind(kinds::LEDGER).unwrap(), 6);
     }
 
     #[test]

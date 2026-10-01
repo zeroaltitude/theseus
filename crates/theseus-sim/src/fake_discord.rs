@@ -15,6 +15,11 @@
 //!   and its answer was lost);
 //! - `fail`: every request gets a 503.
 //!
+//! And a test can hold one write in flight (`hold_writes_containing`): a
+//! create or edit whose content holds a text is applied, and its answer waits
+//! until the hold is lifted (a post in flight while the daemon stops,
+//! theseus-pfv).
+//!
 //! It records each request's method, path, and body, and never a header, so
 //! an `Authorization` header is never kept or logged.
 
@@ -113,7 +118,8 @@ pub struct Seen {
     pub method: String,
     pub path: String,
     /// `created`, `deduped` (a nonce seen before), `edited`, `typing`,
-    /// `dropped` (down), `hung`, `failed`, `other`, or `unknown`.
+    /// `dropped` (down), `hung`, `held` (a write whose answer waits for its
+    /// hold), `failed`, `other`, or `unknown`.
     pub outcome: String,
     pub message_id: Option<String>,
     pub nonce: Option<String>,
@@ -129,6 +135,9 @@ struct State {
     nonce_window_ms: Option<u64>,
     /// Every answer waits this long: a slow Discord.
     delay_ms: u64,
+    /// A write whose content holds this text waits for its answer until the
+    /// hold is lifted.
+    hold: Option<String>,
 }
 
 pub struct FakeDiscord {
@@ -189,6 +198,29 @@ impl FakeDiscord {
     /// Answer every request this much later.
     pub fn set_delay_ms(&self, ms: u64) {
         self.state.lock().unwrap().delay_ms = ms;
+    }
+
+    /// Hold the answer to each create or edit whose content holds `text`:
+    /// the write is applied and recorded as `held`, and answered once the
+    /// hold is lifted (`None`), or after a minute (theseus-pfv).
+    pub fn hold_writes_containing(&self, text: Option<&str>) {
+        self.state.lock().unwrap().hold = text.map(str::to_string);
+    }
+
+    /// Whether a write of `content` is held now.
+    fn holding(&self, content: &str) -> bool {
+        let st = self.state.lock().unwrap();
+        st.hold.as_deref().is_some_and(|h| content.contains(h))
+    }
+
+    /// A held write's wait: until its hold is lifted, or a minute passes.
+    fn wait_released(&self, content: &str) {
+        for _ in 0..60_000 {
+            if !self.holding(content) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     fn mode(&self) -> Mode {
@@ -405,15 +437,24 @@ impl FakeDiscord {
             }
         };
         let hang = mode == Mode::HangCreates;
+        let hold = !hang && self.holding(&msg.content);
         self.record(Seen {
             at_ms: now,
             method: "POST".into(),
             path: format!("/channels/{channel}/messages"),
-            outcome: if hang { "hung".into() } else { outcome.into() },
+            outcome: match (hang, hold) {
+                (true, _) => "hung".into(),
+                (_, true) => "held".into(),
+                _ => outcome.into(),
+            },
             message_id: Some(msg.id.clone()),
             nonce,
             chars: Some(msg.content.chars().count()),
         });
+        if hold {
+            // The create landed, and its answer waits for the hold.
+            self.wait_released(&msg.content);
+        }
         if hang {
             // The create landed; its answer is lost. Hold the connection
             // until told otherwise or a minute passes, then close it unanswered.
@@ -455,11 +496,16 @@ impl FakeDiscord {
         let path = format!("/channels/{channel}/messages/{id}");
         match found {
             Some(m) => {
+                let hold = self.holding(&m.content);
                 self.record(Seen {
                     message_id: Some(m.id.clone()),
                     chars: Some(m.content.chars().count()),
-                    ..seen("PATCH", &path, "edited")
+                    ..seen("PATCH", &path, if hold { "held" } else { "edited" })
                 });
+                if hold {
+                    // The edit landed, and its answer waits for the hold.
+                    self.wait_released(&m.content);
+                }
                 reply(stream, 200, &message_json(&m))
             }
             None => {

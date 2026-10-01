@@ -419,6 +419,9 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     // connection per state dir, whose bindings file names its places.
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path));
     let served = serve_socket(core.clone(), socket_path, after_bind).await;
+    // The posts already sent settle within the stop's grace, and the index is
+    // checkpointed after them (theseus-pfv).
+    core.finish_stop().await;
     flush_telemetry(&core).await;
     served?;
     Ok(exit(&core))

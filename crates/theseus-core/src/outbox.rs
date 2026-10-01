@@ -193,6 +193,37 @@ pub struct Outbox {
     index: Mutex<Option<Index>>,
     /// Bumped by every change a deliverer cares about: a new post, a settle.
     changed: tokio::sync::watch::Sender<u64>,
+    /// The posts in flight, and whether the daemon is stopping (theseus-pfv).
+    flight: Arc<tokio::sync::watch::Sender<Flight>>,
+}
+
+/// The posts this process has sent and not yet settled, and when its stop
+/// began (theseus-pfv).
+#[derive(Debug, Default)]
+struct Flight {
+    sending: usize,
+    stopping: Option<tokio::time::Instant>,
+}
+
+/// One post in flight: taken just before its dispatch, and dropped once it
+/// is settled, or its delivery gives up and it waits, dispatched. A clean
+/// stop waits for every one, within its grace (`Outbox::settle_in_flight`).
+pub struct Sending(Arc<tokio::sync::watch::Sender<Flight>>);
+
+impl Drop for Sending {
+    fn drop(&mut self) {
+        self.0.send_modify(|f| f.sending -= 1);
+    }
+}
+
+/// What a stop's wait for the posts in flight found (theseus-pfv).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InFlight {
+    /// In flight when the wait began.
+    pub waited_for: usize,
+    /// Still in flight at its end: each is left dispatched, and the next
+    /// start sends it again under the same nonce.
+    pub left: usize,
 }
 
 impl Outbox {
@@ -202,6 +233,61 @@ impl Outbox {
             kernel,
             index: Mutex::new(None),
             changed: tokio::sync::watch::Sender::new(0),
+            flight: Arc::new(tokio::sync::watch::Sender::new(Flight::default())),
+        }
+    }
+
+    /// A post about to be dispatched, in flight until the guard drops; None
+    /// once the daemon is stopping, when no post is dispatched and each waits
+    /// for the next start (theseus-pfv).
+    pub fn sending(&self) -> Option<Sending> {
+        let mut took = false;
+        self.flight.send_if_modified(|f| {
+            took = f.stopping.is_none();
+            if took {
+                f.sending += 1;
+            }
+            took
+        });
+        took.then(|| Sending(self.flight.clone()))
+    }
+
+    /// The daemon is stopping: from now on no post is dispatched. The first
+    /// call marks when the stop began, the start of its grace.
+    pub fn stop_sending(&self) {
+        self.flight.send_if_modified(|f| {
+            let first = f.stopping.is_none();
+            if first {
+                f.stopping = Some(tokio::time::Instant::now());
+            }
+            first
+        });
+    }
+
+    /// Whether the daemon is stopping, so a lane takes no new post.
+    pub fn stopping(&self) -> bool {
+        self.flight.borrow().stopping.is_some()
+    }
+
+    /// A clean stop's wait (theseus-pfv): no post is dispatched any more, and
+    /// the posts already sent settle, until `grace` after the stop began. The
+    /// rest stay dispatched, as after a crash, and the next start sends them
+    /// again under the same nonce.
+    pub async fn settle_in_flight(&self, grace: std::time::Duration) -> InFlight {
+        self.stop_sending();
+        let began = self
+            .flight
+            .borrow()
+            .stopping
+            .unwrap_or_else(tokio::time::Instant::now);
+        let waited_for = self.flight.borrow().sending;
+        if waited_for > 0 {
+            let mut rx = self.flight.subscribe();
+            let _ = tokio::time::timeout_at(began + grace, rx.wait_for(|f| f.sending == 0)).await;
+        }
+        InFlight {
+            waited_for,
+            left: self.flight.borrow().sending,
         }
     }
 
@@ -725,6 +811,39 @@ pub fn is_budget(q: &Action) -> bool {
 }
 
 impl crate::Core {
+    /// The end of every clean stop, once the serving loop has ended
+    /// (theseus-bv5, theseus-pfv): the posts already sent settle, until
+    /// `[server] stop_grace_ms` after the stop began, and then the index is
+    /// checkpointed after them, so the next start replays nothing. With no
+    /// post in flight there is no wait, and the checkpoint costs nothing
+    /// when the stop's own is still the newest.
+    pub async fn finish_stop(&self) -> InFlight {
+        let t0 = std::time::Instant::now();
+        let grace = std::time::Duration::from_millis(self.cfg.server.stop_grace_ms);
+        let posts = self.outbox.settle_in_flight(grace).await;
+        if posts.waited_for > 0 {
+            let waited_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            if posts.left == 0 {
+                tracing::info!(
+                    posts = posts.waited_for,
+                    waited_ms,
+                    "stopping: the posts in flight settled"
+                );
+            } else {
+                tracing::warn!(
+                    posts = posts.waited_for,
+                    left = posts.left,
+                    waited_ms,
+                    "stopping: posts still in flight at the grace's end stay dispatched; the next start sends them again under the same nonce"
+                );
+            }
+        }
+        if let Err(e) = self.store.checkpoint() {
+            tracing::warn!(error = %format!("{e:#}"), "stopping: the last checkpoint failed; the next start replays the tail");
+        }
+        posts
+    }
+
     /// After a restart onto the vault's changed config note (theseus-2fo), one
     /// line where approvals go, which reaches Discord whenever the binding is
     /// back.
@@ -736,5 +855,92 @@ impl crate::Core {
         if let Err(e) = self.outbox.to_operator(None, body) {
             tracing::warn!(error = %format!("{e:#}"), "the restart's notice was not written");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn outbox(dir: &tempfile::TempDir) -> Arc<Outbox> {
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let kernel = Arc::new(Kernel::new(
+            store.shared(),
+            Arc::new(theseus_kernel::RealClock),
+            Default::default(),
+        ));
+        Arc::new(Outbox::new(store, kernel))
+    }
+
+    /// A clean stop's wait (theseus-pfv): once the stop begins no post is
+    /// dispatched; a post already sent is waited for until it settles; with
+    /// none in flight there is no wait.
+    #[tokio::test]
+    async fn a_stop_waits_for_the_posts_already_sent_and_dispatches_no_more() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = outbox(&dir);
+        let sending = o.sending().expect("not stopping yet");
+        o.stop_sending();
+        assert!(o.stopping());
+        assert!(
+            o.sending().is_none(),
+            "a stopping daemon dispatches nothing"
+        );
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            drop(sending);
+        });
+        let t0 = Instant::now();
+        let r = o.settle_in_flight(Duration::from_secs(10)).await;
+        assert_eq!(
+            r,
+            InFlight {
+                waited_for: 1,
+                left: 0
+            }
+        );
+        let waited = t0.elapsed();
+        assert!(waited >= Duration::from_millis(20), "{waited:?}");
+        assert!(waited < Duration::from_secs(5), "{waited:?}");
+
+        let other = tempfile::tempdir().unwrap();
+        let idle = outbox(&other);
+        let t0 = Instant::now();
+        let r = idle.settle_in_flight(Duration::from_secs(10)).await;
+        assert_eq!(
+            r,
+            InFlight {
+                waited_for: 0,
+                left: 0
+            }
+        );
+        assert!(t0.elapsed() < Duration::from_secs(1));
+        assert!(idle.sending().is_none());
+    }
+
+    /// The grace counts from the stop's start, not from the wait's: a post
+    /// that never settles is left, and the stop takes no longer for it.
+    #[tokio::test]
+    async fn a_post_that_never_settles_is_left_when_the_grace_since_the_stop_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = outbox(&dir);
+        let _sending = o.sending().unwrap();
+        o.stop_sending();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let t0 = Instant::now();
+        let r = o.settle_in_flight(Duration::from_millis(400)).await;
+        assert_eq!(
+            r,
+            InFlight {
+                waited_for: 1,
+                left: 1
+            }
+        );
+        let waited = t0.elapsed();
+        assert!(
+            waited < Duration::from_millis(350),
+            "the grace ran from the wait, not the stop: {waited:?}"
+        );
     }
 }

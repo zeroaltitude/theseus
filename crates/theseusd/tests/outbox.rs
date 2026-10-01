@@ -45,6 +45,11 @@ struct Rig {
 
 impl Rig {
     fn new() -> Self {
+        Self::with(|_| {})
+    }
+
+    /// The rig, with `tweak` run on its config last.
+    fn with(tweak: impl FnOnce(&mut toml::Table)) -> Self {
         let script = Script::default();
         let asks = script.clone();
         let model = FakeModel::start(move |prompt| {
@@ -86,6 +91,7 @@ impl Rig {
         discord.insert("enabled".into(), true.into());
         discord.insert("rest_proxy".into(), fake.addr.clone().into());
         discord.insert("gateway_proxy".into(), "ws://127.0.0.1:9".into());
+        tweak(&mut t);
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         std::fs::write(
             path("state/bindings.toml"),
@@ -107,13 +113,17 @@ impl Rig {
     }
 
     fn spawn(&self) -> Daemon {
+        self.spawn_bin(std::path::Path::new(env!("CARGO_BIN_EXE_theseusd")))
+    }
+
+    fn spawn_bin(&self, theseusd: &std::path::Path) -> Daemon {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(self.path("theseusd.log"))
             .unwrap();
         let d = Daemon::spawn(
-            std::process::Command::new(env!("CARGO_BIN_EXE_theseusd"))
+            std::process::Command::new(theseusd)
                 .arg("--config")
                 .arg(self.path("config.toml"))
                 .arg("--state-dir")
@@ -271,6 +281,232 @@ fn a_kill_between_send_and_settle_leaves_one_message() {
         .map(|s| s.outcome)
         .collect();
     assert_eq!(tries, ["hung", "deduped"]);
+}
+
+/// The outcomes the fake gave each create of one message, by its nonce.
+fn tries(r: &Rig, nonce: &str) -> Vec<String> {
+    r.fake
+        .seen()
+        .into_iter()
+        .filter(|s| s.nonce.as_deref() == Some(nonce))
+        .map(|s| s.outcome)
+        .collect()
+}
+
+/// The outbox's settle rows for posts that wrote the message `key`.
+fn settles_of(r: &Rig, key: &str) -> Vec<Value> {
+    r.ledger("action.succeeded")
+        .into_iter()
+        .filter(|row| !row["data"]["outbox"].is_null())
+        .filter(|row| {
+            row["data"]["detail"]["messages"]
+                .as_array()
+                .is_some_and(|m| m.iter().any(|m| m["key"] == key))
+        })
+        .collect()
+}
+
+/// The reply's footer, which only its post writes: the stream's text never
+/// has it.
+const FOOTER: &str = "\n-# ";
+
+/// A turn's reply, its post's write held at the fake: returns its message's
+/// key and the creates under its nonce so far (the stream's, if it made it).
+fn reply_in_flight(r: &Rig) -> (String, Vec<String>) {
+    let sid = r.session();
+    r.wait("the bind notice", || {
+        (r.fake.messages(DM).len() == 1).then_some(())
+    });
+    r.fake.hold_writes_containing(Some(FOOTER));
+    let res = r.ask(&sid, "say done");
+    let key = format!("{}:L0:p0", res["turn_id"].as_str().unwrap());
+    r.wait("the post's write at Discord", || {
+        r.fake
+            .seen()
+            .iter()
+            .any(|s| s.outcome == "held")
+            .then_some(())
+    });
+    let before = tries(r, &theseus_discord::nonce(&key));
+    (key, before)
+}
+
+/// A clean stop while a turn's reply post is being written (theseus-pfv):
+/// the stop waits for the write's answer, the post settles before the
+/// process exits, and the next start sends nothing again. Before, the
+/// process ended with the write unanswered, and the next start sent the post
+/// again. The grace here is long, so that a loaded test machine lands the
+/// answer inside it; the default's timing is the report's.
+#[test]
+fn a_clean_stop_lets_the_reply_in_flight_settle_before_it_exits() {
+    let r = Rig::with(|t| {
+        t.entry("server")
+            .or_insert_with(|| toml::Value::Table(Default::default()))
+            .as_table_mut()
+            .unwrap()
+            .insert("stop_grace_ms".into(), 5000.into());
+    });
+    let mut daemon = r.spawn();
+    let (key, before) = reply_in_flight(&r);
+    // The stop, while the post's write waits for its answer.
+    let t0 = Instant::now();
+    r.call("shutdown", Value::Null).unwrap();
+    r.wait("the socket gone", || {
+        (!r.path("sock").exists()).then_some(())
+    });
+    assert!(
+        daemon.try_wait().is_none(),
+        "the daemon exited with its post in flight"
+    );
+    r.fake.hold_writes_containing(None);
+    let status = r.wait("the stop", || daemon.try_wait());
+    assert!(status.success(), "{status}");
+    eprintln!(
+        "the stop, the answer released once the socket was gone: {} ms",
+        t0.elapsed().as_millis()
+    );
+    let stopped = r.log();
+    // The next start: the settle is in the store, so nothing goes again.
+    let _daemon = r.spawn();
+    r.wait("the start's bind notice", || {
+        let o = r.outbox();
+        (o["pending"] == 0 && o["sent"].as_u64() >= Some(1)).then_some(())
+    });
+    assert_eq!(
+        tries(&r, &theseus_discord::nonce(&key)),
+        before,
+        "sent again after the stop"
+    );
+    assert_eq!(settles_of(&r, &key).len(), 1);
+    let got = r.replies();
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(got[0].content.contains(FOOTER), "{}", got[0].content);
+    assert!(
+        stopped.contains("stopping: the posts in flight settled"),
+        "{}",
+        tail(&stopped, 20)
+    );
+}
+
+/// A post whose answer does not come holds a clean stop no longer than its
+/// grace, the default (theseus-pfv): the post stays dispatched, as after a
+/// crash, and the next start sends it again under the same nonce, so the
+/// place still holds one message.
+#[test]
+fn a_clean_stop_waits_for_a_post_in_flight_no_longer_than_its_grace() {
+    let r = Rig::new();
+    let mut daemon = r.spawn();
+    let (key, before) = reply_in_flight(&r);
+    let t0 = Instant::now();
+    r.call("shutdown", Value::Null).unwrap();
+    let status = r.wait("the stop", || daemon.try_wait());
+    let stop_ms = t0.elapsed().as_millis();
+    assert!(status.success(), "{status}");
+    eprintln!("the stop, the post never answered: {stop_ms} ms (the grace is 50 ms)");
+    assert!(stop_ms < 1000, "the stop waited {stop_ms} ms");
+    assert!(
+        r.log().contains("stay dispatched"),
+        "{}",
+        tail(&r.log(), 20)
+    );
+    r.fake.hold_writes_containing(None);
+    let _daemon = r.spawn();
+    r.wait("the retry settled", || {
+        let o = r.outbox();
+        (o["pending"] == 0 && o["sent"].as_u64() >= Some(2)).then_some(())
+    });
+    let mut again = before;
+    again.push("deduped".into());
+    assert_eq!(tries(&r, &theseus_discord::nonce(&key)), again);
+    let got = r.replies();
+    assert_eq!(got.len(), 1, "{got:?}");
+}
+
+/// The stop's timing with a post in flight (theseus-pfv), for the report,
+/// not the gate: `cargo nextest run -p theseusd --test outbox --run-ignored
+/// only --no-capture -E 'test(stop_timing)'`, on any build's `theseusd`
+/// (`THESEUS_STOP_BIN`, default this one's; `THESEUS_STOP_RUNS`, default 10).
+/// From the `shutdown` request to the process's exit: with no post in
+/// flight; with the post's answer let go as soon as the request is sent;
+/// and with the answer never given during the stop.
+#[test]
+#[ignore]
+fn stop_timing_with_a_post_in_flight() {
+    let bin = std::env::var("THESEUS_STOP_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_BIN_EXE_theseusd")));
+    let runs: usize = std::env::var("THESEUS_STOP_RUNS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(10);
+    // A build before theseus-pfv refuses the new key; this one defaults it.
+    let r = Rig::with(|t| {
+        t["server"].as_table_mut().unwrap().remove("stop_grace_ms");
+    });
+    let mut times: Vec<(&str, Vec<f64>)> =
+        vec![("idle", vec![]), ("released", vec![]), ("never", vec![])];
+    for run in 0..runs * 3 {
+        let case = run % 3;
+        let mut daemon = r.spawn_bin(&bin);
+        r.session();
+        // The start's own posts first: the bind notice, and any post the
+        // last stop left dispatched.
+        r.wait("the outbox idle", || {
+            let o = r.outbox();
+            (o["pending"] == 0 && o["sent"].as_u64() >= Some(1)).then_some(())
+        });
+        if case > 0 {
+            reply_in_flight_again(&r);
+        }
+        let s = UnixStream::connect(r.path("sock")).unwrap();
+        let req = json!({"jsonrpc": "2.0", "id": 1, "method": "shutdown", "params": null});
+        let t0 = Instant::now();
+        let sent = theseus_protocol::now_unix_ms();
+        (&s).write_all(format!("{req}\n").as_bytes()).unwrap();
+        if case == 1 {
+            r.fake.hold_writes_containing(None);
+        }
+        let status = loop {
+            if let Some(st) = daemon.try_wait() {
+                break st;
+            }
+            assert!(t0.elapsed() < Duration::from_secs(10), "no exit");
+            std::thread::sleep(Duration::from_micros(500));
+        };
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        times[case].1.push(ms);
+        assert!(status.success(), "{status}");
+        r.fake.hold_writes_containing(None);
+        if ms > 150.0 {
+            eprintln!(
+                "  run {run} ({}) took {ms:.1} ms, from unix ms {sent}; its log ends:\n{}",
+                times[case].0,
+                tail(&r.log(), 12)
+            );
+        }
+    }
+    eprintln!("stop timing, {} runs each, {}", runs, bin.display());
+    for (case, mut t) in times {
+        t.sort_by(f64::total_cmp);
+        let at = |p: f64| t[((p * t.len() as f64).ceil() as usize).clamp(1, t.len()) - 1];
+        eprintln!(
+            "  {case:<9} p50 {:6.1} ms  p95 {:6.1} ms  max {:6.1} ms",
+            at(0.5),
+            at(0.95),
+            t[t.len() - 1]
+        );
+    }
+}
+
+/// `reply_in_flight` on a rig whose bind notice is long since posted.
+fn reply_in_flight_again(r: &Rig) {
+    let sid = r.session();
+    let held_before = r.fake.seen().iter().filter(|s| s.outcome == "held").count();
+    r.fake.hold_writes_containing(Some(FOOTER));
+    r.ask(&sid, "say done");
+    r.wait("the post's write at Discord", || {
+        (r.fake.seen().iter().filter(|s| s.outcome == "held").count() > held_before).then_some(())
+    });
 }
 
 /// The M3 exit test's lost answer (A3, 2026-09-26): a job outlives a

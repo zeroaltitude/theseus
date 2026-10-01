@@ -899,8 +899,11 @@ impl Core {
         self.stop_record(json!({ "signal": signal }));
     }
 
-    /// The stop's row, then the checkpoint.
+    /// The stop's row, then the checkpoint. From here no post is dispatched,
+    /// and the posts already sent have until the stop's grace ends to settle
+    /// (`Core::finish_stop`, theseus-pfv).
     fn stop_record(&self, data: Value) {
+        self.outbox.stop_sending();
         let _ = self
             .store
             .append_ledger(&LedgerRow::new("server.stopping", None, None, data));

@@ -327,11 +327,19 @@ impl Lane {
 
     // ------------------------------------------------------------ posts
 
-    /// Deliver this lane's posts in order. False when Discord is away.
+    /// Deliver this lane's posts in order. False when Discord is away, or
+    /// the daemon is stopping: then no post is dispatched, and each waits for
+    /// the next start (theseus-pfv).
     async fn deliver_posts(&mut self) -> bool {
-        while let Some(a) = self.shared.core.outbox.next_for(&self.target) {
+        while !self.shared.core.outbox.stopping() {
+            let Some(a) = self.shared.core.outbox.next_for(&self.target) else {
+                return true;
+            };
             match self.deliver(&a).await {
                 Ok(()) => self.attempt = 0,
+                // The stop came while this post was planned or sent: it is
+                // the stop's, not Discord's absence.
+                Err(_) if self.shared.core.outbox.stopping() => return false,
                 Err(e) => {
                     if e.unsure {
                         self.unsure.insert(a.correlation_id.clone());
@@ -341,7 +349,7 @@ impl Lane {
                 }
             }
         }
-        true
+        false
     }
 
     /// One post: planned into writes, dispatched, written, settled. An error
@@ -360,6 +368,17 @@ impl Lane {
         if plan.writes.is_empty() {
             return self.settle(a, Outcome::Succeeded, vec![], plan.extra);
         }
+        // In flight from just before its dispatch until it settles, or its
+        // delivery gives up: a clean stop waits for it, within its grace, and
+        // a stopping daemon dispatches nothing new (theseus-pfv).
+        let Some(_sending) = self.shared.core.outbox.sending() else {
+            return Err(SendErr {
+                away: true,
+                unsure: false,
+                gone: false,
+                message: "the daemon is stopping".into(),
+            });
+        };
         let before = a.dispatched_at_ms;
         let dispatched = match self.shared.core.outbox.dispatch(&a.correlation_id) {
             Ok(d) => d,
