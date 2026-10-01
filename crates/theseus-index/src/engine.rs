@@ -17,6 +17,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use tantivy::collector::{Count, TopDocs};
+use tantivy::columnar::Column;
 use tantivy::query::{BooleanQuery, ConstScoreQuery, Occur, Query, RangeQuery, TermQuery};
 use tantivy::schema::{
     Field, IndexRecordOption, Schema, Value as _, FAST, INDEXED, STORED, STRING, TEXT,
@@ -564,15 +565,22 @@ impl Engine {
         // Fuse: Σ w / (60 + rank), rank from 1.
         let tf = Instant::now();
         // Ties go to the earlier position, so an index rebuilt with the same
-        // nodes orders them the same (document addresses differ).
+        // nodes orders them the same (document addresses differ). Each
+        // segment's position column is opened once, not once a key: opened
+        // per key it was most of the stage (1.4 ms at k = 100).
+        let mut columns: Vec<Option<Column<u64>>> = vec![None; searcher.segment_readers().len()];
         let mut order = Vec::new();
         for f in fuse(&ranked) {
-            let position = searcher
-                .segment_reader(f.key.segment_ord)
-                .fast_fields()
-                .u64("position")?
-                .first(f.key.doc_id)
-                .unwrap_or(u64::MAX);
+            let col = match &mut columns[f.key.segment_ord as usize] {
+                Some(c) => c,
+                slot => slot.insert(
+                    searcher
+                        .segment_reader(f.key.segment_ord)
+                        .fast_fields()
+                        .u64("position")?,
+                ),
+            };
+            let position = col.first(f.key.doc_id).unwrap_or(u64::MAX);
             order.push((f.key, f.score, f.sources, position));
         }
         order.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.3.cmp(&b.3)).then(a.0.cmp(&b.0)));

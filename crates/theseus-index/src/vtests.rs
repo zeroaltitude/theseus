@@ -819,6 +819,16 @@ fn fusion_weights_are_the_querys_over_the_tenders_and_ones_are_the_old_fusion() 
         }
     );
     assert!(Weights::EQUAL.parse_over("vector").is_err());
+    // The defaults the exam's held-in grid chose (the lane's report), held
+    // here so they never change unnoticed.
+    assert_eq!(
+        Weights::default(),
+        Weights {
+            bm25: 1.0,
+            entity: 1.0,
+            vector: 6.0
+        }
+    );
 
     // Through the socket, as JSON.
     let sock = t.paths().socket();

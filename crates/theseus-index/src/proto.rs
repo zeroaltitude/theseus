@@ -154,9 +154,17 @@ impl Weights {
 }
 
 impl Default for Weights {
-    /// The tender's defaults.
+    /// The tender's defaults: vectors 6, BM25 and entities 1 (theseus-jz8).
+    /// Chosen on exam-v2's held-in items by a rule fixed before the grid ran
+    /// (the most items with all their gold in the top 6, recall's budget),
+    /// over vector weights 1, 1.5, 2, 3, 4, and 6: 23 of 34 items, against 19
+    /// at equal weights. The held-out half judged it once, after.
     fn default() -> Self {
-        Weights::EQUAL
+        Weights {
+            bm25: 1.0,
+            entity: 1.0,
+            vector: 6.0,
+        }
     }
 }
 
