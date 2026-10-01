@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.64
+# The Ship of Theseus — v0.65
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -527,7 +527,7 @@ Budgets are a first-class notion: a `Budget` is a named ceiling with a unit (mon
 
 ### 3.14 Web UI
 
-Embedded in the binary, served on the node, authenticated by Discord OAuth against the operator role table. **First form (M0.5):** a Vite + React app embedded in `theseusd` and served on `127.0.0.1:7433`, loopback only, no auth yet; the browser is a protocol client over a WebSocket where each text frame is one JSON-RPC line, so it has no privileged path into the kernel. It shows the prompt, the streamed reply, tokens in and out per exchange and per session, totals, timing, the classified error when a turn fails, and the notification stream behind each turn, where thinking and tool calls will render later. Purpose: immediate and local observability. Conversation snooping (live view of any conversation's transcript, assembled context manifest, and loop state), the ledger stream with RL feedback controls, category and role management with scoring nudges, binding and policy editing with audit trail, tender health, arena occupancy, and budget burn. Historical search is CloudWatch: the ledger, bus events, and structured logs ship there through the durability tender when AWS is configured.
+Embedded in the binary, served on the node, authenticated by Discord OAuth against the operator role table. **First form (M0.5):** a Vite + React app embedded in `theseusd` and served on `127.0.0.1:7433`, loopback only, and answering only its own page and address: every route refuses a request whose `Host` does not name the UI, and `/ws` refuses a foreign or missing `Origin`, the defense against DNS rebinding and other pages in the browser (theseus-70f). No auth yet, so another local user's process can still reach it (theseus-3qf); the browser is a protocol client over a WebSocket where each text frame is one JSON-RPC line, so it has no privileged path into the kernel. It shows the prompt, the streamed reply, tokens in and out per exchange and per session, totals, timing, the classified error when a turn fails, and the notification stream behind each turn, where thinking and tool calls will render later. Purpose: immediate and local observability. Conversation snooping (live view of any conversation's transcript, assembled context manifest, and loop state), the ledger stream with RL feedback controls, category and role management with scoring nudges, binding and policy editing with audit trail, tender health, arena occupancy, and budget burn. Historical search is CloudWatch: the ledger, bus events, and structured logs ship there through the durability tender when AWS is configured.
 
 **The Narrative** (Eddie, 2026-09-28, 20:38; theseus-5fy, e3ba8d6, 810aa6d, 12a4805). In Eddie's words: "I want every architectural part of the session/turn/loop/model call structure to have a narrative output that goes straight into an output channel that shows up in the web interface in a new pane called 'the narrative.' If narrative: true is in the config, the pane exists as a new tab in the web UI and the narrative output populates it. If false, the outputs never happen, and the pane never displays." The narrative is the fourth window onto a turn, beside the trace (§3.3a), the ledger (§3.10), and telemetry (§3.20). It is written for a person watching live, not for a tool, and unlike the other three it is never stored.
 - **What it says.** One plain sentence per step, as it happens: a session opened, woken, parked, or cancelled; a turn started, ended, or failed, with what its loops spent; each loop and the Advancer's decision; the context appended to or recompiled; each model call's reservation, answer, refusal, or failure; each tool call's posture and why, its approval, job, result, and late result; the driver resuming an execution.
@@ -611,7 +611,7 @@ The `planned` record mints the **correlation id** and is committed before anythi
 | Source | Transport | Why |
 |---|---|---|
 | Native in-process tools that finish fast (reads, task and memory actions, most AWS reads) | synchronous return inside the tool loop | no ceremony for sub-second work; still a `planned`/`settled` pair in the WAL when the tool has side effects |
-| On-node jobs (L0/L1 shells, PTY sessions, local tenders) | the **job wrapper** writes its result to the **completion spool** on the SSD, then signals over a Unix domain socket | survives harness restart; no port; no auth beyond filesystem permissions |
+| On-node jobs (L0/L1 shells, PTY sessions, local tenders) | the **job wrapper** writes its result to the **completion spool** on the SSD, then signals over a Unix domain socket | survives harness restart; no port; no auth beyond filesystem permissions, which make Theseus's state the operator's alone: the state dir, store, and spool are 0700, tightened at start, and `theseusd` runs under umask 077 while a job's command and the file tools' new files get the operator's own umask (theseus-wz2) |
 | AWS-side work (Lambda, ECS/Fargate, SSM, scheduled jobs, MCP servers running in AWS) | **SQS long-poll** fed by EventBridge and by the wrapper inside the job | pull, so "no inbound" holds; at-least-once with dedupe by correlation id |
 | Sources that can do nothing but POST | loopback-only HTTP receiver, per-job HMAC, size-capped, off by default | the documented exception, never the default |
 
@@ -779,7 +779,8 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
     - Health and the Observatory list each grant with its uses.
     - Output is scrubbed as every tool's is. The raw output file in the spool keeps what a program prints,
       as for any job (`gh auth token` would put the token there); the node, the model, and every surface
-      get the scrubbed text.
+      get the scrubbed text. Since theseus-wz2, that file is 0600 in a 0700 spool, it is deleted once its
+      result is written, and no client is given its path.
   - At L0 a job runs as the operator's user. So the broker keeps a value out of every record and every
     other program's environment, but it is not a boundary against a hostile job of the same user, which
     can read another job's `/proc/<pid>/environ`, or a program's own stored login (gh's `hosts.yml`). L1
@@ -1837,7 +1838,7 @@ Workspace crates:
 | One store per node | stdio mode uses `theseus-stdio.redb` | redb is single-process; a spawned server must not fight the daemon | Kept for now; M1 Keel decides the store layout |
 | L1 shell not in M0 | Still not built | As planned | none |
 | Continuing a session carries context | Prompt only | As planned for M0; transcript continuation is M2 | none |
-| Web UI authenticated by Discord OAuth | No auth, loopback only | First form; auth arrives with bindings in M7 | Part I §3.14 says so |
+| Web UI authenticated by Discord OAuth | No auth, loopback only (since 2026-09-30, theseus-70f: and only its own page and address, by `Host` and `Origin`) | First form; auth arrives with bindings in M7 | Part I §3.14 says so |
 | musl build via musl-tools from the start | Host gcc first, musl-gcc after Eddie provided sudo | No passwordless sudo on the node | Resolved |
 
 **Added after M0.5 (theseus-rfl, 2026-09-25): profiles.** `[profiles.<name>]` with provider, model, max_tokens, system; the implicit `default` profile is built from `[model]`; `[model].live` names the startup profile; `profile.use` switches at runtime and persists in the store's `meta` table (a persisted switch wins over config on restart unless it names a profile that no longer exists, in which case config wins and a warning is logged); `profile.list` reports the live name and whether it came from config or runtime; `turn.submit.profile` runs one turn under another profile; the CLI has `theseus profile list|use` and `ask -P`; the web UI has a live-profile selector in the header. Every turn result and ledger row names its profile. Test: switch, route, explicit override, persistence across a fresh core over the same store.
@@ -4738,3 +4739,114 @@ first step after T1b.
     notice every few minutes in a DM.
   - The hardening lane's H3 changed `absorb` too (deleting a job's raw output once absorbed), so its join
     must re-apply that delete after be71fdc's single frame.
+
+### Item 13. Hardening H1 to H4, the first code lane's join (theseus-70f, theseus-s68, theseus-wz2, theseus-skc; 2026-09-30, lane 16:32–17:40, join 18:21–18:35; 40818db, a60f4e6, 44300da, 5b13509)
+
+**Why.** Review 2 (theseus-zaz, 15:24) named four security findings with concrete repros:
+- H1: any web page in Eddie's browser could drive the web UI, by DNS rebinding or by a WebSocket from
+  another origin.
+- H2: one fetched page with multibyte text after a raw element's end tag aborted the daemon.
+- H3: the store and raw job output were world-readable.
+- H4: `git.diff` read through a working-tree symlink to any file.
+
+They were built as the re-cut's first code lane, in a worktree beside the spine (`lane/hardening`), and
+joined here through a spine step.
+
+**What exists.**
+- **H1** (`theseusd/src/web.rs`, `theseus-core/src/webui.rs`).
+  - An axum middleware refuses any request whose `Host` (or an absolute-form target's authority) does not
+    name the UI at its real port: its bind address or `localhost`. A missing `Host` is refused too.
+  - `/ws` refuses an upgrade whose `Origin` is not `http://` and an own host, and refuses a missing
+    `Origin`.
+  - Refusals are counted in health's `web` section. The ledger's `web.refused` row comes at once for the
+    first refusal of a kind, then at most once a minute per kind, with the count, so a page can't grow the
+    store.
+  - There is no per-start token. A token served by the same page would reach exactly the clients that
+    already pass both checks. The boundary against another local user is the socket owner's uid
+    (theseus-3qf).
+- **H2** (`html.rs`). `raw_until` compares the candidate end tag as bytes.
+  - Property tests now cover every reader of outside text: the HTML reader, wake's time parsers, the SSE
+    line reader, and Discord's `split_text`. That's about 18,500 cases a run, with a random seed, so the
+    gate keeps looking.
+  - They found three more bugs, all fixed:
+    - `<ol start=4294967295>` overflowed the list count;
+    - the SSE reader garbled a multibyte character split between two network chunks, in every model reply
+      (now `SseLines`: a line is decoded whole);
+    - `split_text` looped forever, allocating, when the budget was smaller than the next character.
+- **H3** (`theseus_kernel::umask`, `theseusd` main, `toolrun.rs`, `fs.rs`).
+  - `theseusd` sets umask 077 before creating anything.
+  - The operator's own umask is kept and given back to a job's command (the wrapper's `--umask`, set in
+    `pre_exec`) and to the file tools' new files and directories.
+  - The state dir, store, and spool are created 0700, and tightened at start when they exist with group or
+    other bits.
+  - Raw job output is created 0600, and deleted once its result's node is written: in a turn
+    (`answer_job`), and for a late result after the frame that takes it from the queue (`absorb`, merged at
+    the join).
+  - No client is given a spool path: `ResultNode.full_ref` is gone, `session.history` leaves an old node's
+    out, and `ActionInfo.result_ref` drops it.
+- **H4** (`theseus-tools` `git.rs`). `git.diff` reads the working tree as git does.
+  - A symbolic link's content is its target's path, never what it points at.
+  - A path under a linked directory, or a tree path that is not plain names (`..`, `.`, absolute), is not
+    in the working tree.
+
+**How it is proven.**
+- **The lane.** Four signed commits, each gated on exactly its own tree (536, 538, 542, then 549 tests).
+  - Every fix's test was proved against a revert of the fix (`revert.py`). For example, without H1 a rebound
+    `Host` got `200 OK` and a foreign `Origin` got `101`. Without H4, the diff showed an outside file's
+    secret.
+  - The lane's live check, on a copy of Eddie's store: a WebSocket probe went 12 of 12 (foreign `Host` 403;
+    foreign, null, https, or missing `Origin` 403; the UI's own page 101, and `health` over it).
+    `web.refused` rows were at once and then a minute later, matching health's counts. The state dir and
+    store went 0775/0755 to 0700 at start.
+- **The join** (Tabitha):
+  - `lane/hardening` rebased onto f6b68eb (docs v0.64). Commits 1 to 3 applied cleanly. Commit 4 (H3)
+    conflicted in `toolrun.rs`'s `absorb`, which be71fdc had rewritten so a late result's node rides in the
+    frame that takes it from the queue. Resolved by collecting each absorbed job's raw output path in
+    `late_results`, and deleting it once that frame is written (`remove_raw_output`, shared with
+    `answer_job`). H3's own test, "absorbed, then gone" after a background job's continuation, holds the
+    merged path.
+  - `Cargo.lock` resolved unchanged (`cargo metadata`; the lane only adds `proptest` as a dev-dependency).
+  - The whole gate on the joined tree, the other lanes paused: 559 tests, lifecycle OK.
+
+**Divergence from the brief and the review.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| H1: a per-start token for the web UI (review 2's option) | `Host` and `Origin` checks, no token | A token from the same server reaches exactly the clients that pass both checks; the real boundary is the peer's uid | Keep; theseus-3qf |
+| H1: default `[web] enabled` to false in the interim (review 2) | Left on | With both checks in, the default can stay; Eddie's call if he wants it off | Keep |
+| H3: tighten the store's directories | Directories tightened at start; files that already exist keep their bits | The 0700 directories leave other users no path to them; a store made since has none | Keep |
+| H3: raw job output deleted or swept | Deleted once absorbed; output no result absorbs is not swept | The common path is clean; the rest needs a sweep by action state | theseus-2ij |
+| — | `git.diff` also refuses tree paths that climb out (`..`, absolute) | Found while reviewing the fix: a fetched tree can hold one | Keep |
+| — | Three more bugs found by the property tests, fixed | The tests were asked for; their finds came with them | Keep |
+
+**Known gaps.**
+- The web UI's port is still open to other local users' processes (theseus-3qf: refuse a peer whose uid
+  is not the daemon's).
+- Raw output that no result absorbs is not swept: a cancelled job, a crash between the frame and the
+  delete, and every file from before H3 (theseus-2ij).
+- `git.diff` and `git.log` open their repository with `gix::discover`, which climbs above the roots
+  (theseus-bsc).
+- The Vite dev server's `/ws` proxy is refused by H1, since it passes the dev page's headers (theseus-zab;
+  the built app is unaffected).
+- Health's `web` section is in the JSON only; the CLI's text summary and the web UI don't show it yet.
+- The panic policy (unwind, or abort under a supervisor) is still Eddie's call, from review 2.
+
+**Reviewed** (Tabitha, 2026-09-30, from 17:52: the report; the join from 18:21).
+- The lane's report was read in full. The fixes, their reverts, and the property tests' finds are as
+  described.
+- The join's conflict was resolved as above, and the whole gate passed on the joined tree.
+- **A live check on the release build of 5b13509**, over a fresh copy of Eddie's store (Discord off; the web
+  UI on at 7436; `proc_sync_secs = 2`):
+  - At start, the state dir went 0775 to 0700 and the store 0755 to 0700, each with its `tightened` log
+    line. The spool was made 0700.
+  - The WebSocket probe went 12 of 12, with health counting `{"refused_host": 2, "refused_origin": 5}`.
+  - An `ask -P glm` turn ran `sleep 6` through `proc.run`. The job outlived the turn's 2 s and came back
+    as a late result (a `tool.late_result` row). Its continuation ran on glm and answered "Exit code 0 —
+    joined." Afterwards the spool's `results/` was empty: the merged `absorb` deleted the raw output.
+  - No `provider.error`.
+- Eddie's unchanged note loads under the new binary.
+- **`main` fast-forwarded** to 5b13509 and pushed. `lane/hardening` was force-pushed with a lease, since it
+  was rebased.
+- **Installed at 18:34** from 5b13509: the binaries the live check ran.
+- When Eddie's daemon next starts on this build, it tightens `~/.theseus` and its store to 0700, once, with
+  a log line each.
