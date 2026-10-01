@@ -280,8 +280,8 @@ fn an_older_binarys_store_serves_at_once_and_is_marked_at_its_first_newer_record
         "the start marked the store; it wrote {:?}",
         rig.written_after(LAST)
     );
-    // A new session is a session record at schema 2 (T1's hold): the
-    // manifest is marked first.
+    // A new session is a session record at schema 3 (T1's hold, then
+    // theseus-ljr's run of failures): the manifest is marked first.
     rig.call("session.open", json!({"label": "after the upgrade"}))
         .unwrap();
     let m = rig.manifest();
@@ -293,10 +293,10 @@ fn an_older_binarys_store_serves_at_once_and_is_marked_at_its_first_newer_record
         .find(|k| k["name"] == "session")
         .cloned()
         .unwrap();
-    assert_eq!(session["schema"], 2, "{m}");
+    assert_eq!(session["schema"], 3, "{m}");
     assert!(rig
         .written_after(LAST)
-        .contains(&("session".to_string(), 2)));
+        .contains(&("session".to_string(), 3)));
 }
 
 #[test]
@@ -314,7 +314,7 @@ fn a_store_marked_newer_is_refused_with_the_message_and_left_as_it_was() {
     let log = rig.log();
     for says in [
         "session records (kind 1) at schema 7",
-        "this build reads session records up to schema 2",
+        "this build reads session records up to schema 3",
         "install the newer theseusd",
     ] {
         assert!(

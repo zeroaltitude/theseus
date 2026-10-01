@@ -2126,6 +2126,14 @@ async fn an_approved_reset_of_a_call_over_the_whole_limit_does_not_ask_again() {
     );
     // Nothing more for the driver: the session waits on its operator.
     assert!(!e.resume_pending);
+    // That is the rule for any failure (theseus-ljr): this one settled no
+    // call of its own, so nothing would retry it but the next message.
+    let next = ledgered(&r, "turn.next");
+    assert_eq!(next.len(), 1, "{next:?}");
+    assert_eq!(
+        (&next[0]["then"], &next[0]["class"], &next[0]["settled"]),
+        (&json!("park"), &json!("over_limit"), &json!(false))
+    );
 }
 
 /// The ordinary path is as it was: a call that fits the limit but not what
@@ -5613,12 +5621,13 @@ async fn a_card_whose_question_closed_silently_is_settled_by_the_reconcile() {
     );
 }
 
-/// A failed turn's notice goes where its reply would have gone.
+/// A failed turn's notice goes where its reply would have gone. A transient
+/// failure posts at once, and says it is retried with backoff; a lasting one
+/// posts when it parks (theseus-ljr, `tests_failures`).
 #[tokio::test]
 async fn a_failed_turn_posts_its_failure_to_its_place() {
     let r = rig(vec![Scripted::Fail(
-        crate::provider::ProviderError::InvalidRequest {
-            status: 400,
+        crate::provider::ProviderError::Overloaded {
             message: "no such thing".into(),
         },
     )]);
@@ -5657,6 +5666,10 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
     assert_eq!(p.len(), 1, "{p:?}");
     let body = crate::outbox::body_of(&p[0]);
     assert_eq!(body["kind"], "failed");
+    assert_eq!(
+        (&body["then"], &body["turns"]),
+        (&json!("backoff"), &json!(1))
+    );
     assert!(
         body["error"].as_str().unwrap().contains("no such thing"),
         "{body}"

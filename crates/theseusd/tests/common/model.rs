@@ -4,12 +4,15 @@
 //! tool calls `calls` gives for the turn's prompt, the last user text, or
 //! text when it gives none. One response per connection, streamed as the
 //! API streams it, as the model the request named. Every request's body is
-//! kept, in arrival order (theseus-kol).
+//! kept, in arrival order (theseus-kol), with the time it arrived. It can be
+//! told to refuse the next requests with an error status, as the API refuses
+//! (theseus-ljr).
 
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -20,9 +23,17 @@ const MODEL: &str = "claude-sonnet-5-5";
 /// Tool calls for a prompt: each a tool's wire name (`proc_run`) and its input.
 pub type Calls = dyn Fn(&str) -> Vec<(&'static str, Value)> + Send + Sync;
 
+#[derive(Default)]
+struct Seen {
+    requests: Mutex<Vec<(Instant, Value)>>,
+    /// The statuses the next requests get, one each, in order; `u16::MAX`
+    /// for every request from then on.
+    fails: Mutex<VecDeque<u16>>,
+}
+
 pub struct FakeModel {
     pub base: String,
-    requests: Arc<Mutex<Vec<Value>>>,
+    seen: Arc<Seen>,
 }
 
 impl FakeModel {
@@ -33,11 +44,11 @@ impl FakeModel {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let calls: Arc<Calls> = Arc::new(calls);
-        let requests: Arc<Mutex<Vec<Value>>> = Arc::default();
-        let seen = requests.clone();
+        let seen: Arc<Seen> = Arc::default();
+        let shared = seen.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                let (calls, seen) = (calls.clone(), seen.clone());
+                let (calls, seen) = (calls.clone(), shared.clone());
                 std::thread::spawn(move || {
                     if let Err(e) = answer(stream, &*calls, &seen) {
                         eprintln!("fake model: {e}");
@@ -45,16 +56,61 @@ impl FakeModel {
                 });
             }
         });
-        Self { base, requests }
+        Self { base, seen }
     }
 
     /// Every request's body so far, in arrival order.
     pub fn requests(&self) -> Vec<Value> {
-        self.requests.lock().unwrap().clone()
+        let r = self.seen.requests.lock().unwrap();
+        r.iter().map(|(_, v)| v.clone()).collect()
+    }
+
+    /// When each request arrived, in order.
+    pub fn arrivals(&self) -> Vec<Instant> {
+        let r = self.seen.requests.lock().unwrap();
+        r.iter().map(|(t, _)| *t).collect()
+    }
+
+    /// Refuse the next requests, one per status, with the API's error body
+    /// for it (400 `invalid_request_error`, 529 `overloaded_error`, …).
+    pub fn fail_next(&self, statuses: &[u16]) {
+        self.seen.fails.lock().unwrap().extend(statuses);
+    }
+
+    /// Refuse every request from now on with `status`.
+    pub fn fail_always(&self, status: u16) {
+        let mut f = self.seen.fails.lock().unwrap();
+        f.clear();
+        f.push_back(status);
+        f.push_back(u16::MAX);
     }
 }
 
-fn answer(mut stream: TcpStream, calls: &Calls, seen: &Mutex<Vec<Value>>) -> std::io::Result<()> {
+/// The status and body the API refuses with, by status.
+fn refusal(status: u16) -> String {
+    let (reason, kind, message) = match status {
+        400 => (
+            "Bad Request",
+            "invalid_request_error",
+            "model: the model claude-lighthouse-9 is not served",
+        ),
+        401 => ("Unauthorized", "authentication_error", "invalid x-api-key"),
+        429 => ("Too Many Requests", "rate_limit_error", "rate limited"),
+        529 => ("Overloaded", "overloaded_error", "Overloaded"),
+        _ => (
+            "Internal Server Error",
+            "api_error",
+            "Internal server error",
+        ),
+    };
+    let body = json!({"type": "error", "error": {"type": kind, "message": message}}).to_string();
+    format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut r = BufReader::new(stream.try_clone()?);
     let mut len = 0usize;
@@ -75,7 +131,22 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Mutex<Vec<Value>>) -> std
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-    seen.lock().unwrap().push(req.clone());
+    seen.requests
+        .lock()
+        .unwrap()
+        .push((Instant::now(), req.clone()));
+    let refused = {
+        let mut f = seen.fails.lock().unwrap();
+        match f.front().copied() {
+            Some(s) if f.get(1) == Some(&u16::MAX) => Some(s),
+            Some(_) => f.pop_front(),
+            None => None,
+        }
+    };
+    if let Some(status) = refused {
+        stream.write_all(refusal(status).as_bytes())?;
+        return stream.flush();
+    }
     let model = req["model"].as_str().unwrap_or(MODEL);
     let events = if carries_tool_result(&req) {
         text_turn(model, "Done.")

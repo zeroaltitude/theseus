@@ -41,7 +41,7 @@ use crate::narrative::{self, narrate, narrate_turn, Narrator};
 use crate::node::{Body, Node};
 use crate::provider::{Delta, ModelResponse, Provider, ProviderError, ToolUse};
 use crate::secrets::{SecretBoard, Waited};
-use crate::session::{title_from, SessionRecord, TargetRef};
+use crate::session::{title_from, SessionRecord, TargetRef, Then};
 use crate::startup::StartupLog;
 use crate::store::{SessionHold, Store};
 use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
@@ -941,16 +941,25 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
+        // A failed turn extends its session's run of failures (theseus-ljr),
+        // which says whether its execution retries and whether the turn posts
+        // the run's notice. A task's failure ends it (DD7), and a stopped
+        // turn waits on its next input (W1): neither is in a run.
+        let settled = frames.kernel.own_settled() > 0;
+        let run = match &r {
+            Err(e) if task_of.is_none() && stopped.is_none() => {
+                Some(self.extend_failing(&failure_sink.session_id, continuation, e, settled))
+            }
+            _ => None,
+        };
         // A turn that faults after it settled a result it reads itself (its
         // provider call's answer, a call's result) is woken, so that its
         // continuation reads what it has not and resumes its unanswered
-        // calls. That result's queue entry once requeued it; the entry is not
-        // written now (theseus-l6y). A task's fault ends it, and a stopped
-        // turn waits on its next input.
-        let woke_on_fault = r.is_err()
-            && task_of.is_none()
-            && stopped.is_none()
-            && frames.kernel.own_settled() > 0
+        // calls, unless its run of failures parks it on input. That result's
+        // queue entry once requeued it; the entry is not written now
+        // (theseus-l6y).
+        let woke_on_fault = run.as_ref().is_some_and(|(_, then, _)| *then != Then::Park)
+            && settled
             && match self.kernel.wake(&exec_id, "fault") {
                 Ok(_) => true,
                 Err(e) => {
@@ -1005,13 +1014,16 @@ impl TurnRunner {
                 },
                 // The class and the turn ride beside it: the cause, once.
                 error: te.map_or_else(|| format!("{e:#}"), |t| format!("{:#}", t.source)),
+                then: run.as_ref().map(|(_, then, _)| then.as_str().to_string()),
             };
-            // A failed turn must be seen where its reply would have gone. A
-            // task's report says it failed instead (DD7), and a stopped
-            // turn's stop said it (W1).
-            if task_of.is_none() && stopped.is_none() {
+            // A failed turn must be seen where its reply would have gone, once
+            // per run of failures (theseus-ljr): its first, if it retries with
+            // backoff, and the one that parks it. A task's report says it
+            // failed instead (DD7), and a stopped turn's stop said it (W1).
+            if let Some((failing, _, true)) = &run {
                 let mut body = serde_json::to_value(&failed).unwrap_or_default();
                 body["kind"] = json!("failed");
+                body["turns"] = json!(failing.turns);
                 if let Err(e) = self.outbox.post_for(&failed.session_id, &exec_id, body) {
                     tracing::warn!(error = %format!("{e:#}"), "the failed turn's notice was not written");
                 }
@@ -1031,18 +1043,111 @@ impl TurnRunner {
                  turn."
             );
         }
-        if woke_on_fault {
-            narrate!(
+        match &run {
+            Some((f, Then::Backoff, _)) if woke_on_fault => narrate!(
                 self.narrator,
                 Session,
                 sid.as_deref(),
                 None,
-                "Woken again at once: the turn stopped before its model read what \
-                 it had settled, so a continuation takes it up."
-            );
+                "Woken again: {} passes with time, so the driver retries with its backoff \
+                 ({} in a row).",
+                f.class,
+                narrative::count(f.turns as u64, "failed turn", "failed turns")
+            ),
+            Some((f, Then::Retry, _)) if woke_on_fault => narrate!(
+                self.narrator,
+                Session,
+                sid.as_deref(),
+                None,
+                "Woken for one retry: {} will not pass by waiting, but a config or profile \
+                 change may have cured it.",
+                f.class
+            ),
+            Some((f, Then::Park, _)) => narrate!(
+                self.narrator,
+                Session,
+                sid.as_deref(),
+                None,
+                "Not retried: {} ({}), so the session waits on its next message, which \
+                 retries.",
+                f.class,
+                if settled {
+                    "it failed again after its retry"
+                } else {
+                    "it failed before any provider call returned"
+                }
+            ),
+            _ => {}
         }
         self.admission.notify_waiters();
         r.map(|(res, _, _)| res)
+    }
+
+    /// Extend the session's run of failures by a failed turn (theseus-ljr):
+    /// the rule's answer (`Failing::after`), written with the run in one
+    /// frame, beside a `turn.next` row. An input turn starts a new run. A
+    /// record that cannot be written still gets the rule's answer, from the
+    /// run as it was.
+    fn extend_failing(
+        &self,
+        sid: &str,
+        continuation: bool,
+        e: &anyhow::Error,
+        settled: bool,
+    ) -> (crate::session::Failing, Then, bool) {
+        let te = e.downcast_ref::<TurnError>();
+        // A fault is not a class the provider gave: one retry, as any
+        // failure that may not pass.
+        let (class, transient) =
+            te.map_or(("internal", false), |t| (t.class.as_str(), t.transient));
+        let mut decided = None;
+        let written = self.store.update_session(sid, |r| {
+            let prev = r.failing.take().filter(|_| continuation);
+            let (run, then, notice) = crate::session::Failing::after(
+                prev,
+                class,
+                transient,
+                settled,
+                theseus_protocol::now_unix_ms(),
+            );
+            let row = LedgerRow::new(
+                "turn.next",
+                Some(sid),
+                te.map(|t| t.turn_id.as_str()).filter(|t| !t.is_empty()),
+                json!({"then": then, "class": class, "transient": transient, "settled": settled,
+                       "turns": run.turns, "lasting": run.lasting, "notice": notice,
+                       "since_ms": run.since_ms}),
+            );
+            r.failing = Some(run.clone());
+            decided = Some((run, then, notice));
+            Ok(vec![NewRecord::json(
+                theseus_store::kinds::LEDGER,
+                None,
+                &row,
+            )?])
+        });
+        match (written, decided) {
+            (Ok(Some(_)), Some(d)) => d,
+            (w, _) => {
+                if let Err(err) = w {
+                    tracing::warn!(session_id = %sid, error = %format!("{err:#}"), "the run of failures was not written");
+                }
+                let prev = self
+                    .store
+                    .get_session::<SessionRecord>(sid)
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.failing)
+                    .filter(|_| continuation);
+                crate::session::Failing::after(
+                    prev,
+                    class,
+                    transient,
+                    settled,
+                    theseus_protocol::now_unix_ms(),
+                )
+            }
+        }
     }
 
     /// One turn under the lock (§3.3): catch up on what happened while no
@@ -1088,6 +1193,12 @@ impl TurnRunner {
         let runs_on = TargetRef::from(&target);
         let moved = session.last_target.as_ref() != Some(&runs_on);
         session.last_target = Some(runs_on.clone());
+        // New input starts a new run of failures (theseus-ljr): it is the
+        // retry a parked execution waits for. The turn's session writes
+        // carry the reset.
+        if input.is_some() {
+            session.failing = None;
+        }
         let sid = session.session_id.clone();
         let turn_id = crate::new_id("turn");
         let task_of = session.task.clone();
@@ -1244,6 +1355,9 @@ impl TurnRunner {
             let uses = resp.tool_uses();
             // A call that fit: a later one over the limit asks again.
             t.retry_over_limit = false;
+            // The model answered: whatever run of failures the session was in
+            // has ended (theseus-ljr).
+            session.failing = None;
             // A stop that landed while the model answered (W1): its answer is
             // kept, and none of its calls run.
             if let Some(by) = stopped_by(&t.tc)? {

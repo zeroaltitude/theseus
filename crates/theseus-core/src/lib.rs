@@ -63,6 +63,8 @@ mod tests_continuations;
 #[cfg(test)]
 mod tests_external;
 #[cfg(test)]
+mod tests_failures;
+#[cfg(test)]
 mod tests_m3;
 #[cfg(test)]
 mod tests_outside_text;

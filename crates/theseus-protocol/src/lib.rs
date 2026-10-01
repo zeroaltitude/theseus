@@ -1834,6 +1834,12 @@ pub struct TurnFailed {
     #[serde(default)]
     pub class: Option<String>,
     pub error: String,
+    /// What the execution does next (theseus-ljr): `backoff` (the driver
+    /// retries while the class lasts), `retry` (once), or `park` (it waits
+    /// on input, and the next message retries). Absent for a task's turn and
+    /// a stopped one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub then: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

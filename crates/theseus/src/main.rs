@@ -2649,8 +2649,15 @@ impl Printer {
             }
             notify::TURN_FAILED => {
                 self.settle();
+                // What follows it (theseus-ljr).
+                let then = match p.get("then").and_then(Value::as_str) {
+                    Some("backoff") => " [retrying with backoff]",
+                    Some("retry") => " [retrying once]",
+                    Some("park") => " [not retried: the next message retries]",
+                    _ => "",
+                };
                 eprintln!(
-                    "  ✗ turn failed{}: {}",
+                    "  ✗ turn failed{}: {}{then}",
                     p.get("class")
                         .and_then(Value::as_str)
                         .map(|c| format!(" ({c})"))

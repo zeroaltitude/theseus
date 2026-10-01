@@ -869,9 +869,25 @@ pub fn settled_note(content: &str, dm: Option<&str>) -> String {
     }
 }
 
-/// A turn that failed, as its notice says it.
-pub fn failed(class: &str, error: &str) -> String {
-    format!("⚠️ **Turn failed** ({class}): {}", clip(error, 600))
+/// A turn that failed, as its notice says it. A run of failures posts one
+/// notice, at its first failure when the driver retries with backoff, and
+/// one more when it parks (theseus-ljr), so the notice says which: `then`
+/// is `backoff` or `park`, and `turns` the failed turns in a row. A post
+/// written before theseus-ljr has neither.
+pub fn failed(class: &str, error: &str, then: Option<&str>, turns: u64) -> String {
+    let head = format!("⚠️ **Turn failed** ({class}): {}", clip(error, 600));
+    match then {
+        Some("backoff") => format!(
+            "{head}\n-# Retrying with backoff while it lasts. No more notices for it: the reply \
+             comes when the provider answers."
+        ),
+        Some("park") if turns > 1 => format!(
+            "{head}\n-# Failed {turns} times in a row, so nothing retries it now: your next \
+             message does."
+        ),
+        Some("park") => format!("{head}\n-# Nothing retries it now: your next message does."),
+        _ => head,
+    }
 }
 
 /// This place's tasks (DD7), as `/tasks` lists them: the newest ten, each
@@ -2213,9 +2229,17 @@ mod tests {
             assert!(!r.busy());
         }
         assert_eq!(
-            failed("overloaded", "try later"),
+            failed("overloaded", "try later", None, 1),
             "⚠️ **Turn failed** (overloaded): try later"
         );
+        // A run of failures says what follows (theseus-ljr).
+        assert!(failed("overloaded", "try later", Some("backoff"), 1)
+            .ends_with("Retrying with backoff while it lasts. No more notices for it: the reply comes when the provider answers."));
+        assert!(failed("invalid_request", "bad", Some("park"), 2).ends_with(
+            "Failed 2 times in a row, so nothing retries it now: your next message does."
+        ));
+        assert!(failed("over_limit", "too big", Some("park"), 1)
+            .ends_with("\n-# Nothing retries it now: your next message does."));
     }
 
     #[test]

@@ -448,6 +448,8 @@ impl Lane {
                 let t = render::failed(
                     body["class"].as_str().unwrap_or("error"),
                     body["error"].as_str().unwrap_or(""),
+                    body["then"].as_str(),
+                    body["turns"].as_u64().unwrap_or(1),
                 );
                 Ok(Plan {
                     writes: vec![text(t, key, channel, None)],

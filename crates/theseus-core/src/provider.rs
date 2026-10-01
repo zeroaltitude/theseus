@@ -417,8 +417,11 @@ impl ProviderError {
         }
     }
 
-    /// Whether a later identical call could plausibly succeed. This informs a
-    /// human or a future policy; Theseus never retries on its own here.
+    /// Whether a later identical call could plausibly succeed: the classes
+    /// that pass with time, which the driver retries with its backoff for as
+    /// long as they last (theseus-ljr). A stream the provider broke off with
+    /// an error event (an `overloaded_error` mid-stream) is one. Every other
+    /// class gets one retry, then waits on the operator's next message.
     pub fn is_transient(&self) -> bool {
         matches!(
             self,
@@ -427,6 +430,7 @@ impl ProviderError {
                 | ProviderError::RateLimited { .. }
                 | ProviderError::Overloaded { .. }
                 | ProviderError::Server { .. }
+                | ProviderError::Stream { .. }
                 | ProviderError::Truncated { .. }
         )
     }
