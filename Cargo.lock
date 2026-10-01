@@ -2993,6 +2993,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "theseus-memory"
+version = "0.0.1"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "theseus-ontology"
 version = "0.0.1"
 dependencies = [

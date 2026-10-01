@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/theseus-protocol",
+    "crates/theseus-memory",
     "crates/theseus-store",
     "crates/theseus-kernel",
     "crates/theseus-tools",
