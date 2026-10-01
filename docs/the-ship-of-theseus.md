@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.66
+# The Ship of Theseus — v0.67
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -427,6 +427,7 @@ The call's tool line and its notice say what it was given ("gh got GH_TOKEN"). A
   - If the session's place is not a trusted channel, the card goes to a trusted user's DM (the requester's, when theirs is bound), and the place gets a one-line note that approval was asked there.
   - With no trusted DM, the place gets only the note, which says where to answer.
   - A card names only the trusted local surfaces as other places to answer.
+- **A card names who can answer it** (theseus-9j9; built 2026-10-01, Part III A4 Item 15). A card is the one message that waits on a human, so in a guild channel it starts by mentioning the users who can answer it there: the place's `users`, and under `[approval]`, only the trusted ones among them. Its `allowed_mentions.users` is exactly them, so Discord notifies them and nobody else. A card in a DM, or routed to one, names no one. Every other message (a reply, a tool line, a notice, a narration) is sent with empty `allowed_mentions`, so its text can say `<@id>` and still notify nobody.
 - **Without an `[approval]` section there is no rule**: the CLI, the local web UI, and a place's listed Discord users answer, as before. Once the section exists, `channels` defaults to the CLI and the web UI, and `trusted_users` to nobody.
 - Health, `theseus health`, and the Observatory list the trusted users and each listed channel's state (trusted, or not trusted and why).
 - The approver must also hold the capability (confirmation is not authorization, below). _Not built: until roles and delegation land (M4), every execution's principal is the operator, and a trusted user answers with the operator's authority._
@@ -591,7 +592,11 @@ Rules: one execution per session, one turn at a time per execution; an execution
 - A continuation that finds results after the model's last answer calls the model. It was woken to have them read: a failure's or a fault's retry, a late result taken at a turn's end, or a crash. It never ends `nothing_new` on them.
 - A result leaves the execution's queue only in the frame that writes it into the session (§4.6).
 - A turn that stops short of its results by its own decision (its loop cap, `/stop`) parks on input, and nothing wakes it without writing something new.
-- A failure, transient or not, is retried by the driver with its backoff (2 s, doubling, capped at 256 s). Until theseus-ljr, one that recurs is retried without end, with a notice each time.
+- **A failure's retries are bounded** (theseus-ljr; built 2026-10-01, Part III A4 Item 15). A failed turn extends its session's run of failures. The session record keeps the run (`failing`, session schema 3), so a restart neither retries it again nor posts its notice twice. A turn whose model answers ends the run, and so does new input.
+  - A class that passes with time (overloaded, rate limited, a server error, a timeout, the network, a broken or cut stream) is retried by the driver with its backoff (2 s, doubling, capped at 256 s) for as long as it lasts.
+  - Any other class (a 400, a 401, a model the provider does not serve, an internal fault) gets one retry, since a config or profile change may have cured it. Its second failure parks the execution on input, and the next message retries.
+  - A turn that failed before any provider call returned (a call over the whole limit after an approved reset, an unpriced model) has nothing a retry would change, and parks at once.
+  - The run posts one notice where the reply would have gone: at its first failure when it backs off, and again when it parks, saying that the next message retries. The ledger's `turn.next` row says what each failed turn led to.
 
 _(theseus-id9; Part III A3c.)_
 
@@ -1047,6 +1052,20 @@ came with it, and a tool result may carry an image.
   or 4,784.
 - **Refused.** An image over 5 MiB or 8,000 px on a side, or whose bytes are not one of the four types, is listed
   with the reason.
+- **An image the provider refuses is shown as its line** (theseus-0s4; built 2026-10-01, Part III A4 Item 15). A node
+  is written once, so an image the provider rejected went out again in every later request of its session, and
+  failed it the same way. Examples: corrupt pixel data behind a valid header, or a limit the sniffer doesn't check.
+  - A 400 that names an image now marks it not shown in the session record (`not_shown`, by its blob's digest;
+    session schema 4), with an `image.not_shown` row.
+  - The turn makes the call again at once, with the image's line ("not shown, the provider refused it (…)") in its
+    place.
+  - Which image a 400 means: a 400 names one by its block's path. Anthropic's own "Could not process image" names
+    none, so then the error means the images the model has not answered over yet: those after its last answer, or
+    the request's only image when none is new.
+  - This happens once a turn. A refusal that names no image fails as any other, under §3.15's rule.
+  - Every later request, recompile, and restart renders the line, for every copy of the image.
+  - When a copy sat before one of the model's answers, the retry's compilation strips the thinking before it
+    (`image_not_shown`), since the provider binds a thinking block to every message before it.
 
 ### 4.4a When a session is recompiled
 
@@ -4950,3 +4969,109 @@ same approvals and notifications as a normal agent. So the pilot has no second u
 - **The verdict on more builders:** yes for the coding. Not yet for unattended steps with a live check, until
   theseus-9j9 and theseus-2tw land. The next spine step folds in 9j9, which is cheap and recovers the pilot's
   hour.
+
+### Item 15. Fix batch 1, part 2: no endless retry, a card that reaches its answerer, and an image that can't poison a session (theseus-ljr, theseus-9j9, theseus-0s4; 2026-09-30 23:27 to 2026-10-01 02:31; 6b9e515, 02e7834, 276205b, c27c661, 8ed512f)
+
+**Why.** The roadmap re-cut's row 3, split, with the pilot's theseus-9j9 folded in.
+- A failure that would not pass was retried forever, with a notice each time (theseus-ljr, raised to P1
+  at Item 12's review).
+- The pilot's builder lost an hour to approval cards that pinged nobody: two waited 30 minutes each.
+- The 9g2 review's first risk: an image the provider rejects went out again in every later request of its
+  session (theseus-0s4).
+
+**What exists.**
+- **ljr, a failure's retries are bounded** (§3.15):
+  - the session record keeps its run of failures (`failing`, session schema 3);
+  - a transient class keeps the driver's backoff for as long as it lasts;
+  - any other class, an internal fault included, gets one silent retry, then parks the execution on input;
+  - a turn that settled nothing of its own (kks's `over_limit`, an unpriced model) parks at once;
+  - the run posts one notice, plus one when it parks, and `turn.next` ledgers each decision.
+- **9j9, a card names who can answer it** (the Discord binding):
+  - in a guild channel a card starts with `<@id>` for the place's `users` (under `[approval]`, its trusted
+    ones), and its `allowed_mentions.users` is exactly them;
+  - every other message, and a card in or routed to a DM, mentions no one;
+  - `discord.message.out` records the mentions Discord answered with.
+- **0s4, an image the provider refuses is shown as its line** (attachments, §4.4):
+  - a 400 that names an image marks it not shown in the session record (`not_shown`, by digest, session
+    schema 4) and makes the call again with its line, once a turn;
+  - Anthropic's own "Could not process image" names no block, and then the error means the images after
+    the model's last answer;
+  - every later request, recompile, and restart renders the line, for every copy;
+  - when a copy sat before an answer, the retry strips the prefix's thinking (`image_not_shown`), which
+    preserved thinking requires.
+- Two schema bumps in one step: SESSION 2 to 3 (ljr), then to 4 (0s4). Each has its reader and test, per
+  P5b. **A store this build has written a session record to is refused by 02e7834 and older**, and one
+  6b9e515 wrote is refused by d10294f and older.
+
+**How it is proven.**
+- The gates: 572 tests at 6b9e515, 576 at 02e7834, 582 at 276205b, 583 at c27c661, and 584 at 8ed512f,
+  each with the lifecycle bench OK. Each fix was switched off once, and its tests failed as the bug did. The frame
+  budget still holds 5.
+- The tests:
+  - ljr: `tests_failures`, and `theseusd/tests/failures.rs` (the real driver: no third call 4 s after the
+    park; the 529's backoff kept);
+  - 9j9: `tests_outbox` with the fake Discord's notification model;
+  - 0s4: five `tests_m3` turn tests and the parser's tests.
+- The live checks, on release builds and fresh state dirs from Eddie's note:
+  - ljr: a model the provider does not serve failed twice and parked, with no third attempt 5 min 41 s
+    later, and the next message answered;
+  - 9j9: a card in `#theseus-test` pinged Eddie once (Discord's answer: `mentions` = his id alone), and
+    the footer, tool line, and reply mentioned no one;
+  - 0s4, on Sonnet 5.5: Anthropic refused a PNG with a valid header and corrupt pixel data with a 400,
+    "Could not process image", which names no block. The image was hidden, the call was made again, and
+    the model said it could not see it. The next turn, and one after a restart, answered with no 400. On
+    8ed512f, a session holding an image the model had answered over hid only the new one, and the model
+    could still see the first.
+
+**Divergence from the brief and the issues.**
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| ljr: a non-transient class retries once | And a turn that settled nothing of its own parks at once | A retry of a call that was never made changes nothing; kks's `over_limit` is that case | Keep |
+| ljr: transient and non-transient provider classes | An internal fault is a lasting class (`internal`) | A recurring fault was retried forever too | Keep |
+| ljr: one notice per run of failures | One, plus the park's when a run that backed off turns lasting | The park changes what the user must do | Keep |
+| ljr: (not said) where the run is kept | On the session record, schema 3 | A restart must neither retry it again nor post twice | Keep |
+| 9j9: show the card's mentions | `discord.message.out` records Discord's `mentions` | The read-back the live check needed | Keep |
+| 0s4: mark the attachment not shown | Marked by blob digest, per session, so every copy hides | The same image sent again would fail the same way | Keep |
+| 0s4: render the line and retry | Also strip the thinking over a changed history | Sonnet and Opus 5.5 bind a thinking block to every message before it | Keep |
+| 0s4: a 400 that names an image, or its block's index | Also one that names neither: the images after the model's last answer | Anthropic's 400 for a corrupt PNG names no block, so a session holding another image stayed poisoned | Keep |
+| 0s4: one commit | Three (276205b, c27c661, 8ed512f) | Run 3 found the strip blind to an earlier copy, and the live check found the 400 without a path | Keep |
+| 0s4: check the two image limits against the claude-api reference | Not in its bundle (2.1.285 and 2.1.286) | The live vision docs were out of bounds | Unverified, in theseus-8gf |
+
+**Known gaps.**
+- A turn hides one refused image: a request with several bad images (a many-image limit) recovers one
+  per turn, with ljr's park in between (theseus-8gf, P3).
+- Theseus rebuilds `messages` from its nodes for every request, and has never run preserved thinking's
+  three-step check. An account created on or after 2026-08-31 would see any rendering drift as a 400
+  (theseus-3za, P2).
+- An image's retry takes a loop index, so it can run one call past `max_loops` (40 in Eddie's note)
+  (theseus-6hk, P3).
+
+**Reviewed** (Tabitha, 2026-10-01, 02:32 to 02:53).
+- **Reading the code.**
+  - ljr: `Failing::after` decides from the run so far. A turn that settled nothing parks at once. A call the
+    provider answered with an error counts as settled, so a 529 on a turn's first call still backs off. An
+    input turn starts a new run, and the model's answer ends one. When the record cannot be written, the
+    rule still answers, from the run as it was.
+  - 9j9: only a card in a guild channel names anyone. `answerers` is the place's users, and under
+    `[approval]` only its trusted ones; `allowed_mentions.users` is exactly them. Every other message
+    sends `parse: []` and no `users`.
+  - 0s4: a 400 that names no block falls back to the images after the model's last answer, and only when
+    its text says "image". A lone image with nothing newer hides itself; older images with nothing newer
+    hide nothing. The marks reach the store at once, one per digest, each with an `image.not_shown` row.
+- **The live check**, on the release build of 8ed512f, over a copy of Eddie's store (Discord and the web UI
+  off, its own socket and state dir):
+  - d10294f and 8ed512f list the same five sessions, and each session's history is byte-identical under
+    both.
+  - One Sonnet 5.5 turn on 8ed512f ($0.0129) wrote a session record at schema 4, and a restart read it back.
+  - d10294f then refused the copy: "holds session records (kind 1) at schema 4, and this build reads session
+    records up to schema 2: install the newer theseusd".
+  - `theseusd check` on Eddie's note: 8 secrets resolved, and the GitHub token is ok.
+- **The gate rerun** at 8ed512f on `main` (02:43 to 02:44): 584 tests, lifecycle OK in 7.0 s.
+- **Eddie's store was copied** to `~/.theseus-backups/store-pre-fb1b-20261001-024659` before the install. It
+  is the only rollback.
+- **Installed at 02:50** from 8ed512f, which the step had already pushed to `main`.
+- **Part I** now says what the three fixes do: §3.15's bounded retries, a card's answerers in the Discord
+  binding, and the refused image in attachments.
+- **Builders.** With 9j9 in, a builder's card now reaches Eddie. theseus-2tw (a scratch root for a builder's
+  live check) is what still stands between a builder and an unattended step, and the friction batch takes it.
