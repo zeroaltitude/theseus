@@ -862,14 +862,27 @@ impl Core {
         json!({"watching": false})
     }
 
-    /// `shutdown`: ledgered, the index checkpointed, and the daemon told to
-    /// stop. `theseusd` flushes telemetry once its serving loop ends, bounded.
+    /// The daemon stops at once: ledgered, the index checkpointed, and the
+    /// serving loops woken. `theseusd` flushes telemetry once its serving
+    /// loop ends, bounded. A restart onto the vault's changed note stops so;
+    /// a client's `shutdown` wakes the loops only once its answer is on the
+    /// wire (`stopping`, theseus-ur0).
     pub(super) fn stop(&self) -> Value {
+        let answer = self.stopping();
+        self.shutdown.notify_waiters();
+        answer
+    }
+
+    /// `shutdown`'s work before its answer: the row and the checkpoint. The
+    /// connection that asked wakes the serving loops after it has written
+    /// the answer (`serve_connection`), since the runtime's end could cancel
+    /// that connection's writer first, and the client would see the
+    /// connection close unanswered though the daemon stopped (theseus-ur0).
+    pub(super) fn stopping(&self) -> Value {
         let _ =
             self.store
                 .append_ledger(&LedgerRow::new("server.stopping", None, None, Value::Null));
         let _ = self.store.checkpoint();
-        self.shutdown.notify_waiters();
         json!({"ok": true})
     }
 }

@@ -1668,3 +1668,81 @@ async fn a_turn_does_not_wait_for_a_receiver_that_hangs() {
     assert_eq!(t["state"], "exporting");
     assert_eq!(t["traces_sent"], 0);
 }
+
+// ---------------------------------------------------------------- a stop's answer (theseus-ur0)
+
+/// A connection's writer that keeps what was written, so a test sees what
+/// was on the wire at a given moment.
+#[derive(Clone, Default)]
+struct Wire(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl tokio::io::AsyncWrite for Wire {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        std::task::Poll::Ready(Ok(buf.len()))
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+/// A client's `shutdown` wakes the serving loops only once its answer is
+/// written (theseus-ur0). When they wake, the daemon's runtime ends and takes
+/// the connection's writer with it, so what is on the wire then is all the
+/// client gets. The stop used to wake them inside the method, before its
+/// answer was even queued: on this single-threaded runtime the woken loop
+/// ran first, every time, and found nothing written.
+#[tokio::test]
+async fn a_shutdown_wakes_the_serving_loops_only_once_its_answer_is_written() {
+    let core = test_core("unused");
+    let wire = Wire::default();
+    let (client, server) = duplex(64 * 1024);
+    let srv = tokio::spawn(
+        core.clone()
+            .serve_connection(server, wire.clone(), "test".into()),
+    );
+    // The serving loop: woken by the stop, it reads what is on the wire.
+    let (ready, waiting) = tokio::sync::oneshot::channel();
+    let at_wake = {
+        let (core, wire) = (core.clone(), wire.clone());
+        tokio::spawn(async move {
+            let stop = core.shutdown.notified();
+            tokio::pin!(stop);
+            stop.as_mut().enable();
+            let _ = ready.send(());
+            stop.await;
+            String::from_utf8(wire.0.lock().unwrap().clone()).unwrap()
+        })
+    };
+    waiting.await.unwrap();
+    let (_cr, mut cw) = tokio::io::split(client);
+    let mut line =
+        serde_json::to_string(&Request::new(Id::Num(7), method::SHUTDOWN, Value::Null)).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let written = tokio::time::timeout(Duration::from_secs(5), at_wake)
+        .await
+        .expect("the stop woke the serving loops")
+        .unwrap();
+    let answer = written
+        .lines()
+        .next()
+        .expect("the stop's answer was on the wire when the serving loops woke");
+    let answer: Response = serde_json::from_str(answer).unwrap();
+    assert_eq!(answer.id, Id::Num(7));
+    assert_eq!(answer.result, Some(json!({"ok": true})));
+    srv.abort();
+}

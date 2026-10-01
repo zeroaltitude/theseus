@@ -771,6 +771,12 @@ async fn serve_socket(
     tokio::spawn(after_bind);
 
     let mut conn_id: u64 = 0;
+    // Registered once, before the loop: `notify_waiters` wakes only the
+    // waiters registered when it is called, so a stop that lands while the
+    // loop is taking a connection would otherwise be missed.
+    let stop = core.shutdown.notified();
+    tokio::pin!(stop);
+    stop.as_mut().enable();
     loop {
         tokio::select! {
             accepted = listener.accept() => {
@@ -793,7 +799,7 @@ async fn serve_socket(
                     }
                 });
             }
-            _ = core.shutdown.notified() => {
+            _ = &mut stop => {
                 tracing::info!("shutdown requested over protocol");
                 break;
             }

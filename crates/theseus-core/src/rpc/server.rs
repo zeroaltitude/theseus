@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use theseus_protocol::{error_code, method, Id, Message, Request, Response};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use super::Core;
 use crate::approval::{Answerer, Client, Peer, Surface};
@@ -84,19 +84,37 @@ impl Core {
         // turn's events always precede its response on the wire.
         let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
         let resp_tx = tx.clone();
+        // Asks to be told once everything queued before the ask is written
+        // (theseus-ur0): a stop's answer, before the serving loops wake.
+        let (flush_tx, mut flush_rx) = mpsc::unbounded_channel::<oneshot::Sender<()>>();
 
         let writer_task = tokio::spawn(async move {
-            while let Some(m) = rx.recv().await {
-                let line = serde_json::to_string(&m);
-                match line {
-                    Ok(mut s) => {
-                        s.push('\n');
-                        if writer.write_all(s.as_bytes()).await.is_err() {
+            loop {
+                tokio::select! {
+                    biased;
+                    m = rx.recv() => match m {
+                        Some(m) => {
+                            if !write_line(&mut writer, &m).await {
+                                break;
+                            }
+                        }
+                        None => break,
+                    },
+                    Some(ack) = flush_rx.recv() => {
+                        // An ask is sent after what it waits for was queued,
+                        // so all of that can be taken now.
+                        let mut open = true;
+                        while let Ok(m) = rx.try_recv() {
+                            open = write_line(&mut writer, &m).await;
+                            if !open {
+                                break;
+                            }
+                        }
+                        let _ = ack.send(());
+                        if !open {
                             break;
                         }
-                        let _ = writer.flush().await;
                     }
-                    Err(_) => continue,
                 }
             }
             let _ = writer.shutdown().await;
@@ -124,11 +142,17 @@ impl Core {
                     let core = self.clone();
                     let tx = tx.clone();
                     let resp_tx = resp_tx.clone();
+                    let flush_tx = flush_tx.clone();
                     let client = client.clone();
                     let peer = peer.clone();
+                    let shutdown = req.method == method::SHUTDOWN;
                     tokio::spawn(async move {
-                        let resp = core.handle(req, tx, &client, surface, &peer).await;
+                        let resp = core.clone().handle(req, tx, &client, surface, &peer).await;
+                        let stopping = shutdown && resp.error.is_none();
                         let _ = resp_tx.send(Message::Response(resp));
+                        if stopping {
+                            core.wake_after_answer(&flush_tx).await;
+                        }
                     });
                 }
                 Message::Notification(n) => {
@@ -139,10 +163,23 @@ impl Core {
         }
         drop(tx);
         drop(resp_tx);
+        drop(flush_tx);
         self.bus.drop_conn(&client);
         self.narrator.unwatch(&client);
         let _ = writer_task.await;
         Ok(())
+    }
+
+    /// Wake the serving loops for a client's `shutdown` once its answer is on
+    /// the wire (theseus-ur0): the connection's writer says when everything
+    /// queued before the ask is written, or that it is gone. Bounded, so a
+    /// client that never reads cannot hold the stop.
+    async fn wake_after_answer(&self, flush: &mpsc::UnboundedSender<oneshot::Sender<()>>) {
+        let (ack, written) = oneshot::channel();
+        if flush.send(ack).is_ok() {
+            let _ = tokio::time::timeout(ANSWER_FLUSH, written).await;
+        }
+        self.shutdown.notify_waiters();
     }
 
     async fn handle(
@@ -240,13 +277,33 @@ impl Core {
             }
             method::NARRATIVE_WATCH => reply(self.narrative_watch(conn)),
             method::NARRATIVE_UNWATCH => reply(self.narrative_unwatch(conn)),
-            method::SHUTDOWN => reply(self.stop()),
+            // The loops wake once the answer is written (`serve_connection`).
+            method::SHUTDOWN => reply(self.stopping()),
             other => Err(RpcFailure::new(
                 error_code::METHOD_NOT_FOUND,
                 format!("unknown method {other:?}"),
             )),
         }
     }
+}
+
+/// The longest a client's `shutdown` waits for its answer to be written
+/// before the serving loops wake (theseus-ur0). A write takes microseconds;
+/// the bound is for a client that stopped reading.
+const ANSWER_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Write one message as an NDJSON line and flush it. False once the
+/// connection is gone; a message that does not serialize is skipped.
+async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool {
+    let Ok(mut s) = serde_json::to_string(m) else {
+        return true;
+    };
+    s.push('\n');
+    if writer.write_all(s.as_bytes()).await.is_err() {
+        return false;
+    }
+    let _ = writer.flush().await;
+    true
 }
 
 /// The methods that change anything or start work (theseus-2fo). Until the
