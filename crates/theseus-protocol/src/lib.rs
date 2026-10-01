@@ -384,6 +384,18 @@ pub struct WebStatus {
     /// any user is served.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_unchecked: Option<String>,
+    /// `[web] dev_origin`, when set (theseus-zab): the Vite dev page, whose
+    /// `/ws` upgrades are served beside the UI's own page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dev_origin: Option<String>,
+    /// The `/ws` upgrades served for it, each ledgered as `web.dev_origin`
+    /// at most once a minute.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dev_origin_served: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// Where the vault's secrets stand (theseus-qa0, spec §2 FAST): the daemon

@@ -9,7 +9,8 @@
 //! `web.refused` row for the first of each kind at once, then at most one a
 //! minute, which says how many refusals it stands for: a page can retry
 //! thousands of times a second, and each row is a frame in the WAL. Nothing
-//! is narrated.
+//! is narrated. The dev page's uses (`[web] dev_origin`, theseus-zab) are
+//! counted and ledgered the same way, as `web.dev_origin`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -62,7 +63,16 @@ pub struct Refusals {
     host: Kind,
     origin: Kind,
     peer: Kind,
+    /// The dev page's `/ws` upgrades, served (theseus-zab).
+    dev: Kind,
     every: Duration,
+}
+
+/// What a row stands for: refusals of one kind, or the dev page's uses.
+#[derive(Debug, Clone, Copy)]
+enum Row {
+    Refused(Why),
+    DevOrigin,
 }
 
 #[derive(Default)]
@@ -105,15 +115,17 @@ impl Refusals {
             host: Kind::default(),
             origin: Kind::default(),
             peer: Kind::default(),
+            dev: Kind::default(),
             every,
         }
     }
 
-    fn kind(&self, why: Why) -> &Kind {
-        match why {
-            Why::Host => &self.host,
-            Why::Origin => &self.origin,
-            Why::Peer => &self.peer,
+    fn kind(&self, row: Row) -> &Kind {
+        match row {
+            Row::Refused(Why::Host) => &self.host,
+            Row::Refused(Why::Origin) => &self.origin,
+            Row::Refused(Why::Peer) => &self.peer,
+            Row::DevOrigin => &self.dev,
         }
     }
 
@@ -122,6 +134,16 @@ impl Refusals {
     /// writes when the span is up. Runs inside the runtime (the timer is a
     /// task).
     pub fn refuse(self: &Arc<Self>, store: &Store, why: Why, detail: Value) {
+        self.note(store, Row::Refused(why), detail);
+    }
+
+    /// Count a `/ws` upgrade served for `[web] dev_origin` (theseus-zab),
+    /// ledgered as `web.dev_origin` under the same rule.
+    pub fn dev_origin(self: &Arc<Self>, store: &Store, detail: Value) {
+        self.note(store, Row::DevOrigin, detail);
+    }
+
+    fn note(self: &Arc<Self>, store: &Store, why: Row, detail: Value) {
         let k = self.kind(why);
         k.total.fetch_add(1, Ordering::Relaxed);
         let now = Instant::now();
@@ -156,32 +178,46 @@ impl Refusals {
         }
     }
 
-    pub fn status(&self) -> theseus_protocol::WebStatus {
+    /// Health's `web`, with the configured `[web] dev_origin`.
+    pub fn status(&self, dev_origin: Option<&str>) -> theseus_protocol::WebStatus {
         theseus_protocol::WebStatus {
             refused_host: self.host.total.load(Ordering::Relaxed),
             refused_origin: self.origin.total.load(Ordering::Relaxed),
             refused_peer: self.peer.total.load(Ordering::Relaxed),
             peer_unchecked: (!cfg!(target_os = "linux")).then(|| PEER_UNCHECKED.to_string()),
+            dev_origin: dev_origin.map(str::to_string),
+            dev_origin_served: self.dev.total.load(Ordering::Relaxed),
         }
     }
 }
 
-fn ledger(store: &Store, why: Why, count: u64, last: Value) {
-    tracing::warn!(
-        why = why.as_str(),
-        count,
-        last = %last,
-        "the web UI refused {count} {}",
-        why.what()
-    );
-    let row = LedgerRow::new(
-        "web.refused",
-        None,
-        None,
-        json!({"why": why.as_str(), "count": count, "last": last}),
-    );
+fn ledger(store: &Store, why: Row, count: u64, last: Value) {
+    let (kind, data) = match why {
+        Row::Refused(why) => {
+            tracing::warn!(
+                why = why.as_str(),
+                count,
+                last = %last,
+                "the web UI refused {count} {}",
+                why.what()
+            );
+            (
+                "web.refused",
+                json!({"why": why.as_str(), "count": count, "last": last}),
+            )
+        }
+        Row::DevOrigin => {
+            tracing::warn!(
+                count,
+                last = %last,
+                "the web UI served {count} WebSocket(s) for the dev page ([web] dev_origin)"
+            );
+            ("web.dev_origin", json!({"count": count, "last": last}))
+        }
+    };
+    let row = LedgerRow::new(kind, None, None, data);
     if let Err(e) = store.append_ledger(&row) {
-        tracing::warn!(error = %format!("{e:#}"), "the web UI's refusals were not ledgered");
+        tracing::warn!(error = %format!("{e:#}"), "the web UI's {kind} row was not ledgered");
     }
 }
 
@@ -206,11 +242,15 @@ mod tests {
     use crate::ledger::LedgerRow;
 
     fn rows(store: &Store) -> Vec<Value> {
+        rows_of(store, "web.refused")
+    }
+
+    fn rows_of(store: &Store, kind: &str) -> Vec<Value> {
         store
             .ledger_tail::<LedgerRow>(100)
             .unwrap()
             .into_iter()
-            .filter(|(_, r)| r.kind == "web.refused")
+            .filter(|(_, r)| r.kind == kind)
             .map(|(_, r)| r.data)
             .collect()
     }
@@ -235,12 +275,12 @@ mod tests {
             );
         }
         assert_eq!(
-            r.status(),
+            r.status(None),
             theseus_protocol::WebStatus {
                 refused_host: 1,
                 refused_origin: 500,
                 refused_peer: 40,
-                peer_unchecked: None,
+                ..Default::default()
             }
         );
         let now = rows(&store);
@@ -268,6 +308,42 @@ mod tests {
         // Quiet after that: no row without a refusal.
         tokio::time::sleep(Duration::from_millis(400)).await;
         assert_eq!(rows(&store).len(), 5);
+    }
+
+    /// The dev page's uses (theseus-zab) are counted whole and ledgered as
+    /// `web.dev_origin` under the same rule, apart from the refusals.
+    #[tokio::test]
+    async fn the_dev_origins_uses_are_counted_and_ledgered_at_most_once_a_span() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(&d.path().join("store")).unwrap();
+        let r = Arc::new(Refusals::every(Duration::from_millis(300)));
+        let dev = "http://localhost:5173";
+        for i in 0..3 {
+            r.dev_origin(
+                &store,
+                json!({"origin": dev, "client": format!("127.0.0.1:{}", 50000 + i)}),
+            );
+        }
+        let s = r.status(Some(dev));
+        assert_eq!(
+            (s.dev_origin.as_deref(), s.dev_origin_served),
+            (Some(dev), 3)
+        );
+        assert_eq!(s.refused_origin + s.refused_host + s.refused_peer, 0);
+        assert_eq!(rows_of(&store, "web.dev_origin").len(), 1);
+        assert!(rows(&store).is_empty());
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        let later = rows_of(&store, "web.dev_origin");
+        assert_eq!(
+            later
+                .iter()
+                .map(|r| r["count"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            vec![1, 2],
+            "{later:?}"
+        );
+        assert_eq!(later[1]["last"]["client"], "127.0.0.1:50002");
+        assert_eq!(r.status(None).dev_origin, None);
     }
 
     #[test]

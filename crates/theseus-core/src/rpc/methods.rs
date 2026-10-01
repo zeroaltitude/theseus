@@ -77,7 +77,7 @@ impl Core {
             tightenings: self.tools.tightened.all(),
             wakes: self.wakes(None, None).unwrap_or_default(),
             external_text: crate::external::listed(&sessions, theseus_protocol::now_unix_ms()),
-            web: self.web_refusals.status(),
+            web: self.web_refusals.status(self.cfg.web.dev_origin.as_deref()),
         }
     }
 
@@ -86,6 +86,13 @@ impl Core {
     /// `web.refused` at most once a minute per kind. Not narrated.
     pub fn web_refused(&self, why: crate::webui::Why, detail: Value) {
         self.web_refusals.refuse(&self.store, why, detail);
+    }
+
+    /// The web UI served a `/ws` upgrade for `[web] dev_origin`
+    /// (theseus-zab): counted for health, and ledgered as `web.dev_origin` at
+    /// most once a minute. Not narrated.
+    pub fn web_dev_origin(&self, detail: Value) {
+        self.web_refusals.dev_origin(&self.store, detail);
     }
 
     /// `[approval]` for health: each listed channel's state, judged with the

@@ -21,6 +21,12 @@
 //! user is the connecting socket's owner (theseus-3qf): a connection whose
 //! client socket another uid owns is refused as it is accepted, before any
 //! of its request is read (`OwnUser`).
+//!
+//! For UI development, `[web] dev_origin` names the Vite dev page, whose
+//! `/ws` proxy passes that page's `Host` and `Origin` (theseus-zab). Off by
+//! default; while set, `/ws` serves that one origin too, counted and
+//! ledgered (`web.dev_origin`). The proxy rewrites neither header, so
+//! another page's upgrade through it still carries its own `Origin`.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -67,12 +73,20 @@ pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
     // The port the socket got: the config's, or the one the kernel picked
     // for port 0.
     let addr = listener.local_addr().unwrap_or(addr);
+    let dev = core.cfg.web.dev_origin.as_deref().map(Dev::new);
+    if let Some(d) = &dev {
+        tracing::warn!(
+            origin = %d.origin,
+            "web UI: /ws also serves the dev page ([web] dev_origin); unset it when you are done"
+        );
+    }
     let ui = Arc::new(Ui {
         core: core.clone(),
         own: Own {
             ip: addr.ip(),
             port: addr.port(),
         },
+        dev,
     });
     let app = Router::new()
         .route("/", get(index))
@@ -172,10 +186,34 @@ fn turn_away(mut io: tokio::net::TcpStream) {
     });
 }
 
-/// What every route shares: the core, and the UI's own address.
+/// What every route shares: the core, the UI's own address, and the dev
+/// page's origin when the config names one.
 struct Ui {
     core: Arc<Core>,
     own: Own,
+    dev: Option<Dev>,
+}
+
+/// The Vite dev page (`[web] dev_origin`, theseus-zab), served on `/ws`
+/// beside the UI's own page. The dev server's proxy passes the page's own
+/// `Host` (the dev server's address) and `Origin`, and a browser sets both,
+/// so another page's upgrade through the proxy still carries its own
+/// `Origin`, and is refused.
+#[derive(Clone, Debug)]
+struct Dev {
+    /// `http://localhost:5173`, as the config gives it (validated at load).
+    origin: String,
+    /// `localhost:5173`: the `Host` its proxy passes.
+    authority: String,
+}
+
+impl Dev {
+    fn new(origin: &str) -> Self {
+        Self {
+            origin: origin.to_string(),
+            authority: origin.trim_start_matches("http://").to_string(),
+        }
+    }
 }
 
 /// The UI's own address (theseus-70f): the loopback address it listens on,
@@ -233,7 +271,17 @@ async fn own_host(
     let named = host.is_some() || authority.is_some();
     let own = host.is_none_or(|h| h.to_str().is_ok_and(|h| ui.own.host(h)))
         && authority.is_none_or(|a| ui.own.host(a.as_str()));
-    if named && own {
+    // The dev page's proxy (theseus-zab): its own `Host`, on `/ws` only,
+    // where the upgrade's `Origin` is checked next.
+    let dev = ui.dev.as_ref().is_some_and(|d| {
+        req.uri().path() == "/ws"
+            && host.is_some_and(|h| {
+                h.to_str()
+                    .is_ok_and(|h| h.eq_ignore_ascii_case(&d.authority))
+            })
+            && authority.is_none_or(|a| a.as_str().eq_ignore_ascii_case(&d.authority))
+    });
+    if named && (own || dev) {
         return next.run(req).await;
     }
     ui.core.web_refused(
@@ -325,7 +373,8 @@ fn serve_embedded(path: &str) -> Response {
 
 /// The protocol's WebSocket, for the UI's own page only: a browser sends
 /// the page's `Origin` with every upgrade, and any other page's, or none,
-/// is refused (theseus-70f).
+/// is refused (theseus-70f). With `[web] dev_origin` set, the dev page is
+/// served too, and each use is counted and ledgered (theseus-zab).
 async fn ws_upgrade(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
@@ -333,7 +382,19 @@ async fn ws_upgrade(
     State(ui): State<Arc<Ui>>,
 ) -> Response {
     let origin = headers.get(header::ORIGIN);
-    if !origin.is_some_and(|o| o.to_str().is_ok_and(|o| ui.own.origin(o))) {
+    let own = origin.is_some_and(|o| o.to_str().is_ok_and(|o| ui.own.origin(o)));
+    let dev = !own
+        && ui.dev.as_ref().is_some_and(|d| {
+            origin.is_some_and(|o| o.to_str().is_ok_and(|o| o.eq_ignore_ascii_case(&d.origin)))
+        });
+    if dev {
+        ui.core.web_dev_origin(json!({
+            "origin": clip(origin.map(|o| o.as_bytes())),
+            "host": clip(headers.get(header::HOST).map(|h| h.as_bytes())),
+            "client": ends.client.to_string(),
+        }));
+    }
+    if !own && !dev {
         ui.core.web_refused(
             Why::Origin,
             json!({

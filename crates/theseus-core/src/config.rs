@@ -542,6 +542,16 @@ pub struct WebConfig {
     pub bind: String,
     #[serde(default = "default_web_port")]
     pub port: u16,
+    /// For UI development only (theseus-zab): the Vite dev page's origin
+    /// (`npm run dev` in `web/`), such as `http://localhost:5173`. The dev
+    /// server's `/ws` proxy passes that page's `Host` and `Origin`, which the
+    /// UI otherwise refuses. While set, a `/ws` upgrade from exactly this
+    /// origin is served too, counted in health, and ledgered
+    /// (`web.dev_origin`); every other route still answers only the UI's own
+    /// address. Off by default. `http://`, `localhost` or a loopback address,
+    /// and a port, else the config fails to load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dev_origin: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -560,8 +570,35 @@ impl Default for WebConfig {
             enabled: true,
             bind: default_web_bind(),
             port: default_web_port(),
+            dev_origin: None,
         }
     }
+}
+
+/// A dev page's origin as a browser sends it, on this machine
+/// (theseus-zab): `http://`, then `localhost` or a loopback address (an
+/// IPv6 one in brackets), then a port. Nothing else: no path, no user, no
+/// other host.
+pub fn dev_origin_ok(origin: &str) -> bool {
+    let Some(authority) = origin.strip_prefix("http://") else {
+        return false;
+    };
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(rest) => match rest.split_once("]:") {
+            Some((host, port)) => (host, port),
+            None => return false,
+        },
+        None => match authority.rsplit_once(':') {
+            Some((host, _)) if host.contains(':') => return false,
+            Some(split) => split,
+            None => return false,
+        },
+    };
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    loopback && port.bytes().all(|b| b.is_ascii_digit()) && port.parse::<u16>().is_ok_and(|p| p > 0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1141,6 +1178,17 @@ impl Config {
                 "web.bind = {bind:?} is not a loopback address: the web UI has no auth yet \
                  (spec §3.14), so it listens only on 127.0.0.1 or ::1"
             );
+        }
+        // The dev page's origin is served beside the UI's own: it must be a
+        // page on this machine (theseus-zab).
+        if let Some(o) = &self.web.dev_origin {
+            if !dev_origin_ok(o) {
+                anyhow::bail!(
+                    "web.dev_origin = {o:?} is not a dev page's origin on this machine: it must be \
+                     http://, then localhost or a loopback address, then a port, and nothing more \
+                     (for the Vite dev server, http://localhost:5173)"
+                );
+            }
         }
         Ok(())
     }
@@ -2045,6 +2093,63 @@ mod tests {
             );
         }
         assert_eq!(Config::example().web.bind, "127.0.0.1");
+    }
+
+    /// `[web] dev_origin` (theseus-zab) is off unless set, and when set it is
+    /// a dev page on this machine or the config fails to load. A config
+    /// without it, as Eddie's is, loads unchanged.
+    #[test]
+    fn a_dev_origin_is_off_by_default_and_a_page_on_this_machine() {
+        let doc = |line: &str| {
+            format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[web]\nenabled = true\n\
+                 bind = \"127.0.0.1\"\nport = 7433\n{line}\n"
+            )
+        };
+        assert_eq!(Config::parse(&doc("")).unwrap().0.web.dev_origin, None);
+        assert_eq!(Config::example().web.dev_origin, None);
+        assert_eq!(WebConfig::default().dev_origin, None);
+        for ok in [
+            "http://localhost:5173",
+            "http://LocalHost:5173",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.2:4173",
+            "http://[::1]:5173",
+        ] {
+            let (cfg, _) = Config::parse(&doc(&format!("dev_origin = \"{ok}\"")))
+                .unwrap_or_else(|e| panic!("{ok}: {e:#}"));
+            assert_eq!(cfg.web.dev_origin.as_deref(), Some(ok));
+        }
+        for bad in [
+            "https://localhost:5173",
+            "http://localhost",
+            "http://localhost:",
+            "http://localhost:0",
+            "http://localhost:70000",
+            "http://localhost:5173/",
+            "http://localhost:5173/ws",
+            "http://user@localhost:5173",
+            "http://evil.example:5173",
+            "http://localhost.evil.example:5173",
+            "http://0.0.0.0:5173",
+            "http://192.168.1.20:5173",
+            "http://::1:5173",
+            "http://[::]:5173",
+            "localhost:5173",
+            "null",
+            "",
+        ] {
+            let e = format!(
+                "{:#}",
+                Config::parse(&doc(&format!("dev_origin = \"{bad}\""))).unwrap_err()
+            );
+            assert!(
+                e.contains(&format!(
+                    "web.dev_origin = {bad:?} is not a dev page's origin"
+                )),
+                "{bad}: {e}"
+            );
+        }
     }
 
     /// The fields that could carry a credential are the URLs: a user, a
