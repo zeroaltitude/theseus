@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, ExternalTextInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList, WakeInfo } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, ExternalTextInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList, Usage, WakeInfo } from './protocol'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -46,6 +46,32 @@ const BINDING_CLASS: Record<string, string> = {
 const money = (n: number | null | undefined) => n == null ? '—' : n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`
 const price = (n: unknown) => typeof n === 'number' && n > 0 ? String(+n.toFixed(3)) : '—'
 const tokens = (n: unknown) => typeof n !== 'number' ? '—' : n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n)
+
+/// What caching did for a usage total (13b, theseus-ev1): the input's tokens, those read
+/// from the provider's cache and written to it, and the dollars that saved at a model's
+/// catalog prices. A read costs the cache-read price instead of the input price; a write
+/// costs the cache-write price, whose premium over the input price counts against the
+/// saving. `saved` is null when the catalog has no prices for the model.
+interface CacheFigures { input: number; read: number; written: number; saved: number | null }
+function cacheFigures(u: Usage, entry: Record<string, unknown> | undefined): CacheFigures {
+  const read = u.cache_read_input_tokens
+  const written = u.cache_creation_input_tokens
+  const input = u.input_tokens + read + written
+  if (!entry) return { input, read, written, saved: null }
+  const p = (k: string) => Number(entry[k] ?? 0)
+  const saved = (read * (p('input_per_mtok') - p('cache_read_per_mtok'))
+    - written * (p('cache_write_per_mtok') - p('input_per_mtok'))) / 1e6
+  return { input, read, written, saved }
+}
+const readShare = (f: CacheFigures) => f.input > 0 ? `${((100 * f.read) / f.input).toFixed(1)}%` : '—'
+const saving = (n: number | null) => n != null && n < 0 ? `−${money(-n)}` : money(n)
+const addUsage = (a: Usage, b: Usage): Usage => ({
+  input_tokens: a.input_tokens + b.input_tokens,
+  output_tokens: a.output_tokens + b.output_tokens,
+  cache_read_input_tokens: a.cache_read_input_tokens + b.cache_read_input_tokens,
+  cache_creation_input_tokens: a.cache_creation_input_tokens + b.cache_creation_input_tokens,
+})
+const NO_USAGE: Usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 export interface ObservatoryProps {
   client: ProtocolClient
@@ -114,7 +140,8 @@ export default function Observatory({ client, health, tick, currentSession, onRe
         const n = await client.call<{ nodes: NodeInfo[]; total: number }>('node.list', { n: 120, ...(sid ? { session_id: sid } : {}), ...(nodeKind !== 'all' ? { kind: nodeKind } : {}) })
         setNodes(sid ? n.nodes.slice().sort((x, y) => y.position - x.position) : n.nodes); setNodesTotal(n.total)
       }
-      if (open.catalog && !catalog) setCatalog(await client.call<CatalogList>('catalog.list'))
+      // The Context panel's cache figures need the catalog's prices too (theseus-ev1).
+      if ((open.catalog || open.context) && !catalog) setCatalog(await client.call<CatalogList>('catalog.list'))
       setNow(Date.now())
       setError(null)
       await onRefresh?.()
@@ -226,6 +253,30 @@ export default function Observatory({ client, health, tick, currentSession, onRe
   const contextFiles = currentSession
     ? ((compilations.find((c) => c.current)?.manifest.context_files as ContextFileRef[] | undefined) ?? [])
     : []
+  // Caching (13b, theseus-ev1): for this session, and per profile over every
+  // session, the share of input read from cache and the dollars that saved, at the
+  // catalog's prices for each session's last model.
+  const cache = useMemo(() => {
+    const entry = (model?: string | null) => catalog?.models.find((m) => m.model === model)?.entry
+    const byProfile = new Map<string, { sessions: number; usage: Usage; saved: number | null }>()
+    let mine: CacheFigures | null = null
+    for (const s of sessions) {
+      const f = cacheFigures(s.usage, entry(s.model))
+      if (f.input === 0) continue
+      if (s.session_id === currentSession) mine = f
+      const key = s.profile ?? '—'
+      const p = byProfile.get(key) ?? { sessions: 0, usage: NO_USAGE, saved: 0 }
+      byProfile.set(key, {
+        sessions: p.sessions + 1,
+        usage: addUsage(p.usage, s.usage),
+        saved: p.saved == null || f.saved == null ? null : p.saved + f.saved,
+      })
+    }
+    const rows = [...byProfile.entries()]
+      .map(([profile, p]) => ({ profile, sessions: p.sessions, f: { ...cacheFigures(p.usage, undefined), saved: p.saved } }))
+      .sort((a, b) => b.f.input - a.f.input)
+    return { rows, mine }
+  }, [sessions, catalog, currentSession])
 
   return (
     <aside className="observatory">
@@ -250,6 +301,33 @@ export default function Observatory({ client, health, tick, currentSession, onRe
               ? <>persona <b>{health.context.persona}</b> in play, with <b>{health.context.persona_files.length}</b></>
               : <span className={health.context.personas.length ? 'warn' : 'muted'}>no persona in play{health.context.personas.length ? ` (defined: ${health.context.personas.join(', ')})` : ''}</span>}
           </div>
+        )}
+        {(cache.mine || cache.rows.length > 0) && (
+          <table className="obs-table" title="the provider's prompt cache: of each input, the share read from cache, and the dollars that saved at the catalog's prices for each session's last model. A read costs the cache-read price instead of the input price; a write costs the cache-write price, and its premium over the input price counts against the saving">
+            <thead><tr><th>cache</th><th>sessions</th><th>input</th><th>read from cache</th><th>written</th><th>saved</th></tr></thead>
+            <tbody>
+              {cache.mine && (
+                <tr className="mine">
+                  <td>this session</td>
+                  <td className="muted">1</td>
+                  <td>{tokens(cache.mine.input)}</td>
+                  <td>{readShare(cache.mine)}</td>
+                  <td className="muted">{tokens(cache.mine.written)}</td>
+                  <td>{saving(cache.mine.saved)}</td>
+                </tr>
+              )}
+              {cache.rows.map((r) => (
+                <tr key={r.profile}>
+                  <td>profile <b>{r.profile}</b></td>
+                  <td className="muted">{r.sessions}</td>
+                  <td>{tokens(r.f.input)}</td>
+                  <td>{readShare(r.f)}</td>
+                  <td className="muted">{tokens(r.f.written)}</td>
+                  <td>{saving(r.f.saved)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
         {currentSession && (
           <div className="pad small">
