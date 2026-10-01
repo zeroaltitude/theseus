@@ -8,7 +8,7 @@ import './index.css'
 import './lib/rpc'
 import { Shell } from './components/Shell'
 import { Bridge } from './views/Bridge'
-import { Crash } from './components/Crash'
+import { Crash, NotFound } from './components/Crash'
 
 // Heavier views load on first visit, so the bridge paints fast.
 const Fleet = lazy(() => import('./views/Fleet'))
@@ -41,6 +41,7 @@ const router = createBrowserRouter(
             { path: 'ledger', element: wrap(<Ledger />) },
             { path: 'economics', element: wrap(<Economics />) },
             { path: 'systems', element: wrap(<Systems />) },
+            { path: '*', element: <NotFound /> },
           ],
         },
       ],
