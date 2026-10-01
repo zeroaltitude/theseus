@@ -26,9 +26,13 @@ fn is_binary(bytes: &[u8]) -> bool {
 }
 
 /// Atomic write: temp file beside the target, fsync, rename; keeps the mode.
-pub fn write_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
+/// A new file, and any directory made for it, get the mode `umask` gives
+/// (theseus-wz2): the operator's, where the daemon's own is 077. `None`: the
+/// process's umask, as it is.
+pub fn write_atomic(path: &Path, content: &[u8], umask: Option<u32>) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
     let dir = path.parent().unwrap_or(Path::new("."));
-    fs::create_dir_all(dir)?;
+    create_dirs(dir, umask)?;
     let tmp = dir.join(format!(
         ".{}.theseus-tmp-{}",
         path.file_name()
@@ -43,8 +47,30 @@ pub fn write_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
     }
     if let Ok(meta) = fs::metadata(path) {
         let _ = fs::set_permissions(&tmp, meta.permissions());
+    } else if let Some(u) = umask {
+        let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o666 & !u));
     }
     fs::rename(&tmp, path)
+}
+
+/// `create_dir_all`, each directory it makes given the mode `umask` gives.
+fn create_dirs(dir: &Path, umask: Option<u32>) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(u) = umask else {
+        return fs::create_dir_all(dir);
+    };
+    let missing: Vec<&Path> = dir
+        .ancestors()
+        .take_while(|d| !d.as_os_str().is_empty() && !d.exists())
+        .collect();
+    for d in missing.into_iter().rev() {
+        match fs::create_dir(d) {
+            Ok(()) => fs::set_permissions(d, fs::Permissions::from_mode(0o777 & !u))?,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }
 
 fn walker(base: &Path, hidden: bool, max_depth: Option<usize>) -> ignore::Walk {
@@ -302,7 +328,7 @@ impl Tool for WriteFile {
             )));
         }
         let before = fs::metadata(&path).ok().map(|m| m.len());
-        write_atomic(&path, a.content.as_bytes())?;
+        write_atomic(&path, a.content.as_bytes(), ctx.umask)?;
         let text = match before {
             Some(b) => format!(
                 "Replaced {} ({b} bytes → {} bytes).",
@@ -408,7 +434,7 @@ impl Tool for Edit {
         } else {
             before.replacen(a.old_string.as_str(), &a.new_string, 1)
         };
-        write_atomic(&path, after.as_bytes())?;
+        write_atomic(&path, after.as_bytes(), ctx.umask)?;
         let name = path.display().to_string();
         let diff = unified(&before, &after, &name, &name, 3);
         Ok(ToolOutput {
@@ -585,7 +611,7 @@ impl Tool for Patch {
         let mut summary = Vec::new();
         for (path, content, stat) in &results {
             match content {
-                Some(c) => write_atomic(path, c.as_bytes())?,
+                Some(c) => write_atomic(path, c.as_bytes(), ctx.umask)?,
                 None => fs::remove_file(path)?,
             }
             summary.push(format!(
@@ -1365,6 +1391,41 @@ mod tests {
             "{}",
             p.text
         );
+    }
+
+    /// The daemon runs under umask 077 (theseus-wz2), and what a tool makes in
+    /// the workspace gets the operator's mode instead: a new file, and each
+    /// directory made for it. A file that exists keeps its own mode.
+    #[test]
+    fn new_files_and_directories_get_the_operators_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let d = tempfile::tempdir().unwrap();
+        let c = ToolCtx {
+            umask: Some(0o027),
+            ..ctx(&d)
+        };
+        WriteFile
+            .run(&json!({"path": "deep/er/new.txt", "content": "x"}), &c)
+            .unwrap();
+        assert_eq!(mode(&d.path().join("deep")), 0o750);
+        assert_eq!(mode(&d.path().join("deep/er")), 0o750);
+        assert_eq!(mode(&d.path().join("deep/er/new.txt")), 0o640);
+        let kept = d.path().join("kept.txt");
+        fs::write(&kept, "a").unwrap();
+        fs::set_permissions(&kept, fs::Permissions::from_mode(0o604)).unwrap();
+        WriteFile
+            .run(&json!({"path": "kept.txt", "content": "b"}), &c)
+            .unwrap();
+        assert_eq!(mode(&kept), 0o604);
+        let private = ToolCtx {
+            umask: Some(0o077),
+            ..ctx(&d)
+        };
+        let patch = "--- /dev/null\n+++ b/made/by-patch.txt\n@@ -0,0 +1 @@\n+hello\n";
+        Patch.run(&json!({"patch": patch}), &private).unwrap();
+        assert_eq!(mode(&d.path().join("made")), 0o700);
+        assert_eq!(mode(&d.path().join("made/by-patch.txt")), 0o600);
     }
 
     #[test]

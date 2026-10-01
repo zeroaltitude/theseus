@@ -39,6 +39,11 @@ pub struct WrapperArgs {
     /// secret the broker granted (theseus-dcy): it goes to the wrapper as its
     /// environment, never as an argument, and its Debug names only.
     pub env: Vec<(String, String)>,
+    /// The operator's umask, for the command (theseus-wz2): the daemon and
+    /// its wrapper run under 077, so the spool stays private, and the job's
+    /// files are made as the operator's shell would make them. `None`: the
+    /// command keeps the wrapper's.
+    pub umask: Option<u32>,
 }
 
 impl std::fmt::Debug for WrapperArgs {
@@ -52,6 +57,7 @@ impl std::fmt::Debug for WrapperArgs {
             .field("argv", &self.argv)
             .field("cwd", &self.cwd)
             .field("env", &names)
+            .field("umask", &self.umask.map(crate::umask::format))
             .finish()
     }
 }
@@ -79,6 +85,9 @@ pub fn spawn_detached(
     }
     if let Some(c) = &args.cwd {
         cmd.arg("--cwd").arg(c);
+    }
+    if let Some(u) = args.umask {
+        cmd.arg("--umask").arg(crate::umask::format(u));
     }
     cmd.arg("--").args(&args.argv);
     cmd.env_clear();
@@ -161,7 +170,21 @@ fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Resul
     let started = now_ms();
     let t0 = Instant::now();
     let out_path = spool.result_path(&args.correlation_id);
-    let out_file = std::fs::File::create(&out_path)?;
+    // The output before the scrubber sees it, which can hold a secret a
+    // program printed: the operator's alone, whatever the umask, and
+    // whatever a file already there had (theseus-wz2). The core deletes it
+    // once the result is absorbed.
+    let out_file = {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&out_path)?;
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        f
+    };
     let err_file = out_file.try_clone()?;
     let mut command = Command::new(&args.argv[0]);
     command
@@ -171,6 +194,16 @@ fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Resul
         .stderr(Stdio::from(err_file));
     if let Some(c) = &args.cwd {
         command.current_dir(c);
+    }
+    if let Some(u) = args.umask {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: umask is async-signal-safe and touches only the child.
+        unsafe {
+            command.pre_exec(move || {
+                libc::umask(u);
+                Ok(())
+            });
+        }
     }
     // A wrapper process has the job's environment as its own, as
     // `spawn_detached` set it. In process, the command gets it here.
@@ -503,9 +536,15 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
     let mut deadline_ms = 600_000u64;
     let mut notify_socket = None;
     let mut cwd = None;
+    let mut umask = None;
     let mut argv = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--umask" => {
+                let v = it.next().unwrap_or_default();
+                umask =
+                    Some(crate::umask::parse(&v).with_context(|| format!("bad --umask {v:?}"))?);
+            }
             "--spool" => spool_dir = it.next().map(PathBuf::from),
             "--correlation-id" => correlation_id = it.next(),
             "--deadline-ms" => {
@@ -534,6 +573,7 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
         argv,
         cwd,
         env: Vec::new(),
+        umask,
     })
 }
 
@@ -545,6 +585,63 @@ mod tests {
         let mut v = args.join("\0").into_bytes();
         v.push(0);
         v
+    }
+
+    /// A job's raw output is 0600 whatever the process's umask (theseus-wz2):
+    /// here the test's own, not the daemon's 077, and over a file a retried
+    /// job left open to others. `--umask` round-trips through the command
+    /// line.
+    #[test]
+    fn a_jobs_raw_output_is_0600_whatever_the_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let spool = Spool::open(d.path()).unwrap();
+        let out = spool.result_path("act_mode");
+        std::fs::write(&out, "stale").unwrap();
+        std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let args = WrapperArgs {
+            spool_dir: d.path().to_path_buf(),
+            correlation_id: "act_mode".into(),
+            deadline_ms: 10_000,
+            notify_socket: None,
+            argv: vec!["sh".into(), "-c".into(), "echo out".into()],
+            cwd: None,
+            env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
+            umask: None,
+        };
+        run_wrapper(&args).unwrap();
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "out\n");
+        let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let parsed = parse_wrapper_args(
+            [
+                "--spool",
+                "/s",
+                "--correlation-id",
+                "act_x",
+                "--umask",
+                "0027",
+                "--",
+                "true",
+            ]
+            .map(String::from),
+        )
+        .unwrap();
+        assert_eq!(parsed.umask, Some(0o027));
+        assert!(parse_wrapper_args(
+            [
+                "--spool",
+                "/s",
+                "--correlation-id",
+                "act_x",
+                "--umask",
+                "9",
+                "--",
+                "true"
+            ]
+            .map(String::from)
+        )
+        .is_err());
     }
 
     /// A wrapper is known by its command line, as `spawn_detached` makes it,

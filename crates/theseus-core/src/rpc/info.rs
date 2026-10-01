@@ -120,7 +120,10 @@ impl Core {
                 .and_then(|c| serde_json::to_value(c).ok())
                 .and_then(|v| v.as_str().map(str::to_string)),
             external_op_id: a.external_op_id.clone(),
-            result_ref: a.result_ref.clone(),
+            // A node's id; a job's is the path of its raw output in the
+            // daemon's spool, which stays out of what clients get
+            // (theseus-wz2).
+            result_ref: a.result_ref.clone().filter(|r| !r.starts_with('/')),
             resolution: a.resolution.clone(),
             completions_seen: a.completions_seen,
         }
@@ -188,12 +191,14 @@ impl Core {
                 correlation_id,
                 bytes_total,
                 truncated,
-                full_ref,
                 duration_ms,
                 late,
                 meta,
                 image,
                 external,
+                // An older node's `full_ref` is a path in the daemon's spool:
+                // it stays out of what clients get (theseus-wz2).
+                ..
             } => (
                 match image {
                     // The web UI and the CLI show the image's header line.
@@ -201,7 +206,7 @@ impl Core {
                     None => content.clone(),
                 },
                 String::new(),
-                json!({"tool_use_id": tool_use_id, "tool": tool, "status": status.as_str(), "is_error": is_error, "correlation_id": correlation_id, "truncated": truncated, "full_ref": full_ref, "duration_ms": duration_ms, "late": late, "meta": meta, "external": external}),
+                json!({"tool_use_id": tool_use_id, "tool": tool, "status": status.as_str(), "is_error": is_error, "correlation_id": correlation_id, "truncated": truncated, "duration_ms": duration_ms, "late": late, "meta": meta, "external": external}),
                 *bytes_total,
             ),
         };

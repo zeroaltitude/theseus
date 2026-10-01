@@ -19,6 +19,7 @@ pub mod spool;
 pub mod stops;
 pub mod tasks;
 pub mod types;
+pub mod umask;
 pub mod wakes;
 
 #[cfg(test)]

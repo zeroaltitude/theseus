@@ -734,6 +734,99 @@ async fn proc_run_returns_in_turn_and_a_slow_one_comes_back_later_as_a_late_resu
     );
 }
 
+/// Review 2's H3 (theseus-wz2): a job's raw output, which the scrubber never
+/// saw, is 0600 while it waits and is deleted once its result is written: an
+/// in-turn job's at once, a background job's when its late result is
+/// absorbed. No node names the file, and no client is sent its path.
+#[tokio::test]
+async fn a_jobs_raw_output_is_deleted_once_its_result_is_written() {
+    use std::os::unix::fs::PermissionsExt;
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[("t1", "proc_run", json!({"argv": ["echo", "in the turn"]}))],
+            ),
+            Scripted::text("Done."),
+            Scripted::tools(
+                "",
+                &[(
+                    "t2",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "sleep 1.5; echo later"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+            Scripted::text("It finished."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.proc_sync_secs = 1;
+        },
+    );
+    let outputs = || -> Vec<PathBuf> {
+        std::fs::read_dir(r.core.spool.dir().join("results"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect()
+    };
+    let res = turn(&r.core, None, "echo something").await;
+    assert_eq!(res.output, "Done.");
+    assert!(results(&r.core, &res.session_id)[0]
+        .1
+        .contains("in the turn"));
+    assert_eq!(outputs(), Vec::<PathBuf>::new(), "the in-turn job's output");
+
+    let res2 = turn(&r.core, Some(&res.session_id), "run the slow one").await;
+    assert_eq!(res2.output, "Started.");
+    let exec = res2.execution_id.clone().unwrap();
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        r.core.heartbeat("test");
+        if r.core
+            .kernel
+            .execution(&exec)
+            .unwrap()
+            .unwrap()
+            .state
+            .as_str()
+            == "queued"
+        {
+            break;
+        }
+    }
+    let waiting = outputs();
+    assert_eq!(waiting.len(), 1, "the background job's output waits");
+    let mode = std::fs::metadata(&waiting[0]).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.output, "It finished.");
+    assert!(results(&r.core, &res.session_id)[2].1.contains("later"));
+    assert_eq!(outputs(), Vec::<PathBuf>::new(), "absorbed, then gone");
+
+    let nodes = r.core.store.transcript(&res.session_id).unwrap();
+    let mut jobs = 0;
+    for (_, n) in &nodes {
+        if let Body::ToolResult {
+            full_ref,
+            correlation_id: Some(corr),
+            ..
+        } = &n.body
+        {
+            jobs += 1;
+            assert_eq!(full_ref, &None);
+            let a = r.core.kernel.action(corr).unwrap().unwrap();
+            assert!(
+                a.result_ref.as_deref().is_some_and(|p| p.starts_with('/')),
+                "a job's"
+            );
+            let info = Core::action_info(&a);
+            assert_eq!(info.result_ref, None, "no client gets the spool's path");
+        }
+    }
+    assert!(jobs >= 2, "{nodes:?}");
+}
+
 #[tokio::test]
 async fn a_session_keeps_its_memory_across_a_restart() {
     let dir = tempfile::tempdir().unwrap();

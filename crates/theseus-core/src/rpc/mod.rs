@@ -100,6 +100,16 @@ pub struct Core {
     web_refusals: Arc<crate::webui::Refusals>,
 }
 
+/// A store's completion spool, the directory beside it: `store` → `spool`,
+/// `store-stdio` → `spool-stdio`.
+pub fn spool_dir(store_dir: &std::path::Path) -> std::path::PathBuf {
+    let name = store_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "store".into());
+    store_dir.with_file_name(name.replacen("store", "spool", 1))
+}
+
 /// What a `Core` is built from. `Core::new` builds these from the config and
 /// the secret board; tests start from `Parts::for_tests`.
 pub struct Parts {
@@ -369,19 +379,8 @@ impl Core {
         } = parts;
         let k0 = std::time::Instant::now();
         let cfg = Arc::new(cfg);
-        // The kernel shares the store. Its spool sits beside the store dir:
-        // `store` → `spool`, `store-stdio` → `spool-stdio`.
-        let spool_dir = {
-            let name = store
-                .dir()
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "store".into());
-            store
-                .dir()
-                .with_file_name(name.replacen("store", "spool", 1))
-        };
-        let spool = Spool::open(&spool_dir).context("opening completion spool")?;
+        // The kernel shares the store. Its spool sits beside the store dir.
+        let spool = Spool::open(&spool_dir(store.dir())).context("opening completion spool")?;
         // An execution stored with a unit budget takes its dollar spend from
         // its session's recorded cost when startup rewrites it (theseus-0sg).
         let sessions = store.clone();
@@ -433,7 +432,7 @@ impl Core {
             marked_unknown = startup.reconcile.marked_unknown.len(),
             settled_from_evidence = startup.reconcile.settled_from_evidence.len(),
             total_us = startup.elapsed_us,
-            spool = %spool_dir.display(),
+            spool = %spool.dir().display(),
             "kernel accepting events"
         );
         let admission = Arc::new(tokio::sync::Notify::new());

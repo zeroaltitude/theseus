@@ -131,6 +131,11 @@ enum Exit {
 fn main() -> Result<()> {
     // The start of every startup phase's clock (theseus-qa0).
     let origin = Instant::now();
+    // Before anything is created (theseus-wz2): the store, the spool and raw
+    // job output, the config copy, and the socket are the operator's alone.
+    // The operator's own umask is kept for a job's command and a tool's new
+    // files in the workspace.
+    theseus_kernel::umask::private();
     let cli = Cli::parse();
     // Logs go to stderr always; stdout may be the protocol stream.
     tracing_subscriber::fmt()
@@ -318,13 +323,15 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     }
 
     let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
-    std::fs::create_dir_all(&state_dir)
-        .with_context(|| format!("creating state dir {}", state_dir.display()))?;
+    private_dir(&state_dir)?;
     // The store is single-process. A spawned stdio server must not fight a
     // running daemon for the same directory, so stdio mode uses its own.
     let store_name = if cli.stdio { "store-stdio" } else { "store" };
+    let store_dir = state_dir.join(store_name);
+    private_dir(&store_dir)?;
+    private_dir(&theseus_core::rpc::spool_dir(&store_dir))?;
     let t = Instant::now();
-    let store = Store::open(&state_dir.join(store_name))?;
+    let store = Store::open(&store_dir)?;
     let st = store.stats()?;
     startup.record(
         "store",
@@ -458,16 +465,56 @@ fn unconfirmed_config(e: &anyhow::Error) -> bool {
 /// (theseus-2fo): the pid, the terminal, and any supervisor stay the same.
 /// `/proc/self/exe` is this image even after an install renamed a newer
 /// binary over its path. Returns only if the exec failed.
+/// `dir`, the operator's alone (theseus-wz2): made 0700, with any parent it
+/// lacks, or tightened when it is open to anyone else, as an older build
+/// left the state dir (0775), the store, and the spool (0755). Only the group
+/// and other bits go. A tightening that fails is a warning: the store still
+/// serves, and the operator sees why.
+fn private_dir(dir: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+        .with_context(|| format!("creating {}", dir.display()))?;
+    let mode = std::fs::metadata(dir)
+        .with_context(|| format!("reading {}", dir.display()))?
+        .permissions()
+        .mode()
+        & 0o7777;
+    if mode & 0o077 != 0 {
+        let tight = mode & !0o077;
+        match std::fs::set_permissions(dir, std::fs::Permissions::from_mode(tight)) {
+            Ok(()) => tracing::info!(
+                dir = %dir.display(),
+                from = %format!("{mode:04o}"),
+                to = %format!("{tight:04o}"),
+                "tightened: Theseus's state is the operator's alone"
+            ),
+            Err(e) => tracing::warn!(
+                dir = %dir.display(),
+                mode = %format!("{mode:04o}"),
+                error = %e,
+                "could not tighten: other users may read Theseus's state"
+            ),
+        }
+    }
+    Ok(())
+}
+
 fn exec_self(var: &str, value: &str) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let mut args = std::env::args_os();
     let arg0 = args.next().unwrap_or_else(|| "theseusd".into());
     tracing::info!(var, "exec /proc/self/exe with the same arguments");
-    let err = std::process::Command::new("/proc/self/exe")
-        .arg0(arg0)
-        .args(args)
-        .env(var, value)
-        .exec();
+    let mut cmd = std::process::Command::new("/proc/self/exe");
+    cmd.arg0(arg0).args(args).env(var, value);
+    // The exec keeps this process's umask, 077 by now: the operator's rides
+    // in the environment (theseus-wz2).
+    if let Some(u) = theseus_kernel::umask::operator() {
+        cmd.env(theseus_kernel::umask::ENV, theseus_kernel::umask::format(u));
+    }
+    let err = cmd.exec();
     Err(anyhow::Error::new(err).context("restarting: exec of /proc/self/exe failed"))
 }
 
@@ -827,7 +874,7 @@ async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -
             socket.display()
         );
     }
-    std::fs::create_dir_all(&state_dir)?;
+    private_dir(&state_dir)?;
     let r = theseus_core::restore::restore(from, &state_dir, force)?;
     let mut text = format!(
         "restored {} segment(s): {} frames, {} records, last position {}\n",

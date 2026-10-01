@@ -30,6 +30,11 @@ impl Rig {
     /// Start `sh -c script` under a detached wrapper, in the rig's directory,
     /// which is `$1`. Returns the wrapper's pid.
     fn start(&self, id: &str, script: &str) -> u32 {
+        self.start_with(id, script, None)
+    }
+
+    /// `start`, with the umask the daemon passes for the command.
+    fn start_with(&self, id: &str, script: &str, umask: Option<u32>) -> u32 {
         let args = WrapperArgs {
             spool_dir: self.spool.dir().to_path_buf(),
             correlation_id: id.into(),
@@ -46,6 +51,7 @@ impl Rig {
             ],
             cwd: Some(self.dir.path().to_path_buf()),
             env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
+            umask,
         };
         job::spawn_detached(
             Path::new(env!("CARGO_BIN_EXE_theseusd")),
@@ -109,6 +115,39 @@ fn kill(pid: u32) {
         .arg("-9")
         .arg(pid.to_string())
         .status();
+}
+
+/// Review 2's H3 (theseus-wz2): a job's raw output, which the scrubber has
+/// not seen, is the operator's alone (0600) whatever the umask, and the
+/// job's command runs under the umask the daemon passed it, the operator's,
+/// so what it makes in the workspace is made as their shell would make it.
+#[test]
+fn a_jobs_raw_output_is_private_and_its_command_has_the_operators_umask() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let rig = Rig::new();
+    let script = "umask > umask.tmp; mv umask.tmp umask.txt; : > made; echo out";
+    rig.start_with("act_umask", script, Some(0o027));
+    wait_for("the completion", || {
+        rig.spool.read_completion("act_umask").unwrap()
+    });
+    let out = rig.spool.result_path("act_umask");
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "out\n");
+    assert_eq!(mode(&out), 0o600, "the raw output");
+    assert_eq!(
+        std::fs::read_to_string(rig.path("umask.txt"))
+            .unwrap()
+            .trim(),
+        "0027"
+    );
+    assert_eq!(mode(&rig.path("made")), 0o640, "a file the job made");
+    // Without one, the command keeps the wrapper's (this test's) umask; the
+    // output is 0600 all the same.
+    rig.start_with("act_none", "umask > none.tmp; mv none.tmp none.txt", None);
+    wait_for("the completion", || {
+        rig.spool.read_completion("act_none").unwrap()
+    });
+    assert_eq!(mode(&rig.spool.result_path("act_none")), 0o600);
 }
 
 /// A grandchild orphaned by a double fork is the wrapper's child at once,

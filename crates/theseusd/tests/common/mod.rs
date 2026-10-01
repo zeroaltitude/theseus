@@ -145,6 +145,7 @@ impl Served {
                 .env_remove("THESEUS_CONFIG")
                 .env_remove("THESEUS_STATE_DIR")
                 .env_remove("THESEUS_SOCKET")
+                .env_remove("THESEUS_OPERATOR_UMASK")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(log),

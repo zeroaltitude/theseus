@@ -242,11 +242,10 @@ pub fn cap(text: &str, max: usize) -> (String, bool) {
     let tail = max - head;
     let h: String = text.chars().take(head).collect();
     let t: String = text.chars().skip(n - tail).collect();
+    // Nothing keeps the whole: a job's raw output is deleted once its result
+    // is written (theseus-wz2), and an in-process result was never kept.
     (
-        format!(
-            "{h}\n…[{} characters omitted; the full output is stored]…\n{t}",
-            n - head - tail
-        ),
+        format!("{h}\n…[{} characters omitted]…\n{t}", n - head - tail),
         true,
     )
 }
@@ -435,7 +434,9 @@ impl ToolRuntime {
                 correlation_id: r.correlation_id.map(str::to_string),
                 bytes_total: r.bytes_total.unwrap_or(r.text.len() as u64),
                 truncated,
-                full_ref: r.full_ref,
+                // A job's raw output is deleted once its result is written
+                // (theseus-wz2), so no node names a file any more.
+                full_ref: None,
                 duration_ms: r.duration_ms,
                 late: r.late,
                 meta,
@@ -1398,6 +1399,7 @@ impl ToolRuntime {
             argv: spec.argv.clone(),
             cwd: Some(spec.cwd.clone()),
             env,
+            umask: theseus_kernel::umask::operator(),
         };
         // Outbox: `dispatched` was durable before the process exists.
         let launched = self.launcher.launch(&spool, &args);
@@ -1477,7 +1479,7 @@ impl ToolRuntime {
                     r.text = format!("{n}\n{}", r.text);
                 }
                 return Ok(CallOutcome::Done {
-                    status: self.answer(tc, r)?,
+                    status: self.answer_job(tc, r, &done)?,
                 });
             }
             if t0.elapsed() >= bound {
@@ -1563,8 +1565,8 @@ impl ToolRuntime {
     }
 
     /// A settled job's result: how it ended (its exit code, a timeout, or an
-    /// unknown outcome), then its output, the tail of it when it is long,
-    /// with the whole kept in the spool.
+    /// unknown outcome), then its output, the tail of it when it is long.
+    /// Answer it with `answer_job`, which then deletes the raw output.
     fn job_result<'a>(
         tc: &TurnCtx<'_>,
         a: &'a Action,
@@ -1619,10 +1621,33 @@ impl ToolRuntime {
         ResultNode {
             correlation_id: Some(&a.correlation_id),
             duration_ms: detail.get("duration_ms").and_then(Value::as_u64),
-            full_ref: a.result_ref.clone(),
             bytes_total: Some(total),
             meta: json!({"exit_code": exit, "detail": detail}),
             ..ResultNode::new(tool_use_id, tool, status, raw)
+        }
+    }
+
+    /// A job's result on its own frame, announced; then the job's raw output
+    /// goes (theseus-wz2). The file held what the job printed before the
+    /// scrubber saw it, a printed secret too; the node holds the scrubbed,
+    /// capped text, and nothing reads the file again. A restart between the
+    /// two leaves the file, 0600 in the private spool.
+    fn answer_job(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>, a: &Action) -> Result<ResultStatus> {
+        let status = self.answer(tc, r)?;
+        if let Some(path) = a.result_ref.as_deref() {
+            self.remove_raw_output(path);
+        }
+        Ok(status)
+    }
+
+    /// Delete a job's raw output, once its result's node is written
+    /// (theseus-wz2). A failure is a warning: the file stays 0600 in the
+    /// private spool.
+    fn remove_raw_output(&self, path: &str) {
+        if let Some(spool) = &self.spool {
+            if let Err(e) = spool.remove_result(std::path::Path::new(path)) {
+                tracing::warn!(path, error = %format!("{e:#}"), "a job's raw output was not removed");
+            }
         }
     }
 
@@ -1914,7 +1939,7 @@ impl ToolRuntime {
             _ => None,
         };
         if let Some(done) = settled {
-            self.answer(tc, Self::job_result(tc, &done, &u.id, &name))?;
+            self.answer_job(tc, Self::job_result(tc, &done, &u.id, &name), &done)?;
             return Ok(None);
         }
         let alive = is_job
@@ -1946,17 +1971,16 @@ impl ToolRuntime {
             self.run_harness(tc, &a.correlation_id, t.as_ref(), u)?;
             return Ok(());
         }
-        let r = if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
-            Self::job_result(tc, a, &u.id, &name)
+        if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
+            self.answer_job(tc, Self::job_result(tc, a, &u.id, &name), a)?;
+            return Ok(());
+        }
+        let status = if a.state == ActionState::Succeeded {
+            ResultStatus::Ok
         } else {
-            let status = if a.state == ActionState::Succeeded {
-                ResultStatus::Ok
-            } else {
-                ResultStatus::Unknown
-            };
-            ResultNode { correlation_id: Some(&a.correlation_id), ..ResultNode::new(&u.id, &name, status, "The call settled but its output was lost in a restart. Check the current state before relying on it.") }
+            ResultStatus::Unknown
         };
-        self.answer(tc, r)?;
+        self.answer(tc, ResultNode { correlation_id: Some(&a.correlation_id), ..ResultNode::new(&u.id, &name, status, "The call settled but its output was lost in a restart. Check the current state before relying on it.") })?;
         Ok(())
     }
 
@@ -1993,14 +2017,20 @@ impl ToolRuntime {
     /// between the two cannot lose it. Returns what was taken, and how many
     /// late results were written.
     pub fn absorb(&self, tc: &TurnCtx<'_>) -> Result<(Vec<Action>, u32)> {
-        let mut late = Vec::new();
+        let (mut late, mut outputs) = (Vec::new(), Vec::new());
         let settled = tc.kernel.take_results_with(tc.guard, |settled| {
-            let (nodes, records) = self.late_results(tc, settled)?;
+            let (nodes, records, raw) = self.late_results(tc, settled)?;
             late = nodes;
+            outputs = raw;
             Ok(records)
         })?;
         for node in &late {
             Self::announce_end(tc, node);
+        }
+        // Their nodes are written, so the jobs' raw output goes, as for a
+        // result read within a turn (`answer_job`, theseus-wz2).
+        for path in &outputs {
+            self.remove_raw_output(path);
         }
         Ok((settled, late.len() as u32))
     }
@@ -2008,19 +2038,20 @@ impl ToolRuntime {
     /// The late results among `settled`: for each job whose call was
     /// answered `background` and has no late result yet, its result's node
     /// and its `tool.late_result` row, for the frame that takes it from the
-    /// queue.
+    /// queue, and the path of the job's raw output, to delete once that
+    /// frame is written.
     fn late_results(
         &self,
         tc: &TurnCtx<'_>,
         settled: &[Action],
-    ) -> Result<(Vec<Node>, Vec<theseus_store::NewRecord>)> {
-        let (mut late, mut records) = (Vec::new(), Vec::new());
+    ) -> Result<(Vec<Node>, Vec<theseus_store::NewRecord>, Vec<String>)> {
+        let (mut late, mut records, mut outputs) = (Vec::new(), Vec::new(), Vec::new());
         let jobs: Vec<&Action> = settled
             .iter()
             .filter(|a| a.tool != PROVIDER_TOOL && a.tool != BUDGET_TOOL)
             .collect();
         if jobs.is_empty() {
-            return Ok((late, records));
+            return Ok((late, records, outputs));
         }
         let nodes = tc.store.transcript(tc.session_id)?;
         for a in jobs {
@@ -2055,8 +2086,11 @@ impl ToolRuntime {
                 json!({"correlation_id": a.correlation_id, "tool": tool, "state": a.state}),
             )?);
             late.push(node);
+            if let Some(path) = &a.result_ref {
+                outputs.push(path.clone());
+            }
         }
-        Ok((late, records))
+        Ok((late, records, outputs))
     }
 }
 
@@ -2072,8 +2106,6 @@ struct ResultNode<'a> {
     correlation_id: Option<&'a str>,
     duration_ms: Option<u64>,
     late: bool,
-    /// The whole output, when the text is its tail.
-    full_ref: Option<String>,
     /// Bytes of the whole output; the text's own length when None.
     bytes_total: Option<u64>,
     meta: Value,
@@ -2097,7 +2129,6 @@ impl<'a> ResultNode<'a> {
             correlation_id: None,
             duration_ms: None,
             late: false,
-            full_ref: None,
             bytes_total: None,
             meta: Value::Null,
             image: None,
@@ -2273,6 +2304,7 @@ pub fn build_runtime(
             cores: Some(cpu.clone()),
             secrets: None,
             approved: false,
+            umask: theseus_kernel::umask::operator(),
         },
         spool,
         scrubber,

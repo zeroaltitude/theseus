@@ -118,6 +118,20 @@ impl Spool {
         }
     }
 
+    /// Remove a job's raw output once its result is absorbed (theseus-wz2).
+    /// Only a file in this spool's `results/` is touched, and one already
+    /// gone is fine. Whether a file went.
+    pub fn remove_result(&self, path: &Path) -> Result<bool> {
+        if path.parent() != Some(self.dir.join("results").as_path()) {
+            return Ok(false);
+        }
+        match fs::remove_file(path) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     pub fn has_completion(&self, id: &str) -> bool {
         self.completion_path(id).exists()
     }

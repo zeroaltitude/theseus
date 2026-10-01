@@ -217,6 +217,11 @@ pub struct ToolCtx {
     /// the runtime. Only then does `http.fetch` reach the private address its
     /// URL names (DD5).
     pub approved: bool,
+    /// The operator's umask (theseus-wz2). The daemon runs under 077, so its
+    /// own files are private; a file or directory a tool makes in the
+    /// workspace gets this one's mode instead, as the operator's shell would
+    /// make it. `None`: the process's umask applies as it is.
+    pub umask: Option<u32>,
 }
 
 impl ToolCtx {
@@ -232,6 +237,7 @@ impl ToolCtx {
             cores: None,
             secrets: None,
             approved: false,
+            umask: None,
         }
     }
 
