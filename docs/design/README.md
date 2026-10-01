@@ -13,4 +13,11 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [m6-memory.md](m6-memory.md): M6, memory as an experiment: the memory exam, the index tender, recall, and the ablation harness. Roadmap steps 29 to 35.
 - [m7-surface.md](m7-surface.md): M7, the surface: the MCP client and server, recurring wakes, bindings, the task graph, the web UI, self-extension, and voice. Roadmap steps 36 to 39 and 41 to 45.
 
-_Index written by Tabitha/Claude, 2026-09-30._
+And one review:
+
+- [review-2.md](review-2.md): Review 2 (2026-09-30), a read-only review of the code as built through the Daily
+  Driver, in three layers: complexity, speed (the lifecycle budgets and the runtime's threads), and hardening (the
+  web UI, the spool, the git tools, the secret broker). Its accepted findings became the roadmap's fix batches and
+  lanes. The spec's Part III records each one's fix. Checked in on 2026-10-01.
+
+_Index written by Tabitha/Claude, 2026-09-30; Review 2 added 2026-10-01._

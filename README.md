@@ -1,187 +1,156 @@
-# theseus
+# Theseus
 
-My first agent harness, be gentle.
+**A personal AI agent you can trust with real work, because you can see everything it does.**
 
-Design document: [`docs/the-ship-of-theseus.md`](docs/the-ship-of-theseus.md) (Part I specification, Part II build plan, Part III as built).
+Theseus runs AI agents for one person, or for a small team. You talk to it in Discord, in a terminal, or in
+your browser. It works for you with real tools: it reads and edits files, runs commands, searches and reads the
+web, starts background tasks, and sets itself reminders. It keeps a complete, durable record of everything it
+does: what it did, why, what it was shown, what it cost, and who approved it.
 
-## What exists (M0 First light, then M1 Keel, M2 Kernel, and M3 First hands below)
+It is written in Rust: a daemon that does the work, and a small command-line client. It talks to Anthropic's
+Claude models, and to any model served through the same API (GLM from Z.ai is supported today).
 
-Two static binaries and one protocol:
+> **About the name.** The Ship of Theseus is the old puzzle: if you replace a ship plank by plank, is it still
+> the same ship? Theseus is built that way, one small, reviewed, tested step at a time. Its design document is
+> also the record of every plank that was replaced.
 
-- **`theseusd`** — the server. Loads config, resolves every secret from 1Password through a
-  service account (or refuses to start), opens the embedded store, and speaks the protocol on a
-  Unix socket (daemon) or on stdin/stdout (spawned by a client).
-- **`theseus`** — the CLI. A thin client that links only the protocol crate. Prompt from an
-  argument or stdin, streamed reply on stdout, diagnostics on stderr, `--json` for machines.
-- **The protocol** — JSON-RPC 2.0, one JSON object per line. Types in `crates/theseus-protocol`.
-- **The web UI** — `http://127.0.0.1:7433/`, served from the binary (Vite + React, source in `web/`).
-  The browser is a protocol client over a WebSocket. A sessions sidebar resumes any session (the
-  open one survives a reload); the transcript is rebuilt from the store with tool cards, diffs,
-  thinking summaries, dollars, and inline **Approve / Decline** for anything that needs you. The
-  **Observatory** panel beside the chat is live windows onto the store: context compilations and
-  every loop's append-or-recompile decision, the tools with their policy and call counts, kernel
-  state and the timed startup steps, every execution with its budget and a cancel button, every
-  action with its planned → dispatched → settled timing, the ledger with family filters and
-  per-row JSON, the session graph's nodes, the model catalog, and sessions. Every panel is a
-  protocol query re-run on a timer and after each turn, so what you see is what a restarted daemon
-  would also see.
+## Why another agent harness?
 
-A turn is a tool loop: the session's history (compiled once, then appended to) goes to the
-Anthropic Messages API with the toollets offered, tool calls go through the policy gate, and the
-Advancer ends the turn when the model stops calling tools, a call waits for your confirmation, or
-the loop cap is reached. To follow turns live, a client watches the session (`session.watch`,
-`theseus watch`), which streams every turn event.
+There are good agent tools already: Claude Code, Codex, Cursor, OpenClaw (the harness Theseus grew out of), and
+more. We use them every day. In 2026 they all converged on the same shape: a long-running local service that you
+reach by chat, with the risky work done in a sandbox. Theseus has that shape too.
 
-## Run it
+But running agents for days at a time, on work that matters, kept surfacing the same questions that the other
+tools answer softly, or not at all:
 
-Only one secret may reach the process outside 1Password: the service-account token.
+- **What exactly did it do, and why?** After an hour of autonomous work, the reasons, the tool calls, the retries,
+  and the costs are scattered across logs, when they are kept at all.
+- **What happens when something breaks?** A crash, a restart, or a network drop in the middle of a task. Is the
+  work lost? Is it done twice?
+- **How do I stay in control without babysitting it?** Asking permission for everything trains you to click
+  "yes" without reading. Asking for nothing means trusting a model with everything.
+- **What did that cost?** Usually you find out from the monthly bill.
+- **What was the model actually shown** when it made that choice?
 
-```bash
-export OP_SERVICE_ACCOUNT_TOKEN=...           # or --op-token-file / THESEUS_OP_TOKEN_FILE
-theseusd example-config > ~/.theseus/theseus.toml   # op:// references only, no values
-export THESEUS_CONFIG=~/.theseus/theseus.toml       # default is the 1Password item theseus-config
-theseusd check                                      # resolves every secret, then exits
-theseusd &                                          # daemon on ~/.theseus/theseus.sock
+Theseus is our answer. The other tools compete on reach: more chat apps, more models, more agents at once.
+Theseus competes on **guarantees**, promises that hold whether or not the model behaves:
 
-theseus health
-theseus ask "Say hello."                            # streamed
-echo "Summarize: ..." | theseus ask --json          # pipelines
-theseus --spawn ask "no daemon needed"              # spawns theseusd --stdio
-theseus watch                                       # follow a session live
-theseus shutdown
-```
+- **Money is a gate, not a report.** Every model call reserves its worst-case cost against the session's budget
+  before it runs. At the limit, Theseus stops and asks you, and only you can reset it.
+- **Speed is a tested contract.** Theseus answers about 30 milliseconds after it starts, and stops cleanly in
+  under 100, without losing work in flight. The test suite fails if those numbers slip, so restarting and
+  upgrading are routine, never risky.
+- **Reading the web stops the hands.** Once a session has read text from the internet, anything it does next
+  that acts on the world waits for your approval, until you say you trust it again. A web page can't talk your
+  agent into deleting your files.
+- **Nothing is ever lost or done twice.** Every action is written to disk before it is attempted, and its result
+  is written when it settles, the way a bank treats a payment. Kill Theseus at any moment, and it picks up exactly
+  where it was.
+- **Memory has to pass an exam before it ships.** Theseus has a memory exam with held-out questions, and recall
+  goes live only where it measurably helps.
 
-Exit codes: `0` ok, `1` server or provider error, `2` usage, `3` cannot connect.
+As far as we could find, no other harness makes the money, speed, web, or memory promises (see [Theseus among the
+harnesses](docs/research/harness-landscape.md)). Durability you can test is rarer than it looks, but it isn't
+unique.
 
-Profiles and providers: a `[profiles.<name>]` entry is provider + model + max_tokens + system; exactly
-one is **live** (`[model].live` at startup, `theseus profile use <name>` at runtime, persisted across
-restarts, also a selector in the web UI). `theseus ask -P glm "…"` runs one turn under another
-profile without switching. Any endpoint that speaks the Anthropic Messages API is a
-`[providers.<name>]` entry (`api_base`, `api_key_secret`, optional `timeouts`); Z.ai's GLM models
-are in the example config. Raw `-p provider -m model` overrides still exist for experiments.
-Secret references may end in `#label` to select one `label: value` line of a multi-line note.
+## What it's like to use
 
-OpenTelemetry is built in and off-wire until you point it somewhere:
+- **You talk to it where you are:** a Discord DM or channel, the `theseus` command in a terminal, or the web.
+- **It shows its work.** Discord gets a quiet line per tool call. The terminal streams the reply, and the tool
+  calls as they happen. The web cockpit shows everything live:
+  - the sessions and what each one is doing;
+  - every model call, with its timing, tokens, cache hits, and cost;
+  - every tool call's whole life, from the moment it was planned to its result;
+  - the budget, the approvals waiting for you, and the complete ledger.
+- **It asks before acting, in proportion.** Reading is free. Writing files and running commands either notify you
+  or wait for you, as you choose, tool by tool. An approval is bound to the exact command it was asked about.
+- **It works in the background.** A long job keeps running after the reply, and its result comes back to the
+  conversation, even across a restart. A conversation can start a background task with its own budget, and set
+  itself a reminder for later.
+- **You can always ask "why?"** Every turn, every call, every approval, and every dollar is in an append-only
+  ledger, timed, attributed, and kept.
 
-```toml
-[telemetry]
-otlp_endpoint = "http://127.0.0.1:4318"   # any OTLP/HTTP collector: Collector, Tempo, Honeycomb, Datadog, ADOT
-headers_secret = "honeycomb_key"          # optional; a [secrets] entry holding "x-honeycomb-team: …"
-```
+## Why it might interest you
 
-Each turn becomes one trace (turn > loops > provider.call with GenAI attributes, first_byte/first_token
-events) with the exact timestamps the ledger recorded, plus metrics: `theseus.turns`, `theseus.tokens`,
-`theseus.provider.errors`, `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`,
-`theseus.provider.first_token_ms`, `theseus.cost.usd`, `theseus.tool.calls` (by tool).
+- **If you run agents for real work**, Theseus is built for you to see, audit, and trust what they do. It speaks
+  OpenTelemetry too, so any observability backend can watch it.
+- **If you care about reliable software**, Theseus treats an agent's tool calls with the discipline of a
+  payments system: write-ahead logging, idempotent completions, verified cancellation, and crash tests that kill
+  it at every step.
+- **If you're curious how far AI can carefully build software**, Theseus is itself being built by AI agents
+  (Claude), under one person's direction, in small steps. Every step has to pass more than a thousand tests, a
+  speed bench, a live check against a running copy, and a written review. Every step's record, including where
+  it diverged from the plan and why, is in the design document's Part III.
+- **If you like small, opinionated tools**, it's a daemon and a command line that speak one protocol
+  (JSON-RPC), plus a Discord binding and a web UI. It is not a framework.
 
-Visibility: `theseus health` (totals), `theseus sessions list` (tokens per session),
-`theseus ledger -n 20 [-k provider.call|provider.error|turn.ended]` (every row).
+## Where it stands (October 2026)
 
-When the Claude API does not answer: four timeouts (connect 10 s, first byte 60 s, stream idle 60 s,
-total 600 s; `[model.timeouts]` in config) end the call with a classified error (`timeout`, `network`,
-`rate_limited`, `overloaded`, `server`, `auth`, `invalid_request`, `stream`, `truncated`). The turn
-fails, the class and whether usage is unknown are ledgered and returned in `error.data`, and nothing
-retries on its own.
+It works today:
+- Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
+- Built-in tools: files (read, write, edit, patch, search, list), git (diff and log), commands, web search and
+  fetch, background tasks, and reminders.
+- Approvals from Discord, the terminal, or the web, including "approve, and trust this session".
+- A secret broker that hands a program only the credentials you've granted it.
+- Budgets in dollars, the cockpit, crash recovery, restore from a backup copy, and a systemd installer.
 
-## The keel (M1)
+Next on [the roadmap](docs/design/roadmap-v2.md):
+- sandboxes for code the agent writes;
+- a second model (Jev) that judges when work is done and which actions are safe;
+- memory and recall, measured by the exam;
+- MCP in both directions;
+- and an AWS account the agent owns, within hard limits.
 
-Storage is a WAL of checksummed atomic frames (the truth) plus a rebuildable index in `redb`
-(`[server].store_engine`, `fjall` also available). Every append is durable when it returns; a
-frame with several records commits all or none; recovery truncates a torn tail and refuses
-corruption elsewhere; deleting the index loses nothing. Concurrent appenders share one
-`fdatasync` (**group commit**): sixteen writers get about seven times the frame throughput of one,
-and a single writer pays exactly one sync per frame as before. Records carry an optional **scope**
-(a session id) and the index keeps a per-scope position table, so a session's own records are one
-range scan (§4.4b).
+Theseus is early (version 0.0.1), runs on Linux, and has one daily user. Expect sharp edges.
 
-```bash
-theseus-sim crash-test --iterations 40 --restarts 3 --engine redb   # kill -9, tear the tail, verify
-theseus-sim bench --engine redb --records 20000                      # append/read throughput
-theseus-sim bench --engine fjall --records 50000 --no-fsync           # index cost without the disk
-theseus-sim bench --engine redb --records 20000 --writers 16          # group commit under concurrency
-```
+## Quick start
 
-## The kernel (M2)
-
-Every session has one durable **execution**; every turn is a kernel turn: the execution is woken
-by input, admitted under a concurrency ceiling (`[kernel].admission_ceiling`), holds the
-per-execution turn lock while it runs, and parks again when the Advancer ends the turn. The
-provider call inside a turn is an **action**: `planned → authorized → dispatched` are three WAL
-frames committed before the call is made, the budget reservation is taken in the first, and the
-response settles it as a `Completion` in the same frame that continues the execution. Every
-transition is a ledger row (`action.planned`, `action.dispatched`, `action.succeeded`,
-`execution.running`, `execution.waiting`, …).
-
-- **Completions** are one envelope from every source, accepted idempotently: a duplicate is a
-  logged no-op, a stray (no matching action) is quarantined and surfaced in `theseus health`, a
-  late one after cancel is recorded but revives nothing.
-- **The spool** (`<state_dir>/spool`) is where the detached **job wrapper** (`theseusd job-wrapper`,
-  its own session via `setsid`, own deadline) writes a result before any delivery attempt, then
-  pokes the harness over `spool/notify.sock`. Startup drains it before accepting events; the
-  heartbeat reconciler drains it every `heartbeat_secs`.
-- **Startup is five idempotent steps** (store, load + requeue interrupted turns, drain spool,
-  reconcile, accept); a crash inside any of them is finished by the next startup.
-- **Budgets are hard limits** with reservations; unknown usage (an interrupted provider call) is
-  held, never released; exhaustion is a terminal state.
-- **`/cancel`** is a deterministic control path: `theseus executions cancel <id>` never queues
-  behind admission, terminates the execution's wrapper processes by process group, and walks each
-  action's cancel lifecycle (`requested → acknowledged → verified | unsupported | uncertain`).
+You'll need:
+- Linux;
+- Rust 1.98 or later;
+- Node.js 22 or later (to build the web UIs);
+- an Anthropic API key, or a key for another provider that speaks the same API;
+- [1Password](https://1password.com/) with a service account. Theseus reads every secret from 1Password; the
+  service account's token is the only secret it accepts any other way.
 
 ```bash
-theseus executions                     # one line per execution: state, turns, outstanding, budget
-theseus executions cancel exe_…        # deterministic cancel
-theseus health                         # kernel line: accepting, turns held/ceiling, counts by state
-theseus ledger -n 20 -k action.succeeded
-theseus-sim kernel-sim --seed 1 --seeds 40 --steps 400   # the M2 exit test: seeded fault injection
+git clone https://github.com/zeroaltitude/theseus && cd theseus
+
+# Build: the two web UIs first, since they're embedded in the binary.
+(cd web && npm ci && npm run build)
+(cd cockpit && npm ci && npm run build)
+cargo build --release
+install -m 755 target/release/theseus target/release/theseusd ~/.local/bin/
+
+# Configure: start from the annotated template.
+mkdir -p ~/.theseus
+theseusd example-config > ~/.theseus/theseus.toml
+#   then edit it: point each op:// reference in [secrets] at an item in your own vault.
+export THESEUS_CONFIG=~/.theseus/theseus.toml
+export OP_SERVICE_ACCOUNT_TOKEN=...      # or keep it in a file: --op-token-file
+theseusd check                           # proves every secret resolves, then exits
+
+# Run it, and talk to it.
+theseusd &
+theseus ask "Hello! What can you do?"
 ```
 
-The kernel simulator runs the kernel under a virtual clock with a real store and spool in a temp
-dir and injects crashes between any two frames and inside every startup step, lost and duplicate
-completions, dropped notifies, jobs that never finish, and cancels; it checks the kernel
-invariants after every step and is reproducible from its seed.
+Then open the web UI at <http://127.0.0.1:7433/>, or the cockpit at <http://127.0.0.1:7433/cockpit/>.
 
-## First hands (M3)
+From there:
+- **Run it as a service:** `theseusd install --user` prints the plan, and `--apply` performs it.
+- **Connect Discord:** `theseusd example-bindings` prints the bindings file's format.
+- **Learn the command line:** `theseus --help`. A good first look at a session is `theseus watch`.
 
-A session is a graph of **nodes** in the store (your messages, the model's messages with their
-thinking blocks byte for byte, tool calls with the gate's decision, tool results). The model's
-context is a **compilation** of those nodes plus the tail written since: appended to every loop,
-recompiled only on a new session, a model/system/tool change, overflow of the context window, or
-your request (`theseus sessions recompile <id> --strategy fresh|transcript`, or the Observatory).
-Every loop records its decision (`context.compiled`).
+## Documentation
 
-Eleven native **toollets**, no shell unless asked for: `fs.read`, `fs.write`, `fs.edit`,
-`fs.patch`, `fs.glob`, `fs.grep`, `fs.list`, `text.diff`, `git.diff`, `git.log` (native, through
-`gix`), and `proc.run` (typed argv; `bash -c` is possible and visible as such). The **policy gate**
-confines them to `[tools].roots`, always denies protected paths (`~/.ssh`, `~/.aws`, the
-1Password token, `~/.theseus`, …) and dangerous argv (`sudo`, `rm -rf /`, …), and by default lets
-reads through while **writes and commands wait for your confirmation**, bound to the exact
-arguments and expiring after 15 minutes. `proc.run` runs in the detached job wrapper: if it takes
-longer than `[tools].proc_sync_secs`, the turn continues without it and the result comes back
-later, even across a daemon restart, as a late result the model reads in a continuation turn.
-
-The **model catalog** gives every model its context window, output ceiling, and prices, so every
-call is priced in dollars (`theseus catalog`; override or add rows with `[catalog."<model>"]`).
-
-```bash
-theseus ask "Run the tests in ~/projects/foo and fix what fails."   # tool activity on stderr
-theseus confirm                        # what is waiting for you, across sessions
-theseus confirm act_…                  # approve, then follow the turn it resumes (--deny to decline)
-theseus history [session]              # the transcript: messages, calls with gate decisions, results
-theseus watch [session]                # follow a session live, whoever drives it
-theseus ask -s ses_… "and now?"        # continue a session: its history is the context
-theseus tools                          # toollets, policy, calls, shell-fallback ratio
-theseus catalog                        # windows, output limits, prices
-```
-
-## Build
-
-```bash
-cargo build                                           # dev
-cargo nextest run && cargo clippy --all-targets -- -D warnings && cargo deny check
-(cd web && npm ci && npm run build)                   # web UI → crates/theseusd/web/dist (committed)
-cargo build --release --target x86_64-unknown-linux-musl   # static binaries
-scripts/smoke.sh                                      # end to end against the real API
-```
+- **[docs/README.md](docs/README.md)**: where to start, and what each document is for.
+- **[The Ship of Theseus](docs/the-ship-of-theseus.md)**: the design document. It is both the specification and
+  the record of what was built.
+- **[Technical overview](docs/technical-overview.md)**: the core in depth (the store, the kernel, the tool loop,
+  the protocol, and the command line).
+- **[Design documents](docs/design/)**, **[research](docs/research/)**, and **[notes](docs/notes/)**: how each
+  part was designed, and what it was measured against.
 
 ## License
 
@@ -192,4 +161,5 @@ Licensed under either of
 
 at your option.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
