@@ -6099,6 +6099,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "libc",
+ "serde",
  "serde_json",
  "shellexpand",
  "tempfile",
