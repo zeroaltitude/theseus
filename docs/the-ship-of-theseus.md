@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.69
+# The Ship of Theseus — v0.70
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -638,7 +638,7 @@ The `planned` record mints the **correlation id** and is committed before anythi
 
 Native in-process calls of one response that only read run concurrently (§4.6). Each is still a `planned`/`settled` pair in the WAL, dispatched before it runs. _(theseus-a60.)_
 
-**The job wrapper** is part of every shell class's contract (§7): it is **detached** (its lifetime does not depend on the harness; on the node it runs as its own systemd scope or L1 process tree), **durable** (result spooled to disk before any delivery attempt), and **cancellable** (the harness terminates it by correlation id through the execution's cancel path: kill the scope, stop the task, cancel the command). It is deliberately not "unkillable"; a runaway job must remain stoppable.
+**The job wrapper** is part of every shell class's contract (§7): it is **detached** (its lifetime does not depend on the harness; on the node it runs as its own systemd scope or L1 process tree), **durable** (result spooled to disk before any delivery attempt), and **cancellable** (the harness terminates it by correlation id through the execution's cancel path: kill the scope, stop the task, cancel the command). It is deliberately not "unkillable"; a runaway job must remain stoppable. A job with a broker's grant writes its output through the wrapper, which withholds the granted values before anything reaches the spool (§3.19, theseus-l0d); a PTY session (`shell.open`, not built) must do the same when it is built (theseus-rnx).
 
 **Who reaps a job** (theseus-z4b; built 2026-09-29).
 - The daemon starts each job's wrapper and is its parent, so it reaps it. Each wrapper is registered with
@@ -798,10 +798,17 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
     - The ledger gets `secret.granted` (the program, the variable, the secret's name, and the call's
       correlation id), and `secret.withheld` (the same, and why).
     - Health and the Observatory list each grant with its uses.
-    - Output is scrubbed as every tool's is. The raw output file in the spool keeps what a program prints,
-      as for any job (`gh auth token` would put the token there); the node, the model, and every surface
-      get the scrubbed text. Since theseus-wz2, that file is 0600 in a 0700 spool, it is deleted once its
-      result is written, and no client is given its path.
+    - Output is scrubbed as every tool's is, and a program's own granted value never reaches the disk
+      (theseus-l0d; built 2026-10-01, Part III A4 Item 19). The wrapper is given each granted variable's name
+      and its secret's (`--redact VAR=secret`, names only; the values are its environment). With a grant, the
+      command writes into a pipe, and the wrapper copies what it reads into the spool's raw output file with
+      each value replaced by the scrubber's mark, `[redacted:<secret>]`, so `gh auth token` puts no token
+      there. A value split across two reads is caught: the copy holds back only a tail that could still
+      become a value. The file still grows as the command prints; a descendant that keeps the output open
+      holds the report 200 ms at most. A job without a grant writes the file itself, as before. The
+      completion counts what was withheld (`withheld`). A value under 8 bytes is not withheld, as the
+      scrubber does not scrub one. The file is 0600 in a 0700 spool (theseus-wz2), deleted once its result
+      is written, and no client is given its path.
   - At L0 a job runs as the operator's user. So the broker keeps a value out of every record and every
     other program's environment, but it is not a boundary against a hostile job of the same user, which
     can read another job's `/proc/<pid>/environ`, or a program's own stored login (gh's `hosts.yml`). L1
@@ -869,6 +876,15 @@ Theseus may build its ship on the open ocean: add tools to itself while running.
 A restart of `theseusd` is designed to be cheap, because nothing that matters lives only in process memory (§3.16, §4.4b). What a restart costs, exactly: any provider stream in flight at that instant, which becomes a classified `usage_unknown` failure with its trace, reservation held, turn resumable. Everything else is reconciled by the five-step startup (§3.3): finished jobs are picked up from the spool, running jobs are still running because their wrappers never depended on the harness, sessions and executions are records, the live profile is in the store, Discord resumes its gateway session.
 
 **Graceful upgrade** is a first-class operation (`theseusd upgrade`, or a signal): stop admitting new turns; let in-flight provider calls finish within a bounded window or fail them cleanly; flush telemetry; checkpoint the store; exec the new binary and hand it the listening sockets so no client sees a refused connection. Target: no lost work, no lost client connections, sub-second gap in turn admission. **Upgrade under load** is a standing simulator scenario beside crash-at-every-boundary: a hundred sessions mid-turn, upgrade, every one settles correctly. Deploying a new keel is an operator action made cheap enough to do without ceremony; the agent never triggers it (§3.21).
+
+**Stopping** (theseus-bv5, theseus-pfv; built 2026-10-01, Part III A4 Item 19). A clean stop is one path, whatever
+asks for it: the protocol's `shutdown`, SIGINT, or SIGTERM, which is systemd's stop, `kill`'s default, and most
+supervisors' signal (until then a SIGTERM killed the daemon outright). The stop writes `server.stopping`, naming the
+signal when one asked, and checkpoints the index; from then on no outbox post is dispatched. The socket goes. The
+posts already sent get until `[server] stop_grace_ms` after the stop began to settle. The index is checkpointed after
+them, which costs nothing when nothing was written since, so the next start replays nothing and repairs nothing.
+Telemetry's last batch goes, bounded at 1 s. A `--stdio` daemon has no signal arm; its client ends it by closing
+stdin (theseus-p7q).
 
 This is a deliberate contrast with the gateway Theseus replaces, where in-flight tool calls, subagent handles, and session state live in process memory and a restart loses them. The M0 binary is not yet restart-safe in this sense; M1 Keel and M2 Kernel are where the construction happens, and the simulator is what proves it.
 
@@ -1266,6 +1282,11 @@ theseus (core)                          theseus --tender <role>  (children of th
 - **Tenders** consume the WAL and answer rehydration over a local socket; they never touch the arena directly. Durability ships to S3 and DynamoDB when configured, with a 5–60 s target measured as "age of the oldest unshipped committed record." Tiering demotes payloads by heat and retention (stub stays in the arena, payload on SSD and S3; nothing is removed from the graph), with a Jev backup opinion for lower heat bands; rehydration misses are logged. Index owns embeddings: 768-d stored, 256-d indexed, 768-d rerank; usearch memory-mapped from SSD; tantivy BM25; reciprocal-rank fusion then Jev relevance; asynchronous after commit; long nodes chunked with `part_of`. Memory runs consolidation and decay sweeps.
 - **Completion spool.** A directory on the same SSD as the WAL where job wrappers write results before attempting delivery. Startup drains it before accepting events; the heartbeat reconciler reads it every minute. It is the reason a harness restart never loses a finished job.
 - **Restore.** Rebuilding a node from S3 segments plus the DynamoDB index is a first-class, tested path from the first release (`theseus restore --from s3://…`), because S3 is presented as disk-failure recovery. Periodic automated drills remain deferred.
+- **A local restore is durable before it says so** (theseus-ez3; built 2026-10-01, Part III A4 Item 19).
+  `theseusd restore --from <wal or store dir>` syncs each copied segment and blob before it opens them; syncs the
+  staging store's `wal/` and `blobs/`, and the staging store once its open has written the manifest and the index;
+  and syncs the state dir after moving an occupied store aside and again after the restored store takes its name.
+  Only then does it print "restored", so a power loss after that loses none of it.
 - **Embedding weights** are a versioned artifact fetched to the SSD on first run and pinned by hash, distributed separately from the static executable.
 - **Desktop mode.** Same binary; tenders write to a local directory and SQLite; every AWS-side dependency is absent without error.
 
@@ -1405,7 +1426,7 @@ lifecycle timings, and the M3.5 entry).
 | Metric | Target |
 |---|---|
 | Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ _(Since theseus-8ni, F4a: the store's open checks the WAL only from the frame after the index's checkpoint to its end. The history is checked after serving, at about 5 % of a core, and a corrupt frame there is refused and loud. On 10,000 parked sessions the store phase went from 63.2 to 10.1 ms p50, and a cold start from 164.1 to 121.7 ms.)_ |
-| Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for |
+| Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for, except the outbox's posts already sent, for at most `[server] stop_grace_ms` (50 ms by default) from the stop's start (theseus-pfv; a post still unanswered then stays dispatched, and the next start sends it again under the same nonce; a longer grace is the operator's choice, outside this budget) |
 | Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms _(The bench's budget: the cold-start budget plus 100 ms.)_ |
 | Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer _(Since F4b, theseus-qa0: the bench's swap phase holds this in the gate, from the stop's request to the other build's first answer, with a job's wrapper running through every swap and ended at last by a daemon that never started it. `theseus shutdown` answers before the daemon has closed its store, so a start that follows at once waits for the store's lock, at most 3 s, instead of failing. Numbers in Part III A3c, F4b.)_ |
 | Store or schema migration | adds nothing before serving: old formats are read in place, and a tender rewrites them in the background using at most 5 % of one core _(Since F4a, theseus-qa0: every record carries its kind's schema, and the manifest names the newest schema written for each kind. A start writes neither: a store an older binary wrote is marked only when this build first appends a newer record. A build older than the store refuses to open it, before anything is written. No layout has needed a rewrite yet; the first that does lands with its tender.)_ |
@@ -5322,3 +5343,162 @@ on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:
 
 **Both merges** were gated on `main` (`~/reports/theseus-merge/<lane>-gate.log`), each with the lifecycle bench OK in
 7.0 s, and both branches and worktrees are deleted. Only `lane/vectors` remains.
+
+### Item 19. Fix batch 2, part 1: a clean stop on any signal, posts that settle before it, a restore that is durable, and a spool that never keeps a granted secret (theseus-bv5, theseus-pfv, theseus-ez3, theseus-l0d; 2026-10-01 04:44 to 05:57; a871640, 79a895c, 93a87f6, 6448534, 5914183)
+
+**Why.** The roadmap re-cut's row 4, fix batch 2, split; the shutdown and durability half first.
+- A SIGTERM, which is systemd's stop and `kill`'s default, killed the daemon outright: the socket stayed
+  behind and the clean path never ran (theseus-bv5). The installer's units sent SIGINT instead.
+- A clean stop about a second after a turn's end could cut a reply post between its write and its settle,
+  so the next start sent it again (theseus-pfv).
+- A restore said "restored" before its copies were durable: a power loss soon after could leave a short
+  history (theseus-ez3).
+- A program that prints its own granted secret, as `gh auth token` does, put it in the spool's raw output
+  file, which the floor keeps (theseus-l0d).
+
+**What exists.**
+- **bv5, one clean stop** (§3.22): the serving loop takes SIGTERM as it takes SIGINT, each registered once.
+  Both now do what a client's `shutdown` does before its answer: a `server.stopping` row, naming the
+  signal, and a checkpoint (`Core::stopping_on`). SIGINT's path had skipped both, so its next open
+  replayed the start's own rows.
+- **pfv, posts that settle** (§3.16, §9):
+  - a post is in flight from just before its dispatch until it settles or its delivery gives up
+    (`outbox::Sending`); the stop's row marks the outbox stopping, and no post is dispatched after it;
+  - `Core::finish_stop`, at the end of every clean stop, waits for the posts in flight until
+    `[server] stop_grace_ms` (default 50) after the stop began, then checkpoints after them; a post still
+    in flight stays dispatched, as before;
+  - a checkpoint with nothing written since the last costs nothing;
+  - the fake Discord can hold the answer to a write by its content (`hold_writes_containing`).
+- **ez3, a durable restore** (§6): every sync goes through one small trait (`Durable`): each copied segment
+  and blob before the open; the staging store's `wal/`, `blobs/`, and the staging store after the open;
+  the state dir after moving an occupied store aside, and after the rename.
+- **l0d, no granted value on disk** (§3.19): the wrapper gets each granted variable's name and its
+  secret's (`--redact`, names only). With a grant, the command writes into a pipe, and a copy writes the
+  spool file with each value replaced by `[redacted:<secret>]`, holding back across reads only a tail that
+  could still become a value. A job without a grant writes its file itself, as before. A descendant that
+  keeps the output open holds the report 200 ms at most. The completion counts what was withheld.
+
+**How it is proven.**
+- bv5: `versions::a_sigterm_or_a_sigint_stops_cleanly_and_the_next_start_replays_nothing`; live, a SIGTERM
+  stopped a scratch daemon in about 42 ms, exit 0, socket gone, and the next start replayed nothing,
+  against the baseline's exit 143, socket left, and 9 records replayed with a repaired index.
+- pfv:
+  - `outbox::a_clean_stop_lets_the_reply_in_flight_settle_before_it_exits` (with no grace it fails: the
+    next start sends the post again) and `…_no_longer_than_its_grace`, plus core and store unit tests;
+  - release A/B, quiet: no post in flight 27.3 ms p50 in both builds; a post never answered 63.5 ms p50,
+    70.7 ms p95 (the grace's worst case), inside §9's 100 ms; the gate's clean shutdown 41.7 / 51.2 ms;
+  - live on `#theseus-test`: with a 2 s grace the stop waited 236.6 ms and settled the post, and the next
+    start sent nothing; with the default the post stayed dispatched and was sent again once.
+- ez3: `restore::tests::a_restore_syncs_every_copy_and_directory_before_it_reports` (dropping one sync fails
+  it); `strace` of the real binary: 6 `fsync`s against the baseline's 2; live, a restore of a copy of
+  Eddie's WAL (1490 records) whose 5 sessions and their histories (105 nodes) equal the copy's, over the
+  protocol. The syncs cost about 15 to 20 ms (release, quiet).
+- l0d: `redact::tests` (every split of a value across two reads, every read size from 1 to 97 over a long
+  run with two values, one the start of the other, against one pass over the whole); `job::tests` and two
+  wrapper-process tests (a value split across writes, and a descendant printing it after the report);
+  `broker::a_program_that_prints_its_granted_secret_leaves_it_nowhere` (the spool file while the job runs,
+  the store, the log, and every surface). With nothing withheld all four job tests fail. Live, a scratch
+  config granted Eddie's GitHub token to a stub that prints it split across two writes: 0 occurrences in
+  the spool file while the job ran (its 85 bytes held the mark), and 0 in the WAL, the index, eight
+  surfaces, the log, and the CLI's output after it, counted by value. The pipe costs a one-line job
+  nothing measurable and a 32 MiB one about 40 ms; a job without a grant keeps its old path.
+- The gate was green at each commit: 1054, 1059, 1060, and 1068 tests, with the lifecycle bench within
+  its budgets.
+
+**Divergence from the brief and the issues.**
+- bv5: SIGINT's path, which the brief asked SIGTERM to copy, now also writes the stop's row and
+  checkpoint; without them "the next open replays nothing" could not hold for either signal.
+- pfv: the grace counts from the stop's start, not the serving loop's end, so it stays inside the
+  budget; and no post is dispatched once the stop has begun (one planned then waits for the next start).
+  The grace is a config key, so a test can lengthen it; the default is the issue's 50 ms.
+- ez3: the staging store itself is synced too, once its open has written its manifest and index; the
+  issue's crash-test idea cannot show a missing sync (a kill keeps the page cache), so the test records
+  the syncs.
+- l0d: the copy holds back only a tail that could still become a value, not always the longest value less
+  one byte; a job without a grant keeps writing its file itself; values under 8 bytes are not withheld,
+  as the scrubber does not scrub them.
+
+**Known gaps.**
+- theseus-4xa (P2): the default 50 ms grace settles only a write near its end; real Discord takes 250 to
+  400 ms; Eddie's call.
+- theseus-ndw: the lifecycle bench never has a post in flight, so the gate does not hold the grace.
+- theseus-p7q: `--stdio` has no signal arm.
+- theseus-rnx: the PTY path, when built, must withhold granted values the same way.
+- theseus-26r: rare 300 to 900 ms clean stops in debug, unquiet, not seen in the quiet release A/B.
+- The installer's units keep `KillSignal=SIGINT`: no longer needed, harmless, right for an older binary.
+- `theseusd restore` still needs 1Password access to start, though it reads no secret.
+
+**Reviewed** (Tabitha, 2026-10-01, 07:31 to 07:36).
+- **Reading the report against the code:** the signal arms registered once before the loop; `Core::stopping_on`
+  and `finish_stop`; the grace counted from the stop's start; the restore's `Durable` trait and its order of
+  syncs; the wrapper's pipe and `Redactor`, with jobs without a grant on their old path.
+- **The gate rerun** at 5914183: 1,068 tests, lifecycle OK in 7.3 s.
+- **A live check of the stop**, on the release build, over a copy of Eddie's store:
+  - SIGTERM: exit 0 in 32 ms, socket gone, the next start replayed nothing and repaired nothing, and
+    `server.stopping {"signal":"SIGTERM"}` was in the ledger;
+  - SIGINT: the same, in 26 ms.
+- **Eddie's store was copied** to `~/.theseus-backups/store-pre-fb2a-20261001-073547`, and the build **installed at
+  07:35** from 5914183. No layout changed.
+- **The grace's default** (theseus-4xa) is Eddie's call. Tabitha recommended keeping 50 ms and §9's budget, since a
+  post the stop cuts off is sent again under its nonce and Discord returns the first one. It stays 50 ms until he
+  says otherwise.
+
+### Item 20. Vectors, voice, and two small fixes on `main` (theseus-nz8, theseus-3xn, theseus-2fs, theseus-fln; 2026-10-01, merged 07:39 to 07:43; 648239e, 3a0a567, 128b3f6)
+
+**Why.** The lane recipe's rule 3: each lane merged once reviewed. All three waited for fix batch 2's first step
+(Item 19), which held `main`.
+
+**What landed.**
+
+| Lane | What | Its reader | Landed |
+|---|---|---|---|
+| vectors (29c) | Embeddings in `theseus-index` on candle 0.11 (f32, one thread): a hand-written WordPiece that matches Hugging Face's `tokenizers` id for id; weights hashed as they are read and pinned; vectors kept by text in a file per stamp, so a rebuilt index never re-embeds; the 256-d int8 flat scan and the 768-d re-score; rank fusion; `index.neighbours`, `index.embed`, `index.warm` | row 51 (the tender's wire-in); 31a | 07:39, 648239e |
+| voice (44a) | `theseus-voice` on songbird 0.6.0: the `VoiceIo` seam with a WAV stand-in, the pipeline (utterances, coalescing, barge-in, sentence by sentence, the acknowledgment, reports at the pause), `Speech` and its stand-ins, the `join` example | 44b | 07:42, 3a0a567 |
+| smallfix | theseus-2fs: the sandbox's clause 10 test waits for the sessions to differ; theseus-fln: the catalog generator finds its models from the `aws` on PATH, and the guard's tests read the embedded catalog | — | 07:43, 128b3f6 |
+
+**The vectors lane's review** (05:01 to 05:10).
+- **Spot checks.**
+  - `RAYON_NUM_THREADS` and `CANDLE_NUM_THREADS` are set before any thread starts.
+  - The pinned hashes match the fetch's manifest; the model's was also checked against Hugging Face's LFS hash.
+  - Weights are refused before use when wrong.
+- **Live, on a copy of Eddie's store:**
+  - 536 MiB with the model loaded, 11 MiB once it unloads;
+  - a load answers 0.53 s after `index.warm`;
+  - a query embeds in p50 74 ms, p95 86 to 94 ms;
+  - the scan over 100,000 chunks takes p95 7.0 ms.
+- **The first quality evidence** (exam-v2's held-in items only).
+  - Vectors find the paraphrase golds BM25 never reaches.
+  - On the four hard families at k = 6: BM25 finds 1 of 16, vectors alone 7, and the equal-weight hybrid only 3.
+    BM25's confident decoys outvote a vector-only find. Hence theseus-jz8 (P2): weighted fusion or a rerank, for
+    30a and 32c, which also inherit a query embed past 30a's 60 ms target.
+- **Filed:** theseus-64x (P3, a forgotten or redacted text's vector leaves the file promptly) and theseus-emc (P3,
+  the exam probe's `--tender` mode).
+- **The join** added one `deny.toml` ignore: RUSTSEC-2024-0436, `paste`. It is unmaintained, not vulnerable, and a
+  build-time proc-macro that candle's gemm needs.
+
+**The voice lane's review** (07:31 to 07:35).
+- **The tests:** 28, on tokio's paused clock, so the timings are exact. An utterance closes at 1.700 s, a barge-in
+  stops playback at 300 ms, and the acknowledgment comes at 2 s.
+- **Size:** voice adds 5.0 MB, so `theseusd` would be about 22.4 MB of §9's 60 MB.
+- **The SHA-3 question, checked at review against the downloaded sources:**
+  - hpke-rs 0.6.1 calls SHAKE only in its X-Wing and ML-KEM key derivation (`kem.rs:141-162`);
+  - openmls's RustCrypto provider maps only the DH KEMs (`provider.rs:54-65`; X-Wing is `unimplemented!`);
+  - DAVE's one protocol version maps to `MLS_128_DHKEMP256_AES128GCM_SHA256_P256` (`davey session.rs:34-41`).
+
+  So the three libcrux advisories are unreachable, a conclusion.
+- **The join** added six `deny.toml` ignores, each with its reason: derivative, instant, the three libcrux ones,
+  and ringbuf, whose ring holds only `u8`, for inputs voice never makes.
+- **What 44b inherits:**
+  - songbird plays only Opus as configured, so the lane added symphonia's PCM;
+  - songbird receives no audio unless its manager is the crate's `manager()`.
+- **The live join waits** for Eddie's private test voice channel.
+
+**The smallfix lane's review.**
+- 2fs: under 32 busy loops, the old test failed 27 of 50 runs; the fixed one passed 50 of 50, and 200 of 200
+  beside 48. With `setsid` denied in the job's seccomp, it still fails at its deadline.
+- fln: with no arguments, the generator rewrites `aws-catalog.bin` byte for byte. The guard's model tests pass on
+  the embedded catalog with no AWS CLI at all, so they now run in CI.
+
+**Gates.** Each merge was gated on `main` under the shared lock (`~/reports/theseus-merge/<lane>-gate.log`):
+vectors 1,090 tests (lifecycle OK in 7.8 s), voice 1,118 (7.4 s), smallfix 1,118 (7.1 s), each passing on its first
+run. No lane branch remains.
