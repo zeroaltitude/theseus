@@ -5,9 +5,9 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
-import { ArrowDownUp, Layers, Network, Search, Wrench } from 'lucide-react'
+import { ArrowDownUp, Layers, Network, Plus, Search, Wrench } from 'lucide-react'
 import type { ExecutionInfo, SessionInfo } from '@protocol'
-import { useRpc } from '@/lib/rpc'
+import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { ago, cn, pct, short, tokens, usd } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
@@ -29,6 +29,31 @@ function Th({ k, sort, setSort, children, right }: { k: Key; sort: Sort; setSort
 }
 
 const tokIn = (s: SessionInfo) => s.usage.input_tokens + s.usage.cache_read_input_tokens + s.usage.cache_creation_input_tokens
+
+/** session.open from the cockpit: a new conversation with an optional label, opened in its deck, where the
+ *  composer sends its first turn. */
+function NewSession({ onOpened }: { onOpened: (sessionId: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  const open = async () => {
+    const label = window.prompt('A label for the new session (optional):', '')
+    if (label === null) return
+    setBusy(true)
+    try {
+      const s = await call<SessionInfo>('session.open', { kind: 'conversation', label: label.trim() || undefined })
+      onOpened(s.session_id)
+    } catch (e: any) {
+      window.alert(e?.message ?? String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button onClick={open} disabled={busy} title="Open a new conversation session"
+      className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-live ring-1 ring-live/30 hover:bg-live/10 disabled:opacity-50">
+      <Plus size={12} /> {busy ? 'opening…' : 'New session'}
+    </button>
+  )
+}
 
 export default function Fleet() {
   const nav = useNavigate()
@@ -95,7 +120,8 @@ export default function Fleet() {
 
       <Group orientation="horizontal" className="min-h-0 flex-1">
         <RPanel defaultSize="62" minSize={480} className="min-h-0">
-          <Panel title="Sessions" icon={<Layers size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto">
+          <Panel title="Sessions" icon={<Layers size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
+            actions={<NewSession onOpened={(id) => nav(`/session/${id}`)} />}>
             <table className="w-full whitespace-nowrap text-[12px]">
               <thead className="sticky top-0 z-10 bg-hull/95 text-[10px] uppercase tracking-wider text-ink-faint backdrop-blur">
                 <tr>

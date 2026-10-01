@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Tabs } from 'radix-ui'
-import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, Layers, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer } from 'lucide-react'
 import type { CompilationInfo, ExecutionInfo, LedgerEntry, SessionHistory, Span } from '@protocol'
 import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
@@ -152,7 +152,7 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
   const b = exec?.budget
   const u = s.usage
   return (
-    <div className="panel flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+    <div className="panel relative z-20 flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
       <button onClick={onBack} className="rounded-md p-1 text-ink-faint hover:bg-white/5 hover:text-ink"><ArrowLeft size={16} /></button>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
@@ -186,12 +186,34 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
         </div>
       )}
       <div className="ml-auto flex gap-2">
+        <Recompile busy={!!busy?.startsWith('Recompile')} onPick={(strategy) => act(`Recompile (${strategy})`, 'session.recompile', { session_id: s.session_id, strategy }).then(() => undefined)} />
         {s.external_text && <Btn tone="wait" onClick={() => act('Trust', 'policy.trust', { session_id: s.session_id })} busy={busy === 'Trust'}><ShieldCheck size={13} /> Trust</Btn>}
         {exec && ['running', 'queued'].includes(exec.state) &&
           <Btn tone="wait" title="Halt the running turn; the session stays" onClick={() => act('Stop', 'execution.stop', { execution_id: exec.execution_id })} busy={busy === 'Stop'}><Pause size={13} /> Stop</Btn>}
         {exec && ['running', 'queued', 'waiting'].includes(exec.state) &&
           <Btn tone="fault" title="End this execution" onClick={() => act('Cancel', 'execution.cancel', { execution_id: exec.execution_id })} busy={busy === 'Cancel'}><OctagonX size={13} /> Cancel</Btn>}
       </div>
+    </div>
+  )
+}
+
+/** session.recompile: the next turn's context is compiled again, from the whole transcript (thinking stripped) or
+ *  fresh (starting over). A small menu, since the two do very different things. */
+function Recompile({ onPick, busy }: { onPick: (strategy: 'transcript' | 'fresh') => void; busy: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <Btn tone="live" title="Compile this session's context again for its next turn" onClick={() => setOpen((v) => !v)} busy={busy}><Layers size={13} /> Recompile</Btn>
+      {open && (
+        <div className="absolute right-0 top-full z-30 mt-1 w-72 rounded-md border border-line-strong bg-deck p-1 shadow-xl">
+          {([['transcript', 'Keep everything, with the thinking stripped'], ['fresh', 'Start over: the next turn sees only what is new']] as const).map(([k, what]) => (
+            <button key={k} onClick={() => { setOpen(false); onPick(k) }} className="flex w-full flex-col items-start rounded px-2 py-1.5 text-left hover:bg-white/5">
+              <span className="num text-[12px] text-live">{k}</span>
+              <span className="text-[11px] text-ink-faint">{what}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
