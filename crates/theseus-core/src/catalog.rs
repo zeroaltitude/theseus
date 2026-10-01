@@ -104,7 +104,7 @@ fn yes() -> bool {
 /// provider's count (the tokens lane, 2026-10-01). A tokenizer reads JSON,
 /// code, and command output far more densely than prose. On Sonnet 5.5 the
 /// 15 tool schemas, with the provider's tool prompt, ran 2.5 bytes a token,
-/// a Rust file read by a tool 2.36, the tool results in Eddie's DM 1.76 to
+/// a Rust file read by a tool 2.32, the tool results in Eddie's DM 1.76 to
 /// 2.84 (2.4 typically), and prose 3.35; chars/4 read them all at 4. A
 /// figure is the typical one: the compiler's estimate allows for denser
 /// content by its margin (`compiler::MARGIN_PERCENT`), and counts on the
@@ -135,7 +135,7 @@ impl TokenRates {
         text: 4.0,
     };
     /// GLM 5.x, measured on GLM-5.3 Flash: the tool schemas 3.77 bytes a
-    /// token, a Rust file about 3.4, prose 4.54.
+    /// token, a Rust file about 3.3, prose 4.54.
     pub const GLM: TokenRates = TokenRates {
         json: 3.7,
         text: 4.4,
