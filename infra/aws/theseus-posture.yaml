@@ -1,0 +1,945 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  theseus-posture: the detective controls (Theseus's AWS design, theseus-mgw.1, section 3.6). The
+  trail, with its own bucket and key; the CIS alarms, from metric filters on the trail's log group,
+  to the alerts topic; IAM Access Analyzer; GuardDuty (question 11's default); and EBS snapshots'
+  public-sharing block. Built by P4 (theseus-mgw.4). It needs theseus-foundation's alerts topic.
+
+Parameters:
+  FoundationStack:
+    Type: String
+    Default: theseus-foundation
+    Description: The foundation stack, whose alerts topic the alarms and findings go to.
+  OwnerUserName:
+    Type: String
+    Description: >-
+      The IAM user whose key is Theseus's root of trust. Its alarm fires when the key signs
+      anything but sts:AssumeRole and sts:GetCallerIdentity (design section 3.5).
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MinLength: 1
+    MaxLength: 64
+  TrailLogRetentionDays:
+    Type: Number
+    Default: 365
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: >-
+      How long the trail's CloudWatch Logs copy is kept, for the metric filters and queries. The
+      bucket's copy is kept indefinitely.
+  GuardDuty:
+    Type: String
+    Default: enabled
+    AllowedValues: [enabled, disabled]
+    Description: >-
+      GuardDuty's detector. An account has one per region, so disable this if one already exists.
+  AccessAnalyzer:
+    Type: String
+    Default: enabled
+    AllowedValues: [enabled, disabled]
+    Description: The account's external-access analyzer, which is free.
+  SnapshotPublicSharing:
+    Type: String
+    Default: block-all-sharing
+    AllowedValues: [block-all-sharing, block-new-sharing, unmanaged]
+    Description: >-
+      The region's EBS snapshot block-public-access state; unmanaged leaves it alone. It is an
+      account setting, so it covers every snapshot in the region, Theseus's or not.
+
+Conditions:
+  GuardDutyEnabled: !Equals [!Ref GuardDuty, enabled]
+  AccessAnalyzerEnabled: !Equals [!Ref AccessAnalyzer, enabled]
+  SnapshotSharingManaged: !Not [!Equals [!Ref SnapshotPublicSharing, unmanaged]]
+
+Resources:
+  # ---------------------------------------------------------------------------------------------
+  # The trail, its key, its bucket, and its log group. The stack policy in
+  # stack-policies/theseus-posture.json forbids replacing or deleting the trail, the bucket, and
+  # the key, and theseus-guard-limits keeps Theseus's sessions off all of them.
+  # ---------------------------------------------------------------------------------------------
+
+  TrailKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: The trail's own key; CloudTrail encrypts its log files with it.
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TheAccountAdministersThroughIam
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: kms:*
+            Resource: "*"
+          - Sid: CloudTrailEncryptsThisTrailsLogs
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: kms:GenerateDataKey*
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/theseus-trail"
+              StringLike:
+                kms:EncryptionContext:aws:cloudtrail:arn: !Sub "arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:trail/*"
+          - Sid: CloudTrailDescribesTheKey
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: kms:DescribeKey
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/theseus-trail"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  TrailKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/theseus-trail
+      TargetKeyId: !Ref TrailKey
+
+  TrailBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "theseus-trail-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt TrailKey.Arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  TrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TrailBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudTrailChecksTheAcl
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt TrailBucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/theseus-trail"
+          - Sid: CloudTrailWritesThisTrailsLogs
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${TrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*"
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/theseus-trail"
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt TrailBucket.Arn
+              - !Sub "${TrailBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: TheLogsAreNeverDeleted
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+            Resource: !Sub "${TrailBucket.Arn}/*"
+          - Sid: VersioningStaysOn
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutBucketVersioning
+            Resource: !GetAtt TrailBucket.Arn
+
+  TrailLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: /theseus/trail
+      RetentionInDays: !Ref TrailLogRetentionDays
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  TrailLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-trail-logs
+      Description: CloudTrail's delivery into the trail's log group, and nothing else.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: deliver-to-the-trail-log-group
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt TrailLogGroup.Arn
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  Trail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: TrailBucketPolicy
+    Properties:
+      TrailName: theseus-trail
+      S3BucketName: !Ref TrailBucket
+      IsLogging: true
+      IsMultiRegionTrail: true
+      IncludeGlobalServiceEvents: true
+      EnableLogFileValidation: true
+      KMSKeyId: !GetAtt TrailKey.Arn
+      CloudWatchLogsLogGroupArn: !GetAtt TrailLogGroup.Arn
+      CloudWatchLogsRoleArn: !GetAtt TrailLogsRole.Arn
+      EventSelectors:
+        - ReadWriteType: All
+          IncludeManagementEvents: true
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # The CIS alarms (the CIS AWS Foundations Benchmark's monitoring section), and two of
+  # Theseus's own: the root-of-trust key signing
+  # anything but STS, and any change to the budget or its stop. Each is a metric filter on the
+  # trail's log group and an alarm to the alerts topic, which emails the operator and feeds the
+  # completion queue. The filters publish only on a match (no default value), so a quiet metric
+  # costs nothing.
+  # ---------------------------------------------------------------------------------------------
+
+  UnauthorizedApiCallsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { (($.errorCode = "*UnauthorizedOperation") || ($.errorCode = "AccessDenied*")) &&
+        ($.sourceIPAddress != "delivery.logs.amazonaws.com") && ($.eventName != "HeadBucket") }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: UnauthorizedApiCalls
+          MetricValue: "1"
+  UnauthorizedApiCallsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-unauthorized-api-calls
+      AlarmDescription: An API call was refused, including by Theseus's guards.
+      Namespace: Theseus/CIS
+      MetricName: UnauthorizedApiCalls
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  ConsoleSignInWithoutMfaFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") &&
+        ($.userIdentity.type = "IAMUser") && ($.responseElements.ConsoleLogin = "Success") }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: ConsoleSignInWithoutMfa
+          MetricValue: "1"
+  ConsoleSignInWithoutMfaAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-console-sign-in-without-mfa
+      AlarmDescription: An IAM user signed in to the console without MFA.
+      Namespace: Theseus/CIS
+      MetricName: ConsoleSignInWithoutMfa
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  RootUsageFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { $.userIdentity.type = "Root" && $.userIdentity.invokedBy NOT EXISTS &&
+        $.eventType != "AwsServiceEvent" }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: RootUsage
+          MetricValue: "1"
+  RootUsageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-root-usage
+      AlarmDescription: The account's root user was used.
+      Namespace: Theseus/CIS
+      MetricName: RootUsage
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  IamPolicyChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = DeleteGroupPolicy) || ($.eventName = DeleteRolePolicy) ||
+        ($.eventName = DeleteUserPolicy) || ($.eventName = PutGroupPolicy) ||
+        ($.eventName = PutRolePolicy) || ($.eventName = PutUserPolicy) ||
+        ($.eventName = CreatePolicy) || ($.eventName = DeletePolicy) ||
+        ($.eventName = CreatePolicyVersion) || ($.eventName = DeletePolicyVersion) ||
+        ($.eventName = SetDefaultPolicyVersion) || ($.eventName = AttachRolePolicy) ||
+        ($.eventName = DetachRolePolicy) || ($.eventName = AttachUserPolicy) ||
+        ($.eventName = DetachUserPolicy) || ($.eventName = AttachGroupPolicy) ||
+        ($.eventName = DetachGroupPolicy) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: IamPolicyChanges
+          MetricValue: "1"
+  IamPolicyChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-iam-policy-changes
+      AlarmDescription: An IAM policy was created, changed, attached, or removed.
+      Namespace: Theseus/CIS
+      MetricName: IamPolicyChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  TrailChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = CreateTrail) || ($.eventName = UpdateTrail) ||
+        ($.eventName = DeleteTrail) || ($.eventName = StartLogging) ||
+        ($.eventName = StopLogging) || ($.eventName = PutEventSelectors) ||
+        ($.eventName = PutInsightSelectors) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: TrailChanges
+          MetricValue: "1"
+  TrailChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-trail-changes
+      AlarmDescription: A CloudTrail trail was created, changed, stopped, or deleted.
+      Namespace: Theseus/CIS
+      MetricName: TrailChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  ConsoleAuthFailuresFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = ConsoleLogin) && ($.errorMessage = "Failed authentication") }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: ConsoleAuthFailures
+          MetricValue: "1"
+  ConsoleAuthFailuresAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-console-auth-failures
+      AlarmDescription: A console sign-in failed authentication.
+      Namespace: Theseus/CIS
+      MetricName: ConsoleAuthFailures
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  KeyDisableOrDeletionFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventSource = kms.amazonaws.com) && (($.eventName = DisableKey) ||
+        ($.eventName = ScheduleKeyDeletion)) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: KeyDisableOrDeletion
+          MetricValue: "1"
+  KeyDisableOrDeletionAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-key-disable-or-deletion
+      AlarmDescription: A KMS key was disabled or scheduled for deletion.
+      Namespace: Theseus/CIS
+      MetricName: KeyDisableOrDeletion
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  S3BucketPolicyChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventSource = s3.amazonaws.com) && (($.eventName = PutBucketAcl) ||
+        ($.eventName = PutBucketPolicy) || ($.eventName = PutBucketCors) ||
+        ($.eventName = PutBucketLifecycle) || ($.eventName = PutBucketReplication) ||
+        ($.eventName = DeleteBucketPolicy) || ($.eventName = DeleteBucketCors) ||
+        ($.eventName = DeleteBucketLifecycle) || ($.eventName = DeleteBucketReplication) ||
+        ($.eventName = PutBucketPublicAccessBlock) || ($.eventName = DeleteBucketPublicAccessBlock) ||
+        ($.eventName = PutAccountPublicAccessBlock) || ($.eventName = DeleteAccountPublicAccessBlock)) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: S3BucketPolicyChanges
+          MetricValue: "1"
+  S3BucketPolicyChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-s3-bucket-policy-changes
+      AlarmDescription: A bucket's policy, ACL, CORS, lifecycle, replication, or public access block changed.
+      Namespace: Theseus/CIS
+      MetricName: S3BucketPolicyChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  ConfigChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventSource = config.amazonaws.com) && (($.eventName = StopConfigurationRecorder) ||
+        ($.eventName = DeleteDeliveryChannel) || ($.eventName = PutDeliveryChannel) ||
+        ($.eventName = PutConfigurationRecorder)) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: ConfigChanges
+          MetricValue: "1"
+  ConfigChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-config-changes
+      AlarmDescription: AWS Config's recorder or delivery channel changed.
+      Namespace: Theseus/CIS
+      MetricName: ConfigChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  SecurityGroupChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = AuthorizeSecurityGroupIngress) || ($.eventName = AuthorizeSecurityGroupEgress) ||
+        ($.eventName = RevokeSecurityGroupIngress) || ($.eventName = RevokeSecurityGroupEgress) ||
+        ($.eventName = CreateSecurityGroup) || ($.eventName = DeleteSecurityGroup) ||
+        ($.eventName = ModifySecurityGroupRules) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: SecurityGroupChanges
+          MetricValue: "1"
+  SecurityGroupChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-security-group-changes
+      AlarmDescription: A security group or one of its rules changed.
+      Namespace: Theseus/CIS
+      MetricName: SecurityGroupChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  NaclChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = CreateNetworkAcl) || ($.eventName = CreateNetworkAclEntry) ||
+        ($.eventName = DeleteNetworkAcl) || ($.eventName = DeleteNetworkAclEntry) ||
+        ($.eventName = ReplaceNetworkAclEntry) || ($.eventName = ReplaceNetworkAclAssociation) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: NaclChanges
+          MetricValue: "1"
+  NaclChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-nacl-changes
+      AlarmDescription: A network ACL or one of its entries changed.
+      Namespace: Theseus/CIS
+      MetricName: NaclChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  NetworkGatewayChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = CreateCustomerGateway) || ($.eventName = DeleteCustomerGateway) ||
+        ($.eventName = AttachInternetGateway) || ($.eventName = CreateInternetGateway) ||
+        ($.eventName = DeleteInternetGateway) || ($.eventName = DetachInternetGateway) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: NetworkGatewayChanges
+          MetricValue: "1"
+  NetworkGatewayChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-network-gateway-changes
+      AlarmDescription: >-
+        A network gateway changed. The hands network's NAT toggle trips this, once per toggle.
+      Namespace: Theseus/CIS
+      MetricName: NetworkGatewayChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  RouteTableChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventSource = ec2.amazonaws.com) && (($.eventName = CreateRoute) ||
+        ($.eventName = CreateRouteTable) || ($.eventName = ReplaceRoute) ||
+        ($.eventName = ReplaceRouteTableAssociation) || ($.eventName = DeleteRouteTable) ||
+        ($.eventName = DeleteRoute) || ($.eventName = DisassociateRouteTable)) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: RouteTableChanges
+          MetricValue: "1"
+  RouteTableChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-route-table-changes
+      AlarmDescription: >-
+        A route or route table changed. The hands network's NAT toggle trips this, once per toggle.
+      Namespace: Theseus/CIS
+      MetricName: RouteTableChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  VpcChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = CreateVpc) || ($.eventName = DeleteVpc) ||
+        ($.eventName = ModifyVpcAttribute) || ($.eventName = AcceptVpcPeeringConnection) ||
+        ($.eventName = CreateVpcPeeringConnection) || ($.eventName = DeleteVpcPeeringConnection) ||
+        ($.eventName = RejectVpcPeeringConnection) || ($.eventName = AttachClassicLinkVpc) ||
+        ($.eventName = DetachClassicLinkVpc) || ($.eventName = DisableVpcClassicLink) ||
+        ($.eventName = EnableVpcClassicLink) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: VpcChanges
+          MetricValue: "1"
+  VpcChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-vpc-changes
+      AlarmDescription: A VPC or a peering connection changed.
+      Namespace: Theseus/CIS
+      MetricName: VpcChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  OrganizationsChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { ($.eventSource = organizations.amazonaws.com) && (($.eventName = "AcceptHandshake") ||
+        ($.eventName = "AttachPolicy") || ($.eventName = "CreateAccount") ||
+        ($.eventName = "CreateOrganizationalUnit") || ($.eventName = "CreatePolicy") ||
+        ($.eventName = "DeclineHandshake") || ($.eventName = "DeleteOrganization") ||
+        ($.eventName = "DeleteOrganizationalUnit") || ($.eventName = "DeletePolicy") ||
+        ($.eventName = "DetachPolicy") || ($.eventName = "DisablePolicyType") ||
+        ($.eventName = "EnablePolicyType") || ($.eventName = "InviteAccountToOrganization") ||
+        ($.eventName = "LeaveOrganization") || ($.eventName = "MoveAccount") ||
+        ($.eventName = "RemoveAccountFromOrganization") || ($.eventName = "UpdatePolicy") ||
+        ($.eventName = "UpdateOrganizationalUnit")) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/CIS
+          MetricName: OrganizationsChanges
+          MetricValue: "1"
+  OrganizationsChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-cis-organizations-changes
+      AlarmDescription: The account's AWS Organizations membership or policies changed.
+      Namespace: Theseus/CIS
+      MetricName: OrganizationsChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  RootOfTrustKeyFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: !Sub >-
+        { ($.userIdentity.type = "IAMUser") && ($.userIdentity.userName = "${OwnerUserName}") &&
+        ($.eventName != "AssumeRole") && ($.eventName != "GetCallerIdentity") }
+      MetricTransformations:
+        - MetricNamespace: Theseus/Posture
+          MetricName: RootOfTrustKeyUse
+          MetricValue: "1"
+  RootOfTrustKeyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-root-of-trust-key-use
+      AlarmDescription: >-
+        The root-of-trust user's key signed something other than sts:AssumeRole or
+        sts:GetCallerIdentity (design section 3.5).
+      Namespace: Theseus/Posture
+      MetricName: RootOfTrustKeyUse
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  BudgetChangesFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref TrailLogGroup
+      FilterPattern: >-
+        { (($.eventSource = "budgets.amazonaws.com") && (($.eventName = "UpdateBudget") ||
+        ($.eventName = "DeleteBudget") || ($.eventName = "UpdateBudgetAction") ||
+        ($.eventName = "DeleteBudgetAction") || ($.eventName = "ExecuteBudgetAction"))) ||
+        (($.eventSource = "iam.amazonaws.com") && ($.requestParameters.policyArn = "*:policy/theseus-deny-spend") &&
+        (($.eventName = "DetachRolePolicy") || ($.eventName = "CreatePolicyVersion") ||
+        ($.eventName = "SetDefaultPolicyVersion") || ($.eventName = "DeletePolicy"))) }
+      MetricTransformations:
+        - MetricNamespace: Theseus/Posture
+          MetricName: BudgetChanges
+          MetricValue: "1"
+  BudgetChangesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: theseus-budget-changes
+      AlarmDescription: >-
+        A budget or a budget action changed or ran, or theseus-deny-spend was detached or rewritten.
+        The budget's reconcile trips this when it changes the amount.
+      Namespace: Theseus/Posture
+      MetricName: BudgetChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # Access Analyzer, GuardDuty, and their findings to the alerts topic
+  # ---------------------------------------------------------------------------------------------
+
+  ExternalAccessAnalyzer:
+    Type: AWS::AccessAnalyzer::Analyzer
+    Condition: AccessAnalyzerEnabled
+    Properties:
+      AnalyzerName: theseus-external-access
+      Type: ACCOUNT
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  GuardDutyDetector:
+    Type: AWS::GuardDuty::Detector
+    Condition: GuardDutyEnabled
+    Properties:
+      Enable: true
+      FindingPublishingFrequency: FIFTEEN_MINUTES
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  GuardDutyFindingsRule:
+    Type: AWS::Events::Rule
+    Condition: GuardDutyEnabled
+    Properties:
+      Name: theseus-posture-guardduty-findings
+      Description: GuardDuty findings of medium severity and up, to the alerts topic.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.guardduty
+        detail-type:
+          - GuardDuty Finding
+        detail:
+          severity:
+            - numeric: [">=", 4]
+      Targets:
+        - Id: alerts
+          Arn:
+            Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  AccessAnalyzerFindingsRule:
+    Type: AWS::Events::Rule
+    Condition: AccessAnalyzerEnabled
+    Properties:
+      Name: theseus-posture-access-analyzer-findings
+      Description: Active external-access findings, to the alerts topic.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.access-analyzer
+        detail-type:
+          - Access Analyzer Finding
+        detail:
+          status:
+            - ACTIVE
+      Targets:
+        - Id: alerts
+          Arn:
+            Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # Account settings that have a CloudFormation type. S3's account-level Block Public Access and
+  # EBS encryption by default have none; infra/aws/bootstrap.md sets them once.
+  # ---------------------------------------------------------------------------------------------
+
+  SnapshotBlockPublicAccess:
+    Type: AWS::EC2::SnapshotBlockPublicAccess
+    Condition: SnapshotSharingManaged
+    Properties:
+      State: !Ref SnapshotPublicSharing
+
+Outputs:
+  TrailArn:
+    Value: !GetAtt Trail.Arn
+  TrailBucketName:
+    Value: !Ref TrailBucket
+  TrailKeyArn:
+    Value: !GetAtt TrailKey.Arn
+  TrailLogGroupName:
+    Value: !Ref TrailLogGroup

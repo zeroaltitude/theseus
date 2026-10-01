@@ -1,0 +1,1271 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  theseus-foundation: the owner and deployer roles, the guards, the Theseus key, bucket, and
+  durability table, the completion queue and its dead-letter queue, the alerts topic, and the
+  monthly budget with its AWS-side stop. Theseus's AWS design (theseus-mgw.1), sections 3.4-3.7;
+  built by P4 (theseus-mgw.4). The bootstrap creates it once with the user key; the deployer role
+  applies every later change set.
+
+Parameters:
+  OwnerUserName:
+    Type: String
+    Description: >-
+      The IAM user whose key is Theseus's root of trust, and the only principal that may assume
+      theseus-owner. The bootstrap fills it from GetCallerIdentity.
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MinLength: 1
+    MaxLength: 64
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 300
+    MinValue: 1
+    Description: >-
+      The month's budget in USD. The budget's reconcile keeps it equal to monthly_budget_usd in the
+      config (design section 3.7).
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: >-
+      The operator's address on the alerts topic. Empty means no email subscription. SNS mails a
+      confirmation link once, which the operator must open.
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+
+Resources:
+  # ---------------------------------------------------------------------------------------------
+  # Roles (design section 3.5, appendix B)
+  # ---------------------------------------------------------------------------------------------
+
+  OwnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-owner
+      Description: >-
+        The owner's own hat: administrator, assumed only by the root-of-trust user, with a source
+        identity, so every session carries its execution's name. Not a limited identity.
+      MaxSessionDuration: 43200
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TheRootOfTrustOnlyWithASourceIdentity
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/${OwnerUserName}"
+            Action:
+              - sts:AssumeRole
+              - sts:SetSourceIdentity
+              - sts:TagSession
+            Condition:
+              "Null":
+                sts:SourceIdentity: "false"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  DeployerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-cfn-deployer
+      Description: >-
+        CloudFormation's service role: administrator, assumable only by CloudFormation. Theseus's
+        sessions may pass it to CloudFormation and nothing else (theseus-guard-iac).
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFormationOnly
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  BudgetActionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-budget-action
+      Description: >-
+        Runs the budget's actions: it may attach theseus-deny-spend to Theseus's roles, and detach
+        it when an action is reversed, and nothing else.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BudgetsOnly
+            Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: attach-deny-spend
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: DenySpendOnTheseusRolesOnly
+                Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/theseus-*"
+                Condition:
+                  ArnEquals:
+                    iam:PolicyARN: !Ref DenySpendPolicy
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # The guards, allow-all, and the boundary (design sections 3.4-3.6, appendix C).
+  #
+  # These documents are v0, written by hand from the design. P3 (theseus-aws-guard) generates the
+  # guards from guardrails.toml; at the join its output replaces GuardIacPolicy's and
+  # GuardLimitsPolicy's statements, and BoundaryPolicy's denies with their compaction. The check
+  # in infra/aws/test/rules.py keeps the boundary to allow-all plus exactly what the guards deny
+  # (and the statements whose Sid starts "HandsOnly"), and every policy inside IAM's size limit.
+  #
+  # A session's allows come from exactly one allow policy (theseus-allow-all for a work session,
+  # or a job's narrowing), so the guards hold however AWS combines the session policies.
+  # ---------------------------------------------------------------------------------------------
+
+  GuardIacPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-guard-iac
+      Description: >-
+        Deny-only: durable infrastructure changes only through CloudFormation change sets, which the
+        deployer role applies (design section 3.4). On every work and job session, and in
+        theseus-boundary.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: IacNetwork
+            Effect: Deny
+            Action:
+              - ec2:CreateVpc*
+              - ec2:DeleteVpc*
+              - ec2:ModifyVpc*
+              - ec2:AcceptVpcPeeringConnection
+              - ec2:AssociateVpcCidrBlock
+              - ec2:CreateSubnet*
+              - ec2:DeleteSubnet*
+              - ec2:ModifySubnetAttribute
+              - ec2:*InternetGateway
+              - ec2:*NatGateway
+              - ec2:*NatGatewayAddress
+              - ec2:*Route
+              - ec2:*RouteTable
+              - ec2:ReplaceRouteTableAssociation
+              - ec2:*SecurityGroup
+              - ec2:AuthorizeSecurityGroup*
+              - ec2:RevokeSecurityGroup*
+              - ec2:ModifySecurityGroupRules
+              - ec2:CreateNetworkAcl*
+              - ec2:DeleteNetworkAcl*
+              - ec2:ReplaceNetworkAcl*
+              - ec2:CreateTransitGateway*
+              - ec2:CreateVpn*
+              - ec2:CreateCustomerGateway
+              - ec2:CreateClientVpn*
+              - ec2:CreateFlowLogs
+              - ec2:DeleteFlowLogs
+              - ec2:RunInstances
+              - ec2:RequestSpot*
+              - ec2:CreateFleet
+            Resource: "*"
+          - Sid: IacData
+            Effect: Deny
+            Action:
+              - s3:CreateBucket
+              - s3:DeleteBucket
+              - s3:PutBucketPolicy
+              - s3:DeleteBucketPolicy
+              - s3:PutBucketAcl
+              - s3:PutBucketPublicAccessBlock
+              - s3:PutBucketOwnershipControls
+              - s3:PutBucketVersioning
+              - s3:PutBucketObjectLockConfiguration
+              - s3:PutBucketWebsite
+              - s3:PutBucketCORS
+              - s3:PutBucketNotification
+              - s3:PutBucketLogging
+              - s3:PutEncryptionConfiguration
+              - s3:PutLifecycleConfiguration
+              - s3:PutReplicationConfiguration
+              - s3:CreateAccessPoint*
+              - s3:PutAccessPointPolicy*
+              - dynamodb:CreateTable
+              - dynamodb:DeleteTable
+              - dynamodb:UpdateTable
+              - dynamodb:RestoreTable*
+              - dynamodb:UpdateContinuousBackups
+              - dynamodb:PutResourcePolicy
+              - sqs:CreateQueue
+              - sqs:DeleteQueue
+              - sqs:SetQueueAttributes
+              - sqs:AddPermission
+              - sns:CreateTopic
+              - sns:DeleteTopic
+              - sns:SetTopicAttributes
+              - sns:AddPermission
+              - kinesis:CreateStream
+              - kinesis:DeleteStream
+              - firehose:CreateDeliveryStream
+              - firehose:DeleteDeliveryStream
+              - logs:CreateLogGroup
+              - logs:DeleteLogGroup
+              - logs:PutRetentionPolicy
+              - logs:DeleteRetentionPolicy
+              - logs:PutMetricFilter
+              - logs:DeleteMetricFilter
+              - logs:PutSubscriptionFilter
+              - logs:DisassociateKmsKey
+              - logs:PutResourcePolicy
+            Resource: "*"
+          - Sid: IacCompute
+            Effect: Deny
+            Action:
+              - lambda:CreateFunction*
+              - lambda:DeleteFunction*
+              - lambda:UpdateFunction*
+              - lambda:PutFunction*
+              - lambda:AddPermission
+              - lambda:AddLayerVersionPermission
+              - lambda:CreateEventSourceMapping
+              - lambda:UpdateEventSourceMapping
+              - lambda:DeleteEventSourceMapping
+              - lambda:PutProvisionedConcurrencyConfig
+              - lambda:PublishLayerVersion
+              - ecs:CreateCluster
+              - ecs:DeleteCluster
+              - ecs:UpdateCluster*
+              - ecs:CreateService
+              - ecs:DeleteService
+              - ecs:CreateCapacityProvider
+              - ecs:PutClusterCapacityProviders
+              - batch:*ComputeEnvironment
+              - batch:*JobQueue
+              - eks:CreateCluster
+              - eks:DeleteCluster
+              - eks:CreateNodegroup
+              - ecr:CreateRepository
+              - ecr:DeleteRepository
+              - ecr:SetRepositoryPolicy
+              - ecr:PutLifecyclePolicy
+            Resource: "*"
+          - Sid: IacIdentity
+            Effect: Deny
+            Action:
+              - iam:Create*
+              - iam:Delete*
+              - iam:Put*
+              - iam:Attach*
+              - iam:Detach*
+              - iam:Update*
+              - iam:Add*
+              - iam:Remove*
+              - iam:Set*
+              - iam:Upload*
+              - kms:CreateKey
+              - kms:DisableKey
+              - kms:EnableKey
+              - kms:ScheduleKeyDeletion
+              - kms:PutKeyPolicy
+              - kms:DisableKeyRotation
+              - kms:ReplicateKey
+              - kms:*Alias
+              - kms:ImportKeyMaterial
+            Resource: "*"
+          - Sid: IacEdgeAndOperations
+            Effect: Deny
+            Action:
+              - elasticloadbalancing:Create*
+              - elasticloadbalancing:Delete*
+              - elasticloadbalancing:Modify*
+              - elasticloadbalancing:Set*
+              - cloudfront:CreateDistribution*
+              - cloudfront:UpdateDistribution*
+              - cloudfront:DeleteDistribution*
+              - route53:CreateHostedZone
+              - route53:DeleteHostedZone
+              - route53:ChangeResourceRecordSets
+              - route53:AssociateVPCWithHostedZone
+              - acm:RequestCertificate
+              - acm:ImportCertificate
+              - acm:DeleteCertificate
+              - cloudwatch:PutMetricAlarm
+              - cloudwatch:PutCompositeAlarm
+              - cloudwatch:DeleteAlarms
+              - events:PutRule
+              - events:DeleteRule
+              - events:PutTargets
+              - events:RemoveTargets
+              - events:CreateEventBus
+              - events:PutPermission
+              - scheduler:CreateSchedule*
+              - scheduler:UpdateSchedule
+              - scheduler:DeleteSchedule*
+              - budgets:ModifyBudget
+              - budgets:CreateBudgetAction
+            Resource: "*"
+          - Sid: IacApiGateway
+            Effect: Deny
+            Action:
+              - apigateway:POST
+              - apigateway:PUT
+              - apigateway:PATCH
+              - apigateway:DELETE
+            Resource: !Sub "arn:${AWS::Partition}:apigateway:*::/*"
+          - Sid: DeployerOnlyToCloudFormation
+            Effect: Deny
+            Action: iam:PassRole
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/theseus-cfn-deployer"
+            Condition:
+              StringNotEquals:
+                iam:PassedToService: cloudformation.amazonaws.com
+
+  GuardLimitsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-guard-limits
+      Description: >-
+        Deny-only: the operator's two hard limits, the budget and the SOC2 stance (public ingress,
+        the audit trail, long-lived credentials), as far as IAM can see them (design section 3.6).
+        On every work and job session, and in theseus-boundary.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicIngress
+            Effect: Deny
+            Action:
+              - ec2:AllocateAddress
+              - ec2:AssociateAddress
+              - s3:PutAccountPublicAccessBlock
+              - ec2:DisableSnapshotBlockPublicAccess
+              - ec2:DisableImageBlockPublicAccess
+              - ec2:DisableEbsEncryptionByDefault
+            Resource: "*"
+          - Sid: PublicObjectAcls
+            Effect: Deny
+            Action:
+              - s3:PutObject
+              - s3:PutObjectAcl
+            Resource: "*"
+            Condition:
+              StringEquals:
+                s3:x-amz-acl:
+                  - public-read
+                  - public-read-write
+                  - authenticated-read
+          - Sid: PublicFunctionUrls
+            Effect: Deny
+            Action:
+              - lambda:CreateFunctionUrlConfig
+              - lambda:UpdateFunctionUrlConfig
+            Resource: "*"
+            Condition:
+              StringEquals:
+                lambda:FunctionUrlAuthType: NONE
+          - Sid: AuditTrail
+            Effect: Deny
+            Action:
+              - cloudtrail:StopLogging
+              - cloudtrail:DeleteTrail
+              - cloudtrail:UpdateTrail
+              - cloudtrail:PutEventSelectors
+              - cloudtrail:PutInsightSelectors
+              - config:StopConfigurationRecorder
+              - config:DeleteConfigurationRecorder
+              - config:DeleteDeliveryChannel
+              - guardduty:DeleteDetector
+              - guardduty:UpdateDetector
+              - guardduty:CreateFilter
+              - guardduty:UpdateFilter
+              - access-analyzer:DeleteAnalyzer
+              - access-analyzer:CreateArchiveRule
+              - access-analyzer:UpdateArchiveRule
+            Resource: "*"
+          - Sid: AuditTrailBucket
+            Effect: Deny
+            Action:
+              - s3:Put*
+              - s3:Delete*
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::theseus-trail-${AWS::AccountId}-${AWS::Region}"
+              - !Sub "arn:${AWS::Partition}:s3:::theseus-trail-${AWS::AccountId}-${AWS::Region}/*"
+          - Sid: AuditTrailLogsAlarmsAndTopic
+            Effect: Deny
+            Action:
+              - logs:DeleteLogStream
+              - cloudwatch:DisableAlarmActions
+              - cloudwatch:SetAlarmState
+              - sns:Unsubscribe
+              - sns:RemovePermission
+            Resource:
+              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/theseus/trail:*"
+              - !Sub "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:theseus-*"
+              - !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:theseus-alerts"
+          - Sid: Budget
+            Effect: Deny
+            Action:
+              - budgets:ModifyBudget
+              - budgets:UpdateBudgetAction
+              - budgets:DeleteBudgetAction
+              - budgets:ExecuteBudgetAction
+              - organizations:LeaveOrganization
+              - organizations:AcceptHandshake
+              - organizations:CreateOrganization
+              - organizations:DeleteOrganization
+              - organizations:CloseAccount
+            Resource: "*"
+          - Sid: BudgetStopDetach
+            Effect: Deny
+            Action: iam:DetachRolePolicy
+            Resource: "*"
+            Condition:
+              ArnEquals:
+                iam:PolicyARN: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/theseus-deny-spend"
+          - Sid: BudgetStopPolicy
+            Effect: Deny
+            Action:
+              - iam:CreatePolicyVersion
+              - iam:SetDefaultPolicyVersion
+              - iam:DeletePolicy
+              - iam:DeletePolicyVersion
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/theseus-deny-spend"
+          - Sid: LongLivedCredentials
+            Effect: Deny
+            Action:
+              - iam:CreateUser
+              - iam:CreateAccessKey
+              - iam:CreateLoginProfile
+              - iam:UpdateLoginProfile
+              - iam:CreateServiceSpecificCredential
+              - iam:UploadSSHPublicKey
+              - iam:UploadSigningCertificate
+            Resource: "*"
+          - Sid: RootOfTrustKey
+            Effect: Deny
+            Action:
+              - iam:UpdateAccessKey
+              - iam:DeleteAccessKey
+              - iam:DeleteUser
+              - iam:AttachUserPolicy
+              - iam:DetachUserPolicy
+              - iam:PutUserPolicy
+              - iam:DeleteUserPolicy
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/${OwnerUserName}"
+
+  AllowAllPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-allow-all
+      Description: >-
+        The one allow policy of a work session, and of a job that chose no narrowing: everything,
+        under the guards beside it.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowAll
+            Effect: Allow
+            Action: "*"
+            Resource: "*"
+
+  # The boundary must hold both guards' denies in one managed policy, inside IAM's 6,144
+  # characters, so it is the guards compacted: one statement for every unconditional deny on any
+  # resource, and without the guard denies a broader one here already covers (theseus-guard-limits'
+  # credential, root-key, budget-stop, and function-URL denies all fall under theseus-guard-iac's
+  # iam: and lambda: patterns). test/rules.py checks that it covers every guard deny and adds
+  # nothing but the HandsOnly statement.
+  BoundaryPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-boundary
+      Description: >-
+        The permissions boundary of every role a Theseus stack makes for its hands and tenders:
+        everything except what the guards deny (a boundary must allow, so it cannot be a guard),
+        and no passing of the deployer role.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowAll
+            Effect: Allow
+            Action: "*"
+            Resource: "*"
+          - Sid: Guards
+            Effect: Deny
+            Action:
+              - ec2:CreateVpc*
+              - ec2:DeleteVpc*
+              - ec2:ModifyVpc*
+              - ec2:AcceptVpcPeeringConnection
+              - ec2:AssociateVpcCidrBlock
+              - ec2:CreateSubnet*
+              - ec2:DeleteSubnet*
+              - ec2:ModifySubnetAttribute
+              - ec2:*InternetGateway
+              - ec2:*NatGateway
+              - ec2:*NatGatewayAddress
+              - ec2:*Route
+              - ec2:*RouteTable
+              - ec2:ReplaceRouteTableAssociation
+              - ec2:*SecurityGroup
+              - ec2:AuthorizeSecurityGroup*
+              - ec2:RevokeSecurityGroup*
+              - ec2:ModifySecurityGroupRules
+              - ec2:CreateNetworkAcl*
+              - ec2:DeleteNetworkAcl*
+              - ec2:ReplaceNetworkAcl*
+              - ec2:CreateTransitGateway*
+              - ec2:CreateVpn*
+              - ec2:CreateCustomerGateway
+              - ec2:CreateClientVpn*
+              - ec2:CreateFlowLogs
+              - ec2:DeleteFlowLogs
+              - ec2:RunInstances
+              - ec2:RequestSpot*
+              - ec2:CreateFleet
+              - ec2:AllocateAddress
+              - ec2:AssociateAddress
+              - ec2:DisableSnapshotBlockPublicAccess
+              - ec2:DisableImageBlockPublicAccess
+              - ec2:DisableEbsEncryptionByDefault
+              - s3:CreateBucket
+              - s3:DeleteBucket
+              - s3:PutBucketPolicy
+              - s3:DeleteBucketPolicy
+              - s3:PutBucketAcl
+              - s3:PutBucketPublicAccessBlock
+              - s3:PutBucketOwnershipControls
+              - s3:PutBucketVersioning
+              - s3:PutBucketObjectLockConfiguration
+              - s3:PutBucketWebsite
+              - s3:PutBucketCORS
+              - s3:PutBucketNotification
+              - s3:PutBucketLogging
+              - s3:PutEncryptionConfiguration
+              - s3:PutLifecycleConfiguration
+              - s3:PutReplicationConfiguration
+              - s3:CreateAccessPoint*
+              - s3:PutAccessPointPolicy*
+              - s3:PutAccountPublicAccessBlock
+              - dynamodb:CreateTable
+              - dynamodb:DeleteTable
+              - dynamodb:UpdateTable
+              - dynamodb:RestoreTable*
+              - dynamodb:UpdateContinuousBackups
+              - dynamodb:PutResourcePolicy
+              - sqs:CreateQueue
+              - sqs:DeleteQueue
+              - sqs:SetQueueAttributes
+              - sqs:AddPermission
+              - sns:CreateTopic
+              - sns:DeleteTopic
+              - sns:SetTopicAttributes
+              - sns:AddPermission
+              - kinesis:CreateStream
+              - kinesis:DeleteStream
+              - firehose:CreateDeliveryStream
+              - firehose:DeleteDeliveryStream
+              - logs:CreateLogGroup
+              - logs:DeleteLogGroup
+              - logs:PutRetentionPolicy
+              - logs:DeleteRetentionPolicy
+              - logs:PutMetricFilter
+              - logs:DeleteMetricFilter
+              - logs:PutSubscriptionFilter
+              - logs:DisassociateKmsKey
+              - logs:PutResourcePolicy
+              - lambda:CreateFunction*
+              - lambda:DeleteFunction*
+              - lambda:UpdateFunction*
+              - lambda:PutFunction*
+              - lambda:AddPermission
+              - lambda:AddLayerVersionPermission
+              - lambda:CreateEventSourceMapping
+              - lambda:UpdateEventSourceMapping
+              - lambda:DeleteEventSourceMapping
+              - lambda:PutProvisionedConcurrencyConfig
+              - lambda:PublishLayerVersion
+              - ecs:CreateCluster
+              - ecs:DeleteCluster
+              - ecs:UpdateCluster*
+              - ecs:CreateService
+              - ecs:DeleteService
+              - ecs:CreateCapacityProvider
+              - ecs:PutClusterCapacityProviders
+              - batch:*ComputeEnvironment
+              - batch:*JobQueue
+              - eks:CreateCluster
+              - eks:DeleteCluster
+              - eks:CreateNodegroup
+              - ecr:CreateRepository
+              - ecr:DeleteRepository
+              - ecr:SetRepositoryPolicy
+              - ecr:PutLifecyclePolicy
+              - iam:Create*
+              - iam:Delete*
+              - iam:Put*
+              - iam:Attach*
+              - iam:Detach*
+              - iam:Update*
+              - iam:Add*
+              - iam:Remove*
+              - iam:Set*
+              - iam:Upload*
+              - kms:CreateKey
+              - kms:DisableKey
+              - kms:EnableKey
+              - kms:ScheduleKeyDeletion
+              - kms:PutKeyPolicy
+              - kms:DisableKeyRotation
+              - kms:ReplicateKey
+              - kms:*Alias
+              - kms:ImportKeyMaterial
+              - elasticloadbalancing:Create*
+              - elasticloadbalancing:Delete*
+              - elasticloadbalancing:Modify*
+              - elasticloadbalancing:Set*
+              - cloudfront:CreateDistribution*
+              - cloudfront:UpdateDistribution*
+              - cloudfront:DeleteDistribution*
+              - route53:CreateHostedZone
+              - route53:DeleteHostedZone
+              - route53:ChangeResourceRecordSets
+              - route53:AssociateVPCWithHostedZone
+              - acm:RequestCertificate
+              - acm:ImportCertificate
+              - acm:DeleteCertificate
+              - cloudwatch:PutMetricAlarm
+              - cloudwatch:PutCompositeAlarm
+              - cloudwatch:DeleteAlarms
+              - events:PutRule
+              - events:DeleteRule
+              - events:PutTargets
+              - events:RemoveTargets
+              - events:CreateEventBus
+              - events:PutPermission
+              - scheduler:CreateSchedule*
+              - scheduler:UpdateSchedule
+              - scheduler:DeleteSchedule*
+              - budgets:ModifyBudget
+              - budgets:CreateBudgetAction
+              - budgets:UpdateBudgetAction
+              - budgets:DeleteBudgetAction
+              - budgets:ExecuteBudgetAction
+              - cloudtrail:StopLogging
+              - cloudtrail:DeleteTrail
+              - cloudtrail:UpdateTrail
+              - cloudtrail:PutEventSelectors
+              - cloudtrail:PutInsightSelectors
+              - config:StopConfigurationRecorder
+              - config:DeleteConfigurationRecorder
+              - config:DeleteDeliveryChannel
+              - guardduty:DeleteDetector
+              - guardduty:UpdateDetector
+              - guardduty:CreateFilter
+              - guardduty:UpdateFilter
+              - access-analyzer:DeleteAnalyzer
+              - access-analyzer:CreateArchiveRule
+              - access-analyzer:UpdateArchiveRule
+              - organizations:LeaveOrganization
+              - organizations:AcceptHandshake
+              - organizations:CreateOrganization
+              - organizations:DeleteOrganization
+              - organizations:CloseAccount
+            Resource: "*"
+          - Sid: IacApiGateway
+            Effect: Deny
+            Action:
+              - apigateway:POST
+              - apigateway:PUT
+              - apigateway:PATCH
+              - apigateway:DELETE
+            Resource: !Sub "arn:${AWS::Partition}:apigateway:*::/*"
+          - Sid: PublicObjectAcls
+            Effect: Deny
+            Action:
+              - s3:PutObject
+              - s3:PutObjectAcl
+            Resource: "*"
+            Condition:
+              StringEquals:
+                s3:x-amz-acl:
+                  - public-read
+                  - public-read-write
+                  - authenticated-read
+          - Sid: AuditTrailBucket
+            Effect: Deny
+            Action:
+              - s3:Put*
+              - s3:Delete*
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::theseus-trail-${AWS::AccountId}-${AWS::Region}"
+              - !Sub "arn:${AWS::Partition}:s3:::theseus-trail-${AWS::AccountId}-${AWS::Region}/*"
+          - Sid: AuditTrailLogsAlarmsAndTopic
+            Effect: Deny
+            Action:
+              - logs:DeleteLogStream
+              - cloudwatch:DisableAlarmActions
+              - cloudwatch:SetAlarmState
+              - sns:Unsubscribe
+              - sns:RemovePermission
+            Resource:
+              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/theseus/trail:*"
+              - !Sub "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:theseus-*"
+              - !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:theseus-alerts"
+          - Sid: HandsOnlyNoDeployer
+            Effect: Deny
+            Action: iam:PassRole
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/theseus-cfn-deployer"
+
+  DenySpendPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-deny-spend
+      Description: >-
+        The budget's AWS-side stop (design section 3.7). Attached by the budget's action at 100% of
+        actual spend to the owner, deployer, and hand roles; it denies new spend: runs, launches,
+        creations of metered resources, and paid queries. Running hands end within their TTL.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyNewSpend
+            Effect: Deny
+            Action:
+              - ec2:RunInstances
+              - ec2:StartInstances
+              - ec2:RequestSpot*
+              - ec2:CreateFleet
+              - ec2:RunScheduledInstances
+              - ec2:CreateNatGateway
+              - ec2:AllocateAddress
+              - ec2:CreateVpcEndpoint
+              - ec2:CreateTransitGateway
+              - ec2:CreateVpnConnection
+              - ec2:CreateClientVpnEndpoint
+              - ec2:Purchase*
+              - ec2:AllocateHosts
+              - ec2:CreateCapacityReservation*
+              - ecs:RunTask
+              - ecs:StartTask
+              - ecs:CreateService
+              - ecs:UpdateService
+              - batch:SubmitJob
+              - batch:CreateComputeEnvironment
+              - batch:UpdateComputeEnvironment
+              - lambda:InvokeFunction
+              - lambda:InvokeAsync
+              - lambda:CreateFunction
+              - lambda:PutProvisionedConcurrencyConfig
+              - states:StartExecution
+              - states:StartSyncExecution
+              - codebuild:StartBuild*
+              - sagemaker:Create*Job
+              - sagemaker:CreateEndpoint
+              - sagemaker:UpdateEndpoint*
+              - sagemaker:CreateInferenceComponent
+              - sagemaker:CreateNotebookInstance
+              - sagemaker:StartNotebookInstance
+              - sagemaker:CreateApp
+              - glue:StartJobRun
+              - glue:StartCrawler
+              - glue:CreateDevEndpoint
+              - glue:CreateSession
+              - athena:StartQueryExecution
+              - bedrock:InvokeModel*
+              - bedrock:Create*Job
+              - bedrock:CreateProvisionedModelThroughput
+              - rds:CreateDB*
+              - rds:RestoreDB*
+              - rds:StartDB*
+              - rds:Purchase*
+              - redshift:CreateCluster
+              - redshift:ResumeCluster
+              - redshift-serverless:Create*
+              - elasticache:Create*
+              - es:CreateDomain
+              - aoss:CreateCollection
+              - kafka:CreateCluster*
+              - elasticmapreduce:RunJobFlow
+              - emr-serverless:StartJobRun
+              - eks:CreateCluster
+              - eks:CreateNodegroup
+              - eks:CreateFargateProfile
+              - elasticloadbalancing:CreateLoadBalancer
+              - kinesis:CreateStream
+              - firehose:CreateDeliveryStream
+              - fsx:CreateFileSystem*
+              - lightsail:Create*
+              - workspaces:CreateWorkspaces
+              - mq:CreateBroker
+              - dms:CreateReplicationInstance
+              - transfer:CreateServer
+              - savingsplans:CreateSavingsPlan
+              - route53domains:RegisterDomain
+              - route53domains:TransferDomain
+              - aws-marketplace:Subscribe
+            Resource: "*"
+
+  # ---------------------------------------------------------------------------------------------
+  # The Theseus key, bucket, and durability table (design sections 3.3, steps 15-16; appendix B)
+  # ---------------------------------------------------------------------------------------------
+
+  TheseusKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: >-
+        Theseus's key: the Theseus bucket, the durability table, and the alerts topic.
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TheAccountAdministersThroughIam
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: kms:*
+            Resource: "*"
+          - Sid: ServicesPublishToTheAlertsTopic
+            Effect: Allow
+            Principal:
+              Service:
+                - budgets.amazonaws.com
+                - cloudwatch.amazonaws.com
+                - events.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+              - kms:Decrypt
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:EncryptionContext:aws:sns:topicArn: !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:theseus-alerts"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  TheseusKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/theseus
+      TargetKeyId: !Ref TheseusKey
+
+  TheseusBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "theseus-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt TheseusKey.Arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: expire-old-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+          - Id: expire-hand-results
+            Status: Enabled
+            Prefix: hands/
+            ExpirationInDays: 30
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  TheseusBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TheseusBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt TheseusBucket.Arn
+              - !Sub "${TheseusBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  DurabilityTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: theseus-durability
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt TheseusKey.Arn
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # The completion queue and the alerts topic (design sections 3.3, 3.7)
+  # ---------------------------------------------------------------------------------------------
+
+  # The queues are deleted with the stack, on purpose: a completion lost with them is settled by
+  # the reconciler, which asks the service about every overdue record (design section 3.3).
+  CompletionQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: theseus-completions
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CompletionDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  CompletionDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: theseus-completions-dlq
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      RedriveAllowPolicy:
+        redrivePermission: byQueue
+        sourceQueueArns:
+          - !Sub "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:theseus-completions"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  CompletionQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref CompletionQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TheseusEventRules
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt CompletionQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/theseus-*"
+          - Sid: TheAlertsTopic
+            Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt CompletionQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref AlertsTopic
+
+  CompletionDeadLetterQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref CompletionDeadLetterQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TheseusEventRulesUndelivered
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt CompletionDeadLetterQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/theseus-*"
+
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: theseus-alerts
+      DisplayName: Theseus alerts
+      KmsMasterKeyId: !GetAtt TheseusKey.Arn
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  AlertsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref AlertsTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TheAccountThroughIam
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action:
+              - sns:Publish
+              - sns:Subscribe
+              - sns:GetTopicAttributes
+              - sns:ListSubscriptionsByTopic
+            Resource: !Ref AlertsTopic
+          - Sid: TheBudget
+            Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref AlertsTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:budgets::${AWS::AccountId}:*"
+          - Sid: TheAlarms
+            Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref AlertsTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: TheseusEventRules
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref AlertsTopic
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/theseus-*"
+
+  AlertsToCompletionQueue:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt CompletionQueue.Arn
+
+  AlertsToOperatorEmail:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # ---------------------------------------------------------------------------------------------
+  # The monthly budget and its AWS-side stop (design section 3.7)
+  # ---------------------------------------------------------------------------------------------
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: theseus-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 50
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertsTopic
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertsTopic
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertsTopic
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertsTopic
+      ResourceTags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  BudgetStopAction:
+    Type: AWS::Budgets::BudgetsAction
+    Properties:
+      BudgetName: !Ref MonthlyBudget
+      NotificationType: ACTUAL
+      ActionType: APPLY_IAM_POLICY
+      ActionThreshold:
+        Type: PERCENTAGE
+        Value: 100
+      ApprovalModel: AUTOMATIC
+      ExecutionRoleArn: !GetAtt BudgetActionRole.Arn
+      Definition:
+        IamActionDefinition:
+          PolicyArn: !Ref DenySpendPolicy
+          Roles:
+            - !Ref OwnerRole
+            - !Ref DeployerRole
+      Subscribers:
+        - Type: SNS
+          Address: !Ref AlertsTopic
+      ResourceTags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+Outputs:
+  OwnerRoleArn:
+    Value: !GetAtt OwnerRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-OwnerRoleArn"
+  DeployerRoleArn:
+    Value: !GetAtt DeployerRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DeployerRoleArn"
+  BudgetActionRoleArn:
+    Value: !GetAtt BudgetActionRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-BudgetActionRoleArn"
+  GuardIacArn:
+    Value: !Ref GuardIacPolicy
+    Export:
+      Name: !Sub "${AWS::StackName}-GuardIacArn"
+  GuardLimitsArn:
+    Value: !Ref GuardLimitsPolicy
+    Export:
+      Name: !Sub "${AWS::StackName}-GuardLimitsArn"
+  AllowAllArn:
+    Value: !Ref AllowAllPolicy
+    Export:
+      Name: !Sub "${AWS::StackName}-AllowAllArn"
+  BoundaryArn:
+    Value: !Ref BoundaryPolicy
+    Export:
+      Name: !Sub "${AWS::StackName}-BoundaryArn"
+  DenySpendArn:
+    Value: !Ref DenySpendPolicy
+    Export:
+      Name: !Sub "${AWS::StackName}-DenySpendArn"
+  KeyArn:
+    Value: !GetAtt TheseusKey.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-KeyArn"
+  BucketName:
+    Value: !Ref TheseusBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-BucketName"
+  BucketArn:
+    Value: !GetAtt TheseusBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-BucketArn"
+  DurabilityTableName:
+    Value: !Ref DurabilityTable
+    Export:
+      Name: !Sub "${AWS::StackName}-DurabilityTableName"
+  DurabilityTableArn:
+    Value: !GetAtt DurabilityTable.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DurabilityTableArn"
+  CompletionQueueUrl:
+    Value: !Ref CompletionQueue
+    Export:
+      Name: !Sub "${AWS::StackName}-CompletionQueueUrl"
+  CompletionQueueArn:
+    Value: !GetAtt CompletionQueue.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-CompletionQueueArn"
+  CompletionDeadLetterQueueArn:
+    Value: !GetAtt CompletionDeadLetterQueue.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-CompletionDeadLetterQueueArn"
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-AlertsTopicArn"
+  BudgetName:
+    Value: !Ref MonthlyBudget
+    Export:
+      Name: !Sub "${AWS::StackName}-BudgetName"

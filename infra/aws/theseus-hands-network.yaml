@@ -1,0 +1,317 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  theseus-hands-network: the hands' VPC, with no public ingress (Theseus's AWS design,
+  theseus-mgw.1, section 3.3). Two private subnets, where Fargate and Batch hands run with no
+  public IP; an S3 gateway endpoint, which is free; and the NAT as a parameter, so Theseus turns
+  internet egress on with a stack update when a hand needs it and off after an idle hour
+  (question 5). With the NAT off, the VPC has no internet gateway and no public address at all.
+  Built by P4 (theseus-mgw.4).
+
+Parameters:
+  NatGateway:
+    Type: String
+    Default: disabled
+    AllowedValues: [enabled, disabled]
+    Description: >-
+      The NAT, with its internet gateway and Elastic IP: about $36 a month while enabled. Fargate
+      hands need it to reach anything outside the VPC, ECR and CloudWatch Logs included.
+  VpcCidr:
+    Type: String
+    Default: 10.42.0.0/16
+    AllowedPattern: "(\\d{1,3}\\.){3}\\d{1,3}/16"
+    Description: The VPC's /16; it is cut into four /20s (two private, one egress, one spare).
+  FlowLogRetentionDays:
+    Type: Number
+    Default: 90
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: How long the VPC's flow logs are kept.
+
+Conditions:
+  NatEnabled: !Equals [!Ref NatGateway, enabled]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: theseus-hands
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 4, 12]]
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: theseus-hands-private-a
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, 12]]
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: theseus-hands-private-b
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # The egress subnet holds only the NAT. It exists while the NAT is off too (a subnet costs
+  # nothing), so turning the NAT on adds only the gateway, its route, and its address. No instance
+  # gets a public IP here: MapPublicIpOnLaunch is off, and the NAT takes its Elastic IP explicitly.
+  EgressSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 4, 12]]
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: theseus-hands-egress
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: theseus-hands-private
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  PrivateSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  EgressRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: theseus-hands-egress
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  EgressSubnetRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref EgressSubnet
+      RouteTableId: !Ref EgressRouteTable
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Gateway
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+      Tags:
+        - Key: Name
+          Value: theseus-hands-s3
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # The hands' security group: no ingress rule at all, and the default egress (everything out).
+  HandsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: theseus-hands
+      GroupDescription: Theseus hands. No ingress; egress through the NAT and the S3 endpoint.
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: theseus-hands
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # The NAT, while NatGateway is enabled. These are the template's only guardrail hits (public
+  # ingress: an internet gateway and an Elastic IP), each one floor approval at bootstrap.
+  # ---------------------------------------------------------------------------------------------
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: NatEnabled
+    Properties:
+      Tags:
+        - Key: Name
+          Value: theseus-hands
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: NatEnabled
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  EgressDefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: NatEnabled
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref EgressRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  NatAddress:
+    Type: AWS::EC2::EIP
+    Condition: NatEnabled
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: theseus-hands-nat
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  Nat:
+    Type: AWS::EC2::NatGateway
+    Condition: NatEnabled
+    Properties:
+      SubnetId: !Ref EgressSubnet
+      AllocationId: !GetAtt NatAddress.AllocationId
+      Tags:
+        - Key: Name
+          Value: theseus-hands
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: NatEnabled
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref Nat
+
+  # ---------------------------------------------------------------------------------------------
+  # Flow logs (CIS: every VPC), to a log group with a retention
+  # ---------------------------------------------------------------------------------------------
+
+  FlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: /theseus/hands-network/flow-logs
+      RetentionInDays: !Ref FlowLogRetentionDays
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-hands-flow-logs
+      Description: VPC flow logs' delivery into their log group, and nothing else.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: deliver-to-the-flow-log-group
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !GetAtt FlowLogGroup.Arn
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  FlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceType: VPC
+      ResourceId: !Ref Vpc
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogGroupName: !Ref FlowLogGroup
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+      MaxAggregationInterval: 600
+      Tags:
+        - Key: Name
+          Value: theseus-hands
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+  PrivateSubnetIds:
+    Description: The hands' subnets, for RunTask's awsvpcConfiguration.
+    Value: !Join [",", [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetIds"
+  HandsSecurityGroupId:
+    Value: !GetAtt HandsSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-HandsSecurityGroupId"
+  NatGateway:
+    Description: Whether the NAT is on, as the stack's parameter last set it.
+    Value: !Ref NatGateway

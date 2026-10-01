@@ -1,0 +1,742 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  theseus-hands: where hands run (Theseus's AWS design, theseus-mgw.1, section 3.3). The ECS
+  cluster; the hand role profiles, each bounded by theseus-boundary; the hand image's ECR
+  repository and the hands' log group; the EventBridge rules that bring ECS, Batch, and Step
+  Functions state changes home to the completion queue; the TTL reaper, a small Lambda on a
+  15-minute schedule; and the Lambda hand, once its image exists. Built by P4 (theseus-mgw.4). It
+  needs theseus-foundation; Fargate hands run in theseus-hands-network's subnets.
+
+Parameters:
+  FoundationStack:
+    Type: String
+    Default: theseus-foundation
+    Description: The foundation stack, for the boundary, the bucket, the key, the queues, and the budget.
+  HandImageUri:
+    Type: String
+    Default: ""
+    Description: >-
+      The hand image in this stack's ECR repository, by digest. Empty until step 40 pushes the
+      first one; the Lambda hand exists only once it is set.
+  LambdaHandMemoryMb:
+    Type: Number
+    Default: 2048
+    MinValue: 128
+    MaxValue: 10240
+    Description: The Lambda hand's memory, which also sets its share of CPU.
+  HandsLogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: How long the hands' and the reaper's logs are kept.
+  ReaperMode:
+    Type: String
+    Default: act
+    AllowedValues: [act, report]
+    Description: >-
+      act stops every expired hand; report only logs what it would stop.
+
+Conditions:
+  HasHandImage: !Not [!Equals [!Ref HandImageUri, ""]]
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: theseus-hands
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  HandRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: theseus/hand
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Untagged images go after a week.",
+                "selection": {"tagStatus": "untagged", "countType": "sinceImagePushed", "countUnit": "days", "countNumber": 7},
+                "action": {"type": "expire"}
+              },
+              {
+                "rulePriority": 2,
+                "description": "The 20 newest tagged images stay.",
+                "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 20},
+                "action": {"type": "expire"}
+              }
+            ]
+          }
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: LambdaHandsPullTheImage
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+            Condition:
+              StringLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:theseus-*"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  HandsLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: /theseus/hands
+      RetentionInDays: !Ref HandsLogRetentionDays
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  ReaperLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: /theseus/reaper
+      RetentionInDays: !Ref HandsLogRetentionDays
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # The hand role profiles (design section 3.5). ECS and Lambda assume a hand's role themselves,
+  # so Theseus cannot put a session policy on it: the role is the boundary, and theseus-boundary
+  # bounds every one. Theseus adds profiles through this stack as it sees fit.
+  # ---------------------------------------------------------------------------------------------
+
+  HandBasicsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-hand-basics
+      Description: >-
+        What every hand needs: its prefix of the Theseus bucket, its logs, the completion queue,
+        and the hand image.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TheHandsPrefix
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:AbortMultipartUpload
+              - s3:ListMultipartUploadParts
+            Resource: !Sub
+              - "${BucketArn}/hands/*"
+              - BucketArn:
+                  Fn::ImportValue: !Sub "${FoundationStack}-BucketArn"
+          - Sid: ListTheHandsPrefix
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource:
+              Fn::ImportValue: !Sub "${FoundationStack}-BucketArn"
+            Condition:
+              StringLike:
+                s3:prefix: hands/*
+          - Sid: TheBucketsKeyThroughS3
+            Effect: Allow
+            Action:
+              - kms:GenerateDataKey
+              - kms:Decrypt
+            Resource:
+              Fn::ImportValue: !Sub "${FoundationStack}-KeyArn"
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub "s3.${AWS::Region}.amazonaws.com"
+          - Sid: TheHandsLogs
+            Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !GetAtt HandsLogGroup.Arn
+          - Sid: TheCompletionQueue
+            Effect: Allow
+            Action: sqs:SendMessage
+            Resource:
+              Fn::ImportValue: !Sub "${FoundationStack}-CompletionQueueArn"
+          - Sid: TheHandImage
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+            Resource: !GetAtt HandRepository.Arn
+          - Sid: TheRegistryToken
+            Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: "*"
+
+  HandBasicRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-hand-basic
+      Description: >-
+        The default hand profile: its own S3 prefix, its logs, the completion queue, and pulling
+        images.
+      PermissionsBoundary:
+        Fn::ImportValue: !Sub "${FoundationStack}-BoundaryArn"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EcsTasksInThisAccount
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:*"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: LambdaHands
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref HandBasicsPolicy
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  HandReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-hand-read
+      Description: The basic hand profile, plus read access to the account.
+      PermissionsBoundary:
+        Fn::ImportValue: !Sub "${FoundationStack}-BoundaryArn"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EcsTasksInThisAccount
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:*"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: LambdaHands
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref HandBasicsPolicy
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  HandOwnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-hand-owner
+      Description: >-
+        Allow-all under the guards: everything theseus-boundary allows, which is everything but
+        what theseus-guard-iac and theseus-guard-limits deny, and passing the deployer role.
+      PermissionsBoundary:
+        Fn::ImportValue: !Sub "${FoundationStack}-BoundaryArn"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EcsTasksInThisAccount
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:*"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: LambdaHands
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref HandBasicsPolicy
+        - Fn::ImportValue: !Sub "${FoundationStack}-AllowAllArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ECS's task execution role: the agent's own, for pulling the image and writing the logs
+  # driver's lines, never the hand's.
+  HandExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-hand-execution
+      Description: ECS's task execution role for hands; pulls the image and writes the log driver's lines.
+      PermissionsBoundary:
+        Fn::ImportValue: !Sub "${FoundationStack}-BoundaryArn"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EcsTasksInThisAccount
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:*"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: pull-and-log
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: TheHandImage
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !GetAtt HandRepository.Arn
+              - Sid: TheRegistryToken
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: TheHandsLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt HandsLogGroup.Arn
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # State changes home to the completion queue (design section 3.3). Filtered to Theseus's own
+  # cluster, job queues, and state machines; the queue's policy admits rules named theseus-*.
+  # SSM commands carry no tag a rule can filter on, so A3's slice adds their rule with its own
+  # document's filter. Lambda hands report failures through their async destination below.
+  # ---------------------------------------------------------------------------------------------
+
+  EcsTaskStateRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: theseus-hands-ecs-task-state
+      Description: The hands' ECS tasks, running and stopped, to the completion queue.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ecs
+        detail-type:
+          - ECS Task State Change
+        detail:
+          clusterArn:
+            - !GetAtt Cluster.Arn
+          lastStatus:
+            - RUNNING
+            - STOPPED
+      Targets:
+        - Id: completions
+          Arn:
+            Fn::ImportValue: !Sub "${FoundationStack}-CompletionQueueArn"
+          DeadLetterConfig:
+            Arn:
+              Fn::ImportValue: !Sub "${FoundationStack}-CompletionDeadLetterQueueArn"
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 86400
+            MaximumRetryAttempts: 185
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  BatchJobStateRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: theseus-hands-batch-job-state
+      Description: Batch jobs on Theseus's job queues (theseus-*), to the completion queue.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.batch
+        detail-type:
+          - Batch Job State Change
+        detail:
+          jobQueue:
+            - prefix: !Sub "arn:${AWS::Partition}:batch:${AWS::Region}:${AWS::AccountId}:job-queue/theseus-"
+          status:
+            - RUNNING
+            - SUCCEEDED
+            - FAILED
+      Targets:
+        - Id: completions
+          Arn:
+            Fn::ImportValue: !Sub "${FoundationStack}-CompletionQueueArn"
+          DeadLetterConfig:
+            Arn:
+              Fn::ImportValue: !Sub "${FoundationStack}-CompletionDeadLetterQueueArn"
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 86400
+            MaximumRetryAttempts: 185
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  StepFunctionsStateRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: theseus-hands-step-functions-state
+      Description: Executions of Theseus's state machines (theseus-*) that end, to the completion queue.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.states
+        detail-type:
+          - Step Functions Execution Status Change
+        detail:
+          stateMachineArn:
+            - prefix: !Sub "arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:theseus-"
+          status:
+            - SUCCEEDED
+            - FAILED
+            - TIMED_OUT
+            - ABORTED
+      Targets:
+        - Id: completions
+          Arn:
+            Fn::ImportValue: !Sub "${FoundationStack}-CompletionQueueArn"
+          DeadLetterConfig:
+            Arn:
+              Fn::ImportValue: !Sub "${FoundationStack}-CompletionDeadLetterQueueArn"
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 86400
+            MaximumRetryAttempts: 185
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # ---------------------------------------------------------------------------------------------
+  # The TTL reaper (design section 3.3, the third TTL layer): every 15 minutes it stops each hand
+  # task whose theseus:ttl has passed, so with Theseus down and a wrapper wedged, a hand outlives
+  # its TTL by at most 15 minutes. It sees only Theseus's cluster, and may stop only tasks tagged
+  # theseus:owner = theseus. Its code is tested offline by infra/aws/test/test_reaper.py.
+  # ---------------------------------------------------------------------------------------------
+
+  ReaperRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-reaper
+      Description: The TTL reaper's role; it lists, describes, and stops Theseus's hand tasks.
+      PermissionsBoundary:
+        Fn::ImportValue: !Sub "${FoundationStack}-BoundaryArn"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: stop-expired-hands
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListTheHands
+                Effect: Allow
+                Action: ecs:ListTasks
+                Resource: "*"
+                Condition:
+                  ArnEquals:
+                    ecs:cluster: !GetAtt Cluster.Arn
+              - Sid: DescribeTheHands
+                Effect: Allow
+                Action: ecs:DescribeTasks
+                Resource: !Sub "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task/theseus-hands/*"
+              - Sid: StopOnlyTheseusHands
+                Effect: Allow
+                Action: ecs:StopTask
+                Resource: !Sub "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task/theseus-hands/*"
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/theseus:owner: theseus
+              - Sid: ItsLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt ReaperLogGroup.Arn
+              - Sid: ItsFailuresGoHome
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource:
+                  Fn::ImportValue: !Sub "${FoundationStack}-CompletionQueueArn"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  Reaper:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: theseus-reaper
+      Description: Stops every Theseus hand task whose theseus:ttl has passed.
+      Runtime: python3.13
+      Architectures:
+        - arm64
+      Handler: index.handler
+      Role: !GetAtt ReaperRole.Arn
+      Timeout: 120
+      MemorySize: 256
+      LoggingConfig:
+        LogGroup: !Ref ReaperLogGroup
+      Environment:
+        Variables:
+          CLUSTER: !Ref Cluster
+          MODE: !Ref ReaperMode
+      Code:
+        ZipFile: |
+          # The TTL reaper: stops each task in the hands cluster whose theseus:ttl tag (a UTC
+          # time) has passed. Only tasks tagged theseus:owner = theseus are ever touched.
+          import datetime
+          import json
+          import os
+
+          import boto3
+
+          ECS = boto3.client("ecs")
+          CLUSTER = os.environ["CLUSTER"]
+          ACT = os.environ.get("MODE", "act") == "act"
+
+
+          def expiry(task):
+              tags = {t.get("key"): t.get("value", "") for t in task.get("tags", [])}
+              if tags.get("theseus:owner") != "theseus":
+                  return None
+              try:
+                  ttl = datetime.datetime.fromisoformat(tags.get("theseus:ttl", ""))
+              except ValueError:
+                  return None
+              if ttl.tzinfo is None:
+                  ttl = ttl.replace(tzinfo=datetime.timezone.utc)
+              return ttl
+
+
+          def handler(event, context):
+              now = datetime.datetime.now(datetime.timezone.utc)
+              seen, expired = 0, []
+              pages = ECS.get_paginator("list_tasks").paginate(
+                  cluster=CLUSTER, desiredStatus="RUNNING"
+              )
+              for page in pages:
+                  arns = page["taskArns"]
+                  for i in range(0, len(arns), 100):
+                      found = ECS.describe_tasks(
+                          cluster=CLUSTER, tasks=arns[i:i + 100], include=["TAGS"]
+                      )
+                      for task in found["tasks"]:
+                          seen += 1
+                          ttl = expiry(task)
+                          if ttl is None or ttl > now:
+                              continue
+                          arn = task["taskArn"]
+                          reason = "theseus ttl reaper: theseus:ttl " + ttl.isoformat() + " passed"
+                          if ACT:
+                              ECS.stop_task(cluster=CLUSTER, task=arn, reason=reason[:255])
+                          expired.append(arn)
+                          verb = "reaped" if ACT else "would_reap"
+                          print(json.dumps({verb: arn, "ttl": ttl.isoformat()}))
+              summary = {"seen": seen, "expired": len(expired), "mode": "act" if ACT else "report"}
+              print(json.dumps(summary))
+              return summary
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  ReaperAsync:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref Reaper
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 900
+      DestinationConfig:
+        OnFailure:
+          Destination:
+            Fn::ImportValue: !Sub "${FoundationStack}-CompletionQueueArn"
+
+  ReaperSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: theseus-hands-reaper
+      Description: Every 15 minutes, the TTL reaper stops the hands whose TTL has passed.
+      ScheduleExpression: rate(15 minutes)
+      State: ENABLED
+      Targets:
+        - Id: reaper
+          Arn: !GetAtt Reaper.Arn
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  ReaperInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Reaper
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ReaperSchedule.Arn
+      SourceAccount: !Ref AWS::AccountId
+
+  # ---------------------------------------------------------------------------------------------
+  # The Lambda hand (A2): the hand image, with the theseus binary as the runtime's bootstrap,
+  # under theseus-hand-basic. It exists once step 40 has pushed the image and set HandImageUri.
+  # A failed async invocation lands in the completion queue.
+  # ---------------------------------------------------------------------------------------------
+
+  LambdaHand:
+    Type: AWS::Lambda::Function
+    Condition: HasHandImage
+    Properties:
+      FunctionName: theseus-hand-basic
+      Description: A Lambda hand under the theseus-hand-basic profile.
+      PackageType: Image
+      Code:
+        ImageUri: !Ref HandImageUri
+      Role: !GetAtt HandBasicRole.Arn
+      Architectures:
+        - x86_64
+      Timeout: 900
+      MemorySize: !Ref LambdaHandMemoryMb
+      EphemeralStorage:
+        Size: 10240
+      LoggingConfig:
+        LogGroup: !Ref HandsLogGroup
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  LambdaHandAsync:
+    Type: AWS::Lambda::EventInvokeConfig
+    Condition: HasHandImage
+    Properties:
+      FunctionName: !Ref LambdaHand
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 3600
+      DestinationConfig:
+        OnFailure:
+          Destination:
+            Fn::ImportValue: !Sub "${FoundationStack}-CompletionQueueArn"
+
+  # ---------------------------------------------------------------------------------------------
+  # The budget's stop reaches the hands too: at 100% of actual spend this action attaches
+  # theseus-deny-spend to the hand profiles, as the foundation's own action does to the owner and
+  # deployer roles (design section 3.7).
+  # ---------------------------------------------------------------------------------------------
+
+  HandsBudgetStopAction:
+    Type: AWS::Budgets::BudgetsAction
+    Properties:
+      BudgetName:
+        Fn::ImportValue: !Sub "${FoundationStack}-BudgetName"
+      NotificationType: ACTUAL
+      ActionType: APPLY_IAM_POLICY
+      ActionThreshold:
+        Type: PERCENTAGE
+        Value: 100
+      ApprovalModel: AUTOMATIC
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${FoundationStack}-BudgetActionRoleArn"
+      Definition:
+        IamActionDefinition:
+          PolicyArn:
+            Fn::ImportValue: !Sub "${FoundationStack}-DenySpendArn"
+          Roles:
+            - !Ref HandBasicRole
+            - !Ref HandReadRole
+            - !Ref HandOwnerRole
+      Subscribers:
+        - Type: SNS
+          Address:
+            Fn::ImportValue: !Sub "${FoundationStack}-AlertsTopicArn"
+      ResourceTags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+Outputs:
+  ClusterArn:
+    Value: !GetAtt Cluster.Arn
+  RepositoryUri:
+    Value: !GetAtt HandRepository.RepositoryUri
+  HandsLogGroupName:
+    Value: !Ref HandsLogGroup
+  HandBasicRoleArn:
+    Value: !GetAtt HandBasicRole.Arn
+  HandReadRoleArn:
+    Value: !GetAtt HandReadRole.Arn
+  HandOwnerRoleArn:
+    Value: !GetAtt HandOwnerRole.Arn
+  HandExecutionRoleArn:
+    Value: !GetAtt HandExecutionRole.Arn
+  LambdaHandArn:
+    Condition: HasHandImage
+    Value: !GetAtt LambdaHand.Arn
