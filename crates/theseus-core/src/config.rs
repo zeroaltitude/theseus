@@ -224,6 +224,11 @@ pub struct ToolsConfig {
     /// Environment variables `proc.run` passes through from the daemon (nothing else).
     #[serde(default = "default_proc_env")]
     pub proc_env: Vec<String>,
+    /// The most a job's raw output file keeps (theseus-102). Past it the job
+    /// runs on, what it prints is counted and dropped, and its result says
+    /// so. The runtime reads only the file's last 4 MiB.
+    #[serde(default = "default_job_output_max_bytes")]
+    pub job_output_max_bytes: u64,
     /// `[tools.web]`: `http.fetch` and `web.search` (DD5).
     #[serde(default)]
     pub web: WebToolsConfig,
@@ -300,6 +305,11 @@ fn default_proc_timeout_secs() -> u64 {
 fn default_proc_timeout_max_secs() -> u64 {
     3600
 }
+fn default_job_output_max_bytes() -> u64 {
+    theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES
+}
+/// The smallest cap a job's output file may have: a page.
+const MIN_JOB_OUTPUT_MAX_BYTES: u64 = 4096;
 fn default_proc_env() -> Vec<String> {
     [
         "PATH",
@@ -332,6 +342,7 @@ impl Default for ToolsConfig {
             proc_timeout_secs: default_proc_timeout_secs(),
             proc_timeout_max_secs: default_proc_timeout_max_secs(),
             proc_env: default_proc_env(),
+            job_output_max_bytes: default_job_output_max_bytes(),
             web: WebToolsConfig::default(),
         }
     }
@@ -801,10 +812,34 @@ pub struct ServerConfig {
     /// it again under the same nonce. 0 waits for none.
     #[serde(default = "default_stop_grace_ms")]
     pub stop_grace_ms: u64,
+    /// Health warns when the filesystem under the state dir has less free
+    /// space than this, in MB (theseus-102). 0 never warns.
+    #[serde(default = "default_disk_warn_mb")]
+    pub disk_warn_mb: u64,
+    /// A job is refused, with its reason, when the filesystem under the state
+    /// dir has less free space than this, in MB (theseus-102), so the store
+    /// keeps room to write. 0 refuses none.
+    #[serde(default = "default_disk_floor_mb")]
+    pub disk_floor_mb: u64,
 }
 
 fn default_stop_grace_ms() -> u64 {
     50
+}
+
+/// Five floors: health says the disk is low while there is still room to
+/// act before jobs are refused. One build's target dir can take several GB.
+fn default_disk_warn_mb() -> u64 {
+    5 * 1024
+}
+
+/// Room, once new jobs are refused, for what already runs to finish and be
+/// written down: eight turns at once (the admission ceiling), each with a
+/// job at its 64 MiB output cap, is 512 MiB, beside a whole 64 MiB WAL
+/// segment and the index's checkpoint. It protects the store, whose appends
+/// fail on a full disk, the rows that would say so among them.
+fn default_disk_floor_mb() -> u64 {
+    1024
 }
 
 /// The longest grace a clean stop may give the posts in flight.
@@ -862,6 +897,8 @@ impl Default for ServerConfig {
             socket: default_socket(),
             store_engine: theseus_store::Engine::Redb,
             stop_grace_ms: default_stop_grace_ms(),
+            disk_warn_mb: default_disk_warn_mb(),
+            disk_floor_mb: default_disk_floor_mb(),
         }
     }
 }
@@ -997,6 +1034,21 @@ impl Config {
                 "server.stop_grace_ms = {} is over {MAX_STOP_GRACE_MS}: a clean stop waits at most \
                  10 s for the posts in flight",
                 self.server.stop_grace_ms
+            );
+        }
+        if self.server.disk_warn_mb > 0 && self.server.disk_floor_mb > self.server.disk_warn_mb {
+            anyhow::bail!(
+                "server.disk_floor_mb = {} is above server.disk_warn_mb = {}: health would never \
+                 warn before jobs are refused",
+                self.server.disk_floor_mb,
+                self.server.disk_warn_mb
+            );
+        }
+        if self.tools.job_output_max_bytes < MIN_JOB_OUTPUT_MAX_BYTES {
+            anyhow::bail!(
+                "tools.job_output_max_bytes = {} is under {MIN_JOB_OUTPUT_MAX_BYTES}: a job's output \
+                 file keeps at least a page",
+                self.tools.job_output_max_bytes
             );
         }
         let providers = self.all_providers();

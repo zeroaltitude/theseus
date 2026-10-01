@@ -78,6 +78,7 @@ impl Core {
             wakes: self.wakes(None, None).unwrap_or_default(),
             external_text: crate::external::listed(&sessions, theseus_protocol::now_unix_ms()),
             web: self.web_refusals.status(self.cfg.web.dev_origin.as_deref()),
+            disk: self.tools.disk.status(),
         }
     }
 

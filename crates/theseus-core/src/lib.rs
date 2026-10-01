@@ -19,6 +19,7 @@ pub mod config_copy;
 pub mod config_gate;
 pub mod context_files;
 pub mod cpu;
+pub mod disk;
 pub mod external;
 pub mod github;
 pub mod harness;

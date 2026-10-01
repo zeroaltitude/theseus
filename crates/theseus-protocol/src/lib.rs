@@ -364,6 +364,41 @@ pub struct HealthResult {
     /// The web UI's refusals since the daemon's image started (theseus-70f).
     #[serde(default)]
     pub web: WebStatus,
+    /// Free space under the state dir, read when health is asked
+    /// (theseus-102).
+    #[serde(default)]
+    pub disk: DiskStatus,
+}
+
+/// Free space on the filesystem that holds the state dir (theseus-102), from
+/// `statvfs` at the moment health is asked: the space an unprivileged
+/// process may still use. On a full disk every append to the store fails, the
+/// rows that would say so among them, so health warns first (`low`, under
+/// `[server] disk_warn_mb`), and below `[server] disk_floor_mb` a new job is
+/// refused with its reason (`below_floor`).
+///
+/// It sees only the filesystem Linux reports. Under WSL that is the virtual
+/// disk, itself a file on the Windows drive (C:), and C: can fill first while
+/// this still shows room: check the Windows drive there too.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskStatus {
+    /// The state dir whose filesystem this is.
+    pub path: String,
+    /// `ok`, `low` (under the warning), `below_floor` (jobs are refused), or
+    /// `unknown` (the filesystem could not be read: `error` says why).
+    pub state: String,
+    #[serde(default)]
+    pub free_mb: u64,
+    #[serde(default)]
+    pub total_mb: u64,
+    /// `[server] disk_warn_mb`; 0 never warns.
+    #[serde(default)]
+    pub warn_mb: u64,
+    /// `[server] disk_floor_mb`; 0 refuses no job.
+    #[serde(default)]
+    pub floor_mb: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// What the web UI refused (theseus-70f): a request whose `Host` is not the

@@ -49,7 +49,16 @@ pub struct WrapperArgs {
     /// wrapper as its environment, and it withholds each from the job's raw
     /// output (`crate::redact`).
     pub redact: Vec<(String, String)>,
+    /// The most bytes of the job's output its raw output file keeps
+    /// (theseus-102, `[tools] job_output_max_bytes`). Past it the wrapper
+    /// reads on and counts what it drops; the command is never stopped for
+    /// printing.
+    pub output_max_bytes: u64,
 }
+
+/// A job's output file keeps this much unless the config says otherwise
+/// (theseus-102): 64 MiB, sixteen times what the runtime reads of it.
+pub const DEFAULT_OUTPUT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 impl std::fmt::Debug for WrapperArgs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -64,6 +73,7 @@ impl std::fmt::Debug for WrapperArgs {
             .field("env", &names)
             .field("umask", &self.umask.map(crate::umask::format))
             .field("redact", &self.redact)
+            .field("output_max_bytes", &self.output_max_bytes)
             .finish()
     }
 }
@@ -98,6 +108,8 @@ pub fn spawn_detached(
     for (var, secret) in &args.redact {
         cmd.arg("--redact").arg(format!("{var}={secret}"));
     }
+    cmd.arg("--output-max-bytes")
+        .arg(args.output_max_bytes.to_string());
     cmd.arg("--").args(&args.argv);
     cmd.env_clear();
     cmd.envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
@@ -150,13 +162,11 @@ pub const WRAPPER_MODE: &str = "job-wrapper";
 /// descendant remains, and only then exits. It kills nothing.
 pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
     let subreaper = crate::children::set_subreaper();
-    let (spool, copier) = run(args, Reap::Descendants, subreaper.err())?;
+    let (spool, mut copier) = run(args, Reap::Descendants, subreaper.err())?;
     linger(&spool, &args.correlation_id);
     // What a descendant printed after the report goes through the copy too,
     // to the pipe's end, which comes once the last descendant has gone.
-    if let Some(mut c) = copier {
-        c.wait(crate::redact::DRAIN);
-    }
+    copier.wait(crate::redact::DRAIN);
     Ok(())
 }
 
@@ -201,14 +211,14 @@ enum Reap {
 }
 
 /// The command, its deadline, and the report. `subreaper_error` is why the
-/// wrapper could not become a subreaper, recorded in the completion. With a
-/// granted secret, the copy of the command's output, which may outlive the
-/// report while a descendant holds the output open.
+/// wrapper could not become a subreaper, recorded in the completion. Also
+/// the copy of the command's output, which may outlive the report while a
+/// descendant holds the output open.
 fn run(
     args: &WrapperArgs,
     reap: Reap,
     subreaper_error: Option<String>,
-) -> Result<(Spool, Option<crate::redact::Copier>)> {
+) -> Result<(Spool, crate::redact::Copier)> {
     let spool = Spool::open(&args.spool_dir)?;
     let started = now_ms();
     let t0 = Instant::now();
@@ -228,20 +238,16 @@ fn run(
         f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         f
     };
-    // A granted value never reaches that file (theseus-l0d). With a grant,
-    // the command writes into a pipe, and a copy writes what it reads into
-    // the file with each granted value withheld. Without one, the command
-    // writes the file itself, as before, at no cost.
+    // The command writes into a pipe, and a copy writes what it reads into
+    // the file: with each granted value withheld (theseus-l0d), and no more
+    // than the cap (theseus-102). Past the cap the copy reads on and counts,
+    // so a job that prints 20 GB runs as it would, and its file stays at the
+    // cap. Before the cap, a job without a grant wrote its file itself.
     let redactor = crate::redact::Redactor::new(granted(args, reap));
-    let (stdout, stderr, mut copier) = if redactor.is_empty() {
-        let err_file = out_file.try_clone()?;
-        (Stdio::from(out_file), Stdio::from(err_file), None)
-    } else {
-        let (read, write) = std::io::pipe()?;
-        let err = write.try_clone()?;
-        let copier = crate::redact::Copier::spawn(read, out_file, redactor)?;
-        (Stdio::from(write), Stdio::from(err), Some(copier))
-    };
+    let (read, write) = std::io::pipe()?;
+    let err = write.try_clone()?;
+    let mut copier = crate::redact::Copier::spawn(read, out_file, redactor, args.output_max_bytes)?;
+    let (stdout, stderr) = (Stdio::from(write), Stdio::from(err));
     let mut command = Command::new(&args.argv[0]);
     command
         .args(&args.argv[1..])
@@ -319,14 +325,31 @@ fn run(
     };
     // The copy ends once the command and every descendant sharing its output
     // have closed it (theseus-l0d). One that keeps it open does not hold the
-    // report: the copy goes on after it.
-    if let Some(c) = copier.as_mut() {
-        match c.wait(crate::redact::DRAIN) {
-            Some(Ok(0)) => {}
-            Some(Ok(n)) => detail["withheld"] = serde_json::json!(n),
-            Some(Err(e)) => detail["output_error"] = serde_json::Value::String(e),
-            None => detail["output_open"] = serde_json::Value::Bool(true),
+    // report: the copy goes on after it, and the report says what was
+    // dropped so far.
+    let dropped = match copier.wait(crate::redact::DRAIN) {
+        Some(Ok(c)) => {
+            if c.withheld > 0 {
+                detail["withheld"] = serde_json::json!(c.withheld);
+            }
+            if let Some(e) = c.write_error {
+                detail["output_error"] = serde_json::Value::String(e);
+            }
+            c.dropped
         }
+        Some(Err(e)) => {
+            detail["output_error"] = serde_json::Value::String(e);
+            copier.dropped_so_far()
+        }
+        None => {
+            detail["output_open"] = serde_json::Value::Bool(true);
+            copier.dropped_so_far()
+        }
+    };
+    if dropped > 0 {
+        detail["truncated"] = serde_json::Value::Bool(true);
+        detail["dropped"] = serde_json::json!(dropped);
+        detail["output_max_bytes"] = serde_json::json!(args.output_max_bytes);
     }
     detail["duration_ms"] = serde_json::json!(t0.elapsed().as_millis() as u64);
     detail["bytes"] = serde_json::json!(std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0));
@@ -605,9 +628,16 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
     let mut cwd = None;
     let mut umask = None;
     let mut redact = Vec::new();
+    let mut output_max_bytes = DEFAULT_OUTPUT_MAX_BYTES;
     let mut argv = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--output-max-bytes" => {
+                let v = it.next().unwrap_or_default();
+                output_max_bytes = v
+                    .parse()
+                    .with_context(|| format!("bad --output-max-bytes {v:?}"))?;
+            }
             "--redact" => {
                 let v = it.next().unwrap_or_default();
                 let (var, secret) = v
@@ -650,6 +680,7 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
         env: Vec::new(),
         umask,
         redact,
+        output_max_bytes,
     })
 }
 
@@ -685,6 +716,7 @@ mod tests {
             env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
             umask: None,
             redact: vec![],
+            output_max_bytes: DEFAULT_OUTPUT_MAX_BYTES,
         };
         run_wrapper(&args).unwrap();
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "out\n");
@@ -751,6 +783,7 @@ mod tests {
             ],
             umask: None,
             redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
+            output_max_bytes: DEFAULT_OUTPUT_MAX_BYTES,
         };
         run_wrapper(&args).unwrap();
         let out = std::fs::read(spool.result_path("act_grant")).unwrap();
@@ -780,7 +813,75 @@ mod tests {
             parsed.redact,
             vec![("GH_TOKEN".to_string(), "github_token".to_string())]
         );
+        assert_eq!(parsed.output_max_bytes, DEFAULT_OUTPUT_MAX_BYTES);
         assert!(!format!("{args:?}").contains(value), "Debug names only");
+    }
+
+    /// Review 2's R3 (theseus-102), with a grant: the file keeps the cap, its
+    /// value withheld before it; past the cap nothing is kept, the value
+    /// there included, and the bytes are counted as the job printed them.
+    /// The command runs to its end. `--output-max-bytes` round-trips.
+    #[test]
+    fn a_granted_job_that_prints_past_the_cap_keeps_the_cap_without_its_value() {
+        let d = tempfile::tempdir().unwrap();
+        let spool = Spool::open(d.path()).unwrap();
+        let value = "tv-invented_grant-5c1e9b7a";
+        let after = d.path().join("after");
+        let args = WrapperArgs {
+            spool_dir: d.path().to_path_buf(),
+            correlation_id: "act_capped".into(),
+            deadline_ms: 30_000,
+            notify_socket: None,
+            argv: vec![
+                "sh".into(),
+                "-c".into(),
+                "echo \"$INVENTED_GRANT\"; head -c 1000000 /dev/zero; echo \"$INVENTED_GRANT\"; \
+                 : > \"$0\""
+                    .into(),
+                after.display().to_string(),
+            ],
+            cwd: None,
+            env: vec![
+                ("PATH".into(), std::env::var("PATH").unwrap_or_default()),
+                ("INVENTED_GRANT".into(), value.into()),
+            ],
+            umask: None,
+            redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
+            output_max_bytes: 4096,
+        };
+        run_wrapper(&args).unwrap();
+        assert!(after.exists(), "the job ran to its end");
+        let out = std::fs::read(spool.result_path("act_capped")).unwrap();
+        assert_eq!(out.len(), 4096);
+        let mark = b"[redacted:invented_grant]\n";
+        assert_eq!(&out[..mark.len()], mark);
+        assert!(out[mark.len()..].iter().all(|&b| b == 0));
+        let c = spool.read_completion("act_capped").unwrap().unwrap();
+        assert_eq!(c.outcome, Outcome::Succeeded);
+        let detail = c.detail.unwrap();
+        // Printed: the value's line (27 bytes), a million zeros, the value's
+        // line again. Kept: the mark's line (26) and 4,070 zeros.
+        let kept_zeros = 4096 - mark.len() as u64;
+        assert_eq!(detail["dropped"], 1_000_000 - kept_zeros + 27, "{detail}");
+        assert_eq!(detail["truncated"], true, "{detail}");
+        assert_eq!(detail["output_max_bytes"], 4096, "{detail}");
+        assert_eq!(detail["withheld"], 1, "{detail}");
+        assert_eq!(detail["bytes"], 4096, "{detail}");
+        let parsed = parse_wrapper_args(
+            [
+                "--spool",
+                "/s",
+                "--correlation-id",
+                "act_x",
+                "--output-max-bytes",
+                "4096",
+                "--",
+                "true",
+            ]
+            .map(String::from),
+        )
+        .unwrap();
+        assert_eq!(parsed.output_max_bytes, 4096);
     }
 
     /// A wrapper is known by its command line, as `spawn_detached` makes it,

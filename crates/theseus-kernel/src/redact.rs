@@ -14,10 +14,16 @@
 //! one byte) until the next read, or the pipe's end, decides them. Everything
 //! else is written as it is read, so the file still grows as the command
 //! prints.
+//!
+//! Every job's output takes this copy since theseus-102, a grant or none: the
+//! copy also caps the file. Past the cap it keeps reading, so the command
+//! never blocks or dies for printing, and counts what it drops. Its memory is
+//! one read's buffer, whatever the job prints.
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 /// The scrubber's floor: a shorter value is not withheld, so that a common
@@ -184,25 +190,87 @@ fn begins(hay: &[u8], value: &[u8]) -> usize {
 /// output open would hold the report otherwise. The copy goes on after it.
 pub const DRAIN: Duration = Duration::from_millis(200);
 
+/// What a finished copy did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Copied {
+    /// Granted values withheld (theseus-l0d).
+    pub withheld: u64,
+    /// Bytes the job printed past the cap, read and dropped (theseus-102).
+    pub dropped: u64,
+    /// Why the file stopped taking the output before the cap: a write that
+    /// failed, as on a full disk. The copy read on and counted the rest as
+    /// dropped, so the command still never blocked.
+    pub write_error: Option<String>,
+}
+
+/// The spool file, holding at most `room` more bytes. What does not fit is
+/// counted, never kept.
+struct Capped {
+    file: File,
+    room: u64,
+    dropped: Arc<AtomicU64>,
+    error: Option<String>,
+}
+
+impl Capped {
+    /// Keep what fits and count the rest. A failed write keeps nothing more.
+    fn put(&mut self, bytes: &[u8]) {
+        let fits = (bytes.len() as u64).min(self.room) as usize;
+        if fits > 0 {
+            if let Err(e) = self.file.write_all(&bytes[..fits]) {
+                self.error = Some(e.to_string());
+                self.room = 0;
+                self.drop_bytes(fits as u64);
+            } else {
+                self.room -= fits as u64;
+            }
+        }
+        self.drop_bytes((bytes.len() - fits) as u64);
+    }
+
+    fn drop_bytes(&self, n: u64) {
+        if n > 0 {
+            self.dropped.fetch_add(n, Ordering::Relaxed);
+        }
+    }
+
+    fn full(&self) -> bool {
+        self.room == 0
+    }
+}
+
 /// A job's output on its way from the command's pipe to the spool file.
 pub struct Copier {
-    done: mpsc::Receiver<Result<u64, String>>,
-    ended: Option<Result<u64, String>>,
+    done: mpsc::Receiver<Result<Copied, String>>,
+    ended: Option<Result<Copied, String>>,
+    /// What has been dropped so far, while the copy goes on.
+    dropped: Arc<AtomicU64>,
 }
 
 impl Copier {
     /// Copy `from` into `to` on a thread of its own, withholding `redactor`'s
-    /// values, until every writer has closed the pipe.
+    /// values, until every writer has closed the pipe. The file takes at most
+    /// `max_bytes`; the copy reads on past them and counts them dropped
+    /// (theseus-102). Past the cap the bytes are counted as the job printed
+    /// them, unredacted, since none of them is kept.
     pub fn spawn(
         mut from: std::io::PipeReader,
-        mut to: File,
+        to: File,
         mut redactor: Redactor,
+        max_bytes: u64,
     ) -> std::io::Result<Self> {
         let (tx, done) = mpsc::channel();
+        let dropped = Arc::new(AtomicU64::new(0));
+        let mut sink = Capped {
+            file: to,
+            room: max_bytes,
+            dropped: dropped.clone(),
+            error: None,
+        };
         std::thread::Builder::new()
             .name("job-output".into())
             .spawn(move || {
-                let mut copy = || -> std::io::Result<u64> {
+                let mut copy = || -> std::io::Result<Copied> {
                     let mut buf = vec![0u8; 64 * 1024];
                     let mut out = Vec::with_capacity(buf.len() + 256);
                     loop {
@@ -212,29 +280,49 @@ impl Copier {
                             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                             Err(e) => return Err(e),
                         };
-                        out.clear();
-                        redactor.feed(&buf[..n], &mut out);
-                        to.write_all(&out)?;
+                        if sink.full() {
+                            sink.drop_bytes(n as u64);
+                        } else if redactor.is_empty() {
+                            sink.put(&buf[..n]);
+                        } else {
+                            out.clear();
+                            redactor.feed(&buf[..n], &mut out);
+                            sink.put(&out);
+                        }
                     }
                     out.clear();
                     redactor.finish(&mut out);
-                    to.write_all(&out)?;
+                    sink.put(&out);
                     buf.fill(0);
                     out.fill(0);
-                    Ok(redactor.withheld())
+                    Ok(Copied {
+                        withheld: redactor.withheld(),
+                        dropped: sink.dropped.load(Ordering::Relaxed),
+                        write_error: sink.error.take(),
+                    })
                 };
                 let _ = tx.send(copy().map_err(|e| e.to_string()));
             })?;
-        Ok(Self { done, ended: None })
+        Ok(Self {
+            done,
+            ended: None,
+            dropped,
+        })
     }
 
-    /// Wait at most `bound` for the copy to end; its result once it has: how
-    /// many values it withheld, or why it stopped.
-    pub fn wait(&mut self, bound: Duration) -> Option<Result<u64, String>> {
+    /// Wait at most `bound` for the copy to end; its result once it has: what
+    /// it withheld and dropped, or why it stopped reading.
+    pub fn wait(&mut self, bound: Duration) -> Option<Result<Copied, String>> {
         if self.ended.is_none() {
             self.ended = self.done.recv_timeout(bound).ok();
         }
         self.ended.clone()
+    }
+
+    /// Bytes dropped past the cap so far: while a descendant keeps the output
+    /// open, the copy has not ended, and this is what the report can say.
+    pub fn dropped_so_far(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 }
 
@@ -348,6 +436,51 @@ mod tests {
             assert!(out == want, "reads of {size} bytes differ");
             assert!(find(&out, short).is_none(), "reads of {size} bytes");
         }
+    }
+
+    /// Copy `input`, written by a thread of its own, into `to` with no grant
+    /// and the cap `max`: what the copy did, once the writer has finished.
+    fn copy_through(to: File, max: u64, input: Vec<u8>) -> Copied {
+        let (read, mut write) = std::io::pipe().unwrap();
+        let mut c = Copier::spawn(read, to, Redactor::new([]), max).unwrap();
+        let writer = std::thread::spawn(move || {
+            write.write_all(&input).unwrap();
+        });
+        writer.join().unwrap();
+        c.wait(Duration::from_secs(10)).unwrap().unwrap()
+    }
+
+    /// The cap (theseus-102): the file keeps exactly its first `max` bytes,
+    /// and the rest is read and counted, so the writer finishes.
+    #[test]
+    fn the_copy_keeps_the_cap_and_counts_the_rest() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("out");
+        let input: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let copied = copy_through(File::create(&path).unwrap(), 100_000, input.clone());
+        assert_eq!(std::fs::read(&path).unwrap(), &input[..100_000]);
+        assert_eq!(
+            copied,
+            Copied {
+                withheld: 0,
+                dropped: 200_000,
+                write_error: None
+            }
+        );
+    }
+
+    /// A full disk (`/dev/full`) fails every write: the copy keeps reading,
+    /// so the writer is never blocked or killed by a closed pipe, and it
+    /// says why the file took nothing.
+    #[test]
+    fn a_full_disk_never_blocks_the_writer() {
+        let full = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/full")
+            .unwrap();
+        let copied = copy_through(full, u64::MAX, vec![7u8; 1_000_000]);
+        assert_eq!(copied.dropped, 1_000_000);
+        assert!(copied.write_error.is_some(), "{copied:?}");
     }
 
     /// The scrubber's rule: a value is trimmed, and one under 8 bytes is not

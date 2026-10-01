@@ -142,6 +142,13 @@ state_dir = "~/.theseus"                # store (redb) and spool; flag: --state-
 socket = "~/.theseus/theseus.sock"      # protocol socket, mode 0600; flag: --socket / THESEUS_SOCKET
 store_engine = "redb"                   # index engine behind the WAL; redb is the only one
 stop_grace_ms = 50                      # a clean stop waits up to this long, from its start, for posts already sent to settle
+# Free space on the filesystem that holds state_dir (theseus-102). Health
+# shows it, and says "low" below disk_warn_mb; below disk_floor_mb a job is
+# refused, with its reason, so the store keeps room to write. Health sees only
+# the filesystem Linux reports: under WSL that is the virtual disk, a file on
+# the Windows drive (C:), which can fill first, so check C: itself there.
+disk_warn_mb = 5120                     # health says the disk is low below this many MB free (0: never)
+disk_floor_mb = 1024                    # a job is refused below this many MB free (0: never)
 
 # ---------------------------------------------------------------- kernel
 # The durable kernel (M2): one execution per session, actions with correlation
@@ -175,6 +182,7 @@ proc_sync_secs = 60                     # a turn waits this long for proc.run, t
 proc_timeout_secs = 600                 # default proc.run timeout
 proc_timeout_max_secs = 3600            # ceiling a call may ask for
 proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME"]  # the ONLY variables a job sees
+job_output_max_bytes = 67108864         # a job's raw output file keeps at most this much (64 MiB); past it the job runs on, and its result says how much was dropped
 
 # The web tools (DD5): http.fetch GETs a URL, follows up to 5 redirects, and
 # returns an HTML page as text (text, JSON, and XML as they are; other types

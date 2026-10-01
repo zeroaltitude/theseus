@@ -35,6 +35,18 @@ impl Rig {
 
     /// `start`, with the umask the daemon passes for the command.
     fn start_with(&self, id: &str, script: &str, umask: Option<u32>) -> u32 {
+        self.start_capped(id, script, umask, job::DEFAULT_OUTPUT_MAX_BYTES)
+    }
+
+    /// `start_with`, with the cap on the job's output file the daemon passes
+    /// (theseus-102).
+    fn start_capped(
+        &self,
+        id: &str,
+        script: &str,
+        umask: Option<u32>,
+        output_max_bytes: u64,
+    ) -> u32 {
         let args = WrapperArgs {
             spool_dir: self.spool.dir().to_path_buf(),
             correlation_id: id.into(),
@@ -53,6 +65,7 @@ impl Rig {
             env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
             umask,
             redact: vec![],
+            output_max_bytes,
         };
         job::spawn_detached(
             Path::new(env!("CARGO_BIN_EXE_theseusd")),
@@ -239,6 +252,37 @@ fn a_wrapper_with_nothing_left_exits_with_its_command() {
     assert_eq!(out, "hi\n");
 }
 
+/// Review 2's R3 (theseus-102): a job that prints far past the cap leaves its
+/// file at the cap, runs to its own end (the wrapper reads on and counts, it
+/// never stops the command for printing), and its completion says what was
+/// dropped and what the cap was. The cap reaches the wrapper on its command
+/// line, as the daemon passes it.
+#[test]
+fn a_job_that_prints_past_the_cap_leaves_its_file_at_the_cap_and_runs_to_its_end() {
+    let rig = Rig::new();
+    let cap = 64 * 1024;
+    let printed = 5 * 1024 * 1024 + "the end\n".len() as u64;
+    rig.start_capped(
+        "act_chatty",
+        "head -c 5242880 /dev/zero; echo 'the end'; : > after; exit 3",
+        None,
+        cap,
+    );
+    let c = wait_for("the completion", || {
+        rig.spool.read_completion("act_chatty").unwrap()
+    });
+    assert!(rig.path("after").exists(), "the job ran to its end");
+    let detail = c.detail.unwrap();
+    assert_eq!(detail["exit_code"], 3, "{detail}");
+    assert_eq!(detail["bytes"], cap, "{detail}");
+    assert_eq!(detail["truncated"], true, "{detail}");
+    assert_eq!(detail["dropped"], printed - cap, "{detail}");
+    assert_eq!(detail["output_max_bytes"], cap, "{detail}");
+    let out = std::fs::read(c.result_ref.unwrap()).unwrap();
+    assert_eq!(out.len() as u64, cap);
+    assert!(out.iter().all(|&b| b == 0), "the first bytes it printed");
+}
+
 /// A cancel kills what it killed before: the wrapper's process group, which
 /// is the wrapper, the command, and the descendants that stayed in it. A
 /// descendant that left the group with `setsid` was never in reach of a
@@ -332,6 +376,7 @@ impl Rig {
             ],
             umask: None,
             redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
+            output_max_bytes: job::DEFAULT_OUTPUT_MAX_BYTES,
         };
         job::spawn_detached(
             Path::new(env!("CARGO_BIN_EXE_theseusd")),

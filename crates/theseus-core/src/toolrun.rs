@@ -13,6 +13,7 @@
 //! daemon restart (the spool keeps it).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -213,6 +214,12 @@ pub struct ToolRuntime {
     /// What a call that acts gets once its session has read external text
     /// (theseus-9bp, `[policy] external_text`).
     pub external_text: crate::external::Mode,
+    /// The most a job's raw output file keeps (theseus-102, `[tools]
+    /// job_output_max_bytes`).
+    pub output_max_bytes: u64,
+    /// The free space under the state dir: below its floor a job is refused
+    /// (theseus-102), and health reads it.
+    pub disk: Arc<crate::disk::Disk>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -285,22 +292,58 @@ pub fn cap(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String
     )
 }
 
-fn read_result_file(path: Option<&str>) -> (String, u64) {
-    let Some(p) = path else {
-        return (String::new(), 0);
-    };
-    match std::fs::read(p) {
-        Ok(b) => {
-            let total = b.len() as u64;
-            let slice = if b.len() > MAX_RESULT_READ {
-                &b[b.len() - MAX_RESULT_READ..]
-            } else {
-                &b[..]
-            };
-            (String::from_utf8_lossy(slice).into_owned(), total)
-        }
-        Err(_) => (String::new(), 0),
+/// `4 MiB` for a whole number of MiB, else the bytes: the sizes a job's
+/// result names.
+fn size(n: u64) -> String {
+    const MIB: u64 = 1024 * 1024;
+    if n >= MIB && n.is_multiple_of(MIB) {
+        format!("{} MiB", n / MIB)
+    } else {
+        narrative::count(n, "byte", "bytes")
     }
+}
+
+/// The end of a job's raw output, as the result reads it.
+#[derive(Debug, Default, PartialEq)]
+struct Tail {
+    text: String,
+    /// The file's whole length.
+    total: u64,
+    /// The bytes before what was read.
+    unread: u64,
+}
+
+/// The last `MAX_RESULT_READ` bytes of a job's raw output, read by seek
+/// (theseus-102): whatever the job printed, the daemon holds no more than
+/// that. A cut through a UTF-8 character moves to the character's end.
+fn read_result_file(path: Option<&str>) -> Tail {
+    let Some(p) = path else {
+        return Tail::default();
+    };
+    std::fs::File::open(p)
+        .and_then(|mut f| read_tail(&mut f, MAX_RESULT_READ as u64))
+        .unwrap_or_default()
+}
+
+/// `read_result_file` over any reader that seeks.
+fn read_tail<R: Read + Seek>(r: &mut R, max: u64) -> std::io::Result<Tail> {
+    let total = r.seek(SeekFrom::End(0))?;
+    let mut unread = total.saturating_sub(max);
+    r.seek(SeekFrom::Start(unread))?;
+    let mut b = Vec::with_capacity((total - unread) as usize);
+    // Bounded by the length seen: a file that grows meanwhile is not followed.
+    r.take(total - unread).read_to_end(&mut b)?;
+    let skip = if unread > 0 {
+        b.iter().take(3).take_while(|&&c| c & 0xC0 == 0x80).count()
+    } else {
+        0
+    };
+    unread += skip as u64;
+    Ok(Tail {
+        text: String::from_utf8_lossy(&b[skip..]).into_owned(),
+        total,
+        unread,
+    })
 }
 
 impl ToolRuntime {
@@ -334,6 +377,8 @@ impl ToolRuntime {
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
             external_text: Default::default(),
+            output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
+            disk: Arc::new(crate::disk::Disk::new(tmp, 0, 0)),
         }
     }
 
@@ -1426,6 +1471,16 @@ impl ToolRuntime {
                 "no completion spool is configured",
             );
         };
+        // Below the floor no job starts (theseus-102): the store keeps room
+        // to write, and the result says why, to the model and every surface.
+        if let Some(r) = self.disk.refusal() {
+            tc.ledger(
+                "job.refused",
+                json!({"correlation_id": correlation_id, "tool": tool.name(),
+                    "free_mb": r.free_mb, "floor_mb": r.floor_mb}),
+            );
+            return self.settle_job_failure(tc, correlation_id, tool.name(), call, &r.to_string());
+        }
         let mut env = self.proc_env.clone();
         for (k, v) in &spec.env {
             if forbidden_env(k) {
@@ -1472,6 +1527,7 @@ impl ToolRuntime {
                 .filter_map(|g| Some((g.variable.clone()?, g.secret.clone())))
                 .filter(|(var, _)| brokered.env.iter().any(|(k, _)| k == var))
                 .collect(),
+            output_max_bytes: self.output_max_bytes,
         };
         // Outbox: `dispatched` was durable before the process exists.
         let launched = self.launcher.launch(&spool, &args);
@@ -1545,7 +1601,7 @@ impl ToolRuntime {
             if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
                 let mut r = ResultNode {
                     duration_ms: Some(t0.elapsed().as_millis() as u64),
-                    ..Self::job_result(tc, &done, &call.id, tool.name())
+                    ..self.job_result(tc, &done, &call.id, tool.name())
                 };
                 if let Some(n) = &note {
                     r.text = format!("{n}\n{}", r.text);
@@ -1640,6 +1696,7 @@ impl ToolRuntime {
     /// unknown outcome), then its output, the tail of it when it is long.
     /// Answer it with `answer_job`, which then deletes the raw output.
     fn job_result<'a>(
+        &self,
         tc: &TurnCtx<'_>,
         a: &'a Action,
         tool_use_id: &'a str,
@@ -1657,7 +1714,11 @@ impl ToolRuntime {
             .as_ref()
             .and_then(|c| c.detail.clone())
             .unwrap_or(Value::Null);
-        let (out, total) = read_result_file(a.result_ref.as_deref());
+        let Tail {
+            text: out,
+            total,
+            unread,
+        } = read_result_file(a.result_ref.as_deref());
         let exit = detail.get("exit_code").and_then(Value::as_i64);
         let status = match a.state {
             ActionState::Succeeded => ResultStatus::Ok,
@@ -1685,15 +1746,46 @@ impl ToolRuntime {
             (_, Some(c), _) => format!("[exit code {c}]\n"),
             _ => String::new(),
         };
+        // A job that printed past the cap kept only the cap's worth: the
+        // result says how much it printed, how much was dropped, and how to
+        // get the rest (theseus-102), as the cap's line does (theseus-46v).
+        let dropped = detail.get("dropped").and_then(Value::as_u64).unwrap_or(0);
+        let header = match dropped {
+            0 => header,
+            d => {
+                let cap = detail
+                    .get("output_max_bytes")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(total);
+                let rest = self
+                    .registry
+                    .get(tool)
+                    .map(|t| t.rest(""))
+                    .filter(|r| !r.is_empty())
+                    .map(|r| format!("; {r}"))
+                    .unwrap_or_default();
+                format!(
+                    "{header}[truncated: it printed {}, and the {} past its output cap of {} were \
+                     dropped{rest}]\n",
+                    narrative::count(total + d, "byte", "bytes"),
+                    narrative::count(d, "byte", "bytes"),
+                    size(cap),
+                )
+            }
+        };
         // Only the end of a very long output is read: the cut says so, as the
         // cap's does for what it leaves out (theseus-46v).
-        let unread = total.saturating_sub(MAX_RESULT_READ as u64);
-        let header = match unread {
-            0 => header,
-            n => format!(
-                "{header}[the first {} of its output not read; its last {} MiB follow]\n",
+        let header = match (unread, dropped) {
+            (0, _) => header,
+            (n, 0) => format!(
+                "{header}[the first {} of its output not read; its last {} follow]\n",
                 narrative::count(n, "byte", "bytes"),
-                MAX_RESULT_READ >> 20
+                size(total - n)
+            ),
+            (n, _) => format!(
+                "{header}[the first {} of what was kept not read; the {} before the cap follow]\n",
+                narrative::count(n, "byte", "bytes"),
+                size(total - n)
             ),
         };
         let raw = if out.is_empty() {
@@ -2024,7 +2116,7 @@ impl ToolRuntime {
             _ => None,
         };
         if let Some(done) = settled {
-            self.answer_job(tc, Self::job_result(tc, &done, &u.id, &name), &done)?;
+            self.answer_job(tc, self.job_result(tc, &done, &u.id, &name), &done)?;
             return Ok(None);
         }
         let alive = is_job
@@ -2057,7 +2149,7 @@ impl ToolRuntime {
             return Ok(());
         }
         if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
-            self.answer_job(tc, Self::job_result(tc, a, &u.id, &name), a)?;
+            self.answer_job(tc, self.job_result(tc, a, &u.id, &name), a)?;
             return Ok(());
         }
         let status = if a.state == ActionState::Succeeded {
@@ -2152,7 +2244,7 @@ impl ToolRuntime {
                 tc,
                 ResultNode {
                     late: true,
-                    ..Self::job_result(tc, a, &tool_use_id, &tool)
+                    ..self.job_result(tc, a, &tool_use_id, &tool)
                 },
             );
             records.push(node.record()?);
@@ -2501,6 +2593,12 @@ pub fn build_runtime(
         cpu,
         broker: Arc::new(broker),
         external_text: cfg.policy.external_text,
+        output_max_bytes: t.job_output_max_bytes,
+        disk: Arc::new(crate::disk::Disk::new(
+            state,
+            cfg.server.disk_warn_mb,
+            cfg.server.disk_floor_mb,
+        )),
     })
 }
 
@@ -2695,5 +2793,81 @@ mod tests {
         // One line too long to cut on an edge: characters only.
         let (c, _) = cap(&"x".repeat(5000), 400, |_| "R".into());
         assert!(c.contains("\n…[4,600 characters not shown: R]…\n"), "{c}");
+    }
+
+    /// A reader that counts the bytes read from it.
+    struct Counted<R> {
+        inner: R,
+        read: u64,
+    }
+
+    impl<R: Read> Read for Counted<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.inner.read(buf)?;
+            self.read += n as u64;
+            Ok(n)
+        }
+    }
+
+    impl<R: Seek> Seek for Counted<R> {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            self.inner.seek(pos)
+        }
+    }
+
+    /// Review 2's R3 (theseus-102): a job's output is read by seek, so the
+    /// daemon reads its last 4 MiB and no more, whatever the job printed.
+    /// Here 40 MiB, of which 4 MiB are read; and a sparse 8 GiB file, which a
+    /// whole read could not hold, gives its tail (no disk is filled: the file
+    /// is a hole and one line).
+    #[test]
+    fn a_jobs_output_is_read_by_seek_and_only_its_tail() {
+        let big = 40 * 1024 * 1024;
+        let mut body = vec![b'.'; big];
+        body[..5].copy_from_slice(b"first");
+        body[big - 5..].copy_from_slice(b"final");
+        let mut r = Counted {
+            inner: std::io::Cursor::new(body),
+            read: 0,
+        };
+        let t = read_tail(&mut r, MAX_RESULT_READ as u64).unwrap();
+        assert_eq!(r.read, MAX_RESULT_READ as u64, "only the tail is read");
+        assert_eq!(t.total, big as u64);
+        assert_eq!(t.unread, (big - MAX_RESULT_READ) as u64);
+        assert!(t.text.ends_with("final") && !t.text.contains("first"));
+
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("act_huge.out");
+        let f = std::fs::File::create(&path).unwrap();
+        let huge = 8u64 << 30;
+        f.set_len(huge - 12).unwrap();
+        drop(f);
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        std::io::Write::write_all(&mut f, b"the last one").unwrap();
+        drop(f);
+        let t = read_result_file(path.to_str());
+        assert_eq!(t.total, huge);
+        assert_eq!(t.unread, huge - MAX_RESULT_READ as u64);
+        assert_eq!(t.text.len(), MAX_RESULT_READ);
+        assert!(t.text.ends_with("the last one"));
+        assert_eq!(read_result_file(None), Tail::default());
+        assert_eq!(
+            read_result_file(Some("/no/such/invented.out")),
+            Tail::default()
+        );
+    }
+
+    /// A cut through a UTF-8 character moves to the character's end, and the
+    /// bytes it skips count as not read.
+    #[test]
+    fn a_tail_cut_through_a_character_starts_at_the_next_one() {
+        // "é" is two bytes: a cut 3 bytes from the end lands inside it.
+        let mut r = std::io::Cursor::new("aé\nbc".as_bytes().to_vec());
+        let t = read_tail(&mut r, 4).unwrap();
+        assert_eq!(t.text, "\nbc");
+        assert_eq!((t.total, t.unread), (6, 3));
     }
 }

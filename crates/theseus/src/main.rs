@@ -952,6 +952,9 @@ async fn run(cli: Cli) -> Result<()> {
                 if let Some(line) = children_line(&h.children) {
                     println!("{line}");
                 }
+                if let Some(line) = disk_line(&h.disk) {
+                    println!("{line}");
+                }
                 println!("{}", broker_line(&h.broker));
                 println!(
                     "tokens total: in {} out {} cache-read {} cache-write {}",
@@ -1524,6 +1527,64 @@ fn children_line(c: &theseus_protocol::ChildrenStatus) -> Option<String> {
         );
     }
     Some(line)
+}
+
+/// `disk: 81,920 MB free of 1,006,712 MB under /home/x/.theseus · health warns
+/// below 5,120 MB, jobs are refused below 1,024 MB` (theseus-102): the
+/// filesystem that holds the state dir, as `statvfs` reads it. `LOW` under the
+/// warning, `BELOW THE FLOOR` when new jobs are refused. Under WSL it is the
+/// virtual disk, a file on the Windows drive, which can fill first (see
+/// `DiskStatus`). A daemon older than that says nothing.
+fn disk_line(d: &theseus_protocol::DiskStatus) -> Option<String> {
+    if d.path.is_empty() {
+        return None;
+    }
+    if d.state == "unknown" {
+        return Some(format!(
+            "disk: unknown under {}: {}",
+            d.path,
+            d.error.as_deref().unwrap_or("not read")
+        ));
+    }
+    let head = match d.state.as_str() {
+        "low" => "disk: LOW, ",
+        "below_floor" => "disk: BELOW THE FLOOR, new jobs are refused: ",
+        _ => "disk: ",
+    };
+    let mut limits = Vec::new();
+    if d.warn_mb > 0 {
+        limits.push(format!("health warns below {} MB", thousands(d.warn_mb)));
+    }
+    if d.floor_mb > 0 {
+        limits.push(format!(
+            "jobs are refused below {} MB",
+            thousands(d.floor_mb)
+        ));
+    }
+    Some(format!(
+        "{head}{} MB free of {} MB under {}{}",
+        thousands(d.free_mb),
+        thousands(d.total_mb),
+        d.path,
+        if limits.is_empty() {
+            String::new()
+        } else {
+            format!(" · {}", limits.join(", "))
+        }
+    ))
+}
+
+/// `130,300`.
+fn thousands(n: u64) -> String {
+    let d = n.to_string();
+    let mut out = String::with_capacity(d.len() + d.len() / 3);
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// `broker: gh gets GH_TOKEN (github_token, notify), used 3 times`
@@ -2910,6 +2971,45 @@ mod tests {
 
     /// The children line says what the daemon holds and has reaped, and
     /// nothing for a daemon older than theseus-z4b.
+    #[test]
+    fn the_disk_line_says_free_space_and_its_limits() {
+        use theseus_protocol::DiskStatus;
+        assert_eq!(disk_line(&DiskStatus::default()), None, "an older daemon");
+        let mut d = DiskStatus {
+            path: "/invented/state".into(),
+            state: "ok".into(),
+            free_mb: 81_920,
+            total_mb: 1_006_712,
+            warn_mb: 5120,
+            floor_mb: 1024,
+            error: None,
+        };
+        assert_eq!(
+            disk_line(&d).unwrap(),
+            "disk: 81,920 MB free of 1,006,712 MB under /invented/state · health warns below \
+             5,120 MB, jobs are refused below 1,024 MB"
+        );
+        d.state = "low".into();
+        d.free_mb = 4000;
+        assert!(disk_line(&d)
+            .unwrap()
+            .starts_with("disk: LOW, 4,000 MB free"));
+        d.state = "below_floor".into();
+        d.free_mb = 812;
+        d.warn_mb = 0;
+        assert_eq!(
+            disk_line(&d).unwrap(),
+            "disk: BELOW THE FLOOR, new jobs are refused: 812 MB free of 1,006,712 MB under \
+             /invented/state · jobs are refused below 1,024 MB"
+        );
+        d.state = "unknown".into();
+        d.error = Some("invented failure".into());
+        assert_eq!(
+            disk_line(&d).unwrap(),
+            "disk: unknown under /invented/state: invented failure"
+        );
+    }
+
     #[test]
     fn the_children_line_counts_wrappers_orphans_and_zombies() {
         use theseus_protocol::ChildrenStatus;

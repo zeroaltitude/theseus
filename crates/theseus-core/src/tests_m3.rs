@@ -827,6 +827,103 @@ async fn a_jobs_raw_output_is_deleted_once_its_result_is_written() {
     assert!(jobs >= 2, "{nodes:?}");
 }
 
+/// Review 2's R3 (theseus-102): a job that prints past its output cap runs
+/// to its end, and its result says what it printed, what was dropped, and
+/// how to get the rest (proc.run's own words, theseus-46v), then which bytes
+/// of what was kept follow. The completion's detail carries the counts.
+#[tokio::test]
+async fn a_job_past_its_output_cap_says_what_was_dropped_and_how_to_get_the_rest() {
+    // 20,000 lines of 21 bytes: 420,000 bytes against a cap of 65,536.
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "yes 'a line of the roster' | head -n 20000; : > ran"]}),
+                )],
+            ),
+            Scripted::text("Done."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.job_output_max_bytes = 65_536;
+        },
+    );
+    let res = turn(&r.core, None, "print the roster").await;
+    assert_eq!(res.output, "Done.");
+    assert!(r.root.join("ran").exists(), "the job ran to its end");
+    let (status, text) = results(&r.core, &res.session_id).remove(0);
+    assert_eq!(status, ResultStatus::Ok);
+    assert!(
+        text.starts_with(
+            "[exit code 0]\n[truncated: it printed 420,000 bytes, and the 354,464 bytes past its \
+             output cap of 65,536 bytes were dropped; its output is not kept: run it again \
+             printing less, or with its output sent to a file that fs_read then reads in ranges]\n\
+             a line of the roster\n"
+        ),
+        "{text}"
+    );
+    let node = r
+        .core
+        .store
+        .transcript(&res.session_id)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match &n.body {
+            Body::ToolResult { meta, .. } => Some(meta.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(node["detail"]["dropped"], 354_464, "{node}");
+    assert_eq!(node["detail"]["bytes"], 65_536, "{node}");
+}
+
+/// Review 2's R3 (theseus-102): below `[server] disk_floor_mb` a job is not
+/// started. Its result gives the reason, to the model and every surface, a
+/// `job.refused` row records the numbers, and health says the disk is below
+/// the floor. The space comes from a stand-in for `statvfs`: no test fills a
+/// disk.
+#[tokio::test]
+async fn a_job_below_the_disk_floor_is_refused_with_its_reason() {
+    let r = rig_with(
+        vec![
+            Scripted::tools("", &[("t1", "proc_run", json!({"argv": ["touch", "ran"]}))]),
+            Scripted::text("Understood."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.server.disk_floor_mb = 1024;
+            cfg.server.disk_warn_mb = 5120;
+        },
+    );
+    let space = crate::disk::FixedSpace::new(812, 100_000);
+    r.core.tools.disk.set_probe(space.clone());
+    let res = turn(&r.core, None, "touch a file").await;
+    assert_eq!(res.output, "Understood.");
+    assert!(!r.root.join("ran").exists(), "no job started");
+    let refusal = "the disk under the state dir has 812 MB free, below the floor of 1,024 MB, so \
+                   the job was not started";
+    assert_eq!(
+        results(&r.core, &res.session_id),
+        vec![(ResultStatus::Error, refusal.to_string())]
+    );
+    let rows = ledgered(&r, "job.refused");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["free_mb"], 812);
+    assert_eq!(rows[0]["floor_mb"], 1024);
+    assert_eq!(rows[0]["tool"], "proc.run");
+    let corr = rows[0]["correlation_id"].as_str().unwrap();
+    let a = r.core.kernel.action(corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Failed);
+    let disk = r.core.health().disk;
+    assert_eq!((disk.state.as_str(), disk.free_mb), ("below_floor", 812));
+    // Above the floor, the next job starts.
+    space.set_free_mb(4000);
+    assert_eq!(r.core.health().disk.state, "low");
+}
+
 #[tokio::test]
 async fn a_session_keeps_its_memory_across_a_restart() {
     let dir = tempfile::tempdir().unwrap();
