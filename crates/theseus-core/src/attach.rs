@@ -212,10 +212,12 @@ pub struct Refused {
 /// The images a provider's 400 names in the request it refused, by the path
 /// of their block: `messages.3.content.1.image.source.base64.data`, or, in a
 /// tool result, `messages.3.content.0.content.1…`; a tool result named whole
-/// gives its images. An error that names an image but no block it can be
-/// found by means the request's only image, when it carries one, and nothing
-/// when it carries several. Each image is known by its bytes, whose digest
-/// names its blob.
+/// gives its images. An error that names an image but no block (Anthropic's
+/// own "Could not process image" names none) means the images the model has
+/// not answered over yet, those after its last answer: every request it
+/// answered carried the ones before. With no new image, it means the
+/// request's only one, and nothing when it carries several. Each image is
+/// known by its bytes, whose digest names its blob.
 pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
     let mut named: Vec<(usize, &Value)> = Vec::new();
     for path in block_paths(error) {
@@ -230,6 +232,7 @@ pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
             named.extend(images_of(b).into_iter().map(|img| (path[0], img)));
         }
     }
+    let mut unsure = false;
     if named.is_empty() && error.to_ascii_lowercase().contains("image") {
         let all: Vec<(usize, &Value)> = messages
             .iter()
@@ -243,11 +246,22 @@ pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
                     .map(move |img| (i, img))
             })
             .collect();
-        if all.len() == 1 {
-            named = all;
-        }
+        let answered = messages.iter().rposition(|m| m["role"] == "assistant");
+        let new: Vec<(usize, &Value)> = all
+            .iter()
+            .copied()
+            .filter(|&(i, _)| answered.is_none_or(|a| i > a))
+            .collect();
+        named = match (new.len(), all.len()) {
+            (0, 1) => all,
+            (0, _) => Vec::new(),
+            _ => {
+                unsure = true;
+                new
+            }
+        };
     }
-    let why = refusal_words(error);
+    let words = refusal_words(error);
     let mut out: Vec<Refused> = Vec::new();
     for (message, img) in named {
         let Some(digest) = digest_of(img) else {
@@ -257,8 +271,16 @@ pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
             out.push(Refused {
                 digest,
                 message,
-                why: why.clone(),
+                why: words.clone(),
             });
+        }
+    }
+    // Several new images and no word of which: all of them go, and each
+    // line says so.
+    let n = out.len();
+    if unsure && n > 1 {
+        for r in &mut out {
+            r.why = format!("{words}; it did not say which of the {n} new images");
         }
     }
     out
@@ -670,15 +692,47 @@ pub(crate) mod tests {
     /// theseus-0s4: an error that names an image but no block means the
     /// request's only image, and nothing when it carries two.
     #[test]
-    fn a_400_that_names_no_block_means_the_only_image() {
-        let a = png(64, 64, 10);
+    fn a_400_that_names_no_block_means_the_images_since_the_last_answer() {
+        // Anthropic's own words for a PNG it could not decode (fb1b's live
+        // check, 2026-10-01): no block path.
+        const NO_PATH: &str = "invalid_request_error: Could not process image";
+        let (a, b) = (png(64, 64, 10), png(32, 32, 20));
+        // The only image, before any answer: it.
         let one = vec![refused_request(&a, &a)[0].clone()];
-        let got = refused(&one, "invalid_request_error: Could not process image");
+        let got = refused(&one, NO_PATH);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].digest, crate::blobs::digest(&a));
         assert_eq!(got[0].why, "Could not process image");
-        let two = refused_request(&a, &png(32, 32, 20));
-        assert!(refused(&two, "invalid_request_error: Could not process image").is_empty());
+        // One image the model answered over, and a tool result's after it:
+        // the new one alone.
+        let two = refused_request(&a, &b);
+        let got = refused(&two, NO_PATH);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(
+            (got[0].digest.clone(), got[0].message),
+            (crate::blobs::digest(&b), 2)
+        );
+        assert_eq!(got[0].why, "Could not process image");
+        // Two new images in one message: both, and each line says so.
+        let img = |x: &[u8]| json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": crate::blobs::encode(x)}});
+        let first = vec![
+            json!({"role": "user", "content": [img(&a), img(&b), {"type": "text", "text": "which?"}]}),
+        ];
+        let got = refused(&first, NO_PATH);
+        assert_eq!(got.len(), 2, "{got:?}");
+        for r in &got {
+            assert_eq!(
+                r.why,
+                "Could not process image; it did not say which of the 2 new images"
+            );
+        }
+        // Both answered over, and none new: nothing.
+        let mut old = refused_request(&a, &b);
+        old.push(
+            json!({"role": "assistant", "content": [{"type": "text", "text": "Two charts."}]}),
+        );
+        old.push(json!({"role": "user", "content": [{"type": "text", "text": "Again?"}]}));
+        assert!(refused(&old, NO_PATH).is_empty());
     }
 
     #[test]

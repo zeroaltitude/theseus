@@ -3456,6 +3456,65 @@ async fn an_image_sent_again_and_refused_strips_the_thinking_over_its_first_copy
     );
 }
 
+/// theseus-0s4: Anthropic's 400 for an image it cannot decode names no block
+/// ("Could not process image", seen in fb1b's live check). In a session that
+/// already holds an image the model answered over, the new image is the one
+/// hidden, and the earlier one still shows. Before, two images in the
+/// request meant nothing was hidden, and the session stayed poisoned.
+#[tokio::test]
+async fn a_400_that_names_no_block_hides_the_new_image_and_keeps_the_answered_one() {
+    let r = rig(vec![
+        Scripted::text("A tide chart."),
+        Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+            status: 400,
+            message: "invalid_request_error: Could not process image".into(),
+        }),
+        Scripted::text("I can see only the tide chart."),
+    ]);
+    let (good, bad) = (
+        crate::attach::tests::png(640, 480, 300),
+        crate::attach::tests::png(320, 200, 4120),
+    );
+    let first = submit(
+        &r.core,
+        submit_params(
+            None,
+            "What is this?",
+            vec![image_attached("tide.png", &good)],
+        ),
+    )
+    .await;
+    assert_eq!(first["output"], "A tide chart.", "{first}");
+    let sid = first["session_id"].as_str().unwrap().to_string();
+    let second = submit(
+        &r.core,
+        submit_params(
+            Some(&sid),
+            "And this one?",
+            vec![image_attached("reef.png", &bad)],
+        ),
+    )
+    .await;
+    assert_eq!(
+        second["output"], "I can see only the tide chart.",
+        "{second}"
+    );
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3);
+    // The retry: the answered image still goes; the new one is its line.
+    assert_eq!(first_user_blocks(&reqs[2])[1]["type"], "image");
+    let line = reqs[2].messages[2]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        line.starts_with("[Image reef.png from discord:eddie, 4,153 bytes: not shown")
+            && line.ends_with("the provider refused it (Could not process image)]"),
+        "{line}"
+    );
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    let marked: Vec<&str> = rec.not_shown.iter().map(|n| n.digest.as_str()).collect();
+    assert_eq!(marked, [crate::blobs::digest(&bad).as_str()]);
+    assert!(ledgered(&r, "turn.failed").is_empty(), "the turn answered");
+}
+
 // ---------------------------------------------------------------- approval (theseus-sgh)
 
 const EDDIE: &str = "159471966640799744";
