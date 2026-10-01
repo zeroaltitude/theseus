@@ -164,18 +164,18 @@ export default function Systems() {
       <Card title={`Catalog · ${cat?.version ?? '…'}`} icon={<Tags size={13} />}>
         <table className="w-full whitespace-nowrap text-[11.5px]">
           <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
-            <tr><th className="py-1 text-left">model</th><th className="text-right">window</th><th className="text-right">in</th><th className="text-right">out</th><th className="text-right" title="cache read / write (5 min) / write (1 hour)">cache r/w/1h</th></tr>
+            <tr><th className="py-1 text-left">model</th><th className="pl-2 text-right">window</th><th className="pl-2 text-right">in</th><th className="pl-2 text-right">out</th><th className="pl-2 text-right" title="cache read / write (5 min) / write (1 hour)">cache r/w/1h</th></tr>
           </thead>
           <tbody>
             {(cat?.models ?? []).map((m) => {
               const e = m.entry as Record<string, any>
               return (
                 <tr key={m.model} className="border-t border-line/50">
-                  <td className="num py-1 text-model">{m.model}{m.profiles.length ? <span className="text-ink-faint"> · {m.profiles.join(', ')}</span> : null}</td>
-                  <td className="num text-right text-ink-dim">{tokens(e.context_window)}</td>
-                  <td className="num text-right text-ink-dim">${e.input_per_mtok}</td>
-                  <td className="num text-right text-ink-dim">${e.output_per_mtok}</td>
-                  <td className="num text-right text-ink-faint">${e.cache_read_per_mtok} / ${e.cache_write_per_mtok}{e.cache_write_1h_per_mtok != null && <> / ${e.cache_write_1h_per_mtok}</>}</td>
+                  <td className="num py-1 text-model">{m.model}{m.profiles.length ? <div className="text-[10px] leading-tight text-ink-faint">{m.profiles.join(', ')}</div> : null}</td>
+                  <td className="num pl-2 text-right text-ink-dim">{tokens(e.context_window)}</td>
+                  <td className="num pl-2 text-right text-ink-dim">${e.input_per_mtok}</td>
+                  <td className="num pl-2 text-right text-ink-dim">${e.output_per_mtok}</td>
+                  <td className="num pl-2 text-right text-ink-faint">${e.cache_read_per_mtok} / ${e.cache_write_per_mtok}{e.cache_write_1h_per_mtok != null && <> / ${e.cache_write_1h_per_mtok}</>}</td>
                 </tr>
               )
             })}
