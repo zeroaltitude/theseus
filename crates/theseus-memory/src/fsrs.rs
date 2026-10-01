@@ -7,6 +7,12 @@
 //! `R(S, S) = 0.9`. Each review moves `S` and `D` by its grade; exposure
 //! without use is no review, so it never moves them (theseus-3nk).
 //!
+//! Checked against the reference implementation, the `fsrs` crate 6.6.2
+//! (open-spaced-repetition's FSRS for Rust, BSD-3-Clause): its defaults,
+//! equations, bounds, and clamps, and the numbers its own tests pin
+//! (theseus-3ht). Where its workload simulator and its model disagree (the
+//! same-day floor), this follows the model, which tracks a card's state.
+//!
 //! Time is wall-clock days, as a fraction: a review less than a day after the
 //! last one takes FSRS-6's same-day step. The published schedulers count whole
 //! days; the curve itself is continuous, and so is an agent's day.
@@ -33,6 +39,33 @@ pub const D_MAX: f64 = 10.0;
 pub const FSRS6_DEFAULT: [f64; 21] = [
     0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835,
     0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
+];
+
+/// The bounds `w0` to `w20` are clipped into, as the reference's `FSRS::new`
+/// clips them: with one relearning step, so `w17` and `w18` stay under 2, and
+/// no short-term floor for `w19`. The defaults sit inside every one.
+pub const PARAM_BOUNDS: [(f64, f64); 21] = [
+    (S_MIN, 100.0),
+    (S_MIN, 100.0),
+    (S_MIN, 100.0),
+    (S_MIN, 100.0),
+    (D_MIN, D_MAX),
+    (0.001, 4.0),
+    (0.001, 4.0),
+    (0.001, 0.75),
+    (0.0, 4.5),
+    (0.0, 0.8),
+    (0.001, 3.5),
+    (0.001, 5.0),
+    (0.001, 0.25),
+    (0.001, 0.9),
+    (0.0, 4.0),
+    (0.0, 1.0),
+    (1.0, 6.0),
+    (0.0, 2.0),
+    (0.0, 2.0),
+    (0.0, 0.8),
+    (0.1, 0.8),
 ];
 
 /// A review's grade: FSRS's four answers.
@@ -97,30 +130,24 @@ impl Default for Fsrs6 {
 }
 
 impl Fsrs6 {
-    /// FSRS-6 with the parameters `w`. Every parameter must be finite, and the
-    /// first stabilities (`w0`–`w3`) and the decay (`w20`) positive: the
-    /// curve needs nothing more to stay defined.
-    pub fn new(w: [f64; 21]) -> Result<Self, ParamsError> {
-        for (index, &value) in w.iter().enumerate() {
+    /// FSRS-6 with the parameters `w`, each clipped into [`PARAM_BOUNDS`] as
+    /// the reference's `FSRS::new` clips it, so that the same parameters make
+    /// the same model. A parameter that is not finite is an error.
+    pub fn new(mut w: [f64; 21]) -> Result<Self, ParamsError> {
+        for (index, (value, &(low, high))) in w.iter_mut().zip(&PARAM_BOUNDS).enumerate() {
             if !value.is_finite() {
                 return Err(ParamsError {
                     index,
-                    value,
+                    value: *value,
                     reason: "not finite",
                 });
             }
-            if (index <= 3 || index == 20) && value <= 0.0 {
-                return Err(ParamsError {
-                    index,
-                    value,
-                    reason: "must be positive",
-                });
-            }
+            *value = value.clamp(low, high);
         }
         Ok(Self { w })
     }
 
-    /// The parameters, `w0` to `w20`: what an arm's digest names.
+    /// The parameters, `w0` to `w20`, as clipped: what an arm's digest names.
     pub fn params(&self) -> &[f64; 21] {
         &self.w
     }
@@ -157,9 +184,12 @@ impl Fsrs6 {
     }
 
     /// The retention after a review at `at_ms`, given the one before it. The
-    /// new stability reads the prior difficulty; then the difficulty moves.
+    /// prior's `S` and `D` are clamped into their bounds first, as the
+    /// reference's step clamps them; the new stability reads the prior
+    /// difficulty; then the difficulty moves.
     pub fn review(&self, prior: &Retention, grade: Grade, at_ms: u64) -> Retention {
-        let (s, d) = (prior.stability, prior.difficulty);
+        let s = clamp_stability(prior.stability);
+        let d = clamp_difficulty(prior.difficulty);
         let t = elapsed_days(prior.last_review_ms, at_ms);
         let stability = if t < 1.0 {
             self.same_day_stability(s, grade)
@@ -243,11 +273,11 @@ impl Fsrs6 {
     }
 
     /// A review less than a day on: `S·e^(w17·(G−3+w18))·S^(−w19)`, where
-    /// Good and Easy never lower it.
+    /// Hard, Good, and Easy never lower it; only Again can.
     fn same_day_stability(&self, s: f64, grade: Grade) -> f64 {
         let w = &self.w;
         let mut growth = (w[17] * (grade.g() - 3.0 + w[18])).exp() * s.powf(-w[19]);
-        if grade >= Grade::Good {
+        if grade >= Grade::Hard {
             growth = growth.max(1.0);
         }
         s * growth
@@ -384,7 +414,8 @@ mod tests {
 
     /// The golden table, computed apart from this code: by hand for the first
     /// steps, and to full precision by the oracle `fsrs6_golden.py` in the
-    /// lane's report, written from the published equations.
+    /// math lane's report, written from the published equations and corrected
+    /// against the reference (theseus-3ht).
     #[test]
     fn golden_table() {
         let f = Fsrs6::default();
@@ -424,7 +455,8 @@ mod tests {
                 (0.25, Again, 0.083356717110316, 8.80630446885684),
                 (1.25, Hard, 0.402452254004551, 9.19279764951225),
                 (5.25, Easy, 3.2515267195757, 8.90829660890562),
-                (5.5, Hard, 1.8376989975137, 9.26050478491036),
+                // A same-day Hard leaves S as it was (theseus-3ht).
+                (5.5, Hard, 3.2515267195757, 9.26050478491036),
             ],
             &[
                 (0.0, Easy, 8.2956, 1.0),
@@ -514,15 +546,219 @@ mod tests {
     #[test]
     fn parameters_are_checked() {
         assert!(Fsrs6::new(FSRS6_DEFAULT).is_ok());
+        for (index, value) in [(9, f64::NAN), (17, f64::INFINITY), (20, f64::NEG_INFINITY)] {
+            let mut w = FSRS6_DEFAULT;
+            w[index] = value;
+            assert_eq!(Fsrs6::new(w).unwrap_err().index, index);
+        }
+        // A decay of 0 and a negative first stability are clipped, as the
+        // reference clips them, not refused (theseus-3ht).
         let mut w = FSRS6_DEFAULT;
         w[20] = 0.0;
-        assert_eq!(Fsrs6::new(w).unwrap_err().index, 20);
-        let mut w = FSRS6_DEFAULT;
         w[2] = -1.0;
-        assert_eq!(Fsrs6::new(w).unwrap_err().index, 2);
+        let f = Fsrs6::new(w).unwrap();
+        assert_eq!((f.decay(), f.params()[2]), (0.1, 0.001));
+    }
+
+    /// `new` clips every parameter into the reference's bounds, as its
+    /// `FSRS::new` does (theseus-3ht), so that the same parameters make the
+    /// same model. The defaults sit inside every bound.
+    #[test]
+    fn parameters_are_clipped_into_the_references_bounds() {
+        // The reference's table for `FSRS::new` (fsrs 6.6.2,
+        // src/parameter_clipper.rs:62-84): one relearning step, so w17 and
+        // w18 stay under 2, and no short-term floor for w19.
+        let lows = [
+            0.001, 0.001, 0.001, 0.001, 1.0, 0.001, 0.001, 0.001, 0.0, 0.0, 0.001, 0.001, 0.001,
+            0.001, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.1,
+        ];
+        let highs = [
+            100.0, 100.0, 100.0, 100.0, 10.0, 4.0, 4.0, 0.75, 4.5, 0.8, 3.5, 5.0, 0.25, 0.9, 4.0,
+            1.0, 6.0, 2.0, 2.0, 0.8, 0.8,
+        ];
+        assert_eq!(Fsrs6::new([-1.0; 21]).unwrap().params(), &lows);
+        assert_eq!(Fsrs6::new([1e6; 21]).unwrap().params(), &highs);
+        assert_eq!(Fsrs6::new(FSRS6_DEFAULT).unwrap().params(), &FSRS6_DEFAULT);
+        assert_eq!(Fsrs6::new(FSRS6_DEFAULT).unwrap(), Fsrs6::default());
+    }
+
+    /// A same-day Hard never lowers stability: the reference floors the
+    /// same-day factor at 1 for Hard, Good, and Easy, in its model's step,
+    /// its tensor model, and its optimizer (theseus-3ht). With the defaults,
+    /// Hard's factor before the floor is under 1 at every S, so S stays.
+    #[test]
+    fn same_day_hard_never_lowers_stability() {
+        let f = Fsrs6::default();
+        for first in [Grade::Again, Grade::Hard, Grade::Good, Grade::Easy] {
+            let prior = f.initial(first, 0);
+            let hard = f.review(&prior, Grade::Hard, DAY / 4);
+            assert_eq!(
+                hard.stability, prior.stability,
+                "a same-day Hard after {first:?}"
+            );
+        }
+        for s in [S_MIN, 0.5, 1.0, 2.3065, 30.0, 365.0, S_MAX] {
+            let prior = Retention {
+                stability: s,
+                difficulty: 5.0,
+                last_review_ms: 0,
+            };
+            let hard = f.review(&prior, Grade::Hard, DAY / 2);
+            assert_eq!(hard.stability, s, "a same-day Hard at S = {s}");
+        }
+    }
+
+    /// A review first clamps the prior's S and D into their bounds, as the
+    /// reference's step does (theseus-3ht): a state from elsewhere, out of
+    /// bounds, reviews as its clamped self, and never yields NaN.
+    #[test]
+    fn a_review_clamps_the_prior_first() {
+        let f = Fsrs6::default();
+        let state = |stability, difficulty| Retention {
+            stability,
+            difficulty,
+            last_review_ms: 0,
+        };
+        for (raw, clamped) in [
+            (state(0.0, 5.0), state(S_MIN, 5.0)),
+            (state(1e9, 5.0), state(S_MAX, 5.0)),
+            (state(5.0, 12.0), state(5.0, D_MAX)),
+            (state(5.0, -3.0), state(5.0, D_MIN)),
+        ] {
+            for grade in [Grade::Again, Grade::Hard, Grade::Good, Grade::Easy] {
+                for at_ms in [DAY / 2, 5 * DAY] {
+                    let got = f.review(&raw, grade, at_ms);
+                    assert_eq!(got, f.review(&clamped, grade, at_ms), "{raw:?}, {grade:?}");
+                    assert!(got.stability.is_finite() && got.difficulty.is_finite());
+                }
+            }
+        }
+    }
+
+    /// The reference's own numbers: the cases its tests pin (fsrs 6.6.2,
+    /// src/inference.rs), computed by its f32 code, agree with this f64 code
+    /// to f32's rounding. None reviews Hard on the same day.
+    #[test]
+    fn matches_the_reference_crates_own_numbers() {
+        use Grade::*;
+        // Relative: f32's rounding over a few steps comes to 7.9e-7 at most.
+        fn near(got: f64, want: f64) -> bool {
+            (got - want).abs() <= 2e-6 * want.abs().max(1.0)
+        }
+        // A history from a new card, each review as (grade, whole days since
+        // the review before it), as the reference's tests give it.
+        fn walk(f: &Fsrs6, history: &[(Grade, u64)]) -> Retention {
+            let mut now = 0;
+            let mut r: Option<Retention> = None;
+            for &(grade, days) in history {
+                now += days * DAY;
+                r = Some(match r {
+                    None => f.initial(grade, now),
+                    Some(p) => f.review(&p, grade, now),
+                });
+            }
+            r.expect("a history of at least one review")
+        }
+        fn check(label: &str, got: Retention, s: f64, d: f64) {
+            assert!(
+                near(got.stability, s) && near(got.difficulty, d),
+                "{label}: got S {} D {}, want S {s} D {d}",
+                got.stability,
+                got.difficulty
+            );
+        }
+
+        // test_current_retrievability (inference.rs:1648-1658): S = 1, decay 0.2.
         let mut w = FSRS6_DEFAULT;
-        w[9] = f64::NAN;
-        assert_eq!(Fsrs6::new(w).unwrap_err().index, 9);
+        w[20] = 0.2;
+        let f = Fsrs6::new(w).unwrap();
+        for (t, want) in [(0.0, 1.0), (1.0, 0.9), (2.0, 0.84028935), (3.0, 0.7985001)] {
+            assert!(near(f.retrievability(t, 1.0), want), "R({t}, 1)");
+        }
+
+        // next_states for a new card, the doc example (inference.rs:343-351).
+        let f = Fsrs6::default();
+        for (grade, s, d) in [
+            (Again, 0.212, 6.4133),
+            (Hard, 1.2931, 5.1121707),
+            (Good, 2.3065, 2.118104),
+            (Easy, 8.2956, 1.0),
+        ] {
+            check("a new card", f.initial(grade, 0), s, d);
+        }
+
+        // test_memory_state (inference.rs:992-1040), and the same with the
+        // same-day step frozen (w17 to w19 at 0).
+        let history = [
+            (Again, 0),
+            (Good, 0),
+            (Good, 1),
+            (Good, 3),
+            (Good, 8),
+            (Good, 21),
+        ];
+        check("the defaults", walk(&f, &history), 53.62691, 6.3574867);
+        let mut w = FSRS6_DEFAULT;
+        w[17..20].fill(0.0);
+        let frozen = Fsrs6::new(w).unwrap();
+        check(
+            "no same-day step",
+            walk(&frozen, &history),
+            53.335106,
+            6.3574867,
+        );
+
+        // A 19-parameter (FSRS-5) set (inference.rs:900-920), filled to 21
+        // as the reference fills it: w19 = 0 and w20 = 0.5 (model.rs:346-349).
+        let f = Fsrs6::new([
+            0.6845422,
+            1.6790825,
+            4.7349424,
+            10.042885,
+            7.4410233,
+            0.64219797,
+            1.071918,
+            0.0025195254,
+            1.432437,
+            0.1544,
+            0.8692766,
+            2.0696752,
+            0.0953,
+            0.2975,
+            2.4691248,
+            0.19542035,
+            3.201072,
+            0.18046261,
+            0.121442534,
+            0.0,
+            0.5,
+        ])
+        .unwrap();
+        // test_memo_state (inference.rs:937-990).
+        let history = [(Again, 0), (Good, 1), (Good, 3), (Good, 8), (Good, 21)];
+        check("memo", walk(&f, &history), 31.722992, 7.382128);
+        let prior = Retention {
+            stability: 20.925528,
+            difficulty: 7.005062,
+            last_review_ms: 0,
+        };
+        check(
+            "memo, Good",
+            f.review(&prior, Good, 21 * DAY),
+            40.87456,
+            6.9913807,
+        );
+        // test_next_states (inference.rs:1484-1542).
+        let prior = walk(&f, &history[..4]);
+        for (grade, s, d) in [
+            (Again, 2.9691455, 8.000659),
+            (Hard, 17.091452, 7.6913934),
+            (Good, 31.722992, 7.382128),
+            (Easy, 71.7502, 7.0728626),
+        ] {
+            let at_ms = prior.last_review_ms + 21 * DAY;
+            check("next states", f.review(&prior, grade, at_ms), s, d);
+        }
     }
 
     fn any_access() -> impl Strategy<Value = Access> {
