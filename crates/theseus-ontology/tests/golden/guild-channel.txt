@@ -2,17 +2,17 @@
 
 The sections below are guidance for the categories this session belongs to. Where two disagree, the later one governs.
 
-# Guidance (guild BigHat)
+# Guidance (guild Kestrel)
 
-This is BigHat's server. Keep work talk professional, and never paste secrets here.
+This is Kestrel's server. Keep work talk professional, and never paste secrets here.
 
-# Guidance (channel BigHat › general)
+# Guidance (channel Kestrel › general)
 
 The general channel is shared with the whole team: answer briefly, and move long work to a thread.
 
 # Guidance (person)
 
-- Eddie: The owner. Approves the work, and likes short answers.
+- Ada: The owner. Approves the work, and likes short answers.
 - Sam: A teammate. Explain the context that may be missing.
 
 # Guidance (topic cooking)
@@ -21,7 +21,7 @@ Metric units.
 
 # Guidance (topic theseus)
 
-Theseus is Eddie's Rust agent harness. Its spec, The Ship of Theseus, holds the design and the as-built record.
+Theseus is Ada's Rust agent harness. Its spec, The Ship of Theseus, holds the design and the as-built record.
 
 # Guidance (topic theseus › rust-harness)
 

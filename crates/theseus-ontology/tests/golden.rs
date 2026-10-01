@@ -29,7 +29,7 @@ fn same(name: &str, got: &str, want: &str) {
 
 #[test]
 fn a_guild_channels_session_renders_its_golden_guidance() {
-    let c = bighat().compose(&guild_channel_session());
+    let c = kestrel().compose(&guild_channel_session());
     assert_eq!(c.skipped, vec![]);
     same(
         "guild-channel.txt",
@@ -40,14 +40,14 @@ fn a_guild_channels_session_renders_its_golden_guidance() {
 
 #[test]
 fn a_dm_session_renders_its_golden_guidance() {
-    let c = bighat().compose(&dm_session());
+    let c = kestrel().compose(&dm_session());
     assert_eq!(c.skipped, vec![]);
     same("dm.txt", &c.render(), include_str!("golden/dm.txt"));
 }
 
 #[test]
 fn the_manifest_records_each_membership_and_each_blocks_digest() {
-    let c = bighat().compose(&guild_channel_session());
+    let c = kestrel().compose(&guild_channel_session());
     let got = json!({ "memberships": c.memberships, "guidance": c.guidance });
     let want: Value =
         serde_json::from_str(include_str!("golden/guild-channel-manifest.json")).unwrap();
@@ -75,7 +75,7 @@ fn the_seed_rows_are_stored_as_the_golden_file_has_them() {
 
 #[test]
 fn the_system_block_carries_the_sections_a_blank_line_apart() {
-    let c = bighat().compose(&dm_session());
+    let c = kestrel().compose(&dm_session());
     assert_eq!(c.render(), c.sections.join("\n\n"));
     assert_eq!(c.sections.len(), 4);
     assert!(c.sections.iter().all(|s| s.starts_with("# Guidance")));

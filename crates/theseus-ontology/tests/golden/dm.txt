@@ -4,11 +4,11 @@ The sections below are guidance for the categories this session belongs to. Wher
 
 # Guidance (person)
 
-- Eddie: The owner. Approves the work, and likes short answers.
+- Ada: The owner. Approves the work, and likes short answers.
 
 # Guidance (topic theseus)
 
-Theseus is Eddie's Rust agent harness. Its spec, The Ship of Theseus, holds the design and the as-built record.
+Theseus is Ada's Rust agent harness. Its spec, The Ship of Theseus, holds the design and the as-built record.
 
 # Guidance (topic theseus › rust-harness)
 

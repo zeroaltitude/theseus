@@ -1,4 +1,4 @@
-//! The fixture the golden renders and the property tests share: BigHat's
+//! The fixture the golden renders and the property tests share: Kestrel's
 //! server, its general channel, two people, and four topics, with guidance
 //! on all but one.
 #![allow(dead_code)]
@@ -7,7 +7,7 @@ use theseus_ontology::{Category, CategoryId, Guidance, Membership, Ontology, Ori
 
 pub const GUILD: &str = "guild:100000000000000001";
 pub const GENERAL: &str = "channel:200000000000000001";
-pub const EDDIE: &str = "person:300000000000000001";
+pub const ADA: &str = "person:300000000000000001";
 pub const SAM: &str = "person:300000000000000002";
 /// 2026-09-21, as the memberships' as-of.
 pub const AS_OF: u64 = 1_790_000_000_000;
@@ -22,25 +22,25 @@ pub fn category(i: &str, name: &str, parent: Option<&str>) -> Category {
         name: name.into(),
         parent: parent.map(id),
         description: String::new(),
-        added_by: "eddie".into(),
+        added_by: "ada".into(),
     }
 }
 
 pub fn set_guidance(o: &mut Ontology, i: &str, text: &str) {
     let version = o.guidance(&id(i)).map_or(1, |g| g.version + 1);
     o.put(
-        Record::Guidance(Guidance::new(id(i), text, version, "eddie")),
+        Record::Guidance(Guidance::new(id(i), text, version, "ada")),
         Origin::Operator,
     )
     .unwrap();
 }
 
-pub fn bighat() -> Ontology {
+pub fn kestrel() -> Ontology {
     let mut o = Ontology::seeded();
     let given = [
-        (GUILD, "BigHat", None),
+        (GUILD, "Kestrel", None),
         (GENERAL, "general", Some(GUILD)),
-        (EDDIE, "Eddie", None),
+        (ADA, "Ada", None),
         (SAM, "Sam", None),
     ];
     for (i, name, parent) in given {
@@ -66,7 +66,7 @@ pub fn bighat() -> Ontology {
     set_guidance(
         &mut o,
         GUILD,
-        "This is BigHat's server. Keep work talk professional, and never paste secrets here.",
+        "This is Kestrel's server. Keep work talk professional, and never paste secrets here.",
     );
     set_guidance(
         &mut o,
@@ -76,7 +76,7 @@ pub fn bighat() -> Ontology {
     );
     set_guidance(
         &mut o,
-        EDDIE,
+        ADA,
         "The owner. Approves the work, and likes short answers.",
     );
     set_guidance(
@@ -88,7 +88,7 @@ pub fn bighat() -> Ontology {
     set_guidance(
         &mut o,
         "topic:theseus",
-        "Theseus is Eddie's Rust agent harness. Its spec, The Ship of Theseus, holds the design \
+        "Theseus is Ada's Rust agent harness. Its spec, The Ship of Theseus, holds the design \
          and the as-built record.",
     );
     // Pasted with CRLF line ends and a trailing newline: stored trimmed, with LF.
@@ -102,7 +102,7 @@ pub fn bighat() -> Ontology {
     o
 }
 
-/// A session in BigHat's general channel, with Eddie and Sam listed, and two
+/// A session in Kestrel's general channel, with Ada and Sam listed, and two
 /// topics: given in a jumble, as a place and a list may give them.
 pub fn guild_channel_session() -> Vec<Membership> {
     vec![
@@ -110,15 +110,15 @@ pub fn guild_channel_session() -> Vec<Membership> {
         Membership::given(id(SAM), AS_OF),
         Membership::given(id(GENERAL), AS_OF),
         Membership::operator(id("topic:cooking"), AS_OF + 1),
-        Membership::given(id(EDDIE), AS_OF),
+        Membership::given(id(ADA), AS_OF),
         Membership::given(id(GUILD), AS_OF),
     ]
 }
 
-/// Eddie's DM, with one topic.
+/// Ada's DM, with one topic.
 pub fn dm_session() -> Vec<Membership> {
     vec![
         Membership::operator(id("topic:rust-harness"), AS_OF + 2),
-        Membership::given(id(EDDIE), AS_OF),
+        Membership::given(id(ADA), AS_OF),
     ]
 }

@@ -102,7 +102,7 @@ fn pick(ids: &[CategoryId], i: &Index) -> Option<CategoryId> {
 fn changed(o: &Ontology, name: &str, f: impl FnOnce(&mut Kind)) -> Kind {
     let mut k = o.kind(name).unwrap().clone();
     k.version += 1;
-    k.added_by = "eddie".into();
+    k.added_by = "ada".into();
     f(&mut k);
     k
 }
@@ -159,7 +159,7 @@ fn apply(o: &mut Ontology, op: &Op, serial: &mut u64) {
             };
             let version = o.guidance(&c).map_or(1, |g| g.version + 1);
             (
-                Record::Guidance(Guidance::new(c, &text(*t), version, "eddie")),
+                Record::Guidance(Guidance::new(c, &text(*t), version, "ada")),
                 Origin::Operator,
             )
         }
@@ -215,7 +215,7 @@ fn apply(o: &mut Ontology, op: &Op, serial: &mut u64) {
                 },
                 description: String::new(),
                 version: o.kind("culture").map_or(1, |k| k.version + 1),
-                added_by: "eddie".into(),
+                added_by: "ada".into(),
             };
             (Record::Kind(row), Origin::Operator)
         }
@@ -441,7 +441,7 @@ fn any_row() -> impl Strategy<Value = Kind> {
                 rule,
                 description: String::new(),
                 version: version.unwrap_or(if name == "topic" { 2 } else { 1 }),
-                added_by: "eddie".into(),
+                added_by: "ada".into(),
             },
         )
 }

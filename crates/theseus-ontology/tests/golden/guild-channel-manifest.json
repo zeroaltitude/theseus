@@ -8,12 +8,12 @@
     { "kind": "topic", "category": "topic:rust-harness", "origin": "operator", "as_of_ms": 1790000000002 }
   ],
   "guidance": [
-    { "category": "guild:100000000000000001", "version": 1, "digest": "78880698706c0019" },
+    { "category": "guild:100000000000000001", "version": 1, "digest": "4d30f3733d5abb9e" },
     { "category": "channel:200000000000000001", "version": 1, "digest": "9b3d342dca928c56" },
     { "category": "person:300000000000000001", "version": 1, "digest": "010cf5d9c9cfb63f" },
     { "category": "person:300000000000000002", "version": 1, "digest": "8e88d82c02e5daad" },
     { "category": "topic:cooking", "version": 1, "digest": "f4ec866fc187ffae" },
-    { "category": "topic:theseus", "version": 2, "digest": "916f183844d0e4f9" },
+    { "category": "topic:theseus", "version": 2, "digest": "13e5eafb1ea6b04b" },
     { "category": "topic:rust-harness", "version": 1, "digest": "0301776b21b1fa36" }
   ]
 }

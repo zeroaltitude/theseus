@@ -17,7 +17,7 @@ fn cat(i: &str, name: &str, parent: Option<&str>) -> Category {
         name: name.into(),
         parent: parent.map(id),
         description: String::new(),
-        added_by: "eddie".into(),
+        added_by: "ada".into(),
     }
 }
 
@@ -28,7 +28,7 @@ fn row(name: &str) -> Kind {
 /// The next version of a row, changed by `f`.
 fn changed(mut k: Kind, f: impl FnOnce(&mut Kind)) -> Kind {
     k.version += 1;
-    k.added_by = "eddie".into();
+    k.added_by = "ada".into();
     f(&mut k);
     k
 }
@@ -45,7 +45,7 @@ fn new_kind(name: &str, precedence: u32, parent: Option<&str>, rule: Rule) -> Ki
         rule,
         description: String::new(),
         version: 1,
-        added_by: "eddie".into(),
+        added_by: "ada".into(),
     }
 }
 
@@ -60,7 +60,7 @@ fn given(o: &mut Ontology, i: &str, name: &str, parent: Option<&str>) {
 
 fn guide(o: &mut Ontology, i: &str, text: &str) {
     let v = o.guidance(&id(i)).map_or(1, |g| g.version + 1);
-    o.put(Record::Guidance(Guidance::new(id(i), text, v, "eddie")), OP)
+    o.put(Record::Guidance(Guidance::new(id(i), text, v, "ada")), OP)
         .unwrap();
 }
 
@@ -75,18 +75,18 @@ fn list(session: &str, kind: &str, ids: &[&str]) -> MemberList {
     }
 }
 
-/// guild BigHat › channel general; people Eddie and Sam; topics
+/// guild Kestrel › channel general; people Ada and Sam; topics
 /// theseus › rust-harness, theseus › web, and cooking.
-fn bighat() -> Ontology {
+fn kestrel() -> Ontology {
     let mut o = Ontology::seeded();
-    given(&mut o, "guild:100000000000000001", "BigHat", None);
+    given(&mut o, "guild:100000000000000001", "Kestrel", None);
     given(
         &mut o,
         "channel:200000000000000001",
         "general",
         Some("guild:100000000000000001"),
     );
-    given(&mut o, "person:300000000000000001", "Eddie", None);
+    given(&mut o, "person:300000000000000001", "Ada", None);
     given(&mut o, "person:300000000000000002", "Sam", None);
     topic(&mut o, "topic:theseus", "theseus", None);
     topic(
@@ -340,7 +340,7 @@ fn a_change_is_one_version_more_than_the_row_it_supersedes() {
 
 #[test]
 fn a_kind_change_must_leave_every_record_valid() {
-    let mut o = bighat();
+    let mut o = kestrel();
     guide(&mut o, "topic:cooking", "Metric units.\nGrams, not cups.");
     o.put(
         Record::Members(list(
@@ -404,7 +404,7 @@ fn a_rows_fields_are_checked() {
         |k| k.assigned_by.clear(),
         |k| k.assigned_by.push(Origin::Operator),
         |k| k.per_session = PerSession::AtMost(0),
-        |k| k.added_by = " eddie".into(),
+        |k| k.added_by = " ada".into(),
     ];
     for f in bad {
         let mut k = new_kind("culture", 50, None, Rule::Chain);
@@ -481,7 +481,7 @@ fn a_cycle_in_the_parents_is_refused() {
 
 #[test]
 fn a_category_nests_only_under_its_kinds_parent_kind() {
-    let o = bighat();
+    let o = kestrel();
     let e = refused(
         &o,
         Record::Category(cat(
@@ -558,7 +558,7 @@ fn categories_nest_at_most_eight_deep() {
 
 #[test]
 fn an_interpreted_kinds_siblings_need_two_names_and_a_given_kinds_need_not() {
-    let mut o = bighat();
+    let mut o = kestrel();
     let e = refused(
         &o,
         Record::Category(cat("topic:theseus-2", "Theseus", None)),
@@ -594,7 +594,7 @@ fn an_interpreted_kinds_siblings_need_two_names_and_a_given_kinds_need_not() {
 
 #[test]
 fn given_categories_come_from_the_transport_and_topics_from_the_operator() {
-    let o = bighat();
+    let o = kestrel();
     let e = refused(
         &o,
         Record::Category(cat(
@@ -611,7 +611,7 @@ fn given_categories_come_from_the_transport_and_topics_from_the_operator() {
 
 #[test]
 fn a_categorys_fields_are_checked() {
-    let o = bighat();
+    let o = kestrel();
     for name in ["", " theseus", "two\nlines", &"x".repeat(NAME_MAX + 1)] {
         let e = refused(&o, Record::Category(cat("topic:x", name, None)), OP);
         assert!(matches!(e, Refusal::Invalid { .. }), "{name:?}: {e:?}");
@@ -671,12 +671,12 @@ fn a_minted_id_is_the_names_slug_and_the_next_free_one() {
 
 #[test]
 fn guidance_is_one_version_more_and_its_digest_is_its_texts() {
-    let mut o = bighat();
+    let mut o = kestrel();
     let g = Guidance::new(
         id("topic:theseus"),
         "  Rust first.\r\nNo unsafe.  ",
         1,
-        "eddie",
+        "ada",
     );
     assert_eq!(g.text, "Rust first.\nNo unsafe.");
     assert_eq!(g.digest.len(), 16);
@@ -693,7 +693,7 @@ fn guidance_is_one_version_more_and_its_digest_is_its_texts() {
         ),
         "{e:?}"
     );
-    let mut forged = Guidance::new(id("topic:theseus"), "Other.", 2, "eddie");
+    let mut forged = Guidance::new(id("topic:theseus"), "Other.", 2, "ada");
     forged.digest = g.digest;
     assert!(matches!(
         refused(&o, Record::Guidance(forged), OP),
@@ -701,7 +701,7 @@ fn guidance_is_one_version_more_and_its_digest_is_its_texts() {
     ));
     let e = refused(
         &o,
-        Record::Guidance(Guidance::new(id("topic:nope"), "x", 1, "eddie")),
+        Record::Guidance(Guidance::new(id("topic:nope"), "x", 1, "ada")),
         OP,
     );
     assert!(
@@ -716,7 +716,7 @@ fn guidance_is_one_version_more_and_its_digest_is_its_texts() {
     );
     let e = refused(
         &o,
-        Record::Guidance(Guidance::new(id("topic:web"), "x", 1, "eddie")),
+        Record::Guidance(Guidance::new(id("topic:web"), "x", 1, "ada")),
         TRANSPORT,
     );
     assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
@@ -724,38 +724,28 @@ fn guidance_is_one_version_more_and_its_digest_is_its_texts() {
 
 #[test]
 fn an_intent_line_kinds_guidance_is_one_line() {
-    let o = bighat();
-    let eddie = id("person:300000000000000001");
+    let o = kestrel();
+    let ada = id("person:300000000000000001");
     let e = refused(
         &o,
-        Record::Guidance(Guidance::new(
-            eddie.clone(),
-            "The owner.\nTerse.",
-            1,
-            "eddie",
-        )),
+        Record::Guidance(Guidance::new(ada.clone(), "The owner.\nTerse.", 1, "ada")),
         OP,
     );
     assert!(e.to_string().contains("one line per category"), "{e}");
     let e = refused(
         &o,
         Record::Guidance(Guidance::new(
-            eddie.clone(),
+            ada.clone(),
             &"x".repeat(INTENT_LINE_MAX + 1),
             1,
-            "eddie",
+            "ada",
         )),
         OP,
     );
     assert!(matches!(e, Refusal::Invalid { .. }), "{e:?}");
     assert_eq!(
         o.check(
-            &Record::Guidance(Guidance::new(
-                eddie,
-                &"x".repeat(INTENT_LINE_MAX),
-                1,
-                "eddie"
-            )),
+            &Record::Guidance(Guidance::new(ada, &"x".repeat(INTENT_LINE_MAX), 1, "ada")),
             OP
         ),
         Ok(())
@@ -764,28 +754,23 @@ fn an_intent_line_kinds_guidance_is_one_line() {
 
 #[test]
 fn chain_guidance_is_prose_of_at_most_16_kib() {
-    let o = bighat();
+    let o = kestrel();
     let big = "x".repeat(GUIDANCE_MAX + 1);
     let e = refused(
         &o,
-        Record::Guidance(Guidance::new(id("topic:theseus"), &big, 1, "eddie")),
+        Record::Guidance(Guidance::new(id("topic:theseus"), &big, 1, "ada")),
         OP,
     );
     assert!(e.to_string().contains("16 KiB"), "{e}");
     let e = refused(
         &o,
-        Record::Guidance(Guidance::new(
-            id("topic:theseus"),
-            "a\u{1b}[31m",
-            1,
-            "eddie",
-        )),
+        Record::Guidance(Guidance::new(id("topic:theseus"), "a\u{1b}[31m", 1, "ada")),
         OP,
     );
     assert!(matches!(e, Refusal::Invalid { .. }), "{e:?}");
     assert_eq!(
         o.check(
-            &Record::Guidance(Guidance::new(id("topic:theseus"), "a\n\tb", 1, "eddie")),
+            &Record::Guidance(Guidance::new(id("topic:theseus"), "a\n\tb", 1, "ada")),
             OP
         ),
         Ok(())
@@ -794,7 +779,7 @@ fn chain_guidance_is_prose_of_at_most_16_kib() {
 
 #[test]
 fn empty_guidance_is_no_guidance() {
-    let mut o = bighat();
+    let mut o = kestrel();
     guide(&mut o, "topic:theseus", "Rust first.");
     guide(&mut o, "topic:theseus", "   ");
     let g = o.guidance(&id("topic:theseus")).unwrap();
@@ -807,7 +792,7 @@ fn empty_guidance_is_no_guidance() {
 
 #[test]
 fn given_memberships_refuse_writes() {
-    let o = bighat();
+    let o = kestrel();
     for by in [OP, TRANSPORT] {
         let e = refused(
             &o,
@@ -824,7 +809,7 @@ fn given_memberships_refuse_writes() {
 
 #[test]
 fn a_session_holds_at_most_its_kinds_count() {
-    let mut o = bighat();
+    let mut o = kestrel();
     topic(&mut o, "topic:four", "four", None);
     let e = refused(
         &o,
@@ -847,7 +832,7 @@ fn a_session_holds_at_most_its_kinds_count() {
 
 #[test]
 fn a_membership_is_of_its_lists_kind_from_an_origin_the_kind_allows() {
-    let o = bighat();
+    let o = kestrel();
     let with = |f: fn(&mut Membership)| {
         let mut l = list("s1", "topic", &["topic:theseus"]);
         f(&mut l.members[0]);
@@ -885,7 +870,7 @@ fn a_membership_is_of_its_lists_kind_from_an_origin_the_kind_allows() {
 
 #[test]
 fn a_sessions_memberships_are_its_own_lists_and_an_empty_list_takes_them_away() {
-    let mut o = bighat();
+    let mut o = kestrel();
     o.put(Record::Kind(new_kind("culture", 50, None, Rule::Chain)), OP)
         .unwrap();
     topic(&mut o, "culture:terse", "terse", None);
@@ -917,7 +902,7 @@ fn a_sessions_memberships_are_its_own_lists_and_an_empty_list_takes_them_away() 
 
 #[test]
 fn every_record_round_trips_through_its_key_and_value() {
-    let mut o = bighat();
+    let mut o = kestrel();
     guide(&mut o, "topic:theseus", "Rust first.");
     o.put(Record::Members(list("s1", "topic", &["topic:web"])), OP)
         .unwrap();
@@ -961,7 +946,7 @@ fn every_record_round_trips_through_its_key_and_value() {
 
 #[test]
 fn a_load_rebuilds_the_snapshot_from_records_in_any_order() {
-    let mut o = bighat();
+    let mut o = kestrel();
     o.put(
         Record::Kind(changed(row("topic"), |k| k.precedence = 45)),
         OP,
@@ -1003,7 +988,7 @@ fn a_load_drops_what_does_not_check_and_says_why() {
         Record::Category(cat("topic:x", "x", Some("topic:y"))),
         Record::Category(cat("topic:y", "y", Some("topic:x"))),
         Record::Category(cat("topic:orphan", "orphan", Some("topic:never"))),
-        Record::Guidance(Guidance::new(id("topic:gone"), "x", 1, "eddie")),
+        Record::Guidance(Guidance::new(id("topic:gone"), "x", 1, "ada")),
         Record::Members(lists),
         Record::Members(list("s1", "guild", &[])),
     ];
@@ -1095,15 +1080,15 @@ fn everyone(o: &mut Ontology) -> Vec<Membership> {
 
 #[test]
 fn the_precedence_order() {
-    let mut o = bighat();
+    let mut o = kestrel();
     let ms = everyone(&mut o);
     let c = o.compose(&ms);
     assert_eq!(
         sections_order(&c),
         [
             "# Guidance",
-            "# Guidance (guild BigHat)",
-            "# Guidance (channel BigHat › general)",
+            "# Guidance (guild Kestrel)",
+            "# Guidance (channel Kestrel › general)",
             "# Guidance (person)",
             "# Guidance (topic theseus)",
             "# Guidance (topic theseus › rust-harness)",
@@ -1132,8 +1117,8 @@ fn the_precedence_order() {
             "# Guidance",
             "# Guidance (topic theseus)",
             "# Guidance (topic theseus › rust-harness)",
-            "# Guidance (guild BigHat)",
-            "# Guidance (channel BigHat › general)",
+            "# Guidance (guild Kestrel)",
+            "# Guidance (channel Kestrel › general)",
             "# Guidance (person)",
             "# Guidance (culture)",
         ]
@@ -1144,7 +1129,7 @@ fn the_precedence_order() {
 
 #[test]
 fn chain_admits_the_farthest_first_and_each_category_once() {
-    let mut o = bighat();
+    let mut o = kestrel();
     guide(&mut o, "topic:theseus", "Rust first.");
     guide(&mut o, "topic:web", "React.");
     guide(&mut o, "topic:rust-harness", "Tests before code.");
@@ -1169,7 +1154,7 @@ fn chain_admits_the_farthest_first_and_each_category_once() {
 
 #[test]
 fn intent_line_admits_one_line_per_category_and_no_ancestors() {
-    let mut o = bighat();
+    let mut o = kestrel();
     o.put(
         Record::Kind(new_kind("team", 50, Some("team"), Rule::IntentLine)),
         OP,
@@ -1189,7 +1174,7 @@ fn intent_line_admits_one_line_per_category_and_no_ancestors() {
     assert_eq!(
         c.sections[1..],
         [
-            "# Guidance (person)\n\n- Eddie: The owner.\n- Sam: A guest.".to_string(),
+            "# Guidance (person)\n\n- Ada: The owner.\n- Sam: A guest.".to_string(),
             "# Guidance (team)\n\n- eng › infra: Runs the machines.".to_string(),
         ]
     );
@@ -1197,7 +1182,7 @@ fn intent_line_admits_one_line_per_category_and_no_ancestors() {
 
 #[test]
 fn a_compose_skips_what_it_cannot_use_and_uses_the_rest() {
-    let mut o = bighat();
+    let mut o = kestrel();
     topic(&mut o, "topic:four", "four", None);
     guide(&mut o, "topic:cooking", "Metric units.");
     let mut jev = Membership::operator(id("topic:web"), 1);
@@ -1250,7 +1235,7 @@ fn a_compose_skips_what_it_cannot_use_and_uses_the_rest() {
 
 #[test]
 fn memberships_without_guidance_render_nothing_and_are_still_recorded() {
-    let o = bighat();
+    let o = kestrel();
     let c = o.compose(&[
         Membership::given(id("guild:100000000000000001"), 1),
         Membership::operator(id("topic:web"), 1),
@@ -1263,7 +1248,7 @@ fn memberships_without_guidance_render_nothing_and_are_still_recorded() {
 
 #[test]
 fn the_guidance_does_not_read_the_memberships_origin_confidence_or_as_of() {
-    let mut o = bighat();
+    let mut o = kestrel();
     let ms = everyone(&mut o);
     let base = o.compose(&ms);
     let mut other: Vec<Membership> = ms.iter().rev().cloned().collect();
