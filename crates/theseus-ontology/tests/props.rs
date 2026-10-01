@@ -381,26 +381,50 @@ proptest! {
     }
 }
 
-/// Rows from every corner: real and bad names, each basis, any origins,
-/// counts, parents, precedences, rules, and versions.
+/// Rows that are mostly valid but for their rule, which is any of the four:
+/// a new `culture`, or `topic`'s next version, so that the rule and the
+/// origins decide. A share of each other field is bad (a given basis, an
+/// origin nothing writes, no count, a missing parent, a taken precedence, a
+/// wrong version, a seed of the transport's, a bad name), to be refused.
 fn any_row() -> impl Strategy<Value = Kind> {
-    let names = select(vec![
-        "guild", "channel", "person", "topic", "culture", "Bad", "",
-    ]);
-    let parents = proptest::option::of(select(vec!["guild", "topic", "culture", "none"]));
-    let per = prop_oneof![
-        (0..4u32).prop_map(PerSession::AtMost),
-        Just(PerSession::Many)
+    let name = prop_oneof![
+        6 => Just("culture"),
+        3 => Just("topic"),
+        1 => select(vec!["guild", "person", "Bad", ""]),
     ];
+    let given = prop_oneof![9 => Just(false), 1 => Just(true)];
+    let origins = prop_oneof![
+        5 => Just(vec![Origin::Operator]),
+        3 => select(Origin::ALL.to_vec()).prop_map(|o| vec![o]),
+        2 => vec(select(Origin::ALL.to_vec()), 0..3),
+    ];
+    let per = prop_oneof![
+        8 => (1..4u32).prop_map(PerSession::AtMost),
+        1 => Just(PerSession::Many),
+        1 => Just(PerSession::AtMost(0)),
+    ];
+    // "self" is the row's own name: its categories nest.
+    let parent = prop_oneof![
+        6 => Just(None),
+        2 => Just(Some("self")),
+        1 => Just(Some("guild")),
+        1 => Just(Some("none")),
+    ];
+    let precedence = prop_oneof![
+        8 => select(vec![45u32, 50, 60]),
+        2 => select(vec![5u32, 10, 20, 30, 40]),
+    ];
+    // `None`: the version the row's next write must have.
+    let version = prop_oneof![8 => Just(None), 2 => (0..4u32).prop_map(Some)];
     (
-        names,
-        any::<bool>(),
-        vec(select(Origin::ALL.to_vec()), 0..3),
+        name,
+        given,
+        origins,
         per,
-        parents,
-        select(vec![5u32, 10, 20, 30, 40, 45, 50]),
+        parent,
+        precedence,
         select(Rule::ALL.to_vec()),
-        0..4u32,
+        version,
     )
         .prop_map(
             |(name, given, assigned_by, per_session, parent, precedence, rule, version)| Kind {
@@ -412,25 +436,38 @@ fn any_row() -> impl Strategy<Value = Kind> {
                 },
                 assigned_by,
                 per_session,
-                parent: parent.map(str::to_string),
+                parent: parent.map(|p| if p == "self" { name } else { p }.to_string()),
                 precedence,
                 rule,
                 description: String::new(),
-                version,
+                version: version.unwrap_or(if name == "topic" { 2 } else { 1 }),
                 added_by: "eddie".into(),
             },
         )
 }
 
-proptest! {
-    #![proptest_config(cases(3000))]
-
-    #[test]
-    fn the_table_accepts_only_rows_with_a_reader(row in any_row()) {
+/// The reader rule over 3,000 rows. It counts the rows the table accepts,
+/// so a generator that drifts until nothing is accepted fails here instead
+/// of passing on no evidence.
+#[test]
+fn the_table_accepts_only_rows_with_a_reader() {
+    let accepted = std::cell::Cell::new(0u32);
+    let mut runner = proptest::test_runner::TestRunner::new(cases(3000));
+    let run = runner.run(&any_row(), |row| {
         let mut o = Ontology::seeded();
         if o.put(Record::Kind(row.clone()), Origin::Operator).is_ok() {
-            prop_assert!(row.rule.comes_with().is_none(), "{:?}", row.rule);
-            prop_assert!(row.assigned_by.iter().all(|a| a.comes_with().is_none()));
+            accepted.set(accepted.get() + 1);
+            // M4's built rules and origins, named here rather than asked of
+            // the code, so one counted as built by mistake fails this test.
+            prop_assert!(
+                matches!(row.rule, Rule::Chain | Rule::IntentLine),
+                "{:?}",
+                row.rule
+            );
+            prop_assert!(row
+                .assigned_by
+                .iter()
+                .all(|a| matches!(a, Origin::Transport | Origin::Operator)));
             prop_assert!(!row.assigned_by.is_empty());
             prop_assert_eq!(
                 row.is_given(),
@@ -442,7 +479,20 @@ proptest! {
         } else {
             prop_assert_eq!(o, Ontology::seeded());
         }
+        Ok(())
+    });
+    if let Err(e) = run {
+        panic!("{e}");
     }
+    let n = accepted.get();
+    assert!(
+        n >= 300,
+        "only {n} of 3,000 rows were accepted: the property is not exercised"
+    );
+}
+
+proptest! {
+    #![proptest_config(cases(3000))]
 
     #[test]
     fn any_text_parses_as_a_category_id_or_is_refused(s in any::<String>()) {

@@ -226,11 +226,6 @@ impl Kind {
         self.basis == Basis::Given
     }
 
-    /// Whether a category of this kind may have a parent of `kind`.
-    pub fn nests_under(&self, kind: &str) -> bool {
-        self.parent.as_deref() == Some(kind)
-    }
-
     /// The row's own rules, apart from the rest of the table.
     pub fn check_row(&self) -> Result<(), Refusal> {
         text::kind_name(&self.name)?;
