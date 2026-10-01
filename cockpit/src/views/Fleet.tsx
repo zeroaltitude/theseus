@@ -1,7 +1,7 @@
 // The fleet: every session and execution, sortable and filterable, beside a live graph of who started whom
 // (tasks) and who reports to whom. Rows and nodes open the session deck.
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
@@ -39,8 +39,12 @@ export default function Fleet() {
   const executions = el?.executions ?? NO_EXECUTIONS
   const execOf = useMemo(() => new Map(executions.map((e) => [e.execution_id, e])), [executions])
 
-  const [q, setQ] = useState('')
-  const [state, setState] = useState<string | null>(null)
+  // The search and the state filter live in the address (?q=…&state=…).
+  const [params, setParams] = useSearchParams()
+  const q = params.get('q') ?? ''
+  const state = params.get('state')
+  const setQ = (v: string) => setParams((p) => { if (v) p.set('q', v); else p.delete('q'); return p }, { replace: true })
+  const setState = (v: string | null) => setParams((p) => { if (v) p.set('state', v); else p.delete('state'); return p }, { replace: true })
   const [sort, setSort] = useState<Sort>({ k: 'active', desc: true })
 
   const states = useMemo(() => {

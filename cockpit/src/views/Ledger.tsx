@@ -1,7 +1,7 @@
 // The ledger explorer: the daemon's append-only record, all of it. A treemap of kinds filters by click, the
 // histogram's brush filters by time, search covers kinds, summaries, and payloads, and the list is virtualized.
 import { useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Layers, ScrollText, Search, X } from 'lucide-react'
@@ -21,8 +21,16 @@ export default function Ledger() {
   const nav = useNavigate()
   const { data } = useLedger(20_000, 5000)
   const rows = data?.rows ?? NO_ROWS
-  const [kinds, setKinds] = useState<Set<string>>(new Set())
-  const [q, setQ] = useState('')
+  // The search and the kind filter live in the address (?q=…&kind=a,b), so a view can be bookmarked or shared.
+  const [params, setParams] = useSearchParams()
+  const q = params.get('q') ?? ''
+  const kinds = useMemo(() => new Set((params.get('kind') ?? '').split(',').filter(Boolean)), [params])
+  const setQ = (v: string) => setParams((p) => { if (v) p.set('q', v); else p.delete('q'); return p }, { replace: true })
+  const setKinds = (f: (s: Set<string>) => Set<string>) => setParams((p) => {
+    const next = [...f(new Set((p.get('kind') ?? '').split(',').filter(Boolean)))]
+    if (next.length) p.set('kind', next.join(',')); else p.delete('kind')
+    return p
+  }, { replace: true })
   const [range, setRange] = useState<[number, number] | null>(null)
   const [pick, setPick] = useState<LedgerEntry | null>(null)
 

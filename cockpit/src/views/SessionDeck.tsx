@@ -1,7 +1,7 @@
 // The session deck: one session, down to its spans. The transcript streams live; the inspector shows each turn's
 // flame chart, the context lineage, the spend, and the session's own ledger rows.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, useNavigate } from 'react-router'
+import { useParams, useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Tabs } from 'radix-ui'
@@ -212,8 +212,10 @@ const TABS = [
 function Inspector({ turns, traces, comps, rows, calls, session, nodes }: {
   turns: TurnRow[]; traces: Map<string, Span>; comps: CompilationInfo[]; rows: Rows; calls: ProviderCall[]; session: SessionHistory['session']; nodes: SessionHistory['nodes']
 }) {
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') ?? 'timeline'
   return (
-    <Tabs.Root defaultValue="timeline" className="panel flex h-full min-h-0 flex-col">
+    <Tabs.Root value={tab} onValueChange={(v) => setParams((p) => { p.set('tab', v); return p }, { replace: true })} className="panel flex h-full min-h-0 flex-col">
       <Tabs.List className="flex gap-1 border-b border-line px-2 pt-1.5">
         {TABS.map((t) => (
           <Tabs.Trigger key={t.v} value={t.v}
