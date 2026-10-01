@@ -1,0 +1,7 @@
+$ theseus --json ledger -k turn.started -s ses_q7f3k2
+--- requests
+ledger.tail
+--- stdout
+{"rows":[{"at_unix_ms":1759300000123,"data":{"input_chars":15,"profile":"quick"},"kind":"turn.started","position":2040,"session_id":"ses_q7f3k2","turn_id":"turn_m4p8z1"},{"at_unix_ms":1759300003456,"data":{"note":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},"kind":"provider.call","position":2041,"session_id":"ses_q7f3k2","turn_id":null}],"total":2048}
+--- stderr
+--- exit 0

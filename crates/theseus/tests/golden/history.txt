@@ -1,0 +1,30 @@
+$ theseus history ses_q7f3k2
+--- requests
+session.history
+--- stdout
+── ses_q7f3k2 · "Tidy the notes" · 3 turn(s) · 4 tool call(s) · $0.0123 · glm-x · waiting
+[06:26:41.234Z] operator (discord:ana): Please tidy the notes folder. ⏎ Then sum up.
+[06:26:42.468Z] operator: And list them.
+[06:26:43.702Z] glm-x: (2 tool call(s))
+      ↳ tool_use · in 1200 out 85 · $0.0012
+      ⚙ fs.list {"path":"notes"} [open: fs.list — open (enforcement = open)]
+      ⚙ proc.run {"argv":["make"]} [auto: an older row's band]
+      ⚙ fs.read {} [invalid input]
+      ⚙ fs.write {"path":"/srv/motd","text":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… [needs_confirm]
+      ← fs.list ok · exit 0 · 1520 ms · 9 B: a.md ⏎ b.md
+      ← proc.run stopped by the CLI (late) · 1520 ms · 0 B: 
+      ← fs.write not run · 1520 ms · 24 B: declined by the operator
+      ← fs.write not run · 1520 ms · 6 B: denied
+[06:26:54.808Z] glm-x: Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two files. Two…
+      ↳ end_turn · in 2200 out 310
+[06:26:56.042Z] compaction
+  ? fs.write waits for you in ses_q7f3k2: write outside the roots (/w)
+      input: {"path":"/srv/motd","text":"hello"}
+      approve: theseus confirm act_k4
+      approve, and trust the session again: theseus confirm --trust act_k4
+      decline: theseus confirm --decline act_k4
+  $ ses_q7f3k2 waits for you: The session reached its $1.00 limit; the next call needs $0.02
+      reset and continue: theseus confirm act_b5
+      keep waiting: theseus confirm --decline act_b5
+--- stderr
+--- exit 0

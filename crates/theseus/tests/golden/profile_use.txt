@@ -1,0 +1,7 @@
+$ theseus profile use deep
+--- requests
+profile.use
+--- stdout
+live profile: deep (was quick)
+--- stderr
+--- exit 0

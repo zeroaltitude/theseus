@@ -1,0 +1,7 @@
+$ theseus --json confirm act_k4 --no-wait
+--- requests
+action.confirm
+--- stdout
+{"approved":true,"correlation_id":"act_k4","execution_id":"exe_q7f3k2","resumes":true,"session_id":"ses_q7f3k2"}
+--- stderr
+--- exit 0

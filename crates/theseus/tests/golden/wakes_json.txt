@@ -1,0 +1,7 @@
+$ theseus --json wakes -s ses_q7f3k2
+--- requests
+wake.list
+--- stdout
+{"wakes":[]}
+--- stderr
+--- exit 0

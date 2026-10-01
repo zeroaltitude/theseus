@@ -1,0 +1,7 @@
+$ theseus --json tools
+--- requests
+tool.list
+--- stdout
+{"calls_total":15,"roots":["/w","/srv/notes"],"shell_fallback_ratio":0.2,"tools":[{"backend":"inproc","calls":12,"class":"read","config_posture":"open","description":"Read a file.","family":"fs","input_schema":{"type":"object"},"name":"fs.read","policy":"open","wire_name":"fs_read"},{"backend":"job","calls":3,"class":"exec","config_posture":"notify","description":"Run a program.","family":"proc","input_schema":{"required":["argv"],"type":"object"},"name":"proc.run","policy":"approve","tightened":{"at_ms":1759300300250,"by":"the CLI","posture":"approve","tool":"proc.run"},"wire_name":"proc_run"}]}
+--- stderr
+--- exit 0

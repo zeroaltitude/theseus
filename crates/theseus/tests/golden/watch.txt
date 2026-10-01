@@ -1,0 +1,44 @@
+$ theseus watch ses_q7f3k2 --thinking
+--- requests
+session.watch
+--- stdout
+Looking at the folder.
+
+Two files: a.md and b.md.
+--- stderr
+watching ses_q7f3k2 (Ctrl-C to stop)
+── turn turn_m4p8z1
+  ⟳ context recompile (window, fresh) · 7 message(s) · ~4210 tokens · 1 repaired
+  ⟳ context append · 8 message(s) · ~4400 tokens
+  (thinking) The folder has
+             two files.
+  ! notified: proc.run: run make notes · 🔑 gh got GH_TOKEN
+      (enforcement = notify) · should have asked: theseus policy tighten proc.run --call act_k2
+  → proc.run [make notes] pid 4242
+  ← proc.run ok · exit 0 · 1520 ms · 68.4 KB · truncated
+  → fs.read
+  ← fs.read stopped by the CLI · 12 ms · 0 B · late
+  ← fs.write not run · 0 ms · 31 B
+  ? fs.write needs your confirmation (FLOOR): write outside the roots (/w)
+      input: {"path":"/srv/motd","text":"hello"}
+      approve: theseus confirm act_k4
+      approve, and trust the session again: theseus confirm --trust act_k4
+      decline: theseus confirm --decline act_k4
+  $ The session reached its $1.00 limit; the next call needs $0.02
+      reset and continue: theseus confirm act_b5
+      keep waiting: theseus confirm --decline act_b5
+  ✓ approved act_k4 (by the CLI)
+  ✗ declined act_b5 (by discord:ana)
+  ✗ superseded act_k6 (a new message arrived before an answer)
+  ✗ cancelled act_k7 (its execution was cancelled by the CLI)
+  ✗ declined act_k8 (by the CLI)
+  ✗ declined act_k9 (by config)
+  🔒 proc.run now asks first: tightened by the CLI (the config says notify, enforcement = notify) · undo: theseus policy untighten proc.run
+  🔒 proc.run is back to what the config says: approve (tightened by the CLI); the tightening by the CLI is undone
+  🚨 refused an answer to fs.write from a Theseus job's process (job act_j1, pid 4300, theseus) through cli
+  🚨 refused the undo of proc.run's tightening from a Theseus job's process through cli
+  ✗ turn failed (rate_limited): 429 Too Many Requests [retrying with backoff]
+  ✗ turn failed: the store is full
+[quick → zed/glm-x · 2 loop(s) · 3 tool call(s) · end_turn · tokens in 5230 out 212 cache r4096 w0 · $0.0031 · 3021 ms (first token 640 ms) · session ses_q7f3k2]
+── turn turn_c0nt1n (continuation)
+--- exit 0

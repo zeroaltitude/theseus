@@ -1,0 +1,7 @@
+$ theseus --json policy tighten proc.run
+--- requests
+policy.tighten
+--- stdout
+{"already":false,"by":"the CLI","changed":true,"config_posture":"notify","config_setting":"enforcement = notify","posture":"approve","setting":"tightened by the CLI","tightening":{"at_ms":1759300300250,"by":"the CLI","posture":"approve","tool":"proc.run","via":"cli","who":"sock#3"},"tool":"proc.run"}
+--- stderr
+--- exit 0

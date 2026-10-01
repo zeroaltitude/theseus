@@ -1,0 +1,7 @@
+$ theseus --json executions list
+--- requests
+execution.list
+--- stdout
+{"executions":[{"budget":{"available_usd":99.74,"held_unknown_usd":0.0,"limit_usd":100.0,"reserved_usd":0.01,"spent_usd":0.25},"created_at_ms":1759300000000,"ended_reason":null,"execution_id":"exe_q7f3k2","interrupted":0,"kind":"conversation","outstanding":1,"queued_results":0,"session_id":"ses_q7f3k2","state":"waiting","turns":3,"updated_at_ms":1759300900000,"wake":null},{"budget":{"available_usd":99.74,"held_unknown_usd":0.0,"limit_usd":100.0,"reserved_usd":0.01,"spent_usd":0.25},"created_at_ms":1759300000000,"ended_reason":"cancelled by the CLI","execution_id":"exe_d0n3","interrupted":0,"kind":"conversation","outstanding":1,"queued_results":0,"session_id":"ses_q7f3k2","state":"ended","turns":3,"updated_at_ms":1759300900000,"wake":null}]}
+--- stderr
+--- exit 0

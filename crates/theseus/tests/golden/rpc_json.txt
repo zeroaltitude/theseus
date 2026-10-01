@@ -1,0 +1,9 @@
+$ theseus --json rpc health
+--- requests
+health
+--- stdout
+{
+  "ok": true
+}
+--- stderr
+--- exit 0

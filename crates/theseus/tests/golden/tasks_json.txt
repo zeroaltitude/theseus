@@ -1,0 +1,7 @@
+$ theseus --json tasks -s ses_q7f3k2
+--- requests
+task.list
+--- stdout
+{"tasks":[]}
+--- stderr
+--- exit 0

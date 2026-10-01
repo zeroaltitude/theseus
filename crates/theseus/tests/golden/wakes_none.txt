@@ -1,0 +1,7 @@
+$ theseus wakes
+--- requests
+wake.list
+--- stdout
+no pending wakes
+--- stderr
+--- exit 0

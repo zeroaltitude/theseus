@@ -1,0 +1,7 @@
+$ theseus policy untighten proc.run
+--- requests
+policy.untighten
+--- stdout
+proc.run is back to what the config says: approve (tightened by the CLI); the tightening by the CLI is undone
+--- stderr
+--- exit 0

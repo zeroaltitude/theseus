@@ -1,0 +1,7 @@
+$ theseus confirm
+--- requests
+confirm.list
+--- stdout
+nothing is waiting for confirmation
+--- stderr
+--- exit 0

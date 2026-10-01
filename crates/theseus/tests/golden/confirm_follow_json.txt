@@ -1,0 +1,8 @@
+$ theseus --json confirm act_k4
+--- requests
+action.confirm
+--- stdout
+{"session_id":"ses_q7f3k2","turn_id":"turn_m4p8z1","loops":2,"output":"Wrote it.","stop_reason":"end_turn","provider_stop_reason":"end_turn","model":"glm-x","provider":"zed","profile":"quick","usage":{"input_tokens":5230,"output_tokens":212,"cache_read_input_tokens":4096,"cache_creation_input_tokens":0},"elapsed_ms":3021,"first_token_ms":640,"request_id":"req_a1","trace":null,"execution_id":"exe_q7f3k2","cost_usd":0.0031,"tool_calls":3,"awaiting_confirm":null,"stop_details":null,"continuation":false}
+--- stderr
+approved act_k4 · following the resumed turn in ses_q7f3k2
+--- exit 0

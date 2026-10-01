@@ -1,0 +1,7 @@
+$ theseus policy tighten proc.run
+--- requests
+policy.tighten
+--- stdout
+proc.run already asks (enforcement = notify); tightened by the CLI as well, so it keeps asking if the config changes
+--- stderr
+--- exit 0

@@ -1,0 +1,9 @@
+$ theseus confirm act_k4
+--- requests
+action.confirm
+--- stdout
+--- stderr
+approved act_k4 · following the resumed turn in ses_q7f3k2
+  ✗ turn failed (auth): the key was refused [not retried: the next message retries]
+theseus: the resumed turn failed: the key was refused
+--- exit 1

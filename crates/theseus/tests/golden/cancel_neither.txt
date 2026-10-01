@@ -1,0 +1,7 @@
+$ theseus cancel qq
+--- requests
+wake.cancel task.cancel
+--- stdout
+--- stderr
+theseus: `qq` names no task and no pending wake: `qq` is too short: name at least four characters
+--- exit 1

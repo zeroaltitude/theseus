@@ -1,0 +1,7 @@
+$ theseus policy tighten proc.run
+--- requests
+policy.tighten
+--- stdout
+proc.run now asks first: tightened by the CLI (the config says notify, enforcement = notify) · undo: theseus policy untighten proc.run
+--- stderr
+--- exit 0

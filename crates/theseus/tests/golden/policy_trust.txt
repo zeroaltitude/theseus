@@ -1,0 +1,7 @@
+$ theseus policy trust f3k2
+--- requests
+health policy.trust
+--- stdout
+trusted session ses_q7f3k2 again (by the CLI) · it had read http.fetch notes.example/today since 14:02 · its calls that act run at their postures again, until it reads external text again
+--- stderr
+--- exit 0

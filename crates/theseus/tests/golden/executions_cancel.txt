@@ -1,0 +1,7 @@
+$ theseus executions cancel exe_q7f3k2
+--- requests
+execution.cancel
+--- stdout
+exe_q7f3k2 ended · 2 action(s) asked to stop · cancelled by the CLI
+--- stderr
+--- exit 0

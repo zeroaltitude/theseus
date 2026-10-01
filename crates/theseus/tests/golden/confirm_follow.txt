@@ -1,0 +1,13 @@
+$ theseus confirm act_k4 --trust
+--- requests
+action.confirm
+--- stdout
+Wrote it.
+--- stderr
+  ✓ approved act_k4 (by the CLI)
+approved act_k4 · following the resumed turn in ses_q7f3k2
+  → fs.write
+  ← fs.write ok · 3 ms · 2.0 MB
+[quick → zed/glm-x · 2 loop(s) · 3 tool call(s) · continuation · end_turn · tokens in 5230 out 212 cache r4096 w0 · $0.0031 · 3021 ms (first token 640 ms) · session ses_q7f3k2]
+[parked again: `theseus confirm act_k10` or `--decline`]
+--- exit 0

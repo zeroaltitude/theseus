@@ -1,0 +1,7 @@
+$ theseus policy tighten proc.run --call act_k2
+--- requests
+policy.tighten
+--- stdout
+proc.run already asks first: tightened by the CLI at 06:31:40.250Z
+--- stderr
+--- exit 0

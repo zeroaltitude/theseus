@@ -1,0 +1,18 @@
+$ theseus rpc turn.submit {"input":"hi"}
+--- requests
+turn.submit
+--- stdout
+{
+  "a": {
+    "y": null,
+    "z": 1
+  },
+  "b": [
+    1,
+    2
+  ],
+  "session_id": "ses_q7f3k2"
+}
+--- stderr
+<- model.delta {"loop_index":0,"text":"hi","turn_id":"turn_m4p8z1"}
+--- exit 0

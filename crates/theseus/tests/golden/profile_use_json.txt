@@ -1,0 +1,7 @@
+$ theseus --json profile use deep
+--- requests
+profile.use
+--- stdout
+{"live":"deep","previous":"quick"}
+--- stderr
+--- exit 0

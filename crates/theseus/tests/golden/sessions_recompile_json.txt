@@ -1,0 +1,7 @@
+$ theseus --json sessions recompile ses_q7f3k2
+--- requests
+session.recompile
+--- stdout
+{"session_id":"ses_q7f3k2","strategy":"transcript"}
+--- stderr
+--- exit 0

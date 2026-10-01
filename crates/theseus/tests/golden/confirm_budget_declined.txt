@@ -1,0 +1,7 @@
+$ theseus confirm --decline act_b5
+--- requests
+action.confirm
+--- stdout
+declined act_b5 · session ses_q7f3k2 keeps waiting on its budget; a new message asks again
+--- stderr
+--- exit 0

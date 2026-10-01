@@ -1,0 +1,7 @@
+$ theseus sessions open --label scratch
+--- requests
+session.open
+--- stdout
+ses_n3wone
+--- stderr
+--- exit 0

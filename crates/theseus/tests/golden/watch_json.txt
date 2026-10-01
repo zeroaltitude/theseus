@@ -1,0 +1,13 @@
+$ theseus --json watch ses_q7f3k2
+--- requests
+session.watch
+--- stdout
+{"jsonrpc":"2.0","method":"turn.started","params":{"continuation":false,"execution_id":"exe_q7f3k2","session_id":"ses_q7f3k2","turn_id":"turn_m4p8z1"}}
+{"jsonrpc":"2.0","method":"context.compiled","params":{"cache":{"breakpoints":[],"conversation_ttl":"5m","ttl":"5m"},"compilation_id":"cmp_b2","decision":"recompile","digest":"9f2c1a0b7d3e4f51","est_tokens":4210,"loop":0,"messages":7,"nodes_scanned":11,"prefix_nodes":2,"repairs":["tu_lost1"],"session_id":"ses_q7f3k2","strategy":"fresh","tail_nodes":6,"tools":14,"trigger":"window","turn_id":"turn_m4p8z1"}}
+{"jsonrpc":"2.0","method":"loop.started","params":{"loop_index":0,"model":"glm-x","tools_offered":14,"turn_id":"turn_m4p8z1"}}
+{"jsonrpc":"2.0","method":"model.thinking","params":{"loop_index":0,"text":"The folder has\ntwo files.","turn_id":"turn_m4p8z1"}}
+{"jsonrpc":"2.0","method":"model.delta","params":{"loop_index":0,"text":"Looking at the folder.","turn_id":"turn_m4p8z1"}}
+{"jsonrpc":"2.0","method":"tool.proposed","params":{"gate":{"decision":{"granted":"gh got GH_TOKEN","notify":{"kind":"notify","rule":"proc.run — notify (enforcement = notify)","setting":"enforcement = notify"},"posture":"notify","reason":"proc.run — notify"},"plan":{"summary":"run make notes"},"proposal":{"tool":"proc.run"},"result":{"gate":"allow"},"validated":true},"input":{"argv":["make","notes"]},"session_id":"ses_q7f3k2","tool":"proc.run","tool_use_id":"tu_1","turn_id":"turn_m4p8z1"}}
+--- stderr
+watching ses_q7f3k2 (Ctrl-C to stop)
+--- exit 0

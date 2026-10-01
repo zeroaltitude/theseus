@@ -1,0 +1,7 @@
+$ theseus rpc health {not json
+--- requests
+
+--- stdout
+--- stderr
+theseus: PARAMS must be JSON: key must be a string at line 1 column 2
+--- exit 1

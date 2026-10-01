@@ -1,0 +1,14 @@
+$ theseus confirm
+--- requests
+confirm.list
+--- stdout
+  ? fs.write waits for you in ses_q7f3k2: write outside the roots (/w)
+      input: {"path":"/srv/motd","text":"hello"}
+      approve: theseus confirm act_k4
+      approve, and trust the session again: theseus confirm --trust act_k4
+      decline: theseus confirm --decline act_k4
+  $ ses_q7f3k2 waits for you: The session reached its $1.00 limit; the next call needs $0.02
+      reset and continue: theseus confirm act_b5
+      keep waiting: theseus confirm --decline act_b5
+--- stderr
+--- exit 0

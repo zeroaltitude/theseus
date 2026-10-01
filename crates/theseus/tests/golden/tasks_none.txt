@@ -1,0 +1,7 @@
+$ theseus tasks
+--- requests
+task.list
+--- stdout
+no tasks
+--- stderr
+--- exit 0

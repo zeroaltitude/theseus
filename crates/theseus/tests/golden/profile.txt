@@ -1,0 +1,9 @@
+$ theseus profile
+--- requests
+profile.list
+--- stdout
+* quick        zed        glm-x                        max_output_tokens=8000  +system
+  deep         orbit      orbit-5                      max_output_tokens=32000
+--- stderr
+[live: quick (from the state dir)]
+--- exit 0

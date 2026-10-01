@@ -1,0 +1,10 @@
+$ theseus tools
+--- requests
+tool.list
+--- stdout
+tool         wire name    class  backend posture   calls
+fs.read      fs_read      read   inproc  open         12
+proc.run     proc_run     exec   job     approve*      3
+--- stderr
+[roots: /w, /srv/notes · 15 call(s) · shell-fallback ratio 20% (proc.run / all calls)]
+--- exit 0

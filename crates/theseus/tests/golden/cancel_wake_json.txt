@@ -1,0 +1,7 @@
+$ theseus --json cancel 9a8b7c
+--- requests
+wake.cancel
+--- stdout
+{"wake":{"due_at_ms":1759303600000,"due_local":"15:00","execution_id":"exe_q7f3k2","note":"check the build","session_id":"ses_q7f3k2","set_at_ms":1759300000000,"short":"9a8b7c","state":"cancelled","wake_id":"wak_9a8b7c"}}
+--- stderr
+--- exit 0

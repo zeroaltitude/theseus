@@ -1,0 +1,6 @@
+$ theseus shutdown
+--- requests
+shutdown
+--- stdout
+--- stderr
+--- exit 0

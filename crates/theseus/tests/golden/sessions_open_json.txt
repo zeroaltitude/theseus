@@ -1,0 +1,7 @@
+$ theseus --json sessions open
+--- requests
+session.open
+--- stdout
+{"session_id":"ses_n3wone"}
+--- stderr
+--- exit 0

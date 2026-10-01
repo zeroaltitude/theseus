@@ -1,0 +1,7 @@
+$ theseus stop f3k2
+--- requests
+execution.list execution.stop
+--- stdout
+stopped session ses_q7f3k2's work · 1 action(s) told to stop · 1 declined · its running turn ends at its next step · the conversation goes on · 1 task(s) and 0 wake(s) go on (theseus cancel <id>)
+--- stderr
+--- exit 0

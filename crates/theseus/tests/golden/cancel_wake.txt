@@ -1,0 +1,7 @@
+$ theseus cancel 9a8b7c
+--- requests
+wake.cancel
+--- stdout
+wake 9a8b7c cancelled: it was due 15:00: check the build
+--- stderr
+--- exit 0

@@ -1,0 +1,7 @@
+$ theseus sessions
+--- requests
+session.list
+--- stdout
+--- stderr
+theseus: the config is not confirmed yet [class=config_unconfirmed, code -32006]
+--- exit 1

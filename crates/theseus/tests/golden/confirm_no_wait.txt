@@ -1,0 +1,7 @@
+$ theseus confirm act_k4 --no-wait
+--- requests
+action.confirm
+--- stdout
+approved act_k4 · session ses_q7f3k2
+--- stderr
+--- exit 0

@@ -1,0 +1,7 @@
+$ theseus --json stop ses_q7f3k2
+--- requests
+execution.list execution.stop
+--- stdout
+{"declined":["act_k4"],"execution":{"budget":{"available_usd":99.74,"held_unknown_usd":0.0,"limit_usd":100.0,"reserved_usd":0.01,"spent_usd":0.25},"created_at_ms":1759300000000,"ended_reason":null,"execution_id":"exe_q7f3k2","interrupted":0,"kind":"conversation","outstanding":1,"queued_results":0,"session_id":"ses_q7f3k2","state":"waiting","turns":3,"updated_at_ms":1759300900000,"wake":null},"stopped":true,"stopped_actions":["act_k2"],"tasks_running":1,"turn_running":true,"wakes_pending":0}
+--- stderr
+--- exit 0

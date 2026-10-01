@@ -1,0 +1,7 @@
+$ theseus history
+--- requests
+session.list
+--- stdout
+--- stderr
+theseus: there are no sessions yet
+--- exit 1

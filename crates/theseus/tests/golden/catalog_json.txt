@@ -1,0 +1,7 @@
+$ theseus --json catalog
+--- requests
+catalog.list
+--- stdout
+{"models":[{"entry":{"cache_read_per_mtok":0.11,"cache_write_per_mtok":0.0,"context_window":200000,"input_per_mtok":0.6,"max_output_tokens":16000,"output_per_mtok":2.2,"provider":"zed","thinking":"none"},"model":"glm-x","profiles":["quick","cheap"]},{"entry":{"cache_read_per_mtok":0.3,"cache_write_per_mtok":3.75,"context_window":1000000,"input_per_mtok":3.0,"max_output_tokens":64000,"output_per_mtok":15.0,"provider":"orbit","thinking":"adaptive"},"model":"orbit-5","profiles":[]}],"version":"2026-09-30"}
+--- stderr
+--- exit 0

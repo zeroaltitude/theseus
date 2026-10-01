@@ -1,0 +1,7 @@
+$ theseus stop zzzz
+--- requests
+execution.list
+--- stdout
+--- stderr
+theseus: no session is named `zzzz`
+--- exit 1

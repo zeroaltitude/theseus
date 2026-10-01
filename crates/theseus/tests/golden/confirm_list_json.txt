@@ -1,0 +1,7 @@
+$ theseus --json confirm
+--- requests
+confirm.list
+--- stdout
+[{"correlation_id":"act_k4","session_id":"ses_q7f3k2","execution_id":"exe_q7f3k2","tool":"fs.write","input":{"path":"/srv/motd","text":"hello"},"resource":"/srv/motd","reason":"write outside the roots (/w)","by":"operator","requested_at_ms":1759300100000,"expires_at_ms":1759301000000,"floor":true,"external_text":{"since_ms":1759300000000,"tool":"http.fetch","url":"notes.example/today","node_id":"nod_e1"}},{"correlation_id":"act_b5","session_id":"ses_q7f3k2","execution_id":"exe_q7f3k2","tool":"budget.reset","input":{},"reason":"The session reached its $1.00 limit; the next call needs $0.02","by":"operator","requested_at_ms":1759300200000,"expires_at_ms":0,"floor":false,"budget":{"spent_usd":1.0,"limit_usd":1.0,"needed_usd":0.02,"lifetime_usd":3.5}}]
+--- stderr
+--- exit 0

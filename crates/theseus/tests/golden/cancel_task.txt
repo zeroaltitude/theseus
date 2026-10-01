@@ -1,0 +1,7 @@
+$ theseus cancel t4sk01
+--- requests
+wake.cancel task.cancel
+--- stdout
+task t4sk01 ended · 1 action(s) asked to stop · cancelled by the CLI
+--- stderr
+--- exit 0

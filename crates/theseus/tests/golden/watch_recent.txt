@@ -1,0 +1,7 @@
+$ theseus watch
+--- requests
+session.list session.watch
+--- stdout
+--- stderr
+watching ses_q7f3k2 (Ctrl-C to stop)
+--- exit 0

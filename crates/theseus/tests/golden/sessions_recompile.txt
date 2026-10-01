@@ -1,0 +1,7 @@
+$ theseus sessions recompile ses_q7f3k2 --strategy transcript
+--- requests
+session.recompile
+--- stdout
+ses_q7f3k2: the next turn recompiles (transcript)
+--- stderr
+--- exit 0

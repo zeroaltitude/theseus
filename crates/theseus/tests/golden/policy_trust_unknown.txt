@@ -1,0 +1,7 @@
+$ theseus policy trust zzzz
+--- requests
+health
+--- stdout
+--- stderr
+theseus: no session that holds external text is named `zzzz` (theseus health lists them)
+--- exit 1

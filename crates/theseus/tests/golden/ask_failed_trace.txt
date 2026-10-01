@@ -1,0 +1,19 @@
+$ theseus ask --trace List.
+--- requests
+turn.submit
+--- stdout
+Look
+--- stderr
+--- trace up to the failure (3.02 s total)
+████████████████████████    3.02 s  turn [turn]
+█·······················    500 µs    admission.wait [lock]
+████████████············    1.50 s    loop 0 [loop]
+████████················  898.0 ms      provider.call [provider]  {"digest":"9f2c1a0b7d3e4f51","max_tokens":4096,"model":"glm-x"}
+·······█████············  499.5 ms      tools [tools]
+▓▓▓▓▓···················   99.4 ms        fs.list [tool]
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  498.3 ms        proc.run [tool]
+···········█············   @1.45 s      advance [mark]
+···········█████████████    1.52 s    loop 1 [loop]
+···········█████████████    1.52 s      provider.call [provider]
+theseus: the provider is overloaded [class=overloaded, transient=true, code -32003]
+--- exit 1

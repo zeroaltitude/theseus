@@ -1,0 +1,7 @@
+$ theseus --json profile list
+--- requests
+profile.list
+--- stdout
+{"live":"quick","live_source":"the state dir","profiles":[{"has_system":true,"live":true,"max_output_tokens":8000,"model":"glm-x","name":"quick","provider":"zed"},{"has_system":false,"live":false,"max_output_tokens":32000,"model":"orbit-5","name":"deep","provider":"orbit"}]}
+--- stderr
+--- exit 0

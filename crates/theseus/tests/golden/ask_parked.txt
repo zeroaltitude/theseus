@@ -1,0 +1,13 @@
+$ theseus ask Write the motd.
+--- requests
+turn.submit
+--- stdout
+--- stderr
+  ? fs.write needs your confirmation (FLOOR): write outside the roots (/w)
+      input: {"path":"/srv/motd","text":"hello"}
+      approve: theseus confirm act_k4
+      approve, and trust the session again: theseus confirm --trust act_k4
+      decline: theseus confirm --decline act_k4
+[quick → zed/glm-x · 2 loop(s) · continuation · end_turn · tokens in 5230 out 212 cache r4096 w512 · 3021 ms · session ses_q7f3k2]
+[parked: waiting for your answer on act_k4 · `theseus confirm act_k4` or `--decline`; the turn resumes on its own]
+--- exit 0

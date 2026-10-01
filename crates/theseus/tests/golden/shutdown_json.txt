@@ -1,0 +1,7 @@
+$ theseus --json shutdown
+--- requests
+shutdown
+--- stdout
+{"stopping":true}
+--- stderr
+--- exit 0

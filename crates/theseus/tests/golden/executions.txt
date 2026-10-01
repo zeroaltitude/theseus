@@ -1,0 +1,8 @@
+$ theseus executions
+--- requests
+execution.list
+--- stdout
+exe_q7f3k2	conversation	waiting	turns=3	interrupted=0	outstanding=1	queued=0	budget $0.2500 of $100.00 (reserved $0.0100, held $0.0000)	session=ses_q7f3k2
+exe_d0n3	conversation	ended	turns=3	interrupted=0	outstanding=1	queued=0	budget $0.2500 of $100.00 (reserved $0.0100, held $0.0000)	session=ses_q7f3k2	cancelled by the CLI
+--- stderr
+--- exit 0
