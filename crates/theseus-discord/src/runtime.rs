@@ -241,10 +241,30 @@ async fn serve(
     bindings: Bindings,
     board: Board,
 ) -> anyhow::Result<()> {
+    let (shared, notes, guild, me) = connect(&core, &cfg, &token, &bindings, &board).await?;
+    start_places(&shared, &bindings, &board, notes).await?;
+    event_loop(&shared, &cfg, token, guild, &me, &bindings, &board).await;
+    Ok(())
+}
+
+/// REST, the binding's state, its lanes and courier (what the outbox holds
+/// needs only REST), and who the bot is, asked until Discord answers.
+async fn connect(
+    core: &Arc<Core>,
+    cfg: &DiscordConfig,
+    token: &str,
+    bindings: &Bindings,
+    board: &Board,
+) -> anyhow::Result<(
+    Arc<Shared>,
+    mpsc::UnboundedReceiver<Notification>,
+    Id<GuildMarker>,
+    twilight_model::user::CurrentUser,
+)> {
     // Both rustls providers are compiled into this workspace; pick one for the process.
     let _ = rustls::crypto::ring::default_provider().install_default();
     board.state("connecting", None);
-    let http = Arc::new(http_client(&token, &cfg));
+    let http = Arc::new(http_client(token, cfg));
     let guild: Id<GuildMarker> = Id::new(snowflake("guild_id", &bindings.guild_id)?);
     let (rpc, notes) = RpcClient::connect(core.clone(), Client::new(CLIENT, Surface::Discord));
     let shared = Arc::new(Shared {
@@ -264,7 +284,7 @@ async fn serve(
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
     // down (theseus-q4v).
-    shared.clone().start_lanes(&bindings)?;
+    shared.clone().start_lanes(bindings)?;
     // A post for a place this file no longer names is refused, not kept
     // pending forever (theseus-l3m).
     shared.refuse_unbound();
@@ -273,6 +293,18 @@ async fn serve(
 
     // Who the bot is and what it may do, asked until Discord answers.
     let me = shared.connect(guild).await;
+    Ok((shared, notes, guild, me))
+}
+
+/// Every place, each with its session, and the routing of the core's events
+/// to them; then the cards whose question closed meanwhile, and the
+/// `[approval]` channels' viewers.
+async fn start_places(
+    shared: &Arc<Shared>,
+    bindings: &Bindings,
+    board: &Board,
+    notes: mpsc::UnboundedReceiver<Notification>,
+) -> anyhow::Result<()> {
     // Places: every [[channel]] and every [[dm]], each with its session.
     for c in &bindings.channel {
         let channel = Id::new(snowflake("channel id", &c.id)?);
@@ -318,7 +350,7 @@ async fn serve(
     // A card whose question closed while the binding was away (a raise at
     // the vault's confirmation, an answer from the CLI) says how, and loses
     // its buttons: a settle each, delivered like any post (theseus-q4v).
-    match core.outbox.reconcile_cards() {
+    match shared.core.outbox.reconcile_cards() {
         Ok(0) => {}
         Ok(n) => tracing::info!(
             settles = n,
@@ -335,7 +367,20 @@ async fn serve(
             checks.check_channel(c).await;
         }
     });
+    Ok(())
+}
 
+/// The gateway: until its stream ends, each event Discord sends, with the
+/// connection's state on the board.
+async fn event_loop(
+    shared: &Arc<Shared>,
+    cfg: &DiscordConfig,
+    token: String,
+    guild: Id<GuildMarker>,
+    me: &twilight_model::user::CurrentUser,
+    bindings: &Bindings,
+    board: &Board,
+) {
     let intents = Intents::GUILDS
         | Intents::GUILD_MESSAGES
         | Intents::DIRECT_MESSAGES
@@ -369,7 +414,7 @@ async fn serve(
                         s.detail = None;
                     }
                 });
-                core.binding_ledger(
+                shared.core.binding_ledger(
                     "discord.ready",
                     None,
                     json!({"bot": me.name, "guilds": r.guilds.len(), "revision": bindings.revision}),
@@ -390,7 +435,9 @@ async fn serve(
                 let why = frame
                     .map(|f| format!("close {} {}", f.code, f.reason))
                     .unwrap_or_else(|| "closed".into());
-                core.binding_ledger("discord.disconnected", None, json!({"why": why}));
+                shared
+                    .core
+                    .binding_ledger("discord.disconnected", None, json!({"why": why}));
                 board.state("resuming", Some(why));
             }
             Event::MessageCreate(m) => shared.clone().on_message(&m.0),
@@ -403,7 +450,6 @@ async fn serve(
         }
     }
     board.state("disconnected", Some("gateway stream ended".into()));
-    Ok(())
 }
 
 async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Board) {
@@ -552,6 +598,40 @@ struct Routes {
     bot_roles: Vec<u64>,
     /// turn id → session id (deltas name only the turn)
     turns: HashMap<String, String>,
+}
+
+/// The place a message or an interaction belongs to (`Routes::resolve`).
+struct Resolved {
+    place: mpsc::UnboundedSender<PlaceMsg>,
+    /// Its author may drive the place.
+    allowed: bool,
+    /// Only an @mention or a reply to the bot starts a turn there.
+    mention_only: bool,
+}
+
+impl Routes {
+    /// The place a message or an interaction belongs to, found one way for
+    /// both (theseus-e89, theseus-0g4): in a guild by its channel alone, its
+    /// author allowed when the channel lists them; in a DM by its author's DM
+    /// binding, which only they reach. `None`: not a place of ours, which
+    /// gets no answer, so that a daemon on the same bot that binds it can give
+    /// one.
+    fn resolve(&self, channel: Option<u64>, guild: bool, author: Option<u64>) -> Option<Resolved> {
+        if !guild {
+            return Some(Resolved {
+                place: self.by_dm_user.get(&author?)?.clone(),
+                allowed: true,
+                mention_only: false,
+            });
+        }
+        let channel = channel?;
+        Some(Resolved {
+            place: self.by_channel.get(&channel)?.clone(),
+            allowed: author
+                .is_some_and(|a| self.users.get(&channel).is_some_and(|u| u.contains(&a))),
+            mention_only: self.mention_only.contains(&channel),
+        })
+    }
 }
 
 enum PlaceMsg {
@@ -991,25 +1071,21 @@ impl Shared {
         if m.author.bot || m.author.id.get() == self.bot_id() {
             return;
         }
-        let (tx, allowed, mention_only, bot_roles) = {
+        let (found, bot_roles) = {
             let r = self.routes.lock().unwrap();
-            let mention_only = r.mention_only.contains(&m.channel_id.get());
-            let roles = r.bot_roles.clone();
-            let (tx, allowed) = match m.guild_id {
-                Some(_) => (
-                    r.by_channel.get(&m.channel_id.get()).cloned(),
-                    r.users
-                        .get(&m.channel_id.get())
-                        .is_some_and(|u| u.contains(&m.author.id.get())),
-                ),
-                None => {
-                    let tx = r.by_dm_user.get(&m.author.id.get()).cloned();
-                    (tx.clone(), tx.is_some())
-                }
-            };
-            (tx, allowed, mention_only, roles)
+            let found = r.resolve(
+                Some(m.channel_id.get()),
+                m.guild_id.is_some(),
+                Some(m.author.id.get()),
+            );
+            (found, r.bot_roles.clone())
         };
-        let Some(tx) = tx else {
+        let Some(Resolved {
+            place: tx,
+            allowed,
+            mention_only,
+        }) = found
+        else {
             return; // not a place of ours
         };
         if mention_only {
@@ -1074,28 +1150,17 @@ impl Shared {
     async fn on_interaction(self: Arc<Self>, i: Interaction) {
         let user = i.author().map(|u| (u.id.get(), u.name.clone()));
         let channel = i.channel.as_ref().map(|c| c.id.get());
-        // Its place is found as a message's is (theseus-e89): a guild
-        // interaction's by its channel alone, and a DM's by its user's DM
-        // binding, so a command in a guild channel never acts on a DM.
-        let (tx, allowed) = {
-            let r = self.routes.lock().unwrap();
-            match i.guild_id {
-                Some(_) => (
-                    channel.and_then(|c| r.by_channel.get(&c).cloned()),
-                    match (channel, &user) {
-                        (Some(c), Some((u, _))) => r.users.get(&c).is_some_and(|v| v.contains(u)),
-                        _ => false,
-                    },
-                ),
-                None => {
-                    let tx = user
-                        .as_ref()
-                        .and_then(|(u, _)| r.by_dm_user.get(u).cloned());
-                    (tx.clone(), tx.is_some())
-                }
-            }
-        };
-        let Some(tx) = tx else {
+        // Its place is found as a message's is (theseus-e89), so a command in
+        // a guild channel never acts on a DM.
+        let found = self.routes.lock().unwrap().resolve(
+            channel,
+            i.guild_id.is_some(),
+            user.as_ref().map(|(u, _)| *u),
+        );
+        let Some(Resolved {
+            place: tx, allowed, ..
+        }) = found
+        else {
             // Not a place of ours: no answer at all, so that a daemon on the
             // same bot that binds it can give one.
             return;
@@ -3163,5 +3228,50 @@ mod tests {
         h.await.unwrap();
         assert_eq!((answered(), commands()), (3, 2));
         assert!(dm_rx.try_recv().is_err() && ch_rx.try_recv().is_err());
+    }
+
+    /// One lookup for a message and an interaction (theseus-0g4): a DM by its
+    /// author's DM binding, a guild channel by the channel with its author
+    /// checked, a mention-only channel says so, and an unbound place is none.
+    #[test]
+    fn a_message_or_an_interaction_resolves_to_its_place() {
+        let (dm, _dm_rx) = mpsc::unbounded_channel::<PlaceMsg>();
+        let (lab, _lab_rx) = mpsc::unbounded_channel::<PlaceMsg>();
+        let (talk, _talk_rx) = mpsc::unbounded_channel::<PlaceMsg>();
+        let mut r = Routes::default();
+        r.by_dm_user.insert(7, dm.clone());
+        r.by_channel.insert(10, lab.clone());
+        r.users.insert(10, vec![7]);
+        r.by_channel.insert(20, talk.clone());
+        r.users.insert(20, vec![7, 8]);
+        r.mention_only.insert(20);
+        let found = |f: Option<Resolved>| f.map(|f| (f.place, f.allowed, f.mention_only)).unwrap();
+
+        // A DM: its author's binding, whatever channel it came through.
+        let (place, allowed, mention_only) = found(r.resolve(Some(99), false, Some(7)));
+        assert!(place.same_channel(&dm) && allowed && !mention_only);
+        assert!(
+            r.resolve(Some(99), false, Some(8)).is_none(),
+            "8 has no DM binding"
+        );
+        assert!(r.resolve(Some(99), false, None).is_none());
+
+        // A channel: by the channel; its listed user drives it, another not.
+        let (place, allowed, mention_only) = found(r.resolve(Some(10), true, Some(7)));
+        assert!(place.same_channel(&lab) && allowed && !mention_only);
+        let (place, allowed, _) = found(r.resolve(Some(10), true, Some(8)));
+        assert!(place.same_channel(&lab) && !allowed);
+        let (_, allowed, _) = found(r.resolve(Some(10), true, None));
+        assert!(!allowed, "no author drives nothing");
+
+        // A mention-only channel says so.
+        let (place, allowed, mention_only) = found(r.resolve(Some(20), true, Some(8)));
+        assert!(place.same_channel(&talk) && allowed && mention_only);
+
+        // An unbound channel, and a guild interaction with no channel: none.
+        assert!(r.resolve(Some(30), true, Some(7)).is_none());
+        assert!(r.resolve(None, true, Some(7)).is_none());
+        // A guild channel never reaches a DM binding (theseus-e89).
+        assert!(r.resolve(Some(7), true, Some(7)).is_none());
     }
 }
