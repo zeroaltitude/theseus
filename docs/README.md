@@ -3,10 +3,12 @@
 ## Where to start
 
 1. **[The README](../README.md)**: what Theseus is, why it exists, and how to set it up.
-2. **[Technical overview](technical-overview.md)**: the core in depth. It covers the protocol, the store (a
+2. **[Status and roadmap](status.md)**: what works today, what is being wired in, what comes next, and when.
+   It is updated with every step that lands.
+3. **[Technical overview](technical-overview.md)**: the core in depth. It covers the protocol, the store (a
    write-ahead log with a rebuildable index), the kernel (executions, actions, budgets, cancellation), and the tool
    loop, with the commands to see each one work.
-3. **[The Ship of Theseus](the-ship-of-theseus.md)**: the design document, and the source of truth. It is both
+4. **[The Ship of Theseus](the-ship-of-theseus.md)**: the design document, and the source of truth. It is both
    the specification and the record:
    - Part I, the specification: what Theseus is meant to be, and why;
    - Part II, the build plan: the order of the steps, and the test that gates each one;

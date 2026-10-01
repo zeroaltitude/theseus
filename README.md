@@ -30,7 +30,7 @@ questions, and the other tools answer them softly, or not at all:
 - **Why is it so slow,** and why does it get slower as it does more?
 
 Theseus answers them with five ideas, and a handful of promises it keeps whatever the model does. Some of it works
-today and some is being wired in, step by step; [Where it stands](#where-it-stands-october-2026) says which.
+today and some is being wired in, step by step; [the status page](docs/status.md) says which.
 
 ### 1. Opinionated, not a framework
 
@@ -177,29 +177,12 @@ harnesses](docs/research/harness-landscape.md)).
   speed budgets, a live check against a running copy, and a written review. The record of every step, including
   where it diverged from the plan and why, is in the design document's Part III.
 
-## Where it stands (October 2026)
-
-Working today:
-- Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
-- Built-in tools: files (read, write, edit, patch, search, list), git (diff and log), commands, web search and
-  fetch, background tasks, and reminders.
-- Tasks with their own budgets that report back, and personas by context file.
-- The compiled context with its manifests, and caching across sessions.
-- Approvals from Discord, the terminal, or the web, including "approve, and trust this session".
-- A secret broker that hands a program only the credentials you've granted it.
-- Budgets in dollars, the cockpit and The Narrative, crash recovery, restore from a backup copy, and a systemd
-  installer.
-- The speed budgets, enforced on every commit.
-
-Built, and being wired in step by step on [the roadmap](docs/design/roadmap-v2.md):
-- **Jev in the loop:** its client and question packs are built. They go in with M5, in shadow first.
-- **Memory and recall**, measured by the exam: the index, vector search, and the memory math are built.
-- **Sandboxes** for code the agent writes, with an egress proxy that keeps credentials out of reach.
-- **AWS hands:** the client, the service catalog, the guardrails, and the account's templates are built. The
-  account comes under Theseus's ownership with spending tripwires by the month, the day, and the hour.
-- **MCP** in both directions, and **voice** in Discord.
+## Where it stands
 
 Theseus is early (version 0.0.1), runs on Linux, and has one daily user. Expect sharp edges.
+
+**[Status and roadmap](docs/status.md)** says what works today, what is built and being wired in, what comes
+next, and when. It changes with every step that lands; this README doesn't.
 
 ## Quick start
 
