@@ -36,6 +36,11 @@ allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
+# Each ignore names its reason and the step that took it; drop each when its upstream releases a fix.
+ignore = [
+    # 29c (lane vectors, theseus-nz8): candle's matmul engine, gemm, needs this build-time proc-macro.
+    { id = "RUSTSEC-2024-0436", reason = "paste: unmaintained, not vulnerable; a proc-macro gemm (candle) needs" },
+]
 
 [sources]
 unknown-registry = "deny"
