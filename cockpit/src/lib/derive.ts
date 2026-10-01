@@ -7,12 +7,12 @@ import { ledgerKind, type Tone } from './taxonomy'
 
 export interface LedgerTail { rows: LedgerEntry[]; total: number }
 
-/** The newest `n` ledger rows, polled. */
-export function useLedger(n = 2000, interval = 3000, kind?: string, sessionId?: string) {
+/** The newest `n` ledger rows, polled. `enabled: false` reads nothing (an inspector that isn't open). */
+export function useLedger(n = 2000, interval = 3000, kind?: string, sessionId?: string, enabled = true) {
   const params: Record<string, unknown> = { n }
   if (kind) params.kind = kind
   if (sessionId) params.session_id = sessionId
-  return useRpc<LedgerTail>('ledger.tail', params, interval)
+  return useRpc<LedgerTail>('ledger.tail', params, interval, { enabled })
 }
 
 export interface RateLimit {

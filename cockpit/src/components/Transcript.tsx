@@ -95,11 +95,18 @@ function UserItem({ n }: { n: NodeInfo }) {
 function AssistantItem({ n }: { n: NodeInfo }) {
   const d = (n.detail ?? {}) as D
   const [think, setThink] = useState(false)
+  const [params, setParams] = useSearchParams()
+  const inspecting = params.get('msg') === n.node_id
   const u = d.usage as D | undefined
   return (
-    <div className="flex gap-3">
+    <div className="group flex gap-3">
       <Gutter icon={<Bot size={13} />} at={n.at_unix_ms} tone="bg-model/10 text-model ring-model/30" />
-      <div className="min-w-0 flex-1 rounded-lg bg-model/[0.05] px-3 py-2 ring-1 ring-model/15">
+      <div className={cn('relative min-w-0 flex-1 rounded-lg bg-model/[0.05] px-3 py-2 ring-1', inspecting ? 'ring-model/60' : 'ring-model/15')}>
+        <button
+          onClick={() => setParams((p) => { if (inspecting) p.delete('msg'); else { p.set('msg', n.node_id); p.delete('call') } return p }, { replace: true })}
+          title="inspect this model call: its time, tokens, cost, headroom, and context"
+          className={cn('absolute -right-2 -top-2 z-10 rounded-md bg-deck p-1 ring-1 transition-opacity', inspecting ? 'text-model ring-model/60' : 'text-ink-faint opacity-0 ring-line group-hover:opacity-100 hover:text-model')}
+        ><ScanSearch size={13} /></button>
         {n.thinking && (
           <button onClick={() => setThink((v) => !v)} className="mb-1 flex items-center gap-1 text-[11px] text-think">
             <ChevronRight size={12} className={cn('transition-transform', think && 'rotate-90')} /><Brain size={12} /> thinking · {n.thinking.length.toLocaleString()} chars
@@ -142,7 +149,7 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
       <div className={cn('relative min-w-0 flex-1 rounded-lg bg-tool/[0.04] ring-1', inspecting ? 'ring-tool/60' : 'ring-tool/15')}>
         {callKey && (
           <button
-            onClick={() => setParams((p) => { if (inspecting) p.delete('call'); else p.set('call', callKey); return p }, { replace: true })}
+            onClick={() => setParams((p) => { if (inspecting) p.delete('call'); else { p.set('call', callKey); p.delete('msg') } return p }, { replace: true })}
             title="inspect this call: its gate, its life in the ledger, its job, its result"
             className={cn('absolute -right-2 -top-2 z-10 rounded-md bg-deck p-1 ring-1 transition-opacity', inspecting ? 'text-tool ring-tool/60' : 'text-ink-faint opacity-0 ring-line group-hover:opacity-100 hover:text-tool')}
           ><ScanSearch size={13} /></button>

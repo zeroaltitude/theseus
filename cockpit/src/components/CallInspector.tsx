@@ -73,11 +73,6 @@ export function CallInspector({ sessionId }: { sessionId: string }) {
   const [params, setParams] = useSearchParams()
   const key = params.get('call')
   const close = () => setParams((p) => { p.delete('call'); return p }, { replace: true })
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
   const { data: hist } = useRpc<SessionHistory>('session.history', { session_id: sessionId }, 5000, { enabled: !!key })
   const { call, result } = useMemo(() => {
     const nodes = hist?.nodes ?? []
@@ -92,7 +87,7 @@ export function CallInspector({ sessionId }: { sessionId: string }) {
   const cid: string | undefined = cd.correlation_id ?? rd.correlation_id ?? (key?.startsWith('act_') ? key : undefined)
   const settled = !!result
   // The whole tail, filtered here by the action's id: an action's rows carry it, not always the session's.
-  const { data: tail } = useLedger(5000, settled ? 0 : 3000, undefined, undefined)
+  const { data: tail } = useLedger(5000, settled ? 0 : 3000, undefined, undefined, !!key)
   const rows = useMemo(
     () => (tail?.rows ?? []).filter((r) => cid && (r.data as D | null)?.correlation_id === cid).sort((a, b) => a.at_unix_ms - b.at_unix_ms),
     [tail, cid],
@@ -107,17 +102,12 @@ export function CallInspector({ sessionId }: { sessionId: string }) {
   const jobOut = (rd.meta?.detail ?? rd.meta ?? {}) as D
 
   return (
-    <motion.aside
-      initial={{ x: 40, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.18 }}
-      className="fixed bottom-0 right-0 top-12 z-40 flex w-[min(640px,48vw)] flex-col border-l border-line-strong bg-deck/95 shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.9)] backdrop-blur"
-    >
-      <header className="flex items-center gap-2 border-b border-line px-4 py-2.5">
-        <ScanSearch size={15} className="text-tool" />
-        <span className="num text-[14px] font-semibold text-tool">{tool}</span>
-        <Pill tone={statusTone}>{stoppedBy ? `⏹️ stopped by ${stoppedBy}` : gate === 'deny' ? 'denied' : status}</Pill>
-        {rd.duration_ms != null && <span className="num text-[12px] text-ink-dim">{ms(rd.duration_ms)}</span>}
-        <button onClick={close} title="close (Esc)" className="ml-auto rounded p-1 text-ink-faint hover:bg-white/5 hover:text-ink"><X size={15} /></button>
-      </header>
+    <Drawer onClose={close} head={<>
+      <ScanSearch size={15} className="text-tool" />
+      <span className="num text-[14px] font-semibold text-tool">{tool}</span>
+      <Pill tone={statusTone}>{stoppedBy ? `⏹️ stopped by ${stoppedBy}` : gate === 'deny' ? 'denied' : status}</Pill>
+      {rd.duration_ms != null && <span className="num text-[12px] text-ink-dim">{ms(rd.duration_ms)}</span>}
+    </>}>
       {!call && !result ? (
         <div className="p-6 text-[12.5px] text-ink-faint">{hist ? `No tool call ${key} in this session.` : 'reading the session…'}</div>
       ) : (
@@ -179,14 +169,35 @@ export function CallInspector({ sessionId }: { sessionId: string }) {
             </> : <div className="text-[12px] text-ink-faint">nothing yet</div>}
           </Section>
 
-          <Raw call={call} result={result} />
+          <Raw values={[call, result]} />
         </div>
       )}
+    </Drawer>
+  )
+}
+
+/** The inspectors' shell: a drawer on the right, over the deck, closed with its button or Esc. */
+export function Drawer({ head, onClose, children }: { head: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+  return (
+    <motion.aside
+      initial={{ x: 40, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.18 }}
+      className="fixed bottom-0 right-0 top-12 z-40 flex w-[min(640px,48vw)] flex-col border-l border-line-strong bg-deck/95 shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.9)] backdrop-blur"
+    >
+      <header className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+        {head}
+        <button onClick={onClose} title="close (Esc)" className="ml-auto rounded p-1 text-ink-faint hover:bg-white/5 hover:text-ink"><X size={15} /></button>
+      </header>
+      {children}
     </motion.aside>
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mb-4">
       <div className="panel-title mb-1.5">{title}</div>
@@ -195,7 +206,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function Ident({ label, value }: { label: string; value: string }) {
+export function Ident({ label, value }: { label: string; value: string }) {
   return (
     <button onClick={() => navigator.clipboard?.writeText(value)} title="copy" className="flex items-center gap-1 hover:text-ink">
       <span>{label}</span><span className="num text-ink-dim">…{value.slice(-8)}</span><Copy size={10} />
@@ -204,7 +215,7 @@ function Ident({ label, value }: { label: string; value: string }) {
 }
 
 /** The phases as one bar, then every row with its time from the first. */
-function Life({ rows }: { rows: LedgerEntry[] }) {
+export function Life({ rows }: { rows: LedgerEntry[] }) {
   const ps = phases(rows)
   const t0 = rows[0].at_unix_ms
   const span = Math.max(1, rows[rows.length - 1].at_unix_ms - t0)
@@ -251,7 +262,7 @@ function Life({ rows }: { rows: LedgerEntry[] }) {
   )
 }
 
-function Copyable({ text }: { text: string }) {
+export function Copyable({ text }: { text: string }) {
   const [done, setDone] = useState(false)
   return (
     <div className="relative">
@@ -264,16 +275,15 @@ function Copyable({ text }: { text: string }) {
   )
 }
 
-function Raw({ call, result }: { call?: NodeInfo; result?: NodeInfo }) {
+export function Raw({ values, label = 'the nodes, raw' }: { values: unknown[]; label?: string }) {
   const [open, setOpen] = useState(false)
   return (
     <section className="mb-2">
       <button onClick={() => setOpen((v) => !v)} className="panel-title flex items-center gap-1">
-        <ChevronRight size={11} className={cn('transition-transform', open && 'rotate-90')} />the nodes, raw
+        <ChevronRight size={11} className={cn('transition-transform', open && 'rotate-90')} />{label}
       </button>
       {open && <div className="mt-1.5 flex flex-col gap-2">
-        {call && <JsonView value={call} maxHeight="260px" />}
-        {result && <JsonView value={result} maxHeight="260px" />}
+        {values.filter((v) => v !== undefined && v !== null).map((v, i) => <JsonView key={i} value={v} maxHeight="260px" />)}
       </div>}
     </section>
   )

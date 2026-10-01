@@ -19,6 +19,7 @@ import { Flame, flatten } from '@/components/Flame'
 import { JsonView } from '@/components/JsonView'
 import { Transcript } from '@/components/Transcript'
 import { CallInspector } from '@/components/CallInspector'
+import { ModelInspector } from '@/components/ModelInspector'
 import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
@@ -86,6 +87,7 @@ export default function SessionDeck() {
         </RPanel>
       </Group>
       <CallInspector sessionId={id} />
+      <ModelInspector sessionId={id} />
     </div>
   )
 }
