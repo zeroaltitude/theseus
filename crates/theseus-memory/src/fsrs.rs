@@ -42,8 +42,8 @@ pub const FSRS6_DEFAULT: [f64; 21] = [
 ];
 
 /// The bounds `w0` to `w20` are clipped into, as the reference's `FSRS::new`
-/// clips them: with one relearning step, so `w17` and `w18` stay under 2, and
-/// no short-term floor for `w19`. The defaults sit inside every one.
+/// clips them: with one relearning step, so `w17` and `w18` are at most 2,
+/// and no short-term floor for `w19`. The defaults sit inside every one.
 pub const PARAM_BOUNDS: [(f64, f64); 21] = [
     (S_MIN, 100.0),
     (S_MIN, 100.0),
@@ -567,7 +567,7 @@ mod tests {
     fn parameters_are_clipped_into_the_references_bounds() {
         // The reference's table for `FSRS::new` (fsrs 6.6.2,
         // src/parameter_clipper.rs:62-84): one relearning step, so w17 and
-        // w18 stay under 2, and no short-term floor for w19.
+        // w18 are at most 2, and no short-term floor for w19.
         let lows = [
             0.001, 0.001, 0.001, 0.001, 1.0, 0.001, 0.001, 0.001, 0.0, 0.0, 0.001, 0.001, 0.001,
             0.001, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.1,
