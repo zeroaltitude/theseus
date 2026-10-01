@@ -237,12 +237,13 @@ fn write_manifest(dir: &Path, m: &Manifest, fsync: bool) -> Result<()> {
 /// the open waits and then refuses as it always has. A redb database that
 /// fails some other way is left where it is, and refused.
 fn open_index(path: &Path) -> Result<(RedbIndex, Option<MovedAside>)> {
-    let e = match RedbIndex::open(path) {
+    let (e, why) = match RedbIndex::open(path) {
         Ok(index) => return Ok((index, None)),
-        Err(e) if RedbIndex::not_a_database(&e) => e,
-        Err(e) => return Err(e.context("opening index")),
+        Err(e) => match RedbIndex::why_not_a_database(&e) {
+            Some(why) => (e, why),
+            None => return Err(e.context("opening index")),
+        },
     };
-    let why = e.root_cause().to_string();
     match crate::index::move_aside(path, &why)? {
         Aside::Moved(m) => {
             tracing::warn!(
@@ -1196,18 +1197,29 @@ mod tests {
     #[test]
     fn an_index_that_is_not_a_database_is_moved_aside_and_rebuilt_from_the_wal() {
         type Damage = fn(&[u8]) -> Vec<u8>;
-        let shapes: [(&str, Damage); 3] = [
-            ("a 37-byte partial header", |real| real[..37].to_vec()),
-            ("a few random bytes", |_| {
-                vec![
-                    0x5c, 0x91, 0x07, 0xee, 0x30, 0x2a, 0xd4, 0x18, 0x66, 0x0b, 0xf3,
-                ]
-            }),
-            ("zeros the length of a new index", |real| {
-                vec![0u8; real.len()]
-            }),
+        // Each shape, and why the open says it is not a database.
+        let shapes: [(&str, Damage, &str); 3] = [
+            (
+                "a 37-byte partial header",
+                |real| real[..37].to_vec(),
+                "the file ends inside redb's header",
+            ),
+            (
+                "a few random bytes",
+                |_| {
+                    vec![
+                        0x5c, 0x91, 0x07, 0xee, 0x30, 0x2a, 0xd4, 0x18, 0x66, 0x0b, 0xf3,
+                    ]
+                },
+                "the file does not start with redb's magic number",
+            ),
+            (
+                "zeros the length of a new index",
+                |real| vec![0u8; real.len()],
+                "the file does not start with redb's magic number",
+            ),
         ];
-        for (shape, damage) in shapes {
+        for (shape, damage, says) in shapes {
             let dir = tempfile::tempdir().unwrap();
             let before = written(dir.path());
             let index = dir.path().join("index.redb");
@@ -1226,6 +1238,8 @@ mod tests {
                 "{shape}: kept as it was"
             );
             assert_eq!(m.bytes, bad.len() as u64);
+            assert!(m.why.starts_with(says), "{shape}: {}", m.why);
+            assert!(m.why.contains("(redb: "), "{shape}: {}", m.why);
             assert_eq!(st.replayed_into_index, before.len() as u64, "{shape}");
             assert_eq!(everything(&s), before, "{shape}");
             assert_eq!(s.count_of_kind(kinds::LEDGER).unwrap(), 40, "{shape}");

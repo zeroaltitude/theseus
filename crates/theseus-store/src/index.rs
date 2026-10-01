@@ -136,11 +136,27 @@ impl RedbIndex {
     /// is `DatabaseAlreadyOpen`, and a real database that fails some other way
     /// (a newer format, a bad commit slot, a file cut short) is `Corrupted`.
     pub fn not_a_database(e: &anyhow::Error) -> bool {
-        matches!(
-            e.downcast_ref::<redb::DatabaseError>(),
-            Some(redb::DatabaseError::Storage(redb::StorageError::Io(io)))
-                if matches!(io.kind(), std::io::ErrorKind::InvalidData | std::io::ErrorKind::UnexpectedEof)
-        )
+        Self::why_not_a_database(e).is_some()
+    }
+
+    /// Why the file is not a redb database, as the startup log and the
+    /// `store.index_replaced` row say it, with redb's own words after;
+    /// `None` when `not_a_database` is false.
+    pub fn why_not_a_database(e: &anyhow::Error) -> Option<String> {
+        let Some(redb::DatabaseError::Storage(redb::StorageError::Io(io))) =
+            e.downcast_ref::<redb::DatabaseError>()
+        else {
+            return None;
+        };
+        match io.kind() {
+            std::io::ErrorKind::UnexpectedEof => {
+                Some(format!("the file ends inside redb's header (redb: {io})"))
+            }
+            std::io::ErrorKind::InvalidData => Some(format!(
+                "the file does not start with redb's magic number (redb: {io})"
+            )),
+            _ => None,
+        }
     }
 
     /// Record a batch of entries. Non-durable unless `durable`.

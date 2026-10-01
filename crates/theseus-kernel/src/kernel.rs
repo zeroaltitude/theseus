@@ -1116,12 +1116,8 @@ impl Kernel {
         // among them (theseus-w98).
         if e.state.is_terminal() {
             let why = format!("the execution ended ({})", e.state.as_str());
-            if !self
-                .end_unsent(&mut e, "the harness", &why, &mut frame)?
-                .is_empty()
-            {
-                frame[0] = exec_record(&e)?;
-            }
+            self.end_unsent(&mut e, "the harness", &why, &mut frame)?;
+            frame[0] = exec_record(&e)?;
             // Its wakes end with it (DD8).
             if !e.wakes.is_empty() {
                 let why = format!("the execution ended ({})", e.state.as_str());
