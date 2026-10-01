@@ -6112,3 +6112,88 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
         "{body}"
     );
 }
+
+/// The content of each result in a session, by its tool.
+fn result_of(core: &Core, sid: &str, tool: &str) -> String {
+    core.store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult {
+                tool: t, content, ..
+            } if t == tool => Some(content),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no {tool} result"))
+}
+
+/// A result too long to show whole says how much the cut left out and the
+/// call that returns it, and never that the whole is stored: nothing keeps it
+/// (theseus-46v). A read names its rows by number, with the range that
+/// returns them; a search, which takes no range, names a narrower one.
+#[tokio::test]
+async fn a_capped_result_says_what_was_cut_and_the_call_that_returns_it() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "Reading the inventory, then searching it.",
+                &[
+                    ("t1", "fs_read", json!({"path": "inventory.txt"})),
+                    (
+                        "t2",
+                        "fs_grep",
+                        json!({"pattern": "crate", "path": "inventory.txt"}),
+                    ),
+                ],
+            ),
+            Scripted::text("Read."),
+        ],
+        |c| c.tools.result_max_chars = 2_000,
+    );
+    let body: String = (1..=300)
+        .map(|i| format!("crate {i:03} of the inventory\n"))
+        .collect();
+    std::fs::write(r.root.join("inventory.txt"), &body).unwrap();
+    let res = turn(&r.core, None, "read the inventory").await;
+    let marker = |c: &str| -> String {
+        let (_, rest) = c
+            .split_once("\n…[")
+            .unwrap_or_else(|| panic!("no cut: {c}"));
+        rest.split_once("]…\n").unwrap().0.to_string()
+    };
+
+    // The read: the rows left out, by number, are exactly those between
+    // the last row shown before the cut and the first after it.
+    let read = result_of(&r.core, &res.session_id, "fs.read");
+    assert!(read.chars().count() < 2_200, "capped: {read}");
+    assert!(!read.contains("stored"), "{read}");
+    let m = marker(&read);
+    let (head, tail) = read.split_once("\n…[").unwrap();
+    let row = |line: &str| -> usize { line.split('\t').next().unwrap().trim().parse().unwrap() };
+    let before = row(head.lines().last().unwrap());
+    let after = row(tail.split_once("]…\n").unwrap().1.lines().next().unwrap());
+    let range = format!(
+        "lines {}-{}; fs_read with offset={} and limit={} returns them",
+        before + 1,
+        after - 1,
+        before + 1,
+        after - 1 - before
+    );
+    assert!(
+        m.ends_with(&format!(" not shown: {range}")),
+        "{m:?} should end with {range:?}"
+    );
+    assert!(
+        m.starts_with(&format!("{} lines (", after - 1 - before)),
+        "{m}"
+    );
+
+    // The search: no range to name, so a narrower call.
+    let grep = result_of(&r.core, &res.session_id, "fs.grep");
+    assert!(!grep.contains("stored"), "{grep}");
+    assert!(
+        marker(&grep).contains("not shown: a narrower search returns them"),
+        "{grep}"
+    );
+}

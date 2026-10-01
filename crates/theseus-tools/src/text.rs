@@ -119,6 +119,9 @@ impl Tool for Diff {
             meta: json!({"similarity": ratio, "a": an, "b": bn}),
         })
     }
+    fn rest(&self, _left_out: &str) -> String {
+        "text_diff of smaller parts, or with less context, returns them".into()
+    }
 }
 
 #[cfg(test)]

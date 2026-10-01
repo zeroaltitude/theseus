@@ -267,6 +267,35 @@ impl Tool for Read {
             None,
         ))
     }
+    /// The rows a cut left out, by their numbers (theseus-46v): an `fs_read`
+    /// with that offset and limit returns them.
+    fn rest(&self, left_out: &str) -> String {
+        let rows: Vec<Option<usize>> = left_out.lines().map(row_number).collect();
+        let (Some(i), Some(j)) = (
+            rows.iter().position(Option::is_some),
+            rows.iter().rposition(Option::is_some),
+        ) else {
+            return "fs_read with a smaller limit returns them".into();
+        };
+        // A row cut part-way at either end belongs to the row before the
+        // first whole one, or after the last.
+        let first = rows[i]
+            .unwrap_or(1)
+            .saturating_sub(usize::from(i > 0))
+            .max(1);
+        let last = rows[j].unwrap_or(first) + usize::from(j + 1 < rows.len());
+        format!(
+            "lines {first}-{last}; fs_read with offset={first} and limit={} returns them",
+            last + 1 - first
+        )
+    }
+}
+
+/// A row's number in `fs.read`'s output (`    12\tline`), if `line` is a
+/// whole row.
+fn row_number(line: &str) -> Option<usize> {
+    let (n, _) = line.split_once('\t')?;
+    n.trim_start().parse().ok()
 }
 
 // ---------------------------------------------------------------- fs.write
@@ -737,6 +766,9 @@ impl Tool for Glob {
             meta: json!({"base": base, "matches": total, "scanned": scanned}),
         })
     }
+    fn rest(&self, _left_out: &str) -> String {
+        "a narrower pattern or path returns them".into()
+    }
 }
 
 // ---------------------------------------------------------------- fs.grep
@@ -987,6 +1019,11 @@ impl Tool for Grep {
             text,
             meta: json!({"base": base, "files_with_matches": files_hit.len(), "matching_lines": hits, "files_scanned": scanned, "capped": s.content && hits >= max}),
         })
+    }
+    fn rest(&self, _left_out: &str) -> String {
+        "a narrower search returns them: a more specific pattern, a path or glob, fewer \
+         context lines, or output_mode files or count"
+            .into()
     }
 }
 
@@ -1257,6 +1294,9 @@ impl Tool for List {
             meta: json!({"base": base, "entries": total, "shown": entries.len(), "depth": depth}),
         })
     }
+    fn rest(&self, _left_out: &str) -> String {
+        "fs_list of a subdirectory, or with a lower depth, returns them".into()
+    }
 }
 
 fn human(n: u64) -> String {
@@ -1324,6 +1364,45 @@ mod tests {
             out.text
         );
         assert_eq!(out.meta["not_shown"], "an image over the 5 MiB limit");
+    }
+
+    /// What a cut left out of a read is rows, by number (theseus-46v): the
+    /// call `rest` names returns exactly them, a row cut part-way included.
+    #[test]
+    fn a_reads_rest_names_the_rows_left_out_and_the_call_returns_them() {
+        let d = tempfile::tempdir().unwrap();
+        let c = ctx(&d);
+        let body: String = (1..=40).map(|i| format!("ledger row {i}\n")).collect();
+        std::fs::write(d.path().join("rows.txt"), body).unwrap();
+        let out = Read.run(&json!({"path": "rows.txt"}), &c).unwrap().text;
+        let rows: Vec<&str> = out.lines().collect();
+
+        // Whole rows 12 to 30.
+        let left = rows[11..30].join("\n") + "\n";
+        let rest = Read.rest(&left);
+        assert_eq!(
+            rest,
+            "lines 12-30; fs_read with offset=12 and limit=19 returns them"
+        );
+        let again = Read
+            .run(&json!({"path": "rows.txt", "offset": 12, "limit": 19}), &c)
+            .unwrap()
+            .text;
+        // Those rows, then the read's own line on where the file goes on.
+        assert!(again.starts_with(&left), "the call returns them: {again}");
+        assert!(again[left.len()..].starts_with("[showing lines 12-30 of 40;"));
+
+        // Cut part-way: the end of row 11 and the start of row 31.
+        let left = format!(" row 11\n{}\n    31\tledg", rows[11..30].join("\n"));
+        assert_eq!(
+            Read.rest(&left),
+            "lines 11-31; fs_read with offset=11 and limit=21 returns them"
+        );
+        // Nothing that reads as a row: a smaller read.
+        assert_eq!(
+            Read.rest("no rows here"),
+            "fs_read with a smaller limit returns them"
+        );
     }
 
     #[test]

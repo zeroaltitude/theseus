@@ -3001,7 +3001,7 @@ fn failure_reason(e: &anyhow::Error) -> String {
         Some(t) => format!("{} ({:#})", t.class, t.source),
         None => format!("an internal error ({e:#})"),
     };
-    crate::toolrun::cap(&why, 400).0
+    crate::toolrun::cap(&why, 400, |_| String::new()).0
 }
 
 pub fn add_usage(into: &mut Usage, u: &Usage) {

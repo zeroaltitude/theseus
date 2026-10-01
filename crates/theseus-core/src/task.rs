@@ -508,7 +508,9 @@ impl Report {
         };
         let mut out = format!("[Report from task {}{title}: {head}]", self.short);
         if let Some(t) = &self.text {
-            let (t, _) = crate::toolrun::cap(t, REPORT_NODE_CHARS);
+            let (t, _) = crate::toolrun::cap(t, REPORT_NODE_CHARS, |_| {
+                format!("the whole message stays in task {}'s session", self.short)
+            });
             out.push_str("\n\n");
             out.push_str(&t);
         }

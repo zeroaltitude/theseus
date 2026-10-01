@@ -299,7 +299,17 @@ pub trait Tool: Send + Sync {
     fn family(&self) -> &'static str {
         self.name().split('.').next().unwrap_or("")
     }
+    /// How the model gets what the runtime cut from the middle of a result
+    /// too long to show whole, `left_out` (theseus-46v). Nothing keeps a
+    /// result whole, so the answer is always another call: a range where the
+    /// tool takes one, else a narrower call.
+    fn rest(&self, _left_out: &str) -> String {
+        REST_NARROWER.into()
+    }
 }
+
+/// `Tool::rest`'s default, and the answer for a tool the runtime does not know.
+pub const REST_NARROWER: &str = "a narrower call returns them";
 
 pub fn wire_name(name: &str) -> String {
     name.replace('.', "_")

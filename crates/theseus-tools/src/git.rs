@@ -386,6 +386,9 @@ impl Tool for Diff {
             meta: json!({"repo": wd, "rev": rev, "files": changes.len(), "insertions": tadd, "deletions": tdel}),
         })
     }
+    fn rest(&self, _left_out: &str) -> String {
+        "git_diff narrowed by paths returns them; stat lists every file first".into()
+    }
 }
 
 // ---------------------------------------------------------------- git.log
@@ -529,6 +532,9 @@ impl Tool for Log {
             },
             meta: json!({"repo": wd, "rev": rev, "commits": rows.len(), "scanned": scanned}),
         })
+    }
+    fn rest(&self, _left_out: &str) -> String {
+        "git_log with a lower max, a later rev, or one file returns them".into()
     }
 }
 

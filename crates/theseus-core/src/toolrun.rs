@@ -233,19 +233,54 @@ fn forbidden_env(name: &str) -> bool {
         || n == "LD_LIBRARY_PATH"
 }
 
-pub fn cap(text: &str, max: usize) -> (String, bool) {
+/// `text` cut to about `max` characters when it is longer: its head and its
+/// tail, each on a line's edge where the text has one near the cut, and
+/// between them one line that says how much is not shown, and how to get it
+/// as `rest` says from what was left out (theseus-46v; empty: only how
+/// much). Nothing keeps a tool's whole result: a job's raw output is deleted
+/// once its result is written (theseus-wz2), and an in-process result was
+/// never kept. So a tool's `rest` names another call, never a stored copy.
+pub fn cap(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String, bool) {
     let n = text.chars().count();
     if n <= max || max < 64 {
         return (text.to_string(), false);
     }
+    let at = |chars: usize| {
+        text.char_indices()
+            .nth(chars)
+            .map_or(text.len(), |(i, _)| i)
+    };
     let head = max * 6 / 10;
-    let tail = max - head;
-    let h: String = text.chars().take(head).collect();
-    let t: String = text.chars().skip(n - tail).collect();
-    // Nothing keeps the whole: a job's raw output is deleted once its result
-    // is written (theseus-wz2), and an in-process result was never kept.
+    let (mut h, mut t) = (at(head), at(n - (max - head)));
+    // A line's edge, when the head keeps at least half of what it would, and
+    // so does the tail.
+    let mut whole = 0;
+    if let Some(i) = text[..h].rfind('\n').filter(|i| i + 1 >= h / 2) {
+        h = i + 1;
+        whole += 1;
+    }
+    if text[..t].ends_with('\n') {
+        whole += 1;
+    } else if let Some(i) = text[t..].find('\n').filter(|i| *i < (text.len() - t) / 2) {
+        t += i + 1;
+        whole += 1;
+    }
+    let left = &text[h..t];
+    let chars = narrative::count(left.chars().count() as u64, "character", "characters");
+    let size = match whole {
+        2 => format!(
+            "{} ({chars})",
+            narrative::count(left.lines().count() as u64, "line", "lines")
+        ),
+        _ => chars,
+    };
+    let how = match rest(left) {
+        r if r.is_empty() => r,
+        r => format!(": {r}"),
+    };
+    let head = text[..h].strip_suffix('\n').unwrap_or(&text[..h]);
     (
-        format!("{h}\n…[{} characters omitted]…\n{t}", n - head - tail),
+        format!("{head}\n…[{size} not shown{how}]…\n{}", &text[t..]),
         true,
     )
 }
@@ -410,7 +445,11 @@ impl ToolRuntime {
     /// The node for a result, its text scrubbed of secret values and capped.
     fn result_node(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>) -> Node {
         let (scrubbed, redactions) = self.scrubber.scrub(&r.text);
-        let (content, truncated) = cap(&scrubbed, self.result_max_chars);
+        // How to get what the cap leaves out is the tool's to say (theseus-46v).
+        let tool = self.registry.get(r.tool);
+        let (content, truncated) = cap(&scrubbed, self.result_max_chars, |left| {
+            tool.map_or_else(|| theseus_tools::REST_NARROWER.into(), |t| t.rest(left))
+        });
         let mut meta = r.meta;
         if redactions > 0 {
             meta["redactions"] = json!(redactions);
@@ -1621,6 +1660,17 @@ impl ToolRuntime {
             (_, Some(c), _) => format!("[exit code {c}]\n"),
             _ => String::new(),
         };
+        // Only the end of a very long output is read: the cut says so, as the
+        // cap's does for what it leaves out (theseus-46v).
+        let unread = total.saturating_sub(MAX_RESULT_READ as u64);
+        let header = match unread {
+            0 => header,
+            n => format!(
+                "{header}[the first {} of its output not read; its last {} MiB follow]\n",
+                narrative::count(n, "byte", "bytes"),
+                MAX_RESULT_READ >> 20
+            ),
+        };
         let raw = if out.is_empty() {
             format!("{header}(no output)")
         } else {
@@ -2529,13 +2579,63 @@ mod tests {
     #[test]
     fn cap_keeps_head_and_tail_and_forbidden_env_names() {
         let s = "a".repeat(100) + &"b".repeat(100);
-        let (c, t) = cap(&s, 100);
+        let (c, t) = cap(&s, 100, |_| String::new());
         assert!(t);
-        assert!(c.starts_with("aaaa") && c.ends_with("bbbb") && c.contains("omitted"));
-        assert_eq!(cap("short", 100), ("short".to_string(), false));
+        assert!(c.starts_with("aaaa") && c.ends_with("bbbb"), "{c}");
+        assert!(c.contains("\n…[100 characters not shown]…\n"), "{c}");
+        assert_eq!(
+            cap("short", 100, |_| unreachable!()),
+            ("short".to_string(), false)
+        );
         assert!(forbidden_env("OP_SERVICE_ACCOUNT_TOKEN"));
         assert!(forbidden_env("GITHUB_TOKEN"));
         assert!(forbidden_env("aws_secret_access_key"));
         assert!(!forbidden_env("RUST_LOG"));
+    }
+
+    /// A cut lands on lines' edges, says how many lines and characters are
+    /// not shown, hands `rest` exactly those, and says what `rest` answers,
+    /// never that anything is stored (theseus-46v).
+    #[test]
+    fn cap_cuts_on_line_edges_and_says_what_it_left_out_and_how_to_get_it() {
+        let text: String = (1..=60)
+            .map(|i| format!("entry {i:02} of the roster\n"))
+            .collect();
+        let mut seen = String::new();
+        let (c, t) = cap(&text, 400, |left| {
+            seen = left.to_string();
+            "a narrower call returns them".into()
+        });
+        assert!(t);
+        let (head, rest) = c.split_once("\n…[").unwrap();
+        let (marker, tail) = rest.split_once("]…\n").unwrap();
+        assert_eq!(
+            format!("{head}\n{seen}{tail}"),
+            text,
+            "nothing else is lost"
+        );
+        assert!(
+            seen.starts_with("entry ") && seen.ends_with('\n'),
+            "{seen:?}"
+        );
+        assert_eq!(
+            marker,
+            format!(
+                "{} lines ({} characters) not shown: a narrower call returns them",
+                seen.lines().count(),
+                crate::narrative::thousands(seen.chars().count() as u64)
+            )
+        );
+        assert!(!c.contains("stored"), "{c}");
+        // Cuts that fall on edges already keep every line they can.
+        let even: String = (0..100).map(|i| format!("line {i:04}\n")).collect();
+        let (c, _) = cap(&even, 200, |_| String::new());
+        assert!(
+            c.contains("\nline 0011\n…[80 lines (800 characters) not shown]…\nline 0092\n"),
+            "{c}"
+        );
+        // One line too long to cut on an edge: characters only.
+        let (c, _) = cap(&"x".repeat(5000), 400, |_| "R".into());
+        assert!(c.contains("\n…[4,600 characters not shown: R]…\n"), "{c}");
     }
 }

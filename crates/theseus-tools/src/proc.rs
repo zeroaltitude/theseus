@@ -96,6 +96,14 @@ impl Tool for Run {
             env: a.env.into_iter().collect(),
         })
     }
+    /// A job's raw output is deleted once its result is written
+    /// (theseus-wz2): only a run that prints less, or keeps its output in a
+    /// file, gets the rest.
+    fn rest(&self, _left_out: &str) -> String {
+        "its output is not kept: run it again printing less, or with its output sent to a file \
+         that fs_read then reads in ranges"
+            .into()
+    }
 }
 
 #[cfg(test)]
