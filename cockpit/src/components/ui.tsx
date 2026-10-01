@@ -118,7 +118,7 @@ export function Kpi({
       <div className="mt-1 text-2xl font-semibold" style={{ color: toneHex[tone] }}>
         <AnimatedNumber value={value} format={format} />
       </div>
-      <div className="mt-0.5 h-4 truncate text-[11px] text-ink-faint">{hint}</div>
+      <div className="mt-0.5 h-4 truncate text-[11px] text-ink-faint" title={typeof hint === 'string' ? hint : undefined}>{hint}</div>
       <div className="-mx-3.5 -mb-2 mt-1 h-[34px]">
         {spark && spark.length > 1
           ? <Spark data={spark} tone={tone} />

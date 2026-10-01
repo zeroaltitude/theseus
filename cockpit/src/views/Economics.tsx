@@ -2,9 +2,10 @@
 // the catalog's own per-million rates, so "saved by caching" is what the cache read would have cost as input.
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Bot, Brain, Coins, PiggyBank, Receipt, Timer, TrendingUp } from 'lucide-react'
+import { Bot, Brain, CalendarClock, Coins, PiggyBank, Receipt, Timer, TrendingUp } from 'lucide-react'
 import type { CatalogList, Health, SessionInfo } from '@protocol'
 import { useRpc } from '@/lib/rpc'
+import { useTick } from '@/lib/hooks'
 import { useDerived, totalIn, type ProviderCall } from '@/lib/derive'
 import { ms, pct, short, tokens, usd } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
@@ -61,17 +62,31 @@ export default function Economics() {
   }, [calls, prices])
 
   const turnsCount = useMemo(() => new Set(calls.map((c) => c.turn_id)).size, [calls])
+  // The recent pace: what the last 24 hours and the last 7 days cost, from the billed calls' own times.
+  const now = useTick(60_000)
+  const recent = useMemo(() => {
+    const day = 86_400_000
+    let d1 = 0, d7 = 0
+    for (const c of calls) {
+      if (now - c.at <= day) d1 += c.cost
+      if (now - c.at <= 7 * day) d7 += c.cost
+    }
+    return { d1, d7 }
+  }, [calls, now])
 
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
         <Kpi label="Spent · billed model calls" icon={<Coins size={12} />} value={totals.cost} format={(n) => usd(n)} tone="money"
           hint={h?.cost_usd_total !== undefined && Math.abs(h.cost_usd_total - totals.cost) > 0.0005
-            ? `daemon reports ${usd(h.cost_usd_total)}: failed turns uncounted (theseus-lluv)` : `${calls.length} model calls`} />
+            ? `sessions' totals ${usd(h.cost_usd_total)}: the calls are the record. Builds before theseus-hco (2026-09-28) missed a failed turn's cost.`
+            : `${calls.length} model calls`} />
         <Kpi label="Saved by caching" icon={<PiggyBank size={12} />} value={totals.saved} format={(n) => usd(n)} tone="ok" hint={totals.cost ? `${pct(totals.saved / (totals.cost + totals.saved))} of the uncached price` : undefined} />
         <Kpi label="Cache hit" icon={<Brain size={12} />} value={totals.inTok ? totals.cached / totals.inTok : 0} format={(n) => pct(n, 1)} tone="think" hint={`${tokens(totals.cached)} of ${tokens(totals.inTok)} input tokens`} />
-        <Kpi label="Per turn" icon={<Receipt size={12} />} value={turnsCount ? totals.cost / turnsCount : 0} format={(n) => usd(n)} tone="money" hint={`${turnsCount} turns`} />
-        <Kpi label="Per model call" icon={<Bot size={12} />} value={calls.length ? totals.cost / calls.length : 0} format={(n) => usd(n)} tone="model" />
+        <Kpi label="Per turn" icon={<Receipt size={12} />} value={turnsCount ? totals.cost / turnsCount : 0} format={(n) => usd(n)} tone="money"
+          hint={`${turnsCount} turns · ${usd(calls.length ? totals.cost / calls.length : 0)} a model call`} />
+        <Kpi label="Last 24 hours" icon={<CalendarClock size={12} />} value={recent.d1} format={(n) => usd(n)} tone="money"
+          hint={`${usd(recent.d7)} in 7 days · ${usd(recent.d7 / 7)} a day on average`} />
         <Kpi label="Output tokens" icon={<TrendingUp size={12} />} value={totals.out} format={tokens} tone="live" hint={totals.cost ? `${pct(totals.parts.output / totals.cost)} of spend` : undefined} />
       </div>
 
