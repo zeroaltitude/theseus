@@ -8,6 +8,12 @@
 //! Requests change state and get exactly one response. Notifications report
 //! state and are also ledger rows on the server side.
 
+mod events;
+mod gate;
+
+pub use events::*;
+pub use gate::*;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -672,8 +678,10 @@ pub struct PolicyUntightenParams {
 }
 
 /// What a tighten or an undo did, and the tool's posture now. Also the
-/// params of `policy.tightened` and `policy.untightened`.
+/// params of `policy.tightened` and `policy.untightened`, where a field a
+/// notification lacks reads as its default (theseus-0g4).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TightenResult {
     pub tool: String,
     /// Who made this change: the one who pressed, or the one who undid it.
@@ -1936,7 +1944,10 @@ pub struct ProviderErrorData {
     pub tool_calls: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A notification's params: a field it lacks reads as its default, as the
+/// renderers always read them (theseus-0g4).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TurnStarted {
     pub session_id: String,
     pub turn_id: String,
@@ -1946,7 +1957,10 @@ pub struct TurnStarted {
     pub continuation: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A notification's params: a field it lacks reads as its default, as the
+/// renderers always read them (theseus-0g4).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TurnFailed {
     pub session_id: String,
     #[serde(default)]
@@ -1967,7 +1981,10 @@ pub struct TurnFailed {
     pub then: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A notification's params: a field it lacks reads as its default, as the
+/// renderers always read them (theseus-0g4).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LoopStarted {
     pub turn_id: String,
     pub loop_index: u32,
@@ -1975,14 +1992,20 @@ pub struct LoopStarted {
     pub tools_offered: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A notification's params: a field it lacks reads as its default, as the
+/// renderers always read them (theseus-0g4).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ModelDelta {
     pub turn_id: String,
     pub loop_index: u32,
     pub text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A notification's params: a field it lacks reads as its default, as the
+/// renderers always read them (theseus-0g4).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LoopEnded {
     pub turn_id: String,
     pub loop_index: u32,

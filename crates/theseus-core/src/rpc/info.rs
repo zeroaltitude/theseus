@@ -179,7 +179,10 @@ impl Core {
             } => (
                 String::new(),
                 String::new(),
-                json!({"tool_use_id": tool_use_id, "tool": tool, "input": input, "correlation_id": correlation_id, "decision": gate.get("decision"), "result": gate.get("result"), "plan": gate.get("plan")}),
+                json!({"tool_use_id": tool_use_id, "tool": tool, "input": input, "correlation_id": correlation_id,
+                    "decision": gate.as_ref().and_then(|g| g.decision.as_ref()),
+                    "result": gate.as_ref().map(|g| &g.result),
+                    "plan": gate.as_ref().and_then(|g| g.plan.as_ref())}),
                 0,
             ),
             Body::ToolResult {

@@ -25,7 +25,10 @@ use theseus_kernel::{
     Action, ActionState, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
     BUDGET_TOOL, PROVIDER_TOOL,
 };
-use theseus_protocol::{notify, ConfirmRequest};
+use theseus_protocol::{
+    ConfirmRequest, ConfirmResolved, Event, GateRecord, GateResult, JobStarted, NodeWritten,
+    PolicyNotified, ToolEnded, ToolProposed, ToolStarted,
+};
 use theseus_store::Store as _;
 use theseus_tools::{Access, Backend, JobSpec, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
 use zeroize::Zeroize;
@@ -122,10 +125,11 @@ impl TurnCtx<'_> {
 
     /// Tell the session's clients about a node this turn wrote.
     pub fn node_written(&self, node: &Node) {
-        self.sink.send(
-            notify::NODE_WRITTEN,
-            json!({"session_id": self.session_id, "node_id": node.id, "kind": node.kind_str()}),
-        );
+        self.sink.send(Event::NodeWritten(NodeWritten {
+            session_id: self.session_id.into(),
+            node_id: node.id.clone(),
+            kind: node.kind_str().into(),
+        }));
     }
 }
 
@@ -550,26 +554,26 @@ impl ToolRuntime {
             ..
         } = &node.body
         {
-            tc.sink.send(
-                notify::TOOL_ENDED,
-                json!({
-                    "session_id": tc.session_id,
-                    "turn_id": tc.turn_id,
-                    "tool_use_id": tool_use_id,
-                    "tool": tool,
-                    "status": status.as_str(),
-                    "duration_ms": duration_ms,
-                    "correlation_id": correlation_id,
-                    "late": late,
-                    "truncated": truncated,
-                    "bytes": bytes_total,
-                    "node_id": node.id,
-                    "exit_code": meta.get("exit_code"),
-                    // A `/stop` ended it, and who stopped it (theseus-4uw).
-                    "stopped_by": meta.get("stopped_by"),
-                    "preview": content.chars().take(2000).collect::<String>(),
-                }),
-            );
+            tc.sink.send(Event::ToolEnded(ToolEnded {
+                session_id: tc.session_id.into(),
+                turn_id: tc.turn_id.into(),
+                tool_use_id: tool_use_id.clone(),
+                tool: tool.clone(),
+                status: status.as_str().into(),
+                duration_ms: *duration_ms,
+                correlation_id: correlation_id.clone(),
+                late: *late,
+                truncated: *truncated,
+                bytes: *bytes_total,
+                node_id: node.id.clone(),
+                exit_code: meta.get("exit_code").and_then(Value::as_i64),
+                // A `/stop` ended it, and who stopped it (theseus-4uw).
+                stopped_by: meta
+                    .get("stopped_by")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                preview: content.chars().take(2000).collect(),
+            }));
             if tc.narrator.on() {
                 narrate_result(tc, node);
             }
@@ -667,7 +671,7 @@ impl ToolRuntime {
         call: &ToolUse,
         tool: &str,
         correlation_id: Option<&str>,
-        gate: Value,
+        gate: GateRecord,
     ) -> Node {
         Node::tool_call(
             tc.session_id,
@@ -680,7 +684,7 @@ impl ToolRuntime {
                 input: call.input.clone(),
                 assistant_node: assistant_node.into(),
                 correlation_id: correlation_id.map(str::to_string),
-                gate,
+                gate: Some(Box::new(gate)),
             },
         )
     }
@@ -831,8 +835,8 @@ impl ToolRuntime {
         g: Gated,
     ) -> Result<CallOutcome> {
         let a = self.plan_call(tc, assistant_node, call, tool.as_ref(), &g)?;
-        if let Some(payload) = Self::notified(tc, call, tool.name(), &a.correlation_id, &g) {
-            tc.sink.send(notify::POLICY_NOTIFIED, payload);
+        if let Some(notice) = Self::notified(tc, call, tool.name(), &a.correlation_id, &g) {
+            tc.sink.send(Event::PolicyNotified(notice));
         }
         if tc.narrator.on() {
             self.narrate_gate(tc, tool.name(), &g);
@@ -853,17 +857,21 @@ impl ToolRuntime {
         tool: &str,
         correlation_id: &str,
         g: &Gated,
-    ) -> Option<Value> {
-        let n = g.decision.notify.as_ref()?;
-        let mut v = json!({"session_id": tc.session_id, "turn_id": tc.turn_id,
-            "tool_use_id": call.id, "correlation_id": correlation_id, "tool": tool,
-            "input": call.input, "summary": g.plan.summary, "kind": n.kind,
-            "setting": n.setting, "rule": n.rule, "granted": g.decision.granted});
-        // A task's notice names the task (DD7).
-        if tc.task.is_some() {
-            v["task"] = json!(crate::task::short(tc.session_id));
-        }
-        Some(v)
+    ) -> Option<PolicyNotified> {
+        let notice = g.decision.notify.clone()?;
+        Some(PolicyNotified {
+            session_id: tc.session_id.into(),
+            turn_id: tc.turn_id.into(),
+            tool_use_id: call.id.clone(),
+            correlation_id: correlation_id.into(),
+            tool: tool.into(),
+            input: call.input.clone(),
+            summary: g.plan.summary.clone(),
+            notice,
+            granted: g.decision.granted.clone(),
+            // A task's notice names the task (DD7).
+            task: tc.task.is_some().then(|| crate::task::short(tc.session_id)),
+        })
     }
 
     fn unknown_tool(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
@@ -946,26 +954,39 @@ impl ToolRuntime {
             (plan, decision)
         });
         let result = match &planned {
-            Err(e) => json!({"gate": "deny", "reason": format!("validation: {e}")}),
-            Ok((_, d)) if d.posture == Posture::Approve => {
-                json!({"gate": "needs_confirm", "by": self.policy.confirmer})
-            }
-            Ok(_) => json!({"gate": "allow"}),
+            Err(e) => GateResult {
+                gate: "deny".into(),
+                reason: Some(format!("validation: {e}")),
+                by: None,
+            },
+            Ok((_, d)) if d.posture == Posture::Approve => GateResult {
+                gate: "needs_confirm".into(),
+                reason: None,
+                by: Some(self.policy.confirmer.clone()),
+            },
+            Ok(_) => GateResult {
+                gate: "allow".into(),
+                ..Default::default()
+            },
         };
         if let Ok((plan, _)) = &planned {
             proposal.resource = plan.resources.first().map(|r| r.path.display().to_string());
         }
-        let record = json!({
-            "result": result,
-            "validated": planned.is_ok(),
-            "decision": planned.as_ref().ok().map(|(_, d)| d),
-            "plan": planned.as_ref().ok().map(|(p, _)| p),
-            "proposal": proposal,
-        });
-        tc.sink.send(
-            notify::TOOL_PROPOSED,
-            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "input": call.input, "gate": record}),
-        );
+        let record = GateRecord {
+            result,
+            validated: planned.is_ok(),
+            decision: planned.as_ref().ok().map(|(_, d)| d.record()),
+            plan: planned.as_ref().ok().map(|(p, _)| p.clone()),
+            proposal: proposal.clone(),
+        };
+        tc.sink.send(Event::ToolProposed(ToolProposed {
+            session_id: tc.session_id.into(),
+            turn_id: tc.turn_id.into(),
+            tool_use_id: call.id.clone(),
+            tool: tool.name().into(),
+            input: call.input.clone(),
+            gate: record.clone(),
+        }));
         match planned {
             Ok((plan, decision)) => Ok(Gated {
                 plan,
@@ -973,7 +994,10 @@ impl ToolRuntime {
                 proposal,
                 record,
             }),
-            Err(error) => Err(Invalid { record, error }),
+            Err(error) => Err(Invalid {
+                record: Box::new(record),
+                error,
+            }),
         }
     }
 
@@ -987,7 +1011,7 @@ impl ToolRuntime {
         bad: Invalid,
     ) -> Result<CallOutcome> {
         let reason = format!("validation: {}", bad.error);
-        let call_node = Self::tool_call_node(tc, assistant_node, call, tool, None, bad.record);
+        let call_node = Self::tool_call_node(tc, assistant_node, call, tool, None, *bad.record);
         let node = self.result_node(
             tc,
             ResultNode {
@@ -1080,7 +1104,7 @@ impl ToolRuntime {
             .plan_and_dispatch(tc.guard, &g.proposal, retry, deadline, 0, |a| {
                 let mut records = vec![node(a)?];
                 if let Some(p) = Self::notified(tc, call, tool.name(), &a.correlation_id, g) {
-                    records.push(tc.ledger_record("tool.notified", p)?);
+                    records.push(tc.ledger_record("tool.notified", serde_json::to_value(&p)?)?);
                 }
                 Ok(records)
             })
@@ -1152,7 +1176,7 @@ impl ToolRuntime {
             external_text: g.decision.external,
         };
         tc.ledger("tool.confirm_requested", serde_json::to_value(&req)?);
-        tc.sink.send(notify::CONFIRM_REQUESTED, &req);
+        tc.sink.send(Event::ConfirmRequested(req));
         Ok(CallOutcome::AwaitingConfirm {
             correlation_id: a.correlation_id,
         })
@@ -1210,10 +1234,15 @@ impl ToolRuntime {
         tool: &dyn Tool,
         call: &ToolUse,
     ) -> Result<CallOutcome> {
-        tc.sink.send(
-            notify::TOOL_STARTED,
-            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": tool.backend().as_str()}),
-        );
+        tc.sink.send(Event::ToolStarted(ToolStarted {
+            session_id: tc.session_id.into(),
+            turn_id: tc.turn_id.into(),
+            tool_use_id: call.id.clone(),
+            tool: tool.name().into(),
+            correlation_id: correlation_id.into(),
+            backend: tool.backend().as_str().into(),
+            job: None,
+        }));
         let started = theseus_protocol::now_unix_ms();
         let t0 = Instant::now();
         let done = match tool.name() {
@@ -1267,10 +1296,15 @@ impl ToolRuntime {
         call: &ToolUse,
         ran_at: Posture,
     ) -> Result<CallOutcome> {
-        tc.sink.send(
-            notify::TOOL_STARTED,
-            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": tool.backend().as_str()}),
-        );
+        tc.sink.send(Event::ToolStarted(ToolStarted {
+            session_id: tc.session_id.into(),
+            turn_id: tc.turn_id.into(),
+            tool_use_id: call.id.clone(),
+            tool: tool.name().into(),
+            correlation_id: correlation_id.into(),
+            backend: tool.backend().as_str().into(),
+            job: None,
+        }));
         let (t, input, mut ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
         // A toollet granted a secret reads it through the broker, bound to
         // this call (theseus-dcy). Its secrets settle first, as a turn's do,
@@ -1556,10 +1590,21 @@ impl ToolRuntime {
             .iter()
             .map(|(g, _)| format!("{} got no {}", g.to, g.variable.as_deref().unwrap_or("")))
             .collect();
-        tc.sink.send(
-            notify::TOOL_STARTED,
-            json!({"session_id": tc.session_id, "turn_id": tc.turn_id, "tool_use_id": call.id, "tool": tool.name(), "correlation_id": correlation_id, "backend": "job", "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "granted": granted, "withheld": withheld}),
-        );
+        tc.sink.send(Event::ToolStarted(ToolStarted {
+            session_id: tc.session_id.into(),
+            turn_id: tc.turn_id.into(),
+            tool_use_id: call.id.clone(),
+            tool: tool.name().into(),
+            correlation_id: correlation_id.into(),
+            backend: "job".into(),
+            job: Some(JobStarted {
+                pid,
+                argv: spec.argv.clone(),
+                cwd: spec.cwd.clone(),
+                granted: granted.clone(),
+                withheld,
+            }),
+        }));
         tc.ledger("tool.job_started", json!({"correlation_id": correlation_id, "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "timeout_secs": spec.timeout_secs}));
         for g in &brokered.granted {
             tc.ledger(
@@ -1979,7 +2024,12 @@ impl ToolRuntime {
             &self.policy.confirmer,
             "superseded: the operator sent a new message instead of confirming",
         )?;
-        tc.sink.send(notify::CONFIRM_RESOLVED, json!({"session_id": tc.session_id, "correlation_id": corr, "approved": false, "superseded": true}));
+        tc.sink.send(Event::ConfirmResolved(ConfirmResolved {
+            session_id: tc.session_id.into(),
+            correlation_id: corr.into(),
+            superseded: true,
+            ..Default::default()
+        }));
         if let Err(e) = tc
             .outbox
             .closed(corr, crate::outbox::Closed::new("superseded", None))
@@ -2416,12 +2466,12 @@ struct Gated {
     plan: Plan,
     decision: Decision,
     proposal: Proposal,
-    record: Value,
+    record: GateRecord,
 }
 
 /// A call whose input the toollet refused; its gate record is still stored.
 struct Invalid {
-    record: Value,
+    record: Box<GateRecord>,
     error: String,
 }
 
@@ -2717,8 +2767,9 @@ pub fn confirm_proposal(store: &Store, a: &Action, node: Option<&Node>) -> Resul
     let Body::ToolCall { gate, .. } = &node.body else {
         return Err(anyhow!("no tool call node for {}", a.correlation_id));
     };
-    serde_json::from_value(gate["proposal"].clone())
-        .map_err(|e| anyhow!("stored proposal unreadable: {e}"))
+    gate.as_ref()
+        .map(|g| g.proposal.clone())
+        .ok_or_else(|| anyhow!("no gate record for {}", a.correlation_id))
 }
 
 fn map_retry(r: Retry) -> RetryClass {

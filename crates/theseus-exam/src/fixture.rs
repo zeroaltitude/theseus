@@ -300,7 +300,18 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
                     input,
                     assistant_node: a.id.clone(),
                     correlation_id: None,
-                    gate: json!({"decision": "open"}),
+                    gate: Some(Box::new(theseus_protocol::GateRecord {
+                        result: theseus_protocol::GateResult {
+                            gate: "allow".into(),
+                            ..Default::default()
+                        },
+                        validated: true,
+                        decision: Some(theseus_protocol::GateDecision {
+                            posture: Some("open".into()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    })),
                 },
             );
             c.created_at_ms = at;

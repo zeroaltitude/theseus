@@ -110,41 +110,45 @@ impl PostureNow {
 }
 
 /// The structured notice a `notify` posture posts: to the session's channel
-/// (Discord, web UI, CLI) and to the ledger (`tool.notified`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Notice {
-    /// `notify`.
-    pub kind: String,
-    /// The setting that chose the posture, e.g. `enforcement = notify`.
-    pub setting: String,
-    /// The gate's reason, e.g. `proc.run — notify (enforcement = notify)`.
-    pub rule: String,
-}
+/// (Discord, web UI, CLI) and to the ledger (`tool.notified`). The protocol's
+/// type, since the gate's record carries it (theseus-0g4).
+pub use theseus_protocol::Notice;
 
-#[derive(Debug, Clone, Serialize)]
+/// The policy's verdict on a call. The gate's record keeps it as a
+/// `GateDecision` (`Decision::record`), which is its form on the wire.
+#[derive(Debug, Clone)]
 pub struct Decision {
     /// `Approve` waits for the operator; `Open` and `Notify` run.
     pub posture: Posture,
     pub reason: String,
     /// The notice a `notify` posture posts.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub notify: Option<Notice>,
     /// The floor asked: the call touches Theseus's own binary or state, or the
     /// 1Password CLI or token. No setting makes it run unasked.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub floor: bool,
     /// What the secret broker gives the call, by name: `gh got GH_TOKEN`
     /// (theseus-dcy). Its tool line and its notice say so.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub granted: Option<String>,
     /// The call waits (or is notified) because its session read external
     /// text (theseus-9bp): what it read. Set only when that is what raised
     /// the posture, so its card can offer to trust the session again.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub external: Option<theseus_protocol::ExternalText>,
 }
 
 impl Decision {
+    /// The verdict as the gate's record keeps it (theseus-0g4).
+    pub fn record(&self) -> theseus_protocol::GateDecision {
+        theseus_protocol::GateDecision {
+            posture: Some(self.posture.as_str().into()),
+            mode: None,
+            reason: self.reason.clone(),
+            notify: self.notify.clone(),
+            floor: self.floor,
+            granted: self.granted.clone(),
+            external: self.external.clone(),
+        }
+    }
+
     fn new(posture: Posture, reason: String) -> Self {
         Self {
             posture,

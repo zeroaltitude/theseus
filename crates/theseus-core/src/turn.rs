@@ -25,8 +25,8 @@ use theseus_kernel::{
     BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{
-    notify, BudgetAsk, ConfirmRequest, LoopEnded, LoopStarted, ModelDelta, SessionKind, Span,
-    TurnStarted, TurnSubmitResult, Usage,
+    BudgetAsk, CacheSummary, ConfirmRequest, ConfirmResolved, ContextCompiled, Event, LoopEnded,
+    LoopStarted, ModelDelta, SessionKind, Span, TurnStarted, TurnSubmitResult, Usage,
 };
 use theseus_store::NewRecord;
 
@@ -357,15 +357,12 @@ impl<'a> Turn<'a> {
             lock_wait_us,
             json!({"execution_id": guard.execution_id, "turn": guard.turn, "note": "kernel admission + per-execution turn lock"}),
         );
-        self.tc.sink.send(
-            notify::TURN_STARTED,
-            TurnStarted {
-                session_id: self.tc.session_id.into(),
-                turn_id: self.tc.turn_id.into(),
-                execution_id: Some(guard.execution_id.clone()),
-                continuation: self.continuation,
-            },
-        );
+        self.tc.sink.send(Event::TurnStarted(TurnStarted {
+            session_id: self.tc.session_id.into(),
+            turn_id: self.tc.turn_id.into(),
+            execution_id: Some(guard.execution_id.clone()),
+            continuation: self.continuation,
+        }));
         let mut row = json!({"input_chars": input.map(|s| s.chars().count()), "profile": target.profile, "provider": target.provider, "model": target.model, "execution_id": guard.execution_id, "kernel_turn": guard.turn, "continuation": self.continuation, "author": author});
         if files > 0 {
             row["attachments"] = json!(files);
@@ -623,10 +620,13 @@ impl TurnRunner {
              it still does not fit",
         ) {
             Ok(_) => {
-                sink.send(
-                    notify::CONFIRM_RESOLVED,
-                    json!({"session_id": exec.session_id, "correlation_id": q, "approved": false, "superseded": true, "by": author}),
-                );
+                sink.send(Event::ConfirmResolved(ConfirmResolved {
+                    session_id: exec.session_id.clone(),
+                    correlation_id: q.into(),
+                    by: Some(author.into()),
+                    superseded: true,
+                    ..Default::default()
+                }));
                 if let Err(e) = self
                     .outbox
                     .closed(q, crate::outbox::Closed::new("superseded", Some(author)))
@@ -1049,7 +1049,7 @@ impl TurnRunner {
                     tracing::warn!(error = %format!("{e:#}"), "the failed turn's notice was not written");
                 }
             }
-            failure_sink.send(notify::TURN_FAILED, failed);
+            failure_sink.send(Event::TurnFailed(failed));
         }
         if rewake && stopped.is_none() {
             // A background result landed while the turn ran; the model has not
@@ -1754,39 +1754,41 @@ impl TurnRunner {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();
-        let mut summary = json!({
-            "session_id": sid,
-            "turn_id": t.tc.turn_id,
-            "loop": i,
-            "decision": compiled.decision(),
-            "trigger": compiled.trigger,
-            "compilation_id": compiled.compilation.id,
-            "strategy": compiled.compilation.strategy,
-            "prefix_nodes": compiled.prefix_nodes,
-            "tail_nodes": compiled.tail_nodes,
-            "messages": compiled.messages,
-            "est_tokens": compiled.est_tokens,
-            "digest": compiled.digest,
-            "repairs": compiled.repairs,
-            "tools": spec.tools.len(),
-            "nodes_scanned": nodes.len(),
-        });
-        if !spec.context_files.is_empty() {
-            summary["context_files"] = json!(spec.context_files);
-        }
-        if let Some(p) = &spec.persona {
-            summary["persona"] = json!(p);
-        }
-        // The request's cache breakpoints and their TTLs (theseus-ev1).
-        summary["cache"] = json!({
-            "breakpoints": compiled.cache.breakpoints(),
-            "ttl": spec.cache_ttl.as_str(),
-            "conversation_ttl": spec.conversation_ttl.min(spec.cache_ttl).as_str(),
-        });
-        t.trace
-            .record("compile", "compile", c0, c1, summary.clone());
-        t.tc.ledger("context.compiled", summary.clone());
-        t.tc.sink.send(notify::CONTEXT_COMPILED, &summary);
+        let summary = ContextCompiled {
+            session_id: sid.into(),
+            turn_id: t.tc.turn_id.into(),
+            loop_index: i,
+            decision: compiled.decision().into(),
+            trigger: compiled.trigger.clone(),
+            compilation_id: compiled.compilation.id.clone(),
+            strategy: compiled.compilation.strategy.clone(),
+            prefix_nodes: compiled.prefix_nodes as u64,
+            tail_nodes: compiled.tail_nodes as u64,
+            messages: compiled.messages as u64,
+            est_tokens: compiled.est_tokens,
+            digest: compiled.digest.clone(),
+            repairs: compiled.repairs.clone(),
+            tools: spec.tools.len() as u64,
+            nodes_scanned: nodes.len() as u64,
+            context_files: spec.context_files.clone(),
+            persona: spec.persona.clone(),
+            // The request's cache breakpoints and their TTLs (theseus-ev1).
+            cache: CacheSummary {
+                breakpoints: compiled
+                    .cache
+                    .breakpoints()
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                ttl: spec.cache_ttl.as_str().into(),
+                conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
+            },
+        };
+        // The trace's span and the ledger row carry the notification's params.
+        let row = serde_json::to_value(&summary)?;
+        t.trace.record("compile", "compile", c0, c1, row.clone());
+        t.tc.ledger("context.compiled", row);
+        t.tc.sink.send(Event::ContextCompiled(summary));
         let missing = spec
             .context_files
             .iter()
@@ -1871,15 +1873,12 @@ impl TurnRunner {
                 )
             );
         }
-        t.tc.sink.send(
-            notify::LOOP_STARTED,
-            LoopStarted {
-                turn_id: t.tc.turn_id.into(),
-                loop_index: i,
-                model: t.target.model.clone(),
-                tools_offered: spec.tools.len() as u32,
-            },
-        );
+        t.tc.sink.send(Event::LoopStarted(LoopStarted {
+            turn_id: t.tc.turn_id.into(),
+            loop_index: i,
+            model: t.target.model.clone(),
+            tools_offered: spec.tools.len() as u32,
+        }));
         t.tc.ledger("loop.started", json!({"loop": i}));
         Ok(compiled)
     }
@@ -1993,18 +1992,16 @@ impl TurnRunner {
 
         let (sink, tid) = (t.tc.sink.clone(), t.tc.turn_id.to_string());
         let mut on_delta = move |d: Delta<'_>| match d {
-            Delta::Text(text) => sink.send(
-                notify::MODEL_DELTA,
-                ModelDelta {
-                    turn_id: tid.clone(),
-                    loop_index: i,
-                    text: text.to_string(),
-                },
-            ),
-            Delta::Thinking(text) => sink.send(
-                notify::MODEL_THINKING,
-                json!({"turn_id": tid, "loop_index": i, "text": text}),
-            ),
+            Delta::Text(text) => sink.send(Event::ModelDelta(ModelDelta {
+                turn_id: tid.clone(),
+                loop_index: i,
+                text: text.to_string(),
+            })),
+            Delta::Thinking(text) => sink.send(Event::ModelThinking(ModelDelta {
+                turn_id: tid.clone(),
+                loop_index: i,
+                text: text.to_string(),
+            })),
             Delta::ToolUseStart { .. } => {}
         };
         let call_started = Instant::now();
@@ -2110,18 +2107,15 @@ impl TurnRunner {
             task: crate::task::task_ref(session),
             external_text: None,
         };
-        t.tc.sink.send(notify::CONFIRM_REQUESTED, &req);
-        t.tc.sink.send(
-            notify::LOOP_ENDED,
-            LoopEnded {
-                turn_id: t.tc.turn_id.into(),
-                loop_index: t.loops.saturating_sub(1),
-                provider_stop_reason: None,
-                tool_calls: 0,
-                advancer: "budget".into(),
-                decision: "budget".into(),
-            },
-        );
+        t.tc.sink.send(Event::ConfirmRequested(req));
+        t.tc.sink.send(Event::LoopEnded(LoopEnded {
+            turn_id: t.tc.turn_id.into(),
+            loop_index: t.loops.saturating_sub(1),
+            provider_stop_reason: None,
+            tool_calls: 0,
+            advancer: "budget".into(),
+            decision: "budget".into(),
+        }));
         narrate!(
             self.narrator,
             Session,
@@ -2603,17 +2597,14 @@ impl TurnRunner {
             t.trace.now_us(),
             json!({"advancer": advancer.name(), "decision": decision.label()}),
         );
-        t.tc.sink.send(
-            notify::LOOP_ENDED,
-            LoopEnded {
-                turn_id: t.tc.turn_id.into(),
-                loop_index: i,
-                provider_stop_reason: resp.stop_reason.clone(),
-                tool_calls: uses as u32,
-                advancer: advancer.name().into(),
-                decision: decision.label(),
-            },
-        );
+        t.tc.sink.send(Event::LoopEnded(LoopEnded {
+            turn_id: t.tc.turn_id.into(),
+            loop_index: i,
+            provider_stop_reason: resp.stop_reason.clone(),
+            tool_calls: uses as u32,
+            advancer: advancer.name().into(),
+            decision: decision.label(),
+        }));
         t.tc.ledger(
             "loop.ended",
             json!({"loop": i, "outcome": outcome, "advancer": advancer.name(), "decision": decision, "usage": resp.usage}),
@@ -2794,7 +2785,7 @@ impl TurnRunner {
             "turn.trace",
             serde_json::to_value(&result.trace).unwrap_or(Value::Null),
         );
-        t.tc.sink.send(notify::TURN_ENDED, &result);
+        t.tc.sink.send(Event::TurnEnded(result.clone()));
         narrate_turn!(
             t.tc,
             Turn,

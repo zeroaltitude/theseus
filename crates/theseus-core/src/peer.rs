@@ -114,33 +114,47 @@ impl Traced {
         }
     }
 
-    /// The asker, for a ledger row.
-    pub fn json(&self) -> serde_json::Value {
-        match self {
-            Self::NoProcess => serde_json::Value::Null,
-            Self::Outside(a) => {
-                serde_json::json!({"pid": a.pid, "argv0": a.argv0, "trace_us": a.trace_us})
-            }
+    /// The asker, as `approval.refused` and its ledger row name it; none
+    /// when no process answered.
+    pub fn asker(&self) -> Option<theseus_protocol::Asker> {
+        use theseus_protocol::Asker as A;
+        let seen = |a: &Asker| A {
+            pid: Some(a.pid),
+            argv0: Some(a.argv0.clone()),
+            trace_us: a.trace_us,
+            ..A::default()
+        };
+        Some(match self {
+            Self::NoProcess => return None,
+            Self::Outside(a) => seen(a),
             Self::Job {
                 asker,
                 job,
                 wrapper,
-            } => serde_json::json!({
-                "pid": asker.pid, "argv0": asker.argv0, "trace_us": asker.trace_us,
-                "job": job, "wrapper_pid": wrapper,
-            }),
-            Self::Orphan { asker, daemon } => serde_json::json!({
-                "pid": asker.pid, "argv0": asker.argv0, "trace_us": asker.trace_us,
-                "under_daemon": daemon,
-            }),
-            Self::OtherDaemon { asker, daemon } => serde_json::json!({
-                "pid": asker.pid, "argv0": asker.argv0, "trace_us": asker.trace_us,
-                "under_other_daemon": daemon,
-            }),
-            Self::Untraceable { why, trace_us } => {
-                serde_json::json!({"untraceable": why, "trace_us": trace_us})
-            }
-        }
+            } => A {
+                job: Some(job.clone()),
+                wrapper_pid: Some(*wrapper),
+                ..seen(asker)
+            },
+            Self::Orphan { asker, daemon } => A {
+                under_daemon: Some(*daemon),
+                ..seen(asker)
+            },
+            Self::OtherDaemon { asker, daemon } => A {
+                under_other_daemon: Some(*daemon),
+                ..seen(asker)
+            },
+            Self::Untraceable { why, trace_us } => A {
+                untraceable: Some(why.clone()),
+                trace_us: *trace_us,
+                ..A::default()
+            },
+        })
+    }
+
+    /// The asker, for a ledger row.
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::to_value(self.asker()).unwrap_or_default()
     }
 }
 

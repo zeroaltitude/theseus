@@ -137,29 +137,9 @@ impl CacheLayout {
     }
 }
 
-/// A context file as the system block carried it (theseus-58a).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContextFileRef {
-    /// The file, `~` expanded.
-    pub path: String,
-    /// The first 16 hex digits of the SHA-256 of the text included; absent
-    /// when the file could not be read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub digest: Option<String>,
-    /// Bytes of the file the block carries.
-    #[serde(default)]
-    pub bytes: u64,
-    /// The file was longer than the cap, and the block carries its start.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cut: bool,
-    /// Why the file could not be read: `not found`, `permission denied`, …
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub missing: Option<String>,
-    /// The persona whose file this is (theseus-c48); absent: the system
-    /// level, which every session gets (and every file before theseus-c48).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub persona: Option<String>,
-}
+/// A context file as the system block carried it (theseus-58a): the
+/// protocol's type, since `context.compiled` carries it (theseus-0g4).
+pub use theseus_protocol::ContextFileRef;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Compilation {

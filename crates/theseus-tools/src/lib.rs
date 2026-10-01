@@ -79,36 +79,10 @@ pub enum Retry {
     NonRepeatable,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Access {
-    Read,
-    Write,
-    /// A directory a program runs in.
-    Exec,
-}
-
-/// A path a call will touch, already resolved against the context.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Resource {
-    pub path: PathBuf,
-    pub access: Access,
-}
-
-/// What a call will do, before it does it: the gate reads this.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Plan {
-    pub resources: Vec<Resource>,
-    /// For `proc.run`: the exact argv.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub argv: Option<Vec<String>>,
-    /// For a network tool: the URL it asks for (`http.fetch`'s, or the
-    /// request `web.search` makes). The gate judges its host (DD5).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    /// One line for humans ("edit src/main.rs (1 occurrence)").
-    pub summary: String,
-}
+/// How a call touches a path, the path, and the plan the gate reads: the
+/// protocol's types, since a tool call's gate record carries them
+/// (theseus-0g4).
+pub use theseus_protocol::{Access, Plan, Resource};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolOutput {

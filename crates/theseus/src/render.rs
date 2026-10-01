@@ -9,7 +9,8 @@ use std::io::{self, Stderr, Stdout, Write};
 
 use serde_json::Value;
 use theseus_protocol::{
-    method, notify, ConfirmRequest, NodeInfo, SessionInfo, ToolListResult, TurnSubmitResult,
+    method, ApprovalRefused, ConfirmRequest, Event, NodeInfo, SessionInfo, ToolEnded,
+    ToolListResult, TurnSubmitResult,
 };
 
 /// What a `Printer` shows of a session's events.
@@ -79,196 +80,182 @@ impl<O: Write, E: Write> Printer<O, E> {
         }
     }
 
+    /// One notification, as the connection hands it over.
     pub fn on(&mut self, m: &str, p: &Value) {
+        if let Ok(Some(e)) = Event::from_notification(m, p) {
+            self.on_event(&e);
+        }
+    }
+
+    pub fn on_event(&mut self, e: &Event) {
         let (text, verbose) = match self.mode {
             Mode::Json => return,
             Mode::Text => (true, false),
             Mode::Quiet => (false, false),
             Mode::Watch => (true, true),
         };
-        let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-        let u = |k: &str| p.get(k).and_then(Value::as_u64);
-        match m {
-            notify::MODEL_DELTA if text => {
-                if let Some(t) = p.get("text").and_then(Value::as_str) {
-                    if self.thinking_open {
-                        let _ = writeln!(self.err);
-                        self.thinking_open = false;
-                    }
-                    let _ = self.out.write_all(t.as_bytes());
-                    let _ = self.out.flush();
-                    if !t.is_empty() {
-                        self.stdout_mid_line = !t.ends_with('\n');
-                    }
+        match e {
+            Event::ModelDelta(d) if text => {
+                if self.thinking_open {
+                    let _ = writeln!(self.err);
+                    self.thinking_open = false;
+                }
+                let _ = self.out.write_all(d.text.as_bytes());
+                let _ = self.out.flush();
+                if !d.text.is_empty() {
+                    self.stdout_mid_line = !d.text.ends_with('\n');
                 }
             }
-            notify::MODEL_THINKING if self.thinking => {
-                if let Some(t) = p.get("text").and_then(Value::as_str) {
-                    if !self.thinking_open {
-                        self.settle();
-                        let _ = write!(self.err, "  (thinking) ");
-                        self.thinking_open = true;
-                    }
-                    let _ = write!(self.err, "{}", t.replace('\n', "\n             "));
+            Event::ModelThinking(d) if self.thinking => {
+                if !self.thinking_open {
+                    self.settle();
+                    let _ = write!(self.err, "  (thinking) ");
+                    self.thinking_open = true;
                 }
+                let _ = write!(self.err, "{}", d.text.replace('\n', "\n             "));
             }
-            notify::TOOL_STARTED => {
+            Event::ToolStarted(s) => {
                 self.settle();
-                let argv = p
-                    .get("argv")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        format!(
-                            " [{}]{}",
-                            a.iter()
-                                .filter_map(Value::as_str)
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                            u("pid").map(|p| format!(" pid {p}")).unwrap_or_default()
-                        )
-                    })
+                let argv = s
+                    .job
+                    .as_ref()
+                    .map(|j| format!(" [{}] pid {}", j.argv.join(" "), j.pid))
                     .unwrap_or_default();
-                let _ = writeln!(self.err, "  → {}{argv}", s("tool"));
+                let _ = writeln!(self.err, "  → {}{argv}", s.tool);
             }
-            notify::TOOL_ENDED => {
+            Event::ToolEnded(t) => {
                 self.settle();
-                let _ = writeln!(self.err, "{}", tool_ended_line(p));
+                let _ = writeln!(self.err, "{}", tool_ended_line(t));
             }
-            notify::CONFIRM_REQUESTED => {
+            Event::ConfirmRequested(c) => {
                 self.settle();
-                if let Ok(c) = serde_json::from_value::<ConfirmRequest>(p.clone()) {
-                    if c.budget.is_some() {
-                        let _ = writeln!(self.err,
-                            "  $ {}\n      reset and continue: theseus confirm {}\n      keep waiting: theseus confirm --decline {}",
-                            c.reason, c.correlation_id, c.correlation_id
-                        );
-                        return;
-                    }
-                    let _ = writeln!(self.err,
-                        "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}{}\n      decline: theseus confirm --decline {}",
-                        c.tool,
-                        if c.floor { " (FLOOR)" } else { "" },
-                        c.reason,
-                        clip(&c.input.to_string(), 200),
-                        c.correlation_id,
-                        // It waits because its session read external text
-                        // (theseus-9bp).
-                        if c.external_text.is_some() {
-                            format!(
-                                "\n      approve, and trust the session again: theseus confirm --trust {}",
-                                c.correlation_id
-                            )
-                        } else {
-                            String::new()
-                        },
-                        c.correlation_id
-                    );
-                }
-            }
-            notify::POLICY_NOTIFIED => {
-                self.settle();
-                let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
-                let _ = writeln!(self.err,
-                    "  ! notified: {tool}: {}{}\n      ({}) · should have asked: theseus policy tighten {tool}{}",
-                    p.get("summary").and_then(Value::as_str).unwrap_or(""),
-                    p.get("granted")
-                        .and_then(Value::as_str)
-                        .map(|g| format!(" · 🔑 {g}"))
-                        .unwrap_or_default(),
-                    p.get("setting").and_then(Value::as_str).unwrap_or(""),
-                    p.get("correlation_id")
-                        .and_then(Value::as_str)
-                        .map(|c| format!(" --call {c}"))
-                        .unwrap_or_default()
-                );
-            }
-            notify::POLICY_TIGHTENED | notify::POLICY_UNTIGHTENED => {
-                self.settle();
-                if let Ok(r) = serde_json::from_value::<theseus_protocol::TightenResult>(p.clone())
-                {
+                if c.budget.is_some() {
                     let _ = writeln!(
                         self.err,
-                        "  🔒 {}",
-                        tightened_line(&r, m == notify::POLICY_TIGHTENED)
+                        "  $ {}\n      reset and continue: theseus confirm {}\n      keep waiting: theseus confirm --decline {}",
+                        c.reason, c.correlation_id, c.correlation_id
                     );
+                    return;
                 }
+                let _ = writeln!(
+                    self.err,
+                    "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}{}\n      decline: theseus confirm --decline {}",
+                    c.tool,
+                    if c.floor { " (FLOOR)" } else { "" },
+                    c.reason,
+                    clip(&c.input.to_string(), 200),
+                    c.correlation_id,
+                    // It waits because its session read external text
+                    // (theseus-9bp).
+                    if c.external_text.is_some() {
+                        format!(
+                            "\n      approve, and trust the session again: theseus confirm --trust {}",
+                            c.correlation_id
+                        )
+                    } else {
+                        String::new()
+                    },
+                    c.correlation_id
+                );
             }
-            notify::APPROVAL_REFUSED => {
+            Event::PolicyNotified(n) => {
                 self.settle();
-                let _ = writeln!(self.err, "  🚨 {}", job_refusal_line(p));
+                let _ = writeln!(
+                    self.err,
+                    "  ! notified: {}: {}{}\n      ({}) · should have asked: theseus policy tighten {}{}",
+                    n.tool,
+                    n.summary,
+                    n.granted
+                        .as_deref()
+                        .map(|g| format!(" · 🔑 {g}"))
+                        .unwrap_or_default(),
+                    n.notice.setting,
+                    n.tool,
+                    if n.correlation_id.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" --call {}", n.correlation_id)
+                    }
+                );
             }
-            notify::CONFIRM_RESOLVED => {
+            Event::PolicyTightened(r) | Event::PolicyUntightened(r) => {
                 self.settle();
-                let ok = p.get("approved").and_then(Value::as_bool).unwrap_or(false);
-                if p.get("superseded").and_then(Value::as_bool) == Some(true) {
+                let tightened = matches!(e, Event::PolicyTightened(_));
+                let _ = writeln!(self.err, "  🔒 {}", tightened_line(r, tightened));
+            }
+            Event::ApprovalRefused(r) => {
+                self.settle();
+                let _ = writeln!(self.err, "  🚨 {}", job_refusal_line(r));
+            }
+            Event::ConfirmResolved(r) => {
+                self.settle();
+                let by = r.by.as_deref().unwrap_or("");
+                if r.superseded {
                     let _ = writeln!(
                         self.err,
                         "  ✗ superseded {} (a new message arrived before an answer)",
-                        s("correlation_id")
+                        r.correlation_id
                     );
-                } else if p.get("cancelled").and_then(Value::as_bool) == Some(true) {
+                } else if r.cancelled {
                     // Its execution was cancelled before an answer (theseus-w98).
                     let _ = writeln!(
                         self.err,
-                        "  ✗ cancelled {} (its execution was cancelled by {})",
-                        s("correlation_id"),
-                        s("by")
+                        "  ✗ cancelled {} (its execution was cancelled by {by})",
+                        r.correlation_id
                     );
                 } else {
                     let _ = writeln!(
                         self.err,
-                        "  {} {} (by {})",
-                        if ok { "✓ approved" } else { "✗ declined" },
-                        s("correlation_id"),
-                        s("by")
+                        "  {} {} (by {by})",
+                        if r.approved {
+                            "✓ approved"
+                        } else {
+                            "✗ declined"
+                        },
+                        r.correlation_id
                     );
                 }
             }
-            notify::CONTEXT_COMPILED => {
-                let recompiled = s("decision") == "recompile";
-                if recompiled || verbose {
-                    self.settle();
-                    let _ = writeln!(
-                        self.err,
-                        "  ⟳ context {}{} · {} message(s) · ~{} tokens{}",
-                        s("decision"),
-                        p.get("trigger")
-                            .and_then(Value::as_str)
-                            .map(|t| format!(" ({t}, {})", s("strategy")))
-                            .unwrap_or_default(),
-                        u("messages").unwrap_or(0),
-                        u("est_tokens").unwrap_or(0),
-                        p.get("repairs")
-                            .and_then(Value::as_array)
-                            .filter(|a| !a.is_empty())
-                            .map(|a| format!(" · {} repaired", a.len()))
-                            .unwrap_or_default()
-                    );
-                }
+            Event::ContextCompiled(c) if c.decision == "recompile" || verbose => {
+                self.settle();
+                let _ = writeln!(
+                    self.err,
+                    "  ⟳ context {}{} · {} message(s) · ~{} tokens{}",
+                    c.decision,
+                    c.trigger
+                        .as_deref()
+                        .map(|t| format!(" ({t}, {})", c.strategy))
+                        .unwrap_or_default(),
+                    c.messages,
+                    c.est_tokens,
+                    if c.repairs.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · {} repaired", c.repairs.len())
+                    }
+                );
             }
-            notify::TURN_STARTED if verbose => {
+            Event::TurnStarted(t) if verbose => {
                 self.settle();
                 let _ = writeln!(
                     self.err,
                     "── turn {}{}",
-                    s("turn_id"),
-                    if p.get("continuation").and_then(Value::as_bool) == Some(true) {
+                    t.turn_id,
+                    if t.continuation {
                         " (continuation)"
                     } else {
                         ""
                     }
                 );
             }
-            notify::TURN_ENDED if verbose => {
+            Event::TurnEnded(r) if verbose => {
                 self.settle();
-                if let Ok(r) = serde_json::from_value::<TurnSubmitResult>(p.clone()) {
-                    let _ = writeln!(self.err, "{}", status_line(&r));
-                }
+                let _ = writeln!(self.err, "{}", status_line(r));
             }
-            notify::TURN_FAILED => {
+            Event::TurnFailed(f) => {
                 self.settle();
                 // What follows it (theseus-ljr).
-                let then = match p.get("then").and_then(Value::as_str) {
+                let then = match f.then.as_deref() {
                     Some("backoff") => " [retrying with backoff]",
                     Some("retry") => " [retrying once]",
                     Some("park") => " [not retried: the next message retries]",
@@ -277,11 +264,11 @@ impl<O: Write, E: Write> Printer<O, E> {
                 let _ = writeln!(
                     self.err,
                     "  ✗ turn failed{}: {}{then}",
-                    p.get("class")
-                        .and_then(Value::as_str)
+                    f.class
+                        .as_deref()
                         .map(|c| format!(" ({c})"))
                         .unwrap_or_default(),
-                    s("error")
+                    f.error
                 );
             }
             _ => {}
@@ -445,29 +432,25 @@ pub fn result_word(status: &str, stopped_by: Option<&str>) -> String {
 
 /// `theseus watch`'s line for a `tool.ended`: the tool, how it ended, and its
 /// exit code, time, size, and marks.
-pub fn tool_ended_line(p: &Value) -> String {
-    let u = |k: &str| p.get(k).and_then(Value::as_u64);
-    let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("");
+pub fn tool_ended_line(t: &ToolEnded) -> String {
     let mut extra = Vec::new();
-    if let Some(c) = p.get("exit_code").and_then(Value::as_i64) {
+    if let Some(c) = t.exit_code {
         extra.push(format!("exit {c}"));
     }
-    if let Some(ms) = u("duration_ms") {
+    if let Some(ms) = t.duration_ms {
         extra.push(format!("{ms} ms"));
     }
-    if let Some(b) = u("bytes") {
-        extra.push(fmt_bytes(b));
-    }
-    if p.get("truncated").and_then(Value::as_bool) == Some(true) {
+    extra.push(fmt_bytes(t.bytes));
+    if t.truncated {
         extra.push("truncated".into());
     }
-    if p.get("late").and_then(Value::as_bool) == Some(true) {
+    if t.late {
         extra.push("late".into());
     }
     format!(
         "  ← {} {}{}",
-        s("tool"),
-        result_word(s("status"), p.get("stopped_by").and_then(Value::as_str)),
+        t.tool,
+        result_word(&t.status, t.stopped_by.as_deref()),
         if extra.is_empty() {
             String::new()
         } else {
@@ -746,13 +729,13 @@ pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> St
 
 /// A Theseus job's process tried to answer an approval and was refused
 /// (theseus-6qy), as `theseus watch` says it.
-pub fn job_refusal_line(p: &Value) -> String {
-    let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("?");
-    let what = match s("act") {
-        method::POLICY_UNTIGHTEN => format!("the undo of {}'s tightening", s("tool")),
-        _ => format!("an answer to {}", s("tool")),
+pub fn job_refusal_line(r: &ApprovalRefused) -> String {
+    let tool = r.tool.as_deref().unwrap_or("?");
+    let what = match r.act.as_str() {
+        method::POLICY_UNTIGHTEN => format!("the undo of {tool}'s tightening"),
+        _ => format!("an answer to {tool}"),
     };
-    format!("refused {what} {} through {}", s("why"), s("via"))
+    format!("refused {what} {} through {}", r.why, r.via)
 }
 
 /// The kernel line's note of job wrappers that linger for descendants their
@@ -1590,6 +1573,7 @@ pub fn ledger_row(r: &theseus_protocol::LedgerEntry) -> serde_json::Result<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use theseus_protocol::notify;
 
     /// `theseus wakes` and health's wakes line (DD8).
     #[test]
@@ -1676,16 +1660,17 @@ mod tests {
     #[test]
     fn a_jobs_refused_answer_is_one_line() {
         let why = "from a Theseus job's process (job act_j, pid 42, theseus)";
+        let refused = |v: Value| serde_json::from_value::<ApprovalRefused>(v).unwrap();
         assert_eq!(
-            job_refusal_line(
-                &serde_json::json!({"act": "action.confirm", "tool": "fs.write", "via": "cli", "why": why})
-            ),
+            job_refusal_line(&refused(
+                serde_json::json!({"act": "action.confirm", "tool": "fs.write", "via": "cli", "why": why})
+            )),
             format!("refused an answer to fs.write {why} through cli")
         );
         assert_eq!(
-            job_refusal_line(
-                &serde_json::json!({"act": "policy.untighten", "tool": "fs.edit", "via": "web", "why": why})
-            ),
+            job_refusal_line(&refused(
+                serde_json::json!({"act": "policy.untighten", "tool": "fs.edit", "via": "web", "why": why})
+            )),
             format!("refused the undo of fs.edit's tightening {why} through web")
         );
     }
@@ -1842,15 +1827,23 @@ mod tests {
     /// cancelled, and a decline not run (theseus-4uw).
     #[test]
     fn a_call_a_stop_ended_reads_stopped_in_watch_and_history() {
-        let stopped = serde_json::json!({"tool": "proc.run", "status": "cancelled", "duration_ms": 2100,
-            "bytes": 40, "stopped_by": "the CLI"});
+        let ended = |v: Value| serde_json::from_value::<ToolEnded>(v).unwrap();
+        let stopped = ended(
+            serde_json::json!({"tool": "proc.run", "status": "cancelled",
+            "duration_ms": 2100, "bytes": 40, "stopped_by": "the CLI"}),
+        );
         assert_eq!(
             tool_ended_line(&stopped),
             "  ← proc.run stopped by the CLI · 2100 ms · 40 B"
         );
-        let cancelled =
-            serde_json::json!({"tool": "proc.run", "status": "cancelled", "duration_ms": 5});
-        assert_eq!(tool_ended_line(&cancelled), "  ← proc.run cancelled · 5 ms");
+        let cancelled = ended(
+            serde_json::json!({"tool": "proc.run", "status": "cancelled",
+            "duration_ms": 5, "bytes": 0}),
+        );
+        assert_eq!(
+            tool_ended_line(&cancelled),
+            "  ← proc.run cancelled · 5 ms · 0 B"
+        );
         assert_eq!(
             result_word("ok", Some("the CLI")),
             "ok",
@@ -2092,21 +2085,21 @@ mod tests {
     /// of the reply; `Watch` adds each turn's start; `Json` prints nothing.
     #[test]
     fn each_mode_prints_what_it_says() {
+        let delta =
+            |text: &str| serde_json::json!({"turn_id": "turn_a", "loop_index": 0, "text": text});
         let events = [
             (
                 notify::TURN_STARTED,
                 serde_json::json!({"session_id": "ses_a", "turn_id": "turn_a", "continuation": true}),
             ),
-            (notify::MODEL_THINKING, serde_json::json!({"text": "hm"})),
+            (notify::MODEL_THINKING, delta("hm")),
+            (notify::MODEL_DELTA, delta("Half a line")),
             (
-                notify::MODEL_DELTA,
-                serde_json::json!({"text": "Half a line"}),
+                notify::TOOL_STARTED,
+                serde_json::json!({"session_id": "ses_a", "turn_id": "turn_a", "tool": "fs.read",
+                    "tool_use_id": "tu_1", "correlation_id": "act_1", "backend": "inproc"}),
             ),
-            (notify::TOOL_STARTED, serde_json::json!({"tool": "fs.read"})),
-            (
-                notify::MODEL_DELTA,
-                serde_json::json!({"text": " and the rest\n"}),
-            ),
+            (notify::MODEL_DELTA, delta(" and the rest\n")),
         ];
         let run = |mode, thinking| {
             let mut p = Printer::to(mode, thinking, Vec::new(), Vec::new());

@@ -7,7 +7,7 @@
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
-use theseus_protocol::{notify, Message, Notification, PolicyTrustParams, TrustResult};
+use theseus_protocol::{Event, Message, PolicyTrustParams, TrustResult};
 
 use super::confirms::Act;
 use super::server::{Conn, RpcFailure};
@@ -106,7 +106,7 @@ impl Core {
             );
             self.bus.publish(
                 session_id,
-                &Message::Notification(Notification::new(notify::SESSION_TRUSTED, r)),
+                &Message::from(Event::SessionTrusted(r.clone())),
                 None,
             );
         }

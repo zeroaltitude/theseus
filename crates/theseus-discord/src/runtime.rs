@@ -20,6 +20,7 @@ use theseus_core::approval::{Checked, Client, Surface};
 use theseus_core::config::DiscordConfig;
 use theseus_core::outbox::OPERATOR_TARGET;
 use theseus_core::Core;
+use theseus_protocol::Event as CoreEvent;
 use theseus_protocol::{
     Attachment, BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams,
     SessionInfo, SessionKind, SessionListResult, SessionOpenParams, SessionRef, TightenResult,
@@ -555,7 +556,7 @@ struct Routes {
 
 enum PlaceMsg {
     Inbound(Inbound),
-    Event(Notification),
+    Event(Box<CoreEvent>),
     SubmitDone(Result<(), CallError>),
     Control {
         cmd: Control,
@@ -1545,10 +1546,10 @@ fn parse_confirm_id(id: &str) -> Option<Press> {
 }
 
 /// A notification every place gets, whatever session it names.
-fn everywhere(method: &str) -> bool {
+fn everywhere(e: &CoreEvent) -> bool {
     matches!(
-        method,
-        theseus_protocol::notify::POLICY_TIGHTENED | theseus_protocol::notify::POLICY_UNTIGHTENED
+        e,
+        CoreEvent::PolicyTightened(_) | CoreEvent::PolicyUntightened(_)
     )
 }
 
@@ -1725,10 +1726,15 @@ pub(crate) fn confirm_buttons(corr: &str, trust: bool) -> Vec<Component> {
 /// (theseus-q4v), so no place renders it.
 async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notification>) {
     while let Some(n) = notes.recv().await {
-        if n.method == theseus_protocol::notify::APPROVAL_REFUSED {
+        // The binding runs with its core, so every notification is one this
+        // build reads.
+        let Ok(Some(e)) = CoreEvent::from_notification(&n.method, &n.params) else {
+            continue;
+        };
+        if matches!(e, CoreEvent::ApprovalRefused(_)) {
             continue;
         }
-        if everywhere(&n.method) {
+        if everywhere(&e) {
             let places: Vec<mpsc::UnboundedSender<PlaceMsg>> = shared
                 .routes
                 .lock()
@@ -1738,25 +1744,21 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
                 .cloned()
                 .collect();
             for tx in places {
-                let _ = tx.send(PlaceMsg::Event(n.clone()));
+                let _ = tx.send(PlaceMsg::Event(Box::new(e.clone())));
             }
             continue;
         }
         let target = {
             let mut r = shared.routes.lock().unwrap();
-            let sid = n
-                .params
-                .get("session_id")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let turn = n.params.get("turn_id").and_then(Value::as_str);
+            let sid = e.session_id().map(str::to_string);
+            let turn = e.turn_id();
             if let (Some(sid), Some(turn)) = (&sid, turn) {
-                if n.method == theseus_protocol::notify::TURN_STARTED {
+                if matches!(e, CoreEvent::TurnStarted(_)) {
                     r.turns.insert(turn.to_string(), sid.clone());
                 }
             }
             let sid = sid.or_else(|| turn.and_then(|t| r.turns.get(t).cloned()));
-            if n.method == theseus_protocol::notify::TURN_ENDED {
+            if matches!(e, CoreEvent::TurnEnded(_)) {
                 if let Some(t) = turn {
                     r.turns.remove(t);
                 }
@@ -1764,7 +1766,7 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
             sid.and_then(|s| r.by_session.get(&s).cloned())
         };
         if let Some(tx) = target {
-            let _ = tx.send(PlaceMsg::Event(n));
+            let _ = tx.send(PlaceMsg::Event(Box::new(e)));
         }
     }
 }
@@ -1849,25 +1851,27 @@ impl Place {
                 }
                 self.report();
             }
-            PlaceMsg::Event(n) => {
-                use theseus_protocol::notify;
-                if n.method == notify::TURN_FAILED {
+            PlaceMsg::Event(e) => {
+                let e = *e;
+                if matches!(e, CoreEvent::TurnFailed(_)) {
                     self.saw_failure = true;
                 }
                 // The turn a `/stop` stopped (W1) streams no more here, and
                 // what it proposes will not run; its tool messages still
                 // take their last state, and its end clears it.
-                let turn = n.params.get("turn_id").and_then(Value::as_str);
+                let turn = e.turn_id();
                 if turn.is_some() && turn == self.stopped_turn.as_deref() {
-                    match n.method.as_str() {
-                        notify::MODEL_DELTA | notify::MODEL_THINKING | notify::TOOL_PROPOSED => {
-                            return
+                    match e {
+                        CoreEvent::ModelDelta(_)
+                        | CoreEvent::ModelThinking(_)
+                        | CoreEvent::ToolProposed(_) => return,
+                        CoreEvent::TurnEnded(_) | CoreEvent::TurnFailed(_) => {
+                            self.stopped_turn = None
                         }
-                        notify::TURN_ENDED | notify::TURN_FAILED => self.stopped_turn = None,
                         _ => {}
                     }
                 }
-                let ops = self.renderer.on_notification(&n.method, &n.params);
+                let ops = self.renderer.on_event(&e);
                 self.apply(ops);
             }
             PlaceMsg::SubmitDone(r) => {
@@ -2562,8 +2566,11 @@ mod tests {
             panic!()
         };
         assert_eq!(b.custom_id.as_deref(), Some("tighten:proc.run|act_019"));
-        assert!(everywhere("policy.tightened") && everywhere("policy.untightened"));
-        assert!(!everywhere("policy.notified"));
+        assert!(
+            everywhere(&CoreEvent::PolicyTightened(Default::default()))
+                && everywhere(&CoreEvent::PolicyUntightened(Default::default()))
+        );
+        assert!(!everywhere(&CoreEvent::PolicyNotified(Default::default())));
     }
 
     /// A core over a scratch store, with the template's tools and posture,

@@ -6,8 +6,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
-use theseus_protocol::{Message, Notification};
+use theseus_protocol::{Event, Message};
 use tokio::sync::mpsc::UnboundedSender;
 
 /// A watcher: its connection id and where its messages go.
@@ -94,8 +93,8 @@ impl EventSink {
         }
     }
 
-    pub fn send<T: Serialize>(&self, method: &str, params: T) {
-        let m = Message::Notification(Notification::new(method, params));
+    pub fn send(&self, e: Event) {
+        let m = Message::from(e);
         if let Some((_, tx)) = &self.direct {
             let _ = tx.send(m.clone());
         }
@@ -123,7 +122,7 @@ mod tests {
         bus.watch("s", "c", tx_c);
         drop(rx_c);
         let sink = EventSink::new(bus.clone(), "s", Some(("a".into(), tx_a)));
-        sink.send("x.y", serde_json::json!({"k": 1}));
+        sink.send(Event::NodeWritten(Default::default()));
         assert!(rx_a.try_recv().is_ok(), "direct delivery");
         assert!(rx_a.try_recv().is_err(), "not again through the bus");
         assert!(rx_b.try_recv().is_ok());
@@ -142,7 +141,7 @@ mod tests {
         bus.watch("s1", "a", tx_a.clone());
         bus.watch("s2", "a", tx_a);
         bus.watch("s2", "b", tx_b);
-        bus.publish_all(&Message::Notification(Notification::new("x.y", 1)));
+        bus.publish_all(&Message::from(Event::NodeWritten(Default::default())));
         assert!(rx_a.try_recv().is_ok());
         assert!(
             rx_a.try_recv().is_err(),

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use serde_json::json;
-use theseus_protocol::{notify, ConfirmRequest, Message};
+use theseus_protocol::{ApprovalRefused, ConfirmRequest, ConfirmResolved, Event, Message};
 
 use super::Core;
 use crate::approval::{Answerer, Refusal};
@@ -43,6 +43,10 @@ impl Core {
             } if *c == a.correlation_id => Some((tool, input, gate)),
             _ => None,
         })?;
+        let decision = gate
+            .as_ref()
+            .and_then(|g| g.decision.clone())
+            .unwrap_or_default();
         Some(ConfirmRequest {
             correlation_id: a.correlation_id.clone(),
             session_id: session.session_id.clone(),
@@ -50,21 +54,16 @@ impl Core {
             tool: tool.clone(),
             input: input.clone(),
             resource: a.resource.clone(),
-            reason: gate["decision"]["reason"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string(),
+            reason: decision.reason,
             by: OPERATOR.into(),
             requested_at_ms: a.planned_at_ms,
             expires_at_ms: a.planned_at_ms + self.kernel.config().confirm_ttl_ms,
-            floor: gate["decision"]["floor"].as_bool().unwrap_or(false),
+            floor: decision.floor,
             budget: None,
             task: crate::task::task_ref(session),
             // The call waits because its session read external text
             // (theseus-9bp): its card offers to trust the session again.
-            external_text: gate["decision"]
-                .get("external")
-                .and_then(|v| serde_json::from_value(v.clone()).ok()),
+            external_text: decision.external,
         })
     }
 
@@ -320,10 +319,14 @@ impl Core {
         }
         self.bus.publish(
             &a.session_id,
-            &Message::Notification(theseus_protocol::Notification::new(
-                notify::CONFIRM_RESOLVED,
-                json!({"session_id": a.session_id, "correlation_id": correlation_id, "approved": approve, "by": by, "trust": trust}),
-            )),
+            &Message::from(Event::ConfirmResolved(ConfirmResolved {
+                session_id: a.session_id.clone(),
+                correlation_id: correlation_id.into(),
+                approved: approve,
+                by: Some(by.into()),
+                trust: Some(trust),
+                ..Default::default()
+            })),
             None,
         );
         self.card_closed(
@@ -425,7 +428,7 @@ impl Core {
             data.clone(),
         ))?;
         if from_job {
-            self.refused_from_job(act, r, session, data);
+            self.refused_from_job(act, who, r, session, traced);
             return Ok(());
         }
         match act {
@@ -485,9 +488,10 @@ impl Core {
     fn refused_from_job(
         &self,
         act: Act<'_>,
+        who: &Answerer,
         r: &Refusal,
         session: Option<&str>,
-        mut data: serde_json::Value,
+        traced: &Traced,
     ) {
         let what = match act {
             Act::Answer { action: a, .. } => format!("an answer to {}", a.tool),
@@ -513,21 +517,38 @@ impl Core {
             r.why,
             r.via
         );
-        data["act"] = json!(act.method());
-        data["session_id"] = json!(session);
+        let (correlation_id, tool, approve) = match act {
+            Act::Answer { action: a, approve } => (
+                Some(a.correlation_id.clone()),
+                Some(a.tool.clone()),
+                Some(approve),
+            ),
+            Act::Tighten { tool } | Act::Untighten { tool } => (None, Some(tool.into()), None),
+            Act::Trust { .. } => (None, None, None),
+        };
+        let refusal = ApprovalRefused {
+            act: act.method().into(),
+            session_id: session.map(str::to_string),
+            correlation_id,
+            tool,
+            approve,
+            who: r.who.clone(),
+            via: r.via.clone(),
+            why: r.why.clone(),
+            by: who.label.clone(),
+            asker: traced.asker(),
+            from_job: true,
+        };
         // A security event the operator must see, where approvals go, whether
         // or not the binding is there now (theseus-q4v).
         if let Err(e) = self
             .outbox
-            .to_operator(session, json!({"kind": "refusal", "params": data}))
+            .to_operator(session, json!({"kind": "refusal", "params": refusal}))
         {
             tracing::warn!(error = %format!("{e:#}"), "the refusal's notice was not written");
         }
         self.bus
-            .publish_all(&Message::Notification(theseus_protocol::Notification::new(
-                notify::APPROVAL_REFUSED,
-                data,
-            )));
+            .publish_all(&Message::from(Event::ApprovalRefused(refusal)));
     }
 
     /// Answer a budget question (theseus-0sg). Approve: the execution's spend
@@ -580,10 +601,13 @@ impl Core {
         ))?;
         self.bus.publish(
             &q.session_id,
-            &Message::Notification(theseus_protocol::Notification::new(
-                notify::CONFIRM_RESOLVED,
-                json!({"session_id": q.session_id, "correlation_id": correlation_id, "approved": approve, "by": by}),
-            )),
+            &Message::from(Event::ConfirmResolved(ConfirmResolved {
+                session_id: q.session_id.clone(),
+                correlation_id: correlation_id.into(),
+                approved: approve,
+                by: Some(by.into()),
+                ..Default::default()
+            })),
             None,
         );
         self.card_closed(
@@ -657,10 +681,13 @@ impl Core {
             if let Some(q) = &f.withdrew {
                 self.bus.publish(
                     &f.session_id,
-                    &Message::Notification(theseus_protocol::Notification::new(
-                        notify::CONFIRM_RESOLVED,
-                        json!({"session_id": f.session_id, "correlation_id": q, "approved": false, "withdrawn": true, "by": "config"}),
-                    )),
+                    &Message::from(Event::ConfirmResolved(ConfirmResolved {
+                        session_id: f.session_id.clone(),
+                        correlation_id: q.clone(),
+                        by: Some("config".into()),
+                        withdrawn: true,
+                        ..Default::default()
+                    })),
                     None,
                 );
                 // S1's stale card (theseus-3pj): the raise closed it, and the

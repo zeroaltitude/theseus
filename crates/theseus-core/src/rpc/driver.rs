@@ -14,6 +14,7 @@ use crate::session::SessionRecord;
 use crate::turn::TurnRequest;
 use theseus_kernel::job::WrapperEvidence;
 use theseus_kernel::Execution;
+use theseus_protocol::{ConfirmResolved, Event};
 
 impl Core {
     /// Heartbeat: drain the spool, reconcile against the wrapper evidence.
@@ -186,11 +187,15 @@ impl Core {
             // A question the operator was asked: a tool call waiting for an
             // answer, or the budget question. Each keeps its proposal.
             if a.proposal.is_some() && a.confirm.is_none() {
-                EventSink::new(self.bus.clone(), &a.session_id, None).send(
-                    theseus_protocol::notify::CONFIRM_RESOLVED,
-                    serde_json::json!({"session_id": a.session_id, "correlation_id": a.correlation_id,
-                        "approved": false, "cancelled": true, "by": by}),
-                );
+                EventSink::new(self.bus.clone(), &a.session_id, None).send(Event::ConfirmResolved(
+                    ConfirmResolved {
+                        session_id: a.session_id.clone(),
+                        correlation_id: a.correlation_id.clone(),
+                        by: Some(by.into()),
+                        cancelled: true,
+                        ..Default::default()
+                    },
+                ));
             }
         }
         let to_kill = cancel.to_kill;
@@ -287,11 +292,13 @@ impl Core {
             ) {
                 tracing::warn!(error = %format!("{e:#}"), "a stopped question's settle was not written");
             }
-            sink.send(
-                theseus_protocol::notify::CONFIRM_RESOLVED,
-                serde_json::json!({"session_id": a.session_id, "correlation_id": a.correlation_id,
-                    "approved": false, "stopped": true, "by": by}),
-            );
+            sink.send(Event::ConfirmResolved(ConfirmResolved {
+                session_id: a.session_id.clone(),
+                correlation_id: a.correlation_id.clone(),
+                by: Some(by.into()),
+                stopped: true,
+                ..Default::default()
+            }));
         }
         self.terminate_all(&stop.to_kill).await;
         self.admission.notify_waiters();

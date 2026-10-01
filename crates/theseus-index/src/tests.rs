@@ -159,7 +159,7 @@ pub(crate) fn call(session: &str, tool: &str, input: serde_json::Value) -> Node 
             input,
             assistant_node: "msg_0".into(),
             correlation_id: None,
-            gate: json!({}),
+            gate: None,
         },
     )
 }

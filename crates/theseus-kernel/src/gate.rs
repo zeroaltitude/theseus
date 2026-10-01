@@ -4,21 +4,12 @@
 //! digest, a confirm binds that digest, and `authorize` refuses a proposal
 //! whose digest changed after it was planned or confirmed.
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-/// A proposed tool call as the model (or a test) states it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Proposal {
-    pub tool: String,
-    pub args: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resource: Option<String>,
-    /// Policy context the confirm is bound to (binding revision, role, channel).
-    #[serde(default)]
-    pub policy_context: Value,
-}
+/// A proposed tool call as the model (or a test) states it: the protocol's
+/// type, since a tool call's gate record carries it (theseus-0g4).
+pub use theseus_protocol::Proposal;
 
 /// sha256 over the proposal's JSON, keys sorted.
 pub fn digest_proposal(p: &Proposal) -> String {

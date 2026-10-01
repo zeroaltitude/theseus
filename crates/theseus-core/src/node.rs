@@ -141,9 +141,11 @@ pub enum Body {
         assistant_node: String,
         #[serde(default)]
         correlation_id: Option<String>,
-        /// The gate's decision and trace.
-        #[serde(default)]
-        gate: Value,
+        /// The gate's record: its input's validation, the policy's verdict,
+        /// the plan, and the proposal a confirm binds. Written with its keys
+        /// sorted, as every record before the type was (theseus-0g4).
+        #[serde(default, serialize_with = "theseus_protocol::canonical")]
+        gate: Option<Box<theseus_protocol::GateRecord>>,
     },
     ToolResult {
         tool_use_id: String,

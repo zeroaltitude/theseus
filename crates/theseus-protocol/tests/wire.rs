@@ -649,3 +649,523 @@ fn narrative_line() {
         ),
     );
 }
+
+// ------------------------------- the typed events write the captured bytes
+
+/// The typed event, as a sender builds it, writes the fixture's bytes.
+fn typed(name: &str, e: Event) {
+    wire(name, &serde_json::to_string(&Message::from(e)).unwrap());
+}
+
+fn external_typed() -> ExternalText {
+    ExternalText {
+        since_ms: 1_759_300_000_000,
+        tool: "http.fetch".into(),
+        url: "notes.example/today".into(),
+        node_id: "nod_e1".into(),
+        via: Some("fs.read".into()),
+        ..Default::default()
+    }
+}
+
+fn plan_typed(argv: bool) -> Plan {
+    Plan {
+        resources: vec![Resource {
+            path: "/w/notes".into(),
+            access: if argv { Access::Exec } else { Access::Read },
+        }],
+        argv: argv.then(|| vec!["make".into(), "notes".into()]),
+        url: None,
+        summary: if argv { "run make notes" } else { "list notes" }.into(),
+    }
+}
+
+fn proposal_typed(tool: &str) -> Proposal {
+    Proposal {
+        tool: tool.into(),
+        args: json!({"path": "notes"}),
+        resource: Some("/w/notes".into()),
+        policy_context: json!({}),
+    }
+}
+
+fn proposed_typed(tool: &str, gate: GateRecord) -> Event {
+    Event::ToolProposed(ToolProposed {
+        session_id: S.into(),
+        turn_id: T.into(),
+        tool_use_id: "tu_1".into(),
+        tool: tool.into(),
+        input: json!({"path": "notes"}),
+        gate,
+    })
+}
+
+#[test]
+fn typed_tool_proposed() {
+    let allow = GateResult {
+        gate: "allow".into(),
+        ..Default::default()
+    };
+    typed(
+        "tool_proposed_allow",
+        proposed_typed(
+            "fs.list",
+            GateRecord {
+                result: allow.clone(),
+                validated: true,
+                decision: Some(GateDecision {
+                    posture: Some("open".into()),
+                    reason: "fs.list — open (policy.tools)".into(),
+                    ..Default::default()
+                }),
+                plan: Some(plan_typed(false)),
+                proposal: proposal_typed("fs.list"),
+            },
+        ),
+    );
+    typed(
+        "tool_proposed_notify",
+        proposed_typed(
+            "proc.run",
+            GateRecord {
+                result: allow,
+                validated: true,
+                decision: Some(GateDecision {
+                    posture: Some("notify".into()),
+                    reason: "proc.run — notify (enforcement = notify)".into(),
+                    notify: Some(Notice {
+                        kind: "notify".into(),
+                        setting: "enforcement = notify".into(),
+                        rule: "proc.run — notify (enforcement = notify)".into(),
+                    }),
+                    granted: Some("gh got GH_TOKEN".into()),
+                    ..Default::default()
+                }),
+                plan: Some(plan_typed(true)),
+                proposal: proposal_typed("proc.run"),
+            },
+        ),
+    );
+    typed(
+        "tool_proposed_confirm",
+        proposed_typed(
+            "fs.write",
+            GateRecord {
+                result: GateResult {
+                    gate: "needs_confirm".into(),
+                    reason: None,
+                    by: Some("operator".into()),
+                },
+                validated: true,
+                decision: Some(GateDecision {
+                    posture: Some("approve".into()),
+                    reason: "write outside the roots: fs.write — approve".into(),
+                    floor: true,
+                    external: Some(external_typed()),
+                    ..Default::default()
+                }),
+                plan: Some(plan_typed(false)),
+                proposal: proposal_typed("fs.write"),
+            },
+        ),
+    );
+    typed(
+        "tool_proposed_invalid",
+        proposed_typed(
+            "fs.read",
+            GateRecord {
+                result: GateResult {
+                    gate: "deny".into(),
+                    reason: Some("validation: missing field `path`".into()),
+                    by: None,
+                },
+                validated: false,
+                decision: None,
+                plan: None,
+                proposal: proposal_typed("fs.read"),
+            },
+        ),
+    );
+}
+
+#[test]
+fn typed_model_thinking_and_context() {
+    typed(
+        "model_thinking",
+        Event::ModelThinking(ModelDelta {
+            turn_id: T.into(),
+            loop_index: 1,
+            text: "Look first.\n".into(),
+        }),
+    );
+    let summary = |recompile: bool| ContextCompiled {
+        session_id: S.into(),
+        turn_id: T.into(),
+        loop_index: 1,
+        decision: if recompile { "recompile" } else { "append" }.into(),
+        trigger: recompile.then(|| "window".into()),
+        compilation_id: "cmp_b2".into(),
+        strategy: "fresh".into(),
+        prefix_nodes: 2,
+        tail_nodes: 6,
+        messages: 7,
+        est_tokens: 4210,
+        digest: "9f2c1a0b7d3e4f51".into(),
+        repairs: if recompile {
+            vec!["tu_lost1".into()]
+        } else {
+            vec![]
+        },
+        tools: 14,
+        nodes_scanned: 11,
+        context_files: if recompile {
+            vec![
+                ContextFileRef {
+                    path: "/w/AGENTS.md".into(),
+                    digest: Some("a1b2c3d4e5f60718".into()),
+                    bytes: 2048,
+                    cut: false,
+                    missing: None,
+                    persona: None,
+                },
+                ContextFileRef {
+                    path: "/w/persona/clerk.md".into(),
+                    digest: Some("0f1e2d3c4b5a6978".into()),
+                    bytes: 65536,
+                    cut: true,
+                    missing: None,
+                    persona: Some("clerk".into()),
+                },
+                ContextFileRef {
+                    path: "/w/missing.md".into(),
+                    digest: None,
+                    bytes: 0,
+                    cut: false,
+                    missing: Some("not found".into()),
+                    persona: None,
+                },
+            ]
+        } else {
+            vec![]
+        },
+        persona: recompile.then(|| "clerk".into()),
+        cache: CacheSummary {
+            breakpoints: if recompile {
+                vec!["header".into(), "conversation".into()]
+            } else {
+                vec![]
+            },
+            ttl: "1h".into(),
+            conversation_ttl: "5m".into(),
+        },
+    };
+    typed(
+        "context_compiled_recompile",
+        Event::ContextCompiled(summary(true)),
+    );
+    typed(
+        "context_compiled_append",
+        Event::ContextCompiled(summary(false)),
+    );
+}
+
+#[test]
+fn typed_tool_started_ended_and_written() {
+    for (name, backend) in [
+        ("tool_started_harness", "harness"),
+        ("tool_started_inproc", "inproc"),
+    ] {
+        typed(
+            name,
+            Event::ToolStarted(ToolStarted {
+                session_id: S.into(),
+                turn_id: T.into(),
+                tool_use_id: "tu_3".into(),
+                tool: "fs.read".into(),
+                correlation_id: "act_k3".into(),
+                backend: backend.into(),
+                job: None,
+            }),
+        );
+    }
+    for (name, granted, withheld) in [
+        ("tool_started_job", None, vec![]),
+        (
+            "tool_started_job_granted",
+            Some("gh got GH_TOKEN"),
+            vec!["git got no GIT_TOKEN".to_string()],
+        ),
+    ] {
+        typed(
+            name,
+            Event::ToolStarted(ToolStarted {
+                session_id: S.into(),
+                turn_id: T.into(),
+                tool_use_id: "tu_2".into(),
+                tool: "proc.run".into(),
+                correlation_id: "act_k2".into(),
+                backend: "job".into(),
+                job: Some(JobStarted {
+                    pid: 4242,
+                    argv: vec!["make".into(), "notes".into()],
+                    cwd: "/w/notes".into(),
+                    granted: granted.map(Into::into),
+                    withheld,
+                }),
+            }),
+        );
+    }
+    for (name, correlation_id, exit_code, stopped_by, late) in [
+        ("tool_ended_ok", Some("act_k2"), Some(0), None, false),
+        (
+            "tool_ended_stopped",
+            Some("act_k3"),
+            None,
+            Some("the CLI"),
+            true,
+        ),
+        ("tool_ended_unknown_tool", None, None, None, false),
+    ] {
+        typed(
+            name,
+            Event::ToolEnded(ToolEnded {
+                session_id: S.into(),
+                turn_id: T.into(),
+                tool_use_id: "tu_2".into(),
+                tool: "proc.run".into(),
+                status: "ok".into(),
+                duration_ms: Some(1520),
+                correlation_id: correlation_id.map(Into::into),
+                late,
+                truncated: true,
+                bytes: 70_000,
+                node_id: "nod_r2".into(),
+                exit_code,
+                stopped_by: stopped_by.map(Into::into),
+                preview: "a.md\nb.md\n".repeat(300).chars().take(2000).collect(),
+            }),
+        );
+    }
+    typed(
+        "node_written",
+        Event::NodeWritten(NodeWritten {
+            session_id: S.into(),
+            node_id: "nod_r2".into(),
+            kind: "tool_result".into(),
+        }),
+    );
+}
+
+#[test]
+fn typed_policy_notified_and_resolved() {
+    for (name, granted, task) in [
+        ("policy_notified", None, None),
+        (
+            "policy_notified_task",
+            Some("gh got GH_TOKEN"),
+            Some("t4sk01"),
+        ),
+    ] {
+        typed(
+            name,
+            Event::PolicyNotified(PolicyNotified {
+                session_id: S.into(),
+                turn_id: T.into(),
+                tool_use_id: "tu_2".into(),
+                correlation_id: "act_k2".into(),
+                tool: "proc.run".into(),
+                input: json!({"argv": ["make", "notes"]}),
+                summary: "run make notes".into(),
+                notice: Notice {
+                    kind: "notify".into(),
+                    setting: "enforcement = notify".into(),
+                    rule: "proc.run — notify (enforcement = notify)".into(),
+                },
+                granted: granted.map(Into::into),
+                task: task.map(Into::into),
+            }),
+        );
+    }
+    let resolved = |corr: &str, by: Option<&str>| ConfirmResolved {
+        session_id: S.into(),
+        correlation_id: corr.into(),
+        by: by.map(Into::into),
+        ..Default::default()
+    };
+    for (name, r) in [
+        (
+            "confirm_resolved_answer",
+            ConfirmResolved {
+                approved: true,
+                trust: Some(true),
+                ..resolved("act_k4", Some("the CLI"))
+            },
+        ),
+        (
+            "confirm_resolved_budget",
+            resolved("act_b5", Some("discord:ana")),
+        ),
+        (
+            "confirm_resolved_withdrawn",
+            ConfirmResolved {
+                withdrawn: true,
+                ..resolved("act_b5", Some("config"))
+            },
+        ),
+        (
+            "confirm_resolved_cancelled",
+            ConfirmResolved {
+                cancelled: true,
+                ..resolved("act_k4", Some("the CLI"))
+            },
+        ),
+        (
+            "confirm_resolved_stopped",
+            ConfirmResolved {
+                stopped: true,
+                ..resolved("act_k4", Some("the CLI"))
+            },
+        ),
+        (
+            "confirm_resolved_superseded",
+            ConfirmResolved {
+                superseded: true,
+                ..resolved("act_b5", Some("the web UI"))
+            },
+        ),
+        (
+            "confirm_resolved_superseded_call",
+            ConfirmResolved {
+                superseded: true,
+                ..resolved("act_k4", None)
+            },
+        ),
+    ] {
+        typed(name, Event::ConfirmResolved(r));
+    }
+}
+
+#[test]
+fn typed_approval_refused() {
+    let refused = |act: &str, session: Option<&str>, asker: Asker| ApprovalRefused {
+        act: act.into(),
+        session_id: session.map(Into::into),
+        who: "sock#9".into(),
+        via: "cli".into(),
+        why: "from a Theseus job's process (job act_j1, pid 4300, theseus)".into(),
+        by: "the CLI".into(),
+        asker: Some(asker),
+        from_job: true,
+        ..Default::default()
+    };
+    let seen = |pid: u32, argv0: &str, trace_us: u64| Asker {
+        pid: Some(pid),
+        argv0: Some(argv0.into()),
+        trace_us,
+        ..Default::default()
+    };
+    typed(
+        "approval_refused_answer",
+        Event::ApprovalRefused(ApprovalRefused {
+            correlation_id: Some("act_k4".into()),
+            tool: Some("fs.write".into()),
+            approve: Some(true),
+            ..refused(
+                "action.confirm",
+                Some(S),
+                Asker {
+                    job: Some("act_j1".into()),
+                    wrapper_pid: Some(4290),
+                    ..seen(4300, "theseus", 210)
+                },
+            )
+        }),
+    );
+    typed(
+        "approval_refused_tighten",
+        Event::ApprovalRefused(ApprovalRefused {
+            tool: Some("proc.run".into()),
+            ..refused(
+                "policy.tighten",
+                None,
+                Asker {
+                    under_other_daemon: Some(777),
+                    ..seen(4301, "sh", 95)
+                },
+            )
+        }),
+    );
+    typed(
+        "approval_refused_trust",
+        Event::ApprovalRefused(refused(
+            "policy.trust",
+            Some(S),
+            Asker {
+                untraceable: Some("no such process".into()),
+                trace_us: 12,
+                ..Default::default()
+            },
+        )),
+    );
+    typed(
+        "approval_refused_orphan",
+        Event::ApprovalRefused(ApprovalRefused {
+            tool: Some("proc.run".into()),
+            ..refused(
+                "policy.untighten",
+                None,
+                Asker {
+                    under_daemon: Some(4000),
+                    ..seen(4302, "bash", 40)
+                },
+            )
+        }),
+    );
+}
+
+/// Every fixture decodes as its `Event` and writes the same bytes again: what a
+/// client reads is what the daemon sent.
+#[test]
+fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
+    let dir = fixture("x");
+    let dir = dir.parent().unwrap();
+    let mut n = 0;
+    for e in std::fs::read_dir(dir).unwrap() {
+        let path = e.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let line = text.trim_end_matches('\n');
+        let Message::Notification(note) = serde_json::from_str(line).unwrap() else {
+            panic!("{}: not a notification", path.display());
+        };
+        let event = Event::from_notification(&note.method, &note.params)
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+            .unwrap_or_else(|| panic!("{}: an unknown method", path.display()));
+        assert_eq!(event.method(), note.method);
+        let again = serde_json::to_string(&Message::from(event)).unwrap();
+        assert_eq!(again, line, "{}", path.display());
+        n += 1;
+    }
+    assert_eq!(n, 43);
+}
+
+/// Every line of a real daemon's capture (`theseus --json watch`, its path in
+/// `THESEUS_WIRE_CAPTURE`) decodes as its `Event` and writes the same bytes
+/// again: the typed structs cover what a daemon sends.
+#[test]
+#[ignore = "reads THESEUS_WIRE_CAPTURE, a capture of `theseus --json watch`"]
+fn a_captured_session_decodes_and_writes_the_same_bytes() {
+    let path = std::env::var("THESEUS_WIRE_CAPTURE").expect("THESEUS_WIRE_CAPTURE");
+    let mut methods = std::collections::BTreeMap::<String, usize>::new();
+    for (i, line) in std::fs::read_to_string(&path).unwrap().lines().enumerate() {
+        let Message::Notification(note) = serde_json::from_str(line).unwrap() else {
+            panic!("line {}: not a notification", i + 1);
+        };
+        let event = Event::from_notification(&note.method, &note.params)
+            .unwrap_or_else(|e| panic!("line {} ({}): {e}", i + 1, note.method))
+            .unwrap_or_else(|| panic!("line {}: unknown method {}", i + 1, note.method));
+        let again = serde_json::to_string(&Message::from(event)).unwrap();
+        assert_eq!(again, line, "line {} ({})", i + 1, note.method);
+        *methods.entry(note.method).or_default() += 1;
+    }
+    eprintln!("{methods:?}");
+}

@@ -8,8 +8,8 @@
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
 use theseus_protocol::{
-    error_code, notify, Message, Notification, PolicyTightenParams, PolicyUntightenParams,
-    TightenResult, Tightening,
+    error_code, Event, Message, PolicyTightenParams, PolicyUntightenParams, TightenResult,
+    Tightening,
 };
 
 use super::confirms::Act;
@@ -118,7 +118,7 @@ impl Core {
             );
         }
         let r = result(tool, &who.label, t, after, changed, false);
-        self.announce(notify::POLICY_TIGHTENED, &r);
+        self.announce(Event::PolicyTightened(r.clone()));
         Ok(r)
     }
 
@@ -173,15 +173,14 @@ impl Core {
             );
         }
         let r = result(tool, &who.label, t, after, changed, false);
-        self.announce(notify::POLICY_UNTIGHTENED, &r);
+        self.announce(Event::PolicyUntightened(r.clone()));
         Ok(r)
     }
 
     /// A tightening holds for every session, so every watching connection
     /// hears of it once.
-    fn announce(&self, method: &str, r: &TightenResult) {
-        self.bus
-            .publish_all(&Message::Notification(Notification::new(method, r)));
+    fn announce(&self, e: Event) {
+        self.bus.publish_all(&Message::from(e));
     }
 
     pub(super) fn policy_tighten(

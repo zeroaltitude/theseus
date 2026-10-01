@@ -18,7 +18,7 @@ use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Mutex;
 
-use theseus_protocol::{notify, Message, NarrativeLine, NarrativePart, Notification};
+use theseus_protocol::{Event, Message, NarrativeLine, NarrativePart};
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Lines the tail keeps for a subscriber that arrives late.
@@ -112,7 +112,7 @@ impl Narrator {
             text,
         };
         if !s.subs.is_empty() {
-            let m = Message::Notification(Notification::new(notify::NARRATIVE_LINE, &line));
+            let m = Message::from(Event::NarrativeLine(line.clone()));
             s.subs.retain(|(_, tx)| tx.send(m.clone()).is_ok());
         }
         s.tail.push_back(line);
@@ -406,7 +406,7 @@ mod tests {
         let Ok(Message::Notification(m)) = rx.try_recv() else {
             panic!("the new line is sent");
         };
-        assert_eq!(m.method, notify::NARRATIVE_LINE);
+        assert_eq!(m.method, theseus_protocol::notify::NARRATIVE_LINE);
         let line: NarrativeLine = serde_json::from_value(m.params).unwrap();
         assert_eq!((line.seq, line.text.as_str()), (6, "line 6"));
         assert_eq!(n.tail().len(), 3, "the tail stays bounded");

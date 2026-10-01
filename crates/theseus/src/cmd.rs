@@ -10,9 +10,10 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use theseus_protocol::{
     method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
-    HealthResult, LedgerTailParams, LedgerTailResult, Message, ProfileListResult, ProfileUseParams,
-    SessionHistoryParams, SessionHistoryResult, SessionListResult, SessionOpenParams,
-    SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams, TurnSubmitResult,
+    Event, HealthResult, LedgerTailParams, LedgerTailResult, Message, ProfileListResult,
+    ProfileUseParams, SessionHistoryParams, SessionHistoryResult, SessionListResult,
+    SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams,
+    TurnSubmitResult,
 };
 
 use crate::render::{self, Frame, Mode, Printer};
@@ -275,10 +276,15 @@ async fn follow_resumed(
             }
             continue;
         };
-        printer.on(&n.method, &n.params);
-        if n.method == notify::TURN_ENDED {
-            printer.settle();
-            if let Ok(t) = serde_json::from_value::<TurnSubmitResult>(n.params) {
+        let event = Event::from_notification(&n.method, &n.params)
+            .ok()
+            .flatten();
+        if let Some(e) = &event {
+            printer.on_event(e);
+        }
+        match event {
+            Some(Event::TurnEnded(t)) => {
+                printer.settle();
                 if json {
                     println!("{}", serde_json::to_string(&t)?);
                 } else {
@@ -287,15 +293,22 @@ async fn follow_resumed(
                         eprintln!("[parked again: `theseus confirm {c}` or `--decline`]");
                     }
                 }
+                return Ok(());
             }
-            return Ok(());
-        }
-        if n.method == notify::TURN_FAILED {
-            printer.settle();
-            anyhow::bail!(
-                "the resumed turn failed: {}",
-                n.params.get("error").and_then(Value::as_str).unwrap_or("?")
-            );
+            Some(Event::TurnFailed(f)) => {
+                printer.settle();
+                anyhow::bail!("the resumed turn failed: {}", f.error);
+            }
+            // An end this build cannot read still ends the turn.
+            _ if n.method == notify::TURN_ENDED => {
+                printer.settle();
+                return Ok(());
+            }
+            _ if n.method == notify::TURN_FAILED => {
+                printer.settle();
+                anyhow::bail!("the resumed turn failed: ?");
+            }
+            _ => {}
         }
     }
 }

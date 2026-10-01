@@ -29,8 +29,9 @@ fn reencode(payload: &[u8]) -> Result<bool, String> {
             String::from_utf8_lossy(&again)
         ));
     }
+    // The gate alone, in its canonical form: its keys sorted, as stored.
     let stored: Value = serde_json::from_slice(payload).unwrap();
-    let gate = serde_json::to_string(gate).unwrap();
+    let gate = serde_json::to_value(gate).unwrap().to_string();
     assert_eq!(gate, stored["body"]["gate"].to_string(), "the gate alone");
     Ok(true)
 }

@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::{
-    error_code, notify, HealthResult, LedgerEntry, LedgerTailParams, LedgerTailResult, Message,
+    error_code, HealthResult, LedgerEntry, LedgerTailParams, LedgerTailResult, Message,
     ProfileChanged, ProfileInfo, ProfileListResult, ProfileUseParams, ProviderErrorData,
     SessionKind, SessionOpenParams, TurnSubmitParams, Usage,
 };
@@ -516,9 +516,8 @@ impl Core {
             .map_err(RpcFailure::invalid)?;
         let _ = conn
             .tx
-            .send(Message::Notification(theseus_protocol::Notification::new(
-                notify::PROFILE_CHANGED,
-                &changed,
+            .send(Message::from(theseus_protocol::Event::ProfileChanged(
+                changed.clone(),
             )));
         Ok(changed)
     }

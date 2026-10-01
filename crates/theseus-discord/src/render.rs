@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use serde_json::Value;
 use theseus_core::outbox::Closed;
-use theseus_protocol::{ConfirmRequest, TurnSubmitResult};
+use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
 pub const PART_LIMIT: usize = 1900;
@@ -247,9 +247,17 @@ impl Renderer {
     /// Feed one notification for this session; returns what to do right away.
     /// Streamed text and tool lines wait for [`Renderer::tick`].
     pub fn on_notification(&mut self, method: &str, p: &Value) -> Vec<Op> {
-        let turn_id = p.get("turn_id").and_then(Value::as_str).unwrap_or("");
-        match method {
-            "turn.started" => {
+        match Event::from_notification(method, p) {
+            Ok(Some(e)) => self.on_event(&e),
+            _ => vec![],
+        }
+    }
+
+    /// One event for this session, typed (theseus-0g4).
+    pub fn on_event(&mut self, e: &Event) -> Vec<Op> {
+        let turn_id = e.turn_id().unwrap_or("");
+        match e {
+            Event::TurnStarted(_) => {
                 self.turns.push_back(TurnView {
                     turn_id: turn_id.to_string(),
                     loops: BTreeMap::new(),
@@ -261,35 +269,29 @@ impl Renderer {
                 }
                 vec![Op::Typing]
             }
-            "model.delta" => {
-                let li = p.get("loop_index").and_then(Value::as_u64).unwrap_or(0) as u32;
-                let text = p.get("text").and_then(Value::as_str).unwrap_or("");
+            Event::ModelDelta(d) => {
                 if let Some(t) = self.turn_mut(turn_id) {
-                    t.loops.entry(li).or_default().text.push_str(text);
+                    t.loops
+                        .entry(d.loop_index)
+                        .or_default()
+                        .text
+                        .push_str(&d.text);
                     t.dirty = true;
                 }
                 vec![]
             }
-            "tool.proposed" => {
-                let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
-                let input = p.get("input").cloned().unwrap_or(Value::Null);
-                let state = ToolState::Proposed;
-                let notice = p
-                    .pointer("/gate/decision/notify")
-                    .filter(|n| n.is_object())
-                    .map(|n| str_of(n, "setting"));
-                let granted = p
-                    .pointer("/gate/decision/granted")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
+            Event::ToolProposed(p) => {
+                let decision = p.gate.decision.as_ref();
                 let line = ToolLine {
-                    tool_use_id: str_of(p, "tool_use_id"),
-                    tool: tool.to_string(),
-                    summary: summarize(tool, &input),
+                    tool_use_id: p.tool_use_id.clone(),
+                    tool: p.tool.clone(),
+                    summary: summarize(&p.tool, &p.input),
                     correlation_id: None,
-                    state,
-                    notice,
-                    granted,
+                    state: ToolState::Proposed,
+                    notice: decision
+                        .and_then(|d| d.notify.as_ref())
+                        .map(|n| n.setting.clone()),
+                    granted: decision.and_then(|d| d.granted.clone()),
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
@@ -298,26 +300,20 @@ impl Renderer {
                 }
                 vec![]
             }
-            "tool.started" => {
-                let corr = p
-                    .get("correlation_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
+            Event::ToolStarted(s) => {
                 // A job says what the broker actually gave it (theseus-dcy).
-                let got = p.get("granted").and_then(Value::as_str).map(str::to_string);
-                let withheld: Vec<&str> = p
-                    .get("withheld")
-                    .and_then(Value::as_array)
-                    .map(|w| w.iter().filter_map(Value::as_str).collect())
-                    .unwrap_or_default();
+                let (got, withheld) = match &s.job {
+                    Some(j) => (j.granted.as_deref(), j.withheld.as_slice()),
+                    None => (None, &[][..]),
+                };
                 let said = (got.is_some() || !withheld.is_empty()).then(|| {
-                    got.iter()
-                        .map(String::as_str)
-                        .chain(withheld.iter().copied())
+                    got.into_iter()
+                        .chain(withheld.iter().map(String::as_str))
                         .collect::<Vec<_>>()
                         .join("; ")
                 });
-                self.update_tool(turn_id, &str_of(p, "tool_use_id"), |l| {
+                let corr = (!s.correlation_id.is_empty()).then(|| s.correlation_id.clone());
+                self.update_tool(turn_id, &s.tool_use_id, |l| {
                     l.state = ToolState::Running;
                     if corr.is_some() {
                         l.correlation_id = corr.clone();
@@ -328,19 +324,15 @@ impl Renderer {
                 });
                 vec![]
             }
-            "tool.ended" => {
-                let status = str_of(p, "status");
-                let ms = p.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
-                let use_id = str_of(p, "tool_use_id");
+            Event::ToolEnded(t) => {
+                let status = t.status.as_str();
+                let ms = t.duration_ms.unwrap_or(0);
+                let use_id = &t.tool_use_id;
                 // A `/stop` ended it (theseus-4uw): the stopper, not a failure.
-                let stopped = p
-                    .get("stopped_by")
-                    .and_then(Value::as_str)
-                    .filter(|_| status == "cancelled")
-                    .map(str::to_string);
+                let stopped = t.stopped_by.clone().filter(|_| status == "cancelled");
                 let mut ops = vec![];
-                if let Some((card, _)) = self.notices.get_mut(&use_id) {
-                    let outcome = match (status.as_str(), &stopped) {
+                if let Some((card, _)) = self.notices.get_mut(use_id) {
+                    let outcome = match (status, &stopped) {
                         (_, Some(by)) => format!("⏹️ stopped by {by} · {ms} ms"),
                         ("ok", _) => format!("✅ ok · {ms} ms"),
                         ("background", _) => "⏳ running in the background".to_string(),
@@ -354,8 +346,8 @@ impl Renderer {
                         card: card.clone(),
                     });
                 }
-                self.update_tool(turn_id, &use_id, |l| {
-                    l.state = match (status.as_str(), &stopped) {
+                self.update_tool(turn_id, use_id, |l| {
+                    l.state = match (status, &stopped) {
                         (_, Some(by)) => ToolState::Stopped { by: by.clone() },
                         // A stop that declined it while it waited said so
                         // already (`confirm.resolved`); its not-run result
@@ -373,38 +365,34 @@ impl Renderer {
                             _ => ToolState::NotRun,
                         },
                         _ => ToolState::Done {
-                            status: status.clone(),
+                            status: status.to_string(),
                             ms,
                         },
                     };
                 });
                 ops
             }
-            "policy.notified" if !self.notice_embeds => vec![],
-            "policy.notified" => {
-                let tool = p.get("tool").and_then(Value::as_str).unwrap_or("?");
-                let input = p.get("input").cloned().unwrap_or(Value::Null);
-                let use_id = str_of(p, "tool_use_id");
+            Event::PolicyNotified(_) if !self.notice_embeds => vec![],
+            Event::PolicyNotified(n) => {
+                let use_id = n.tool_use_id.clone();
                 let call = Asked {
-                    tool: tool.to_string(),
-                    correlation_id: p
-                        .get("correlation_id")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
+                    tool: n.tool.clone(),
+                    correlation_id: (!n.correlation_id.is_empty())
+                        .then(|| n.correlation_id.clone()),
                 };
                 let mut card = NoticeCard {
                     title: "🔔 Ran with a notice".into(),
                     color: AMBER,
-                    description: format!("`{tool}` {}", summarize(tool, &input)),
+                    description: format!("`{}` {}", n.tool, summarize(&n.tool, &n.input)),
                     fields: vec![
-                        ("What".into(), clip(&str_of(p, "summary"), 1000)),
-                        ("Posture".into(), format!("`{}`", str_of(p, "setting"))),
+                        ("What".into(), clip(&n.summary, 1000)),
+                        ("Posture".into(), format!("`{}`", n.notice.setting)),
                         ("Outcome".into(), "⏳ running".into()),
                     ]
                     .into_iter()
                     .chain(
-                        p.get("granted")
-                            .and_then(Value::as_str)
+                        n.granted
+                            .as_deref()
                             .map(|g| ("Secrets".to_string(), format!("🔑 {g}"))),
                     )
                     .collect(),
@@ -421,10 +409,10 @@ impl Renderer {
             // session, so every place hears of it: each tool message and
             // notice card of that tool says who tightened it and stops
             // offering it; an undo offers it again.
-            "policy.tightened" | "policy.untightened" => {
-                let tool = str_of(p, "tool");
-                if method == "policy.tightened" {
-                    self.tightened.insert(tool.clone(), str_of(p, "by"));
+            Event::PolicyTightened(r) | Event::PolicyUntightened(r) => {
+                let tool = r.tool.clone();
+                if matches!(e, Event::PolicyTightened(_)) {
+                    self.tightened.insert(tool.clone(), r.by.clone());
                 } else {
                     self.tightened.remove(&tool);
                 }
@@ -456,10 +444,7 @@ impl Renderer {
                 ops
             }
             // The card is a post (`card`); here only the tool line waits.
-            "confirm.requested" => {
-                let Ok(req) = serde_json::from_value::<ConfirmRequest>(p.clone()) else {
-                    return vec![];
-                };
+            Event::ConfirmRequested(req) => {
                 if req.budget.is_some() {
                     // No tool line waits: the turn stopped before its call.
                     return vec![];
@@ -482,33 +467,26 @@ impl Renderer {
             }
             // The card's settle is a post (`settled`); here the tool line says
             // who answered.
-            "confirm.resolved" => {
-                let corr = str_of(p, "correlation_id");
-                let approved = p.get("approved").and_then(Value::as_bool).unwrap_or(false);
-                let by = p
-                    .get("by")
-                    .and_then(Value::as_str)
-                    .unwrap_or("the operator")
-                    .to_string();
-                // Its execution was cancelled before an answer: no one
-                // declined it, and it never ran (theseus-w98).
-                let cancelled = p.get("cancelled").and_then(Value::as_bool) == Some(true);
-                // A `/stop` declined it while it waited: stopped, by whom,
-                // as the stop's card says, not a decline (theseus-4uw).
-                let stopped = p.get("stopped").and_then(Value::as_bool) == Some(true);
+            Event::ConfirmResolved(r) => {
+                let by = r.by.as_deref().unwrap_or("the operator").to_string();
                 for t in self.turns.iter_mut() {
                     for lv in t.loops.values_mut() {
                         for l in lv.tools.iter_mut() {
-                            if l.correlation_id.as_deref() == Some(corr.as_str())
+                            if l.correlation_id.as_deref() == Some(r.correlation_id.as_str())
                                 && l.state == ToolState::Waiting
                             {
-                                l.state = if cancelled {
+                                // Its execution was cancelled before an
+                                // answer: no one declined it, and it never ran
+                                // (theseus-w98). A `/stop` declined it while it
+                                // waited: stopped, by whom, as the stop's card
+                                // says, not a decline (theseus-4uw).
+                                l.state = if r.cancelled {
                                     ToolState::NotRun
-                                } else if stopped {
+                                } else if r.stopped {
                                     ToolState::Stopped { by: by.clone() }
                                 } else {
                                     ToolState::Answered {
-                                        approved,
+                                        approved: r.approved,
                                         by: by.clone(),
                                     }
                                 };
@@ -519,7 +497,7 @@ impl Renderer {
                 }
                 vec![]
             }
-            "loop.ended" => {
+            Event::LoopEnded(_) => {
                 if let Some(t) = self.turn_mut(turn_id) {
                     t.dirty = true;
                 }
@@ -527,7 +505,7 @@ impl Renderer {
             }
             // The reply and a failure are posts; the turn's tool messages take
             // their last state here, and its text stops streaming.
-            "turn.ended" | "turn.failed" => {
+            Event::TurnEnded(_) | Event::TurnFailed(_) => {
                 let found = self
                     .turns
                     .iter_mut()
@@ -1714,7 +1692,8 @@ mod tests {
         );
         r.on_notification(
             "tool.started",
-            &json!({"turn_id": "t1", "tool_use_id": "u1", "granted": "gh got GH_TOKEN", "withheld": []}),
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "backend": "job", "pid": 4242,
+                "argv": ["gh", "api", "user"], "cwd": "/w", "granted": "gh got GH_TOKEN", "withheld": []}),
         );
         let line = |r: &mut Renderer| match r.tick().first() {
             Some(Op::Upsert { content, .. }) => content.clone(),
@@ -1733,7 +1712,9 @@ mod tests {
         );
         r.on_notification(
             "tool.started",
-            &json!({"turn_id": "t1", "tool_use_id": "u2", "withheld": ["gh got no GH_TOKEN"]}),
+            &json!({"turn_id": "t1", "tool_use_id": "u2", "backend": "job", "pid": 4243,
+                "argv": ["gh", "pr", "list"], "cwd": "/w", "granted": null,
+                "withheld": ["gh got no GH_TOKEN"]}),
         );
         assert!(line(&mut r).contains("⏳ `proc.run` gh pr list · 🔑 gh got no GH_TOKEN"));
     }
