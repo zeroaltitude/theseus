@@ -498,5 +498,19 @@ fn a_stop_kills_the_sessions_job_and_the_next_message_continues_the_session() {
         "the job's late result says it was stopped: {}",
         serde_json::to_string(&nodes).unwrap()
     );
+    // And says who stopped it, for the surfaces' `⏹️ stopped by` line
+    // (theseus-4uw): the result, not only its text.
+    let late = nodes
+        .iter()
+        .find(|n| n["detail"]["late"] == true)
+        .expect("the job's late result");
+    assert_eq!(
+        (
+            late["detail"]["status"].as_str(),
+            late["detail"]["meta"]["stopped_by"].as_str()
+        ),
+        (Some("cancelled"), Some("test")),
+        "{late}"
+    );
     assert_eq!(execution_of(&r, &sid)["turns"], 2);
 }

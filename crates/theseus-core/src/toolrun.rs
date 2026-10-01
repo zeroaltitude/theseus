@@ -520,6 +520,8 @@ impl ToolRuntime {
                     "bytes": bytes_total,
                     "node_id": node.id,
                     "exit_code": meta.get("exit_code"),
+                    // A `/stop` ended it, and who stopped it (theseus-4uw).
+                    "stopped_by": meta.get("stopped_by"),
                     "preview": content.chars().take(2000).collect::<String>(),
                 }),
             );
@@ -570,11 +572,30 @@ impl ToolRuntime {
     /// Answer a `tool_use` that will not run (the response was cut off, the
     /// operator moved on), so the transcript stays valid.
     pub fn not_run(&self, tc: &TurnCtx<'_>, call: &ToolUse, reason: &str) -> Result<()> {
+        self.not_run_with(tc, call, reason, json!({"not_run": reason}))
+    }
+
+    /// Answer a `tool_use` that a `/stop` landing while the model answered
+    /// keeps from running (W1): it says who stopped it (`stopped_by`), so the
+    /// surfaces show a stop, not a cancel or a failure (theseus-4uw).
+    pub fn not_run_stopped(&self, tc: &TurnCtx<'_>, call: &ToolUse, by: &str) -> Result<()> {
+        let reason = format!("the operator stopped this turn (/stop, by {by})");
+        let meta = json!({"not_run": reason, "stopped_by": by});
+        self.not_run_with(tc, call, &reason, meta)
+    }
+
+    fn not_run_with(
+        &self,
+        tc: &TurnCtx<'_>,
+        call: &ToolUse,
+        reason: &str,
+        meta: Value,
+    ) -> Result<()> {
         let (_, tool) = self.tool_of(call);
         self.answer(
             tc,
             ResultNode {
-                meta: json!({"not_run": reason}),
+                meta,
                 ..ResultNode::new(
                     &call.id,
                     &tool,
@@ -1680,11 +1701,13 @@ impl ToolRuntime {
         } else {
             format!("{header}{out}")
         };
+        let mut meta = json!({"exit_code": exit, "detail": detail});
+        stopped_meta(&mut meta, status, a);
         ResultNode {
             correlation_id: Some(&a.correlation_id),
             duration_ms: detail.get("duration_ms").and_then(Value::as_u64),
             bytes_total: Some(total),
-            meta: json!({"exit_code": exit, "detail": detail}),
+            meta,
             ..ResultNode::new(tool_use_id, tool, status, raw)
         }
     }
@@ -2050,10 +2073,13 @@ impl ToolRuntime {
     fn answer_cancelled(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<()> {
         let (_, name) = self.tool_of(u);
         let (status, text) = not_run_answer(a);
+        let mut meta = Value::Null;
+        stopped_meta(&mut meta, status, a);
         self.answer(
             tc,
             ResultNode {
                 correlation_id: Some(&a.correlation_id),
+                meta,
                 ..ResultNode::new(&u.id, &name, status, text)
             },
         )?;
@@ -2162,6 +2188,21 @@ fn not_run_answer(a: &Action) -> (ResultStatus, String) {
     }
 }
 
+/// A call a `/stop` ended (W1) says who stopped it, in its result's `meta`
+/// (`stopped_by`), which `tool.ended` carries: every surface then shows it as
+/// a stop the operator asked for, `⏹️ stopped by …`, never as a failure, and
+/// apart from a cancel's `not run` (theseus-4uw). Only a call that did not
+/// finish: one that finished before the stop reached it keeps its result.
+fn stopped_meta(meta: &mut Value, status: ResultStatus, a: &Action) {
+    let Some(by) = a.stopped_by().filter(|_| status == ResultStatus::Cancelled) else {
+        return;
+    };
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    meta["stopped_by"] = json!(by);
+}
+
 /// The results of the tool calls a cancel ended before they ran
 /// (theseus-w98), as the session's next turn would have written them: a
 /// node for each call in `not_run` whose tool-call node the session holds and
@@ -2206,6 +2247,8 @@ pub(crate) fn not_run_results(
             continue;
         }
         let (status, text) = not_run_answer(a);
+        let mut meta = Value::Null;
+        stopped_meta(&mut meta, status, a);
         let node = Node::tool_result(
             session_id,
             call.turn_id.as_deref(),
@@ -2222,7 +2265,7 @@ pub(crate) fn not_run_results(
                 full_ref: None,
                 duration_ms: None,
                 late: false,
-                meta: Value::Null,
+                meta,
                 image: None,
                 external: None,
             },
@@ -2518,6 +2561,16 @@ fn narrate_result(tc: &TurnCtx<'_>, node: &Node) {
             )
         }
         ResultStatus::Declined => narrate_turn!(tc, Approval, "{tool} not run: it was declined."),
+        // A `/stop` ended it: what the operator asked for (theseus-4uw).
+        ResultStatus::Cancelled if meta.get("stopped_by").is_some() => narrate_turn!(
+            tc,
+            Tool,
+            "{tool} stopped by {}{}.",
+            meta["stopped_by"].as_str().unwrap_or("the operator"),
+            duration_ms
+                .map(|ms| format!(", after {}", narrative::duration(ms)))
+                .unwrap_or_default()
+        ),
         ResultStatus::Cancelled => narrate_turn!(
             tc,
             Tool,

@@ -147,6 +147,12 @@ enum ToolState {
         approved: bool,
         by: String,
     },
+    /// A `/stop` ended it, running or waiting (W1): what the operator asked
+    /// for, so it reads as the stop's own card does, never as a failure and
+    /// apart from a cancel's `not run` (theseus-4uw).
+    Stopped {
+        by: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -326,12 +332,19 @@ impl Renderer {
                 let status = str_of(p, "status");
                 let ms = p.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
                 let use_id = str_of(p, "tool_use_id");
+                // A `/stop` ended it (theseus-4uw): the stopper, not a failure.
+                let stopped = p
+                    .get("stopped_by")
+                    .and_then(Value::as_str)
+                    .filter(|_| status == "cancelled")
+                    .map(str::to_string);
                 let mut ops = vec![];
                 if let Some((card, _)) = self.notices.get_mut(&use_id) {
-                    let outcome = match status.as_str() {
-                        "ok" => format!("✅ ok · {ms} ms"),
-                        "background" => "⏳ running in the background".to_string(),
-                        other => format!("❌ {other} · {ms} ms"),
+                    let outcome = match (status.as_str(), &stopped) {
+                        (_, Some(by)) => format!("⏹️ stopped by {by} · {ms} ms"),
+                        ("ok", _) => format!("✅ ok · {ms} ms"),
+                        ("background", _) => "⏳ running in the background".to_string(),
+                        (other, _) => format!("❌ {other} · {ms} ms"),
                     };
                     if let Some(f) = card.fields.iter_mut().find(|(n, _)| n == "Outcome") {
                         f.1 = outcome;
@@ -342,11 +355,18 @@ impl Renderer {
                     });
                 }
                 self.update_tool(turn_id, &use_id, |l| {
-                    l.state = match status.as_str() {
-                        "background" => ToolState::Background,
+                    l.state = match (status.as_str(), &stopped) {
+                        (_, Some(by)) => ToolState::Stopped { by: by.clone() },
+                        // A stop that declined it while it waited said so
+                        // already (`confirm.resolved`); its not-run result
+                        // keeps that.
+                        ("cancelled", None) if matches!(l.state, ToolState::Stopped { .. }) => {
+                            l.state.clone()
+                        }
+                        ("background", _) => ToolState::Background,
                         // A decline keeps saying who declined. A daemon from
                         // before theseus-8az says `denied`.
-                        "declined" | "denied" => match &l.state {
+                        ("declined" | "denied", _) => match &l.state {
                             ToolState::Answered {
                                 approved: false, ..
                             } => l.state.clone(),
@@ -473,6 +493,9 @@ impl Renderer {
                 // Its execution was cancelled before an answer: no one
                 // declined it, and it never ran (theseus-w98).
                 let cancelled = p.get("cancelled").and_then(Value::as_bool) == Some(true);
+                // A `/stop` declined it while it waited: stopped, by whom,
+                // as the stop's card says, not a decline (theseus-4uw).
+                let stopped = p.get("stopped").and_then(Value::as_bool) == Some(true);
                 for t in self.turns.iter_mut() {
                     for lv in t.loops.values_mut() {
                         for l in lv.tools.iter_mut() {
@@ -481,6 +504,8 @@ impl Renderer {
                             {
                                 l.state = if cancelled {
                                     ToolState::NotRun
+                                } else if stopped {
+                                    ToolState::Stopped { by: by.clone() }
                                 } else {
                                     ToolState::Answered {
                                         approved,
@@ -1068,6 +1093,7 @@ fn tool_lines(tools: &[ToolLine], reserve: usize) -> String {
                 ToolState::Done { status, ms } if status == "ok" => format!("✅ {head} · {ms} ms"),
                 ToolState::Done { status, ms } => format!("❌ {head} · {status} · {ms} ms"),
                 ToolState::NotRun => format!("🚫 {head} · not run"),
+                ToolState::Stopped { by } => format!("⏹️ {head} · stopped by {by}"),
                 ToolState::Answered { approved: true, by } => {
                     format!("👍 {head} · approved by {by}")
                 }
@@ -2030,6 +2056,67 @@ mod tests {
         let tools = upserts(&r.tick());
         assert!(tools[0].1.contains("· not run"), "{tools:?}");
         assert!(!tools[0].1.contains("declined"), "{tools:?}");
+    }
+
+    /// A call a `/stop` ended reads `⏹️ … stopped by <who>`, as the stop's own
+    /// card says, never `❌ … cancelled`, and apart from a cancel's `🚫 … not
+    /// run` (theseus-4uw): one that ran (its result says who stopped it),
+    /// and one that waited for approval (the stop's `confirm.resolved`), whose
+    /// not-run result keeps the line. A notice card says the same.
+    #[test]
+    fn a_call_a_stop_ended_reads_as_stopped_not_failed() {
+        let mut r = Renderer::new(true);
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
+            "input": {"argv": ["sleep", "30"]}, "gate": {"result": {"gate": "allow"},
+            "decision": {"mode": "allow", "posture": "notify", "notify": {"kind": "notify", "setting": "enforcement = notify", "rule": "proc.run — notify (enforcement = notify)"}}}}));
+        r.on_notification("policy.notified", &json!({"session_id": "s", "turn_id": "t1", "tool_use_id": "u1",
+            "tool": "proc.run", "input": {"argv": ["sleep", "30"]}, "summary": "run `sleep 30` in /w",
+            "kind": "notify", "setting": "enforcement = notify", "rule": "proc.run — notify (enforcement = notify)"}));
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "correlation_id": "act_9"}),
+        );
+        let ops = r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "cancelled",
+                    "duration_ms": 2100, "stopped_by": "discord:eddie"}),
+        );
+        let Op::Notice { card, .. } = &ops[0] else {
+            panic!("{ops:?}")
+        };
+        assert_eq!(card.fields[2].1, "⏹️ stopped by discord:eddie · 2100 ms");
+        // A waiting call the stop declined.
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u2", "tool": "fs.write",
+            "input": {"path": "a.txt", "content": "x"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
+        let write = request(json!({"correlation_id": "act_2", "session_id": "s",
+            "execution_id": "e", "tool": "fs.write", "input": {"path": "a.txt", "content": "x"},
+            "reason": "write a.txt", "by": "operator", "requested_at_ms": 1,
+            "expires_at_ms": 1790000000000u64}));
+        r.on_notification("confirm.requested", &serde_json::to_value(write).unwrap());
+        r.on_notification(
+            "confirm.resolved",
+            &json!({"correlation_id": "act_2", "approved": false, "stopped": true, "by": "discord:eddie"}),
+        );
+        r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t1", "tool_use_id": "u2", "status": "cancelled", "duration_ms": 0}),
+        );
+        let lines =
+            upserts(&r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
+        let text = &lines[0].1;
+        assert!(
+            text.contains("⏹️ `proc.run` sleep 30 · 🔔 notified (enforcement = notify) · stopped by discord:eddie"),
+            "{text}"
+        );
+        assert!(
+            text.contains("⏹️ `fs.write` a.txt · stopped by discord:eddie"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("❌") && !text.contains("cancelled") && !text.contains("declined"),
+            "{text}"
+        );
     }
 
     /// A budget question takes the same route as a tool call.

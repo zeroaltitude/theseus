@@ -1825,6 +1825,48 @@ fn status_word(status: &str) -> &str {
     }
 }
 
+/// A result's word, and who stopped it when a `/stop` ended it: `stopped by
+/// the CLI`, as the stop's own card says, never `cancelled` (theseus-4uw).
+fn result_word(status: &str, stopped_by: Option<&str>) -> String {
+    match stopped_by {
+        Some(by) if status == "cancelled" => format!("stopped by {by}"),
+        _ => status_word(status).to_string(),
+    }
+}
+
+/// `theseus watch`'s line for a `tool.ended`: the tool, how it ended, and its
+/// exit code, time, size, and marks.
+fn tool_ended_line(p: &Value) -> String {
+    let u = |k: &str| p.get(k).and_then(Value::as_u64);
+    let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("");
+    let mut extra = Vec::new();
+    if let Some(c) = p.get("exit_code").and_then(Value::as_i64) {
+        extra.push(format!("exit {c}"));
+    }
+    if let Some(ms) = u("duration_ms") {
+        extra.push(format!("{ms} ms"));
+    }
+    if let Some(b) = u("bytes") {
+        extra.push(fmt_bytes(b));
+    }
+    if p.get("truncated").and_then(Value::as_bool) == Some(true) {
+        extra.push("truncated".into());
+    }
+    if p.get("late").and_then(Value::as_bool) == Some(true) {
+        extra.push("late".into());
+    }
+    format!(
+        "  ← {} {}{}",
+        s("tool"),
+        result_word(s("status"), p.get("stopped_by").and_then(Value::as_str)),
+        if extra.is_empty() {
+            String::new()
+        } else {
+            format!(" · {}", extra.join(" · "))
+        }
+    )
+}
+
 fn clip(s: &str, max: usize) -> String {
     let one = s.replace('\n', " ⏎ ");
     if one.chars().count() <= max {
@@ -1940,19 +1982,21 @@ fn print_node(n: &NodeInfo, full: bool) {
                     .map(|m| format!(" · {m} ms"))
                     .unwrap_or_default()
             );
+            let word = result_word(
+                s("status"),
+                d.pointer("/meta/stopped_by").and_then(Value::as_str),
+            );
             if full {
                 println!(
-                    "      ← {} {}{late}{ms} · {}\n{}",
+                    "      ← {} {word}{late}{ms} · {}\n{}",
                     s("tool"),
-                    status_word(s("status")),
                     fmt_bytes(n.bytes),
                     indent(&n.text, "        ")
                 );
             } else {
                 println!(
-                    "      ← {} {}{late}{ms} · {}: {}",
+                    "      ← {} {word}{late}{ms} · {}: {}",
                     s("tool"),
-                    status_word(s("status")),
                     fmt_bytes(n.bytes),
                     clip(&n.text, 160)
                 );
@@ -2523,32 +2567,7 @@ impl Printer {
             }
             notify::TOOL_ENDED => {
                 self.settle();
-                let mut extra = Vec::new();
-                if let Some(c) = p.get("exit_code").and_then(Value::as_i64) {
-                    extra.push(format!("exit {c}"));
-                }
-                if let Some(ms) = u("duration_ms") {
-                    extra.push(format!("{ms} ms"));
-                }
-                if let Some(b) = u("bytes") {
-                    extra.push(fmt_bytes(b));
-                }
-                if p.get("truncated").and_then(Value::as_bool) == Some(true) {
-                    extra.push("truncated".into());
-                }
-                if p.get("late").and_then(Value::as_bool) == Some(true) {
-                    extra.push("late".into());
-                }
-                eprintln!(
-                    "  ← {} {}{}",
-                    s("tool"),
-                    status_word(&s("status")),
-                    if extra.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" · {}", extra.join(" · "))
-                    }
-                );
+                eprintln!("{}", tool_ended_line(p));
             }
             notify::CONFIRM_REQUESTED => {
                 self.settle();
@@ -3004,6 +3023,28 @@ mod tests {
             .to_string()
             .contains("no session that holds external text"));
         assert_eq!(trust_target(&two, "ses_other").unwrap(), "ses_other");
+    }
+
+    /// A call a `/stop` ended reads as stopped, by whom, in `theseus watch`
+    /// and the history, never as `cancelled`; a cancel's call still reads
+    /// cancelled, and a decline not run (theseus-4uw).
+    #[test]
+    fn a_call_a_stop_ended_reads_stopped_in_watch_and_history() {
+        let stopped = serde_json::json!({"tool": "proc.run", "status": "cancelled", "duration_ms": 2100,
+            "bytes": 40, "stopped_by": "the CLI"});
+        assert_eq!(
+            tool_ended_line(&stopped),
+            "  ← proc.run stopped by the CLI · 2100 ms · 40 B"
+        );
+        let cancelled =
+            serde_json::json!({"tool": "proc.run", "status": "cancelled", "duration_ms": 5});
+        assert_eq!(tool_ended_line(&cancelled), "  ← proc.run cancelled · 5 ms");
+        assert_eq!(
+            result_word("ok", Some("the CLI")),
+            "ok",
+            "it finished first"
+        );
+        assert_eq!(result_word("declined", None), "not run");
     }
 
     /// `theseus policy list` says what set each posture, and marks a

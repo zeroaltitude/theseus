@@ -874,8 +874,9 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
                 tool,
                 status,
                 content,
+                meta,
                 ..
-            } if tool == "fs.write" => Some((status, content)),
+            } if tool == "fs.write" => Some((status, content, meta)),
             _ => None,
         })
         .unwrap();
@@ -887,6 +888,8 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
         "{}",
         not_run.1
     );
+    // It says who stopped it, so the surfaces show a stop (theseus-4uw).
+    assert_eq!(not_run.2["stopped_by"], "discord:eddie");
     let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
     assert!(!root.join("a.txt").exists(), "nothing was written");
     assert!(
@@ -957,6 +960,25 @@ async fn a_stop_declines_a_waiting_approval_and_the_next_turn_hears_it() {
     let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
     let seen = serde_json::to_string(&req.messages).unwrap();
     assert!(seen.contains("stopped by discord:eddie"), "{seen}");
+    // Its not-run result says who stopped it, so the surfaces show a stop,
+    // not a cancel (theseus-4uw).
+    let meta = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult {
+                tool,
+                status: ResultStatus::Cancelled,
+                meta,
+                ..
+            } if tool == "fs.write" => Some(meta),
+            _ => None,
+        })
+        .expect("the call's not-run result");
+    assert_eq!(meta["stopped_by"], "discord:eddie");
     let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
     assert!(!root.join("a.txt").exists());
 }

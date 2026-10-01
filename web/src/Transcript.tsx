@@ -176,11 +176,16 @@ const GATE_CLASS: Record<string, string> = { allow: 'ok', open: 'ok', notify: 'w
 function ResultLine({ r, open }: { r: NodeInfo; open: boolean }) {
   const d = (r.detail ?? {}) as Record<string, unknown>
   const status = str(d.status)
-  const exit = (d.meta as Record<string, unknown> | undefined)?.exit_code
+  const meta = d.meta as Record<string, unknown> | undefined
+  const exit = meta?.exit_code
+  // A `/stop` ended it: what the operator asked for, not a failure (theseus-4uw).
+  const stoppedBy = status === 'cancelled' && meta?.stopped_by != null ? str(meta.stopped_by) : null
   return (
     <>
       <div className="result-line">
-        <span className={`pill ${STATUS_CLASS[status] ?? ''}`}>{NOT_RUN.includes(status) ? 'not run' : status}</span>
+        {stoppedBy != null
+          ? <span className="pill muted" title="a /stop ended this call">⏹️ stopped by {stoppedBy}</span>
+          : <span className={`pill ${STATUS_CLASS[status] ?? ''}`}>{NOT_RUN.includes(status) ? 'not run' : status}</span>}
         {d.late === true && <span className="pill accent" title="arrived after the turn that asked for it">late</span>}
         {exit != null && <span className={exit === 0 ? 'muted' : 'bad'}>exit {str(exit)}</span>}
         {d.duration_ms != null && <span className="muted">{fmt(Number(d.duration_ms))} ms</span>}

@@ -503,6 +503,14 @@ impl Action {
             .or_else(|| r.strip_prefix("denied by "))?;
         Some(rest.split_once(": ").map_or(rest, |(_, note)| note))
     }
+
+    /// Who stopped this call, when a `/stop` ended it (W1): running, it was
+    /// told to stop, or planned or waiting, it was declined, and either way
+    /// `Kernel::stop_execution` wrote its resolution as `stopped by <who>`.
+    /// The surfaces say so as a stop, never as a failure (theseus-4uw).
+    pub fn stopped_by(&self) -> Option<&str> {
+        self.resolution.as_deref()?.strip_prefix("stopped by ")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

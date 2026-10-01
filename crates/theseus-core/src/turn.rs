@@ -1379,13 +1379,12 @@ impl TurnRunner {
             // A stop that landed while the model answered (W1): its answer is
             // kept, and none of its calls run.
             if let Some(by) = stopped_by(&t.tc)? {
-                let why = format!("the operator stopped this turn (/stop, by {by})");
                 let tc = TurnCtx {
                     loop_index: Some(i),
                     ..t.tc
                 };
                 for u in &uses {
-                    self.tools.not_run(&tc, u, &why)?;
+                    self.tools.not_run_stopped(&tc, u, &by)?;
                 }
                 t.trace.exit(json!({"decision": "stopped"}));
                 t.last = Some(resp);
