@@ -12,8 +12,14 @@
 # show (private, injection, distractor) keeps the trap in the store and out of
 # the gold, so in 34a it measures its fact's headroom, and its `lacks` lines
 # wait for 34b's arms.
+#
+# Versions (a change is a new version; reports name the digest that scored):
+# - exam-v1 (sha256:3992df03…8407a30): the headroom run of 2026-09-30.
+# - exam-v1.1: preference-1's check no longer fails a reply that names the
+#   rule it follows ("a bare name, no `theseus-` prefix"): it fails only a
+#   prefixed name. A tuning-half item; no held-out item changed.
 
-version = "exam-v1"
+version = "exam-v1.1"
 utc_offset_min = -420
 
 # ---------------------------------------------------------------- fact
@@ -110,7 +116,7 @@ gold = ["a.1"]
 note = "A model's default may already be a bare name: then memory buys nothing here."
 check = '''
 reply has "wake"
-reply lacks "theseus-" | "theseus_" | "/theseus"
+reply lacks /theseus[-_]\w|\/theseus\s+\w/i
 '''
 [[item.session]]
 key = "a"
