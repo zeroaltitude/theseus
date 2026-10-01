@@ -1,0 +1,38 @@
+[package]
+name = "theseus-mcp"
+description = "The Model Context Protocol, written by hand: a client over stdio and streamable HTTP, a fake server for tests and the simulator, and Theseus's own MCP server on loopback. The protocol alone, with no core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["server"]
+# Theseus's own MCP server (`server`, step 41), on axum. The core's client
+# side (36b) can leave it out with `default-features = false`.
+server = ["dep:axum", "dep:sha2", "dep:rand"]
+
+[[bin]]
+name = "theseus-mcp-fake"
+path = "src/bin/theseus-mcp-fake.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+libc = "0.2"
+axum = { version = "0.8", optional = true }
+sha2 = { version = "0.10", optional = true }
+rand = { version = "0.9", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

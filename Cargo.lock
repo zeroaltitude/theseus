@@ -3011,6 +3011,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "theseus-mcp"
+version = "0.0.1"
+dependencies = [
+ "axum",
+ "futures-util",
+ "libc",
+ "rand 0.9.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "theseus-memory"
 version = "0.0.1"
 dependencies = [
