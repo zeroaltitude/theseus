@@ -13,6 +13,7 @@ use crate::ExternalText;
 
 /// How a call touches a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Access {
     Read,
@@ -23,6 +24,7 @@ pub enum Access {
 
 /// A path a call will touch, already resolved against the context.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Resource {
     pub path: PathBuf,
     pub access: Access,
@@ -30,14 +32,17 @@ pub struct Resource {
 
 /// What a call will do, before it does it: the gate reads this.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Plan {
     pub resources: Vec<Resource>,
     /// For `proc.run`: the exact argv.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub argv: Option<Vec<String>>,
     /// For a network tool: the URL it asks for (`http.fetch`'s, or the
     /// request `web.search` makes). The gate judges its host (DD5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub url: Option<String>,
     /// One line for humans ("edit src/main.rs (1 occurrence)").
     pub summary: String,
@@ -46,19 +51,24 @@ pub struct Plan {
 /// A proposed tool call as the model (or a test) states it: what a
 /// confirmation binds, by its digest (`theseus_kernel::gate`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Proposal {
     pub tool: String,
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub args: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub resource: Option<String>,
     /// Policy context the confirm is bound to (binding revision, role, channel).
     #[serde(default)]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub policy_context: Value,
 }
 
 /// The structured notice a `notify` posture posts: to the session's channel
 /// (Discord, web UI, CLI) and to the ledger (`tool.notified`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Notice {
     /// `notify`.
     pub kind: String,
@@ -70,42 +80,51 @@ pub struct Notice {
 
 /// The policy's verdict on a call, as the gate records it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct GateDecision {
     /// `open`, `notify`, or `approve`. A record from before postures has
     /// `mode` instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub posture: Option<String>,
     /// A record from before postures: its band (`auto`, `confirm`, …).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub mode: Option<String>,
     pub reason: String,
     /// The notice a `notify` posture posts.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub notify: Option<Notice>,
     /// The floor asked: the call touches Theseus's own binary or state, or the
     /// 1Password CLI or token. No setting makes it run unasked.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub floor: bool,
     /// What the secret broker gives the call, by name: `gh got GH_TOKEN`
     /// (theseus-dcy).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub granted: Option<String>,
     /// The call waits (or is notified) because its session read external
     /// text (theseus-9bp): what it read.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub external: Option<ExternalText>,
 }
 
 /// What the gate did with the call.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct GateResult {
     /// `allow` (it runs), `needs_confirm` (it waits for `by`), or `deny`
     /// (its input failed validation, and `reason` says how; it never runs).
     pub gate: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub by: Option<String>,
 }
 
@@ -116,6 +135,7 @@ pub struct GateResult {
 /// node keeps writing it so (`canonical`): a stored record decodes and
 /// encodes again byte for byte.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct GateRecord {
     pub result: GateResult,

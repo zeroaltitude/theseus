@@ -11,5 +11,10 @@ rust-version.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# The web apps' protocol types are generated from these (theseus-0g4): `src/ts.rs`.
+# A dev-dependency only, so no binary links it.
+[dev-dependencies]
+ts-rs = { version = "12", features = ["no-serde-warnings"] }
+
 [lints]
 workspace = true

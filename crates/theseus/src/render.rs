@@ -117,9 +117,15 @@ impl<O: Write, E: Write> Printer<O, E> {
             Event::ToolStarted(s) => {
                 self.settle();
                 let argv = s
-                    .job
+                    .argv
                     .as_ref()
-                    .map(|j| format!(" [{}] pid {}", j.argv.join(" "), j.pid))
+                    .map(|a| {
+                        format!(
+                            " [{}]{}",
+                            a.join(" "),
+                            s.pid.map(|p| format!(" pid {p}")).unwrap_or_default()
+                        )
+                    })
                     .unwrap_or_default();
                 let _ = writeln!(self.err, "  → {}{argv}", s.tool);
             }

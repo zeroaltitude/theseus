@@ -302,10 +302,8 @@ impl Renderer {
             }
             Event::ToolStarted(s) => {
                 // A job says what the broker actually gave it (theseus-dcy).
-                let (got, withheld) = match &s.job {
-                    Some(j) => (j.granted.as_deref(), j.withheld.as_slice()),
-                    None => (None, &[][..]),
-                };
+                let got = s.granted.as_ref().and_then(Option::as_deref);
+                let withheld = s.withheld.as_deref().unwrap_or_default();
                 let said = (got.is_some() || !withheld.is_empty()).then(|| {
                     got.into_iter()
                         .chain(withheld.iter().map(String::as_str))
@@ -1692,8 +1690,7 @@ mod tests {
         );
         r.on_notification(
             "tool.started",
-            &json!({"turn_id": "t1", "tool_use_id": "u1", "backend": "job", "pid": 4242,
-                "argv": ["gh", "api", "user"], "cwd": "/w", "granted": "gh got GH_TOKEN", "withheld": []}),
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "granted": "gh got GH_TOKEN", "withheld": []}),
         );
         let line = |r: &mut Renderer| match r.tick().first() {
             Some(Op::Upsert { content, .. }) => content.clone(),
@@ -1712,9 +1709,7 @@ mod tests {
         );
         r.on_notification(
             "tool.started",
-            &json!({"turn_id": "t1", "tool_use_id": "u2", "backend": "job", "pid": 4243,
-                "argv": ["gh", "pr", "list"], "cwd": "/w", "granted": null,
-                "withheld": ["gh got no GH_TOKEN"]}),
+            &json!({"turn_id": "t1", "tool_use_id": "u2", "withheld": ["gh got no GH_TOKEN"]}),
         );
         assert!(line(&mut r).contains("⏳ `proc.run` gh pr list · 🔑 gh got no GH_TOKEN"));
     }

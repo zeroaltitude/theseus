@@ -8,6 +8,13 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -q -- -D warnings
 cargo nextest run --workspace --no-fail-fast
+# The web apps' protocol types, which a theseus-protocol test writes from the
+# Rust ones (theseus-0g4): a type changed without its TypeScript fails here.
+if ! git diff --quiet -- web/src/protocol.gen ||
+  [ -n "$(git ls-files --others --exclude-standard -- web/src/protocol.gen)" ]; then
+  echo "web/src/protocol.gen changed: the protocol's Rust types changed without their TypeScript; git add it"
+  exit 1
+fi
 # The lifecycle budgets of §9 (FAST, theseus-qa0): cold start, clean shutdown
 # with a job running, SIGKILL then restart, a binary swap with the job's
 # wrapper adopted, 10 runs each on an empty store, p95 against the budget plus

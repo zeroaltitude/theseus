@@ -884,7 +884,7 @@ fn typed_tool_started_ended_and_written() {
                 tool: "fs.read".into(),
                 correlation_id: "act_k3".into(),
                 backend: backend.into(),
-                job: None,
+                ..Default::default()
             }),
         );
     }
@@ -905,13 +905,11 @@ fn typed_tool_started_ended_and_written() {
                 tool: "proc.run".into(),
                 correlation_id: "act_k2".into(),
                 backend: "job".into(),
-                job: Some(JobStarted {
-                    pid: 4242,
-                    argv: vec!["make".into(), "notes".into()],
-                    cwd: "/w/notes".into(),
-                    granted: granted.map(Into::into),
-                    withheld,
-                }),
+                pid: Some(4242),
+                argv: Some(vec!["make".into(), "notes".into()]),
+                cwd: Some("/w/notes".into()),
+                granted: Some(granted.map(Into::into)),
+                withheld: Some(withheld),
             }),
         );
     }

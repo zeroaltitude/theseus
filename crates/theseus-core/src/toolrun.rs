@@ -26,8 +26,8 @@ use theseus_kernel::{
     BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{
-    ConfirmRequest, ConfirmResolved, Event, GateRecord, GateResult, JobStarted, NodeWritten,
-    PolicyNotified, ToolEnded, ToolProposed, ToolStarted,
+    ConfirmRequest, ConfirmResolved, Event, GateRecord, GateResult, NodeWritten, PolicyNotified,
+    ToolEnded, ToolProposed, ToolStarted,
 };
 use theseus_store::Store as _;
 use theseus_tools::{Access, Backend, JobSpec, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
@@ -1241,7 +1241,7 @@ impl ToolRuntime {
             tool: tool.name().into(),
             correlation_id: correlation_id.into(),
             backend: tool.backend().as_str().into(),
-            job: None,
+            ..Default::default()
         }));
         let started = theseus_protocol::now_unix_ms();
         let t0 = Instant::now();
@@ -1303,7 +1303,7 @@ impl ToolRuntime {
             tool: tool.name().into(),
             correlation_id: correlation_id.into(),
             backend: tool.backend().as_str().into(),
-            job: None,
+            ..Default::default()
         }));
         let (t, input, mut ctx) = (tool.clone(), call.input.clone(), self.ctx.clone());
         // A toollet granted a secret reads it through the broker, bound to
@@ -1597,13 +1597,11 @@ impl ToolRuntime {
             tool: tool.name().into(),
             correlation_id: correlation_id.into(),
             backend: "job".into(),
-            job: Some(JobStarted {
-                pid,
-                argv: spec.argv.clone(),
-                cwd: spec.cwd.clone(),
-                granted: granted.clone(),
-                withheld,
-            }),
+            pid: Some(pid),
+            argv: Some(spec.argv.clone()),
+            cwd: Some(spec.cwd.clone()),
+            granted: Some(granted.clone()),
+            withheld: Some(withheld),
         }));
         tc.ledger("tool.job_started", json!({"correlation_id": correlation_id, "pid": pid, "argv": spec.argv, "cwd": spec.cwd, "timeout_secs": spec.timeout_secs}));
         for g in &brokered.granted {

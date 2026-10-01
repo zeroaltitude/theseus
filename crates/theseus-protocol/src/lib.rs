@@ -10,6 +10,8 @@
 
 mod events;
 mod gate;
+#[cfg(test)]
+mod ts;
 
 pub use events::*;
 pub use gate::*;
@@ -168,6 +170,7 @@ pub mod notify {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(untagged)]
 pub enum Id {
     Num(u64),
@@ -175,42 +178,52 @@ pub enum Id {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Request {
     pub jsonrpc: String,
     pub id: Id,
     pub method: String,
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub params: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Notification {
     pub jsonrpc: String,
     pub method: String,
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub params: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct RpcError {
     pub code: i64,
     pub message: String,
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub data: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Response {
     pub jsonrpc: String,
     pub id: Id,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub result: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub error: Option<RpcError>,
 }
 
 /// Any line on the wire.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(untagged)]
 pub enum Message {
     Request(Request),
@@ -288,6 +301,7 @@ impl Response {
 // ---------------------------------------------------------------- payloads
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HealthResult {
     pub name: String,
     pub version: String,
@@ -383,15 +397,18 @@ pub struct HealthResult {
 /// before the scrubber saw it, removed once no result will absorb it. A
 /// sweep runs after serving, as the daemon starts, then every hour.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SpoolStatus {
     /// The last sweep since the daemon started; none before the first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub last_sweep: Option<SpoolSweep>,
 }
 
 /// One sweep of `spool/results`: counts and bytes, never content. Its
 /// `spool.swept` row carries the same.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SpoolSweep {
     pub at_unix_ms: u64,
     pub took_ms: u64,
@@ -422,6 +439,7 @@ pub struct SpoolSweep {
 /// disk, itself a file on the Windows drive (C:), and C: can fill first while
 /// this still shows room: check the Windows drive there too.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct DiskStatus {
     /// The state dir whose filesystem this is.
     pub path: String,
@@ -439,6 +457,7 @@ pub struct DiskStatus {
     #[serde(default)]
     pub floor_mb: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub error: Option<String>,
 }
 
@@ -450,6 +469,7 @@ pub struct DiskStatus {
 /// `web.refused`, at most once a minute, with how many refusals the row
 /// stands for.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct WebStatus {
     pub refused_host: u64,
     pub refused_origin: u64,
@@ -459,10 +479,12 @@ pub struct WebStatus {
     /// with no table of socket owners, not Linux). Then a local process of
     /// any user is served.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub peer_unchecked: Option<String>,
     /// `[web] dev_origin`, when set (theseus-zab): the Vite dev page, whose
     /// `/ws` upgrades are served beside the UI's own page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub dev_origin: Option<String>,
     /// The `/ws` upgrades served for it, each ledgered as `web.dev_origin`
     /// at most once a minute.
@@ -477,6 +499,7 @@ fn is_zero(n: &u64) -> bool {
 /// Where the vault's secrets stand (theseus-qa0, spec §2 FAST): the daemon
 /// answers its socket before they resolve, and each consumer waits for its own.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SecretsStatus {
     /// `resolving` until every secret has settled, then `ready`, or `failed`
     /// with `failed` naming each one that did not resolve.
@@ -528,10 +551,12 @@ impl SecretsStatus {
 /// files follow the system level's. Until Jev chooses a persona, the persona
 /// in play is `[context].default_persona`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ContextStatus {
     #[serde(default)]
     pub system_files: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub persona: Option<String>,
     #[serde(default)]
     pub persona_files: Vec<String>,
@@ -545,6 +570,7 @@ pub struct ContextStatus {
 /// last-known-good copy of the note and reads the vault behind the socket;
 /// until the vault confirms the copy, the daemon answers only what reads.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ConfigStatus {
     /// `vault` or `file`: where the config lives.
     pub source: String,
@@ -561,28 +587,34 @@ pub struct ConfigStatus {
     pub started_from: String,
     /// Why it is held, what it is doing, or how it was confirmed, in words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub detail: Option<String>,
     /// When it was confirmed, in ms after the process started: the vault's
     /// answer, or the end of a read before serving.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub confirmed_ms: Option<u64>,
     /// The last-known-good copy's path, when the config is in the vault.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub copy: Option<String>,
     /// Reads of the vault behind the socket: the first, then each retry.
     #[serde(default)]
     pub reads: u32,
     /// Until the next read, when held.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub retry_in_ms: Option<u64>,
     /// This process began as a restart onto the vault's changed note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub restarted: Option<ConfigRestart>,
 }
 
 /// A restart onto the vault's changed config note (theseus-2fo): what
 /// changed since the copy, by table name and digest, never by value.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ConfigRestart {
     pub reference: String,
     /// When the process that found the change asked to restart.
@@ -595,6 +627,7 @@ pub struct ConfigRestart {
 
 /// A secret that did not resolve, and why (never a value).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SecretFailed {
     pub name: String,
     pub error: String,
@@ -602,6 +635,7 @@ pub struct SecretFailed {
 
 /// One phase of the last start (theseus-qa0), timed from process start.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct StartupPhase {
     /// `config`, `store`, `providers`, `kernel`, `core`, `socket` on the path
     /// to serving, one after another; `secrets`, `provider.<name>` (a turn's
@@ -616,6 +650,7 @@ pub struct StartupPhase {
     #[serde(default)]
     pub end_us: Option<u64>,
     #[serde(default)]
+    #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
     pub detail: Value,
 }
 
@@ -623,6 +658,7 @@ pub struct StartupPhase {
 /// a tool ask first from then on. The gate applies it after the config's
 /// posture, and the stricter of the two wins, so it never loosens anything.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Tightening {
     /// The tool's canonical name (`proc.run`).
     pub tool: String,
@@ -643,37 +679,47 @@ pub struct Tightening {
     /// labeled example for later judgment work (Jev, M5). A press from the
     /// CLI without `--call` names none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub correlation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
     /// The call's proposal digest (its action's `args_digest`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub digest: Option<String>,
 }
 
 /// `policy.tighten`: make a tool ask first from now on.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct PolicyTightenParams {
     pub tool: String,
     /// The call whose notice was pressed, when there is one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub correlation_id: Option<String>,
     /// Who pressed, as a label. Default: the connection. It names and
     /// proves nothing; the connection's surface decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
     /// Set by the Discord binding: the channel and user the press came from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub discord: Option<DiscordOrigin>,
 }
 
 /// `policy.untighten`: the tool goes back to what the config says.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct PolicyUntightenParams {
     pub tool: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub discord: Option<DiscordOrigin>,
 }
 
@@ -681,6 +727,7 @@ pub struct PolicyUntightenParams {
 /// params of `policy.tightened` and `policy.untightened`, where a field a
 /// notification lacks reads as its default (theseus-0g4).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct TightenResult {
     pub tool: String,
@@ -708,6 +755,7 @@ pub struct TightenResult {
 /// trusted it, or the hold it took from another session. From then on, every
 /// call whose class is not `read` waits for the operator's approval.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExternalText {
     /// When the session came to hold it.
     pub since_ms: u64,
@@ -722,15 +770,18 @@ pub struct ExternalText {
     pub node_id: String,
     /// The session it came from, when this one took it from another.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub from_session: Option<String>,
     /// How it came from there: `task.create` (a task that a session holding
     /// it started) or `task.report` (a report from a task that held it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub via: Option<String>,
     /// A search's query (`web.search`), which the hold names in place of
     /// the request's URL (theseus-qiy); the URL stays on the result node.
     /// Absent for a fetch, and in holds written before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub query: Option<String>,
 }
 
@@ -749,12 +800,15 @@ impl ExternalText {
 
 /// A session that holds external text, as health lists it (theseus-9bp).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExternalTextInfo {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub title: Option<String>,
     /// The task's short id, when the session is a task's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub task: Option<String>,
     pub held: ExternalText,
     /// When the hold began, in the daemon's local time, as the hold's reason
@@ -766,19 +820,23 @@ pub struct ExternalTextInfo {
 
 /// `policy.trust`: the session no longer holds external text.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct PolicyTrustParams {
     pub session_id: String,
     /// Who trusted it, as a label. Default: the connection. It names and
     /// proves nothing; the connection's surface decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub discord: Option<DiscordOrigin>,
 }
 
 /// What a trust cleared, and who cleared it: `policy.trust`'s result, and the
 /// params of `session.trusted`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TrustResult {
     pub session_id: String,
     /// Who trusted it, as a label.
@@ -793,6 +851,7 @@ pub struct TrustResult {
     pub how: String,
     /// The approval that trusted it, when one did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub correlation_id: Option<String>,
     pub at_ms: u64,
     /// The hold it cleared.
@@ -806,6 +865,7 @@ pub struct TrustResult {
 /// `[approval]` as health reports it (spec §3.9 "Approval"): the trusted
 /// users, and each listed channel with its state now.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ApprovalStatus {
     /// The config has an `[approval]` section. Without one, every surface
     /// answers as before theseus-sgh: the CLI, the local web UI, and a
@@ -820,6 +880,7 @@ pub struct ApprovalStatus {
 
 /// One entry of `[approval].channels` and whether it is trusted now.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ApprovalChannel {
     /// As configured: `cli`, `web`, `discord:dm`, or `discord:<channel id>`.
     pub channel: String,
@@ -836,16 +897,19 @@ pub struct ApprovalChannel {
 /// button press (theseus-sgh). The core takes them only from the binding's
 /// own connection.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct DiscordOrigin {
     pub user_id: String,
     pub channel_id: String,
     /// None in a DM.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub guild_id: Option<String>,
 }
 
 /// One channel binding as health reports it (spec P5: bindings as a file).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct BindingStatus {
     /// "discord".
     pub kind: String,
@@ -853,15 +917,20 @@ pub struct BindingStatus {
     pub state: String,
     /// Why it is in that state, when that is not obvious (a missing file, a close code).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub bot_user: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub guild_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub bindings_file: Option<String>,
     /// First 12 hex of the bindings file's SHA-256: the binding revision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub revision: Option<String>,
     #[serde(default)]
     pub places: Vec<PlaceStatus>,
@@ -869,6 +938,7 @@ pub struct BindingStatus {
     pub connected_at_ms: u64,
     /// Gateway heartbeat round trip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub latency_ms: Option<u64>,
     #[serde(default)]
     pub messages_in: u64,
@@ -883,20 +953,24 @@ pub struct BindingStatus {
     #[serde(default)]
     pub errors: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub last_error: Option<String>,
     /// The developer portal has the Server Members intent on for this bot
     /// (the application's flags): who can view a guild channel can then be
     /// checked. None until the binding has asked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub members_intent: Option<bool>,
     /// Its outbox (theseus-q4v): the posts waiting for it, and how delivery
     /// goes. The core fills it in for health.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub outbox: Option<OutboxStatus>,
 }
 
 /// A binding's outbox (theseus-q4v): what waits to reach its channels.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct OutboxStatus {
     /// Posts written and not yet delivered.
     pub pending: u64,
@@ -909,6 +983,7 @@ pub struct OutboxStatus {
     pub oldest_pending_ms: u64,
     /// The last delivery error, and when (unix ms).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_error_ms: u64,
@@ -916,14 +991,17 @@ pub struct OutboxStatus {
 
 /// A place Theseus lives in: a text channel or a DM, and the session behind it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct PlaceStatus {
     /// "channel" | "dm".
     pub kind: String,
     pub label: String,
     /// The Discord channel id (for a DM, known after the DM channel opens).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub channel_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
     /// Discord user ids that may drive turns here.
     #[serde(default)]
@@ -937,6 +1015,7 @@ pub struct PlaceStatus {
 
 /// The OTLP exporter (theseus-hee, spec §3.20): what it sent and dropped.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TelemetryStatus {
     pub enabled: bool,
     pub otlp_endpoint: Option<String>,
@@ -947,6 +1026,7 @@ pub struct TelemetryStatus {
     pub state: String,
     /// Why it waits, or why it failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub detail: Option<String>,
     /// Batches the receiver took: one per turn's trace, one per metrics export.
     #[serde(default)]
@@ -963,8 +1043,10 @@ pub struct TelemetryStatus {
     #[serde(default)]
     pub queued: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub last_error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub last_error_at_ms: Option<u64>,
 }
 
@@ -1013,6 +1095,7 @@ impl TelemetryStatus {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct KernelStatus {
     /// Startup finished (five steps) and events are accepted.
     pub accepting: bool,
@@ -1029,6 +1112,7 @@ pub struct KernelStatus {
     pub quarantined_completions: u64,
     /// The last startup: step timings in µs and what it recovered.
     #[serde(default)]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub startup: Value,
     /// The spend limit a new session gets, in US dollars (`[kernel]
     /// spend_limit_usd`).
@@ -1045,6 +1129,7 @@ pub struct KernelStatus {
 /// wrapper and orphan once it exits, and leaves the `op` processes to tokio,
 /// which waits for them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ChildrenStatus {
     /// The daemon is a child subreaper, so a job's descendant whose wrapper
     /// died is reparented to it, not to init. Only the socket daemon is one.
@@ -1071,6 +1156,7 @@ pub struct ChildrenStatus {
 /// One grant of the secret broker (theseus-dcy): who gets which secret, how,
 /// and how often since the daemon started. Never a value.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct GrantStatus {
     /// `program`, for a job's program by its argv, or `tool`, for a toollet.
     pub kind: String,
@@ -1078,6 +1164,7 @@ pub struct GrantStatus {
     pub to: String,
     /// The environment variable a program gets it in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub variable: Option<String>,
     /// The `[secrets]` name.
     pub secret: String,
@@ -1089,6 +1176,7 @@ pub struct GrantStatus {
 
 /// One execution as the protocol shows it (spec §3.15).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionInfo {
     pub execution_id: String,
     pub session_id: String,
@@ -1103,10 +1191,13 @@ pub struct ExecutionInfo {
     pub queued_results: u32,
     pub budget: BudgetInfo,
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub wake: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub reports_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub ended_reason: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
@@ -1114,6 +1205,7 @@ pub struct ExecutionInfo {
 
 /// An execution's budget in US dollars (theseus-0sg).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct BudgetInfo {
     pub limit_usd: f64,
     /// Settled costs since the execution opened or was last reset. The
@@ -1127,20 +1219,29 @@ pub struct BudgetInfo {
     pub resets: u32,
     /// The budget question waiting for the operator (a correlation id).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub question: Option<String>,
     /// The unit budget a record stored before dollar budgets carried, as it
     /// was: `limit`, `spent`, `reserved`, `held_unknown`.
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(
+        test,
+        ts(
+            type = "{ limit: number; spent: number; reserved: number; held_unknown: number } | null"
+        )
+    )]
     pub units_before: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionListResult {
     pub executions: Vec<ExecutionInfo>,
 }
 
 /// One action (a tool or provider call with a correlation id, spec §3.16).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ActionInfo {
     pub correlation_id: String,
     pub execution_id: String,
@@ -1150,10 +1251,13 @@ pub struct ActionInfo {
     pub retry_class: String,
     pub planned_at_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub authorized_at_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub dispatched_at_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub settled_at_ms: Option<u64>,
     pub deadline_at_ms: u64,
     /// What the action's budget reservation holds, in US dollars.
@@ -1161,17 +1265,22 @@ pub struct ActionInfo {
     pub reserved_usd: f64,
     pub confirmed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub cancel: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub external_op_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub result_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub resolution: Option<String>,
     pub completions_seen: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ActionListParams {
     /// Only this execution's actions.
     #[serde(default)]
@@ -1182,20 +1291,24 @@ pub struct ActionListParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ActionListResult {
     pub actions: Vec<ActionInfo>,
     pub total: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionCancelParams {
     pub execution_id: String,
     /// Who asked, as a label in the ledger (e.g. `discord:eddie`). Default: the connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionCancelResult {
     pub execution: ExecutionInfo,
     /// Dispatched actions whose backends were asked to stop.
@@ -1208,15 +1321,18 @@ pub struct ExecutionCancelResult {
 /// more; the execution then waits on its next input. A task is refused:
 /// `task.cancel` stops one.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionStopParams {
     pub execution_id: String,
     /// Who asked, as a label in the ledger (e.g. `discord:eddie`). Default:
     /// the surface.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionStopResult {
     pub execution: ExecutionInfo,
     /// False when the execution had ended already: nothing was stopped.
@@ -1236,6 +1352,7 @@ pub struct ExecutionStopResult {
 /// A task (DD7, theseus-qn2): a child session a conversation opened with
 /// `task.create`, which works on its own and reports back to the place.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TaskInfo {
     /// Its session's id (`ses_…`).
     pub task_id: String,
@@ -1247,12 +1364,14 @@ pub struct TaskInfo {
     pub parent_execution_id: String,
     /// The brief's first line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub title: Option<String>,
     /// Its execution's state: `queued`, `running`, `waiting`, `complete`, …
     pub state: String,
     /// What it waits on, while it waits: `actions` (a job), `confirm`,
     /// `budget`, or `input`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub waiting_on: Option<String>,
     /// Its spend under its carved limit (since any reset), and that limit.
     pub spent_usd: f64,
@@ -1265,8 +1384,10 @@ pub struct TaskInfo {
     pub pending_confirms: u32,
     /// Where its cards and report go (`discord:dm:<user>`), if anywhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub target: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub ended_reason: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
@@ -1278,16 +1399,20 @@ pub struct TaskInfo {
 /// `task.list`: every task, the newest first, or only one session's, or
 /// only those that report to one place.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TaskListParams {
     /// Only the tasks this session started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
     /// Only the tasks that report to this place (`discord:dm:<user>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TaskListResult {
     pub tasks: Vec<TaskInfo>,
 }
@@ -1295,6 +1420,7 @@ pub struct TaskListResult {
 /// `task.cancel`: stop a task and its jobs, as `execution.cancel` does; the
 /// place hears that it was cancelled, once.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TaskCancelParams {
     /// Its id, its execution's id, or the end of either (`a1b2c3`), as long
     /// as one task matches.
@@ -1303,10 +1429,12 @@ pub struct TaskCancelParams {
     /// `the web UI`; DD8), or the connection's label on a surface no
     /// listener named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TaskCancelResult {
     pub task: TaskInfo,
     /// Dispatched actions whose backends were asked to stop.
@@ -1316,6 +1444,7 @@ pub struct TaskCancelResult {
 /// A pending wake (DD8, theseus-cff): a conversation asked, with `wake.at`,
 /// for a turn at a time, whose input is its note. It has not run yet.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct WakeInfo {
     /// `wak_…`.
     pub wake_id: String,
@@ -1326,6 +1455,7 @@ pub struct WakeInfo {
     pub execution_id: String,
     /// The session's title, when it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub session_title: Option<String>,
     pub due_at_ms: u64,
     /// The due time on the daemon's clock, as people read it
@@ -1336,6 +1466,7 @@ pub struct WakeInfo {
     /// The place it was set from (`discord:dm:<user>`), where its turn's
     /// reply goes, if anywhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub target: Option<String>,
     /// Its session's execution state now: a wake waits for a busy session.
     pub state: String,
@@ -1344,31 +1475,38 @@ pub struct WakeInfo {
 /// `wake.list`: every pending wake, soonest first, or only one session's, or
 /// only those whose turns post to one place.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct WakeListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
     /// Only the wakes whose turns post to this place (`discord:dm:<user>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct WakeListResult {
     pub wakes: Vec<WakeInfo>,
 }
 
 /// `wake.cancel`: cancel a pending wake, so nothing fires.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct WakeCancelParams {
     /// Its id, or the end of it (`a1b2c3`), as long as one wake matches.
     pub wake: String,
     /// Who asked, as the ledger names them. Default: the surface (`the CLI`,
     /// `the web UI`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct WakeCancelResult {
     /// The wake as it was before the cancel.
     pub wake: WakeInfo,
@@ -1376,15 +1514,18 @@ pub struct WakeCancelResult {
 
 /// A question's task, when a task asks it (DD7): the card names it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TaskRef {
     pub task_id: String,
     pub short: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub title: Option<String>,
 }
 
 /// Also the kernel's: an execution stores it (`theseus_kernel::SessionKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SessionKind {
     Conversation,
@@ -1401,6 +1542,7 @@ impl SessionKind {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionOpenParams {
     #[serde(default)]
     pub kind: Option<SessionKind>,
@@ -1409,6 +1551,7 @@ pub struct SessionOpenParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionInfo {
     pub session_id: String,
     pub kind: SessionKind,
@@ -1420,8 +1563,10 @@ pub struct SessionInfo {
     pub usage: Usage,
     /// The session's one execution (spec §3.2a) and its current state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub execution_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub execution_state: Option<String>,
     #[serde(default)]
     pub last_active_ms: u64,
@@ -1431,35 +1576,44 @@ pub struct SessionInfo {
     pub tool_calls: u64,
     /// Profile/provider/model of the last turn (continuations reuse it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub profile: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub compilation_id: Option<String>,
     /// First words of the first prompt, for pickers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub title: Option<String>,
     /// Tool calls in this session waiting for the operator's confirmation.
     #[serde(default)]
     pub pending_confirms: u32,
     /// A task session's parent (DD7): the session that started it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub parent_session_id: Option<String>,
     /// A task's carved limit, in US dollars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub limit_usd: Option<f64>,
     /// The session holds external text (theseus-9bp): what it read, and
     /// since when. Its calls that act wait until the operator trusts it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub external_text: Option<ExternalText>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionListResult {
     pub sessions: Vec<SessionInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnSubmitParams {
     /// Omit to open a fresh conversation session for this turn.
     #[serde(default)]
@@ -1478,6 +1632,7 @@ pub struct TurnSubmitParams {
     /// Default: the connection's own label. A label, not an authority: every
     /// local protocol client acts as the operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
     /// Files that came with the input, in order (theseus-9g2). With any, the
     /// input may be empty.
@@ -1486,6 +1641,7 @@ pub struct TurnSubmitParams {
     /// The surface's message this turn answers (a Discord message id): the
     /// reply's first message is posted as a reply to it (theseus-q4v).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub reply_to: Option<String>,
 }
 
@@ -1494,6 +1650,7 @@ pub struct TurnSubmitParams {
 /// `data`. A file the sender did not read carries `not_read` instead, with
 /// the reason, and the model is told it exists.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Attachment {
     pub name: String,
     /// As the sender knows it (`text/plain`, `image/png`); may be empty.
@@ -1503,16 +1660,20 @@ pub struct Attachment {
     #[serde(default)]
     pub size: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub text: Option<String>,
     /// The file's bytes, base64 (standard alphabet, padded).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub data: Option<String>,
     /// Why it was not read: too large, a type that is not read, a failed download.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub not_read: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ProfileInfo {
     pub name: String,
     pub provider: String,
@@ -1525,6 +1686,7 @@ pub struct ProfileInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ProfileListResult {
     pub live: String,
     /// Where the live choice came from: "config" or "runtime" (persisted switch).
@@ -1533,11 +1695,13 @@ pub struct ProfileListResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ProfileUseParams {
     pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ProfileChanged {
     pub previous: String,
     pub live: String,
@@ -1547,6 +1711,7 @@ pub struct ProfileChanged {
 /// One timed span of a turn trace. Times are microseconds from the turn's
 /// start; a mark has `end_us == start_us`. Children are in start order.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Span {
     pub name: String,
     /// turn | loop | provider | tool | mark | advancer | store | lock | compile.
@@ -1556,6 +1721,7 @@ pub struct Span {
     #[serde(default)]
     pub end_us: Option<u64>,
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub attrs: Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Span>,
@@ -1570,6 +1736,7 @@ impl Span {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -1587,6 +1754,7 @@ pub struct Usage {
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnSubmitResult {
     pub session_id: String,
     pub turn_id: String,
@@ -1625,6 +1793,7 @@ pub struct TurnSubmitResult {
     pub awaiting_confirm: Option<String>,
     /// The provider's `stop_details` (a refusal's category).
     #[serde(default)]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub stop_details: Option<Value>,
     /// The turn ran without new input (a continuation: late results, a confirm answer, a restart).
     #[serde(default)]
@@ -1632,6 +1801,7 @@ pub struct TurnSubmitResult {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct LedgerTailParams {
     #[serde(default)]
     pub n: Option<usize>,
@@ -1644,16 +1814,19 @@ pub struct LedgerTailParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct LedgerEntry {
     pub position: u64,
     pub at_unix_ms: u64,
     pub kind: String,
     pub session_id: Option<String>,
     pub turn_id: Option<String>,
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub data: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct LedgerTailResult {
     pub rows: Vec<LedgerEntry>,
     pub total: u64,
@@ -1662,11 +1835,13 @@ pub struct LedgerTailResult {
 // ---------------------------------------------------------------- M3: content
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionRef {
     pub session_id: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionHistoryParams {
     pub session_id: String,
     /// Newest `n` nodes (default all).
@@ -1676,6 +1851,7 @@ pub struct SessionHistoryParams {
 
 /// One node as clients render it (a message, a tool call, a tool result).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NodeInfo {
     pub node_id: String,
     /// `user_message`, `assistant_message`, `tool_call`, `tool_result`.
@@ -1684,10 +1860,13 @@ pub struct NodeInfo {
     pub position: u64,
     pub at_unix_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub turn_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub loop_index: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
     /// Text for display (user text; assistant text blocks; tool result content).
     #[serde(default)]
@@ -1698,12 +1877,14 @@ pub struct NodeInfo {
     /// Kind-specific fields: model/usage/cost (assistant), tool/input/gate
     /// (tool call), tool/status/is_error/bytes (tool result).
     #[serde(default)]
+    #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
     pub detail: Value,
     #[serde(default)]
     pub bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionHistoryResult {
     pub session: SessionInfo,
     pub nodes: Vec<NodeInfo>,
@@ -1713,6 +1894,7 @@ pub struct SessionHistoryResult {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionRecompileParams {
     pub session_id: String,
     /// `fresh` (start over) or `transcript` (keep everything, thinking stripped).
@@ -1720,6 +1902,7 @@ pub struct SessionRecompileParams {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NodeListParams {
     #[serde(default)]
     pub session_id: Option<String>,
@@ -1730,12 +1913,14 @@ pub struct NodeListParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NodeListResult {
     pub nodes: Vec<NodeInfo>,
     pub total: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct CompilationListParams {
     #[serde(default)]
     pub session_id: Option<String>,
@@ -1744,6 +1929,7 @@ pub struct CompilationListParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct CompilationInfo {
     pub compilation_id: String,
     pub session_id: String,
@@ -1753,8 +1939,10 @@ pub struct CompilationInfo {
     pub as_of: u64,
     pub includes: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub derived_from: Option<String>,
     /// The manifest as stored (model, provider, digests, catalog version, strip_thinking).
+    #[cfg_attr(test, ts(type = "Record<string, unknown>"))]
     pub manifest: Value,
     /// This is the session's current compilation.
     #[serde(default)]
@@ -1762,14 +1950,17 @@ pub struct CompilationInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct CompilationListResult {
     pub compilations: Vec<CompilationInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct CatalogModel {
     pub model: String,
     /// The catalog row as configured (provider, window, prices, capabilities, source).
+    #[cfg_attr(test, ts(type = "Record<string, unknown>"))]
     pub entry: Value,
     /// Profiles that use this model.
     #[serde(default)]
@@ -1777,6 +1968,7 @@ pub struct CatalogModel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct CatalogListResult {
     pub version: String,
     pub models: Vec<CatalogModel>,
@@ -1785,13 +1977,16 @@ pub struct CatalogListResult {
 /// A tool call waiting for the operator (spec §3.9: confirmation is bound to
 /// the exact tool, arguments, resource, and an expiry).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ConfirmRequest {
     pub correlation_id: String,
     pub session_id: String,
     pub execution_id: String,
     pub tool: String,
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub input: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub resource: Option<String>,
     /// Why policy asks (e.g. "write under /home/x/projects", "run cargo test").
     pub reason: String,
@@ -1807,13 +2002,16 @@ pub struct ConfirmRequest {
     /// Set on a budget question (`tool` is `budget.reset`): the figures it
     /// asks about. `reason` is the question in words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub budget: Option<BudgetAsk>,
     /// The task that asks, when a task does (DD7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub task: Option<TaskRef>,
     /// The call waits because its session read external text (theseus-9bp):
     /// what it read. An approval with `trust` clears that as well.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub external_text: Option<ExternalText>,
 }
 
@@ -1821,6 +2019,7 @@ pub struct ConfirmRequest {
 /// spend limit. Approving resets `spent_usd` to $0 and the waiting call
 /// proceeds; the session's lifetime cost keeps counting.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct BudgetAsk {
     pub spent_usd: f64,
     pub limit_usd: f64,
@@ -1833,11 +2032,13 @@ pub struct BudgetAsk {
 /// `confirm.list`: the questions of every session parked on one, the most
 /// recently active session first.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ConfirmListResult {
     pub confirms: Vec<ConfirmRequest>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ActionConfirmParams {
     pub correlation_id: String,
     pub approve: bool,
@@ -1851,9 +2052,11 @@ pub struct ActionConfirmParams {
     /// A label names; it proves nothing. With `[approval]`, the connection's
     /// surface and `discord` decide whether the answer counts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
     /// Set by the Discord binding: the channel and user the answer came from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub discord: Option<DiscordOrigin>,
     /// Approve, and trust the session again (theseus-9bp): it no longer holds
     /// external text, so its calls that act go back to their postures. Only
@@ -1863,6 +2066,7 @@ pub struct ActionConfirmParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ActionConfirmResult {
     pub correlation_id: String,
     pub approved: bool,
@@ -1880,6 +2084,7 @@ fn yes() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ToolInfo {
     /// Canonical name (`fs.read`).
     pub name: String,
@@ -1905,7 +2110,9 @@ pub struct ToolInfo {
     pub config_setting: String,
     /// Someone pressed "should have asked" for this tool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub tightened: Option<Tightening>,
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub input_schema: Value,
     /// Calls since the daemon started.
     #[serde(default)]
@@ -1913,6 +2120,7 @@ pub struct ToolInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ToolListResult {
     pub tools: Vec<ToolInfo>,
     /// Workspace roots tools may touch.
@@ -1925,6 +2133,7 @@ pub struct ToolListResult {
 
 /// `error.data` on a provider failure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ProviderErrorData {
     pub class: String,
     pub transient: bool,
@@ -1947,6 +2156,7 @@ pub struct ProviderErrorData {
 /// A notification's params: a field it lacks reads as its default, as the
 /// renderers always read them (theseus-0g4).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct TurnStarted {
     pub session_id: String,
@@ -1960,6 +2170,7 @@ pub struct TurnStarted {
 /// A notification's params: a field it lacks reads as its default, as the
 /// renderers always read them (theseus-0g4).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct TurnFailed {
     pub session_id: String,
@@ -1978,12 +2189,14 @@ pub struct TurnFailed {
     /// on input, and the next message retries). Absent for a task's turn and
     /// a stopped one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub then: Option<String>,
 }
 
 /// A notification's params: a field it lacks reads as its default, as the
 /// renderers always read them (theseus-0g4).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct LoopStarted {
     pub turn_id: String,
@@ -1995,6 +2208,7 @@ pub struct LoopStarted {
 /// A notification's params: a field it lacks reads as its default, as the
 /// renderers always read them (theseus-0g4).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ModelDelta {
     pub turn_id: String,
@@ -2005,6 +2219,7 @@ pub struct ModelDelta {
 /// A notification's params: a field it lacks reads as its default, as the
 /// renderers always read them (theseus-0g4).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct LoopEnded {
     pub turn_id: String,
@@ -2018,6 +2233,7 @@ pub struct LoopEnded {
 /// Which architectural part of the session/turn/loop structure a narrative
 /// line comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum NarrativePart {
     Session,
@@ -2052,6 +2268,7 @@ impl NarrativePart {
 /// One sentence of the narrative, filled into a fixed template from the
 /// structure itself (never written by a model). Kept only in memory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NarrativeLine {
     /// Counts from 1 since the daemon started; a client merges the tail and
     /// the live lines on it.
@@ -2059,13 +2276,16 @@ pub struct NarrativeLine {
     pub at_unix_ms: u64,
     pub part: NarrativePart,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub turn_id: Option<String>,
     pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NarrativeWatchResult {
     /// The most recent lines, oldest first; at most `capacity`.
     pub lines: Vec<NarrativeLine>,

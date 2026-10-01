@@ -17,24 +17,28 @@ use crate::{
 
 /// `tool.proposed`: the model asked for a call, and what the gate made of it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ToolProposed {
     pub session_id: String,
     pub turn_id: String,
     pub tool_use_id: String,
     pub tool: String,
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub input: Value,
     pub gate: GateRecord,
 }
 
 /// A context file as the system block carried it (theseus-58a).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ContextFileRef {
     /// The file, `~` expanded.
     pub path: String,
     /// The first 16 hex digits of the SHA-256 of the text included; absent
     /// when the file could not be read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub digest: Option<String>,
     /// Bytes of the file the block carries.
     #[serde(default)]
@@ -44,15 +48,18 @@ pub struct ContextFileRef {
     pub cut: bool,
     /// Why the file could not be read: `not found`, `permission denied`, …
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub missing: Option<String>,
     /// The persona whose file this is (theseus-c48); absent: the system
     /// level, which every session gets (and every file before theseus-c48).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub persona: Option<String>,
 }
 
 /// Where a request's cache breakpoints went, and their TTLs (theseus-ev1).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct CacheSummary {
     /// The blocks marked, in order: `header`, `context`, `conversation`.
@@ -67,6 +74,7 @@ pub struct CacheSummary {
 /// (§3.13). The `context.compiled` ledger row and the trace's compile span
 /// carry the same.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ContextCompiled {
     pub session_id: String,
@@ -91,15 +99,18 @@ pub struct ContextCompiled {
     /// Tools offered.
     pub tools: u64,
     pub nodes_scanned: u64,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_files: Vec<ContextFileRef>,
     /// The persona in play (theseus-c48).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub persona: Option<String>,
     pub cache: CacheSummary,
 }
 
-/// `tool.started`: a call runs.
+/// `tool.started`: a call runs. A job's says how, and what the broker gave
+/// it; a call that is not a job's has none of those fields.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ToolStarted {
@@ -110,27 +121,49 @@ pub struct ToolStarted {
     pub correlation_id: String,
     /// `harness`, `inproc`, or `job`.
     pub backend: String,
-    /// A job's process, and what the broker gave it.
-    #[serde(flatten)]
-    pub job: Option<JobStarted>,
+    /// A job's wrapper's pid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub argv: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cwd: Option<PathBuf>,
+    /// What the secret broker gave a job, by name (`gh got GH_TOKEN`): `null`
+    /// for nothing (theseus-dcy).
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "nullable")]
+    #[cfg_attr(test, ts(type = "string | null"))]
+    pub granted: Option<Option<String>>,
+    /// What a job was not given (`git got no GIT_TOKEN`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub withheld: Option<Vec<String>>,
 }
 
-/// A job's start, as `tool.started` says it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobStarted {
-    /// Its wrapper's pid.
-    pub pid: u32,
-    pub argv: Vec<String>,
-    pub cwd: PathBuf,
-    /// What the secret broker gave it, by name (`gh got GH_TOKEN`); `null`
-    /// for nothing (theseus-dcy).
-    pub granted: Option<String>,
-    /// What it was not given (`git got no GIT_TOKEN`).
-    pub withheld: Vec<String>,
+/// A field that is absent, `null`, or a value: `None`, `Some(None)`, and
+/// `Some(Some(v))` (`skip_serializing_if = "Option::is_none"` drops the first).
+mod nullable {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<T: Serialize, S: Serializer>(
+        v: &Option<Option<T>>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        v.as_ref().and_then(Option::as_ref).serialize(s)
+    }
+
+    pub fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<Option<Option<T>>, D::Error> {
+        Option::<T>::deserialize(d).map(Some)
+    }
 }
 
 /// `tool.ended`: a call's result was written.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ToolEnded {
     pub session_id: String,
@@ -158,6 +191,7 @@ pub struct ToolEnded {
 
 /// `confirm.resolved`: a question waiting for the operator closed.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ConfirmResolved {
     pub session_id: String,
@@ -165,28 +199,31 @@ pub struct ConfirmResolved {
     pub approved: bool,
     /// Who answered or closed it; absent when new input superseded a call's
     /// question.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub by: Option<String>,
     /// An answer to a tool call: whether it trusted the session again
     /// (theseus-9bp).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub trust: Option<bool>,
     /// New input came before an answer.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub superseded: bool,
     /// Its execution was cancelled before an answer (theseus-w98).
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cancelled: bool,
     /// A `/stop` declined it while it waited (W1).
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped: bool,
     /// A raised spend limit withdrew a budget question (theseus-3pj).
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub withdrawn: bool,
 }
 
 /// `node.written`: a turn wrote a node.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct NodeWritten {
     pub session_id: String,
@@ -197,6 +234,7 @@ pub struct NodeWritten {
 
 /// `policy.notified`: a call ran at a `notify` posture, with its notice.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct PolicyNotified {
     pub session_id: String,
@@ -204,6 +242,7 @@ pub struct PolicyNotified {
     pub tool_use_id: String,
     pub correlation_id: String,
     pub tool: String,
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub input: Value,
     /// The plan's summary.
     pub summary: String,
@@ -212,41 +251,51 @@ pub struct PolicyNotified {
     /// What the secret broker gives the call, by name; `null` for nothing.
     pub granted: Option<String>,
     /// The task that made the call, by its short id (DD7).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub task: Option<String>,
 }
 
 /// The process behind an answer, as the process tree says (theseus-6qy).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct Asker {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub pid: Option<u32>,
     /// Its program: the file name of its `argv[0]`, else its `comm`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub argv0: Option<String>,
     /// How long the trace took, in µs.
     pub trace_us: u64,
     /// The job whose wrapper is above it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub job: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub wrapper_pid: Option<u32>,
     /// It is under this daemon with no wrapper between: a job's orphan
     /// (theseus-z4b). The daemon's pid.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub under_daemon: Option<u32>,
     /// It is under another serving daemon (theseus-6uo). That daemon's pid.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub under_other_daemon: Option<u32>,
     /// Why it could not be traced.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub untraceable: Option<String>,
 }
 
 /// `approval.refused`: an answer, an undo, or a trust from a Theseus job's
 /// process, refused (theseus-6qy). A security event every connection hears.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ApprovalRefused {
     /// The method of the act: `action.confirm`, `policy.tighten`,
@@ -255,13 +304,16 @@ pub struct ApprovalRefused {
     /// The session it was about; `null` for a tool's tightening.
     pub session_id: Option<String>,
     /// An answer's call.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub correlation_id: Option<String>,
     /// The answer's call's tool, or the tightening's.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub tool: Option<String>,
     /// An answer's: approve or decline.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub approve: Option<bool>,
     /// The connection it came through (`sock#9`), its surface (`cli`), why it
     /// did not count, and the label it gave.
@@ -269,7 +321,8 @@ pub struct ApprovalRefused {
     pub via: String,
     pub why: String,
     pub by: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub asker: Option<Asker>,
     /// Always set: the asker was a job's.
     pub from_job: bool,

@@ -205,14 +205,14 @@ function Indicator({ label, value, tone, title }: { label: string; value: string
 /** The web UI's door: a fault when any local user is served (no owner check), a wait while a dev page is let in,
  *  after a refusal, or on a build with no owner check; otherwise ok. A build with the check (theseus-3qf) always
  *  reports `refused_peer`. */
-function webTone(web: Health['web']): keyof typeof toneHex {
+function webTone(web: Health['web'] | undefined): keyof typeof toneHex {
   if (!web) return 'idle'
   if (web.peer_unchecked) return 'fault'
   if (web.refused_peer === undefined || web.dev_origin || web.refused_host + web.refused_origin + web.refused_peer > 0) return 'wait'
   return 'ok'
 }
 
-function webTitle(web: Health['web']): string {
+function webTitle(web: Health['web'] | undefined): string {
   if (!web) return 'web UI: not reported'
   const parts = [`web UI refused ${web.refused_host} by address, ${web.refused_origin} by page, ${web.refused_peer ?? 0} by user`]
   if (web.refused_peer === undefined) parts.push('no owner check in this build: any local user is served')
