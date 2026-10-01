@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.67
+# The Ship of Theseus — v0.68
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -5075,3 +5075,72 @@ same approvals and notifications as a normal agent. So the pilot has no second u
   binding, and the refused image in attachments.
 - **Builders.** With 9j9 in, a builder's card now reaches Eddie. theseus-2tw (a scratch root for a builder's
   live check) is what still stands between a builder and an unattended step, and the friction batch takes it.
+
+### Item 16. The first merge batch: ten lanes on `main` ahead of their readers (theseus-zaz.18; 2026-10-01 02:58 to 03:18; 1fe9c0e to abf01c5)
+
+**Why.** Eddie, 2026-10-01 00:00: "merge and dismiss branches once done". The lane recipe's rule 3 now merges a
+lane as soon as it is reviewed. It no longer waits for the spine step that reads it.
+
+**What landed.** One lane at a time, in this order. Each was rebased onto `main` and gated on `main`'s own tree.
+Then `main` was fast-forwarded and pushed, and the lane's branch (origin and local), worktree, and target dir
+were deleted. None of these crates is on `theseusd`'s path yet: each waits for its reader, the spine step named.
+
+| Lane | What | Its reader | Landed | Gate |
+|---|---|---|---|---|
+| sandbox | `theseus-sandbox` (L1: namespaces, seccomp, the init; the egress proxy), and `theseus-tools`' net seam | 17b, 18c | 03:00, 1fe9c0e | 619 tests |
+| ontology | `theseus-ontology` (kinds, seed rows, compose) | 21b | 03:02, 3718f49 | 666 |
+| judge | `theseus-judge` (the Jev client, bands, batching, the breaker, the six packs, `learn.rs`) | 23a | 03:04, 2237494 | 740 |
+| math | `theseus-memory` (FSRS-6 and spreading activation, pure) | 30a; 32a and 32b's wire-ins | 03:05, 8454626 | 771 |
+| exam | `theseus-exam` (exam v1.1 and v2, the checks, the statistics) | 34b | 03:06, bcff18f | 820 |
+| mcp | `theseus-mcp` (the client, a fake server, the server side) | 36b, 41b | 03:12, dc367b1 | 869 |
+| cache | the byte-identical header test; the Observatory's cache figures | 13c | 03:13, c2a507d | 871 |
+| index | `theseus-follow` (the WAL follower) and `theseus-index` (tantivy BM25 and entities, the tender) | row 51 (29b's wire-in) | 03:16, c4abfed | 915 |
+| aws-infra | `infra/aws/` (four templates, stack policies, `check.sh`) | C2 (14b) | 03:17, 05801f6 | 915 |
+| aws-guard | `theseus-aws-guard` (`guardrails.toml`, the evaluator, the scanner, the generated guards and SCPs) | C2 (14b) | 03:18, abf01c5 | 941 |
+
+Every gate's lifecycle bench passed; two of them only on the gate's own rerun (below).
+
+**What the joins changed.**
+- **ontology:** the test fixture named the real company and its operator. They are invented now (Kestrel, Ada).
+  The two guidance digests the text changed were recomputed outside the code, by Python's `hashlib`, which also
+  reproduced the old pair from the old text. Its first gate failed on rustfmt alone, since the shorter names
+  folded lines.
+- **exam:** two asserts that keep a real repository's name out of the exams spelled the name. It is one constant
+  now, spelled in parts. The exams and their digests are unchanged.
+- **cache:** fb1b (Item 15) and this lane each changed the fake model server, one for arrival times and a queue
+  of refusals, the other for each request's raw bytes. The merged server keeps all three. `web/dist` was rebuilt
+  from the merged source, byte-identical to the lane's.
+- **index:** `Cargo.lock` gained tantivy 0.26.2's 48 packages, at exactly the versions the lane tested. The store's
+  one change, `read_frame` and three items made public, was read: read-only, and checked by the store's own
+  `check_frame`.
+- **aws-guard:** reviewed at 02:56. Its model tests had defaulted to an old CLI's models (2.9.13). They now find
+  botocore beside the `aws` on PATH (dc93ae7): 523 operations, 77 paths, and the boundary's patterns, all against
+  2.34.15. The live check, rerun read-only, simulated 125 actions with 0 mismatches. Access Analyzer accepted all
+  7 documents; its one warning, allow-all's `iam:PassRole` in the boundary, is in a boundary's nature.
+- **aws-infra:** `infra/aws/check.sh` passes on `main` (cfn-lint, the rules, 31 tests).
+
+**What the gates found.**
+- **A flaky test from Item 15.** mcp's first gate failed on
+  `a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_anyone`, a 9j9 test. Run alone at
+  dc367b1 it failed 4 runs in 8: it read the channel once the outbox drained, and the tool line can land after
+  that. It now waits for every message it reads, and passes 20 runs of 20 (9bd55a6). Whether the tool line can
+  land after the reply in a real channel is theseus-50p (P3).
+- **Two bench misses, each passed on the gate's rerun.**
+  - mcp: the cold start from the config copy, p95 62.7 ms against 57. One run in ten; the rerun's p95 was
+    29.6 ms.
+  - aws-guard: both cold starts.
+
+  Each ran beside the aws-client lane's test run, which `tools/theseus-quiet.sh` does not pause: a lane's tests
+  keep wall-clock deadlines that a pause would break. Gates now take a shared lock, `~/.cache/theseus-gate.lock`,
+  which lane gates take too, so the two no longer overlap. The script also scans every second for lane builds
+  that start mid-gate.
+
+**The spikes.** The voice and embedding spikes' branches were deleted, their trees archived under `~/reports`.
+The embedding spike's verdict (29a, theseus-zaz.17) is candle 0.11, at f32, on one thread. It goes to 29c, along
+with what 30a needs to know: a query takes 85 to 90 ms to embed, so recall's 60 ms p95 can't hold if it waits on
+the vectors.
+
+**Left open.** `lane/aws-client` (P1's catalog is committed; P2, the client, is still running).
+
+**Reviewed** (Tabitha, 2026-10-01, 02:56 to 03:24). The batch is this review: each lane was read when its report
+landed (Items 12 to 14's dates), its join is above, and its gate log is in `~/reports/theseus-merge/`.
