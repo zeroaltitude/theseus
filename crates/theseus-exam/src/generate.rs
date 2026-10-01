@@ -299,9 +299,10 @@ text = "{box}: up"
     fn placeholders_are_names_in_braces_and_nothing_else() {
         let vals: BTreeMap<&str, String> = [("box", "qa".to_string())].into_iter().collect();
         assert_eq!(fill("{box}/{box}", &vals).unwrap(), "qa/qa");
+        // JSON's braces, a capital anywhere in the name, a space: all literal.
         assert_eq!(
-            fill("{\"a\": {}} {Box} { box}", &vals).unwrap(),
-            "{\"a\": {}} {Box} { box}"
+            fill("{\"a\": {}} {Box} {bOx} { box}", &vals).unwrap(),
+            "{\"a\": {}} {Box} {bOx} { box}"
         );
         assert_eq!(fill("{box", &vals).unwrap(), "{box");
         let e = fill("on {bx}", &vals).unwrap_err().to_string();
