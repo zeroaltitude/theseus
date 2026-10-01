@@ -1,12 +1,13 @@
 // Systems: the machine under the harness. Config and secrets (names, never values), the last start, the kernel,
 // the daemon's children, the broker's grants, Discord, approval channels, context files, profiles, and the catalog.
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import {
   Baby, Bot, Cpu, FileText, KeyRound, Network, Radio, Rocket, Server, Settings2, ShieldCheck, Tags,
 } from 'lucide-react'
 import type { CatalogList, Health, ProfileList } from '@protocol'
-import { useRpc } from '@/lib/rpc'
+import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { ago, ms, stamp, tokens, uptime, us, usd } from '@/lib/format'
 import { stateTone } from '@/lib/taxonomy'
@@ -149,11 +150,12 @@ export default function Systems() {
 
       <Card title="Profiles" icon={<Bot size={13} />}>
         {(pl?.profiles ?? []).map((p) => (
-          <div key={p.name} className="flex items-center gap-2 border-b border-line/50 py-1 text-[12px]">
+          <div key={p.name} className="group flex items-center gap-2 border-b border-line/50 py-1 text-[12px]">
             <span className="num w-20 text-ink">{p.name}</span>
             {p.live && <Pill tone="live">live</Pill>}
             <span className="num text-ink-dim">{p.provider} · {p.model}</span>
             <span className="num ml-auto text-ink-faint">{tokens(p.max_output_tokens)} out{p.has_system ? ' · system' : ''}</span>
+            {!p.live && <MakeLive name={p.name} model={`${p.provider} · ${p.model}`} />}
           </div>
         ))}
         {pl && <div className="num mt-1 text-[11px] text-ink-faint">live from {pl.live_source}</div>}
@@ -186,6 +188,23 @@ export default function Systems() {
 
       <WebAccess web={h.web} />
     </div>
+  )
+}
+
+/** profile.use: the live profile, which new turns run on unless one names its own. Confirmed first, since every
+ *  session's next turn changes model. */
+function MakeLive({ name, model }: { name: string; model: string }) {
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const use = async () => {
+    if (!window.confirm(`Make "${name}" (${model}) the live profile? New turns run on it unless they name their own.`)) return
+    setBusy(true)
+    try { await call('profile.use', { name }); await qc.invalidateQueries() } catch (e: any) { window.alert(e?.message ?? String(e)) } finally { setBusy(false) }
+  }
+  return (
+    <button onClick={use} disabled={busy} className="rounded px-1.5 py-0.5 text-[10.5px] text-live opacity-0 ring-1 ring-live/30 hover:bg-live/10 group-hover:opacity-100 disabled:opacity-50">
+      {busy ? '…' : 'make live'}
+    </button>
   )
 }
 

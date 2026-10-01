@@ -102,6 +102,28 @@ export interface Health {
   web?: WebStatus
 }
 
+/// A task session (DD7, theseus-qn2): `task.create` made it, it works on its own, and reports back to its place.
+/// `task.list` returns the newest first; `task.cancel { task }` stops one as `execution.cancel` does.
+export interface TaskInfo {
+  /// Its session's id (`ses_…`); `short` is its last six characters, how people name it (`/cancel a1b2c3`).
+  task_id: string; short: string
+  execution_id: string; parent_session_id: string; parent_execution_id: string
+  /// The brief's first line.
+  title?: string
+  /// Its execution's state, and while it waits, on what: `actions` (a job), `confirm`, `budget`, or `input`.
+  state: string; waiting_on?: string
+  /// Its spend under its carved limit (since any reset), the limit, and its session's cost in all.
+  spent_usd: number; limit_usd: number; cost_usd: number
+  turns: number; pending_confirms: number
+  /// Where its cards and report go (`discord:dm:<user>`), if anywhere.
+  target?: string
+  ended_reason?: string
+  created_at_ms: number; updated_at_ms: number
+  /// Its report starts its parent's next turn (W1).
+  wake_parent?: boolean
+}
+export interface TaskListResult { tasks: TaskInfo[] }
+
 /// The web UI's refusals by kind, each also ledgered as `web.refused` at most once a minute per kind.
 export interface WebStatus {
   /// A request whose `Host` is not the UI's own address (a rebinding page).

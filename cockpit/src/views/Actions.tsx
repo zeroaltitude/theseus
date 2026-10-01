@@ -5,8 +5,8 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { CircleCheck, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, Zap } from 'lucide-react'
-import type { ActionInfo, ConfirmRequest, Health, ToolList } from '@protocol'
+import { CircleCheck, GitFork, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, Zap } from 'lucide-react'
+import type { ActionInfo, ConfirmRequest, Health, TaskInfo, TaskListResult, ToolList } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { ago, cn, ms, short, stamp, usd } from '@/lib/format'
@@ -40,12 +40,54 @@ export default function Actions() {
         <Panel title="Wakes" icon={<Hourglass size={13} />} bodyClassName="p-2">
           <Wakes h={h} />
         </Panel>
+        <Tasks />
+
         <Panel title="Tool postures" icon={<Wrench size={13} />} bodyClassName="max-h-[520px] overflow-auto"
           actions={tl ? <span className="num text-[11px] text-ink-faint">roots {tl.roots.join(', ')}</span> : null}>
           <Postures tl={tl} h={h} />
         </Panel>
       </div>
     </div>
+  )
+}
+
+/** Task sessions: what each works on, its state and what it waits on, its spend under its carved limit, and a
+ *  cancel for any still alive. The newest first; ended ones fold away. */
+function Tasks() {
+  const nav = useNavigate()
+  const now = useTick(5000)
+  const { busy, run } = useAct()
+  const { data: tl } = useRpc<TaskListResult>('task.list', {}, 3000)
+  const [ended, setEnded] = useState(false)
+  const tasks = tl?.tasks ?? []
+  // The kernel's terminal states (ExecState::is_terminal).
+  const alive = (t: TaskInfo) => !['complete', 'cancelled', 'failed', 'budget_exhausted'].includes(t.state)
+  const shown = tasks.filter((t) => ended || alive(t))
+  return (
+    <Panel title={<>Tasks · {tasks.filter(alive).length} alive{tasks.length ? ` of ${tasks.length}` : ''}</>} icon={<GitFork size={13} />} bodyClassName="max-h-[420px] overflow-auto p-2"
+      actions={tasks.some((t) => !alive(t)) ? <button onClick={() => setEnded((v) => !v)} className="text-[11px] text-ink-faint hover:text-ink">{ended ? 'hide ended' : 'show ended'}</button> : null}>
+      {!shown.length && <Empty>{tasks.length ? 'no task alive' : 'no tasks yet'}</Empty>}
+      {shown.map((t) => (
+        <div key={t.task_id} className="border-b border-line/50 px-1.5 py-2 last:border-0">
+          <div className="flex items-center gap-2">
+            <StatePill state={t.state} />
+            {t.waiting_on && <Pill tone="wait">on {t.waiting_on}</Pill>}
+            {t.pending_confirms > 0 && <Pill tone="wait">{t.pending_confirms} asks</Pill>}
+            <button onClick={() => nav(`/session/${t.task_id}`)} className="min-w-0 flex-1 truncate text-left text-[12.5px] text-ink hover:text-live" title={t.title ?? t.task_id}>{t.title ?? `task ${t.short}`}</button>
+            {alive(t) && <Btn tone="fault" busy={busy === t.task_id} onClick={() => run(t.task_id, 'task.cancel', { task: t.task_id }, `Cancel task ${t.short}${t.title ? ` (${t.title})` : ''}? Its jobs stop, and its place hears it was cancelled.`)}><OctagonX size={12} /> Cancel</Btn>}
+          </div>
+          <div className="num mt-1 flex flex-wrap gap-x-3 text-[10.5px] text-ink-faint">
+            <span>{t.short}</span>
+            <button onClick={() => nav(`/session/${t.parent_session_id}`)} className="hover:text-live">from {short(t.parent_session_id)}</button>
+            <span className="text-money">{usd(t.spent_usd)} / {usd(t.limit_usd)}</span>
+            <span>{t.turns} turns</span>
+            {t.target && <span>reports to {t.target}{t.wake_parent ? ' · wakes its parent' : ''}</span>}
+            <span>{ago(t.updated_at_ms, now)}</span>
+            {t.ended_reason && <span className="text-ink-dim">{t.ended_reason}</span>}
+          </div>
+        </div>
+      ))}
+    </Panel>
   )
 }
 
