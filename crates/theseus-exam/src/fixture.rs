@@ -2,14 +2,22 @@
 //! product writes sessions (as `theseus-sim`'s `synth.rs` does for the
 //! lifecycle bench), so no model runs to build them.
 //!
-//! Each past session is one frame: its execution, parked on input; its
-//! nodes, one turn per operator message (a tool node is the assistant's call,
-//! the call, and its result, in one loop); a `turn.ended` row per turn; and
-//! its record, with its place as its label (as the Discord binding labels
-//! one) and, when it fetched text, the hold that text gives it (T1). Times are
-//! the item's, not the writer's. The manifest names each node by its item's
-//! key, with the id and position the store gave it: what the oracle renders,
-//! and what a test compares with what a daemon serves.
+//! Each past session is written whole, in one frame: its execution, parked on
+//! input; its nodes, one turn per operator message (a tool node is the
+//! assistant's call, the call, and its result, in one loop); a `turn.ended`
+//! row per turn; and its record, with its place as its label (as the Discord
+//! binding labels one) and, when it fetched text, the hold that text gives it
+//! (T1). Times are the item's, not the writer's. The manifest names each node
+//! by its item's key, with the id and position the store gave it: what the
+//! oracle renders, and what a test compares with what a daemon serves.
+//!
+//! exam-v2's generated sessions are ordinary sessions by the time they get
+//! here (`generate.rs` expands them when the exam loads), so the writer
+//! needs nothing new for them but the background's owner: its sessions are
+//! keyed `background/<key>.<n>`. Consecutive sessions share a frame, up to
+//! `FRAME_RECORDS` records, since each frame is a sync: exam-v2's 758
+//! sessions, one frame each, spent 15 s in them. A session is never split
+//! across frames, and the daemon reads records, not frames.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -35,6 +43,8 @@ pub const PAST_PROVIDER: &str = "zai";
 /// One past session, as written.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionEntry {
+    /// The session's owner: an item's id, or `background` (exam-v2's
+    /// sessions that no item owns).
     pub item: String,
     pub key: String,
     pub session_id: String,
@@ -151,7 +161,7 @@ struct Built {
     entry: SessionEntry,
 }
 
-fn build(exam: &Exam, item: &Item, s: &PastSession) -> Result<Built> {
+fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
     let off = exam.file.utc_offset_min;
     let times: Vec<u64> = s
         .nodes
@@ -357,7 +367,7 @@ fn build(exam: &Exam, item: &Item, s: &PastSession) -> Result<Built> {
         records,
         keyed,
         entry: SessionEntry {
-            item: item.id.clone(),
+            item: owner.to_string(),
             key: s.key.clone(),
             session_id: sid,
             place: s.place.clone(),
@@ -367,26 +377,63 @@ fn build(exam: &Exam, item: &Item, s: &PastSession) -> Result<Built> {
     })
 }
 
+/// The records a frame holds before the next session starts another.
+pub const FRAME_RECORDS: usize = 512;
+
+/// Sessions built and waiting for their frame: each with its owner and where
+/// its records start in the frame.
+struct Frame<'a> {
+    records: Vec<NewRecord>,
+    sessions: Vec<(&'a str, usize, Built)>,
+}
+
+impl Frame<'_> {
+    /// Append the frame, and put its sessions and keyed nodes, with the
+    /// positions the store gave them, into the manifest's lists.
+    fn flush(
+        &mut self,
+        store: &Store,
+        nodes: &mut BTreeMap<String, NodeEntry>,
+        sessions: &mut Vec<SessionEntry>,
+    ) -> Result<()> {
+        if self.records.is_empty() {
+            return Ok(());
+        }
+        let positions = store.append(&self.records)?;
+        for (owner, start, b) in self.sessions.drain(..) {
+            for (key, i, mut e) in b.keyed {
+                e.position = positions[start + i];
+                nodes.insert(Manifest::key(owner, &key), e);
+            }
+            sessions.push(b.entry);
+        }
+        self.records.clear();
+        Ok(())
+    }
+}
+
 /// Write every item's past into the store at `dir` (created, or opened if it
-/// exists), one frame per session, then checkpoint, so the store opens with
-/// no tail to replay.
+/// exists), each session whole in one frame, then checkpoint, so the store
+/// opens with no tail to replay.
 pub fn write(exam: &Exam, dir: &Path) -> Result<Manifest> {
     let store =
         Store::open(dir).with_context(|| format!("opening the store at {}", dir.display()))?;
     let mut sessions = Vec::new();
     let mut nodes = BTreeMap::new();
-    for item in &exam.file.items {
-        for s in &item.sessions {
-            let b = build(exam, item, s)
-                .with_context(|| format!("item {} session {}", item.id, s.key))?;
-            let positions = store.append(&b.records)?;
-            for (key, i, mut e) in b.keyed {
-                e.position = positions[i];
-                nodes.insert(Manifest::key(&item.id, &key), e);
-            }
-            sessions.push(b.entry);
+    let mut frame = Frame {
+        records: Vec::new(),
+        sessions: Vec::new(),
+    };
+    for (owner, s) in exam.pasts() {
+        let mut b = build(exam, owner, s).with_context(|| format!("{owner} session {}", s.key))?;
+        if frame.records.len() + b.records.len() > FRAME_RECORDS {
+            frame.flush(&store, &mut nodes, &mut sessions)?;
         }
+        let start = frame.records.len();
+        frame.records.append(&mut b.records);
+        frame.sessions.push((owner, start, b));
     }
+    frame.flush(&store, &mut nodes, &mut sessions)?;
     store.checkpoint()?;
     Ok(Manifest {
         exam: exam.file.version.clone(),
@@ -401,7 +448,7 @@ pub fn write(exam: &Exam, dir: &Path) -> Result<Manifest> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item::EXAM_V1;
+    use crate::item::{BACKGROUND, EXAM_V1, EXAM_V2};
     use theseus_core::rpc::Core;
 
     /// The store reads back, through the product's own readers, exactly as
@@ -411,8 +458,6 @@ mod tests {
     #[test]
     fn the_written_store_reads_back_as_the_manifest_says() {
         let exam = Exam::parse(EXAM_V1).unwrap();
-        let d = tempfile::tempdir().unwrap();
-        let m = write(&exam, d.path()).unwrap();
         let with_past = exam
             .file
             .items
@@ -420,14 +465,31 @@ mod tests {
             .filter(|i| !i.sessions.is_empty())
             .count();
         assert_eq!(with_past, 36);
-        assert_eq!(
-            m.sessions.len(),
-            exam.file
-                .items
-                .iter()
-                .map(|i| i.sessions.len())
-                .sum::<usize>()
+        reads_back(&exam);
+    }
+
+    /// exam-v2's store, the same way: its generated sessions, months apart,
+    /// and its background, which no item owns.
+    #[test]
+    fn the_v2_store_reads_back_as_the_manifest_says() {
+        let exam = Exam::parse(EXAM_V2).unwrap();
+        let m = reads_back(&exam);
+        let bg = m.sessions.iter().filter(|s| s.item == BACKGROUND).count();
+        assert_eq!(bg, exam.background.len());
+        assert!(
+            bg > 0 && m.sessions.len() >= 500,
+            "{} sessions",
+            m.sessions.len()
         );
+        let span: Vec<u64> = m.nodes.values().map(|n| n.at_ms).collect();
+        let days = (span.iter().max().unwrap() - span.iter().min().unwrap()) / 86_400_000;
+        assert!(days >= 180, "{days} days");
+    }
+
+    fn reads_back(exam: &Exam) -> Manifest {
+        let d = tempfile::tempdir().unwrap();
+        let m = write(exam, d.path()).unwrap();
+        assert_eq!(m.sessions.len(), exam.pasts().count());
         let store = Store::open(d.path()).unwrap();
         let sessions: Vec<SessionRecord> = store.list_sessions().unwrap();
         assert_eq!(sessions.len(), m.sessions.len());
@@ -446,8 +508,7 @@ mod tests {
                 .iter()
                 .find(|s| s.session_id == e.session_id)
                 .unwrap();
-            let item = exam.item(&e.item).unwrap();
-            let past = item.sessions.iter().find(|s| s.key == e.key).unwrap();
+            let past = exam.session(&e.item, &e.key).unwrap();
             assert_eq!(rec.label.as_deref(), Some(past.place.as_str()));
             assert_eq!(rec.turns, e.turns);
             assert_eq!(
@@ -478,6 +539,7 @@ mod tests {
         }
         // Positions grow, and the manifest's last one is the store's.
         assert_eq!(m.last_position, store.last_position());
+        m
     }
 
     /// A tool node is the assistant's call, the call, and its result, in one

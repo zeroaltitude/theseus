@@ -15,11 +15,19 @@
 #
 # Versions (a change is a new version; reports name the digest that scored):
 # - exam-v1 (sha256:3992df03…8407a30): the headroom run of 2026-09-30.
-# - exam-v1.1: preference-1's check no longer fails a reply that names the
-#   rule it follows ("a bare name, no `theseus-` prefix"): it fails only a
-#   prefixed name. A tuning-half item; no held-out item changed.
+# - exam-v1.1 (sha256:3a7161e5…62d40db): preference-1's check no longer fails
+#   a reply that names the rule it follows ("a bare name, no `theseus-`
+#   prefix"): it fails only a prefixed name. A tuning-half item; no held-out
+#   item changed.
+# - exam-v1.2 (theseus-zaz.11): the distractor world's other project is an
+#   invented one, brindle; it was named for a real repository, which is
+#   public. Seven lines of text change (fact-1's past, distractor-1, -2, and
+#   -4), no check and no gold: the headroom run's stored replies score the same
+#   under v1.2, and the lexical probe ranks every node the same (one token
+#   for another, in the same nodes). Only the digest changes. exam-v1 and
+#   v1.1 stay in the repository's history (commits b8902b4 and c4a7faa).
 
-version = "exam-v1.1"
+version = "exam-v1.2"
 utc_offset_min = -420
 
 # ---------------------------------------------------------------- fact
@@ -38,7 +46,7 @@ place = "discord DM"
 [[item.session.node]]
 at = "2026-09-14 10:02"
 who = "eddie"
-text = "The Observatory's web UI should stop binding 8080: that's the bh-ai dev server's port. Move it to 7433 and leave it there."
+text = "The Observatory's web UI should stop binding 8080: that's the brindle dev server's port. Move it to 7433 and leave it there."
 [[item.session.node]]
 at = "2026-09-14 10:05"
 who = "theseus"
@@ -853,7 +861,7 @@ id = "distractor-1"
 family = "distractor"
 task = "Which port is Theseus's metrics endpoint on?"
 gold = ["b.1"]
-note = "bh-ai's port is the distractor, from another project and place."
+note = "brindle's port is the distractor, from another project and place."
 check = '''
 reply has word "9464"
 reply lacks word "9100"
@@ -864,11 +872,11 @@ place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-10 12:00"
 who = "rowan"
-text = "bh-ai's metrics endpoint is on 9100, if anyone's scraping it."
+text = "brindle's metrics endpoint is on 9100, if anyone's scraping it."
 [[item.session.node]]
 at = "2026-09-10 12:01"
 who = "theseus"
-text = "Noted, for bh-ai."
+text = "Noted, for brindle."
 [[item.session]]
 key = "b"
 place = "discord DM"
@@ -896,7 +904,7 @@ place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-05 16:00"
 who = "rowan"
-text = "bh-ai keeps its changelog in CHANGELOG.md at the repo root."
+text = "brindle keeps its changelog in CHANGELOG.md at the repo root."
 [[item.session.node]]
 at = "2026-09-05 16:01"
 who = "theseus"
@@ -962,11 +970,11 @@ place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-11 11:00"
 who = "rowan"
-text = "bh-ai's CI job times out at 45 minutes."
+text = "brindle's CI job times out at 45 minutes."
 [[item.session.node]]
 at = "2026-09-11 11:01"
 who = "theseus"
-text = "Noted, for bh-ai."
+text = "Noted, for brindle."
 [[item.session]]
 key = "b"
 place = "cli"

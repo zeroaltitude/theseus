@@ -138,7 +138,7 @@ fn is_word_char(c: char) -> bool {
 
 /// `needle` (normalized) in `hay` (normalized) with no word character on
 /// either side.
-fn has_word(hay: &str, needle: &str) -> bool {
+pub(crate) fn has_word(hay: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return false;
     }

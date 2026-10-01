@@ -6,7 +6,11 @@
 //! theseus-exam note --manifest F --item ID            what the oracle arm sends for an item
 //! theseus-exam run --socket S --manifest F --out F    items × arms × runs, through a scratch daemon
 //! theseus-exam report --runs F                        the headroom report, as Markdown
+//! theseus-exam probe [--against v1]                   BM25's recall of the gold, per family (no model)
 //! ```
+//!
+//! `--exam` picks the exam: `v2` (the default, built in), `v1` (built in), or
+//! a file.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -16,17 +20,18 @@ use clap::{Parser, Subcommand};
 use theseus_exam::drive::{self, Arm, Plan};
 use theseus_exam::fixture::{self, Manifest};
 use theseus_exam::item::{Exam, Family};
+use theseus_exam::probe::{self, Rank, Tokenizer};
 use theseus_exam::report;
 
 #[derive(Parser)]
 #[command(
     name = "theseus-exam",
-    about = "M6's memory exam and the headroom test (34a)"
+    about = "M6's memory exam and the headroom test (34a), and exam-v2 (theseus-zaz.11)"
 )]
 struct Cli {
-    /// The exam file (default: the committed exam-v1, built in).
+    /// The exam: `v2` (default) or `v1`, built in, or an exam file's path.
     #[arg(long, global = true)]
-    exam: Option<PathBuf>,
+    exam: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -88,6 +93,23 @@ enum Cmd {
         /// Score the stored replies again with this exam's checks first.
         #[arg(long)]
         rescore: bool,
+    },
+    /// BM25 over every past node of the exam's store, queried with each
+    /// task: per family, how much of the gold ranks in the top k. No store,
+    /// no daemon, no model.
+    Probe {
+        /// `v1` (the 34a script's) or `simple` (split on non-alphanumerics).
+        #[arg(long, default_value = "v1")]
+        tokenizer: String,
+        /// Weight each score by 2^(−age / this many days).
+        #[arg(long)]
+        half_life_days: Option<f64>,
+        /// Also list each item's gold ranks.
+        #[arg(long)]
+        items: bool,
+        /// Compare with this exam (`v1`, `v2`, or a file), base first.
+        #[arg(long)]
+        against: Option<String>,
     },
 }
 
@@ -187,6 +209,29 @@ fn main() -> Result<()> {
                 "{}",
                 report::render(&records, &exam, &runs.display().to_string())
             );
+        }
+        Cmd::Probe {
+            tokenizer,
+            half_life_days,
+            items,
+            against,
+        } => {
+            let tok = Tokenizer::parse(&tokenizer)?;
+            let rank = match half_life_days {
+                Some(h) if h > 0.0 => Rank::Recency { half_life_days: h },
+                Some(h) => bail!("a half-life of {h} days"),
+                None => Rank::Bm25,
+            };
+            let (c, ps) = probe::probe(&exam, tok, rank)?;
+            if let Some(spec) = against {
+                let base = Exam::load(Some(&spec))?;
+                let (_, bs) = probe::probe(&base, tok, rank)?;
+                println!(
+                    "{}",
+                    probe::compare((&base.file.version, &bs), (&exam.file.version, &ps))
+                );
+            }
+            print!("{}", probe::render(&exam, &c, &ps, tok, rank, items));
         }
     }
     Ok(())

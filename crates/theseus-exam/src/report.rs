@@ -377,8 +377,11 @@ mod tests {
         // 2.0227, so the half-width is 14.0 points: none 25% [11, 39], and
         // the headroom +75 [+61, +89], 30 gained, 10 tied.
         assert!(md.contains("| **all** | 40 | 25% [11, 39] | 100% [100, 100] | +75 [+61, +89] | 30/0/10 | <0.001 |"), "{md}");
-        for f in Family::ALL {
+        for f in Family::V1 {
             assert!(md.contains(&format!("| {} | 4 |", f.as_str())), "{f:?}");
+        }
+        for f in Family::HARD {
+            assert!(!md.contains(&format!("| {} |", f.as_str())), "{f:?}");
         }
         assert!(
             md.contains("| fact-1 | fact | tuning | 3/3 | 3/3 | +0 |"),
