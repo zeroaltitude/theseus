@@ -158,6 +158,14 @@ pub struct CompileInput<'a> {
     /// Where image blocks get their bytes (theseus-9g2); `None` shows every
     /// image as a line saying its bytes are missing.
     pub blobs: Option<&'a crate::blobs::Blobs>,
+    /// The images the provider refused in this session (theseus-0s4), which
+    /// render as their line.
+    pub hidden: &'a [crate::session::NotShown],
+    /// A recompile that strips the prefix's thinking, and why, when nothing
+    /// else triggers one: a refused image sat before an answer of the model's
+    /// (`image_not_shown`), so the history changed under that answer's
+    /// thinking (theseus-0s4).
+    pub strip: Option<&'a str>,
 }
 
 #[derive(Debug, Clone)]
@@ -261,6 +269,12 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
             }
         }
     };
+    // A refused image that sat before an answer now renders as its line
+    // (theseus-0s4): the history under that answer's thinking changed, so the
+    // thinking goes, as for any other change under it.
+    if let (None, Some(why), Some(_)) = (&decided, input.strip, input.current) {
+        decided = Some((why.to_string(), "transcript", true));
+    }
 
     let all_renderable: Vec<&(u64, Arc<Node>)> =
         input.nodes.iter().filter(|(_, n)| renderable(n)).collect();
@@ -309,8 +323,9 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         .unwrap_or(true);
     let mut trigger = new_compilation.then(|| compilation.trigger.clone());
 
+    let media = (input.blobs, input.hidden);
     let (mut request, mut prefix_n, mut tail_n, mut repairs) =
-        render_request(spec, input.catalog, &compilation, input.nodes, input.blobs);
+        render_request(spec, input.catalog, &compilation, input.nodes, media);
     let mut est = request.estimate_tokens();
 
     // 2. Overflow: drop leading turns (ring), cutting only before a user message.
@@ -331,7 +346,7 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
                 let includes: Vec<String> = seq[cut..].iter().map(|n| n.id.clone()).collect();
                 let candidate = make("overflow".into(), "ring", true, includes);
                 let (r, p, t, rep) =
-                    render_request(spec, input.catalog, &candidate, input.nodes, input.blobs);
+                    render_request(spec, input.catalog, &candidate, input.nodes, media);
                 let e = r.estimate_tokens();
                 let last = cut == *starts.last().unwrap();
                 if e <= target || last {
@@ -365,13 +380,15 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
     }
 }
 
-/// Render a compilation plus its tail into a provider request.
+/// Render a compilation plus its tail into a provider request. `media` is
+/// where image blocks get their bytes, and the images the provider refused
+/// in the session, which render as their line (theseus-0s4).
 pub fn render_request(
     spec: &RequestSpec,
     catalog: &Catalog,
     c: &Compilation,
     nodes: &[(u64, Arc<Node>)],
-    blobs: Option<&crate::blobs::Blobs>,
+    (blobs, hidden): (Option<&crate::blobs::Blobs>, &[crate::session::NotShown]),
 ) -> (ProviderRequest, usize, usize, Vec<String>) {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
     let prefix: Vec<&Node> = nodes
@@ -390,6 +407,7 @@ pub fn render_request(
         vision: entry.is_some_and(|e| e.vision),
         model: &spec.model,
         blobs,
+        hidden,
     };
     let (messages, repairs, image_tokens) = render_messages(
         &prefix,
@@ -723,6 +741,8 @@ mod tests {
             force: None,
             window_override: None,
             blobs: None,
+            hidden: &[],
+            strip: None,
         })
     }
 
@@ -965,6 +985,8 @@ mod tests {
             force: Some(Recompile::Fresh),
             window_override: None,
             blobs: None,
+            hidden: &[],
+            strip: None,
         });
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
@@ -993,6 +1015,8 @@ mod tests {
             force: None,
             window_override: Some(13_000),
             blobs: None,
+            hidden: &[],
+            strip: None,
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");

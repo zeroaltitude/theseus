@@ -63,6 +63,23 @@ pub struct SessionRecord {
     /// Absent in records written before it (session schema 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failing: Option<Failing>,
+    /// Images the provider refused (theseus-0s4), by their blob: each one
+    /// renders as its line in every later request of the session, whatever
+    /// recompiles it, and the node that carries it stays as it was written.
+    /// Absent in records written before it (session schema 3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_shown: Vec<NotShown>,
+}
+
+/// An image the provider refused (theseus-0s4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotShown {
+    /// Its blob's digest (`blobs.rs`), which every node that carries the
+    /// image names: the same image sent again is not shown either.
+    pub digest: String,
+    /// What the provider said of it, which its line repeats.
+    pub why: String,
+    pub at_ms: u64,
 }
 
 /// A run of failed turns (theseus-ljr), as the session keeps it, so that a
@@ -206,14 +223,16 @@ impl SessionRecord {
             task: None,
             external: None,
             failing: None,
+            not_shown: Vec::new(),
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it
     /// owns, from its own copy. Its books (turns, usage, cost, tool calls,
     /// last activity), its target, its compilation, its execution, its run
-    /// of failures (theseus-ljr), and the title its first input gave. Never
-    /// `pending_recompile`, which the operator sets while the turn runs; a
-    /// turn takes that one by itself (`update_session`) when it starts.
+    /// of failures (theseus-ljr), the images its provider refused (added to,
+    /// never taken away: theseus-0s4), and the title its first input gave.
+    /// Never `pending_recompile`, which the operator sets while the turn runs;
+    /// a turn takes that one by itself (`update_session`) when it starts.
     pub fn take_turns_fields(&mut self, turn: &SessionRecord) {
         self.turns = turn.turns;
         self.last_turn_id.clone_from(&turn.last_turn_id);
@@ -225,6 +244,11 @@ impl SessionRecord {
         self.compilation_id.clone_from(&turn.compilation_id);
         self.execution_id.clone_from(&turn.execution_id);
         self.failing.clone_from(&turn.failing);
+        for n in &turn.not_shown {
+            if !self.not_shown.iter().any(|m| m.digest == n.digest) {
+                self.not_shown.push(n.clone());
+            }
+        }
         if self.title.is_none() {
             self.title.clone_from(&turn.title);
         }
@@ -292,6 +316,40 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(SCHEMA_2).unwrap(),
             "a record with no run of failures keeps its bytes"
         );
+    }
+
+    /// A session record as ljr's build wrote it (schema 3: a run of failures,
+    /// parked), which this build reads with no image marked not shown, and
+    /// writes back as it was.
+    const SCHEMA_3: &str = r#"{"session_id":"ses_old3","kind":"conversation","label":null,"created_at_unix_ms":1790000000000,"turns":2,"last_turn_id":"turn_d4","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_old3","last_target":{"profile":"lighthouse","provider":"anthropic","model":"claude-lighthouse-9"},"last_active_ms":1790000300000,"cost_usd":0.0,"tool_calls":0,"failing":{"turns":2,"lasting":2,"class":"invalid_request","noticed":true,"parked":true,"since_ms":1790000290000}}"#;
+
+    #[test]
+    fn a_session_record_written_before_its_images_not_shown_reads() {
+        let r: SessionRecord = serde_json::from_str(SCHEMA_3).unwrap();
+        assert!(r.not_shown.is_empty());
+        assert_eq!(r.failing.as_ref().unwrap().turns, 2);
+        let again = serde_json::to_value(&r).unwrap();
+        assert!(again.get("not_shown").is_none(), "{again}");
+        assert_eq!(
+            again,
+            serde_json::from_str::<serde_json::Value>(SCHEMA_3).unwrap()
+        );
+        // A turn's copy adds its marks; it never takes one away.
+        let mut stored = r.clone();
+        stored.not_shown.push(NotShown {
+            digest: "a1".into(),
+            why: "Could not process image".into(),
+            at_ms: 1,
+        });
+        let mut turn = r;
+        turn.not_shown.push(NotShown {
+            digest: "b2".into(),
+            why: "Could not process image".into(),
+            at_ms: 2,
+        });
+        stored.take_turns_fields(&turn);
+        let kept: Vec<&str> = stored.not_shown.iter().map(|n| n.digest.as_str()).collect();
+        assert_eq!(kept, ["a1", "b2"]);
     }
 
     /// The rule's answers, failure by failure: (class, transient, settled)

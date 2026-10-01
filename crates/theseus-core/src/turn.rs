@@ -41,7 +41,7 @@ use crate::narrative::{self, narrate, narrate_turn, Narrator};
 use crate::node::{Body, Node};
 use crate::provider::{Delta, ModelResponse, Provider, ProviderError, ToolUse};
 use crate::secrets::{SecretBoard, Waited};
-use crate::session::{title_from, SessionRecord, TargetRef, Then};
+use crate::session::{title_from, NotShown, SessionRecord, TargetRef, Then};
 use crate::startup::StartupLog;
 use crate::store::{SessionHold, Store};
 use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
@@ -1307,6 +1307,11 @@ impl TurnRunner {
             None
         };
         let mut force = recompile.or(asked);
+        // A provider's 400 that names an image hides it, and the call is made
+        // again with its line, once a turn (theseus-0s4); `strip` asks the
+        // next compilation to drop the thinking the change sat under.
+        let mut image_retried = false;
+        let mut strip: Option<&'static str> = None;
         while run_model {
             // A `/stop` that landed (W1): the turn plans nothing more.
             if let Some(by) = stopped_by(&t.tc)? {
@@ -1324,13 +1329,26 @@ impl TurnRunner {
             );
             t.trace
                 .enter(&format!("loop {i}"), "loop", json!({"loop": i}));
-            let compiled = self.compile_step(&mut t, &mut session, &spec, force.take(), i)?;
+            let compiled =
+                self.compile_step(&mut t, &mut session, &spec, force.take(), strip.take(), i)?;
             let (resp, node) = match self
                 .call_model(&mut t, provider.as_ref(), &compiled, i)
                 .await?
             {
                 Called::Answered(called) => *called,
-                Called::Failed(failure) => return Err(Self::fail(t, &mut session, failure)),
+                Called::Failed(failure) => {
+                    if !image_retried {
+                        if let Some(edited) =
+                            Self::hide_refused(&mut t, &mut session, &compiled, &failure)?
+                        {
+                            image_retried = true;
+                            strip = edited.then_some("image_not_shown");
+                            t.trace.exit(json!({"decision": "image_not_shown"}));
+                            continue;
+                        }
+                    }
+                    return Err(Self::fail(t, &mut session, failure));
+                }
                 Called::OverBudget {
                     needed,
                     available,
@@ -1681,12 +1699,15 @@ impl TurnRunner {
 
     /// Render the session into this loop's request: an append to the current
     /// compilation, or a recompile (persisted with the session's pointer).
+    /// The images the provider refused in the session render as their line;
+    /// `strip` recompiles without the prefix's thinking (theseus-0s4).
     fn compile_step(
         &self,
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
         spec: &RequestSpec,
         force: Option<Recompile>,
+        strip: Option<&'static str>,
         i: u32,
     ) -> Result<Compiled> {
         let sid = t.tc.session_id;
@@ -1706,6 +1727,8 @@ impl TurnRunner {
             force,
             window_override: None,
             blobs: Some(self.store.blobs()),
+            hidden: &session.not_shown,
+            strip,
         });
         if compiled.new_compilation {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
@@ -2233,6 +2256,78 @@ impl TurnRunner {
             narrate_turn!(t.tc, Model, "{} refused; the turn ends.", resp.model);
         }
         Ok(node)
+    }
+
+    /// A provider's 400 that names an image (theseus-0s4): mark each image it
+    /// names not shown, in the session record at once and in the turn's copy,
+    /// with an `image.not_shown` row each, so that this turn's next call and
+    /// every later request render its line. None when it names no image the
+    /// session still shows. `Some(true)` when one sat before an answer of the
+    /// model's in the refused request, whose thinking the next compilation
+    /// strips.
+    fn hide_refused(
+        t: &mut Turn<'_>,
+        session: &mut SessionRecord,
+        compiled: &Compiled,
+        f: &Failure,
+    ) -> Result<Option<bool>> {
+        let Some(ProviderError::InvalidRequest {
+            status: 400,
+            message,
+        }) = f.source.downcast_ref::<ProviderError>()
+        else {
+            return Ok(None);
+        };
+        let messages = &compiled.request.messages;
+        let refused: Vec<crate::attach::Refused> = crate::attach::refused(messages, message)
+            .into_iter()
+            .filter(|r| !session.not_shown.iter().any(|n| n.digest == r.digest))
+            .collect();
+        let Some(first) = refused.first() else {
+            return Ok(None);
+        };
+        let at_ms = theseus_protocol::now_unix_ms();
+        let marks: Vec<NotShown> = refused
+            .iter()
+            .map(|r| NotShown {
+                digest: r.digest.clone(),
+                why: r.why.clone(),
+                at_ms,
+            })
+            .collect();
+        for r in &refused {
+            t.tc.ledger(
+                "image.not_shown",
+                json!({"digest": r.digest, "message_index": r.message, "why": r.why,
+                       "provider": t.target.provider, "model": t.target.model}),
+            );
+        }
+        // Written now, with its rows: a restart before the turn ends keeps it.
+        t.tc.store.update_session(t.tc.session_id, |rec| {
+            for m in &marks {
+                if !rec.not_shown.iter().any(|n| n.digest == m.digest) {
+                    rec.not_shown.push(m.clone());
+                }
+            }
+            Ok(vec![])
+        })?;
+        narrate_turn!(
+            t.tc,
+            Model,
+            "{} refused {} ({}): from now on it is not shown, and the call is made again with \
+             its line.",
+            t.target.model,
+            narrative::count(refused.len() as u64, "image", "images"),
+            first.why
+        );
+        let edited = refused.iter().any(|r| {
+            messages
+                .iter()
+                .skip(r.message + 1)
+                .any(|m| m["role"] == "assistant")
+        });
+        session.not_shown.extend(marks);
+        Ok(Some(edited))
     }
 
     /// Settle a call that failed: as failed, or as unknown when the provider

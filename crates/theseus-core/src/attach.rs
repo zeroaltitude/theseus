@@ -12,8 +12,15 @@
 //!
 //! An image renders as an image block only for a model whose catalog entry
 //! has vision; any other model reads one line saying it was not shown. The
-//! rendering depends on the node, the model, and the blob's bytes only, so
-//! the same node renders to the same bytes every time.
+//! rendering depends on the node, the model, the blob's bytes, and the
+//! session's list of images the provider refused, so the same node renders
+//! to the same bytes every time until the provider refuses its image.
+//!
+//! A node is written once, so an image the provider rejects (corrupt pixel
+//! data behind a valid header, a limit the sniffer does not check) would
+//! fail every later request of its session the same way. A 400 that names
+//! an image marks it not shown in the session record (theseus-0s4,
+//! `refused`), and it renders as its line from then on.
 
 use serde_json::{json, Value};
 use theseus_tools::image;
@@ -21,6 +28,7 @@ use theseus_tools::image;
 use crate::blobs::Blobs;
 use crate::narrative;
 use crate::node::{Attachment, AttachmentContent};
+use crate::session::NotShown;
 
 /// The longest file name or type a header repeats.
 const MAX_NAME_CHARS: usize = 200;
@@ -107,11 +115,13 @@ fn not_shown(a: &Attachment, author: Option<&str>, why: &str) -> String {
 }
 
 /// How a request shows images: whether its model has vision, which model
-/// (for the token estimate), and where the bytes are.
+/// (for the token estimate), where the bytes are, and which images the
+/// provider refused in this session (theseus-0s4), which show as their line.
 pub struct Media<'a> {
     pub vision: bool,
     pub model: &'a str,
     pub blobs: Option<&'a Blobs>,
+    pub hidden: &'a [NotShown],
 }
 
 impl Media<'_> {
@@ -121,6 +131,7 @@ impl Media<'_> {
             vision: false,
             model: "",
             blobs: None,
+            hidden: &[],
         }
     }
 }
@@ -143,6 +154,10 @@ fn show(a: &Attachment, author: Option<&str>, media: &Media) -> Shown {
     };
     if !media.vision {
         return Shown::Line(not_shown(a, author, "this model has no vision"));
+    }
+    if let Some(h) = media.hidden.iter().find(|h| h.digest == *digest) {
+        let why = format!("the provider refused it ({})", h.why);
+        return Shown::Line(not_shown(a, author, &why));
     }
     match media.blobs.and_then(|b| b.base64(digest)) {
         Some(data) => Shown::Block(
@@ -182,6 +197,133 @@ pub fn tool_content(content: &str, img: &Attachment, media: &Media, tokens: &mut
             json!([{"type": "text", "text": content}, block])
         }
         Shown::Line(line) => Value::String(format!("{content}\n{line}")),
+    }
+}
+
+/// An image a provider's 400 named (theseus-0s4): its blob's digest, the
+/// index of the request message it sat in, and what the provider said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refused {
+    pub digest: String,
+    pub message: usize,
+    pub why: String,
+}
+
+/// The images a provider's 400 names in the request it refused, by the path
+/// of their block: `messages.3.content.1.image.source.base64.data`, or, in a
+/// tool result, `messages.3.content.0.content.1…`; a tool result named whole
+/// gives its images. An error that names an image but no block it can be
+/// found by means the request's only image, when it carries one, and nothing
+/// when it carries several. Each image is known by its bytes, whose digest
+/// names its blob.
+pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
+    let mut named: Vec<(usize, &Value)> = Vec::new();
+    for path in block_paths(error) {
+        let block = messages
+            .get(path[0])
+            .and_then(|m| m["content"].get(path[1]))
+            .and_then(|b| match path.get(2) {
+                Some(&k) => b["content"].get(k),
+                None => Some(b),
+            });
+        if let Some(b) = block {
+            named.extend(images_of(b).into_iter().map(|img| (path[0], img)));
+        }
+    }
+    if named.is_empty() && error.to_ascii_lowercase().contains("image") {
+        let all: Vec<(usize, &Value)> = messages
+            .iter()
+            .enumerate()
+            .flat_map(|(i, m)| {
+                m["content"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .flat_map(images_of)
+                    .map(move |img| (i, img))
+            })
+            .collect();
+        if all.len() == 1 {
+            named = all;
+        }
+    }
+    let why = refusal_words(error);
+    let mut out: Vec<Refused> = Vec::new();
+    for (message, img) in named {
+        let Some(digest) = img["source"]["data"]
+            .as_str()
+            .and_then(|d| crate::blobs::decode(d).ok())
+            .map(|bytes| crate::blobs::digest(&bytes))
+        else {
+            continue;
+        };
+        if !out.iter().any(|r| r.digest == digest) {
+            out.push(Refused {
+                digest,
+                message,
+                why: why.clone(),
+            });
+        }
+    }
+    out
+}
+
+/// A block's images: itself when it is one, and a tool result's.
+fn images_of(b: &Value) -> Vec<&Value> {
+    match b["type"].as_str() {
+        Some("image") => vec![b],
+        Some("tool_result") => b["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|c| c["type"] == "image")
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// The block paths an error names: `messages.<i>.content.<j>`, and in a tool
+/// result `….content.<k>`, as indices.
+fn block_paths(error: &str) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut rest = error;
+    while let Some(at) = rest.find("messages.") {
+        rest = &rest[at + "messages.".len()..];
+        let mut path = Vec::new();
+        let mut s = rest;
+        loop {
+            let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+            if digits.is_empty() {
+                break;
+            }
+            path.push(digits.parse().unwrap_or(usize::MAX));
+            s = &s[digits.len()..];
+            match s.strip_prefix(".content.") {
+                Some(more) if path.len() < 3 => s = more,
+                _ => break,
+            }
+        }
+        if path.len() >= 2 {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// What the provider said of an image, without its block's path: the words
+/// after it, on one line, bounded.
+fn refusal_words(error: &str) -> String {
+    let words = match error.rfind("messages.") {
+        Some(at) => error[at..]
+            .split_once(": ")
+            .map_or(&error[at..], |(_, w)| w),
+        None => error
+            .split_once("invalid_request_error: ")
+            .map_or(error, |(_, w)| w),
+    };
+    match clean(words) {
+        w if w.is_empty() => "it was rejected".into(),
+        w => w,
     }
 }
 
@@ -407,6 +549,7 @@ pub(crate) mod tests {
             vision: true,
             model: "claude-haiku-4-5",
             blobs: Some(&blobs),
+            hidden: &[],
         };
         let mut tokens = 0;
         let b = blocks(&got[0], Some("discord:eddie"), &vision, &mut tokens);
@@ -428,6 +571,7 @@ pub(crate) mod tests {
             vision: false,
             model: "glm-5.3",
             blobs: Some(&blobs),
+            hidden: &[],
         };
         let mut none = 0;
         assert_eq!(
@@ -437,6 +581,87 @@ pub(crate) mod tests {
             ]
         );
         assert_eq!(none, 0);
+        // An image the provider refused in this session (theseus-0s4): its
+        // line, for a vision model too, and no tokens.
+        let refused = [NotShown {
+            digest: crate::blobs::digest(&bytes),
+            why: "Could not process image".into(),
+            at_ms: 1,
+        }];
+        let hiding = Media {
+            hidden: &refused,
+            ..vision
+        };
+        let mut none = 0;
+        assert_eq!(
+            blocks(&got[0], Some("discord:eddie"), &hiding, &mut none),
+            vec![
+                json!({"type": "text", "text": "[Image shot.png from discord:eddie, 1,033 bytes: not shown, the provider refused it (Could not process image)]"})
+            ]
+        );
+        assert_eq!(none, 0);
+    }
+
+    /// A request's messages: a user message with a header, an image, and
+    /// text; the model's answer; and a user message with a tool result that
+    /// carries a second image.
+    fn refused_request(first: &[u8], second: &[u8]) -> Vec<Value> {
+        let img = |b: &[u8]| json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": crate::blobs::encode(b)}});
+        vec![
+            json!({"role": "user", "content": [{"type": "text", "text": "[Image a.png]"}, img(first), {"type": "text", "text": "what is this?"}]}),
+            json!({"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "fs_read", "input": {"path": "b.png"}}]}),
+            json!({"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": "b.png"}, img(second)]}]}),
+        ]
+    }
+
+    /// theseus-0s4: a 400 names an image by its block's path, in a message or
+    /// in a tool result; the parser finds its blob by its bytes.
+    #[test]
+    fn a_400_that_names_an_images_block_finds_its_blob() {
+        let (a, b) = (png(64, 64, 10), png(32, 32, 20));
+        let msgs = refused_request(&a, &b);
+        let got = refused(
+            &msgs,
+            "invalid_request_error: messages.0.content.1.image.source.base64.data: Could not process image",
+        );
+        assert_eq!(
+            got,
+            [Refused {
+                digest: crate::blobs::digest(&a),
+                message: 0,
+                why: "Could not process image".into()
+            }]
+        );
+        let inner = refused(
+            &msgs,
+            "invalid_request_error: messages.2.content.0.content.1.image.source.base64: Could not process image",
+        );
+        assert_eq!(inner.len(), 1);
+        assert_eq!(
+            (inner[0].digest.clone(), inner[0].message),
+            (crate::blobs::digest(&b), 2)
+        );
+        // A tool result named whole gives its image.
+        let whole = refused(&msgs, "messages.2.content.0: an image in it is too large");
+        assert_eq!(whole[0].digest, crate::blobs::digest(&b));
+        // A path to a block that is not an image, and an error that names no
+        // image at all: nothing.
+        assert!(refused(&msgs, "messages.0.content.2: text too long").is_empty());
+        assert!(refused(&msgs, "invalid_request_error: max_tokens: too large").is_empty());
+    }
+
+    /// theseus-0s4: an error that names an image but no block means the
+    /// request's only image, and nothing when it carries two.
+    #[test]
+    fn a_400_that_names_no_block_means_the_only_image() {
+        let a = png(64, 64, 10);
+        let one = vec![refused_request(&a, &a)[0].clone()];
+        let got = refused(&one, "invalid_request_error: Could not process image");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].digest, crate::blobs::digest(&a));
+        assert_eq!(got[0].why, "Could not process image");
+        let two = refused_request(&a, &png(32, 32, 20));
+        assert!(refused(&two, "invalid_request_error: Could not process image").is_empty());
     }
 
     #[test]

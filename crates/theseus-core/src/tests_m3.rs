@@ -3151,6 +3151,241 @@ async fn a_six_megabyte_image_is_refused_with_the_reason() {
     assert_eq!(blob_files(&r), 0);
 }
 
+// ------------------------------------------------- an image the provider refuses (theseus-0s4)
+
+/// The provider's 400 for an image it cannot read, at `messages.<m>.content.<b>`.
+fn refused_image(m: usize, b: usize) -> Scripted {
+    Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+        status: 400,
+        message: format!(
+            "invalid_request_error: messages.{m}.content.{b}.image.source.base64.data: Could not \
+             process image"
+        ),
+    })
+}
+
+/// The first message's blocks in a request.
+fn first_user_blocks(q: &crate::provider::ProviderRequest) -> Vec<Value> {
+    q.messages[0]["content"].as_array().unwrap().clone()
+}
+
+fn carries_an_image(q: &crate::provider::ProviderRequest) -> bool {
+    serde_json::to_string(&q.messages)
+        .unwrap()
+        .contains(r#""type":"image""#)
+}
+
+const TIDE_LINE: &str = "[Image tide.png from discord:eddie, 333 bytes: not shown, the provider \
+                         refused it (Could not process image)]";
+
+/// theseus-0s4: the provider refuses the first request with a 400 that names
+/// the image's block. The image is marked not shown in the session record,
+/// the call is made again at once with the image's line, and the turn
+/// answers. A later turn does not send the image again, nor does a
+/// recompile. Before, every later request of the session carried it and
+/// failed the same way.
+#[tokio::test]
+async fn an_image_the_provider_refuses_is_shown_as_its_line_and_the_call_made_again() {
+    let r = rig(vec![
+        refused_image(0, 1),
+        Scripted::text("I could not see it."),
+        Scripted::text("Later."),
+        Scripted::text("After the recompile."),
+    ]);
+    let bytes = crate::attach::tests::png(640, 480, 300);
+    let first = submit(
+        &r.core,
+        submit_params(
+            None,
+            "What is this?",
+            vec![image_attached("tide.png", &bytes)],
+        ),
+    )
+    .await;
+    assert_eq!(first["output"], "I could not see it.", "{first}");
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 2, "the refused call and its retry");
+    assert_eq!(first_user_blocks(&reqs[0])[1]["type"], "image");
+    assert_eq!(
+        first_user_blocks(&reqs[1]),
+        vec![
+            json!({"type": "text", "text": TIDE_LINE}),
+            json!({"type": "text", "text": "What is this?"})
+        ],
+        "the retry carries the image's line, not the image"
+    );
+    let sid = first["session_id"].as_str().unwrap().to_string();
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    let marked: Vec<&str> = rec.not_shown.iter().map(|n| n.digest.as_str()).collect();
+    assert_eq!(marked, [crate::blobs::digest(&bytes).as_str()]);
+    let rows = ledgered(&r, "image.not_shown");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (&rows[0]["message_index"], &rows[0]["why"]),
+        (&json!(0), &json!("Could not process image"))
+    );
+    assert!(ledgered(&r, "turn.failed").is_empty(), "the turn answered");
+
+    // A later turn does not resend it.
+    let later = submit(&r.core, submit_params(Some(&sid), "And now?", vec![])).await;
+    assert_eq!(later["output"], "Later.", "{later}");
+    // Nor does a recompile.
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            rec.pending_recompile = Some(crate::compiler::Recompile::Transcript);
+            Ok(vec![])
+        })
+        .unwrap();
+    let again = submit(&r.core, submit_params(Some(&sid), "Once more?", vec![])).await;
+    assert_eq!(again["output"], "After the recompile.", "{again}");
+    let compiled = ledgered(&r, "context.compiled");
+    assert_eq!(
+        compiled.last().unwrap()["trigger"],
+        "manual_transcript",
+        "{compiled:?}"
+    );
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 4);
+    for q in &reqs[1..] {
+        assert!(
+            !carries_an_image(q),
+            "an image went again: {:?}",
+            q.messages
+        );
+        assert_eq!(first_user_blocks(q)[0]["text"], TIDE_LINE);
+    }
+}
+
+/// theseus-0s4: the mark is in the session record, so a restart keeps it: a
+/// new core on the same store renders the image's line.
+#[tokio::test]
+async fn an_image_marked_not_shown_stays_so_after_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("w");
+    std::fs::create_dir_all(&root).unwrap();
+    let cfg = config(&root.canonicalize().unwrap(), dir.path());
+    let bytes = crate::attach::tests::png(640, 480, 300);
+    let turn_with = |core: &Arc<Core>, rec: SessionRecord, input: &str, files| {
+        let (live, _) = core.live_profile();
+        let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+        let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
+        let req = TurnRequest {
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink,
+            author: "discord:eddie".into(),
+            recompile: None,
+            attachments: files,
+            arrived: None,
+            config_wait_us: 0,
+            reply_to: None,
+        };
+        let core = core.clone();
+        async move { core.runner.run(req).await }
+    };
+    let sid = {
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let fake = Arc::new(FakeProvider::scripted(vec![
+            refused_image(0, 1),
+            Scripted::text("Not seen."),
+        ]));
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg.clone(),
+            fake.clone(),
+            store,
+        ))
+        .unwrap();
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        core.store.put_session(&rec.session_id, &rec).unwrap();
+        let sid = rec.session_id.clone();
+        let res = turn_with(
+            &core,
+            rec,
+            "What is this?",
+            vec![image_attached("tide.png", &bytes)],
+        )
+        .await
+        .unwrap();
+        assert_eq!(res.output, "Not seen.");
+        assert_eq!(fake.requests().len(), 2);
+        sid
+    };
+    // A restart: a new core on the same store, whose model would answer.
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text(
+        "Still not seen.",
+    )]));
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
+    let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(rec.not_shown.len(), 1);
+    let res = turn_with(&core, rec, "And after the restart?", vec![])
+        .await
+        .unwrap();
+    assert_eq!(res.output, "Still not seen.");
+    let q = &fake.requests()[0];
+    assert!(!carries_an_image(q), "{:?}", q.messages);
+    assert_eq!(first_user_blocks(q)[0]["text"], TIDE_LINE);
+}
+
+/// theseus-0s4: an image the provider took before and refuses now sits
+/// under the model's earlier answer, whose thinking was given for it. Its
+/// line replaces it, so the retry's compilation strips that thinking
+/// (`image_not_shown`), as any change under it does.
+#[tokio::test]
+async fn an_image_refused_under_an_answer_strips_that_answers_thinking() {
+    let answered = Scripted::Blocks {
+        blocks: vec![
+            json!({"type": "thinking", "thinking": "a tide chart, high water at four", "signature": "sig-tide"}),
+            json!({"type": "text", "text": "A tide chart."}),
+        ],
+        stop_reason: "end_turn".into(),
+    };
+    let r = rig(vec![
+        answered,
+        refused_image(0, 1),
+        Scripted::text("Noted."),
+    ]);
+    let bytes = crate::attach::tests::png(640, 480, 300);
+    let first = submit(
+        &r.core,
+        submit_params(
+            None,
+            "What is this?",
+            vec![image_attached("tide.png", &bytes)],
+        ),
+    )
+    .await;
+    assert_eq!(first["output"], "A tide chart.", "{first}");
+    let sid = first["session_id"].as_str().unwrap().to_string();
+    let second = submit(&r.core, submit_params(Some(&sid), "And the low?", vec![])).await;
+    assert_eq!(second["output"], "Noted.", "{second}");
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3);
+    let thinking = |q: &crate::provider::ProviderRequest| {
+        serde_json::to_string(&q.messages)
+            .unwrap()
+            .contains(r#""type":"thinking""#)
+    };
+    assert!(
+        thinking(&reqs[1]) && carries_an_image(&reqs[1]),
+        "the refused request"
+    );
+    assert!(
+        !thinking(&reqs[2]) && !carries_an_image(&reqs[2]),
+        "{:?}",
+        reqs[2].messages
+    );
+    assert_eq!(first_user_blocks(&reqs[2])[0]["text"], TIDE_LINE);
+    let compiled = ledgered(&r, "context.compiled");
+    assert_eq!(
+        compiled.last().unwrap()["trigger"],
+        "image_not_shown",
+        "{compiled:?}"
+    );
+}
+
 // ---------------------------------------------------------------- approval (theseus-sgh)
 
 const EDDIE: &str = "159471966640799744";

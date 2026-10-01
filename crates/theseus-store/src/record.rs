@@ -54,11 +54,11 @@ pub mod kinds {
     /// gained fields since the store's format 2 (M2), fields an older binary
     /// would drop when it rewrote the record: the session's hold on external
     /// text (T1), an execution's wakes, report wakes, and stop (DD8, W1).
-    /// Session schema 3 adds its run of failures (theseus-ljr); serde's
-    /// defaults read 2.
+    /// Session schema 3 adds its run of failures (theseus-ljr), and 4 the
+    /// images its provider refused (theseus-0s4); serde's defaults read 2 and 3.
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
-        (SESSION, 3),
+        (SESSION, 4),
         (LEDGER, 1),
         (META, 1),
         (EXECUTION, 2),
