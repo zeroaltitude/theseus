@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.71
+# The Ship of Theseus — v0.72
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -542,6 +542,16 @@ Still no auth. The browser is a protocol client over a WebSocket where each text
 - It is a protocol client like the Observatory, over the same `/ws` and the same client (`web/src/protocol.ts`). It is served from the binary under the same `Host`, `Origin`, and owner rules, and adds no privileged path.
 - It doesn't replace the Observatory, which stays the plain view.
 - Its build is embedded when present. A daemon built without it says how to build it.
+- **Every call can be opened whole** (Item 27). The call inspector (`?call=<tool_use_id or correlation id>`) gathers
+  one tool call's story from the transcript and the ledger: what the model asked, what the gate said and why, its
+  life as timed phases (planned, awaiting approval and who answered, authorized to dispatched, starting, running,
+  and until recorded), its job, and what came back. The model-call inspector (`?msg=<node_id>`) does the same for
+  one model call: where its time went, its tokens and what the cache saved, its cost recomputed at today's prices
+  beside the record, the provider's headroom, the context it saw, and what it said. Each lives in the address, so
+  it can be linked to, and each reads the ledger only while it is open.
+- It acts through the protocol's own controls, each confirmed first: open a session (`session.open`), recompile
+  one (`session.recompile`), cancel a task (`task.cancel`), make a profile live (`profile.use`), beside stop,
+  cancel, answer, trust, and tighten from Item 23.
 
 **The Narrative** (Eddie, 2026-09-28, 20:38; theseus-5fy, e3ba8d6, 810aa6d, 12a4805). In Eddie's words: "I want every architectural part of the session/turn/loop/model call structure to have a narrative output that goes straight into an output channel that shows up in the web interface in a new pane called 'the narrative.' If narrative: true is in the config, the pane exists as a new tab in the web UI and the narrative output populates it. If false, the outputs never happen, and the pane never displays." The narrative is the fourth window onto a turn, beside the trace (§3.3a), the ledger (§3.10), and telemetry (§3.20). It is written for a person watching live, not for a tool, and unlike the other three it is never stored.
 - **What it says.** One plain sentence per step, as it happens: a session opened, woken, parked, or cancelled; a turn started, ended, or failed, with what its loops spent; each loop and the Advancer's decision; the context appended to or recompiled; each model call's reservation, answer, refusal, or failure; each tool call's posture and why, its approval, job, result, and late result; the driver resuming an execution.
@@ -683,6 +693,16 @@ Native in-process calls of one response that only read run concurrently (§4.6).
   orphan.
 - Health's `children` counts the wrappers running and lingering, the orphans adopted, and the zombies, which
   are 0 in steady state.
+- **A job's output is copied, and capped** (theseus-102; built 2026-10-01). The command writes into a pipe, and the
+  wrapper copies what it reads into `spool/results/<id>.out`, withholding each granted value (theseus-l0d), up to
+  `[tools] job_output_max_bytes` (64 MiB). Past the cap it reads on and counts, so the command never blocks or dies
+  for printing. The completion says `truncated`, `dropped`, and the cap. The runtime reads only the file's last
+  4 MiB, by seek, so what a job prints never costs the daemon more memory than that. The copy keeps the head: a job
+  that overruns the cap loses its end (theseus-gsn9).
+- **Raw output goes once no result will absorb it** (theseus-wz2, theseus-2ij). It goes at once when a completed
+  job's result node is written. Otherwise the spool's sweep takes it, a tender after serving (§6): a job stopped
+  before its completion, once its cancelled result is written (theseus-ewev); an ended execution's job; a crash
+  between the result's frame and the unlink.
 
 **Deadlines and reconciliation.** Every record carries a deadline from the tool's class and the execution's budget. The heartbeat reconciler (§3.3) checks open records against the spool, the queue, job-scope state, and, for AWS classes past their deadline, the service API. Reconciliation is event-first (EventBridge task state changes flow into the same queue) and polls only overdue records, so its cost scales with stuck work, not with total work.
 
@@ -701,6 +721,8 @@ Native in-process calls of one response that only read run concurrently (§4.6).
 - A card whose question closed is settled by a post of its own: at the close, when the core closed it, and otherwise by a level-triggered pass on the binding's connect and on every heartbeat.
 
 **Cancellation is a lifecycle, not a flag.** `cancel_requested → cancel_acknowledged → termination_verified`, or `cancel_unsupported` / `cancel_outcome_uncertain` where the backend offers no external termination (a running Lambda invocation, for example). Executions report which state they reached. Every job wrapper carries its **own deadline** enforced locally, so a harness outage never removes the only limit on a job's lifetime.
+
+A cancel or a stop ends its jobs together (theseus-bzq; built 2026-10-01): SIGTERM to every job's process group at once, one shared grace (2 s), then SIGKILL for the stragglers, so N jobs cost one grace. A job is gone only when no live process is left in its group, not when its wrapper is: the wrapper dies at SIGTERM, and a command that traps it would run on. The daemon waits on its runtime's timer, never on a worker thread.
 
 **Provider and judge requests follow the same contract.** An interrupted Messages API call may still be billed and its usage unknown; the record is settled as `outcome_unknown` for cost purposes and its reservation is held, not released, until reconciled. A partially streamed tool call is never dispatched: dispatch requires a complete, validated tool-use block.
 
@@ -851,11 +873,13 @@ The mapping:
 |---|---|
 | turn | root span, with the trace root's attributes as recorded: `turn_id`, `session_id`, `profile`, `provider`, `model`, `continuation`, `outcome`, `loops`, `stop_reason`, `usage.*` |
 | loop *n*, a group of calls run together (`tools`), `tool <name>`, `continuation` | child spans |
-| provider.call | client span with the GenAI semantic conventions: `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.id`, `gen_ai.response.finish_reasons`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` |
+| provider.call | client span with the GenAI semantic conventions: `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model` (the model that answered, as the provider named it; none on a failed call), `gen_ai.response.id`, `gen_ai.response.finish_reasons`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` |
 | first_byte, first_token | events on the provider span |
 | compile, advancer, store, lock, marks | events on their parent span _(since 2026-09-28 always: hook sites are gone, and `telemetry.hook_spans` no longer loads)_ |
 | provider.error, turn.failed | error status, with the message or the class; the class and transient as attributes |
-| turns, tokens, provider errors, dollars, tool calls, durations | cumulative metrics: `theseus.turns` (profile, provider, model, outcome), `theseus.tokens` (the same, and direction), `theseus.provider.errors` (provider, model, class, transient), `theseus.cost.usd`, `theseus.tool.calls` (the turn's attributes, and tool); histograms `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms`, `theseus.provider.first_token_ms` |
+| turns, tokens, provider errors, dollars, tool calls, durations | cumulative metrics: `theseus.turns` (profile, provider, requested model, outcome), `theseus.tokens` (the same, and direction), `theseus.provider.errors` (provider, model, class, transient), `theseus.cost.usd`, `theseus.tool.calls` (the turn's attributes, and the tool's name, family, backend, and outcome); histograms `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms` (provider and model), `theseus.provider.first_token_ms`, and `theseus.tool.duration_ms` (as `theseus.tool.calls`) |
+
+Every duration histogram has the same bounds: the SDK's defaults up to 10 s, then 20 s, 30 s, 1, 2, 5, and 10 minutes, the default timeout of a provider call and of `proc.run`. A turn that fails is counted whoever ran it, a client's `turn.submit` or the driver's continuation, with the attributes of the target it ran on, and its tool and provider calls with it. The turn's metrics name the model asked for, and the provider span names the one that answered. _(Amended 2026-10-01, theseus-yf1. Until then the bounds stopped at 10 s, the tool metric was by tool only and had no duration, the provider call's time had no attributes, `gen_ai.response.model` was the requested model, and a continuation's failure was counted nowhere. Part III A4, Item 26.)_
 
 **Transport.** OTLP/HTTP with the JSON encoding, posted to `<otlp_endpoint>/v1/traces` and `/v1/metrics`
 over the workspace's `reqwest` and rustls, with no gRPC and no protobuf library.
@@ -940,7 +964,11 @@ Why this is a principle and not a taste. A `bash` string is opaque: the gate can
   - `fs.grep` searches the files of a big tree in chunks, on every core that is free at that moment, and
     merges them in walk order, so its output is the same with or without them.
   - Waiting is async and computing takes a core, so a pool full of greps cannot deadlock.
-- Every tool call is a trace span and a metric with family, tool, backend, and outcome. The **shell-fallback ratio** (`proc.run` over all calls) is watched; the most frequent `proc.run` argv patterns are the promotion queue for the next toollet (§3.21 `extend.promote`).
+- Every tool call is a trace span and a metric: `theseus.tool.calls` and `theseus.tool.duration_ms`, with the
+  tool's `theseus.tool.name`, `.family`, and `.backend`, and the call's `.outcome` (§3.20). The
+  **shell-fallback ratio** is the calls named `proc.run` over all calls, one query over `theseus.tool.calls`, and
+  it is watched. The most frequent `proc.run` argv patterns are the promotion queue for the next toollet (§3.21
+  `extend.promote`). _(As built 2026-10-01, theseus-yf1. Until then the metric was by tool only.)_
 - A new capability arrives as a toollet unless there is a written reason it cannot; Part III records where this slipped.
 
 ### 3.24 The tool surface
@@ -949,7 +977,7 @@ Reviewed against Claude Code (about twenty tools, six of which do nearly all the
 
 **Principles of the trim.** One tool, one verb: no action enums. Typed in, node out: every result is a node with provenance, and composition is by node reference (§3.16). The kernel is not a tool: sessions, executions, cancellation, budgets, policy, config, secrets, and operator controls are protocol requests or deterministic commands. Memory is compiled, not called (§5), with one explicit lookup and one explicit note. The shell is reachable only through a typed argv and is counted (§3.23). Everything else is a plank (§3.12).
 
-**A capped result says what it cut, and how to get it** (theseus-46v). A result longer than `[tools] result_max_chars` keeps its head and its tail, cut on lines' edges where it can. It says what it left out, and the call that returns it, which only the tool knows (`Tool::rest`): `…[19 lines (1,512 characters) not shown: lines 12-30; fs_read with offset=12 and limit=19 returns them]…`. A job's output isn't kept once its result is written (theseus-wz2). So a job's cut says to run it again printing less, or to send its output to a file and read that in ranges. Nothing claims a stored copy.
+**A capped result says what it cut, and how to get it** (theseus-46v). A result longer than `[tools] result_max_chars` keeps its head and its tail, cut on lines' edges where it can. It says what it left out, and the call that returns it, which only the tool knows (`Tool::rest`): `…[19 lines (1,512 characters) not shown: lines 12-30; fs_read with offset=12 and limit=19 returns them]…`. A job's output isn't kept once its result is written (theseus-wz2). So a job's cut says to run it again printing less, or to send its output to a file and read that in ranges. Nothing claims a stored copy. A job that printed past its output cap (theseus-102) says so first: `[truncated: it printed N bytes, and the M bytes past its output cap of 64 MiB were dropped; <the tool's rest>]`, then which bytes of what was kept follow.
 
 **The selected set**, thirty-five tools in twelve families, offered by family per turn so a coding turn sees perhaps fifteen schemas:
 
@@ -1180,9 +1208,15 @@ Session {
 
 ### 4.5 Prompt caching layout
 
-Most stable first: persona and role hints; tool schemas; frozen transcript prefix from root to the last compaction; cache breakpoint; dynamic assembly; recent tail and new message. Compaction roots keep the prefix small and stable by construction. `continue.v1` receives cache state so it can prefer appending on hot conversations, and a recompile is scheduled at a natural boundary (after a tool loop closes, not mid-loop) whenever the trigger allows deferral. The system block leads the prefix: the built-in persona, the tools note, the profile's `system`, the system level's context files, then the persona's (§4.4). A persona that Jev switches, or an edited file, changes the block, and so the whole prefix is written to the cache again. Until the files get a breakpoint of their own (theseus-ev1), putting the system level first keeps the block's longest stable run at its front.
+Most stable first: persona and role hints; tool schemas; frozen transcript prefix from root to the last compaction; cache breakpoint; dynamic assembly; recent tail and new message. Compaction roots keep the prefix small and stable by construction. `continue.v1` receives cache state so it can prefer appending on hot conversations, and a recompile is scheduled at a natural boundary (after a tool loop closes, not mid-loop) whenever the trigger allows deferral. The system leads the prefix, in two blocks (theseus-ev1; built 2026-10-01, Part III A4 Item 29). The first, the **header**, holds the built-in persona, the tools note, and the profile's `system`. Every session of a profile and their tasks share its bytes, and nothing retractable goes in it (Appendix F). The second holds the context files, the system level's, then the persona's (§4.4). Each block carries a cache breakpoint, and the conversation's is the request's top-level automatic one: 3 of the provider's 4. An edited file, or a persona that Jev switches, rewrites the second block and what follows, while the tools and the header still read from the cache.
 
-**One header across sessions** (Eddie, 2026-09-26; theseus-ev1). The header is kept as static as possible and reused across sessions and the parts of sessions (derived tasks), so one provider cache entry serves many of them instead of each session warming its own. This is the **provider-safe caching** work, scheduled after M3; M3 built only a breakpoint on the system block plus automatic caching of each session's growing prefix (Part III A3). It respects each provider's rules (a header shorter than the model's `cache_min_tokens` in the catalog never caches) and never rewrites earlier history to win hits, since that breaks preserved thinking signatures. It lands together with money budgets (theseus-0sg): under a token budget a cache read counts as much as fresh input, so better caching would lower the bill without stretching the budget. _(Money budgets landed first, on 2026-09-29, after Eddie's DM hit its unit limit; a cache read now counts at its own price, §3.13. The caching work stays scheduled.)_
+**The rules a breakpoint follows.**
+- **The minimum.** A block whose prefix (the tools and the system through it) is under 2 bytes a token of the model's `cache_min_tokens` gets none, since the provider could never cache it. The bound errs toward placing a breakpoint: one the provider skips costs nothing, and one dropped that would have cached costs a rewrite in every session. The header, about 13 KB with the tools (5,045 tokens on Sonnet 5.5, just under Haiku 4.5's 4,096), is sent with its breakpoint on every built-in model, and on Haiku the provider skips it for now. A model whose catalog row says `caches = false` gets no breakpoint at all.
+- **The record.** The compilation's manifest records the layout (`cache`: whether the model caches, its minimum, and each block's prefix in bytes and its mark).
+- **The TTL.** A profile's `cache_ttl` is `5m` (the default) or `1h`, and applies to every breakpoint, the automatic one included. A task's own conversation keeps `5m`, after the header's `1h` entries, so a longer-lived entry never follows a shorter one, as the provider requires.
+- **The price.** A 1-hour write costs 2 × input, against 1.25 × for 5 minutes. The usage carries the 1-hour part (`cache_creation_1h_input_tokens`), and the catalog's `cache_write_1h_per_mtok` prices it everywhere a call is priced.
+
+**One header across sessions** (Eddie, 2026-09-26; theseus-ev1). The header is kept as static as possible and reused across sessions and the parts of sessions (derived tasks), so one provider cache entry serves many of them instead of each session warming its own. This is the **provider-safe caching** work, scheduled after M3; M3 built only a breakpoint on the system block plus automatic caching of each session's growing prefix (Part III A3). It respects each provider's rules (a header shorter than the model's `cache_min_tokens` in the catalog never caches) and never rewrites earlier history to win hits, since that breaks preserved thinking signatures. It lands together with money budgets (theseus-0sg): under a token budget a cache read counts as much as fresh input, so better caching would lower the bill without stretching the budget. _(Money budgets landed first, on 2026-09-29, after Eddie's DM hit its unit limit; a cache read now counts at its own price, §3.13. The caching work landed in two parts: the cache lane (the header test and the Observatory's cache figures, Item 16), and 13c's two blocks, minimum, TTL, and 1-hour price, Item 29, on 2026-10-01.)_
 
 ### 4.6 What a turn writes
 
@@ -1257,6 +1291,14 @@ trait MemoryScience {
 
 Native v1: gate by embedding cosine plus exact `about` overlap for duplicates, Jev `kind`/`durability` for store-vs-drop, and a Jev Noul for contradiction between a candidate and its top neighbour; FSRS-6 stability and difficulty per node with dual-strength kept as two numbers; weighted BFS over typed edges with per-edge-type weights the role adjusts; decay by retention plus heat. Parameters are versioned data tuned by the ledger. A remote scorer is possible as a plugin; none is planned. Vestige's science informed this design; its code is not used (AGPL, SQLite-first).
 
+**FSRS-6 is checked against its reference** (theseus-3ht; built 2026-10-01, Part III A4 Item 26). The reference is the `fsrs` crate 6.6.2 (BSD-3-Clause), read, never copied. Theseus matches it on:
+- the 21 defaults, digit by digit;
+- the same-day step, whose factor is floored at 1 from Hard up, so a same-day Hard never lowers stability. The reference's model and optimizer do this; only its workload simulator floors from Good (theseus-b9l4 asks for a second source);
+- the prior's stability and difficulty, clamped into their bounds before a review reads them;
+- parameters clipped into the reference's bounds, as its `FSRS::new` does. A non-finite parameter is still an error.
+
+The clipping is silent. When the parameters become configurable, the loader says which values it clipped (theseus-3fjv). The one deliberate departure is the same-day test, `t < 1` rather than a calendar day, since an agent has no day boundary.
+
 ### 5.2 The memory pass
 
 1. Jev `memory.v1` labels each new node: kind (preference · fact · decision · procedure · episode · transient · other), durability, `about` targets, trust.
@@ -1313,9 +1355,24 @@ theseus (core)                          theseus --tender <role>  (children of th
     - a redb database that fails some other way (a newer format, a bad commit slot, a file cut short) is
       refused and left where it is.
 - **The turn lock and eventual durability.** "Speed first" is preserved by *where* the time goes, not by skipping durability. Within a channel exactly one turn advances at a time; that lock is held only while the core is doing local work. A turn is mostly waiting: a Messages API call is seconds, a shell job is seconds to hours, a judge call is hundreds of milliseconds, a human is minutes. At every such offload boundary the turn releases the lock and the core spends the surrendered time on **asynchronous durability work**: sealing the current WAL segment and handing it to the durability tender, taking checkpoints, flushing index updates, compacting edge segments, running the memory pass, uploading. The floor remains unchanged (intent is fsynced locally before dispatch); what changes is the off-node recovery point, which becomes **eventual: 5–60 s** rather than 1–2 minutes, achieved for free from time the loop was not using anyway. The tender scheduler prioritizes by staleness: the oldest unshipped committed record bounds the current recovery-point exposure, and that number is exported as a metric and alarmed on.
-- **WAL.** Every record appends to the local SSD and is fsynced on a short group-commit interval before the turn proceeds. Records carry a length prefix and checksum; a torn tail is truncated on recovery. Periodic **checkpoints** snapshot the arena so recovery is checkpoint plus tail, not full-history replay. Schema versions are stamped on every record, by kind. Old layouts are read in place, through serde's defaults or a reader such as `Execution::from_stored`. A layout that needs rewriting will get a forward-only transform run by a tender; none has needed one yet. Disk-full is handled by refusing new turns with a clear message while tenders continue to drain. The SSD is a persistent volume that survives instance death and is encrypted at rest by the platform (EBS encryption, LUKS on a desktop), not by Theseus.
+- **WAL.** Every record appends to the local SSD and is fsynced on a short group-commit interval before the turn proceeds. Records carry a length prefix and checksum; a torn tail is truncated on recovery. Periodic **checkpoints** snapshot the arena so recovery is checkpoint plus tail, not full-history replay. Schema versions are stamped on every record, by kind. Old layouts are read in place, through serde's defaults or a reader such as `Execution::from_stored`. A layout that needs rewriting will get a forward-only transform run by a tender; none has needed one yet. Disk-full is handled by refusing new turns with a clear message while tenders continue to drain (designed; what is built is the job floor under "Free space" below). The SSD is a persistent volume that survives instance death and is encrypted at rest by the platform (EBS encryption, LUKS on a desktop), not by Theseus.
 - **Tenders** consume the WAL and answer rehydration over a local socket; they never touch the arena directly. Durability ships to S3 and DynamoDB when configured, with a 5–60 s target measured as "age of the oldest unshipped committed record." Tiering demotes payloads by heat and retention (stub stays in the arena, payload on SSD and S3; nothing is removed from the graph), with a Jev backup opinion for lower heat bands; rehydration misses are logged. Index owns embeddings: 768-d stored, 256-d indexed, 768-d rerank; usearch memory-mapped from SSD; tantivy BM25; reciprocal-rank fusion then Jev relevance; asynchronous after commit; long nodes chunked with `part_of`. Memory runs consolidation and decay sweeps.
 - **Completion spool.** A directory on the same SSD as the WAL where job wrappers write results before attempting delivery. Startup drains it before accepting events; the heartbeat reconciler reads it every minute. It is the reason a harness restart never loses a finished job.
+- **Free space, and the spool's sweep** (theseus-102, theseus-2ij; built 2026-10-01, Part III A4 Item 25). On a
+  full disk every WAL append fails, including the rows that would say so. Health reports the free space of the
+  filesystem that holds the state dir (`statvfs`), and calls it low under `[server] disk_warn_mb` (5 GB). Under
+  `[server] disk_floor_mb` (1 GB) a job is refused, with its reason as the call's result and a `job.refused` row.
+  The floor leaves room for what already runs to finish: eight turns' jobs at their 64 MiB output cap, a WAL
+  segment, and the index's checkpoint. Health sees only the filesystem Linux reports. Under WSL that filesystem is
+  a file on the Windows drive, which can fill first. A tender after serving, at start and then hourly, sweeps the
+  raw job output no result will absorb, by the store's state, and keeps what a turn may still read. Each file's
+  fate:
+  - removed: `absorbed` (its result is written), `ended` (its execution ended), `unknown` (no action owns it, and
+    it is a day old);
+  - kept: `running`, `pending`, `young`, `unread`.
+
+  Health's `spool` shows the last sweep. A `spool.swept` row is written when a sweep removed a file, or when a
+  start's first sweep found one.
 - **Restore.** Rebuilding a node from S3 segments plus the DynamoDB index is a first-class, tested path from the first release (`theseus restore --from s3://…`), because S3 is presented as disk-failure recovery. Periodic automated drills remain deferred.
 - **A local restore is durable before it says so** (theseus-ez3; built 2026-10-01, Part III A4 Item 19).
   `theseusd restore --from <wal or store dir>` syncs each copied segment and blob before it opens them; syncs the
@@ -1461,6 +1518,11 @@ which are never faster than release.
   kill, 2 ms swap; restore has no budget yet).
 - **A miss.** With ten runs, nearest rank makes the p95 the slowest run, so one stalled fsync can decide it.
   A miss runs the bench once more, and only a second miss fails the gate.
+- **A quiet machine.** Before each run, the gate flushes dirty pages, then waits for up to 10 minutes until the
+  kernel's IO and CPU pressure (PSI, `some avg10`) are under 10 % and 20 %, and says how long it waited (theseus-m2lt,
+  2026-10-01). A neighbour that keeps writing stalls a start's fsyncs for seconds, and the bench would measure the
+  neighbour: during an openclaw rotation, a restart's p95 was 2.3 s on a tree that had passed at 41 ms. After
+  10 minutes it measures anyway. The budgets don't change.
 - **The history.** Every run, a miss and its rerun both, is appended to a history outside the tree
   (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`, shared by every worktree). Each
   row holds:
@@ -1486,6 +1548,7 @@ Measured values are in Part III (A3, lifecycle timings, the M3.5 entry, and Item
 | Restore from a local WAL | at the disk's sequential read speed; to measure _(Measured in F4b; see Part III A3c. A restore copies the WAL, then opens the copy with no index, which checks every frame and indexes every record, so it runs 39 to 64 times slower than a cold sequential read of the same bytes. The budget waits on how the index is rebuilt: in bulk, or after serving (theseus-byu).)_ |
 | Binary size, static | under 60 MB with Wasmtime, AWS SDK, voice, search, and web UI; embedding weights are a separate artifact |
 | RSS at 10,000 parked channels, 50 active executions | under 1 GB including arena metadata for the active set |
+| Memory a job's output costs the daemon | at most 4 MiB, whatever the job prints (read by seek); its file at most `[tools] job_output_max_bytes` _(Since fb2c, theseus-102: a 200 MB job raised the daemon's VmHWM by 9 MB, against 211 MB before; Part III A4 Item 25)_ |
 | Per-turn harness overhead (context compile + gate + WAL commit, warm arena; excludes model, Jev, tokenization, rehydration) | under 5 ms |
 | Jev per turn | to be measured: calls, questions, input tokens, p50/p95/p99, per representative turn class; the ~350 ms / sub-cent figure is one call, and a turn makes several |
 | Process start to accepting Discord events (checkpoint loaded, WAL tail replayed; excludes model/index warm-up, which proceeds in tenders) | under 2 s |
@@ -1875,6 +1938,11 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 - The memory pass and recall as specified, consolidation as a tender job producing shadow syntheses with citation checks.
 - Tiering tender: demote by heat, rehydrate on reference; arena as a bounded cache with the presence filter.
 - The ablation harness: each feature toggled independently at fixed total budget, scored on §5.5a's metrics over recorded trajectories and a live canary.
+- **Books** (Eddie, 2026-10-01; theseus-lqo6): recall organizes the graph's context into typed books, each a different organization of knowing, built with the recall wire-in (the "mini RAG", rows 30a to 30c).
+  - The five: a **dictionary** (keyed by the exact term), an **encyclopedia** (by topic), a **cookbook** (by goal), an **SOP reference** (by situation), and a **diary** (by time). A casebook (decisions, as precedent) and a register (items with a lifecycle state) are candidates.
+  - A book type is five answers: its key, its entry's shape, its write discipline, its authority, and its compile rule. It extends the ontology's closed set of composition rules (`chain`, `intent_line`, `ranked`, `recall_only`), and §5.2's memory-pass kinds say which book an entry belongs to.
+  - Books are derived views, never the source of truth. Each entry cites its nodes (`derived_from`) and takes the strictest label of its sources (§5.4). A rebuild from the graph must reproduce the book, and that is a test.
+  - Only the operator writes an SOP; a recipe is promoted only after repeated success; nothing retractable goes in the shared header (Appendix F). A book type exists only once the compiler reads it (the reader rule), and the exam measures recall per book.
 - The ontology's learning half (§4.1a): category embeddings, re-association by sweep and dream, lessons as guidance, and §5.5's namespaces as kinds. Also compilations that are never silently thinner, testimony and precedence, and volatile values rendered as-of (theseus-3nk).
 
 **Prove.** An ablation report exists and is honest. Features that do not move task success, false completion, stale recall, or disclosure violations at equal cost are disabled by default and marked experimental in the spec.
@@ -3280,7 +3348,7 @@ spread of its own rounds.
 - **Filed at review** as theseus-yf1, all small, with no consumer yet: the histogram bounds past 10 s; tool
   metrics by family, backend, and outcome, with a duration; the served model in `gen_ai.response.model`;
   failed continuations counted; and the provider-call histogram's empty attributes, which Tabitha found
-  live and which the SDK exporter had too.
+  live and which the SDK exporter had too. All five were built in the telemetry lane (Item 26).
 
 **Divergence from Parts I and II, and from the brief.**
 
@@ -3289,7 +3357,7 @@ spread of its own rounds.
 | OTLP over HTTP/protobuf (§3.20) | OTLP/HTTP with the JSON encoding | JSON needs no protobuf library, and the Collector's receiver takes it | §3.20 amended; a hand-written protobuf encoder is the fallback for a receiver that won't |
 | The exporter is the `otel` build feature, off by default (§3.20, theseus-0g4) | In every build, with no feature and no added crate | Eddie, 2026-09-29 | §3.20 amended |
 | §3.20's table: root attributes `theseus.turn_id`, `theseus.session_id`, `theseus.profile` | The root's attributes as recorded (`turn_id`, `session_id`, `profile`, …), as the SDK exporter emitted them | The same picture, so a dashboard built on it still works | Table corrected |
-| §3.20's table: `theseus.tool.calls` by family, tool, backend, and outcome, and `theseus.tool.duration_ms` | By tool, with the turn's attributes; no duration | Neither exporter had them (A3 recorded it) | Table corrected; theseus-yf1 |
+| §3.20's table: `theseus.tool.calls` by family, tool, backend, and outcome, and `theseus.tool.duration_ms` | By tool, with the turn's attributes; no duration | Neither exporter had them (A3 recorded it) | Table corrected; theseus-yf1, built in Item 26 |
 | The SDK's batching (2,048 spans, a 5 s delay) and its blocking `force_flush` inside `shutdown` | One post per turn, a queue of 64, and a flush after the serving loop, bounded at 1 s | Simpler, and a stop never blocks a task | Keep |
 | theseus-gi7: restore SIGPIPE's default for the printing subcommands, or end quietly | End quietly, with exit 0 | A default SIGPIPE would expose `check`'s write into `op inject`'s stdin | Keep |
 | The brief: the lifecycle bench "already kills on its error paths" | Not on all of them: a failed stop, confirmation, copy wait, or health read after a start leaked | Found by reading, and shown by a probe | Fixed |
@@ -3873,7 +3941,7 @@ Eddie decided the design at 00:09 (§3.13, where his words are).
 | An unknown model runs with a startup warning and its cost unknown (A3; P5's catalog bullet) | A model priced neither in the config nor in the built-in table is refused as `unpriced` | Under a dollar limit, nothing may run unpriced | Held for Eddie: he may prefer that it ask (theseus-kks) |
 | A reserved control and cleanup budget, so that reaching a ceiling never prevents a cancel (§3.13; P4) | Retired | Nothing at the limit ends work or refuses a cancel | Part I §3.13 amended |
 | Reaching the limit ends the execution as `budget_exhausted` (§3.15; the M2 kernel) | The session waits and asks for a reset. Nothing new ends `budget_exhausted`, and old ones stay ended | Eddie's decision, 00:09 | Part I §1, §2, §3.13, and §3.15 amended |
-| Money budgets land together with provider-safe caching (§4.5; theseus-ev1) | Money budgets landed first | Eddie's DM hit its unit limit in real use | Provider-safe caching stays scheduled (theseus-ev1) |
+| Money budgets land together with provider-safe caching (§4.5; theseus-ev1) | Money budgets landed first | Eddie's DM hit its unit limit in real use | Provider-safe caching stays scheduled (theseus-ev1); built in two parts, Item 16's cache lane and Item 29 |
 
 ### Item 2. The workspace: context files and roots (theseus-58a; 2026-09-29, 01:55–02:15; 76e7d35, a29e9f7)
 
@@ -3917,7 +3985,7 @@ Eddie decided the design at 00:09 (§3.13, where his words are).
 | With `~/.openclaw/workspace` and `~/reports` in `roots`, a spec session's reads and edits need no confirm (usage audit §6, item 2; P5d) | Not proven live in this step. Roots are unchanged A3 code, covered by the gate's root tests, and the template now shows the example | Eddie chooses his roots. It belongs to the exit test's config, which needs no code | Held for the exit test |
 
 **Known gaps.**
-- An edit to a context file re-caches the whole session. The system block leads the cached prefix, so the next turn writes the session's entire context to the cache, and the prefix loses its thinking blocks. At the DM's measured 391 k tokens per call, one edit costs about $1 at Sonnet 5.5's cache-write price. If it bites, the files get their own later cache breakpoint, with the provider-safe caching work (theseus-ev1).
+- ~~An edit to a context file re-caches the whole session. The system block leads the cached prefix, so the next turn writes the session's entire context to the cache, and the prefix loses its thinking blocks. At the DM's measured 391 k tokens per call, one edit costs about $1 at Sonnet 5.5's cache-write price. If it bites, the files get their own later cache breakpoint, with the provider-safe caching work (theseus-ev1).~~ Closed by Item 29: the files are a block of their own, so an edit rewrites only it and what follows.
 - The reads are synchronous file calls under the turn lock. A hung network mount would hang the turn, as it would any fs tool.
 - Relative paths are refused at load.
 
@@ -4108,8 +4176,8 @@ Live, over a copy of Eddie's store and his real note through a shim `op`:
 - A Discord question posted before a restart keeps its buttons after a raise withdraws it (to DD6). _(Closed
   2026-09-30 by theseus-q4v for every card posted since. A card posted before then has no post to settle it.)_
 - A lower limit makes theseus-kks likelier: a limit below one call's reservation asks again after every reset.
-- A persona switch by Jev will rewrite the whole cached prefix, until the files get their own breakpoint
-  (theseus-ev1).
+- ~~A persona switch by Jev will rewrite the whole cached prefix, until the files get their own breakpoint
+  (theseus-ev1).~~ Closed by Item 29: the files are a block of their own, after the header.
 
 ### Item 5. `http.fetch` and `web.search` (theseus-yd6; 2026-09-30, 01:10–01:46 and 02:14–02:36; acb16f4, 28ac9d3)
 
@@ -4938,15 +5006,15 @@ joined here through a spine step.
 | H1: a per-start token for the web UI (review 2's option) | `Host` and `Origin` checks, no token | A token from the same server reaches exactly the clients that pass both checks; the real boundary is the peer's uid | Keep; theseus-3qf |
 | H1: default `[web] enabled` to false in the interim (review 2) | Left on | With both checks in, the default can stay; Eddie's call if he wants it off | Keep |
 | H3: tighten the store's directories | Directories tightened at start; files that already exist keep their bits | The 0700 directories leave other users no path to them; a store made since has none | Keep |
-| H3: raw job output deleted or swept | Deleted once absorbed; output no result absorbs is not swept | The common path is clean; the rest needs a sweep by action state | theseus-2ij |
+| H3: raw job output deleted or swept | Deleted once absorbed; output no result absorbs is not swept | The common path is clean; the rest needs a sweep by action state | theseus-2ij, built in Item 25 |
 | — | `git.diff` also refuses tree paths that climb out (`..`, absolute) | Found while reviewing the fix: a fetched tree can hold one | Keep |
 | — | Three more bugs found by the property tests, fixed | The tests were asked for; their finds came with them | Keep |
 
 **Known gaps.**
 - ~~The web UI's port is still open to other local users' processes (theseus-3qf: refuse a peer whose uid
   is not the daemon's).~~ Closed by the `secfix` lane (Item 22).
-- Raw output that no result absorbs is not swept: a cancelled job, a crash between the frame and the
-  delete, and every file from before H3 (theseus-2ij).
+- ~~Raw output that no result absorbs is not swept: a cancelled job, a crash between the frame and the
+  delete, and every file from before H3 (theseus-2ij).~~ Closed by fix batch 2 part 3 (Item 25).
 - ~~`git.diff` and `git.log` open their repository with `gix::discover`, which climbs above the roots
   (theseus-bsc).~~ Closed by the `secfix` lane (Item 22).
 - ~~The Vite dev server's `/ws` proxy is refused by H1, since it passes the dev page's headers (theseus-zab;
@@ -5880,3 +5948,409 @@ Each was gated again on `main` after its rebase (`~/reports/theseus-merge/<lane>
   dead records, and the compactions in health (`recall.md`, "What 30a and row 51 inherit").
 - An incident in passing: the recall lane's tender inherited the gate lock from 11:01 to 11:13 (theseus-e6xj,
   fixed in Item 21's tooling note).
+
+### Item 25. Fix batch 2, part 3: the jobs' output (theseus-102, theseus-bzq part 1, theseus-2ij; 2026-10-01 11:56 to 12:59, reviewed 13:09 to 13:21; f2ce5c6, f38bc3e, 78521c1)
+
+**Why.** This is the roadmap re-cut's row 4, and its last step: what a job's output costs, and what stops a job.
+- One chatty job could take the daemon's memory, or the disk (Review 2's R3, theseus-102):
+  - a job's output went uncapped into `spool/results/<id>.out`;
+  - the runtime read the whole file to keep its last 4 MiB;
+  - and on a full disk every WAL append fails, including the rows that would say so.
+- A cancel or a `/stop` ran `job::terminate` for each job in turn, sleep-polling on a runtime worker for up to 2.5 s
+  each (Review 2's S2 (1), theseus-bzq). Looking closer, fb2c found the wait watched the wrapper. The wrapper dies at
+  SIGTERM, so the wait ended at once. A command that traps SIGTERM ran on, orphaned, while the cancel said
+  `termination_verified`.
+- Since H3 a job's raw output is deleted once its result is written, but three kinds had no end (theseus-2ij):
+  - a cancelled or ended execution's job;
+  - a crash between the result's frame and the unlink;
+  - every pre-H3 file.
+
+**What exists.**
+- **102** (§3.16, §3.24, §6, §9):
+  - Every job's output goes through the wrapper's copy (l0d's), capped at `[tools] job_output_max_bytes` (64 MiB).
+    Past the cap the copy reads on and counts, and never stops the command.
+  - The completion says `truncated`, `dropped`, and the cap. The result says what was printed and what was dropped,
+    and the tool's way to get the rest.
+  - The runtime reads a job's output by seek, 4 MiB at most.
+  - Health's `disk` comes from `statvfs` under the state dir. It is `low` under `[server] disk_warn_mb` (5,120) and
+    `below_floor` under `[server] disk_floor_mb` (1,024). Below the floor a job is refused, with its reason and a
+    `job.refused` row. `theseus health` prints `disk:`.
+- **bzq (1)** (§3.16): `job::Stopping`.
+  - Every job's group gets SIGTERM at once, then one 2 s grace, then SIGKILL for the stragglers together.
+  - A job is gone when no live process is left in its process group.
+  - `terminate_all` is async and waits on the runtime's timer. Cancel, stop, and `task.cancel` are async through the
+    dispatcher.
+- **2ij** (§6): `sweep::sweep`, a tender after serving, at start and then hourly.
+  - A raw output goes once its result is written, once its execution ended, or, when no action owns it, once it is
+    a day old.
+  - It stays while its wrapper lives, while its action is unsettled, or while its result may still be absorbed.
+  - Each sweep is reported in `spool.swept` rows (counts and bytes), in health's `spool.last_sweep`, and in
+    `theseus health`'s `spool:` line.
+
+**How it is proven.**
+- **Each part's tests**, each proved against a revert of its fix (`~/reports/theseus-fb2c/fb2c.md`, the parts' test
+  tables):
+  - 102:
+    - a wrapper process printing 5 MiB past a 64 KiB cap: the file stops at the cap, the exit is kept, and
+      `dropped` is reported;
+    - the cap with a grant;
+    - the copy, byte-exact at the cap and against `/dev/full`;
+    - a 40 MiB reader that reads 4 MiB, and a sparse 8 GiB file's tail;
+    - a real turn's truncated result, and a real turn refused below the floor;
+    - health's states through a stand-in `statvfs`.
+  - bzq:
+    - a wrapper whose command traps SIGTERM, waited out and killed;
+    - three such jobs in one grace;
+    - the real daemon on one runtime worker, stopping three such jobs in 2 to 3.5 s with `health` under 500 ms
+      throughout.
+
+    The reverts: the wrapper-only wait took 146 ms and left the jobs alive; serial took 6.24 s; a blocking wait
+    held health at 1.93 s.
+  - 2ij: real turns with every fate, the rule's table, and the real daemon's tender at start. The fates: absorbed
+    after a simulated crash, ended, unknown pre-H3, running, running with a live wrapper in a cancelled execution,
+    pending, and young.
+- **Live, fb2c's check, on a scratch daemon of the release build**, A/B against the 11:38 release:
+  - a 200 MB job's file stopped at 64 MiB, and the daemon's VmHWM rose 9 MB (the build before: a 209 MB file, and
+    VmHWM up 211 MB);
+  - the result named the dropped bytes;
+  - a floor above the free space refused a job, with its reason;
+  - three jobs that trap SIGTERM stopped in 2.27 s, with `health` at 4 to 9 ms meanwhile and none left alive.
+    Before: 0.37 s, with three left running, each `termination_verified`;
+  - a start swept a cancelled execution's output and a stale 0644 file, and kept three pending and one running.
+- **Live, the review's check, with different inputs** (`~/reports/theseus-fb2c/review/review.md`):
+  - with the cap set to 1 MiB, a 5 MiB job's file stopped at exactly 1,048,576 bytes, and the result's dropped
+    count was exact (4,194,313);
+  - a stop of two jobs whose bash and subshell both ignore SIGTERM left 0 of their 10 processes, in 2.27 s, with
+    `health` at 3 to 32 ms;
+  - planted orphans went as `unknown` (three days old) and stayed as `young` (new);
+  - the stopped jobs' outputs were `pending` until the next turn wrote their cancelled results, and then went as
+    `absorbed`;
+  - `low` warned while a job still ran.
+- **Gates.** Green at each commit: 1,177, 1,180, and 1,184 tests, with lifecycle within its budgets on each first
+  run. The review's rerun on `main` at 78521c1 was green too: 1,184 tests, cold start p50 22.7 ms.
+
+**Divergence from the brief and the issues.**
+
+| Brief or issue | Built | Why | Keep? |
+|---|---|---|---|
+| 102: below the floor, new jobs *wait* (the issue) | refused, with the reason as the call's result | a wait needs a wake when space returns, and nothing provides one (the brief's call) | Keep; theseus-f337 |
+| 102: a cap in the wrapper "with a marker" in the file, or `RLIMIT_FSIZE` | the copy counts; no marker in the file; the completion and the result say it | `RLIMIT_FSIZE` kills the writer (SIGXFSZ), and a marker would grow the file past the cap | Keep |
+| l0d: a job without a grant writes its own file "at no cost" | every job goes through the pipe and the copy | nothing else can cap a file without killing the job | Keep (cost measured live: 20 to 40 ms on a 32 MiB job) |
+| bzq (1): `spawn_blocking`, or async with the timer | async with the timer, and the wait is on the job's process group | the wrapper-only wait was the bug above; the group wait is what makes "one grace" true | Keep |
+| 2ij: "a sweep after serving" | after serving, then hourly | otherwise a long-running daemon's cancelled jobs' output waits for the next start | Keep |
+| 2ij: "ledger one row per sweep" | a row when a sweep removed a file, or when a start's first sweep found one | an hourly row on an empty spool is an fsync and noise, and health shows every sweep | Keep (the review's call) |
+| 2ij (the issue's alternative): "terminal and older than a stated age" | age only for files no action owns (24 h) | a known job's result held behind a budget question for days must not be lost | Keep |
+
+**Known gaps.**
+- theseus-vni9 (P2): S2 (2), a single store-writer thread. The cancel's own kernel transitions still fsync on a
+  worker.
+- theseus-avvb (P2): S2 (3), the periodic index checkpoint in a tender.
+- theseus-f337 (P3): the disk's `low` and `below_floor` reach no one unless they read health, and nothing wakes a
+  refused job when space returns.
+- theseus-ht82 (P3): a running job can still fill the disk through files it writes itself. The floor only refuses
+  the next job.
+- theseus-51v8 (P3): the Observatory and the cockpit don't show `disk` or `spool.last_sweep` yet.
+- theseus-gsn9 (P3, the review): the cap keeps the head, so a job that overruns it loses its end, where builds and
+  tests print their verdict.
+- theseus-ewev (P3, the review): a job stopped before its completion keeps its raw output until the sweep after its
+  cancelled result is written, since `result_ref` is unset.
+- Health sees only the filesystem Linux reports. Under WSL, C: can fill first. This is documented, not detected.
+
+### Item 26. Two lanes on `main`: FSRS-6 checked against its reference, and the telemetry corrections (theseus-3ht; theseus-yf1; 2026-10-01 12:00 to 13:06, reviewed 12:45 and 13:22, merged 13:31 and 13:33)
+
+**Why.**
+- **fsrscheck** (32a's prerequisite). The math lane wrote theseus-memory's FSRS-6 from memory, and its report
+  called five points of it "fairly sure". Before the `+retention` arm's wire-in (32a) puts it under real nodes,
+  each point was to be checked against the published reference.
+- **telemetry**: theseus-hee's open questions, which had no consumer yet. Every turn over 10 s fell in the last
+  histogram bucket. §3.20 and §3.23 promised a tool metric by family, backend, and outcome, with a duration, for
+  the shell-fallback ratio, and no exporter ever had one. `gen_ai.response.model` carried the requested model. A
+  continuation turn's failure was counted nowhere. The provider call's time had no attributes. This is the
+  roadmap's row 13a, built ahead in a worktree while fix batch 2 part 3 ran on `main`.
+
+**What exists.**
+- **FSRS-6, against the `fsrs` crate 6.6.2** (§5.1; `crates/theseus-memory/src/fsrs.rs`, 5c6ec86 and 2d51323):
+  - Four of the five points match: the 21 defaults digit by digit, E4's unclamped D0(4), E6's lapse cap, and
+    E9's bounds.
+  - **E7's same-day floor** now holds from Hard up, as the reference's model and optimizer have it. A same-day
+    Hard used to cut stability by 4 % to 69 %. That matters here: an access of unknown outcome is graded Hard, so
+    a node used twice in a day lost 39 % of its stability at S = 1 day.
+  - Two differences the math lane hadn't modelled: the prior's S and D are clamped before a review (a prior at
+    S = 0 gave NaN), and parameters are clipped into the reference's bounds. A non-finite parameter is still an
+    error.
+  - The oracle beside math.md was corrected and rerun. One golden row changed: sequence B's day-5.5 Hard now leaves
+    S at 3.2515.
+- **Telemetry** (§3.20, §3.23; 393c705 and c9d4985):
+  - **Bounds.** Every duration histogram shares one set: the SDK's up to 10 s, then 20 s, 30 s, 1, 2, 5, and
+    10 minutes.
+  - **Tool metrics.** `theseus.tool.calls` and the new `theseus.tool.duration_ms` carry the turn's attributes
+    and the tool's name, family, backend, and outcome. They are read from the turn's tool spans, which now record
+    them. A failed turn's calls count too, and `theseus.tool` became `theseus.tool.name`.
+  - **Models.** `gen_ai.response.model` is the served model, and there is none on a failed call. A turn's metrics
+    name the requested model, as its failure and its provider calls do. The live check found that half: an
+    alias's answer named a dated id.
+  - **A failed continuation is counted** like a client's failed turn, through `Core::count_failed_turn`: in
+    health's `provider_errors`, in `theseus.turns`, and in `theseus.provider.errors`.
+  - **The provider call's time** carries its provider and model.
+
+**How it is proven.**
+- **fsrscheck:**
+  - each value checked against the reference, with file and line, and no code copied;
+  - new tests written first, each failing on the old code;
+  - `matches_the_reference_crates_own_numbers` pins the reference's own test numbers to f32's rounding;
+  - a second, independent transcription (`xcheck.py`, from the reference's `model.rs`) agrees with the
+    corrected oracle on all 14 rows, to the 15th significant digit.
+- **telemetry:**
+  - 8 new tests, each shown to fail when its fix is undone (10 probes);
+  - the golden file changed only where the corrections change the picture;
+  - live, on a scratch daemon with a local OTLP receiver:
+    - a 28.7 s GLM turn in (20 s, 30 s], and a 12.3 s `proc.run` in (10 s, 20 s];
+    - the tool metrics with their attributes;
+    - a `claude-haiku-4-5` call answered as `claude-haiku-4-5-20251001`;
+    - a refused model's input turn and the driver's retry, counted as 2 failed turns and 2 provider errors,
+      with health saying 2.
+- **The review's check of the merged release build** (b6be80d, installed 13:46; a scratch daemon with the lane's
+  receiver):
+  - a 29.5 s GLM tool turn in (20 s, 30 s], with 21 bounds up to 600 s;
+  - its `proc.run` (12.1 s, in (10 s, 20 s]) and `fs.read`, counted and timed with name, family, backend, and outcome;
+  - a refused model's turn and the driver's retry: 2 failed turns and 2 provider errors, each in one series, and
+    health's `provider errors 2`;
+  - the provider call's time by provider and model.
+- **Gates.** Each lane's gate was green in its worktree: fsrscheck at both commits (1,169 tests), and telemetry
+  at both (1,172 and 1,173). Each was gated again on `main` after its rebase (`~/reports/theseus-merge/<lane>-gate.log`):
+  fsrscheck at 2139b49 with theseus-m2lt (13:31:09, 1,188 tests; its first try at d047483 missed the bench under the rotation's IO, below), and telemetry at 71698b0 (13:33:19, 1,196 tests). Each bench passed on its first run.
+
+**Divergence from the briefs.**
+
+| Brief | Built | Why | Keep? |
+|---|---|---|---|
+| fsrscheck: check five points | three differences fixed, two beyond the five | the reference's clamp and clip are the algorithm too, and a prior at S = 0 gave NaN | Keep |
+| fsrscheck: clip or refuse out-of-bounds parameters (the lane's choice) | clip, as the reference does | the same parameters make the same model; `params()` shows the clipped values; a non-finite one is an error | Keep; theseus-3fjv says what was clipped once parameters load from config |
+| telemetry: five corrections | six: a finished turn's metrics name the requested model | found live: a turn's series and its provider calls' disagreed on an alias | Keep |
+| telemetry: bounds "up to about 600 s" for turn and provider durations | one set for all four duration histograms, to 600 s exactly | the default timeout of a provider call and of `proc.run`; one set compares across instruments | Keep |
+| telemetry: `theseus.tool.calls` by family, tool, backend, and outcome | and the turn's four attributes; `theseus.tool` renamed `theseus.tool.name` | the ratio per model; OTel's naming rules | Keep |
+| telemetry: count a failed continuation in `theseus.turns` and `theseus.provider.errors` | in health's `provider_errors` too | "as an ordinary failed turn is": `turn.submit` counts both | Keep |
+
+**A tooling change at the join** (theseus-m2lt, 2139b49). Tank's full openclaw rotation (38 branches) started at
+13:22 and held the kernel's IO pressure at 26 to 49 %. fsrscheck's first gate on `main` then missed the bench
+twice: a restart's p95 was 2,257 ms, on a tree that had passed at 13:13 with 41 ms. Every test passed. The gate now
+waits before each bench run until IO and CPU pressure settle (§9, "A quiet machine"). The budgets are unchanged.
+
+**Known gaps.**
+- fsrscheck: theseus-b9l4 (P3: confirm E7's Hard floor against the FSRS wiki and a second scheduler, since the
+  reference disagrees with itself), and theseus-3fjv (P3: the loader says which parameters it clipped).
+- telemetry:
+  - theseus-b85w: a failed turn's tokens and dollars;
+  - theseus-8pei: a confirmed call's run and a background job's end aren't timed;
+  - theseus-8u02: the first-token histogram has only each turn's last call;
+  - theseus-iu3a: a failed tool call's span has no error status;
+  - theseus-lmhp: failed calls share the provider-call series;
+  - theseus-ksfu: a timing test that fails a debug gate under load.
+
+  All are P3.
+
+### Item 27. The cockpit's second round: every call opened whole, and the controls it lacked (theseus-45n5; 2026-10-01 from 11:40, Tabitha in the foreground; b4ed64f to 454709b, rebased as d0aa674 to abc8411, merged 13:36:52)
+
+**Why.** Eddie's brief for the new experience (09:52) asked for drill-down "to exquisite detail". Item 23's cockpit
+showed each turn's loops, calls, tokens, cost, and context, but one tool call's story was still spread across the
+transcript and the ledger, and one model call's cost and cache were spread across a node and a row. The cockpit also
+couldn't open or recompile a session, list or cancel tasks, or change the live profile, though the protocol has had
+each since M1 or DD7.
+
+**What exists** (§3.14, "The cockpit"):
+- **The call inspector** (`?call=<tool_use_id or correlation id>`), a drawer on the session deck:
+  - what the model asked: the input, and the planned resources;
+  - what the gate said: its word, toned, the posture, and the reason;
+  - the call's life as timed phases from its ledger rows: planned, awaiting approval (and who answered),
+    authorized to dispatched, starting, running, and until recorded (a late result waiting for the next turn);
+  - the job (pid, argv, cwd, timeout, exit, output bytes), and what came back (status, truncation, lateness,
+    external text, the text with a copy button, the meta);
+  - the raw nodes.
+
+  It opens from a tool card's inspect button, and from the Actions view's rows by the action's id. A call the gate
+  denied says that no action was planned for it. The ledger and the activity river now say
+  `action.confirmed`, `action.confirm_answered`, and `discord.confirm` in plain words.
+- **The model-call inspector** (`?msg=<node_id>`):
+  - where its time went: to the first byte, then to the first token, then the stream;
+  - its tokens, the share from the cache, and what the cache saved at the catalog's prices;
+  - its cost recomputed line by line at today's prices beside the record, amber when they differ;
+  - the provider's rate-limit headroom at that moment;
+  - the context it saw, what it said, and the calls it asked for, each of which opens the call inspector;
+  - its life as a kernel action.
+
+  Opening one inspector closes the other. **Each reads the ledger only while it is open.** Before this fix, both
+  inspectors read it ahead of their early return, so the deck polled 5,000 rows every 3 s with neither open. That
+  was counted from the page's own WebSocket frames, before and after.
+- **Controls, each confirmed first:**
+  - Fleet's "New session" (`session.open`) lands on the new deck;
+  - the deck's "Recompile" menu (`session.recompile`, `transcript` or `fresh`);
+  - a Tasks panel in Actions (`task.list`, newest first, with state, waits, questions, parent, spend under its
+    carve, turns, report target, and ended reason), with Cancel (`task.cancel`) for a live task. Ended tasks fold
+    away;
+  - "make live" on each profile in Systems (`profile.use`).
+- **Economics** gained a "Last 24 hours" tile (with the 7-day total and daily average). The note on two differing
+  totals now says truly why they differ: turns from builds before theseus-hco missed a failed turn's cost
+  (theseus-lluv, closed), so the calls are the record.
+- `protocol.ts` gained `TaskInfo` and `TaskListResult`, the Rust types' fields. The change is types only, so
+  `web/dist` doesn't change.
+
+**How it is proven.** Each commit was checked live with real clicks (puppeteer, `~/reports/theseus-cockpit/shots/`)
+on a scratch daemon over a copy of Eddie's store:
+- a confirmed `proc.run`: approval 3.73 s (a Discord press), a run of 45.0 s, and 7.9 s until recorded;
+- a call the gate denied;
+- a Sonnet call: 780 ms to the first byte, 97.9 % cached, saving $0.0077, and the recomputed $0.0024 matching the
+  record;
+- "New session" ledgered `session.opened` and `execution.opened`; "Recompile → transcript" ledgered
+  `context.recompile_requested`;
+- a GLM task with a $0.05 budget waiting on its budget, then cancelled by its Cancel, "cancelled by the web UI";
+- every view loading clean (`audit.mjs`).
+
+The review's check of the installed build (b6be80d): every cockpit view loads clean from the binary, on a fresh
+copy of Eddie's store. The catalog card shows the 1-hour write price (Item 29); its columns were spaced and the
+profiles moved under each model's name, in the docs commit. The cockpit's lint and build run in the gate. Its merge gate on `main`: green at abc8411 (13:36:15, 1,196 tests). The bench's first run missed on one restart outlier (p95 296 ms, p50 41 ms), and its rerun passed.
+
+**Divergence from the design.** None from `contexts/theseus-cockpit.md`. The inspectors were Eddie's "drill down
+to exquisite detail", made concrete.
+
+**Known gaps.**
+- theseus-cny7 (P3): an operator act other than an approval ledgers `by` as the connection's label (`web#35`), not
+  the surface.
+- theseus-51v8 (P3): health's `disk` and `spool.last_sweep` (Item 25) aren't shown yet.
+- The cockpit's build isn't committed. The install builds it before the release build (Item 23).
+
+### Item 28. A README for newcomers, and the design documents' markdown in `docs/` (theseus-4i61; 2026-10-01 13:00 to 13:08, Eddie's request at 12:59; 74ef515, rebased as 4961916, merged 13:38:21)
+
+**Why.** Eddie (12:59): keep the highly technical README, but move it into `docs/`. The README should be a quick
+how-to-set-up that starts with a very end-user-friendly explanation: what we did and why, why another harness,
+what we wanted to accomplish, and why Theseus is interesting. And the design documents whose PDFs he had seen
+should be in `docs/` as markdown.
+
+**What exists.**
+- **`README.md`**, new:
+  - what Theseus is, in plain words;
+  - "Why another agent harness?": the questions other tools answer softly, and the guarantees Theseus makes
+    instead (money as a gate, speed as a tested contract, reading the web stops the hands, nothing lost or done
+    twice, memory that has to pass an exam). It claims uniqueness only for the four that the landscape research
+    found nowhere else;
+  - what it's like to use, why it might interest you, and where it stands;
+  - a quick start that matches the binaries' own help: build the web apps and the release, install,
+    `theseusd example-config`, `THESEUS_CONFIG`, the vault token, `theseusd check`, then a first `theseus ask`;
+  - where the documentation is.
+- **`docs/technical-overview.md`**, the previous README, moved with `git mv`:
+  - its links fixed for the new place;
+  - its stale lines corrected: fjall and the store's benches were removed in batch C, so the commands are now
+    `crash-test`, `bench lifecycle`, and `bench history`;
+  - the Daily Driver's four toollets named;
+  - the cockpit described, and the build steps running `scripts/gate.sh` and building the cockpit.
+- **`docs/design/review-2.md`** (Review 2, 2026-09-30) and **`docs/research/`**: "Theseus among the harnesses"
+  (`harness-landscape.md`), its two research reports, and a README.
+- **`docs/README.md`**, a reading guide. `docs/design/README.md` lists Review 2.
+
+**How it is proven.**
+- Eddie saw a rendered preview, `Theseus-README-preview.pdf`, before the merge.
+- Every relative link resolves.
+- The scrub used the design docs' patterns (`~/reports/theseus-docs-design/verify/*.pat`). Local paths became
+  plain words or links. The remaining hits are public sources, standard tool paths (`~/.theseus`, `~/.claude`,
+  `~/.ssh`), and token prefixes named as patterns.
+- The merge gate on `main`: green at 4961916 (13:38:13, 1,196 tests).
+
+**Known gaps.**
+- theseus-8d1b (P2): `theseusd example-config`'s template and `--config`'s default still name the operator's own
+  vault and items. A newcomer following the quick start sees them. The fix is placeholders that read as
+  instructions, and a generic default.
+- The README names what is next on the roadmap. Each spec version that lands a step should check that paragraph,
+  as it checks `docs/the-ship-of-theseus.md`.
+
+### Item 29. Caching, part 2: two breakpoints on the system, the caching minimum, a TTL per profile, and 1-hour writes priced (theseus-ev1, row 14 (13c) built ahead in the `cache2` lane; 2026-10-01 12:31 to 13:19, reviewed 13:35, joined 13:42:19; 047a477, c970d36, 86adced, and the join b6be80d)
+
+**Why.** M3 put one breakpoint on the system (Part III A3; the cache lane, Item 16, held the header byte-identical), so any context-file edit rewrote the whole
+prefix: the tools and the header with it. Appendix F's rule (theseus-3nk), that nothing retractable goes in the
+shared header, made a split possible. The stage-2 design's 13c added:
+- a minimum below which a breakpoint can't cache;
+- which models cache at all;
+- a TTL per profile;
+- and the must-not-miss: Anthropic prices a 1-hour write at 2 × input, against 1.25 × for 5 minutes, and Theseus
+  priced every write at the 5-minute rate.
+
+**What exists** (§4.5):
+- **Two blocks.** The header (the built-in persona, the tools note, the profile's `system`) and the context files,
+  each with a breakpoint, and the automatic one follows the conversation: 3 of the provider's 4. Without context
+  files the system is one block, with its old bytes and digest.
+- **The minimum.** A block whose prefix (the tools and the system through it) is under 2 bytes a token of the
+  model's `cache_min_tokens` gets no breakpoint, since the provider could never cache it. The bound errs toward
+  placing one: a breakpoint the provider skips costs nothing, and a dropped one that would have cached costs a
+  rewrite in every session. `Manifest.cache` records the layout, `context.compiled` rows carry `cache`, and the
+  narrative says when a block went unmarked.
+- **`caches`** per model in the catalog, true for every built-in. A model whose row says false gets no breakpoint.
+- **`cache_ttl = "5m" | "1h"`** per profile (default `5m`, the old bytes). `1h` goes on every breakpoint, the
+  automatic one included. A task's own conversation stays `5m`, after the header's `1h` entries, so a longer-lived
+  entry never follows a shorter one.
+- **1-hour writes priced.** `Usage.cache_creation_1h_input_tokens` carries Anthropic's split, and the catalog's
+  `cache_write_1h_per_mtok` prices it wherever a call is priced: the `provider.call` row, the node, the session,
+  the dollar budget's settlement, and health. The built-in catalog is `2026-10-01.1`. Both web apps price it too
+  (the join).
+- Sonnet 5.5's caching minimum is 512, the claude-api reference's value (theseus-o388 confirms it).
+
+**How it is proven.**
+- **Tests:**
+  - the header test on a real `theseusd`, for both template profiles: two blocks, the header byte-identical
+    across sessions, and after an edit only the context block changed;
+  - the compiler's layout, with the minimum's bound exactly (8,192 bytes marked, 8,191 not, on Haiku 4.5), the
+    TTL's order, a model that doesn't cache, and an old manifest;
+  - the 1-hour price end to end through the real runner: the budget, the session, the row, the turn, and health
+    all at $0.173, against $0.128 at the old pricing;
+  - the template's un-commented `cache_ttl` parsing;
+  - a test that reads each old layout.
+- **Live, the lane's check** (real API, $0.057):
+  - a second session read 5,118 tokens of the header and the context from the cache;
+  - after a context-file edit, a third session still read 5,045 tokens (the tools and the header) and wrote only
+    168;
+  - a `1h` call wrote 5,249 tokens, all of them 1-hour, priced at $4.00 per million on Sonnet 5.5. By hand that is
+    $0.021564; the old pricing was 36.5 % short;
+  - a task's `1h, 1h, 5m` request was accepted, and read its parent's 1-hour header;
+  - GLM accepts `ttl: "1h"` and caches as before.
+- **Found live, and acted on.** The compiler's chars/4 estimate runs 25 to 52 % low against Anthropic's tokenizers,
+  so the minimum's check doesn't use it. Haiku 4.5 counts today's header just under its 4,096 minimum, so its
+  breakpoint is sent and skipped until the header grows.
+- **The review's check of the release build** (b6be80d, installed 13:46; the lane's driver on a scratch daemon,
+  $0.022):
+  - a second session read 5,122 tokens from the cache;
+  - after an edit, a third session still read 5,045 tokens and wrote 172;
+  - the 1-hour profile's session wrote 347 tokens, all 1-hour, and cost $0.0040518. By hand that is 347 × $4.00 +
+    10,309 × $0.20 + 6 × $2 + 59 × $10 per million;
+  - its task ran `1h` with a `5m` conversation, and GLM was unchanged.
+
+  The 1-hour session also read 10,309 tokens: the lane's 1-hour header entries, written at 13:04, were still
+  cached 43 minutes later.
+- **Gates.** Green in the worktree at each commit (1,189 tests). The join's gate on `main`: green at b6be80d (13:42:09, 1,208 tests).
+
+**The join** (b6be80d):
+- The TypeScript half (theseus-wz9e): `protocol.ts`, the Observatory's Context panel, and the cockpit's Economics.
+- By hand, for the cockpit2 round's surfaces, which the lane's patch predates: the model-call inspector's Cost
+  table splits 5-minute and 1-hour writes, and Systems' catalog shows the 1-hour price.
+- Session schema 6 and compilation schema 3: an older binary would drop the new fields when it rewrote those
+  records. Nodes and ledger rows aren't rewritten, so they stay.
+- `RENDERER_VERSION` 2.
+
+**Divergence from the plan.**
+
+| Planned | Built | Why | Keep? |
+|---|---|---|---|
+| The minimum's check at chars/4 | At 2 bytes a token | chars/4 counted the header at 3,350 tokens, and Sonnet 5.5 at 5,045; a dropped breakpoint costs, a skipped one doesn't | Keep |
+| Haiku 4.5's header gets no breakpoint | It is sent, and the provider skips it | Haiku counts the header just under 4,096 today; it caches once the header grows | Keep |
+| Sonnet 5.5's minimum, 1,024 | 512 | the claude-api reference's value, which flags it to confirm | Keep; theseus-o388 |
+| `caches` per provider | per model, in the catalog | the catalog is keyed by model | Keep |
+| A TTL for every breakpoint | yes, but a task's own conversation keeps 5 minutes | its loops run seconds apart, so 1 hour would only add the write premium | Keep |
+| Join after C3 (the chain's plan) | before C3 | C3 hadn't started, and its ts-rs types then include `Usage`'s new field from the start | Keep |
+
+**What the install changes for Eddie.**
+- A session with context files rewrites its cached prefix once, on its next turn (about $0.013 on Sonnet 5.5), and
+  drops that prefix's thinking. The split changes the system's blocks, which a thinking block's signature
+  records.
+- A 1-hour TTL is his call (`cache_ttl = "1h"`). The cache lane's break-even is a 5 to 60 minute pause.
+- An older binary now refuses the store (session schema 6), so a rollback restores the backup.
+
+**Known gaps.**
+- theseus-f5hf (P2): the overflow ring still uses chars/4.
+- theseus-o388 (P3): confirm Sonnet 5.5's minimum.
+- theseus-4v1z (P3): the CLI's catalog and health lines show no 1-hour price or count.
