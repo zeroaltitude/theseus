@@ -31,7 +31,12 @@ type P = Record<string, unknown>
 const s = (v: unknown) => typeof v === 'string' ? v : ''
 
 export default function App() {
-  const client = useMemo(() => new ProtocolClient(), [])
+  // Served by the daemon, the page connects to its own address. The dev page connects straight to the daemon
+  // named by THESEUS_DEV_DAEMON (vite.config.ts), never through a proxy (theseus-88im).
+  const client = useMemo(
+    () => new ProtocolClient(import.meta.env.DEV ? `ws://${import.meta.env.VITE_THESEUS_DEV_DAEMON as string}/ws` : undefined),
+    [],
+  )
   const [status, setStatus] = useState<Status>('connecting')
   const [health, setHealth] = useState<Health | null>(null)
   const [profiles, setProfiles] = useState<ProfileList | null>(null)
