@@ -3,22 +3,68 @@
 //! tree (or two revisions) and produces unified diffs; there is no staged vs
 //! unstaged split (that is `proc.run git diff --cached` until the fallback
 //! ratio says otherwise). `git.log` walks history, optionally for one path.
+//!
+//! Neither reads above the root that holds its path (theseus-bsc). The gate
+//! checks only that path, and discovery climbs from it to the nearest
+//! repository, which may sit above the root: a root inside a larger
+//! repository, or a stray one above a root that has none (a `~/.git`). Then
+//! both tools are limited to the root's part of that repository, as a
+//! pathspec, and the result's first line says so. Whatever the case, a path
+//! the diff reads must be under the root and not on the floor; any other is
+//! skipped and counted.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    parse, Access, Plan, Resource, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
+    parse, paths, Access, Plan, Resource, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
 };
 
-fn open(ctx: &ToolCtx, path: Option<&str>) -> Result<(gix::Repository, PathBuf), ToolFailure> {
+/// A repository as a call may read it (theseus-bsc).
+struct Repo {
+    repo: gix::Repository,
+    /// Its working tree, canonical.
+    wd: PathBuf,
+    /// The root that holds the call's path.
+    root: PathBuf,
+    /// The root's path in the repository, when the working tree is above the
+    /// root: both tools see only what is under it.
+    prefix: Option<String>,
+    /// The floor's paths (`ToolCtx::floor`).
+    floor: Vec<PathBuf>,
+}
+
+/// Why the diff leaves a path out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Out {
+    /// Not under the root: a tree path that is not plain names (`..`, `.`,
+    /// or absolute), which git refuses to check out but a fetched tree can
+    /// hold.
+    Roots,
+    /// On the floor: Theseus's own state, or the 1Password CLI's.
+    Floor,
+}
+
+fn open(ctx: &ToolCtx, path: Option<&str>) -> Result<Repo, ToolFailure> {
     let dir = path
         .map(|p| ctx.resolve(p))
         .unwrap_or_else(|| ctx.cwd.clone());
+    // The root that holds the path, the outermost where roots nest. A path
+    // outside every root runs only once the operator approves it (the gate
+    // asks for any such path), so it stands as its own root: what was
+    // approved is what is read.
+    let root = ctx
+        .roots
+        .iter()
+        .filter(|r| paths::within(&dir, r))
+        .min_by_key(|r| r.components().count())
+        .cloned()
+        .unwrap_or_else(|| dir.clone());
     let repo = gix::discover(&dir).map_err(|e| {
         ToolFailure::new(format!(
             "{} is not inside a git repository: {e}",
@@ -27,15 +73,119 @@ fn open(ctx: &ToolCtx, path: Option<&str>) -> Result<(gix::Repository, PathBuf),
     })?;
     let wd = repo
         .workdir()
-        .map(Path::to_path_buf)
+        .map(paths::canonical_best_effort)
         .ok_or_else(|| ToolFailure::new("the repository has no working tree (bare)"))?;
-    Ok((repo, wd))
+    let prefix = if paths::within(&wd, &root) {
+        None
+    } else if let Ok(rel) = root.strip_prefix(&wd) {
+        Some(rel.to_string_lossy().into_owned())
+    } else {
+        // Neither above the root nor in it: a `core.worktree` that names
+        // another place.
+        return Err(ToolFailure::new(format!(
+            "the repository found from {} has its working tree at {}, outside {}: git.diff and \
+             git.log read only under the roots",
+            dir.display(),
+            wd.display(),
+            root.display()
+        )));
+    };
+    Ok(Repo {
+        repo,
+        wd,
+        root,
+        prefix,
+        floor: ctx.floor.clone(),
+    })
 }
 
-/// path → blob id, for every blob (and symlink) in a tree.
+impl Repo {
+    /// The result's first line, when the tools are limited to the root.
+    fn note(&self) -> Option<String> {
+        self.prefix.as_ref().map(|_| {
+            format!(
+                "limited to {}, inside the repository at {}",
+                self.root.display(),
+                self.wd.display()
+            )
+        })
+    }
+
+    /// Whether the diff may read the tree path `p`: in the working tree,
+    /// under the root, and not on the floor. Checked before anything at `p`
+    /// is read, in the working tree or in history.
+    fn check(&self, p: &str) -> Result<(), Out> {
+        let rel = Path::new(p);
+        if !rel.components().all(|c| matches!(c, Component::Normal(_))) {
+            return Err(Out::Roots);
+        }
+        let at = self.wd.join(rel);
+        if !paths::within(&at, &self.root) {
+            return Err(Out::Roots);
+        }
+        if self.on_floor(&at) {
+            return Err(Out::Floor);
+        }
+        Ok(())
+    }
+
+    fn on_floor(&self, at: &Path) -> bool {
+        self.floor.iter().any(|f| paths::within(at, f))
+    }
+
+    /// The meta's account of what the call could not see.
+    fn annotate(&self, meta: &mut Value, out: &NotShown) {
+        if self.prefix.is_some() {
+            meta["limited_to"] = json!(self.root);
+        }
+        if !out.roots.is_empty() || !out.floor.is_empty() {
+            meta["not_shown"] = json!({"outside_roots": out.roots.len(), "floor": out.floor.len()});
+        }
+    }
+}
+
+/// The paths the diff left out, by why.
+#[derive(Default)]
+struct NotShown {
+    roots: BTreeSet<String>,
+    floor: BTreeSet<String>,
+}
+
+impl NotShown {
+    fn add(&mut self, p: &str, why: Out) {
+        match why {
+            Out::Roots => self.roots.insert(p.to_string()),
+            Out::Floor => self.floor.insert(p.to_string()),
+        };
+    }
+
+    /// `2 paths outside the roots not shown`, and the floor's count.
+    fn line(&self) -> Option<String> {
+        let n = |k: usize| format!("{k} path{}", if k == 1 { "" } else { "s" });
+        let mut parts = Vec::new();
+        if !self.roots.is_empty() {
+            parts.push(format!(
+                "{} outside the roots not shown",
+                n(self.roots.len())
+            ));
+        }
+        if !self.floor.is_empty() {
+            parts.push(format!(
+                "{} on the floor (Theseus's own state) not shown",
+                n(self.floor.len())
+            ));
+        }
+        (!parts.is_empty()).then(|| parts.join("; "))
+    }
+}
+
+/// path → blob id, for every blob (and symlink) in a tree, or only in its
+/// subtree at `prefix` (the root's part of a larger repository): nothing
+/// beside that subtree is read.
 fn tree_blobs(
     repo: &gix::Repository,
     rev: &str,
+    prefix: Option<&str>,
 ) -> Result<BTreeMap<String, gix::ObjectId>, ToolFailure> {
     let id = repo
         .rev_parse_single(rev)
@@ -46,6 +196,19 @@ fn tree_blobs(
         .peel_to_commit()
         .map_err(|e| ToolFailure::new(format!("{rev} is not a commit: {e}")))?;
     let tree = commit.tree().map_err(|e| ToolFailure::new(e.to_string()))?;
+    let tree = match prefix {
+        None => tree,
+        Some(pre) => match tree
+            .lookup_entry_by_path(pre)
+            .map_err(|e| ToolFailure::new(e.to_string()))?
+        {
+            Some(e) if e.mode().is_tree() => repo
+                .find_tree(e.object_id())
+                .map_err(|e| ToolFailure::new(e.to_string()))?,
+            // The root's part is not a directory at this revision.
+            _ => return Ok(BTreeMap::new()),
+        },
+    };
     let mut rec = gix::traverse::tree::Recorder::default();
     tree.traverse()
         .breadthfirst(&mut rec)
@@ -53,7 +216,14 @@ fn tree_blobs(
     let mut out = BTreeMap::new();
     for e in rec.records {
         if e.mode.is_blob_or_symlink() {
-            out.insert(e.filepath.to_string(), e.oid);
+            let p = e.filepath.to_string();
+            out.insert(
+                match prefix {
+                    Some(pre) => format!("{pre}/{p}"),
+                    None => p,
+                },
+                e.oid,
+            );
         }
     }
     Ok(out)
@@ -224,7 +394,8 @@ impl Tool for Diff {
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
         let a: DiffArgs = parse(input).map_err(ToolFailure::new)?;
-        let (repo, wd) = open(ctx, a.path.as_deref())?;
+        let r = open(ctx, a.path.as_deref())?;
+        let (repo, wd) = (&r.repo, &r.wd);
         let context = a.context.unwrap_or(3);
         let rev = a.rev.clone().unwrap_or_else(|| "HEAD".into());
         let keep = |p: &str| {
@@ -233,10 +404,12 @@ impl Tool for Diff {
                     .iter()
                     .any(|pre| p.starts_with(pre.trim_start_matches("./")))
         };
+        let mut not_shown = NotShown::default();
         // (path, old, new) for every changed file.
         let mut changes: Vec<(String, Option<String>, Option<String>, bool)> = Vec::new();
-        if let Some((l, r)) = rev.split_once("..") {
-            let (left, right) = (tree_blobs(&repo, l)?, tree_blobs(&repo, r)?);
+        if let Some((l, rt)) = rev.split_once("..") {
+            let prefix = r.prefix.as_deref();
+            let (left, right) = (tree_blobs(repo, l, prefix)?, tree_blobs(repo, rt, prefix)?);
             let paths: BTreeSet<&String> = left.keys().chain(right.keys()).collect();
             for p in paths {
                 if !keep(p) {
@@ -246,12 +419,16 @@ impl Tool for Diff {
                 if lo == ro {
                     continue;
                 }
+                if let Err(why) = r.check(p) {
+                    not_shown.add(p, why);
+                    continue;
+                }
                 let old = match lo {
-                    Some(id) => blob_text(&repo, *id)?,
+                    Some(id) => blob_text(repo, *id)?,
                     None => None,
                 };
                 let new = match ro {
-                    Some(id) => blob_text(&repo, *id)?,
+                    Some(id) => blob_text(repo, *id)?,
                     None => None,
                 };
                 let binary = (lo.is_some() && old.is_none()) || (ro.is_some() && new.is_none());
@@ -271,18 +448,24 @@ impl Tool for Diff {
                 ));
             }
         } else {
-            let tree = tree_blobs(&repo, &rev)?;
+            let tree = tree_blobs(repo, &rev, r.prefix.as_deref())?;
             let mut real_dirs = BTreeMap::new();
             for (p, id) in &tree {
                 if !keep(p) {
                     continue;
                 }
-                match worktree_bytes(&wd, p, &mut real_dirs) {
+                // Before anything at the path is read: a floor file's bytes
+                // would otherwise be hashed, and diffed when they changed.
+                if let Err(why) = r.check(p) {
+                    not_shown.add(p, why);
+                    continue;
+                }
+                match worktree_bytes(wd, p, &mut real_dirs) {
                     Some(data) => {
                         if worktree_blob_id(&data) == Some(*id) {
                             continue;
                         }
-                        let old = blob_text(&repo, *id)?;
+                        let old = blob_text(repo, *id)?;
                         let binary = old.is_none() || data.iter().take(8192).any(|b| *b == 0);
                         changes.push((
                             p.clone(),
@@ -292,7 +475,7 @@ impl Tool for Diff {
                         ));
                     }
                     None => {
-                        let old = blob_text(&repo, *id)?;
+                        let old = blob_text(repo, *id)?;
                         changes.push((
                             p.clone(),
                             Some(old.clone().unwrap_or_default()),
@@ -303,18 +486,36 @@ impl Tool for Diff {
                 }
             }
             if a.untracked {
-                let mut w = ignore::WalkBuilder::new(&wd);
+                // Only the root's part of a larger working tree is walked,
+                // and the walk never enters the floor: each entry it leaves
+                // out there is kept, to be counted.
+                let top = match &r.prefix {
+                    Some(pre) => wd.join(pre),
+                    None => wd.clone(),
+                };
+                let pruned = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
+                let (floor, kept) = (r.floor.clone(), pruned.clone());
+                let mut w = ignore::WalkBuilder::new(&top);
                 w.hidden(false)
                     .git_ignore(true)
                     .require_git(false)
-                    .filter_entry(|e| e.file_name() != ".git");
+                    .filter_entry(move |e| {
+                        if e.file_name() == ".git" {
+                            return false;
+                        }
+                        if floor.iter().any(|f| paths::within(e.path(), f)) {
+                            kept.lock().unwrap().push(e.path().to_path_buf());
+                            return false;
+                        }
+                        true
+                    });
                 for e in w.build().flatten() {
                     if !e.file_type().map(|t| t.is_file()).unwrap_or(false) {
                         continue;
                     }
                     let rel = e
                         .path()
-                        .strip_prefix(&wd)
+                        .strip_prefix(wd)
                         .unwrap_or(e.path())
                         .to_string_lossy()
                         .replace('\\', "/");
@@ -329,6 +530,20 @@ impl Tool for Diff {
                         Some(String::from_utf8_lossy(&data).into_owned()),
                         binary,
                     ));
+                }
+                // A floor entry counts once, unless a tracked path under it
+                // already did.
+                for p in pruned.lock().unwrap().iter() {
+                    let rel = p.strip_prefix(wd).unwrap_or(p).to_string_lossy();
+                    let under = format!("{rel}/");
+                    if keep(&rel)
+                        && !not_shown
+                            .floor
+                            .iter()
+                            .any(|c| *c == rel || c.starts_with(&under))
+                    {
+                        not_shown.add(&rel, Out::Floor);
+                    }
                 }
             }
         }
@@ -381,10 +596,17 @@ impl Tool for Diff {
         } else {
             format!("{summary}\n{out}")
         };
-        Ok(ToolOutput {
-            text,
-            meta: json!({"repo": wd, "rev": rev, "files": changes.len(), "insertions": tadd, "deletions": tdel}),
-        })
+        // First what the call could not see: the limit, then the count.
+        let text = r
+            .note()
+            .into_iter()
+            .chain(not_shown.line())
+            .chain([text])
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut meta = json!({"repo": wd, "rev": rev, "files": changes.len(), "insertions": tadd, "deletions": tdel});
+        r.annotate(&mut meta, &not_shown);
+        Ok(ToolOutput { text, meta })
     }
     fn rest(&self, _left_out: &str) -> String {
         "git_diff narrowed by paths returns them; stat lists every file first".into()
@@ -470,7 +692,25 @@ impl Tool for Log {
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
         let a: LogArgs = parse(input).map_err(ToolFailure::new)?;
-        let (repo, wd) = open(ctx, a.path.as_deref())?;
+        let r = open(ctx, a.path.as_deref())?;
+        let (repo, wd) = (&r.repo, &r.wd);
+        // Limited to the root's part (theseus-bsc): only the commits that
+        // changed something under it, and a file must be under it too.
+        let only = match (a.file.as_deref(), r.prefix.as_deref()) {
+            (Some(f), Some(pre)) => {
+                let f = f.trim_start_matches("./");
+                if !Path::new(f).starts_with(pre) {
+                    return Err(ToolFailure::new(format!(
+                        "{f} is outside {}, the part of the repository at {} that git.log reads",
+                        r.root.display(),
+                        wd.display()
+                    )));
+                }
+                Some(f.to_string())
+            }
+            (Some(f), None) => Some(f.to_string()),
+            (None, pre) => pre.map(str::to_string),
+        };
         let rev = a.rev.clone().unwrap_or_else(|| "HEAD".into());
         let max = a.max.unwrap_or(20).min(500);
         let start = repo
@@ -495,7 +735,7 @@ impl Tool for Log {
                 break;
             }
             let commit = info.object().map_err(|e| ToolFailure::new(e.to_string()))?;
-            if let Some(f) = &a.file {
+            if let Some(f) = &only {
                 let here = file_blob(&commit, f);
                 let parent = commit
                     .parent_ids()
@@ -524,13 +764,21 @@ impl Tool for Log {
                 break;
             }
         }
+        let text = if rows.is_empty() {
+            "No commits found.".into()
+        } else {
+            rows.join("\n")
+        };
+        let mut meta = json!({"repo": wd, "rev": rev, "commits": rows.len(), "scanned": scanned});
+        r.annotate(&mut meta, &NotShown::default());
         Ok(ToolOutput {
-            text: if rows.is_empty() {
-                "No commits found.".into()
-            } else {
-                rows.join("\n")
-            },
-            meta: json!({"repo": wd, "rev": rev, "commits": rows.len(), "scanned": scanned}),
+            text: r
+                .note()
+                .into_iter()
+                .chain([text])
+                .collect::<Vec<_>>()
+                .join("\n"),
+            meta,
         })
     }
     fn rest(&self, _left_out: &str) -> String {
@@ -587,6 +835,10 @@ mod tests {
             wt.text
         );
         assert!(!wt.text.contains("new.txt"), "untracked is off by default");
+        // A root that is its own repository: no limit, nothing left out
+        // (theseus-bsc).
+        assert!(wt.text.starts_with("2 files changed"), "{}", wt.text);
+        assert!(wt.meta.get("limited_to").is_none() && wt.meta.get("not_shown").is_none());
         let wt2 = Diff
             .run(&json!({"untracked": true, "stat": true}), &c)
             .unwrap();
@@ -611,6 +863,7 @@ mod tests {
         let lines: Vec<&str> = log.text.lines().collect();
         assert_eq!(lines.len(), 2, "{}", log.text);
         assert!(lines[0].contains("Tester: second: change a"));
+        assert!(log.meta.get("limited_to").is_none());
         let flog = Log.run(&json!({"file": "b.txt"}), &c).unwrap();
         assert_eq!(flog.text.lines().count(), 1, "{}", flog.text);
         assert!(Diff.run(&json!({"rev": "nope"}), &c).is_err());
@@ -721,5 +974,361 @@ mod tests {
             worktree_bytes(&wd, "sub/in.txt", &mut dirs).as_deref(),
             Some(&b"in"[..])
         );
+    }
+
+    fn have_git() -> bool {
+        Command::new("git").arg("--version").output().is_ok()
+    }
+
+    /// Every result's text for `calls`, joined, to look for leaks in.
+    fn texts(c: &ToolCtx, calls: &[Value]) -> String {
+        let mut all = String::new();
+        for args in calls {
+            all.push_str(&Diff.run(args, c).unwrap().text);
+            all.push('\n');
+        }
+        all
+    }
+
+    /// theseus-bsc: a root that is a subdirectory of a larger repository
+    /// sees only its own part of it, in the diff, the stat, the untracked
+    /// files, two revisions, and the log, and the first line says so.
+    #[test]
+    fn a_root_inside_a_larger_repository_sees_only_its_own_part() {
+        if !have_git() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let mono = d.path().join("mono");
+        fs::create_dir_all(mono.join("svc/src")).unwrap();
+        fs::create_dir_all(mono.join("other")).unwrap();
+        git(&mono, &["init", "-q", "-b", "main"]);
+        fs::write(mono.join("top.txt"), "TOP-1\n").unwrap();
+        fs::write(mono.join("other/b.txt"), "OTHER-1\n").unwrap();
+        fs::write(mono.join("svc/src/a.txt"), "svc one\n").unwrap();
+        git(&mono, &["add", "."]);
+        git(&mono, &["commit", "-q", "-m", "first"]);
+        fs::write(mono.join("other/b.txt"), "OTHER-2\n").unwrap();
+        git(&mono, &["commit", "-q", "-am", "other: change b"]);
+        fs::write(mono.join("svc/src/a.txt"), "svc two\n").unwrap();
+        git(&mono, &["commit", "-q", "-am", "svc: change a"]);
+        fs::write(mono.join("top.txt"), "TOP-SECRET-WT\n").unwrap();
+        fs::write(mono.join("other/b.txt"), "OTHER-SECRET-WT\n").unwrap();
+        fs::write(mono.join("other/new.txt"), "OTHER-UNTRACKED\n").unwrap();
+        fs::write(mono.join("svc/src/a.txt"), "svc three\n").unwrap();
+        fs::write(mono.join("svc/new.txt"), "svc fresh\n").unwrap();
+        let svc = mono.join("svc").canonicalize().unwrap();
+        let note = format!(
+            "limited to {}, inside the repository at {}",
+            svc.display(),
+            mono.canonicalize().unwrap().display()
+        );
+        let c = ToolCtx::for_tests(&svc);
+        let leaks = |t: &str| {
+            ["TOP-", "OTHER-", "other/", "top.txt"]
+                .iter()
+                .any(|s| t.contains(s))
+        };
+
+        let wt = Diff.run(&json!({}), &c).unwrap();
+        assert_eq!(wt.text.lines().next(), Some(note.as_str()), "{}", wt.text);
+        assert!(wt.text.contains("+svc three"), "{}", wt.text);
+        assert_eq!(wt.meta["limited_to"], json!(svc));
+        let stat = Diff
+            .run(&json!({"untracked": true, "stat": true}), &c)
+            .unwrap();
+        assert!(
+            stat.text.contains("svc/src/a.txt | +1 -1")
+                && stat.text.contains("svc/new.txt | +1 -0 (new)")
+                && stat.text.ends_with("2 files changed, +2 -1"),
+            "{}",
+            stat.text
+        );
+        let revs = Diff.run(&json!({"rev": "HEAD~2..HEAD"}), &c).unwrap();
+        assert!(
+            revs.text.contains("-svc one") && revs.text.contains("+svc two"),
+            "{}",
+            revs.text
+        );
+        let all = texts(
+            &c,
+            &[
+                json!({}),
+                json!({"untracked": true}),
+                json!({"stat": true, "untracked": true}),
+                json!({"rev": "HEAD~2..HEAD"}),
+                json!({"rev": "HEAD~2"}),
+                json!({"paths": ["other", "top.txt"]}),
+            ],
+        );
+        assert!(!leaks(&all), "{all}");
+        // Two of the three commits changed the root's part.
+        let log = Log.run(&json!({}), &c).unwrap();
+        let lines: Vec<&str> = log.text.lines().collect();
+        assert_eq!(lines.len(), 3, "{}", log.text);
+        assert_eq!(lines[0], note);
+        assert!(lines[1].ends_with("svc: change a") && lines[2].ends_with("first"));
+        let flog = Log.run(&json!({"file": "./svc/src/a.txt"}), &c).unwrap();
+        assert_eq!(flog.text.lines().count(), 3, "{}", flog.text);
+        let e = Log.run(&json!({"file": "other/b.txt"}), &c).err().unwrap();
+        assert!(
+            e.message.contains("other/b.txt is outside"),
+            "{}",
+            e.message
+        );
+
+        // Nested roots: the outermost that holds the path is the limit.
+        let src = svc.join("src");
+        let nested = ToolCtx {
+            roots: vec![src.clone(), svc.clone()],
+            cwd: src.clone(),
+            ..ToolCtx::for_tests(&svc)
+        };
+        let out = Diff.run(&json!({"untracked": true}), &nested).unwrap();
+        assert!(out.text.starts_with(&note) && out.text.contains("svc/new.txt"));
+        // A path outside every root (one the operator approved) is its own
+        // root: what was approved is what is read.
+        let elsewhere = d.path().join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        let approved = ToolCtx::for_tests(&elsewhere);
+        let out = Diff
+            .run(
+                &json!({"path": src.to_str().unwrap(), "untracked": true}),
+                &approved,
+            )
+            .unwrap();
+        assert!(
+            out.text
+                .starts_with(&format!("limited to {}, inside", src.display()))
+                && out.text.contains("+svc three")
+                && !out.text.contains("svc/new.txt")
+                && !leaks(&out.text),
+            "{}",
+            out.text
+        );
+    }
+
+    /// theseus-bsc: a stray repository above a root that has none (a
+    /// `~/.git`) is read only under the root, and nothing outside it
+    /// reaches a result: not its working tree, untracked files, or history.
+    #[test]
+    fn a_stray_repository_above_a_root_is_read_only_under_the_root() {
+        if !have_git() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let home = d.path().join("home");
+        let app = home.join("projects/app");
+        fs::create_dir_all(&app).unwrap();
+        git(&home, &["init", "-q", "-b", "main"]);
+        fs::write(home.join("notes.txt"), "HOME-SECRET-1\n").unwrap();
+        fs::write(app.join("x.txt"), "app one\n").unwrap();
+        git(&home, &["add", "."]);
+        git(&home, &["commit", "-q", "-m", "home: everything"]);
+        fs::write(home.join("notes.txt"), "HOME-SECRET-2\n").unwrap();
+        git(&home, &["commit", "-q", "-am", "home: notes only"]);
+        fs::write(home.join("notes.txt"), "HOME-SECRET-WT\n").unwrap();
+        fs::write(home.join("untracked.txt"), "HOME-UNTRACKED\n").unwrap();
+        fs::write(app.join("x.txt"), "app two\n").unwrap();
+        fs::write(app.join("y.txt"), "app new\n").unwrap();
+        let projects = home.join("projects").canonicalize().unwrap();
+        let c = ToolCtx::for_tests(&projects);
+        let note = format!(
+            "limited to {}, inside the repository at {}",
+            projects.display(),
+            home.canonicalize().unwrap().display()
+        );
+        let all = texts(
+            &c,
+            &[
+                json!({}),
+                json!({"untracked": true}),
+                json!({"stat": true, "untracked": true}),
+                json!({"rev": "HEAD~1..HEAD"}),
+                json!({"rev": "HEAD~1"}),
+                json!({"path": app.to_str().unwrap()}),
+            ],
+        );
+        assert!(
+            !all.contains("HOME-") && !all.contains("notes.txt"),
+            "{all}"
+        );
+        let wt = Diff.run(&json!({"untracked": true}), &c).unwrap();
+        assert!(
+            wt.text.starts_with(&note)
+                && wt.text.contains("+app two")
+                && wt.text.contains("projects/app/y.txt"),
+            "{}",
+            wt.text
+        );
+        assert!(Diff
+            .run(&json!({"rev": "HEAD~1..HEAD"}), &c)
+            .unwrap()
+            .text
+            .ends_with("No changes (HEAD~1..HEAD vs )."));
+        let log = Log.run(&json!({}), &c).unwrap();
+        assert_eq!(
+            log.text.lines().collect::<Vec<_>>().len(),
+            2,
+            "only the commit that touched the root: {}",
+            log.text
+        );
+        assert!(!log.text.contains("home: notes only"), "{}", log.text);
+    }
+
+    /// theseus-bsc: a root that is its own repository, nested inside a
+    /// larger one, opens its own (the nearest), unchanged.
+    #[test]
+    fn a_repository_of_its_own_inside_a_larger_one_is_unchanged() {
+        if !have_git() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let outer = d.path().join("outer");
+        let inner = outer.join("inner");
+        fs::create_dir_all(&inner).unwrap();
+        git(&outer, &["init", "-q", "-b", "main"]);
+        fs::write(outer.join("o.txt"), "OUTER\n").unwrap();
+        git(&outer, &["add", "o.txt"]);
+        git(&outer, &["commit", "-q", "-m", "outer"]);
+        git(&inner, &["init", "-q", "-b", "main"]);
+        fs::write(inner.join("i.txt"), "one\n").unwrap();
+        git(&inner, &["add", "."]);
+        git(&inner, &["commit", "-q", "-m", "inner"]);
+        fs::write(inner.join("i.txt"), "two\n").unwrap();
+        fs::write(outer.join("o.txt"), "OUTER-WT\n").unwrap();
+        let c = ToolCtx::for_tests(&inner);
+        let wt = Diff.run(&json!({}), &c).unwrap();
+        assert!(
+            wt.text.starts_with("1 file changed") && wt.text.contains("diff --git a/i.txt"),
+            "{}",
+            wt.text
+        );
+        assert!(!wt.text.contains("OUTER") && wt.meta.get("limited_to").is_none());
+        assert_eq!(Log.run(&json!({}), &c).unwrap().text.lines().count(), 1);
+    }
+
+    /// theseus-bsc: a tracked file on the floor, inside a root, is never
+    /// read, in the working tree or in history: it is skipped and counted.
+    /// An untracked one there is never walked.
+    #[test]
+    fn a_tracked_file_on_the_floor_is_skipped_and_counted() {
+        if !have_git() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("repo");
+        fs::create_dir_all(root.join("state/store")).unwrap();
+        git(&root, &["init", "-q", "-b", "main"]);
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        fs::write(root.join("state/keep.txt"), "kept\n").unwrap();
+        fs::write(root.join("state/store/index.txt"), "FLOOR-1\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "first"]);
+        fs::write(root.join("a.txt"), "two\n").unwrap();
+        fs::write(root.join("state/store/index.txt"), "FLOOR-2\n").unwrap();
+        git(&root, &["commit", "-q", "-am", "second"]);
+        fs::write(root.join("a.txt"), "three\n").unwrap();
+        fs::write(root.join("state/store/index.txt"), "FLOOR-SECRET-WT\n").unwrap();
+        fs::write(root.join("state/store/new.txt"), "FLOOR-UNTRACKED\n").unwrap();
+        fs::write(root.join("b.txt"), "bee\n").unwrap();
+        let plain = ToolCtx::for_tests(&root);
+        let c = ToolCtx {
+            floor: vec![plain.roots[0].join("state/store")],
+            ..plain
+        };
+        let one = "1 path on the floor (Theseus's own state) not shown";
+        let wt = Diff.run(&json!({}), &c).unwrap();
+        assert!(
+            wt.text.starts_with(&format!("{one}\n1 file changed")) && wt.text.contains("+three"),
+            "{}",
+            wt.text
+        );
+        assert_eq!(
+            wt.meta["not_shown"],
+            json!({"outside_roots": 0, "floor": 1})
+        );
+        // The untracked walk leaves the floor out without counting it twice.
+        let un = Diff
+            .run(&json!({"untracked": true, "stat": true}), &c)
+            .unwrap();
+        assert!(
+            un.text.starts_with(one) && un.text.contains("b.txt | +1 -0 (new)"),
+            "{}",
+            un.text
+        );
+        let revs = Diff.run(&json!({"rev": "HEAD~1..HEAD"}), &c).unwrap();
+        assert!(
+            revs.text.starts_with(one) && revs.text.contains("+two"),
+            "{}",
+            revs.text
+        );
+        let all = texts(
+            &c,
+            &[
+                json!({}),
+                json!({"untracked": true}),
+                json!({"rev": "HEAD~1..HEAD"}),
+                json!({"rev": "HEAD~1"}),
+                json!({"paths": ["state"], "untracked": true}),
+            ],
+        );
+        assert!(!all.contains("FLOOR-"), "{all}");
+        // Narrowed away from the floor, nothing is left out.
+        let only = Diff.run(&json!({"paths": ["a.txt"]}), &c).unwrap();
+        assert!(only.text.starts_with("1 file changed"), "{}", only.text);
+        // With the floor's directory untracked, the walk counts it once.
+        git(&root, &["rm", "-q", "--cached", "state/store/index.txt"]);
+        git(&root, &["commit", "-q", "-m", "untrack the store"]);
+        let walked = Diff.run(&json!({"untracked": true}), &c).unwrap();
+        assert!(walked.text.starts_with(one), "{}", walked.text);
+        assert!(!walked.text.contains("FLOOR-"), "{}", walked.text);
+        // A tree path that climbs out is not under the root.
+        let r = open(&c, None).unwrap();
+        for p in ["../x", "a/../../x", "/etc/passwd", "./a.txt"] {
+            assert_eq!(r.check(p), Err(Out::Roots), "{p}");
+        }
+        assert_eq!(r.check("state/store/x"), Err(Out::Floor));
+        assert_eq!(r.check("state/keep.txt"), Ok(()));
+        let mut n = NotShown::default();
+        n.add("../x", Out::Roots);
+        n.add("../y", Out::Roots);
+        assert_eq!(n.line().unwrap(), "2 paths outside the roots not shown");
+    }
+
+    /// theseus-bsc: a repository whose working tree is set elsewhere
+    /// (`core.worktree`), outside the roots, is refused: its tracked paths
+    /// would be read there.
+    #[test]
+    fn a_working_tree_set_outside_the_roots_is_refused() {
+        if !have_git() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("repo");
+        let outside = d.path().join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        git(&root, &["init", "-q", "-b", "main"]);
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "first"]);
+        fs::write(outside.join("a.txt"), "OUTSIDE-SECRET\n").unwrap();
+        git(
+            &root,
+            &["config", "core.worktree", outside.to_str().unwrap()],
+        );
+        let c = ToolCtx::for_tests(&root);
+        for e in [
+            Diff.run(&json!({}), &c).err().unwrap(),
+            Log.run(&json!({}), &c).err().unwrap(),
+        ] {
+            assert!(
+                e.message.contains("has its working tree at")
+                    && e.message.contains("read only under the roots"),
+                "{}",
+                e.message
+            );
+        }
     }
 }

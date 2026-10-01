@@ -2472,11 +2472,12 @@ pub fn build_runtime(
             tools: cfg.policy.tools.clone(),
             mcp: cfg.policy.mcp.clone(),
             confirmer: crate::turn::OPERATOR.into(),
-            floor_paths,
+            floor_paths: floor_paths.clone(),
             floor_argv: crate::policy::floor_argv(),
         },
         ctx: ToolCtx {
             roots,
+            floor: floor_paths,
             cwd,
             max_read_bytes: t.max_read_bytes,
             max_entries: t.max_entries,

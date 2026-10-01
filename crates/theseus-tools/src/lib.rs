@@ -200,6 +200,11 @@ pub trait Secrets: Send + Sync + std::fmt::Debug {
 pub struct ToolCtx {
     /// Canonical workspace roots. Relative paths resolve against `cwd`.
     pub roots: Vec<PathBuf>,
+    /// The gate's floor paths, canonical: Theseus's own state and the
+    /// 1Password CLI's credentials. A tool that reads more than the paths its
+    /// plan names (`git.diff`'s working tree) skips whatever is under one
+    /// (theseus-bsc). Empty in tests that do not set it.
+    pub floor: Vec<PathBuf>,
     pub cwd: PathBuf,
     /// Cap on bytes a read returns.
     pub max_read_bytes: usize,
@@ -230,6 +235,7 @@ impl ToolCtx {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
         Self {
             roots: vec![root.clone()],
+            floor: Vec::new(),
             cwd: root,
             max_read_bytes: 256 * 1024,
             max_entries: 500,
