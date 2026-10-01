@@ -16,7 +16,7 @@ toml.workspace = true
 yaml-rust2 = { version = "0.13", default-features = false }
 
 [dev-dependencies]
-# `tests/botocore.rs` finds the botocore models with the catalog generator's resolver.
+# `tests/botocore.rs` checks the list against the embedded catalog.
 theseus-aws-catalog = { path = "../theseus-aws-catalog" }
 
 [lints]

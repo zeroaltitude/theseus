@@ -4,8 +4,7 @@
 //! `build.rs`), from the AWS CLI's bundled models: `service-2.json`,
 //! `paginators-1.json` (each with its `sdk-extras` merged as botocore's
 //! loader merges them), `endpoint-rule-set-1.json`, and `partitions.json`.
-//! [`botocore_data_dir`] finds those models: the generator's, and the ones
-//! aws-guard's model tests read.
+//! [`botocore_data_dir`] finds those models.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};

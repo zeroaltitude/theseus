@@ -1,5 +1,4 @@
-//! The list against the AWS CLI's botocore models, which stand in for P1's catalog until it lands (the
-//! AWS design's appendix E):
+//! The list against P1's catalog, the AWS operations Theseus carries (the AWS design's appendix E):
 //! - every operation the list names exists;
 //! - every path an entry's `when` reads reaches a member of one of its operations' inputs, of the right
 //!   type, and every value it compares with is one the member's enum allows: a path that reaches
@@ -7,16 +6,13 @@
 //! - every pattern that compacts the boundary matches only writes, and what it matches beyond the list
 //!   is printed for the record.
 //!
-//! The models are not in the repository. They are read from `THESEUS_BOTOCORE_DATA`, or from the
-//! `aws` on PATH, as the catalog's generator finds them (`theseus_aws_catalog::compile`); where neither
-//! exists (CI has no AWS CLI), each test says so and passes. Checked here against the CLI 2.34.15's
-//! models.
+//! The catalog is embedded, compiled from the AWS CLI's botocore models (its snapshot names the CLI), so
+//! these run wherever the tests do, CI included. A new catalog is checked by the same tests.
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::sync::Arc;
 
-use serde_json::{Map, Value};
-use theseus_aws_catalog::compile::botocore_data_dir;
+use theseus_aws_catalog::{Catalog, Kind, OperationRef, Service, ShapeId, ShapeRef};
 use theseus_aws_guard::{embedded, glob, When};
 
 /// IAM's service prefixes, by botocore's service ids where the two differ.
@@ -29,51 +25,19 @@ const IAM_PREFIX: [(&str, &[&str]); 6] = [
     ("s3", &["s3", "s3control"]),
 ];
 
-/// The services' models, each `service-2.json` of its newest API version.
-struct Models {
-    dir: PathBuf,
-    loaded: BTreeMap<String, Option<Value>>,
+fn catalog() -> &'static Catalog {
+    Catalog::embedded().expect("the embedded catalog decodes")
 }
 
-impl Models {
-    fn open() -> Option<Models> {
-        match botocore_data_dir() {
-            Ok(dir) => {
-                eprintln!("botocore models: {}", dir.display());
-                Some(Models {
-                    dir,
-                    loaded: BTreeMap::new(),
-                })
-            }
-            Err(e) => {
-                eprintln!(
-                    "skipped: {e} (set THESEUS_BOTOCORE_DATA, or put the AWS CLI v2 on PATH)"
-                );
-                None
-            }
-        }
-    }
+/// A service by its botocore name, exactly: the catalog's lookup also answers to aliases (`states`
+/// for Step Functions), which the list must not lean on.
+fn service(svc: &str) -> Option<Arc<Service>> {
+    catalog().service(svc).ok().filter(|s| s.name() == svc)
+}
 
-    fn load(&mut self, svc: &str) {
-        if self.loaded.contains_key(svc) {
-            return;
-        }
-        let newest = std::fs::read_dir(self.dir.join(svc))
-            .ok()
-            .and_then(|versions| {
-                versions
-                    .filter_map(|v| Some(v.ok()?.path().join("service-2.json")))
-                    .filter(|p| p.is_file())
-                    .max()
-            });
-        let model =
-            newest.and_then(|p| serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok());
-        self.loaded.insert(svc.to_string(), model);
-    }
-
-    fn service(&self, svc: &str) -> Option<&Value> {
-        self.loaded.get(svc).and_then(Option::as_ref)
-    }
+/// An operation by its name, exactly: the catalog's lookup also answers without regard to case.
+fn operation<'s>(svc: &'s Service, name: &str) -> Option<OperationRef<'s>> {
+    svc.operation(name).filter(|o| o.name() == name)
 }
 
 fn split(op: &str) -> (&str, &str) {
@@ -83,9 +47,7 @@ fn split(op: &str) -> (&str, &str) {
 
 #[test]
 fn every_operation_the_list_names_exists() {
-    let Some(mut models) = Models::open() else {
-        return;
-    };
+    eprintln!("the catalog: {}", catalog().snapshot());
     let l = embedded();
     let mut named: Vec<(&str, &str)> = Vec::new();
     for g in &l.guardrails {
@@ -108,17 +70,16 @@ fn every_operation_the_list_names_exists() {
     let mut missing = Vec::new();
     for (at, op) in &named {
         let (svc, name) = split(op);
-        models.load(svc);
-        match models.service(svc) {
+        match service(svc) {
             None => missing.push(format!("{at}: no botocore service {svc} ({op})")),
-            Some(m) if m["operations"].get(name).is_none() => {
+            Some(s) if operation(&s, name).is_none() => {
                 missing.push(format!("{at}: no operation {op}"))
             }
             Some(_) => {}
         }
     }
     assert!(missing.is_empty(), "{}", missing.join("\n"));
-    eprintln!("{} operations named, every one in the models", named.len());
+    eprintln!("{} operations named, every one in the catalog", named.len());
 }
 
 /// What a test reads at its path.
@@ -158,63 +119,53 @@ fn tests_of<'w>(w: &'w When, out: &mut Vec<(&'w str, Want, &'w [String])>) {
 
 /// The shapes a path reaches from a shape, read as the evaluator reads a call's JSON: names without
 /// case, lists walked through, `*` any one member, and `**` any depth.
-fn reach<'m>(
-    shapes: &'m Map<String, Value>,
-    shape: &str,
+fn reach<'s>(
+    shape: ShapeRef<'s>,
     segs: &[&str],
-    seen: &mut HashSet<(String, usize)>,
-    out: &mut Vec<&'m Value>,
+    seen: &mut HashSet<(ShapeId, usize)>,
+    out: &mut Vec<ShapeRef<'s>>,
 ) {
-    let Some(s) = shapes.get(shape) else { return };
-    if !seen.insert((shape.to_string(), segs.len())) {
+    if !seen.insert((shape.id(), segs.len())) {
         return;
     }
-    if s["type"] == "list" {
-        if let Some(member) = s["member"]["shape"].as_str() {
-            reach(shapes, member, segs, seen, out);
+    if shape.kind() == Kind::List {
+        if let Some(member) = shape.list_member() {
+            reach(member.shape(), segs, seen, out);
         }
         return;
     }
     let Some((seg, rest)) = segs.split_first() else {
-        out.push(s);
+        out.push(shape);
         return;
     };
     // A structure's members by name; a map's values by any key its key shape allows.
-    let children: Vec<(Option<&str>, &str)> = match s["type"].as_str() {
-        Some("structure") => s["members"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(name, m)| Some((Some(name.as_str()), m["shape"].as_str()?)))
+    let children: Vec<(Option<&str>, ShapeRef<'s>)> = match shape.kind() {
+        Kind::Structure => shape
+            .members()
+            .map(|m| (Some(m.name()), m.shape()))
             .collect(),
-        Some("map") => s["value"]["shape"]
-            .as_str()
-            .map(|v| (None, v))
+        Kind::Map => shape
+            .map_value()
+            .map(|v| (None, v.shape()))
             .into_iter()
             .collect(),
         _ => Vec::new(),
     };
     let map_key_allows = |key: &str| {
-        let enumerated = s["key"]["shape"]
-            .as_str()
-            .and_then(|k| shapes.get(k))
-            .and_then(|k| k["enum"].as_array());
-        enumerated.is_none_or(|values| {
-            values
-                .iter()
-                .any(|v| v.as_str().is_some_and(|v| v.eq_ignore_ascii_case(key)))
+        shape.map_key().map(|k| k.shape()).is_none_or(|k| {
+            k.enum_count() == 0 || k.enum_values().any(|v| v.eq_ignore_ascii_case(key))
         })
     };
     match *seg {
         "**" => {
-            reach(shapes, shape, rest, seen, out);
+            reach(shape, rest, seen, out);
             for (_, child) in &children {
-                reach(shapes, child, segs, seen, out);
+                reach(*child, segs, seen, out);
             }
         }
         "*" => {
             for (_, child) in &children {
-                reach(shapes, child, rest, seen, out);
+                reach(*child, rest, seen, out);
             }
         }
         key => {
@@ -224,7 +175,7 @@ fn reach<'m>(
                     None => map_key_allows(key),
                 };
                 if named {
-                    reach(shapes, child, rest, seen, out);
+                    reach(*child, rest, seen, out);
                 }
             }
         }
@@ -233,34 +184,28 @@ fn reach<'m>(
 
 #[test]
 fn every_when_path_reaches_an_input_member_of_its_type() {
-    let Some(mut models) = Models::open() else {
-        return;
-    };
     let l = embedded();
     let mut problems = Vec::new();
     let mut checked = 0;
     for g in &l.guardrails {
         let Some(w) = &g.when else { continue };
-        for op in &g.operations {
-            models.load(split(op).0);
-        }
+        let services: Vec<(&str, Arc<Service>)> = g
+            .operations
+            .iter()
+            .filter_map(|op| {
+                let (svc, name) = split(op);
+                Some((name, service(svc)?))
+            })
+            .collect();
         let mut tests = Vec::new();
         tests_of(w, &mut tests);
         for (path, want, values) in tests {
             let segs: Vec<&str> = path.split('.').collect();
-            let mut reached: Vec<&Value> = Vec::new();
-            for op in &g.operations {
-                let (svc, name) = split(op);
-                let Some(m) = models.service(svc) else {
-                    continue;
-                };
-                let (Some(input), Some(shapes)) = (
-                    m["operations"][name]["input"]["shape"].as_str(),
-                    m["shapes"].as_object(),
-                ) else {
-                    continue;
-                };
-                reach(shapes, input, &segs, &mut HashSet::new(), &mut reached);
+            let mut reached: Vec<ShapeRef<'_>> = Vec::new();
+            for (name, svc) in &services {
+                if let Some(input) = operation(svc, name).and_then(|o| o.input()) {
+                    reach(input, &segs, &mut HashSet::new(), &mut reached);
+                }
             }
             checked += 1;
             if reached.is_empty() {
@@ -270,23 +215,20 @@ fn every_when_path_reaches_an_input_member_of_its_type() {
                 ));
                 continue;
             }
-            let ty = |s: &Value, t: &str| s["type"] == t;
             match want {
-                Want::Boolean if !reached.iter().any(|s| ty(s, "boolean")) => {
+                Want::Boolean if !reached.iter().any(|s| s.kind() == Kind::Boolean) => {
                     problems.push(format!("{}: {path} is never a boolean", g.name));
                 }
-                Want::Text if !reached.iter().any(|s| ty(s, "string")) => {
+                Want::Text if !reached.iter().any(|s| s.kind() == Kind::String) => {
                     problems.push(format!("{}: {path} is never a string", g.name));
                 }
                 _ => {}
             }
             for v in values {
                 let allowed = reached.iter().any(|s| {
-                    ty(s, "string")
-                        && s["enum"].as_array().is_none_or(|e| {
-                            e.iter()
-                                .any(|x| x.as_str().is_some_and(|x| x.eq_ignore_ascii_case(v)))
-                        })
+                    s.kind() == Kind::String
+                        && (s.enum_count() == 0
+                            || s.enum_values().any(|x| x.eq_ignore_ascii_case(v)))
                 });
                 if !allowed {
                     problems.push(format!("{}: {path} is never {v:?}", g.name));
@@ -306,9 +248,6 @@ const READ_VERBS: [&str; 16] = [
 
 #[test]
 fn the_boundary_patterns_match_only_writes() {
-    let Some(mut models) = Models::open() else {
-        return;
-    };
     let l = embedded();
     let denied: Vec<String> = l
         .policies()
@@ -329,14 +268,10 @@ fn the_boundary_patterns_match_only_writes() {
             .map_or_else(|| vec![prefix], |(_, ids)| ids.to_vec());
         let mut also = Vec::new();
         for svc in services {
-            models.load(svc);
-            let Some(ops) = models
-                .service(svc)
-                .and_then(|m| m["operations"].as_object())
-            else {
+            let Some(s) = service(svc) else {
                 continue;
             };
-            for name in ops.keys() {
+            for name in s.operations().map(|o| o.name()) {
                 let action = format!("{prefix}:{name}");
                 if !glob(pattern, &action) {
                     continue;
@@ -345,7 +280,7 @@ fn the_boundary_patterns_match_only_writes() {
                     problems.push(format!("{pattern} matches a read, {action}"));
                 }
                 if !denied.contains(&action.to_lowercase()) {
-                    also.push(name.clone());
+                    also.push(name.to_owned());
                 }
             }
         }
