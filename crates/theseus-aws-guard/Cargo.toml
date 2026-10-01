@@ -15,5 +15,9 @@ toml.workspace = true
 # CloudFormation templates are YAML with short-form tags (`!Ref`, `!Sub`); the event parser keeps them.
 yaml-rust2 = { version = "0.13", default-features = false }
 
+[dev-dependencies]
+# `tests/botocore.rs` finds the botocore models with the catalog generator's resolver.
+theseus-aws-catalog = { path = "../theseus-aws-catalog" }
+
 [lints]
 workspace = true

@@ -4,9 +4,11 @@
 //! `build.rs`), from the AWS CLI's bundled models: `service-2.json`,
 //! `paginators-1.json` (each with its `sdk-extras` merged as botocore's
 //! loader merges them), `endpoint-rule-set-1.json`, and `partitions.json`.
+//! [`botocore_data_dir`] finds those models: the generator's, and the ones
+//! aws-guard's model tests read.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::endpoints::{EndpointRule, Exception, Partition, Template};
 use crate::json::J;
@@ -28,6 +30,8 @@ pub enum CompileError {
     Model { service: String, what: String },
     #[error("catalog: {0}")]
     Catalog(#[from] CatalogError),
+    #[error("the botocore models: {0}")]
+    Source(String),
 }
 
 fn bad(service: &str, what: impl Into<String>) -> CompileError {
@@ -708,6 +712,126 @@ pub fn read_models(dir: &Path) -> Result<Vec<(String, ModelFiles)>, CompileError
         ));
     }
     Ok(out)
+}
+
+/// The variable that names a botocore `data` directory, ahead of the `aws`
+/// on PATH.
+pub const BOTOCORE_DATA: &str = "THESEUS_BOTOCORE_DATA";
+
+/// The botocore `data` directory to read: the one `THESEUS_BOTOCORE_DATA`
+/// names, else that of the `aws` on PATH ([`cli_data_dir`]).
+pub fn botocore_data_dir() -> Result<PathBuf, CompileError> {
+    if let Some(dir) = std::env::var_os(BOTOCORE_DATA).filter(|d| !d.is_empty()) {
+        let dir = PathBuf::from(dir);
+        if !dir.is_dir() {
+            return Err(CompileError::Source(format!(
+                "{BOTOCORE_DATA} names {}, which is not a directory",
+                dir.display()
+            )));
+        }
+        return Ok(dir);
+    }
+    let aws = aws_on_path().ok_or_else(|| {
+        CompileError::Source(format!("no aws on PATH, and {BOTOCORE_DATA} is not set"))
+    })?;
+    cli_data_dir(&aws)
+}
+
+/// The first `aws` on PATH, as PATH names it.
+pub fn aws_on_path() -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join("aws"))
+        .find(|a| a.is_file())
+}
+
+/// The botocore `data` directory of the AWS CLI `aws`, from its real path.
+/// The CLI's own Python says where it imports `awscli.botocore` from: the
+/// interpreter on the `#!` line, or Homebrew's `libexec/bin/python3` when the
+/// CLI is a wrapper. AWS's installer has no Python to ask (the CLI is a
+/// frozen binary), and keeps the models in the `dist/awscli` above it.
+pub fn cli_data_dir(aws: &Path) -> Result<PathBuf, CompileError> {
+    let real =
+        std::fs::canonicalize(aws).map_err(|e| CompileError::Io(aws.display().to_string(), e))?;
+    let homebrew = real
+        .parent()
+        .and_then(Path::parent)
+        .map(|keg| keg.join("libexec/bin/python3"));
+    shebang(&real)
+        .into_iter()
+        .chain(homebrew)
+        .find_map(|python| ask_python(&python))
+        .or_else(|| {
+            real.ancestors()
+                .skip(1)
+                .map(|d| d.join("dist/awscli/botocore/data"))
+                .find(|d| d.is_dir())
+        })
+        .ok_or_else(|| {
+            CompileError::Source(format!(
+                "{} ({}): no Python of its own imports awscli.botocore, and no dist/awscli is above it",
+                aws.display(),
+                real.display()
+            ))
+        })
+}
+
+/// The interpreter on a script's `#!` line, when it is a Python.
+fn shebang(script: &Path) -> Option<PathBuf> {
+    use std::io::Read;
+    // The kernel reads no more of a `#!` line than this.
+    let mut head = [0u8; 256];
+    let n = std::fs::File::open(script).ok()?.read(&mut head).ok()?;
+    let line = head[..n].strip_prefix(b"#!")?;
+    let line = &line[..line.iter().position(|&c| c == b'\n')?];
+    let python = PathBuf::from(std::str::from_utf8(line).ok()?.split_whitespace().next()?);
+    python
+        .file_name()?
+        .to_str()?
+        .starts_with("python")
+        .then_some(python)
+}
+
+/// The `data` directory beside the `awscli.botocore` that `python` imports.
+/// `-I` keeps PYTHONPATH and the user's packages out of the answer.
+fn ask_python(python: &Path) -> Option<PathBuf> {
+    let out = std::process::Command::new(python)
+        .args([
+            "-I",
+            "-c",
+            "import os, awscli.botocore as b; print(os.path.join(os.path.dirname(b.__file__), 'data'))",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let dir = PathBuf::from(String::from_utf8(out.stdout).ok()?.trim_end());
+    dir.is_dir().then_some(dir)
+}
+
+/// The CLI's version, the catalog's snapshot label: the first word of
+/// `aws --version` (`aws-cli/2.34.15`).
+pub fn cli_label(aws: &Path) -> Result<String, CompileError> {
+    let out = std::process::Command::new(aws)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| CompileError::Io(format!("{} --version", aws.display()), e))?;
+    let said = String::from_utf8_lossy(&out.stdout);
+    match said.split_whitespace().next() {
+        Some(label) if out.status.success() && label.starts_with("aws-cli/") => {
+            Ok(label.to_owned())
+        }
+        _ => Err(CompileError::Source(format!(
+            "{} --version said {:?} ({})",
+            aws.display(),
+            said.trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))),
+    }
 }
 
 /// The brotli encoder, which the generator brings: the library carries only

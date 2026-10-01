@@ -2,23 +2,38 @@
 //!
 //! ```text
 //! cargo run --release -p theseus-aws-catalog --example theseus-aws-catalog-gen -- \
-//!     <botocore data dir> crates/theseus-aws-catalog/data/aws-catalog.bin <snapshot label>
+//!     [--models <botocore data dir>] [--out <file>] [--label <snapshot label>]
 //! ```
 //!
-//! The data directory is the CLI's `awscli/botocore/data` (each service's
-//! `service-2.json`, `paginators-1.json`, and `endpoint-rule-set-1.json`, and
-//! the shared `partitions.json`). The label records the models' source, for
-//! example `aws-cli/2.34.15`. The weekly updater is "update the CLI, run
-//! this, run the tests and the gate" (AWS design §2, principle 8).
+//! With no arguments it reads the models of the `aws` on PATH (or the ones
+//! `THESEUS_BOTOCORE_DATA` names), labels them with that CLI's version (the
+//! first word of `aws --version`, for example `aws-cli/2.34.15`), and writes
+//! the catalog the library embeds, `data/aws-catalog.bin`. The data directory
+//! is the CLI's `awscli/botocore/data` (each service's `service-2.json`,
+//! `paginators-1.json`, and `endpoint-rule-set-1.json`, and the shared
+//! `partitions.json`). A label comes from the CLI only for the CLI's own
+//! models: models from anywhere else need `--label`.
+//!
+//! The report's first line names the directory it read. The catalog records
+//! the label alone: its snapshot is what `aws.describe` shows the model, and
+//! a path in it would change the catalog from one machine to the next. The
+//! weekly updater is "update the CLI, run this, run the tests and the gate"
+//! (AWS design §2, principle 8).
 //!
 //! It is an example, not a binary, so that brotli's encoder stays a
 //! dev-dependency: the library, and so Theseus, carries only the decoder.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use theseus_aws_catalog::compile::compile_dir;
+use theseus_aws_catalog::compile::{self, compile_dir, BOTOCORE_DATA};
+
+/// The catalog the library embeds.
+const EMBEDDED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data/aws-catalog.bin");
+
+const USAGE: &str = "usage: theseus-aws-catalog-gen [--models <botocore data dir>] \
+                     [--out <file>] [--label <snapshot label>]";
 
 /// Brotli at its best quality, with a 1 MiB window (the largest service,
 /// EC2, is about 340 KB uncompressed).
@@ -32,33 +47,67 @@ fn compress(raw: &[u8]) -> Vec<u8> {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let [dir, out, label] = args.as_slice() else {
-        eprintln!("usage: theseus-aws-catalog-gen <botocore data dir> <out file> <snapshot label>");
-        return ExitCode::from(2);
-    };
-    let (bytes, report) = match compile_dir(&PathBuf::from(dir), label, &compress) {
-        Ok(r) => r,
+    let (mut models, mut out, mut label) = (None, None, None);
+    let mut args = std::env::args().skip(1);
+    while let Some(flag) = args.next() {
+        let slot = match flag.as_str() {
+            "--models" => &mut models,
+            "--out" => &mut out,
+            "--label" => &mut label,
+            _ => {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            }
+        };
+        let Some(value) = args.next() else {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        };
+        *slot = Some(value);
+    }
+    match run(models, out, label) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("theseus-aws-catalog-gen: {e}");
-            return ExitCode::FAILURE;
+            ExitCode::FAILURE
         }
-    };
-    let out = PathBuf::from(out);
-    let tmp = out.with_extension("tmp");
-    if let Err(e) = std::fs::write(&tmp, &bytes).and_then(|()| std::fs::rename(&tmp, &out)) {
-        eprintln!("theseus-aws-catalog-gen: {}: {e}", out.display());
-        return ExitCode::FAILURE;
     }
+}
+
+fn run(models: Option<String>, out: Option<String>, label: Option<String>) -> Result<(), String> {
+    let (dir, from) = match models {
+        Some(d) => (PathBuf::from(d), "--models"),
+        None => (
+            compile::botocore_data_dir().map_err(|e| e.to_string())?,
+            if std::env::var_os(BOTOCORE_DATA).is_some_and(|v| !v.is_empty()) {
+                BOTOCORE_DATA
+            } else {
+                "the aws on PATH"
+            },
+        ),
+    };
+    println!("models       {} ({from})", dir.display());
+    let label = match label {
+        Some(l) => l,
+        None => cli_label_for(&dir)?,
+    };
     println!("snapshot     {label}");
+    let (bytes, report) = compile_dir(&dir, &label, &compress).map_err(|e| e.to_string())?;
+    let out = PathBuf::from(out.as_deref().unwrap_or(EMBEDDED));
+    let unchanged = std::fs::read(&out).is_ok_and(|old| old == bytes);
+    let tmp = out.with_extension("tmp");
+    std::fs::write(&tmp, &bytes)
+        .and_then(|()| std::fs::rename(&tmp, &out))
+        .map_err(|e| format!("{}: {e}", out.display()))?;
     println!("services     {}", report.services);
     println!("operations   {}", report.operations);
     println!("shapes       {}", report.shapes);
     println!("raw bytes    {}", report.raw_bytes);
     println!(
-        "catalog      {} bytes ({})",
+        "catalog      {} bytes ({}){}",
         report.compressed_bytes,
-        out.display()
+        out.display(),
+        if unchanged { ", unchanged" } else { "" }
     );
     println!(
         "largest      {} ({} bytes raw)",
@@ -80,5 +129,24 @@ fn main() -> ExitCode {
     for ((svc, e), n) in by_error.iter().take(12) {
         println!("  {n:5}  {svc}: {e}");
     }
-    ExitCode::SUCCESS
+    Ok(())
+}
+
+/// The version of the `aws` on PATH, when `dir` holds its models. Another
+/// CLI's models (the old one under `/usr/local/aws-cli`, say) would be
+/// labelled with the wrong version.
+fn cli_label_for(dir: &Path) -> Result<String, String> {
+    let aws =
+        compile::aws_on_path().ok_or("no aws on PATH to take the label from: give --label")?;
+    let own = compile::cli_data_dir(&aws).map_err(|e| e.to_string())?;
+    let real = |p: &Path| std::fs::canonicalize(p).ok();
+    if real(&own).is_none() || real(&own) != real(dir) {
+        return Err(format!(
+            "{} are not the models of the aws on PATH ({}, whose are {}): give --label",
+            dir.display(),
+            aws.display(),
+            own.display()
+        ));
+    }
+    compile::cli_label(&aws).map_err(|e| e.to_string())
 }

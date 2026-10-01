@@ -6147,6 +6147,7 @@ version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
+ "theseus-aws-catalog",
  "thiserror 2.0.21",
  "toml",
  "yaml-rust2",
