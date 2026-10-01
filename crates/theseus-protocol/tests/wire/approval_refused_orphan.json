@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"approval.refused","params":{"act":"policy.untighten","asker":{"argv0":"bash","pid":4302,"trace_us":40,"under_daemon":4000},"by":"the CLI","from_job":true,"session_id":null,"tool":"proc.run","via":"cli","who":"sock#9","why":"from a Theseus job's process (job act_j1, pid 4300, theseus)"}}

@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"profile.changed","params":{"by":"the CLI","live":"deep","previous":"quick"}}

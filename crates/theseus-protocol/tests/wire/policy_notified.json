@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"policy.notified","params":{"correlation_id":"act_k2","granted":null,"input":{"argv":["make","notes"]},"kind":"notify","rule":"proc.run — notify (enforcement = notify)","session_id":"ses_q7f3k2","setting":"enforcement = notify","summary":"run make notes","tool":"proc.run","tool_use_id":"tu_2","turn_id":"turn_m4p8z1"}}

@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"session.trusted","params":{"at_ms":1759300400000,"by":"the CLI","correlation_id":"act_k4","held":{"node_id":"nod_e1","since_ms":1759300000000,"tool":"http.fetch","url":"notes.example/today","via":"fs.read"},"how":"approval","session_id":"ses_q7f3k2","since_local":"14:02","via":"cli","who":"sock#3"}}

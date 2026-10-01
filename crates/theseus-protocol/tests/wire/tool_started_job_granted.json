@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"tool.started","params":{"argv":["make","notes"],"backend":"job","correlation_id":"act_k2","cwd":"/w/notes","granted":"gh got GH_TOKEN","pid":4242,"session_id":"ses_q7f3k2","tool":"proc.run","tool_use_id":"tu_2","turn_id":"turn_m4p8z1","withheld":["git got no GIT_TOKEN"]}}
