@@ -712,13 +712,14 @@ cat "$O/tighten" "$O/untighten"
     assert!(undone.status.success(), "{undone:?}");
 }
 
-/// A WebSocket client of the web UI, as a browser is one: it upgrades, sends
-/// `action.confirm` for `$2` in one masked text frame, and writes the
-/// server's frames to `$3` until the answer. Plain bash, with /dev/tcp.
+/// A WebSocket client of the web UI, as a browser is one: it upgrades from
+/// the UI's own page (its `Origin`, theseus-70f), sends `action.confirm` for
+/// `$2` in one masked text frame, and writes the server's frames to `$3`
+/// until the answer. Plain bash, with /dev/tcp.
 const WS_CONFIRM: &str = r#"export LC_ALL=C
 port=$1; id=$2; out=$3
 exec 3<>"/dev/tcp/127.0.0.1/$port" || exit 2
-printf 'GET /ws HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n' "$port" >&3
+printf 'GET /ws HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nOrigin: http://127.0.0.1:%s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n' "$port" "$port" >&3
 while IFS= read -r line <&3; do line=${line%$'\r'}; [ -z "$line" ] && break; done
 msg='{"jsonrpc":"2.0","id":7,"method":"action.confirm","params":{"correlation_id":"'"$id"'","approve":true}}'
 n=${#msg}

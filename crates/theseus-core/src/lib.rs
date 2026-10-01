@@ -44,6 +44,7 @@ pub mod trace;
 pub mod turn;
 pub mod wake;
 pub mod web;
+pub mod webui;
 
 pub use config::Config;
 pub use rpc::Core;

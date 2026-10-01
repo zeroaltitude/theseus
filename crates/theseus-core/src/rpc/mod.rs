@@ -96,6 +96,8 @@ pub struct Core {
     pub config_gate: Arc<ConfigGate>,
     /// Set once the daemon is to restart onto the vault's changed note.
     restart: tokio::sync::watch::Sender<Option<ConfigRestart>>,
+    /// What the web UI refused: not its own page or address (theseus-70f).
+    web_refusals: Arc<crate::webui::Refusals>,
 }
 
 /// What a `Core` is built from. `Core::new` builds these from the config and
@@ -537,6 +539,7 @@ impl Core {
             approval,
             config_gate,
             restart: tokio::sync::watch::Sender::new(None),
+            web_refusals: Arc::default(),
         });
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).

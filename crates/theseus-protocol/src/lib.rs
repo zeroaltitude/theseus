@@ -361,6 +361,20 @@ pub struct HealthResult {
     /// trusts it again.
     #[serde(default)]
     pub external_text: Vec<ExternalTextInfo>,
+    /// The web UI's refusals since the daemon's image started (theseus-70f).
+    #[serde(default)]
+    pub web: WebStatus,
+}
+
+/// What the web UI refused (theseus-70f): a request whose `Host` is not the
+/// UI's own loopback address and port (DNS rebinding), and a WebSocket
+/// upgrade whose `Origin` is not the UI's own page (any other page in the
+/// operator's browser). Each kind is ledgered as `web.refused`, at most once a
+/// minute, with how many refusals the row stands for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebStatus {
+    pub refused_host: u64,
+    pub refused_origin: u64,
 }
 
 /// Where the vault's secrets stand (theseus-qa0, spec §2 FAST): the daemon

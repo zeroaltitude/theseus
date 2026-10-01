@@ -77,7 +77,15 @@ impl Core {
             tightenings: self.tools.tightened.all(),
             wakes: self.wakes(None, None).unwrap_or_default(),
             external_text: crate::external::listed(&sessions),
+            web: self.web_refusals.status(),
         }
+    }
+
+    /// The web UI refused a request that was not from its own page or
+    /// address (theseus-70f): counted for health, and ledgered as
+    /// `web.refused` at most once a minute per kind. Not narrated.
+    pub fn web_refused(&self, why: crate::webui::Why, detail: Value) {
+        self.web_refusals.refuse(&self.store, why, detail);
     }
 
     /// `[approval]` for health: each listed channel's state, judged with the
