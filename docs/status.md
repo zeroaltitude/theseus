@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-01 16:05 MST. Version 0.0.1; the design document is at v0.73._
+_Updated 2026-10-01 16:37 MST. Version 0.0.1; the design document is at v0.74._
 
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
@@ -41,7 +41,7 @@ starts.
 
 | Stage | What it brings | Where it is |
 |---|---|---|
-| **A. Stage 1's remainder** | Fix batches from two reviews, the dogfood pilot, the complexity cuts, the reader rule | Fix batches 1 and 2, the pilot, and the cuts are done. The reader rule is in progress. Review 2's remaining proposals are next. |
+| **A. Stage 1's remainder** | Fix batches from two reviews, the dogfood pilot, the complexity cuts, the reader rule | Fix batches 1 and 2, the pilot, the cuts, and the reader rule are done. Review 2's remaining proposals are next, once they're chosen. |
 | **B. The operator's surfaces** | Live updates pushed instead of polled, `session.wait`, the CLI's client library, the first graph edge, a terminal UI, herdr | Telemetry and caching part 2 are done. The rest follows stage A. |
 | **C. M4, boundaries** | The sandbox wired into `proc.run`, egress, credentials as stand-ins, disclosure labels, integrity, the ontology, the job host | The sandbox, egress proxy, ontology, and installer are built as lanes. |
 | **D. AWS** | The bound account, its stacks and budget, curated tools, the durability tender, restore from S3, hands on Lambda and Fargate | The client, catalog, guardrails, and templates are built. It follows C. |
@@ -54,6 +54,9 @@ two-week soak in daily use, so it lands around **October 20 or 21**.
 
 ## Recently landed
 
+- **2026-10-01:** the reader rule: a gate test that fails anything declared without a reader (a crate, a protocol
+  method, a notification, an edge kind, or a label). Each crate built ahead of its reader names the roadmap step
+  that wires it in (Part III, Item 32).
 - **2026-10-01:** batch C part 3: the CLI's commands split, one typed definition per wire shape, and the web apps'
   types generated from the Rust ones. Also an honest token estimate, caching part 2, telemetry corrections, the
   cockpit's second round, and fix batch 2: output caps, verified stops, and sweeping old job output (Part III,

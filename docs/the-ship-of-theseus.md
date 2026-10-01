@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.73
+# The Ship of Theseus — v0.74
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -1711,10 +1711,21 @@ Every milestone has three parts: **build** (what exists at the end), **prove** (
 2. **Speed** (M3.5, §2 FAST). New startup work lands with its bench row. A new on-disk format lands with the reader for the format it replaces.
 3. **Nothing declared without its reader** (Eddie, 2026-09-27; theseus-wjy).
    - Every new route by which content reaches another context lands with its edge and a reverse-index entry. Examples are a summary admitted into another session, a task report into a channel, borrowing, gliding, and MCP.
-   - Every new edge type, label, or hook event lands with at least one reader, on the same commit.
-   - Anything declared ahead of its reader carries a "reserved for Mx" marker, and Part III lists it.
+   - Every new crate, protocol method, notification, edge kind, or label lands with at least one reader, on the same commit:
+     - a crate is read when `theseusd`, `theseus`, or an installed tool binary reaches it by normal dependencies;
+     - a method, by its dispatch arm;
+     - a notification, by its `Event` and a sender;
+     - an edge kind or a label, by a `match` arm, a pattern, or an `==` that names it.
+   - Anything declared ahead of its reader carries a marker, `row <n> (<step>), <milestone>: <its reader>`, and Part III lists it.
+     - A crate's marker is `reserved_for` under `[package.metadata.theseus]` in its own manifest; a tool binary says `tool` there instead, being a reader of its own.
+     - The protocol's, edge kinds', and labels' markers go in the registry test's `RESERVED` table.
+     - A marker on an item that has its reader fails, so the list stays true.
 
-   The gate enforces rule 3 with a registry test: it enumerates every hook event, edge type, and label, and fails unless each one has a reader or a reserved marker.
+   The gate enforces the second and third with a registry test, `tests_registry` in theseus-core, which `scripts/gate.sh` runs on its own before the suite (built 2026-10-01, Part III Item 32).
+   - It enumerates every workspace crate, `method::ALL`, `notify::ALL` with `Event::VARIANTS`, `EdgeKind::VARIANTS`, and `Label::VARIANTS`. Each list is built from the same table as the items it lists, so a new item can't be left out of it.
+   - It fails unless each item has its reader or a marker, and it names the item and the fix.
+   - The first rule stays the reviewer's: no test can tell a new route.
+   - Hook events left with the hooks (theseus-hco). If theseus-bdn's hook point lands, its events join the registry.
 
 ## P1. Milestones at a glance
 
@@ -1758,7 +1769,7 @@ Not in the original plan. Eddie's principle, adopted as work before Keel because
 **Build.**
 - The turn trace (§3.3a): nested spans on every turn, on the result, in the ledger, in failure payloads; waterfall in the web UI; `ask --trace`. *(Done, theseus-8af.)*
 - OpenTelemetry as a default projection (§3.20): spans from the trace with exact timestamps, GenAI conventions on provider calls, metrics, OTLP/HTTP with vault-sourced headers, no-op until an endpoint is configured. *(theseus-vng.)*
-- A standing rule for every later milestone: a new kind of work (tool call, judgment, completion, compaction, memory pass) lands with its span kind, its attributes, and its metric on the same commit; and a new capability lands as a native toollet unless there is a written reason it cannot (§3.23). Part III records where either slipped.
+- A standing rule for every later milestone: a new kind of work (tool call, judgment, completion, compaction, memory pass) lands with its span kind, its attributes, and its metric on the same commit; and a new capability lands as a native toollet unless there is a written reason it cannot (§3.23). And nothing is declared without its reader (P0's rule 3): a new crate, method, notification, edge kind, or label lands with what reads it, or with a marker naming the row and milestone that bring its reader. The gate's registry test (`tests_registry`, theseus-wjy) fails anything else. Part III records where either slipped.
 
 **Prove.** With a collector listening, one turn produces one trace whose spans match the ledger's `turn.trace` row exactly in count, names, nesting, and durations; the metrics for that turn arrive; with no endpoint configured, nothing is sent and the turn is no slower. Tested against an in-memory exporter; verified live against a receiver.
 
@@ -1868,6 +1879,7 @@ _Note, 2026-09-29 (theseus-5r9). The order now runs as the queue in the chain's 
 2. **Hooks and the reader rule** (theseus-0dp, theseus-wjy; §3.17, P0). *Prove:*
    - A blocking in-process handler on each gating event stops its action in a scenario.
    - The registry test fails a branch that declares an event without a site.
+   _(Built 2026-10-01 without hooks, which theseus-hco cut. The registry test enumerates crates, methods, notifications, edge kinds, and labels: Part III Item 32.)_
 3. **Protocol push** (theseus-in3): `execution.changed`, a watch over all sessions, `session.wait`, and one `attention()` mapping. *Prove:*
    - A client learns every execution transition without polling.
    - `session.wait` returns on `blocked`, `settled`, and `terminal`.
@@ -6287,8 +6299,9 @@ should be in `docs/` as markdown.
 - theseus-8d1b (P2): `theseusd example-config`'s template and `--config`'s default still name the operator's own
   vault and items. A newcomer following the quick start sees them. The fix is placeholders that read as
   instructions, and a generic default.
-- The README names what is next on the roadmap. Each spec version that lands a step should check that paragraph,
-  as it checks `docs/the-ship-of-theseus.md`.
+- ~~The README names what is next on the roadmap. Each spec version that lands a step should check that paragraph,
+  as it checks `docs/the-ship-of-theseus.md`.~~ Since 2026-10-01 (Eddie), the README stays stable and links to
+  `docs/status.md`, which each spec version that lands a step updates (theseus-5d96).
 
 ### Item 29. Caching, part 2: two breakpoints on the system, the caching minimum, a TTL per profile, and 1-hour writes priced (theseus-ev1, row 14 (13c) built ahead in the `cache2` lane; 2026-10-01 12:31 to 13:19, reviewed 13:35, joined 13:42:19; 047a477, c970d36, 86adced, and the join b6be80d)
 
@@ -6518,3 +6531,77 @@ $0.028):
 - theseus-c5ba (Haiku 4.5's figures from one request), theseus-kdkv (the Observatory's view of the estimate),
   theseus-vj9q (a recompile's bytes-only estimate rings at about 71 %), and theseus-p171 (hex and base64 as a
   class), all P3.
+
+### Item 32. The reader rule: a registry test in the gate, and a marker on every crate ahead of its reader (theseus-wjy; row 6 of the re-cut; 2026-10-01 15:47 to 16:20, reviewed 16:33 to 16:37; 70bc0b4, cf015ef, aebd530)
+
+**Why.** Eddie's decision 3 of theseus-vmh (option A, 2026-09-27 21:10), P0's rule 3: nothing declared without
+its reader. The lane recipe already merged crates ahead of their readers (Item 16) and said Part III lists each.
+Nothing checked it, and 13 of `main`'s 21 crates sat unread.
+
+**What landed.**
+- **The markers** (70bc0b4). Each of the 13 crates that `theseusd` and `theseus` don't reach says so in its own
+  manifest, under `[package.metadata.theseus]`. Twelve carry `reserved_for = "row <n> (<step>), <milestone>: <its
+  reader>"`. `theseus-sim` carries `tool = "<what runs it>"`: an installed binary of its own, and so a reader of
+  its own.
+- **The registry test** (cf015ef), `tests_registry` in theseus-core. `scripts/gate.sh` runs it alone after clippy.
+  Its 8 tests take 0.11 s. It checks:
+  - **crates**: reached by normal dependencies from `theseusd`, `theseus`, or a tool, or else marked. It reads the
+    `Cargo.toml` files, because `cargo metadata` takes 0.84 s;
+  - **methods**: an in-process core answers every `method::ALL` with anything but "method not found";
+  - **notifications**: every `notify::ALL` has its `Event`, and every `Event` a construction in theseus-core's
+    non-test code;
+  - **edge kinds and labels**: `graph::EdgeKind` and `graph::Label` are new and empty. Each variant needs a
+    `match` arm, a pattern, or an `==` in code the binaries run.
+
+  A marker on an item that has its reader fails as stale. The scan reads Rust tokens (proc-macro2), so strings and
+  comments never count, and `#[cfg(test)]` code is skipped. To make the lists complete by construction, `method`
+  and `notify` are each one table now, with `ALL` built from it (`method::ALL` was hand-kept). `Event::VARIANTS`
+  comes from `events!`'s table.
+- **Its words** (aebd530): each failure names what to add (an arm, a sender, a reader) and the marker that would
+  reserve it instead, and the gate's step reports every miss at once.
+
+**Reserved, as of this item** (`print_the_reserved_list`):
+
+| Item | Row | Milestone | Its reader |
+|---|---|---|---|
+| crate `theseus-sandbox` | row 17 (17b) | M4 | proc.run's L1 path in the job wrapper, under [sandbox]; the egress proxy at row 19 (18c) |
+| crate `theseus-ontology` | row 26 (21b) | M4 | the ontology's records, its snapshot, and the compile walk in theseus-core |
+| crate `theseus-aws-catalog` | row 29 (C1, 14a) | AWS | theseus-aws's operation models, under aws.call and aws.describe |
+| crate `theseus-aws` | row 29 (C1, 14a) | AWS | aws.call for reads, aws.describe, aws.whoami, and aws.s3.list |
+| crate `theseus-aws-guard` | row 30 (C2, 14b) | AWS | the gate's check of each AWS write and template, from stacks and theseus aws bootstrap on |
+| crate `theseus-judge` | row 37 (23a) | M5 | JudgeService under [judge] in theseus-core, with loop.v1 in shadow |
+| crate `theseus-follow` | row 51 (29b's wire-in) | M6 | the index tender's WAL follower; the durability tender's at row 32 (15) |
+| crate `theseus-index` | row 51 (29b's wire-in) | M6 | theseusd spawns it as the index tender after serving; theseus index status and search |
+| crate `theseus-memory` | row 52 (30a) | M6 | the recall step in shadow, and memory.search; FSRS-6 and activation at rows 58 and 59 (32a, 32b) |
+| crate `theseus-exam` | row 55 (34b's wire-in) | M6 | the exam's harness over the real pipeline, through turn.submit's memory_arm |
+| crate `theseus-mcp` | row 66 (36b) | M7 | McpBoard and [mcp.servers], MCP tools in turns; the server side at row 72 (41b) |
+| crate `theseus-voice` | row 77 (44b) | M7 | /join, and utterances into turns; speech as spend at row 78 (45b) |
+
+Tools, readers of their own: `theseus-sim` (the gate's lifecycle bench, the crash test, kernel-sim, and the fake
+Discord). No method, notification, edge kind, or label is reserved: every one has its reader.
+
+**The proof.** Four planted failures, each run once and reverted, each failed with its item and its fix named:
+- a crate with no reader;
+- a method with no arm;
+- a notification with no sender;
+- an edge kind with no reader.
+
+Three more failed too: a notification name with no `Event`, and a stale marker on `theseus-store`, which the test
+reported with its path (`theseusd → theseus-store`). The third extra, an edge kind with a reader, passed.
+
+**Divergences from the plan.**
+- Hooks are gone (theseus-hco), so the test enumerates crates, the protocol, edge kinds, and labels instead.
+- Tools are roots: what an installed tool runs counts as read. At row 51 the index tender, a spawned binary, reads
+  `theseus-follow`.
+- AWS's crates name `AWS` as their milestone. Block D has none.
+- Config keys (the brief's optional fourth check) aren't checked: theseus-obmo.
+- Four spellings fail open: theseus-g7qp.
+- Rule 1 (routes) stays the reviewer's.
+
+**The review** (`~/reports/theseus-wjy/review/review.md`). Both calls are kept: tools are roots, and the AWS crates
+name their own milestone. The gate rerun on `main` at aebd530 was green: the registry's 8 tests, the suite's 1,271,
+and the bench on its rerun after one swap outlier. Carried forward:
+- `session.wait` (row 10) must reject empty params, or the methods check would wait out its bound (on theseus-in3);
+- 12a's first edge goes into `graph::EdgeKind` (on theseus-n4m);
+- 19a's first labels go into `graph::Label`.
+
