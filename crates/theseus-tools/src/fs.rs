@@ -89,6 +89,16 @@ fn walker(base: &Path, hidden: bool, max_depth: Option<usize>) -> ignore::Walk {
     b.build()
 }
 
+/// What `fs.glob` and `fs.grep` never walk, which their results state as part
+/// of their scope (Appendix F's rule, theseus-8ye): an empty or narrow result
+/// must not read as "there is none".
+const NOT_WALKED: &str = "hidden files and .gitignore'd paths are not searched";
+
+/// `n` and its noun: `1 file`, `12 files`.
+fn count(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
 fn unified(a: &str, b: &str, a_name: &str, b_name: &str, context: usize) -> String {
     similar::TextDiff::from_lines(a, b)
         .unified_diff()
@@ -750,20 +760,35 @@ impl Tool for Glob {
             .take(ctx.max_entries)
             .map(|(_, p)| p.display().to_string())
             .collect();
-        let mut text = if shown.is_empty() {
-            format!("No files match {} under {}.", a.pattern, base.display())
+        // Every result states its scope and what it left out (Appendix F,
+        // theseus-8ye): which files, where, in what order, the oldest past
+        // the listing's length, and what the walk never sees.
+        let left = total - shown.len();
+        let text = if shown.is_empty() {
+            format!(
+                "No files match {} under {} ({} files looked at); {NOT_WALKED}.",
+                a.pattern,
+                base.display(),
+                scanned
+            )
         } else {
-            shown.join("\n")
+            let listed = match left {
+                0 => format!("{} matching {}", count(total, "file", "files"), a.pattern),
+                _ => format!("{} of {total} files matching {}", shown.len(), a.pattern),
+            };
+            let past = match left {
+                0 => String::new(),
+                n => format!("; the {n} oldest not shown: a narrower pattern or path returns them"),
+            };
+            format!(
+                "{}\n[{listed} under {}, newest first{past}; {NOT_WALKED}]",
+                shown.join("\n"),
+                base.display()
+            )
         };
-        if total > shown.len() {
-            text.push_str(&format!(
-                "\n[{} of {total} matches shown; narrow the pattern]",
-                shown.len()
-            ));
-        }
         Ok(ToolOutput {
             text,
-            meta: json!({"base": base, "matches": total, "scanned": scanned}),
+            meta: json!({"base": base, "matches": total, "shown": shown.len(), "scanned": scanned}),
         })
     }
     fn rest(&self, _left_out: &str) -> String {
@@ -956,6 +981,7 @@ impl Tool for Grep {
         let mut hits = 0usize;
         let mut files_hit: Vec<(String, usize)> = Vec::new();
         let mut scanned = 0usize;
+        let mut searched = 0usize;
         for (i, f) in files.iter().enumerate() {
             scanned += 1;
             let cap = if s.content {
@@ -966,6 +992,7 @@ impl Tool for Grep {
             if cap == 0 {
                 break;
             }
+            searched += 1;
             // Past the first files, searched ahead on the free cores
             // (theseus-a60), with the whole cap: the same as a search with
             // this one, unless it found more than this one allows.
@@ -1010,14 +1037,92 @@ impl Tool for Grep {
                 .join("\n"),
             _ => out.join("\n"),
         };
-        let text = if files_hit.is_empty() {
-            format!("No matches for /{}/ under {}.", a.pattern, base.display())
+        // Every result states its scope and what it left out (Appendix F,
+        // theseus-8ye): how many lines or files, out of how many files
+        // searched, where; and, when the cap stopped the search, that more
+        // may match, where it stopped, and how many files it never opened.
+        let capped = if s.content {
+            hits >= max
         } else {
-            text
+            files_hit.len() >= max && searched < files.len()
+        };
+        let unsearched = files.len() - searched;
+        let only = a
+            .glob
+            .as_deref()
+            .map(|g| format!(" matching {g}"))
+            .unwrap_or_default();
+        // `n` files of the search's scope: `4 files matching *.rs under /w`.
+        let files_in = |n: usize| {
+            format!(
+                "{}{only} under {}",
+                count(n, "file", "files"),
+                base.display()
+            )
+        };
+        let one = base.is_file();
+        let walked = if one {
+            String::new()
+        } else {
+            format!("; {NOT_WALKED}")
+        };
+        let text = if files_hit.is_empty() {
+            match one {
+                true => format!("No matches for /{}/ in {}.", a.pattern, base.display()),
+                false => format!(
+                    "No matches for /{}/; {} searched{walked}.",
+                    a.pattern,
+                    files_in(searched)
+                ),
+            }
+        } else {
+            let found = match (s.content, mode.as_str()) {
+                (true, _) => count(hits, "matching line", "matching lines"),
+                (false, "count") => format!(
+                    "{} ({})",
+                    count(files_hit.len(), "file with matches", "files with matches"),
+                    count(hits, "matching line", "matching lines")
+                ),
+                _ => count(files_hit.len(), "file with matches", "files with matches"),
+            };
+            let line = match (capped, s.content, one) {
+                (false, _, true) => format!("[{found} in {}]", base.display()),
+                (false, true, false) => format!(
+                    "[{found} in {}; {} searched{walked}]",
+                    count(files_hit.len(), "file", "files"),
+                    files_in(searched)
+                ),
+                (false, false, false) => format!("[{found}; {} searched{walked}]", files_in(searched)),
+                (true, _, true) => format!(
+                    "[stopped at max_results={max}: the first {max} matching lines in {}; its later \
+                     lines were not searched, so more may match: a larger max_results returns them]",
+                    base.display()
+                ),
+                (true, content, false) => {
+                    let first = match content {
+                        true => format!(
+                            "the first {max} matching lines, from {}",
+                            count(files_hit.len(), "file", "files")
+                        ),
+                        false => format!("the first {max} files with matches"),
+                    };
+                    let stopped_in = match (content, files_hit.last()) {
+                        (true, Some((p, _))) => format!("the rest of {p}, and "),
+                        _ => String::new(),
+                    };
+                    format!(
+                        "[stopped at max_results={max}: {first}; {stopped_in}{unsearched} more of {} \
+                         not searched, so more may match: a narrower search, or a larger \
+                         max_results, returns them{walked}]",
+                        files_in(files.len())
+                    )
+                }
+            };
+            format!("{text}\n{line}")
         };
         Ok(ToolOutput {
             text,
-            meta: json!({"base": base, "files_with_matches": files_hit.len(), "matching_lines": hits, "files_scanned": scanned, "capped": s.content && hits >= max}),
+            meta: json!({"base": base, "files_with_matches": files_hit.len(), "matching_lines": hits, "files_scanned": scanned, "files_searched": searched, "files_total": files.len(), "capped": capped}),
         })
     }
     fn rest(&self, _left_out: &str) -> String {
@@ -1249,19 +1354,29 @@ impl Tool for List {
         b.filter_entry(|e| e.file_name() != ".git");
         b.sort_by_file_path(|x, y| x.cmp(y));
         let mut total = 0usize;
+        // What the listing leaves out (theseus-8ye): the directories at the
+        // last level, whose contents it never reads, and the first entry past
+        // its length, in path order.
+        let mut undescended = 0usize;
+        let mut first_left: Option<PathBuf> = None;
         for e in b.build().flatten() {
             if e.path() == base {
                 continue;
             }
             total += 1;
+            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir && e.depth() == depth {
+                undescended += 1;
+            }
             if entries.len() < ctx.max_entries {
-                let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
                 let size = if is_dir {
                     0
                 } else {
                     e.metadata().map(|m| m.len()).unwrap_or(0)
                 };
                 entries.push((e.path().to_path_buf(), is_dir, size));
+            } else if first_left.is_none() {
+                first_left = Some(e.path().to_path_buf());
             }
         }
         let mut text = format!("{}/\n", base.display());
@@ -1283,15 +1398,43 @@ impl Tool for List {
                 ));
             }
         }
-        if total > entries.len() {
-            text.push_str(&format!(
-                "[{} of {total} entries shown; list a subdirectory or lower the depth]\n",
-                entries.len()
-            ));
-        }
+        // Every result states its scope and what it left out (Appendix F,
+        // theseus-8ye): the entries past its length, from where in path
+        // order; the directories whose contents are below its depth; and the
+        // hidden and ignored entries, unless `all` shows them.
+        let listed = match first_left {
+            None => format!(
+                "{} under {} to depth {depth}",
+                count(total, "entry", "entries"),
+                base.display()
+            ),
+            Some(p) => format!(
+                "{} of {total} entries under {} to depth {depth}, in path order; the rest, from {} \
+                 on, not shown: fs_list of a subdirectory, or with a lower depth, returns them",
+                entries.len(),
+                base.display(),
+                p.strip_prefix(&base).unwrap_or(&p).display()
+            ),
+        };
+        let below =
+            match undescended {
+                0 => String::new(),
+                n => {
+                    format!(
+                "; the contents of {} at depth {depth} not listed: fs_list of one{} lists them",
+                count(n, "directory", "directories"),
+                if depth < 6 { ", or a greater depth," } else { "" }
+            )
+                }
+            };
+        let hidden = match a.all {
+            true => "",
+            false => "; hidden and .gitignore'd entries not shown: all=true shows them",
+        };
+        text.push_str(&format!("[{listed}{below}{hidden}]\n"));
         Ok(ToolOutput {
             text,
-            meta: json!({"base": base, "entries": total, "shown": entries.len(), "depth": depth}),
+            meta: json!({"base": base, "entries": total, "shown": entries.len(), "depth": depth, "undescended": undescended}),
         })
     }
     fn rest(&self, _left_out: &str) -> String {
@@ -1613,7 +1756,9 @@ mod tests {
             assert_eq!(alone.text, helped.text, "{input}");
             assert_eq!(alone.meta, helped.meta, "{input}");
             let scanned = alone.meta["files_scanned"].as_u64().unwrap() as usize;
-            crossed |= alone.meta["capped"] == true && scanned > INLINE_FILES;
+            crossed |= alone.meta["capped"] == true
+                && input.get("output_mode").is_none()
+                && scanned > INLINE_FILES;
         }
         assert!(crossed, "a cap fell among the files searched ahead");
         assert!(threads.lent.load(Ordering::SeqCst) > 0, "it borrowed cores");
@@ -1652,14 +1797,22 @@ mod tests {
         let files = Grep
             .run(&json!({"pattern": "TODO", "output_mode": "files"}), &c)
             .unwrap();
-        assert!(files.text.ends_with("lib.rs"));
+        assert!(
+            files.text.lines().next().unwrap().ends_with("lib.rs"),
+            "{}",
+            files.text
+        );
         let ci = Grep
             .run(
                 &json!({"pattern": "todo", "case_insensitive": true, "output_mode": "count"}),
                 &c,
             )
             .unwrap();
-        assert!(ci.text.ends_with("lib.rs:1"), "{}", ci.text);
+        assert!(
+            ci.text.lines().next().unwrap().ends_with("lib.rs:1"),
+            "{}",
+            ci.text
+        );
         let ctx_hit = Grep
             .run(&json!({"pattern": "gamma", "context": 1}), &c)
             .unwrap();
@@ -1674,6 +1827,208 @@ mod tests {
             l.text.contains("src/") && l.text.contains("lib.rs (") && !l.text.contains("target/"),
             "{}",
             l.text
+        );
+    }
+
+    /// Five lantern logs, written a minute apart, oldest first, and a hidden
+    /// one: the tree the listing tests read.
+    fn lantern_logs(d: &tempfile::TempDir) {
+        let t0 = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000);
+        for i in 1..=5 {
+            let p = d.path().join(format!("lantern-{i}.txt"));
+            fs::write(&p, "wick\nwick\nwick\n").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&p)
+                .unwrap()
+                .set_modified(t0 + std::time::Duration::from_secs(60 * i))
+                .unwrap();
+        }
+        fs::write(d.path().join(".lantern-key.txt"), "wick\n").unwrap();
+    }
+
+    /// Appendix F's rule (theseus-8ye): a glob's result states its scope (the
+    /// pattern, where, newest first, what the walk never sees) and exactly
+    /// what it left out (the oldest, by count, and the call that returns
+    /// them); an empty result says what was looked at and what was not.
+    #[test]
+    fn a_globs_result_says_its_scope_and_the_oldest_it_left_out() {
+        let d = tempfile::tempdir().unwrap();
+        lantern_logs(&d);
+        let base = d.path().display().to_string();
+        let narrow = ToolCtx {
+            max_entries: 3,
+            ..ctx(&d)
+        };
+        let g = Glob.run(&json!({"pattern": "*.txt"}), &narrow).unwrap();
+        let lines: Vec<&str> = g.text.lines().collect();
+        assert_eq!(lines.len(), 4, "{}", g.text);
+        assert!(
+            lines[0].ends_with("lantern-5.txt"),
+            "newest first: {}",
+            g.text
+        );
+        assert_eq!(
+            lines[3],
+            format!(
+                "[3 of 5 files matching *.txt under {base}, newest first; the 2 oldest not shown: a \
+                 narrower pattern or path returns them; hidden files and .gitignore'd paths are not \
+                 searched]"
+            )
+        );
+        assert_eq!(
+            (g.meta["matches"].clone(), g.meta["shown"].clone()),
+            (json!(5), json!(3))
+        );
+        let all = Glob.run(&json!({"pattern": "*.txt"}), &ctx(&d)).unwrap();
+        assert!(
+            all.text.ends_with(&format!(
+                "\n[5 files matching *.txt under {base}, newest first; hidden files and \
+                 .gitignore'd paths are not searched]"
+            )),
+            "{}",
+            all.text
+        );
+        let none = Glob
+            .run(&json!({"pattern": ".lantern*"}), &ctx(&d))
+            .unwrap();
+        assert_eq!(
+            none.text,
+            format!(
+                "No files match .lantern* under {base} (5 files looked at); hidden files and \
+                 .gitignore'd paths are not searched."
+            )
+        );
+    }
+
+    /// A grep's result states how many lines or files it found, in how many
+    /// of how many files searched, where; capped, it says it stopped, where,
+    /// how many files it never opened, that more may match, and the call
+    /// that returns them (theseus-8ye).
+    #[test]
+    fn a_greps_result_says_its_scope_and_where_the_cap_stopped_it() {
+        let d = tempfile::tempdir().unwrap();
+        lantern_logs(&d);
+        let base = d.path().display().to_string();
+        let c = ctx(&d);
+        let walked = "hidden files and .gitignore'd paths are not searched";
+        let grep = |input: Value| Grep.run(&input, &c).unwrap();
+        let last = |t: &str| t.lines().last().unwrap().to_string();
+        let full = grep(json!({"pattern": "wick"}));
+        assert_eq!(full.text.lines().count(), 16, "{}", full.text);
+        assert_eq!(
+            last(&full.text),
+            format!("[15 matching lines in 5 files; 5 files under {base} searched; {walked}]")
+        );
+        let capped = grep(json!({"pattern": "wick", "max_results": 4}));
+        assert_eq!(capped.text.lines().count(), 5, "{}", capped.text);
+        let stopped_in = capped
+            .text
+            .lines()
+            .nth(3)
+            .unwrap()
+            .split(':')
+            .next()
+            .unwrap();
+        assert_eq!(
+            last(&capped.text),
+            format!(
+                "[stopped at max_results=4: the first 4 matching lines, from 2 files; the rest of \
+                 {stopped_in}, and 3 more of 5 files under {base} not searched, so more may match: \
+                 a narrower search, or a larger max_results, returns them; {walked}]"
+            )
+        );
+        assert_eq!(
+            (
+                capped.meta["capped"].clone(),
+                capped.meta["files_searched"].clone(),
+                capped.meta["files_total"].clone()
+            ),
+            (json!(true), json!(2), json!(5))
+        );
+        let files = grep(json!({"pattern": "wick", "output_mode": "files", "max_results": 2}));
+        assert_eq!(
+            last(&files.text),
+            format!(
+                "[stopped at max_results=2: the first 2 files with matches; 3 more of 5 files under \
+                 {base} not searched, so more may match: a narrower search, or a larger \
+                 max_results, returns them; {walked}]"
+            )
+        );
+        let counted = grep(json!({"pattern": "wick", "output_mode": "count"}));
+        assert_eq!(
+            last(&counted.text),
+            format!(
+                "[5 files with matches (15 matching lines); 5 files under {base} searched; {walked}]"
+            )
+        );
+        let only = grep(json!({"pattern": "wick", "glob": "lantern-1*"}));
+        assert_eq!(
+            last(&only.text),
+            format!(
+                "[3 matching lines in 1 file; 1 file matching lantern-1* under {base} searched; \
+                 {walked}]"
+            )
+        );
+        let none = grep(json!({"pattern": "tallow"}));
+        assert_eq!(
+            none.text,
+            format!("No matches for /tallow/; 5 files under {base} searched; {walked}.")
+        );
+        let one = d.path().join("lantern-2.txt").display().to_string();
+        let in_one = grep(json!({"pattern": "wick", "path": one}));
+        assert_eq!(last(&in_one.text), format!("[3 matching lines in {one}]"));
+        let cut_one = grep(json!({"pattern": "wick", "path": one, "max_results": 2}));
+        assert_eq!(
+            last(&cut_one.text),
+            format!(
+                "[stopped at max_results=2: the first 2 matching lines in {one}; its later lines \
+                 were not searched, so more may match: a larger max_results returns them]"
+            )
+        );
+    }
+
+    /// A listing states its scope (where, to what depth) and what it left
+    /// out: the entries past its length, from where in path order; the
+    /// directories whose contents lie below its depth; the hidden and ignored
+    /// entries unless `all` shows them (theseus-8ye).
+    #[test]
+    fn a_listings_result_says_its_scope_and_what_it_left_out() {
+        let d = tempfile::tempdir().unwrap();
+        lantern_logs(&d);
+        fs::create_dir_all(d.path().join("harbor/dock/crates")).unwrap();
+        fs::write(d.path().join("harbor/dock/crates/rope.txt"), "coil\n").unwrap();
+        let base = d.path().display().to_string();
+        let l = List.run(&json!({}), &ctx(&d)).unwrap();
+        assert_eq!(
+            l.text.lines().last().unwrap(),
+            format!(
+                "[7 entries under {base} to depth 2; the contents of 1 directory at depth 2 not \
+                 listed: fs_list of one, or a greater depth, lists them; hidden and .gitignore'd \
+                 entries not shown: all=true shows them]"
+            )
+        );
+        let narrow = ToolCtx {
+            max_entries: 3,
+            ..ctx(&d)
+        };
+        let cut = List.run(&json!({"depth": 3}), &narrow).unwrap();
+        assert_eq!(
+            cut.text.lines().last().unwrap(),
+            format!(
+                "[3 of 8 entries under {base} to depth 3, in path order; the rest, from \
+                 lantern-1.txt on, not shown: fs_list of a subdirectory, or with a lower depth, \
+                 returns them; the contents of 1 directory at depth 3 not listed: fs_list of one, \
+                 or a greater depth, lists them; hidden and .gitignore'd entries not shown: \
+                 all=true shows them]"
+            )
+        );
+        let every = List
+            .run(&json!({"depth": 6, "all": true}), &ctx(&d))
+            .unwrap();
+        assert_eq!(
+            every.text.lines().last().unwrap(),
+            format!("[10 entries under {base} to depth 6]")
         );
     }
 }
