@@ -77,6 +77,45 @@ struct Ssrcs {
     counts: BTreeMap<u32, SsrcCount>,
 }
 
+impl Ssrcs {
+    /// A speaking event: `ssrc` is `user`'s.
+    fn speaking(&mut self, ssrc: u32, user: Speaker) {
+        self.users.insert(ssrc, user);
+        self.counts.entry(ssrc).or_default().user = Some(user);
+    }
+
+    /// One tick's packets, each SSRC with its decoded audio if any: a frame
+    /// for each SSRC mapped to a user, in speaker order. Every packet is
+    /// counted; one from an SSRC with no user yet goes no further.
+    fn tick<'a>(
+        &mut self,
+        packets: impl IntoIterator<Item = (u32, Option<&'a [i16]>)>,
+    ) -> Vec<Frame> {
+        let mut frames = Vec::new();
+        for (ssrc, pcm) in packets {
+            let user = self.users.get(&ssrc).copied();
+            let count = self.counts.entry(ssrc).or_default();
+            count.frames += 1;
+            if let Some(pcm) = pcm {
+                count.decoded += 1;
+                if let Some(speaker) = user {
+                    frames.push(Frame {
+                        speaker,
+                        samples: mono(pcm),
+                    });
+                }
+            }
+        }
+        frames.sort_by_key(|f| f.speaker);
+        frames
+    }
+
+    /// `user` left the channel: their SSRCs map to no one.
+    fn left(&mut self, user: Speaker) {
+        self.users.retain(|_, s| *s != user);
+    }
+}
+
 enum Signal {
     Heard(Heard),
     /// The connection dropped: the binding rejoins, or doesn't.
@@ -191,35 +230,24 @@ impl EventHandler for Receive {
             EventContext::SpeakingStateUpdate(speaking) => {
                 if let Some(user) = speaking.user_id {
                     let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
-                    ssrcs.users.insert(speaking.ssrc, Speaker(user.0));
-                    ssrcs.counts.entry(speaking.ssrc).or_default().user = Some(Speaker(user.0));
+                    ssrcs.speaking(speaking.ssrc, Speaker(user.0));
                 }
             }
             EventContext::VoiceTick(tick) => {
-                let mut frames = Vec::with_capacity(tick.speaking.len());
-                {
-                    let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
-                    for (ssrc, data) in &tick.speaking {
-                        let user = ssrcs.users.get(ssrc).copied();
-                        let count = ssrcs.counts.entry(*ssrc).or_default();
-                        count.frames += 1;
-                        if let Some(pcm) = &data.decoded_voice {
-                            count.decoded += 1;
-                            if let Some(speaker) = user {
-                                frames.push(Frame {
-                                    speaker,
-                                    samples: mono(pcm),
-                                });
-                            }
-                        }
-                    }
-                }
-                frames.sort_by_key(|f| f.speaker);
+                let packets = tick
+                    .speaking
+                    .iter()
+                    .map(|(ssrc, data)| (*ssrc, data.decoded_voice.as_deref()));
+                let frames = self
+                    .ssrcs
+                    .lock()
+                    .expect("the SSRC map's lock")
+                    .tick(packets);
                 let _ = self.tx.send(Signal::Heard(Heard::Tick(frames)));
             }
             EventContext::ClientDisconnect(gone) => {
                 let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
-                ssrcs.users.retain(|_, s| s.0 != gone.user_id.0);
+                ssrcs.left(Speaker(gone.user_id.0));
             }
             EventContext::DriverDisconnect(_) => {
                 let _ = self.tx.send(Signal::Gone);
@@ -291,6 +319,33 @@ mod tests {
         let songbird = manager(Arc::new(TwilightMap::new(HashMap::new())), user);
         assert_eq!(metrics.num_alive_tasks(), before);
         drop(songbird);
+    }
+
+    #[test]
+    fn only_mapped_ssrcs_become_frames_and_every_packet_is_counted() {
+        let mut ssrcs = Ssrcs::default();
+        let pcm = vec![7i16; FRAME_SAMPLES];
+        let pcm = Some(pcm.as_slice());
+        // Before any speaking event (DAVE's silent start): counted, not passed on.
+        assert!(ssrcs.tick([(11, pcm), (22, None)]).is_empty());
+        ssrcs.speaking(11, Speaker(101));
+        ssrcs.speaking(22, Speaker(202));
+        let frames = ssrcs.tick([(22, pcm), (11, pcm), (33, pcm)]);
+        let who: Vec<_> = frames.iter().map(|f| f.speaker).collect();
+        assert_eq!(who, [Speaker(101), Speaker(202)]);
+        // A packet that didn't decode is a frame received, but not decoded audio.
+        assert!(ssrcs.tick([(22, None)]).is_empty());
+        // Once its user leaves, an SSRC's audio goes no further.
+        ssrcs.left(Speaker(202));
+        assert!(ssrcs.tick([(22, pcm)]).is_empty());
+        let count = |user, frames, decoded| SsrcCount {
+            user,
+            frames,
+            decoded,
+        };
+        assert_eq!(ssrcs.counts[&11], count(Some(Speaker(101)), 2, 2));
+        assert_eq!(ssrcs.counts[&22], count(Some(Speaker(202)), 4, 2));
+        assert_eq!(ssrcs.counts[&33], count(None, 1, 1));
     }
 
     #[test]
