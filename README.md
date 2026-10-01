@@ -1,14 +1,15 @@
 # Theseus
 
-**A personal AI agent you can trust with real work, because you can see everything it does.**
+**An opinionated, fast, durable AI agent runtime: one agent with many personas, thousands of tasks, and a complete
+record of everything it does.**
 
-Theseus runs AI agents for one person, or for a small team. You talk to it in Discord, in a terminal, or in
-your browser. It works for you with real tools: it reads and edits files, runs commands, searches and reads the
-web, starts background tasks, and sets itself reminders. It keeps a complete, durable record of everything it
-does: what it did, why, what it was shown, what it cost, and who approved it.
+Theseus runs AI agents for one person, or for a small team. You talk to it in Discord, in a terminal, or in your
+browser. It does real work with real tools: it reads and edits files, runs commands, searches and reads the web,
+starts background tasks, and sets itself reminders. It keeps a complete, durable record of everything it does:
+what it did, why, what it was shown, what it cost, and who approved it.
 
-It is written in Rust: a daemon that does the work, and a small command-line client. It talks to Anthropic's
-Claude models, and to any model served through the same API (GLM from Z.ai is supported today).
+It is written in Rust: a daemon that does the work, and a small command-line client. It talks to Anthropic's Claude
+models directly, and to any model served through the same API (GLM from Z.ai is supported today).
 
 > **About the name.** The Ship of Theseus is the old puzzle: if you replace a ship plank by plank, is it still
 > the same ship? Theseus is built that way, one small, reviewed, tested step at a time. Its design document is
@@ -17,89 +18,186 @@ Claude models, and to any model served through the same API (GLM from Z.ai is su
 ## Why another agent harness?
 
 There are good agent tools already: Claude Code, Codex, Cursor, OpenClaw (the harness Theseus grew out of), and
-more. We use them every day. In 2026 they all converged on the same shape: a long-running local service that you
-reach by chat, with the risky work done in a sandbox. Theseus has that shape too.
+more. We use them every day. But running agents for days at a time, on work that matters, kept raising the same
+questions, and the other tools answer them softly, or not at all:
 
-But running agents for days at a time, on work that matters, kept surfacing the same questions that the other
-tools answer softly, or not at all:
-
-- **What exactly did it do, and why?** After an hour of autonomous work, the reasons, the tool calls, the retries,
-  and the costs are scattered across logs, when they are kept at all.
-- **What happens when something breaks?** A crash, a restart, or a network drop in the middle of a task. Is the
-  work lost? Is it done twice?
-- **How do I stay in control without babysitting it?** Asking permission for everything trains you to click
-  "yes" without reading. Asking for nothing means trusting a model with everything.
+- **What exactly did it do, and why?** After an hour of autonomous work, the reasons, tool calls, retries, and
+  costs are scattered across logs, when they are kept at all.
+- **What happens when something breaks mid-task?** Is the work lost? Is it done twice?
+- **How do I stay in control without babysitting it?**
 - **What did that cost?** Usually you find out from the monthly bill.
 - **What was the model actually shown** when it made that choice?
+- **Why is it so slow,** and why does it get slower as it does more?
 
-Theseus is our answer. The other tools compete on reach: more chat apps, more models, more agents at once.
-Theseus competes on **guarantees**, promises that hold whether or not the model behaves:
+Theseus answers them with five ideas, and a handful of promises it keeps whatever the model does. Some of it works
+today and some is being wired in, step by step; [Where it stands](#where-it-stands-october-2026) says which.
 
+### 1. Opinionated, not a framework
+
+Most harnesses chase flexibility: plugin systems, a dozen chat apps, any model, any memory backend, any tool
+format. Every option is a seam, and every seam costs speed, testing, and attention.
+
+Theseus makes its choices once, and goes deep on each:
+- **Discord** is where it lives online, in text (and soon voice), beside the terminal and the browser.
+- **AWS** gives it far-reaching hands. Theseus gets an AWS account of its own, within a budget and a security
+  stance you set, and runs work there that a laptop can't.
+- **Anthropic's API** is called directly, not through a gateway.
+- **Jev** is its classifier (the next idea).
+- **1Password** holds every secret.
+- **Rust**, in one statically linked binary: no runtime, no sidecars.
+
+There is no plugin marketplace to wire up and no hook system to debug. The design had a hook system once, and it was
+deleted. In the author's words: "I used to believe in the plugins, now I believe in one, tight, focused, monolithic
+single-function server and a similarly tight client." What remains is a small core whose every path is tested end to
+end.
+
+### 2. Judgment in the core: Jev
+
+Every agent harness hits the same wall. Some decisions need real judgment. Is this task done, or should the agent
+keep going? Is this action safe? Which of fifty memories matter right now? Is this message a new request, or the
+answer to a question the agent asked? Until now there were two bad options:
+- **write the judgment as code**, which is fast but brittle, and wrong the moment the world doesn't match the rule;
+- **ask another LLM**, which is smart, but each call adds seconds and dollars to every turn.
+
+**Jev** ([TypeSafe](https://typesafe.ai)'s "System One" model) is the way out. It doesn't write text. It answers
+typed questions (a choice, a score, a yes or no) with their probabilities, many at once, in about a third of a
+second, for a tiny fraction of a cent. That is fast and cheap enough to sit **inside the harness's own control
+loop**, at the points where judgment decides what happens next:
+- Is the work done, or should the loop continue?
+- Should this session keep its context, or recompile it?
+- Which role and persona does this message call for?
+- Is this action safe enough to run without asking?
+- Which nodes are worth remembering, and for how long?
+
+Every judgment is recorded with its probabilities, its latency, and its outcome once that's known. Each pack of
+questions starts in shadow, and is tuned against held-out labels before it acts. Jev is never the only guard on
+anything that matters for safety.
+
+### 3. Fast is a contract
+
+Theseus has written budgets for speed and memory, and treats them as requirements, not aspirations:
+
+| What | Budget | Today (debug build, in the gate) |
+|---|---|---|
+| Start to answering | under 50 ms | about 25 ms |
+| Clean shutdown, with work in flight | under 100 ms | about 45 ms |
+| Crash, restart, and answer again | under 150 ms | about 45 ms |
+| Upgrade the binary under load, keeping running jobs | under 200 ms | about 60 ms |
+| Harness overhead per turn | under 5 ms | to be measured |
+| Memory for 10,000 parked sessions and 50 active ones | under 1 GB | to be measured |
+
+**Every commit's test gate measures the first four, and fails the commit if one slips.** The payoff is concrete:
+restarting and upgrading are routine, never risky; the conversation in front of you feels immediate; and the scale
+in the next idea becomes possible. Ideas 1 and 2 are a large part of how Theseus gets there: no seams to cross, and
+judgment that costs a fraction of a second, not several seconds.
+
+### 4. One agent, many personas, thousands of tasks
+
+"Multi-agent" systems meet real needs. Work needs specialists, each with the right context, working in parallel so
+the work finishes sooner. But most frameworks meet those needs by making the agents truly separate: separate
+processes, often separate harness binaries, separate memories. Then, ironically, they try to share what each one
+knows by putting them all in the same chat channels.
+
+Theseus takes the opposite approach: **one agent, one source of truth, many views of it.**
+- **One graph** holds everything any agent would need: every message, tool call, result, task, judgment, and
+  summary, with typed edges between them. It is the single source of truth, built to be fast to query.
+- **Personas** are views, not separate agents: the same agent with a different role, different guidance, and
+  different context, chosen per conversation or per task.
+- **Tasks** are sessions of their own. A conversation hands work to a task, with its own budget and its own
+  context compiled from the same graph, and the task reports back when it's done. A task can wake the conversation
+  that started it, and wait on a person or a job.
+
+A task with nothing to do costs nothing: it is a small record on disk, not a process or a thread. So Theseus is
+built to hold **thousands of tasks at once**, with an admission scheduler running the ones that have work. The
+conversation you're in never waits behind them. And nothing is copied between agents, because there is only one.
+
+### 5. Context is compiled, not accumulated
+
+Most harnesses build a model's context by piling up a transcript until it overflows, then summarizing in a hurry.
+Theseus **compiles** each session's context from the graph:
+- **Every prompt has a manifest:** which nodes went in, which context files, which summaries, and why. You can always
+  answer "what was the model shown?"
+- **Append by default, recompile on need.** A long conversation grows like a plain transcript, so the provider's
+  prompt cache keeps working. It is recompiled only when something real changes: the window, the audience, the
+  persona, a policy, or (with Jev) the subject itself.
+- **Caching is designed in, not hoped for.** Sessions and tasks on a profile share one header, so they share one
+  cache entry. Context files sit in a block of their own, so editing one doesn't rewrite the rest. The size of each
+  request starts from the provider's own token counts, so the window isn't overrun by guesswork.
+- **Memory isn't a separate database.** Anything strong enough to be chosen for a prompt is memory. Recall fuses
+  keyword search, vector search, and named entities. Forgetting removes a node from every index. Each ingredient of
+  memory has to pass an exam before it's switched on.
+- **Provenance travels with the content.** Text that came from the web is marked as such, and with labels, anything
+  an audience may not see is never compiled into that audience's context.
+
+### The promises it keeps
+
+These hold whether or not the model behaves:
 - **Money is a gate, not a report.** Every model call reserves its worst-case cost against the session's budget
   before it runs. At the limit, Theseus stops and asks you, and only you can reset it.
-- **Speed is a tested contract.** Theseus answers about 30 milliseconds after it starts, and stops cleanly in
-  under 100, without losing work in flight. The test suite fails if those numbers slip, so restarting and
-  upgrading are routine, never risky.
-- **Reading the web stops the hands.** Once a session has read text from the internet, anything it does next
-  that acts on the world waits for your approval, until you say you trust it again. A web page can't talk your
-  agent into deleting your files.
+- **Reading the web stops the hands.** Once a session has read text from the internet, anything it does next that
+  acts on the world waits for your approval, until you say you trust it again. A web page can't talk your agent
+  into deleting your files.
 - **Nothing is ever lost or done twice.** Every action is written to disk before it is attempted, and its result
-  is written when it settles, the way a bank treats a payment. Kill Theseus at any moment, and it picks up exactly
-  where it was.
-- **Memory has to pass an exam before it ships.** Theseus has a memory exam with held-out questions, and recall
-  goes live only where it measurably helps.
+  when it settles, the way a bank treats a payment. Kill Theseus at any moment, and it picks up exactly where it
+  was. A stop is verified: a job that ignores the stop signal still ends, and nothing is left running.
+- **Memory has to pass an exam before it ships.** Theseus has a memory exam with held-out questions, and each part
+  of recall goes live only where it measurably helps.
+- **You can see everything.** The cockpit shows every session, model call, and tool call, live, down to the token.
+  The Narrative tells you in plain words what the harness is doing as it does it, at no token cost. The ledger keeps
+  every turn, call, approval, and dollar, and OpenTelemetry carries the same picture to any observability backend.
 
 As far as we could find, no other harness makes the money, speed, web, or memory promises (see [Theseus among the
-harnesses](docs/research/harness-landscape.md)). Durability you can test is rarer than it looks, but it isn't
-unique.
+harnesses](docs/research/harness-landscape.md)).
 
 ## What it's like to use
 
 - **You talk to it where you are:** a Discord DM or channel, the `theseus` command in a terminal, or the web.
-- **It shows its work.** Discord gets a quiet line per tool call. The terminal streams the reply, and the tool
-  calls as they happen. The web cockpit shows everything live:
-  - the sessions and what each one is doing;
-  - every model call, with its timing, tokens, cache hits, and cost;
-  - every tool call's whole life, from the moment it was planned to its result;
-  - the budget, the approvals waiting for you, and the complete ledger.
+- **It shows its work.** Discord gets a quiet line per tool call. The terminal streams the reply and the tool calls
+  as they happen. The web cockpit shows everything live, and any call opens into its whole story: what the model
+  asked, what the gate decided and why, each step's timing, the tokens, the cache, and the cost.
 - **It asks before acting, in proportion.** Reading is free. Writing files and running commands either notify you
   or wait for you, as you choose, tool by tool. An approval is bound to the exact command it was asked about.
 - **It works in the background.** A long job keeps running after the reply, and its result comes back to the
-  conversation, even across a restart. A conversation can start a background task with its own budget, and set
-  itself a reminder for later.
-- **You can always ask "why?"** Every turn, every call, every approval, and every dollar is in an append-only
-  ledger, timed, attributed, and kept.
+  conversation, even across a restart. A conversation can start a task with its own budget, and set itself a
+  reminder for later.
+- **You can always ask "why?"** Every turn, call, approval, and dollar is in an append-only ledger, timed,
+  attributed, and kept.
 
 ## Why it might interest you
 
-- **If you run agents for real work**, Theseus is built for you to see, audit, and trust what they do. It speaks
-  OpenTelemetry too, so any observability backend can watch it.
-- **If you care about reliable software**, Theseus treats an agent's tool calls with the discipline of a
-  payments system: write-ahead logging, idempotent completions, verified cancellation, and crash tests that kill
-  it at every step.
+- **If you run agents for real work**, Theseus is built for you to see, audit, and trust what they do, at a speed
+  that doesn't keep you waiting.
+- **If you think about agent architecture**, it is a working argument that one agent over one graph, with a fast
+  classifier in its loop, beats a crowd of agents passing notes.
+- **If you care about reliable software**, Theseus treats an agent's tool calls with the discipline of a payments
+  system: write-ahead logging, idempotent completions, verified cancellation, and crash tests that kill it at every
+  step.
 - **If you're curious how far AI can carefully build software**, Theseus is itself being built by AI agents
-  (Claude), under one person's direction, in small steps. Every step has to pass more than a thousand tests, a
-  speed bench, a live check against a running copy, and a written review. Every step's record, including where
-  it diverged from the plan and why, is in the design document's Part III.
-- **If you like small, opinionated tools**, it's a daemon and a command line that speak one protocol
-  (JSON-RPC), plus a Discord binding and a web UI. It is not a framework.
+  (Claude), under one person's direction, in small steps. Each step has to pass more than a thousand tests, the
+  speed budgets, a live check against a running copy, and a written review. The record of every step, including
+  where it diverged from the plan and why, is in the design document's Part III.
 
 ## Where it stands (October 2026)
 
-It works today:
+Working today:
 - Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
 - Built-in tools: files (read, write, edit, patch, search, list), git (diff and log), commands, web search and
   fetch, background tasks, and reminders.
+- Tasks with their own budgets that report back, and personas by context file.
+- The compiled context with its manifests, and caching across sessions.
 - Approvals from Discord, the terminal, or the web, including "approve, and trust this session".
 - A secret broker that hands a program only the credentials you've granted it.
-- Budgets in dollars, the cockpit, crash recovery, restore from a backup copy, and a systemd installer.
+- Budgets in dollars, the cockpit and The Narrative, crash recovery, restore from a backup copy, and a systemd
+  installer.
+- The speed budgets, enforced on every commit.
 
-Next on [the roadmap](docs/design/roadmap-v2.md):
-- sandboxes for code the agent writes;
-- a second model (Jev) that judges when work is done and which actions are safe;
-- memory and recall, measured by the exam;
-- MCP in both directions;
-- and an AWS account the agent owns, within hard limits.
+Built, and being wired in step by step on [the roadmap](docs/design/roadmap-v2.md):
+- **Jev in the loop:** its client and question packs are built. They go in with M5, in shadow first.
+- **Memory and recall**, measured by the exam: the index, vector search, and the memory math are built.
+- **Sandboxes** for code the agent writes, with an egress proxy that keeps credentials out of reach.
+- **AWS hands:** the client, the service catalog, the guardrails, and the account's templates are built. The
+  account comes under Theseus's ownership with spending tripwires by the month, the day, and the hour.
+- **MCP** in both directions, and **voice** in Discord.
 
 Theseus is early (version 0.0.1), runs on Linux, and has one daily user. Expect sharp edges.
 
