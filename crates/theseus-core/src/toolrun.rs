@@ -1400,6 +1400,14 @@ impl ToolRuntime {
             cwd: Some(spec.cwd.clone()),
             env,
             umask: theseus_kernel::umask::operator(),
+            // Each granted variable and its secret's name: the wrapper
+            // withholds the value from the job's raw output (theseus-l0d).
+            redact: brokered
+                .granted
+                .iter()
+                .filter_map(|g| Some((g.variable.clone()?, g.secret.clone())))
+                .filter(|(var, _)| brokered.env.iter().any(|(k, _)| k == var))
+                .collect(),
         };
         // Outbox: `dispatched` was durable before the process exists.
         let launched = self.launcher.launch(&spool, &args);

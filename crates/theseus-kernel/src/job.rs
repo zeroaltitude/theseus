@@ -44,6 +44,11 @@ pub struct WrapperArgs {
     /// files are made as the operator's shell would make them. `None`: the
     /// command keeps the wrapper's.
     pub umask: Option<u32>,
+    /// The broker's grants (theseus-l0d): each variable that holds a granted
+    /// secret, and the secret's name. Names only: the values reach the
+    /// wrapper as its environment, and it withholds each from the job's raw
+    /// output (`crate::redact`).
+    pub redact: Vec<(String, String)>,
 }
 
 impl std::fmt::Debug for WrapperArgs {
@@ -58,6 +63,7 @@ impl std::fmt::Debug for WrapperArgs {
             .field("cwd", &self.cwd)
             .field("env", &names)
             .field("umask", &self.umask.map(crate::umask::format))
+            .field("redact", &self.redact)
             .finish()
     }
 }
@@ -88,6 +94,9 @@ pub fn spawn_detached(
     }
     if let Some(u) = args.umask {
         cmd.arg("--umask").arg(crate::umask::format(u));
+    }
+    for (var, secret) in &args.redact {
+        cmd.arg("--redact").arg(format!("{var}={secret}"));
     }
     cmd.arg("--").args(&args.argv);
     cmd.env_clear();
@@ -141,8 +150,13 @@ pub const WRAPPER_MODE: &str = "job-wrapper";
 /// descendant remains, and only then exits. It kills nothing.
 pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
     let subreaper = crate::children::set_subreaper();
-    let spool = run(args, Reap::Descendants, subreaper.err())?;
+    let (spool, copier) = run(args, Reap::Descendants, subreaper.err())?;
     linger(&spool, &args.correlation_id);
+    // What a descendant printed after the report goes through the copy too,
+    // to the pipe's end, which comes once the last descendant has gone.
+    if let Some(mut c) = copier {
+        c.wait(crate::redact::DRAIN);
+    }
     Ok(())
 }
 
@@ -152,6 +166,29 @@ pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
 /// children.
 pub fn run_wrapper(args: &WrapperArgs) -> Result<()> {
     run(args, Reap::Command, None).map(|_| ())
+}
+
+/// The values the broker granted this job, each with its secret's name
+/// (theseus-l0d): in process, from the environment the job was given; in a
+/// wrapper process, from the wrapper's own, which is the job's.
+fn granted(args: &WrapperArgs, reap: Reap) -> Vec<(String, Vec<u8>)> {
+    use std::os::unix::ffi::OsStringExt;
+    args.redact
+        .iter()
+        .filter_map(|(var, secret)| {
+            let value = match reap {
+                Reap::Command => args
+                    .env
+                    .iter()
+                    .find(|(k, _)| k == var)?
+                    .1
+                    .clone()
+                    .into_bytes(),
+                Reap::Descendants => std::env::var_os(var)?.into_vec(),
+            };
+            Some((secret.clone(), value))
+        })
+        .collect()
 }
 
 /// What a wrapper waits for while its command runs.
@@ -164,8 +201,14 @@ enum Reap {
 }
 
 /// The command, its deadline, and the report. `subreaper_error` is why the
-/// wrapper could not become a subreaper, recorded in the completion.
-fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Result<Spool> {
+/// wrapper could not become a subreaper, recorded in the completion. With a
+/// granted secret, the copy of the command's output, which may outlive the
+/// report while a descendant holds the output open.
+fn run(
+    args: &WrapperArgs,
+    reap: Reap,
+    subreaper_error: Option<String>,
+) -> Result<(Spool, Option<crate::redact::Copier>)> {
     let spool = Spool::open(&args.spool_dir)?;
     let started = now_ms();
     let t0 = Instant::now();
@@ -185,13 +228,26 @@ fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Resul
         f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         f
     };
-    let err_file = out_file.try_clone()?;
+    // A granted value never reaches that file (theseus-l0d). With a grant,
+    // the command writes into a pipe, and a copy writes what it reads into
+    // the file with each granted value withheld. Without one, the command
+    // writes the file itself, as before, at no cost.
+    let redactor = crate::redact::Redactor::new(granted(args, reap));
+    let (stdout, stderr, mut copier) = if redactor.is_empty() {
+        let err_file = out_file.try_clone()?;
+        (Stdio::from(out_file), Stdio::from(err_file), None)
+    } else {
+        let (read, write) = std::io::pipe()?;
+        let err = write.try_clone()?;
+        let copier = crate::redact::Copier::spawn(read, out_file, redactor)?;
+        (Stdio::from(write), Stdio::from(err), Some(copier))
+    };
     let mut command = Command::new(&args.argv[0]);
     command
         .args(&args.argv[1..])
         .stdin(Stdio::null())
-        .stdout(Stdio::from(out_file))
-        .stderr(Stdio::from(err_file));
+        .stdout(stdout)
+        .stderr(stderr);
     if let Some(c) = &args.cwd {
         command.current_dir(c);
     }
@@ -261,6 +317,17 @@ fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Resul
             }
         }
     };
+    // The copy ends once the command and every descendant sharing its output
+    // have closed it (theseus-l0d). One that keeps it open does not hold the
+    // report: the copy goes on after it.
+    if let Some(c) = copier.as_mut() {
+        match c.wait(crate::redact::DRAIN) {
+            Some(Ok(0)) => {}
+            Some(Ok(n)) => detail["withheld"] = serde_json::json!(n),
+            Some(Err(e)) => detail["output_error"] = serde_json::Value::String(e),
+            None => detail["output_open"] = serde_json::Value::Bool(true),
+        }
+    }
     detail["duration_ms"] = serde_json::json!(t0.elapsed().as_millis() as u64);
     detail["bytes"] = serde_json::json!(std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0));
     detail["note"] = serde_json::Value::String(note);
@@ -281,7 +348,7 @@ fn run(args: &WrapperArgs, reap: Reap, subreaper_error: Option<String>) -> Resul
     if let Some(sock) = &args.notify_socket {
         notify(sock, &args.correlation_id);
     }
-    Ok(spool)
+    Ok((spool, copier))
 }
 
 /// Reap every child that has exited, orphans reparented here among them.
@@ -537,9 +604,17 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
     let mut notify_socket = None;
     let mut cwd = None;
     let mut umask = None;
+    let mut redact = Vec::new();
     let mut argv = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--redact" => {
+                let v = it.next().unwrap_or_default();
+                let (var, secret) = v
+                    .split_once('=')
+                    .with_context(|| format!("bad --redact {v:?}: VARIABLE=secret"))?;
+                redact.push((var.to_string(), secret.to_string()));
+            }
             "--umask" => {
                 let v = it.next().unwrap_or_default();
                 umask =
@@ -574,6 +649,7 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
         cwd,
         env: Vec::new(),
         umask,
+        redact,
     })
 }
 
@@ -608,6 +684,7 @@ mod tests {
             cwd: None,
             env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
             umask: None,
+            redact: vec![],
         };
         run_wrapper(&args).unwrap();
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "out\n");
@@ -642,6 +719,68 @@ mod tests {
             .map(String::from)
         )
         .is_err());
+    }
+
+    /// A job that prints its own granted value (theseus-l0d), split across
+    /// two writes, among other output on stdout and stderr: its raw output
+    /// holds everything else, byte for byte, and the value withheld, and the
+    /// completion counts it. `--redact` round-trips through the command line,
+    /// names only.
+    #[test]
+    fn a_granted_value_a_job_prints_never_reaches_its_raw_output() {
+        let d = tempfile::tempdir().unwrap();
+        let spool = Spool::open(d.path()).unwrap();
+        // 26 bytes: two halves of 13.
+        let value = "tv-invented_grant-5c1e9b7a";
+        let args = WrapperArgs {
+            spool_dir: d.path().to_path_buf(),
+            correlation_id: "act_grant".into(),
+            deadline_ms: 10_000,
+            notify_socket: None,
+            argv: vec![
+                "sh".into(),
+                "-c".into(),
+                "printf 'one\\n%s' \"${INVENTED_GRANT%?????????????}\"; sleep 0.2; \
+                 printf '%s two\\n' \"${INVENTED_GRANT#?????????????}\"; echo three >&2"
+                    .into(),
+            ],
+            cwd: None,
+            env: vec![
+                ("PATH".into(), std::env::var("PATH").unwrap_or_default()),
+                ("INVENTED_GRANT".into(), value.into()),
+            ],
+            umask: None,
+            redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
+        };
+        run_wrapper(&args).unwrap();
+        let out = std::fs::read(spool.result_path("act_grant")).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            "one\n[redacted:invented_grant] two\nthree\n"
+        );
+        let c = spool.read_completion("act_grant").unwrap().unwrap();
+        let detail = c.detail.unwrap();
+        assert_eq!(detail["withheld"], 1, "{detail}");
+        assert_eq!(detail["bytes"], out.len() as u64, "{detail}");
+        let parsed = parse_wrapper_args(
+            [
+                "--spool",
+                "/s",
+                "--correlation-id",
+                "act_x",
+                "--redact",
+                "GH_TOKEN=github_token",
+                "--",
+                "gh",
+            ]
+            .map(String::from),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.redact,
+            vec![("GH_TOKEN".to_string(), "github_token".to_string())]
+        );
+        assert!(!format!("{args:?}").contains(value), "Debug names only");
     }
 
     /// A wrapper is known by its command line, as `spawn_detached` makes it,

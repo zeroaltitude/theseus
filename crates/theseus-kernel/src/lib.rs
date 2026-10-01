@@ -15,6 +15,7 @@ pub mod job;
 pub mod kernel;
 mod locks;
 pub mod outbox;
+pub mod redact;
 pub mod spool;
 pub mod stops;
 pub mod tasks;

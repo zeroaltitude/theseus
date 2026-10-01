@@ -52,6 +52,7 @@ impl Rig {
             cwd: Some(self.dir.path().to_path_buf()),
             env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
             umask,
+            redact: vec![],
         };
         job::spawn_detached(
             Path::new(env!("CARGO_BIN_EXE_theseusd")),
@@ -302,4 +303,99 @@ fn a_cancel_leaves_a_process_that_took_the_wrappers_pid_alone() {
     assert!(alive(pid), "not the job's wrapper, so not signalled");
     let _ = other.kill();
     let _ = other.wait();
+}
+
+/// An invented granted value: 26 bytes, two halves of 13.
+const GRANTED: &str = "tv-invented_grant-5c1e9b7a";
+
+impl Rig {
+    /// `start`, with `INVENTED_GRANT` granted: its value in the wrapper's
+    /// environment, its name on the wrapper's command line (`--redact`), as
+    /// the daemon passes a broker's grant (theseus-l0d).
+    fn start_granted(&self, id: &str, script: &str) -> u32 {
+        let args = WrapperArgs {
+            spool_dir: self.spool.dir().to_path_buf(),
+            correlation_id: id.into(),
+            deadline_ms: 60_000,
+            notify_socket: None,
+            argv: vec![
+                "sh".into(),
+                "-c".into(),
+                script.into(),
+                "sh".into(),
+                self.dir.path().display().to_string(),
+            ],
+            cwd: Some(self.dir.path().to_path_buf()),
+            env: vec![
+                ("PATH".into(), std::env::var("PATH").unwrap_or_default()),
+                ("INVENTED_GRANT".into(), GRANTED.into()),
+            ],
+            umask: None,
+            redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
+        };
+        job::spawn_detached(
+            Path::new(env!("CARGO_BIN_EXE_theseusd")),
+            &[job::WRAPPER_MODE],
+            &self.spool,
+            &args,
+        )
+        .unwrap()
+    }
+}
+
+/// A job that prints its own granted value (theseus-l0d), through the
+/// wrapper process as the daemon runs it: split across two writes, among
+/// other output on stdout and stderr. Its spool file holds everything else,
+/// byte for byte, and the value withheld, and the completion counts it.
+#[test]
+fn a_granted_value_the_job_prints_never_reaches_its_spool_file() {
+    let rig = Rig::new();
+    let wrapper = rig.start_granted(
+        "act_grant",
+        "printf 'one\\n%s' \"${INVENTED_GRANT%?????????????}\"; sleep 0.3; \
+         printf '%s two\\n' \"${INVENTED_GRANT#?????????????}\"; echo three >&2",
+    );
+    let c = wait_for("the completion", || {
+        rig.spool.read_completion("act_grant").unwrap()
+    });
+    let out = std::fs::read(rig.spool.result_path("act_grant")).unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out),
+        "one\n[redacted:invented_grant] two\nthree\n"
+    );
+    let detail = c.detail.unwrap();
+    assert_eq!(detail["withheld"], 1, "{detail}");
+    assert!(detail.get("output_open").is_none(), "{detail}");
+    assert_eq!(detail["bytes"], out.len() as u64, "{detail}");
+    wait_for("the wrapper's exit", || (!alive(wrapper)).then_some(()));
+}
+
+/// A descendant that keeps the job's output open past the command's exit
+/// does not hold the report: the completion comes once the command exits,
+/// saying the output is still open. What the descendant prints later still
+/// goes through the copy, its granted value withheld, until the wrapper,
+/// lingering for it, exits.
+#[test]
+fn a_descendant_holding_the_output_neither_holds_the_report_nor_leaks_the_value() {
+    let rig = Rig::new();
+    let wrapper = rig.start_granted(
+        "act_late",
+        "( while [ ! -e release ] && [ -d \"$1\" ]; do sleep 0.02; done; \
+           printf 'late %s\\n' \"$INVENTED_GRANT\" ) & echo early",
+    );
+    let c = wait_for("the completion", || {
+        rig.spool.read_completion("act_late").unwrap()
+    });
+    let detail = c.detail.unwrap();
+    assert_eq!(detail["output_open"], true, "{detail}");
+    assert_eq!(
+        std::fs::read_to_string(rig.spool.result_path("act_late")).unwrap(),
+        "early\n"
+    );
+    std::fs::write(rig.path("release"), "").unwrap();
+    wait_for("the wrapper's exit", || (!alive(wrapper)).then_some(()));
+    assert_eq!(
+        std::fs::read_to_string(rig.spool.result_path("act_late")).unwrap(),
+        "early\nlate [redacted:invented_grant]\n"
+    );
 }

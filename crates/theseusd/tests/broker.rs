@@ -452,3 +452,107 @@ fn a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does() {
         "the scan reads the store: the variable's name is there"
     );
 }
+
+/// A program that prints its own granted secret (theseus-l0d), as `gh auth
+/// token` does: it prints `GH_TOKEN` split across two writes, among other
+/// output on stdout and stderr, then waits to be let go. While it waits, its
+/// spool file holds everything it printed, byte for byte, with the value
+/// withheld; once it ends, no file under the state dir, no surface, and not
+/// the log holds the value, and the ledger counts the withheld value.
+#[test]
+fn a_program_that_prints_its_granted_secret_leaves_it_nowhere() {
+    let r = Rig::start();
+    let value = format!("tv-github_token{MARK}");
+    let release = r.path("release");
+    // `tv-github_t` and `oken-7f3a9c`: the halves of the value, 11 bytes each.
+    let stub = format!(
+        "#!/bin/sh\n\
+         printf 'line one\\nthe token: %s' \"${{GH_TOKEN%???????????}}\"\n\
+         sleep 0.3\n\
+         printf '%s, done\\n' \"${{GH_TOKEN#???????????}}\"\n\
+         echo 'on stderr' >&2\n\
+         while [ ! -e '{}' ]; do sleep 0.05; done\n\
+         echo released\n",
+        release.display()
+    );
+    // This rig's `gh`, the program granted GH_TOKEN, prints it now.
+    std::fs::write(r.path("bin/gh"), stub).unwrap();
+    r.asks("print it", &["gh"]);
+    let turn = std::thread::spawn({
+        let sock = r.path("sock");
+        move || {
+            let call = |method: &str, params: Value| -> Value {
+                let s = UnixStream::connect(&sock).unwrap();
+                s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+                let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+                (&s).write_all(format!("{req}\n").as_bytes()).unwrap();
+                for line in BufReader::new(&s).lines() {
+                    let v: Value = serde_json::from_str(&line.unwrap()).unwrap();
+                    if v["id"] == 1 {
+                        return v["result"].clone();
+                    }
+                }
+                panic!("the connection closed");
+            };
+            let s = call("session.open", json!({"label": "print it"}));
+            call(
+                "turn.submit",
+                json!({"session_id": s["session_id"], "input": "print it", "author": "test", "attachments": []}),
+            );
+            s["session_id"].clone()
+        }
+    });
+    let want = "line one\nthe token: [redacted:github_token], done\non stderr\n";
+    let results = r.path("state/spool/results");
+    let out = r.wait("the job's output in the spool", || {
+        let f = std::fs::read_dir(&results)
+            .ok()?
+            .flatten()
+            .find(|e| e.path().extension().is_some_and(|x| x == "out"))?;
+        let b = std::fs::read(f.path()).ok()?;
+        (b.len() >= want.len()).then_some(b)
+    });
+    assert_eq!(
+        String::from_utf8_lossy(&out),
+        want,
+        "the spool file, while the job runs"
+    );
+    std::fs::write(&release, "").unwrap();
+    let session = turn.join().unwrap();
+    let text = r.wait("the job's result", || {
+        let t = r.results(&session);
+        t.contains("released").then_some(t)
+    });
+    assert!(
+        text.contains("the token: [redacted:github_token], done"),
+        "{text}"
+    );
+    assert!(!text.contains(&value));
+    // The result's node keeps the job's report, which counts the value.
+    let nodes = r
+        .call(
+            "node.list",
+            json!({"session_id": session, "kind": "tool_result"}),
+        )
+        .unwrap();
+    let report = &nodes["nodes"][0]["detail"]["meta"]["detail"];
+    assert_eq!(report["withheld"], 1, "{nodes}");
+    // Nowhere: the store, the spool, the log, and every surface.
+    assert_eq!(
+        holding(&r.path("state"), value.as_bytes()),
+        Vec::<PathBuf>::new()
+    );
+    assert_eq!(
+        holding(&r.path("theseusd.log"), value.as_bytes()),
+        Vec::<PathBuf>::new()
+    );
+    for (method, params) in [
+        ("session.history", json!({"session_id": session})),
+        ("ledger.tail", json!({"n": 2000})),
+        ("narrative.watch", Value::Null),
+        ("health", Value::Null),
+    ] {
+        let got = r.call(method, params).unwrap_or_else(|e| e).to_string();
+        assert!(!got.contains(&value), "{method} holds the value");
+    }
+}
