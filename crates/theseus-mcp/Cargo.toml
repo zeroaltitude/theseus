@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
+[package.metadata.theseus]
+reserved_for = "row 66 (36b), M7: McpBoard and [mcp.servers], MCP tools in turns; the server side at row 72 (41b)"
+
 [features]
 default = ["server"]
 # Theseus's own MCP server (`server`, step 41), on axum. The core's client

@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
+[package.metadata.theseus]
+tool = "installed beside theseusd and theseus: the gate's lifecycle bench, the crash test, kernel-sim, and the fake Discord"
+
 [[bin]]
 name = "theseus-sim"
 path = "src/main.rs"
