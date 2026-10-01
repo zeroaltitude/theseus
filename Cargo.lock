@@ -2956,6 +2956,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "theseus-exam"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "theseus-core",
+ "theseus-kernel",
+ "theseus-protocol",
+ "theseus-store",
+ "toml",
+]
+
+[[package]]
 name = "theseus-judge"
 version = "0.0.1"
 dependencies = [

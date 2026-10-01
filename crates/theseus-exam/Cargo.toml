@@ -1,0 +1,31 @@
+[package]
+name = "theseus-exam"
+description = "M6's memory exam (step 34a): items whose success needs something from an earlier session, a fixture writer that puts their past into a scratch store, the check language that scores an answer, the paired statistics, and the headroom run's driver (arms `none` and `oracle`) over a scratch daemon's socket."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "theseus-exam"
+path = "src/main.rs"
+
+[dependencies]
+theseus-core.workspace = true
+theseus-kernel.workspace = true
+theseus-protocol.workspace = true
+theseus-store.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+regex = "1.13.1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
