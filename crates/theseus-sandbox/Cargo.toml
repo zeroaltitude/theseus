@@ -1,0 +1,30 @@
+[package]
+name = "theseus-sandbox"
+description = "L1, the native sandbox (M4 step 17a; 18b's egress proxy): a job in its own user, pid, mount, network, uts, ipc, and cgroup namespaces, over a view built from an empty root, in a nested user namespace so that it runs as the operator's uid with no capabilities, under no_new_privs and a seccomp deny list, below an init whose exit kills the whole tree."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libc = "0.2"
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+# The contract (design §7, one test per clause) and the spawn bench re-exec
+# their own binary as the sandbox's init and as the probe inside it, so they
+# bring their own small harness (nextest's list-and-exact protocol).
+[[test]]
+name = "contract"
+harness = false
+
+[[test]]
+name = "bench"
+harness = false
+
+[lints]
+workspace = true
