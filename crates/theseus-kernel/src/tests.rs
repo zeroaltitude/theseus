@@ -512,6 +512,182 @@ fn cancel_of_dispatched_job_then_late_completion_does_not_revive() {
     assert!(w.kernel.admit(&e.id).is_err());
 }
 
+/// A cancel ends what its execution planned and never sent, in its own
+/// frame (theseus-w98). A call waiting for the operator, a call planned, and
+/// one authorized but not dispatched each settle `Cancelled`, their
+/// resolution "the execution was cancelled by eddie", their reservations
+/// released, with an `action.cancelled` row each. The caller gets them, told
+/// that a turn held the execution, and only the dispatched job is left to
+/// kill. Nothing waits for the operator now. The turn that planned them hears
+/// the cancel when it goes on, as before: its authorize and its dispatch are
+/// refused as `NotRunnable`, and a confirm finds nothing waiting.
+#[test]
+fn a_cancel_ends_what_its_execution_planned_and_never_sent() {
+    let w = world();
+    let (sid, e, g) = running(&w);
+    let ask = proposal("fs.write");
+    let waiting = w
+        .kernel
+        .plan_confirm_with(&g, &ask, RetryClass::NonRepeatable, None, |_| Ok(vec![]))
+        .unwrap();
+    let read = proposal("fs.read");
+    let planned = w
+        .kernel
+        .plan_action(&g, &read, RetryClass::SafeToRepeat, None, 300)
+        .unwrap();
+    let run = proposal("proc.run");
+    let authorized = w
+        .kernel
+        .plan_action(&g, &run, RetryClass::SafeToRepeat, None, 200)
+        .unwrap();
+    w.kernel
+        .authorize(&authorized.correlation_id, &run, None)
+        .unwrap();
+    let job = dispatched(&w, &g, "proc.run", 50);
+    // The call between its plan and its authorization counts as waiting
+    // too: `awaits_confirm` cannot tell it from one the operator was asked.
+    // The product never leaves a call there (`plan_and_dispatch` is one
+    // frame); this one is planned through the kernel directly.
+    assert_eq!(w.kernel.pending_confirms().unwrap().len(), 2);
+    let held = |w: &World| {
+        w.kernel
+            .execution(&e.id)
+            .unwrap()
+            .unwrap()
+            .budget
+            .reserved_micros
+    };
+    assert_eq!(held(&w), 550);
+
+    let mut seen = None;
+    let cancel = w
+        .kernel
+        .cancel_execution_with(&e.id, "eddie", |end| {
+            seen = Some((end.turn_running, end.not_run.len(), end.execution.state));
+            Ok(vec![])
+        })
+        .unwrap();
+    assert_eq!(seen, Some((true, 3, ExecState::Cancelled)));
+    assert_eq!(cancel.to_kill, vec![job.correlation_id.clone()]);
+    let mut ended: Vec<_> = cancel
+        .not_run
+        .iter()
+        .map(|a| a.correlation_id.clone())
+        .collect();
+    let mut want = vec![
+        waiting.correlation_id.clone(),
+        planned.correlation_id.clone(),
+        authorized.correlation_id.clone(),
+    ];
+    ended.sort();
+    want.sort();
+    assert_eq!(ended, want);
+    for c in &want {
+        let a = w.kernel.action(c).unwrap().unwrap();
+        assert_eq!(a.state, ActionState::Cancelled, "{c}");
+        assert_eq!(
+            a.resolution.as_deref(),
+            Some("the execution was cancelled by eddie")
+        );
+    }
+    assert!(w.kernel.pending_confirms().unwrap().is_empty());
+    assert_eq!(
+        held(&w),
+        50,
+        "only the dispatched job's reservation is held"
+    );
+    assert_eq!(rows(&w, &sid, "action.cancelled").len(), 3);
+    let row = &rows(&w, &sid, "execution.cancelled")[0];
+    assert_eq!(row["not_run"].as_array().unwrap().len(), 3);
+    assert_eq!(row["outstanding"], json!([job.correlation_id]));
+
+    // The turn goes on, and hears the cancel as it did before.
+    let refused = |r: anyhow::Result<Action>| {
+        matches!(
+            r.unwrap_err().downcast_ref::<KernelError>(),
+            Some(KernelError::NotRunnable {
+                state: "cancelled",
+                ..
+            })
+        )
+    };
+    assert!(refused(w.kernel.authorize(
+        &planned.correlation_id,
+        &read,
+        None
+    )));
+    assert!(refused(w.kernel.dispatch(&authorized.correlation_id, None)));
+    assert!(matches!(
+        w.kernel
+            .authorize_and_dispatch(&waiting.correlation_id, &ask, None, None)
+            .unwrap_err()
+            .downcast_ref::<KernelError>(),
+        Some(KernelError::NotRunnable { .. })
+    ));
+    assert!(w
+        .kernel
+        .bind_confirm(&waiting.correlation_id, "eddie", &ask)
+        .is_err());
+    // A second cancel finds nothing more to end.
+    let again = w
+        .kernel
+        .cancel_execution_with(&e.id, "eddie", |_| panic!("cancelled once"))
+        .unwrap();
+    assert!(again.to_kill.is_empty() && again.not_run.is_empty());
+    drop(g);
+}
+
+/// A turn that ends its execution ends what it planned and never sent
+/// (theseus-w98), as a cancel does: a call a crash left planned, and one
+/// waiting for the operator, settle `Cancelled` with "the execution ended
+/// (complete)", and their reservations are released.
+#[test]
+fn an_execution_that_ends_ends_what_it_planned_and_never_sent() {
+    let w = world();
+    let (sid, _e, g) = running(&w);
+    let left = w
+        .kernel
+        .plan_action(
+            &g,
+            &proposal("fs.read"),
+            RetryClass::SafeToRepeat,
+            None,
+            100,
+        )
+        .unwrap();
+    let asked = w
+        .kernel
+        .plan_confirm_with(
+            &g,
+            &proposal("fs.write"),
+            RetryClass::NonRepeatable,
+            None,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+    let e = w
+        .kernel
+        .end_turn(
+            g,
+            TurnEnd::Complete {
+                reason: "done".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(e.state, ExecState::Complete);
+    for c in [&left.correlation_id, &asked.correlation_id] {
+        let a = w.kernel.action(c).unwrap().unwrap();
+        assert_eq!(a.state, ActionState::Cancelled, "{c}");
+        assert_eq!(
+            a.resolution.as_deref(),
+            Some("the execution ended (complete)")
+        );
+    }
+    assert_eq!(e.budget.reserved_micros, 0);
+    assert!(w.kernel.pending_confirms().unwrap().is_empty());
+    assert_eq!(rows(&w, &sid, "action.cancelled").len(), 2);
+}
+
 #[test]
 fn unknown_then_genuine_success_resolves_and_budget_moves_held_to_spent() {
     let w = world();

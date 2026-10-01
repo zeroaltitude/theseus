@@ -34,8 +34,9 @@ mod tests_wakes;
 pub use clock::{Clock, RealClock, VirtualClock};
 pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{
-    Accepted, Evidence, Kernel, KernelConfig, KernelError, KernelStats, LegacySpend, LimitFollowed,
-    NoEvidence, Probe, ReconcileReport, StartupReport, TurnEnd, TurnGuard,
+    Accepted, Cancel, Ending, Evidence, Kernel, KernelConfig, KernelError, KernelStats,
+    LegacySpend, LimitFollowed, NoEvidence, Probe, ReconcileReport, StartupReport, TurnEnd,
+    TurnGuard,
 };
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
 pub use spool::Spool;

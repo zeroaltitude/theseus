@@ -152,16 +152,48 @@ impl Core {
     /// processes the spool knows about and walks each action's cancel lifecycle.
     /// A task says it was cancelled where it reports, once, in the cancel's
     /// frame (DD7).
+    ///
+    /// What the execution planned and never sent is cancelled in that frame
+    /// too (theseus-w98): each tool call gets its result there, "Not run: the
+    /// execution was cancelled by …", as the session's next turn would have
+    /// written it, unless a turn holds the execution, whose transcript is its
+    /// own. Then each question's card settles where it was posted, and the
+    /// session's watchers hear that it closed.
     pub fn cancel_execution(&self, id: &str, by: &str) -> Result<(Execution, Vec<String>)> {
         let mut report = None;
-        let to_kill = self.kernel.cancel_execution_with(id, by, |e| {
-            let (records, post) = crate::task::cancelled_report(&self.outbox, &self.store, e)?;
+        let cancel = self.kernel.cancel_execution_with(id, by, |end| {
+            let (mut records, post) =
+                crate::task::cancelled_report(&self.outbox, &self.store, end.execution)?;
             report = post;
+            if !end.turn_running {
+                records.extend(crate::toolrun::not_run_results(
+                    &self.store,
+                    &end.execution.session_id,
+                    end.not_run,
+                )?);
+            }
             Ok(records)
         })?;
         if let Some(post) = report {
             self.outbox.posted(&post);
         }
+        for a in &cancel.not_run {
+            if let Some(how) = crate::outbox::Closed::of(a) {
+                if let Err(e) = self.outbox.closed(&a.correlation_id, how) {
+                    tracing::warn!(error = %format!("{e:#}"), "a cancelled question's settle was not written");
+                }
+            }
+            // A question the operator was asked: a tool call waiting for an
+            // answer, or the budget question. Each keeps its proposal.
+            if a.proposal.is_some() && a.confirm.is_none() {
+                EventSink::new(self.bus.clone(), &a.session_id, None).send(
+                    theseus_protocol::notify::CONFIRM_RESOLVED,
+                    serde_json::json!({"session_id": a.session_id, "correlation_id": a.correlation_id,
+                        "approved": false, "cancelled": true, "by": by}),
+                );
+            }
+        }
+        let to_kill = cancel.to_kill;
         self.terminate_all(&to_kill);
         self.admission.notify_waiters();
         let e = self

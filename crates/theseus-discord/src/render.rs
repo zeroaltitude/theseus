@@ -470,15 +470,22 @@ impl Renderer {
                     .and_then(Value::as_str)
                     .unwrap_or("the operator")
                     .to_string();
+                // Its execution was cancelled before an answer: no one
+                // declined it, and it never ran (theseus-w98).
+                let cancelled = p.get("cancelled").and_then(Value::as_bool) == Some(true);
                 for t in self.turns.iter_mut() {
                     for lv in t.loops.values_mut() {
                         for l in lv.tools.iter_mut() {
                             if l.correlation_id.as_deref() == Some(corr.as_str())
                                 && l.state == ToolState::Waiting
                             {
-                                l.state = ToolState::Answered {
-                                    approved,
-                                    by: by.clone(),
+                                l.state = if cancelled {
+                                    ToolState::NotRun
+                                } else {
+                                    ToolState::Answered {
+                                        approved,
+                                        by: by.clone(),
+                                    }
                                 };
                                 t.dirty = true;
                             }
@@ -2002,6 +2009,27 @@ mod tests {
             tools[0].1.contains("approved by discord:eddie"),
             "{tools:?}"
         );
+    }
+
+    /// A call whose execution was cancelled before an answer reads as not
+    /// run, never as declined: no one declined it (theseus-w98).
+    #[test]
+    fn a_waiting_call_its_cancel_closed_reads_as_not_run() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
+            "input": {"argv": ["cargo", "test"]}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
+        r.on_notification(
+            "confirm.requested",
+            &serde_json::to_value(waiting_write()).unwrap(),
+        );
+        r.on_notification(
+            "confirm.resolved",
+            &json!({"correlation_id": "act_1", "approved": false, "cancelled": true, "by": "cli"}),
+        );
+        let tools = upserts(&r.tick());
+        assert!(tools[0].1.contains("· not run"), "{tools:?}");
+        assert!(!tools[0].1.contains("declined"), "{tools:?}");
     }
 
     /// A budget question takes the same route as a tool call.

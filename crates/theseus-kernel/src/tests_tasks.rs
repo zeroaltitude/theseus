@@ -287,9 +287,9 @@ fn a_cancelled_task_reports_once_and_releases_its_carve() {
     let (parent, _g, task, _) = with_task(&w, 30_000);
     let mut calls = 0;
     w.kernel
-        .cancel_execution_with(&task.id, "discord:eddie", |t| {
+        .cancel_execution_with(&task.id, "discord:eddie", |end| {
             calls += 1;
-            assert_eq!(t.state, ExecState::Cancelled);
+            assert_eq!(end.execution.state, ExecState::Cancelled);
             Ok(vec![])
         })
         .unwrap();

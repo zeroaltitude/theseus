@@ -267,6 +267,31 @@ impl Evidence for NoEvidence {
     }
 }
 
+/// What `cancel_execution_with` did.
+#[derive(Debug, Clone, Default)]
+pub struct Cancel {
+    /// The dispatched calls and jobs now told to stop: the caller terminates
+    /// their backends and walks each one's cancel.
+    pub to_kill: Vec<CorrelationId>,
+    /// What the execution planned and never sent, each now `Cancelled`
+    /// (theseus-w98): tool calls, those waiting for the operator among them,
+    /// and the budget question.
+    pub not_run: Vec<Action>,
+}
+
+/// What a cancel ended, for the records its caller writes in the cancel's
+/// own frame (`cancel_execution_with`).
+#[derive(Debug)]
+pub struct Ending<'a> {
+    /// The execution as the cancel leaves it.
+    pub execution: &'a Execution,
+    /// What it planned and never sent, as the cancel leaves each one.
+    pub not_run: &'a [Action],
+    /// A turn held the execution when the cancel came: its transcript is the
+    /// turn's to write, and the turn ends at its next step.
+    pub turn_running: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReconcileReport {
     pub woke_due: Vec<ExecutionId>,
@@ -1087,18 +1112,14 @@ impl Kernel {
         // Ending with work still outstanding is a cancel of that work: the
         // actions get `cancel_requested` in the same frame and the harness
         // terminates their backends (they stay in `outstanding` until verified).
-        // An open budget question closes with the execution.
+        // What it planned and never sent closes with it, the budget question
+        // among them (theseus-w98).
         if e.state.is_terminal() {
-            if let Some(qid) = e.budget.question.take() {
-                e.budget.question_needs_micros = 0;
-                if let Some(mut q) = self.action(&qid)? {
-                    if q.state == ActionState::Planned {
-                        q.state = ActionState::Cancelled;
-                        q.settled_at_ms = Some(now);
-                        q.resolution = Some(format!("the execution ended ({})", e.state.as_str()));
-                        frame.push(action_record(&q)?);
-                    }
-                }
+            let why = format!("the execution ended ({})", e.state.as_str());
+            if !self
+                .end_unsent(&mut e, "the harness", &why, &mut frame)?
+                .is_empty()
+            {
                 frame[0] = exec_record(&e)?;
             }
             // Its wakes end with it (DD8).
@@ -1708,9 +1729,39 @@ impl Kernel {
         confirm_required_from: Option<&str>,
     ) -> Result<Action> {
         let (_w, mut a) = self.locked_known_action(correlation_id)?;
+        if let Some(end) = self.ended_with_execution(&a)? {
+            return Err(end);
+        }
         let frame = self.authorize_frame(&mut a, proposal, confirm_required_from)?;
         self.commit(&frame)?;
         Ok(a)
+    }
+
+    /// The refusal for a transition of `a`, which the end of its execution
+    /// already settled: a cancel settles everything the execution planned
+    /// and never sent (theseus-w98), and a stop declines it (W1). The turn
+    /// that planned it hears what `dispatch` tells it when the cancel or the
+    /// stop comes first: the execution is cancelled, or stopped. `None` for
+    /// any other action.
+    fn ended_with_execution(&self, a: &Action) -> Result<Option<anyhow::Error>> {
+        if a.state != ActionState::Cancelled {
+            return Ok(None);
+        }
+        let Some(e) = self.execution(&a.execution_id)? else {
+            return Ok(None);
+        };
+        Ok(if e.state == ExecState::Cancelled {
+            Some(
+                KernelError::NotRunnable {
+                    id: e.id,
+                    state: "cancelled",
+                }
+                .into(),
+            )
+        } else {
+            e.stopped
+                .map(|s| KernelError::Stopped { id: e.id, by: s.by }.into())
+        })
     }
 
     /// `authorize`'s checks on `a`, and its frame: the action authorized and
@@ -1777,6 +1828,9 @@ impl Kernel {
     /// outbox). The execution records the action as outstanding.
     pub fn dispatch(&self, correlation_id: &str, external_op_id: Option<&str>) -> Result<Action> {
         let (_w, a) = self.locked_known_action(correlation_id)?;
+        if let Some(end) = self.ended_with_execution(&a)? {
+            return Err(end);
+        }
         if a.state != ActionState::Authorized {
             return Err(KernelError::ActionState {
                 correlation_id: a.correlation_id.clone(),
@@ -1792,9 +1846,11 @@ impl Kernel {
     /// confirmed (theseus-l6y). Each keeps its record and row, in that
     /// order, so the WAL reads as the two transitions did in two frames.
     /// `Ok(Err(why))`: the confirm no longer holds (`authorize`'s refusal),
-    /// and nothing was written. A cancel or a stop that landed first writes
-    /// the authorization and the action's cancel in the one frame, and is the
-    /// error, as `dispatch` returns it.
+    /// and nothing was written. A cancel or a stop that landed first is the
+    /// error, as `dispatch` returns it. It settled the action itself, so
+    /// nothing is written (theseus-w98), except for an action an older
+    /// build's cancel left planned: that frame writes the authorization and
+    /// the action's cancel.
     pub fn authorize_and_dispatch(
         &self,
         correlation_id: &str,
@@ -1803,6 +1859,9 @@ impl Kernel {
         external_op_id: Option<&str>,
     ) -> Result<Result<Action>> {
         let (_w, mut a) = self.locked_known_action(correlation_id)?;
+        if let Some(end) = self.ended_with_execution(&a)? {
+            return Err(end);
+        }
         let authorized = match self.authorize_frame(&mut a, proposal, confirm_required_from) {
             Ok(frame) => frame,
             Err(why) => return Ok(Err(why)),
@@ -2143,28 +2202,41 @@ impl Kernel {
     /// through admission or Jev. Returns the correlation ids whose backends
     /// must now be terminated.
     pub fn cancel_execution(&self, execution_id: &str, by: &str) -> Result<Vec<CorrelationId>> {
-        self.cancel_execution_with(execution_id, by, |_| Ok(vec![]))
+        Ok(self
+            .cancel_execution_with(execution_id, by, |_| Ok(vec![]))?
+            .to_kill)
     }
 
-    /// `cancel_execution`, with records `extra` builds from the cancelled
-    /// execution in the same frame: a task's report that it was cancelled
-    /// (DD7). `extra` runs only when this call cancels it, so a second
-    /// cancel writes nothing, and says nothing twice. A task reaches its
-    /// parent here as it does at `end_turn`.
+    /// `cancel_execution`, with records `extra` builds from what the cancel
+    /// ended, in the same frame: a task's report that it was cancelled (DD7),
+    /// and the result of each tool call it planned and never sent
+    /// (theseus-w98). `extra` runs only when this call cancels it, so a
+    /// second cancel writes nothing, and says nothing twice. A task reaches
+    /// its parent here as it does at `end_turn`.
+    ///
+    /// Everything the execution planned and never sent ends in this frame:
+    /// a tool call waiting for the operator, a call planned or authorized and
+    /// not yet dispatched, and the budget question. Each settles `Cancelled`,
+    /// its resolution "the execution was cancelled by <by>", its reservation
+    /// released, with an `action.cancelled` row; nothing can run it now, and
+    /// nothing counts it as waiting (theseus-w98). Only a dispatched call has
+    /// a backend to stop: it is marked `cancel = requested` and returned in
+    /// `to_kill`.
     pub fn cancel_execution_with(
         &self,
         execution_id: &str,
         by: &str,
-        extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
-    ) -> Result<Vec<CorrelationId>> {
+        extra: impl FnOnce(&Ending<'_>) -> Result<Vec<NewRecord>>,
+    ) -> Result<Cancel> {
         let _w = self.lock_family(execution_id)?;
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
         if e.state.is_terminal() {
-            return Ok(vec![]);
+            return Ok(Cancel::default());
         }
         let now = self.now_ms();
+        let turn_running = e.state == ExecState::Running;
         e.state = ExecState::Cancelled;
         e.cancel = Some(CancelState::Requested);
         e.ended_reason = Some(format!("cancelled by {by}"));
@@ -2173,18 +2245,8 @@ impl Kernel {
         e.report_wakes.clear();
         e.updated_at_ms = now;
         let mut frame = Vec::new();
-        // An open budget question closes with the execution: nothing waits on it now.
-        e.budget.question_needs_micros = 0;
-        if let Some(qid) = e.budget.question.take() {
-            if let Some(mut q) = self.action(&qid)? {
-                if q.state == ActionState::Planned {
-                    q.state = ActionState::Cancelled;
-                    q.settled_at_ms = Some(now);
-                    q.resolution = Some(format!("the execution was cancelled by {by}"));
-                    frame.push(action_record(&q)?);
-                }
-            }
-        }
+        let why = format!("the execution was cancelled by {by}");
+        let not_run = self.end_unsent(&mut e, by, &why, &mut frame)?;
         // Its wakes end with it (DD8): `/stop` and a cancel clear them.
         self.drop_wakes(&mut e, by, "the execution was cancelled", &mut frame)?;
         frame.insert(0, exec_record(&e)?);
@@ -2198,16 +2260,59 @@ impl Kernel {
                 }
             }
         }
-        // Planned/authorized actions that never dispatched are simply cancelled.
         frame.push(self.ledger(
             "execution.cancelled",
             Some(&e.session_id),
-            json!({"execution_id": e.id, "by": by, "outstanding": to_kill}),
+            json!({"execution_id": e.id, "by": by, "outstanding": to_kill,
+                   "not_run": not_run.iter().map(|a| a.correlation_id.as_str()).collect::<Vec<_>>()}),
         )?);
         self.task_ended(&e, &mut frame)?;
-        frame.extend(extra(&e)?);
+        frame.extend(extra(&Ending {
+            execution: &e,
+            not_run: &not_run,
+            turn_running,
+        })?);
         self.commit(&frame)?;
-        Ok(to_kill)
+        Ok(Cancel { to_kill, not_run })
+    }
+
+    /// Settle everything `e` planned and never sent, as `e` ends: a cancel,
+    /// or a turn that ends it (theseus-w98). Each action of `e` planned or
+    /// authorized and not yet dispatched (a tool call waiting for the
+    /// operator, a call a crash left between its plan and its dispatch, the
+    /// budget question) settles `Cancelled` with `why` as its resolution, its
+    /// reservation released, in `frame`, with an `action.cancelled` row. The
+    /// caller writes `e` after. Returns them as they are now.
+    fn end_unsent(
+        &self,
+        e: &mut Execution,
+        by: &str,
+        why: &str,
+        frame: &mut Vec<NewRecord>,
+    ) -> Result<Vec<Action>> {
+        e.budget.question = None;
+        e.budget.question_needs_micros = 0;
+        let now = self.now_ms();
+        let mut ended = Vec::new();
+        for mut a in self.open_actions()?.into_iter().filter(|a| {
+            a.execution_id == e.id
+                && matches!(a.state, ActionState::Planned | ActionState::Authorized)
+        }) {
+            a.state = ActionState::Cancelled;
+            a.settled_at_ms = Some(now);
+            a.resolution = Some(why.to_string());
+            if let Some(r) = &a.reservation_id {
+                settle_reservation_in(&mut e.budget, r, Some(0));
+            }
+            frame.push(action_record(&a)?);
+            frame.push(self.ledger(
+                "action.cancelled",
+                Some(&a.session_id),
+                json!({"correlation_id": a.correlation_id, "tool": a.tool, "by": by, "why": why}),
+            )?);
+            ended.push(a);
+        }
+        Ok(ended)
     }
 
     /// The backend acknowledged the cancel (signal delivered, stop requested).

@@ -2599,6 +2599,13 @@ impl Printer {
                         "  ✗ superseded {} (a new message arrived before an answer)",
                         s("correlation_id")
                     );
+                } else if p.get("cancelled").and_then(Value::as_bool) == Some(true) {
+                    // Its execution was cancelled before an answer (theseus-w98).
+                    eprintln!(
+                        "  ✗ cancelled {} (its execution was cancelled by {})",
+                        s("correlation_id"),
+                        s("by")
+                    );
                 } else {
                     eprintln!(
                         "  {} {} (by {})",

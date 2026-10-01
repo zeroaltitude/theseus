@@ -59,6 +59,13 @@
 //! thread does, not how they interleave, so a run with races reproduces from
 //! its seed only up to its first race; `--p-race 0` is the sim as it was, one
 //! thread, reproducible throughout.
+//!
+//! Some turns ask the operator about a call and park on the answer
+//! (theseus-w98); the answer is a decline or new input in its place, and a
+//! cancel may come first. One more invariant: an execution that has ended
+//! has no action planned or authorized. A cancel settles everything its
+//! execution planned and never sent, and so does a turn that ends it, so
+//! nothing of it counts as waiting, and nothing of it can still run.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -111,6 +118,11 @@ pub struct SimReport {
     pub budget_questions: u64,
     pub budget_resets: u64,
     pub budget_declines: u64,
+    /// theseus-w98: calls that waited for the operator, those declined (or
+    /// superseded), and the actions a cancel ended before they were sent.
+    pub asked: u64,
+    pub asked_declined: u64,
+    pub ended_unsent: u64,
     /// Actions planned, authorized, and dispatched in one frame.
     pub one_frame_dispatches: u64,
     /// theseus-l6y: actions authorized and dispatched in one frame; turns an
@@ -547,7 +559,11 @@ impl World {
             return self.cancel_one();
         }
         if roll % 2 == 0 {
-            return self.answer_budget();
+            return if self.chance(0.5) {
+                self.answer_budget()
+            } else {
+                self.answer_confirm()
+            };
         }
         // Wake a waiting conversation with input; on a budget wait, new
         // input is how its next call asks again.
@@ -695,6 +711,11 @@ impl World {
         }
         if self.chance(0.25) {
             return self.take_a_batch(&exec_id);
+        }
+        // A tenth of the rest ask the operator about a call and park on the
+        // answer (theseus-w98): a decline, new input, or a cancel ends it.
+        if self.chance(0.1) {
+            return self.ask_the_operator(&exec_id);
         }
         // 0..=2 actions.
         let n_actions = self.rng.random_range(0..=2);
@@ -853,6 +874,81 @@ impl World {
         if e.state.is_terminal() {
             self.kill_jobs(&e.outstanding)?;
         }
+        Ok(())
+    }
+
+    /// A turn that asks the operator about a call and parks on the answer
+    /// (theseus-w98): the call keeps its proposal and reserves nothing, and
+    /// the execution waits on the confirm. A crash may come between the two.
+    fn ask_the_operator(&mut self, exec_id: &str) -> Result<()> {
+        let prop = Proposal {
+            tool: "fake.ask".into(),
+            args: json!({"n": self.rng.random_range(0..1000)}),
+            resource: None,
+            policy_context: json!({}),
+        };
+        let g = self.guards.get(exec_id).unwrap();
+        let a = self.kernel.plan_confirm_with(
+            g,
+            &prop,
+            RetryClass::NonRepeatable,
+            Some(20_000),
+            |_| Ok(vec![]),
+        )?;
+        self.rep.actions += 1;
+        self.rep.asked += 1;
+        if self.maybe_crash("after plan_confirm")? {
+            return Ok(());
+        }
+        let g = self.guards.remove(exec_id).unwrap();
+        self.kernel.end_turn(
+            g,
+            TurnEnd::Wait {
+                wake: Wake::Confirm {
+                    confirm_id: a.correlation_id,
+                },
+            },
+        )?;
+        Ok(())
+    }
+
+    /// The operator answers a call that waits (theseus-w98): no, or new
+    /// input in its place, and the execution wakes to read it. Approvals are
+    /// the core's (`confirm_action`); a cancel is `cancel_one`'s.
+    fn answer_confirm(&mut self) -> Result<()> {
+        let waiting: Vec<(String, String)> = self
+            .kernel
+            .open_executions()?
+            .into_iter()
+            .filter_map(|e| match (e.state, &e.wake) {
+                (ExecState::Waiting, Some(Wake::Confirm { confirm_id })) => {
+                    Some((e.id.clone(), confirm_id.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        if waiting.is_empty() {
+            return Ok(());
+        }
+        let (exec_id, corr) = waiting[self.rng.random_range(0..waiting.len())].clone();
+        let note = if self.chance(0.5) {
+            "not now"
+        } else {
+            "superseded: new input came instead of an answer"
+        };
+        // A crash after an earlier answer left it declined and still waiting.
+        let open = self
+            .kernel
+            .action(&corr)?
+            .is_some_and(|a| a.state == ActionState::Planned);
+        if open {
+            self.kernel.decline_action(&corr, "sim", note)?;
+            self.rep.asked_declined += 1;
+            if self.maybe_crash("after decline")? {
+                return Ok(());
+            }
+        }
+        self.kernel.wake(&exec_id, "confirm")?;
         Ok(())
     }
 
@@ -1200,7 +1296,20 @@ impl World {
                     out.crashed = true;
                     return Ok(out);
                 }
-                self.kernel.authorize(&a.correlation_id, &prop, None)?;
+                // Cancelled between the plan and the dispatch: it never
+                // leaves. The cancel settled it (theseus-w98), so the
+                // authorize or the dispatch, whichever follows, is refused.
+                let cancelled = |e: &anyhow::Error| {
+                    matches!(
+                        e.downcast_ref::<KernelError>(),
+                        Some(KernelError::NotRunnable { .. })
+                    )
+                };
+                match self.kernel.authorize(&a.correlation_id, &prop, None) {
+                    Ok(_) => {}
+                    Err(e) if cancelled(&e) => break,
+                    Err(e) => return Err(e),
+                }
                 if stop() {
                     std::mem::forget(g);
                     out.crashed = true;
@@ -1208,15 +1317,7 @@ impl World {
                 }
                 match self.kernel.dispatch(&a.correlation_id, None) {
                     Ok(_) => {}
-                    // Cancelled between the plan and the dispatch: it never leaves.
-                    Err(e)
-                        if matches!(
-                            e.downcast_ref::<KernelError>(),
-                            Some(KernelError::NotRunnable { .. })
-                        ) =>
-                    {
-                        break
-                    }
+                    Err(e) if cancelled(&e) => break,
                     Err(e) => return Err(e),
                 }
             }
@@ -1361,15 +1462,22 @@ impl World {
             .filter(|e| {
                 !e.outstanding.is_empty()
                     || e.state == ExecState::Queued
-                    || matches!(e.wake, Some(Wake::Budget { .. }))
+                    || matches!(
+                        e.wake,
+                        Some(Wake::Budget { .. }) | Some(Wake::Confirm { .. })
+                    )
             })
             .collect();
         if open.is_empty() {
             return Ok(());
         }
         let e = &open[self.rng.random_range(0..open.len())];
-        let to_kill = self.kernel.cancel_execution(&e.id, "sim")?;
+        let cancel = self
+            .kernel
+            .cancel_execution_with(&e.id, "sim", |_| Ok(vec![]))?;
+        let to_kill = cancel.to_kill;
         self.rep.cancels += 1;
+        self.rep.ended_unsent += cancel.not_run.len() as u64;
         if self.maybe_crash("after cancel")? {
             // Cancel already durable; the jobs get verified after restart below.
         }
@@ -1646,6 +1754,22 @@ impl World {
             }
             if e.state.is_terminal() {
                 self.terminal.insert(e.id.clone(), e.state);
+                // Nothing it planned outlives it (theseus-w98): an ended
+                // execution has no action planned or authorized, so nothing
+                // counts as waiting on it, and nothing of it can still run.
+                if let Some(a) = by_corr.values().find(|a| {
+                    a.execution_id == e.id
+                        && matches!(a.state, ActionState::Planned | ActionState::Authorized)
+                }) {
+                    bail!(
+                        "{at}: {} is {:?}, and its action {} ({}) is still {}",
+                        e.id,
+                        e.state,
+                        a.correlation_id,
+                        a.tool,
+                        a.state.as_str()
+                    );
+                }
             }
             if e.state == ExecState::BudgetExhausted && !LEGACY.iter().any(|(id, _, _)| *id == e.id)
             {

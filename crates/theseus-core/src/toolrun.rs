@@ -1987,20 +1987,7 @@ impl ToolRuntime {
     /// Declined or cancelled before it ran.
     fn answer_cancelled(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<()> {
         let (_, name) = self.tool_of(u);
-        // A decline records who declined; the model reads only the note.
-        let (status, text) = match a.declined_note() {
-            Some(note) => (
-                ResultStatus::Declined,
-                format!("Not run: the operator declined this call ({note})."),
-            ),
-            None => (
-                ResultStatus::Cancelled,
-                format!(
-                    "Not run: {}.",
-                    a.resolution.as_deref().unwrap_or("cancelled")
-                ),
-            ),
-        };
+        let (status, text) = not_run_answer(a);
         self.answer(
             tc,
             ResultNode {
@@ -2092,6 +2079,95 @@ impl ToolRuntime {
         }
         Ok((late, records, outputs))
     }
+}
+
+/// What a call that never ran tells the model: who declined it, or why it
+/// was cancelled (its action's resolution).
+fn not_run_answer(a: &Action) -> (ResultStatus, String) {
+    // A decline records who declined; the model reads only the note.
+    match a.declined_note() {
+        Some(note) => (
+            ResultStatus::Declined,
+            format!("Not run: the operator declined this call ({note})."),
+        ),
+        None => (
+            ResultStatus::Cancelled,
+            format!(
+                "Not run: {}.",
+                a.resolution.as_deref().unwrap_or("cancelled")
+            ),
+        ),
+    }
+}
+
+/// The results of the tool calls a cancel ended before they ran
+/// (theseus-w98), as the session's next turn would have written them: a
+/// node for each call in `not_run` whose tool-call node the session holds and
+/// no result answers yet. A cancelled execution takes no more turns, so the
+/// cancel writes them, in its own frame. A provider call and the budget
+/// question have no tool-call node, and get none.
+pub(crate) fn not_run_results(
+    store: &Store,
+    session_id: &str,
+    not_run: &[Action],
+) -> Result<Vec<theseus_store::NewRecord>> {
+    let calls: Vec<&Action> = not_run
+        .iter()
+        .filter(|a| a.tool != PROVIDER_TOOL && a.tool != BUDGET_TOOL)
+        .collect();
+    if calls.is_empty() {
+        return Ok(vec![]);
+    }
+    let nodes = store.session_nodes(session_id)?;
+    let answered: HashSet<&str> = nodes
+        .iter()
+        .filter_map(|(_, n)| match &n.body {
+            Body::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut out = Vec::new();
+    for a in calls {
+        let call = nodes.iter().find_map(|(_, n)| match &n.body {
+            Body::ToolCall {
+                tool_use_id,
+                tool,
+                correlation_id: Some(c),
+                ..
+            } if *c == a.correlation_id => Some((n, tool_use_id, tool)),
+            _ => None,
+        });
+        let Some((call, tool_use_id, tool)) = call else {
+            continue;
+        };
+        if answered.contains(tool_use_id.as_str()) {
+            continue;
+        }
+        let (status, text) = not_run_answer(a);
+        let node = Node::tool_result(
+            session_id,
+            call.turn_id.as_deref(),
+            call.loop_index,
+            Body::ToolResult {
+                tool_use_id: tool_use_id.clone(),
+                tool: tool.clone(),
+                status,
+                is_error: true,
+                bytes_total: text.len() as u64,
+                content: text,
+                correlation_id: Some(a.correlation_id.clone()),
+                truncated: false,
+                full_ref: None,
+                duration_ms: None,
+                late: false,
+                meta: Value::Null,
+                image: None,
+                external: None,
+            },
+        );
+        out.push(node.record()?);
+    }
+    Ok(out)
 }
 
 /// A tool result to write: the call it answers, its status and text, and

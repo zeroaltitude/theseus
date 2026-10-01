@@ -85,7 +85,8 @@ fn a_store_another_process_holds_is_refused_and_nothing_is_moved() {
 /// The kernel under seeded crashes and lost, duplicate, and late completions,
 /// opening executions the way the product does (`open_execution`), with a
 /// share of its turns raced by a second OS thread (theseus-id9): every
-/// invariant holds after every step.
+/// invariant holds after every step. Some calls wait for the operator, and
+/// cancels end some of them unsent (theseus-w98).
 #[test]
 fn the_kernel_holds_its_invariants_under_seeded_faults() {
     let out = sim(&[
@@ -105,4 +106,22 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         .and_then(|n| n.parse().ok())
         .unwrap_or(0);
     assert!(raced > 0, "no turn was raced: {out}");
+    // The TOTAL line's count before `what`.
+    let total = out.lines().find(|l| l.starts_with("TOTAL")).unwrap_or("");
+    let count = |what: &str| -> u64 {
+        total
+            .split(what)
+            .next()
+            .and_then(|s| s.rsplit(' ').next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0)
+    };
+    assert!(
+        count(" calls asked the operator") > 0,
+        "no call asked: {total}"
+    );
+    assert!(
+        count(" unsent actions a cancel ended") > 0,
+        "no cancel ended an unsent action: {total}"
+    );
 }

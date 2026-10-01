@@ -1071,6 +1071,79 @@ async fn under_approve_a_command_waits_and_runs_once_approved() {
     assert!(rs[0].1.contains("approved run"), "{}", rs[0].1);
 }
 
+/// A cancel ends a call that waits for the operator (theseus-w98). The call
+/// settles cancelled, its resolution "the execution was cancelled by
+/// operator"; the session list counts nothing waiting; the history lists no
+/// question, and shows the call's result as the session's next turn would
+/// have written it, "Not run: the execution was cancelled by operator.";
+/// and an answer finds nothing waiting. Nothing ran.
+#[tokio::test]
+async fn a_cancel_ends_a_call_waiting_for_approval_and_nothing_counts_it_waiting() {
+    let r = rig_with(
+        vec![Scripted::tools(
+            "",
+            &[("t1", "proc_run", json!({"argv": ["echo", "never run"]}))],
+        )],
+        |cfg| cfg.policy.enforcement = Posture::Approve,
+    );
+    let res = turn(&r.core, None, "echo something").await;
+    let corr = res.awaiting_confirm.clone().expect("approve waits");
+    let exec = res.execution_id.clone().unwrap();
+    let waiting = |core: &Core| {
+        core.session_list()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.session_id == res.session_id)
+            .unwrap()
+            .pending_confirms
+    };
+    assert_eq!(waiting(&r.core), 1);
+
+    let (e, to_kill) = r.core.cancel_execution(&exec, "operator").unwrap();
+    assert_eq!(e.state, theseus_kernel::ExecState::Cancelled);
+    assert!(to_kill.is_empty(), "nothing was dispatched");
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    assert_eq!(
+        a.resolution.as_deref(),
+        Some("the execution was cancelled by operator")
+    );
+    assert_eq!(
+        waiting(&r.core),
+        0,
+        "the session list counts nothing waiting"
+    );
+    assert!(r.core.pending_confirms(&res.session_id).unwrap().is_empty());
+    assert!(r.core.confirm_list().unwrap().is_empty());
+    // The history: its nodes, as `session.history` gives them, end with the
+    // call's result, and no question follows them.
+    let nodes = r.core.store.session_nodes(&res.session_id).unwrap();
+    let (pos, last) = nodes.last().unwrap();
+    let shown = Core::node_info(*pos, last);
+    assert_eq!(shown.kind, "tool_result");
+    assert_eq!(shown.detail["status"], "cancelled");
+    assert_eq!(shown.detail["correlation_id"], json!(corr));
+    assert_eq!(
+        shown.text,
+        "Not run: the execution was cancelled by operator."
+    );
+    assert_eq!(
+        results(&r.core, &res.session_id),
+        vec![(
+            ResultStatus::Cancelled,
+            "Not run: the execution was cancelled by operator.".to_string()
+        )]
+    );
+    let e = r
+        .core
+        .confirm_action(&corr, true, None, "test")
+        .expect_err("nothing waits");
+    assert!(format!("{e:#}").contains("not waiting"), "{e:#}");
+    // A second cancel writes nothing more.
+    r.core.cancel_execution(&exec, "operator").unwrap();
+    assert_eq!(results(&r.core, &res.session_id).len(), 1);
+}
+
 #[tokio::test]
 async fn under_notify_a_command_runs_with_a_notice_and_a_read_stays_quiet() {
     let r = rig_with(
