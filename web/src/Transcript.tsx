@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ConfirmRequest, NodeInfo, ProviderErrorData, Span, Tightening, TightenResult, TurnResult, Usage } from './protocol'
 import TraceView from './TraceView'
+import { heldWhat } from './protocol'
 
 // The transcript is rebuilt from the session's durable nodes (session.history):
 // what you see is what a restarted daemon would render too. Live notifications
@@ -119,7 +120,7 @@ function ConfirmCard({ c, onConfirm, now }: { c: ConfirmRequest; onConfirm: Tran
     <div className={`confirm ${c.floor ? 'floor' : ''}`}>
       <div className="confirm-head"><b>{c.tool}</b> {c.floor
         ? <><span className="pill bad">floor</span> touches Theseus's own state or secrets; it always asks</>
-        : ext ? <><span className="pill warn">external text</span> this session read {ext.tool} {clip(ext.url, 80)}, so a call that acts waits</>
+        : ext ? <><span className="pill warn">external text</span> this session read {clip(heldWhat(ext), 92)}, so a call that acts waits</>
         : 'needs your confirmation'}</div>
       <div className="muted small">{c.reason}</div>
       <Preview tool={c.tool} input={c.input} />

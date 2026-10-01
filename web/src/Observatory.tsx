@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { heldWhat } from './protocol'
 import type { ProtocolClient } from './protocol'
 import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, ExternalTextInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList, Usage, WakeInfo } from './protocol'
 
@@ -214,7 +215,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
   // is `policy.trust`, judged as an approval is.
   const external: ExternalTextInfo[] = health?.external_text ?? []
   const trust = useCallback(async (i: ExternalTextInfo) => {
-    if (!confirm(`Trust ${i.task ? `task ${i.task}` : i.title ?? i.session_id} again? It read ${i.held.tool} ${i.held.url}; its calls that act will run at their postures, without asking, until it reads external text again.`)) return
+    if (!confirm(`Trust ${i.task ? `task ${i.task}` : i.title ?? i.session_id} again? It read ${heldWhat(i.held)}; its calls that act will run at their postures, without asking, until it reads external text again.`)) return
     try {
       await client.call('policy.trust', { session_id: i.session_id })
       await refresh()
@@ -636,8 +637,8 @@ export default function Observatory({ client, health, tick, currentSession, onRe
               {external.map((i) => (
                 <tr key={i.session_id} className={i.session_id === currentSession ? 'mine' : ''} title={`${i.session_id}\nnode ${i.held.node_id}`}>
                   <td><button type="button" className="link" onClick={() => onPickSession?.(i.session_id)}>{i.task ? `task ${i.task}` : i.title ?? short(i.session_id)}</button></td>
-                  <td className="muted small" title={clock(i.held.since_ms)}>{ago(i.held.since_ms, now)}</td>
-                  <td className="small"><code>{i.held.tool}</code> {i.held.url}</td>
+                  <td className="muted small" title={i.since_local || clock(i.held.since_ms)}>{ago(i.held.since_ms, now)}</td>
+                  <td className="small" title={i.held.query != null ? i.held.url : undefined}><code>{i.held.tool}</code> {i.held.query != null ? `"${i.held.query}"` : i.held.url}</td>
                   <td className="muted small">{i.held.via === 'task.create' ? `from the session that started it (${short(i.held.from_session ?? '')})` : i.held.via === 'task.report' ? `from task ${short(i.held.from_session ?? '')}'s report` : 'read here'}</td>
                   <td><button type="button" className="link danger" onClick={() => void trust(i)}>trust again</button></td>
                 </tr>

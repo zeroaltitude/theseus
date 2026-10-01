@@ -1342,17 +1342,21 @@ impl ToolRuntime {
                 external: Some(e),
                 status: ResultStatus::Ok,
                 tool,
+                meta,
                 ..
-            } => Some((tool.clone(), e.url.clone())),
+            } => Some((tool, e.url.as_str(), meta)),
             _ => None,
         };
-        let Some((tool, url)) = read else {
+        let Some((tool, url, meta)) = read else {
             tc.kernel.accept_completion_with(c, vec![node.record()?])?;
             return Ok(());
         };
+        // A search's hold names its query; the URL stays on the node.
+        let query = crate::external::search_query(tool, meta);
         let mut newly = None;
         let done = tc.store.with_session(tc.session_id, |rec| {
-            let h = crate::external::read(&node.id, &tool, &url, theseus_protocol::now_unix_ms());
+            let h =
+                crate::external::read(&node.id, tool, url, query, theseus_protocol::now_unix_ms());
             let mut frame = vec![node.record()?];
             if let Some(more) = crate::external::hold(rec, h.clone(), Some(tc.turn_id))? {
                 frame.extend(more);

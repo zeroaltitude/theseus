@@ -74,8 +74,15 @@ pub const VIA_TASK: &str = "task.create";
 /// `task.report`: a report from a task that held external text.
 pub const VIA_REPORT: &str = "task.report";
 
-/// The hold a result marked external gives its session.
-pub fn read(node_id: &str, tool: &str, url: &str, now_ms: u64) -> ExternalText {
+/// The hold a result marked external gives its session: a search keeps its
+/// query, which the hold names (theseus-qiy).
+pub fn read(
+    node_id: &str,
+    tool: &str,
+    url: &str,
+    query: Option<&str>,
+    now_ms: u64,
+) -> ExternalText {
     ExternalText {
         since_ms: now_ms,
         tool: tool.into(),
@@ -83,7 +90,16 @@ pub fn read(node_id: &str, tool: &str, url: &str, now_ms: u64) -> ExternalText {
         node_id: node_id.into(),
         from_session: None,
         via: None,
+        query: query.map(str::to_string),
     }
+}
+
+/// A search's query, from its result's `meta` (`web.search` writes the query
+/// it sent there): what its hold names. None for any other tool.
+pub fn search_query<'a>(tool: &str, meta: &'a serde_json::Value) -> Option<&'a str> {
+    (tool == "web.search")
+        .then(|| meta.get("query").and_then(serde_json::Value::as_str))
+        .flatten()
 }
 
 /// The hold a session takes from another, `from_session`, which holds
@@ -102,23 +118,31 @@ pub fn taken(
         node_id: node_id.into(),
         from_session: Some(from_session.into()),
         via: Some(via.into()),
+        query: from.query.clone(),
     }
 }
 
+/// When a hold began, in the daemon's local time as the reason says it
+/// (theseus-qiy): `12:55:01`, or `Sep 30 12:55:01` on another day than
+/// `now_ms`'s. Health and a trust's result say it so, never in UTC.
+pub fn since_local(h: &ExternalText, now_ms: u64) -> String {
+    crate::wake::local(h.since_ms).hms_on(&crate::wake::local(now_ms))
+}
+
 /// What the session read, as a reason's parenthesis says it: `http.fetch
-/// <url>, at 13:05`, and how it came, when it came through another session.
+/// <url>, at 13:05`, or a search by its query, `web.search "tokio JoinSet
+/// documentation", at 13:05` (theseus-qiy), and how it came, when it came
+/// through another session.
 pub fn source(h: &ExternalText) -> String {
     let at = crate::wake::local(h.since_ms).hm();
+    let what = h.what();
     let from = h.from_session.as_deref().map(crate::task::short);
     match (h.via.as_deref(), from) {
-        (Some(VIA_TASK), Some(s)) => format!(
-            "{} {}, which session {s} had read before it started this task, at {at}",
-            h.tool, h.url
-        ),
-        (Some(VIA_REPORT), Some(s)) => {
-            format!("{} {}, in task {s}'s report, at {at}", h.tool, h.url)
+        (Some(VIA_TASK), Some(s)) => {
+            format!("{what}, which session {s} had read before it started this task, at {at}")
         }
-        _ => format!("{} {}, at {at}", h.tool, h.url),
+        (Some(VIA_REPORT), Some(s)) => format!("{what}, in task {s}'s report, at {at}"),
+        _ => format!("{what}, at {at}"),
     }
 }
 
@@ -202,8 +226,9 @@ pub fn hold(
         "session.external_read",
         Some(&rec.session_id),
         turn_id,
-        json!({"node_id": h.node_id, "tool": h.tool, "url": h.url, "since_ms": h.since_ms,
-               "from_session": h.from_session, "via": h.via, "task": rec.task.is_some()}),
+        json!({"node_id": h.node_id, "tool": h.tool, "url": h.url, "query": h.query,
+               "since_ms": h.since_ms, "from_session": h.from_session, "via": h.via,
+               "task": rec.task.is_some()}),
     );
     rec.external = Some(h);
     Ok(Some(vec![
@@ -213,16 +238,19 @@ pub fn hold(
 }
 
 /// The sessions of `sessions` that hold external text, the longest-held
-/// first: health's list, from the records it reads anyway.
-pub fn listed(sessions: &[SessionRecord]) -> Vec<theseus_protocol::ExternalTextInfo> {
+/// first: health's list, from the records it reads anyway. Each hold's time
+/// is in the daemon's local time, as its reason says it (theseus-qiy).
+pub fn listed(sessions: &[SessionRecord], now_ms: u64) -> Vec<theseus_protocol::ExternalTextInfo> {
     let mut v: Vec<theseus_protocol::ExternalTextInfo> = sessions
         .iter()
         .filter_map(|r| {
+            let held = r.external.clone()?;
             Some(theseus_protocol::ExternalTextInfo {
                 session_id: r.session_id.clone(),
                 title: r.title.clone(),
                 task: r.task.as_ref().map(|_| crate::task::short(&r.session_id)),
-                held: r.external.clone()?,
+                since_local: since_local(&held, now_ms),
+                held,
             })
         })
         .collect();
@@ -254,6 +282,7 @@ mod tests {
             "nod_1",
             tool,
             "https://example.test/page",
+            None,
             1_759_266_720_000,
         )
     }
@@ -422,5 +451,69 @@ mod tests {
         let report = taken(&task, "ses_0000dd4e5f6", VIA_REPORT, "nod_r", 0);
         assert!(source(&report).contains(", in task d4e5f6's report, at "));
         assert_eq!(report.tool, "web.search", "the first source");
+    }
+
+    /// A search's hold names its query, not the request's URL, which it keeps
+    /// for the record; a hold taken from it names the query too; a fetch, and
+    /// a search's hold written before the query was kept, name the URL. Health
+    /// says when, in the same local time as the reason (theseus-qiy).
+    #[test]
+    fn a_searchs_hold_names_its_query_and_health_says_when_in_local_time() {
+        let at = 1_759_266_720_000;
+        let search = read(
+            "nod_s",
+            "web.search",
+            "https://search.example.test/res?q=lantern+tide+tables&count=5",
+            Some("lantern tide tables"),
+            at,
+        );
+        let hm = crate::wake::local(at).hm();
+        assert_eq!(
+            source(&search),
+            format!("web.search \"lantern tide tables\", at {hm}")
+        );
+        assert!(
+            search.url.contains("q=lantern+tide+tables"),
+            "the URL stays"
+        );
+        let task = taken(&search, "ses_0000aa1b2c3", VIA_TASK, "nod_brief", at);
+        assert!(
+            source(&task).starts_with(
+                "web.search \"lantern tide tables\", which session a1b2c3 had read before it"
+            ),
+            "{}",
+            source(&task)
+        );
+        let old = ExternalText {
+            query: None,
+            ..search.clone()
+        };
+        assert_eq!(
+            source(&old),
+            format!(
+                "web.search https://search.example.test/res?q=lantern+tide+tables&count=5, at {hm}"
+            )
+        );
+        assert_eq!(
+            source(&hold_of("http.fetch")),
+            format!("http.fetch https://example.test/page, at {hm}")
+        );
+        // Health: the reason's local time, to the second, and the day when
+        // the hold is older than today.
+        let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+        rec.external = Some(search);
+        let listed_now = listed(std::slice::from_ref(&rec), at + 5_000);
+        assert_eq!(listed_now[0].since_local, crate::wake::local(at).hms());
+        assert!(listed_now[0].since_local.starts_with(&hm));
+        assert!(!listed_now[0].since_local.ends_with('Z'), "never UTC");
+        let later = listed(std::slice::from_ref(&rec), at + 3 * 86_400_000);
+        let l = crate::wake::local(at);
+        assert!(
+            later[0]
+                .since_local
+                .ends_with(&format!(" {} {}", l.day, l.hms())),
+            "{}",
+            later[0].since_local
+        );
     }
 }

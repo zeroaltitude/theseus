@@ -2086,15 +2086,14 @@ fn external_line(held: &[theseus_protocol::ExternalTextInfo]) -> Option<String> 
         .iter()
         .take(3)
         .map(|i| {
-            let url: String = i.held.url.chars().take(60).collect();
             let name = match &i.task {
                 Some(t) => format!("task {t}"),
                 None => short_id(&i.session_id),
             };
             format!(
-                "{name} since {} ({} {url}{})",
-                fmt_time(i.held.since_ms),
-                i.held.tool,
+                "{name} since {} ({}{})",
+                held_since(&i.since_local, &i.held),
+                held_what(&i.held),
                 match i.held.via.as_deref() {
                     Some("task.create") => ", from the session that started it",
                     Some("task.report") => ", from a task's report",
@@ -2114,6 +2113,26 @@ fn external_line(held: &[theseus_protocol::ExternalTextInfo]) -> Option<String> 
         if held.len() == 1 { "" } else { "s" },
         each.join("; ")
     ))
+}
+
+/// What a session read, as the hold's reason names it (theseus-qiy): a
+/// search by its query, anything else by its URL, cut to 72 characters.
+fn held_what(h: &theseus_protocol::ExternalText) -> String {
+    let what = h.what();
+    if what.chars().count() <= 72 {
+        return what;
+    }
+    format!("{}…", what.chars().take(71).collect::<String>())
+}
+
+/// When a hold began: the daemon's local time, as the reason says it
+/// (theseus-qiy), or UTC from a daemon that sends none.
+fn held_since(since_local: &str, h: &theseus_protocol::ExternalText) -> String {
+    if since_local.is_empty() {
+        fmt_time(h.since_ms)
+    } else {
+        since_local.to_string()
+    }
 }
 
 /// A session id as people name it: `…` and its last six characters.
@@ -2156,13 +2175,12 @@ fn trust_target(held: &[theseus_protocol::ExternalTextInfo], session: &str) -> R
 /// that its calls that act run at their postures again.
 fn trusted_line(r: &theseus_protocol::TrustResult) -> String {
     format!(
-        "trusted session {} again (by {}) · it had read {} {} since {} · its calls that act run \
-         at their postures again, until it reads external text again",
+        "trusted session {} again (by {}) · it had read {} since {} · its calls that act run at \
+         their postures again, until it reads external text again",
         r.session_id,
         r.by,
-        r.held.tool,
-        r.held.url,
-        fmt_time(r.held.since_ms)
+        r.held.what(),
+        held_since(&r.since_local, &r.held)
     )
 }
 
@@ -2921,19 +2939,55 @@ mod tests {
                     node_id: "trs_1".into(),
                     from_session: via.map(|_| "ses_parent".into()),
                     via: via.map(str::to_string),
+                    query: None,
                 },
+                since_local: String::new(),
             };
         assert_eq!(external_line(&[]), None);
         let two = [
             held("ses_0000aa1111", None, None),
             held("ses_0000bb1111", Some("bb1111"), Some("task.create")),
         ];
+        // From a daemon that sends no local time: UTC, as before.
         assert_eq!(
             external_line(&two).unwrap(),
             "external text: 2 sessions read it, so their calls that act wait: …aa1111 since \
              00:00:00.000Z (http.fetch https://example.test/a); task bb1111 since 00:00:00.000Z \
              (http.fetch https://example.test/a, from the session that started it) · trust one \
              again: theseus policy trust <session>"
+        );
+        // A search names its query, in the daemon's local time (theseus-qiy).
+        let mut search = held("ses_0000cc2222", None, None);
+        search.held.tool = "web.search".into();
+        search.held.url = "https://search.example.test/res?q=lantern+tide+tables".into();
+        search.held.query = Some("lantern tide tables".into());
+        search.since_local = "12:55:01".into();
+        assert_eq!(
+            external_line(std::slice::from_ref(&search)).unwrap(),
+            "external text: 1 session read it, so their calls that act wait: …cc2222 since \
+             12:55:01 (web.search \"lantern tide tables\") · trust one again: theseus policy \
+             trust <session>"
+        );
+        let trusted = theseus_protocol::TrustResult {
+            session_id: search.session_id.clone(),
+            by: "the CLI".into(),
+            how: "action.confirm".into(),
+            held: search.held.clone(),
+            since_local: "12:55:01".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            trusted_line(&trusted),
+            "trusted session ses_0000cc2222 again (by the CLI) · it had read web.search \"lantern \
+             tide tables\" since 12:55:01 · its calls that act run at their postures again, until \
+             it reads external text again"
+        );
+        let mut long = search;
+        long.held.query = Some("q".repeat(100));
+        let line = external_line(std::slice::from_ref(&long)).unwrap();
+        assert!(
+            line.contains(&format!("(web.search \"{}…)", "q".repeat(59))),
+            "{line}"
         );
         assert_eq!(trust_target(&two, "aa1111").unwrap(), "ses_0000aa1111");
         assert_eq!(trust_target(&two, "…bb1111").unwrap(), "ses_0000bb1111");

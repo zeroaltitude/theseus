@@ -352,6 +352,30 @@ mod tests {
         assert_eq!(kept, ["a1", "b2"]);
     }
 
+    /// A session record as 0s4's build wrote it (schema 4: an image not
+    /// shown, and a search's hold that names only the request), which this
+    /// build reads with no query, names by the request, and writes back as
+    /// it was (theseus-qiy's schema 5 keeps a search's query).
+    const SCHEMA_4: &str = r#"{"session_id":"ses_old4","kind":"conversation","label":"tide watch","created_at_unix_ms":1790000000000,"turns":1,"last_turn_id":"turn_e5","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"last_active_ms":1790000300000,"cost_usd":0.0,"tool_calls":1,"external":{"since_ms":1790000200000,"tool":"web.search","url":"search.example.invalid/res?q=tide+tables","node_id":"trs_old4"},"not_shown":[{"digest":"c3","why":"Could not process image","at_ms":1790000250000}]}"#;
+
+    #[test]
+    fn a_session_record_written_before_a_searchs_query_reads() {
+        let r: SessionRecord = serde_json::from_str(SCHEMA_4).unwrap();
+        let h = r.external.as_ref().unwrap();
+        assert_eq!(h.query, None);
+        assert_eq!(
+            h.what(),
+            "web.search search.example.invalid/res?q=tide+tables"
+        );
+        assert_eq!(r.not_shown[0].digest, "c3");
+        let again = serde_json::to_value(&r).unwrap();
+        assert!(again["external"].get("query").is_none(), "{again}");
+        assert_eq!(
+            again,
+            serde_json::from_str::<serde_json::Value>(SCHEMA_4).unwrap()
+        );
+    }
+
     /// The rule's answers, failure by failure: (class, transient, settled)
     /// in, (then, notice) out.
     fn run_of(failures: &[(&str, bool, bool)]) -> (Failing, Vec<(Then, bool)>) {

@@ -162,6 +162,14 @@ export interface Tightening {
 export interface ExternalText {
   since_ms: number; tool: string; url: string; node_id: string
   from_session?: string | null; via?: string | null
+  /// A search's query, which the hold names in place of its request's URL (theseus-qiy).
+  query?: string | null
+}
+
+/// What a session read, as the hold's reason names it (theseus-qiy): a search by its
+/// query, `web.search "tokio JoinSet documentation"`, anything else by its URL.
+export function heldWhat(h: ExternalText): string {
+  return h.query != null ? `${h.tool} "${h.query}"` : `${h.tool} ${h.url}`
 }
 
 /// A session that holds external text, as health lists it.
@@ -170,6 +178,8 @@ export interface ExternalTextInfo {
   /// The task's short id, when the session is a task's.
   task?: string | null
   held: ExternalText
+  /// When the hold began, in the daemon's local time (theseus-qiy).
+  since_local?: string
 }
 
 /// What `policy.trust` cleared, and who cleared it.
@@ -177,6 +187,8 @@ export interface TrustResult {
   session_id: string; by: string; who?: string; via?: string
   /// `policy.trust`, or `action.confirm` for an approval that trusted the session too.
   how: string; correlation_id?: string | null; at_ms: number; held: ExternalText
+  /// When the hold began, in the daemon's local time (theseus-qiy).
+  since_local?: string
 }
 
 /// What `policy.tighten` or `policy.untighten` did; also the params of `policy.tightened`

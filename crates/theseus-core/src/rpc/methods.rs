@@ -76,7 +76,7 @@ impl Core {
             approval: self.approval_status(),
             tightenings: self.tools.tightened.all(),
             wakes: self.wakes(None, None).unwrap_or_default(),
-            external_text: crate::external::listed(&sessions),
+            external_text: crate::external::listed(&sessions, theseus_protocol::now_unix_ms()),
             web: self.web_refusals.status(),
         }
     }

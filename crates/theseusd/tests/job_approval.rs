@@ -683,7 +683,7 @@ cat "$O/tighten" "$O/untighten"
     assert!(tighten.trim_end().ends_with("exit=0"), "{tighten}");
     let untighten = r.read_done("untighten");
     assert!(
-        untighten.contains("the undo from sock#")
+        untighten.contains("the undo from the CLI")
             && untighten.contains("from a Theseus job's process"),
         "{untighten}"
     );
@@ -774,7 +774,8 @@ fn a_job_cannot_answer_through_the_web_ui_and_the_operator_can() {
     let frames = r.read_done("ws-job");
     assert!(frames.contains("\"id\":7"), "{frames}");
     assert!(
-        frames.contains("the answer from web#") && frames.contains("from a Theseus job's process"),
+        frames.contains("the answer from the web UI")
+            && frames.contains("from a Theseus job's process"),
         "{frames}"
     );
     assert!(frames.contains("-32005"), "{frames}");

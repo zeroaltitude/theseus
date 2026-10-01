@@ -42,18 +42,20 @@ impl Conn<'_> {
     }
 
     /// Who makes an approval-like act on this connection (an answer, a
-    /// "should have asked" press, an undo), as the connection knows it: the
-    /// label names, and the surface, the binding's Discord ids, and the
-    /// process on the other end decide (theseus-sgh, theseus-6qy). Every
-    /// such method builds it here, so whatever judges an answer judges the
-    /// others the same way.
+    /// "should have asked" press, an undo, a trust), as the connection knows
+    /// it: the label names, as a cancel's actor does (`the CLI`, never
+    /// `sock#32`; theseus-qiy), and the surface, the binding's Discord ids,
+    /// and the process on the other end decide (theseus-sgh, theseus-6qy).
+    /// Every such method builds it here, so whatever judges an answer judges
+    /// the others the same way, and an approval's trust and `policy.trust`
+    /// name the same one.
     pub fn answerer(
         &self,
         author: Option<String>,
         discord: Option<theseus_protocol::DiscordOrigin>,
     ) -> Answerer {
         Answerer {
-            label: author.unwrap_or_else(|| self.client.to_string()),
+            label: self.actor(author.as_deref()),
             surface: self.surface,
             discord,
             peer: self.peer.clone(),

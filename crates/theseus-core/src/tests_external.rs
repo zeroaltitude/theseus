@@ -571,6 +571,60 @@ async fn an_approval_with_trust_runs_the_call_and_trusts_the_session() {
     assert!(notified.contains(&"after".to_string()), "{notified:?}");
 }
 
+/// An approval's trust names the surface it came through, as `policy.trust`
+/// and a cancel do (`Conn::actor`), never the connection's label (`sock#32`),
+/// and says when the hold began in the daemon's local time (theseus-qiy).
+#[tokio::test]
+async fn an_approvals_trust_names_the_surface_as_policy_trust_does() {
+    use crate::approval::Surface::Cli;
+    if crate::peer::tests_support::inside_a_job() {
+        return;
+    }
+    let r = rig(
+        |req| {
+            let (said, results) = asked(req);
+            match results {
+                0 => fetch("f1", said.split_whitespace().last().unwrap()),
+                1 => run("r1", "approved"),
+                _ => Scripted::text("Ran."),
+            }
+        },
+        false,
+    )
+    .await;
+    let sid = session(&r.core);
+    let res = turn(&r.core, &sid, &format!("read {}", page(r.port))).await;
+    let corr = res.awaiting_confirm.clone().expect("the run waits");
+    let held = hold(&r.core, &sid).expect("the fetch holds it");
+    let client = crate::approval::Client::new("sock#32", Cli)
+        .with_peer(crate::peer::Peer::process(std::process::id()));
+    let ok = rpc_as(
+        &r.core,
+        client,
+        theseus_protocol::method::ACTION_CONFIRM,
+        json!({"correlation_id": corr, "approve": true, "trust": true}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(ok["approved"], true);
+    let trusted = ledgered(&r.core, "session.trusted");
+    assert_eq!(
+        (
+            trusted[0]["by"].as_str(),
+            trusted[0]["via"].as_str(),
+            trusted[0]["how"].as_str()
+        ),
+        (Some("the CLI"), Some("cli"), Some("action.confirm"))
+    );
+    assert_eq!(
+        trusted[0]["since_local"],
+        crate::wake::local(held.since_ms).hms()
+    );
+    let answered = ledgered(&r.core, "action.confirm_answered");
+    assert_eq!(answered[0]["by"], "the CLI");
+    assert!(hold(&r.core, &sid).is_none());
+}
+
 /// A task that a holding session starts holds the external text too, from
 /// its brief: `task.create` itself waits (it is a run), and once approved the
 /// child's record holds it, taken from the parent, and the child's own

@@ -628,6 +628,24 @@ pub struct ExternalText {
     /// it started) or `task.report` (a report from a task that held it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via: Option<String>,
+    /// A search's query (`web.search`), which the hold names in place of
+    /// the request's URL (theseus-qiy); the URL stays on the result node.
+    /// Absent for a fetch, and in holds written before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+}
+
+impl ExternalText {
+    /// What the session read, as every surface names it (theseus-qiy): a
+    /// search by its query, `web.search "tokio JoinSet documentation"`, and
+    /// anything else by its URL, `http.fetch <url>`. A hold written before
+    /// the query was kept names the search's URL.
+    pub fn what(&self) -> String {
+        match &self.query {
+            Some(q) => format!("{} \"{q}\"", self.tool),
+            None => format!("{} {}", self.tool, self.url),
+        }
+    }
 }
 
 /// A session that holds external text, as health lists it (theseus-9bp).
@@ -640,6 +658,11 @@ pub struct ExternalTextInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
     pub held: ExternalText,
+    /// When the hold began, in the daemon's local time, as the hold's reason
+    /// says it (theseus-qiy): `12:55:01`, with the day when it is not today.
+    /// Empty from a daemon before it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub since_local: String,
 }
 
 /// `policy.trust`: the session no longer holds external text.
@@ -675,6 +698,10 @@ pub struct TrustResult {
     pub at_ms: u64,
     /// The hold it cleared.
     pub held: ExternalText,
+    /// When the hold began, in the daemon's local time (theseus-qiy), as
+    /// health's `since_local`. Empty from a daemon before it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub since_local: String,
 }
 
 /// `[approval]` as health reports it (spec §3.9 "Approval"): the trusted

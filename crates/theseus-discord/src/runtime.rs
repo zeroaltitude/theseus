@@ -2877,6 +2877,7 @@ mod tests {
             node_id: "nod_1".into(),
             from_session: None,
             via: None,
+            query: None,
         });
         core.store.put_session(sid, &rec).unwrap();
     }

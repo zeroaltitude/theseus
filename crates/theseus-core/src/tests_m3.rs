@@ -3837,7 +3837,9 @@ async fn a_listed_cli_approves_and_an_unlisted_web_ui_is_refused() {
         .unwrap();
     let answered = ledgered(&r, "action.confirm_answered");
     assert_eq!(answered[0]["via"], "cli");
-    assert_eq!(answered[0]["by"], "sock#1");
+    // The surface, not the connection's label, as a cancel names it
+    // (theseus-qiy).
+    assert_eq!(answered[0]["by"], "the CLI");
     let h = r.core.health().approval;
     assert!(h.configured);
     assert_eq!(h.trusted_users, [format!("discord:{EDDIE}")]);
@@ -3909,7 +3911,7 @@ async fn the_budget_question_follows_the_same_rule() {
     );
     let x = r.core.kernel.execution(&exec).unwrap().unwrap();
     assert_eq!((x.budget.spent_micros, x.budget.resets), (0, 1));
-    assert_eq!(ledgered(&r, "budget.reset")[0]["by"], "sock#1");
+    assert_eq!(ledgered(&r, "budget.reset")[0]["by"], "the CLI");
 }
 
 /// Without `[approval]` every surface answers as before theseus-sgh: a CLI,
@@ -4016,7 +4018,7 @@ async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again()
         ),
         (
             Some("approve"),
-            Some("tightened by web#1"),
+            Some("tightened by the web UI"),
             Some("enforcement = notify")
         )
     );
@@ -4031,7 +4033,7 @@ async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again()
         ("tool", "proc.run"),
         ("correlation_id", corr.as_str()),
         ("digest", digest.as_str()),
-        ("by", "web#1"),
+        ("by", "the web UI"),
         ("via", "web"),
         ("posture", "approve"),
     ] {
@@ -4064,7 +4066,7 @@ async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again()
         (pr["policy"].as_str(), pr["config_posture"].as_str()),
         (Some("approve"), Some("notify"))
     );
-    assert_eq!(pr["tightened"]["by"], "web#1");
+    assert_eq!(pr["tightened"]["by"], "the web UI");
     assert_eq!(
         tool_row(&tools, "fs.write")["policy"],
         "notify",
@@ -4075,7 +4077,7 @@ async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again()
         said(
             &lines,
             "approval",
-            "proc.run now asks first: tightened by web#1."
+            "proc.run now asks first: tightened by the web UI."
         ),
         "{}",
         dump(&lines)
@@ -4091,7 +4093,7 @@ async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again()
     let pending = r.core.pending_confirms(&sid).unwrap();
     assert!(
         pending[0].reason.ends_with(
-            "proc.run — approve (tightened by web#1; the config says enforcement = notify)"
+            "proc.run — approve (tightened by the web UI; the config says enforcement = notify)"
         ),
         "{}",
         pending[0].reason
@@ -4131,8 +4133,8 @@ async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again()
             rows[0]["via"].as_str()
         ),
         (
-            Some("sock#2"),
-            Some("web#1"),
+            Some("the CLI"),
+            Some("the web UI"),
             Some(corr.as_str()),
             Some("cli")
         )
@@ -4148,8 +4150,8 @@ async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again()
         said(
             &lines,
             "approval",
-            "proc.run is back to what the config says (notify, enforcement = notify): sock#2 \
-             undid the tightening by web#1."
+            "proc.run is back to what the config says (notify, enforcement = notify): the CLI \
+             undid the tightening by the web UI."
         ),
         "{}",
         dump(&lines)
@@ -4341,7 +4343,7 @@ async fn only_a_trusted_answer_undoes_a_tightening() {
         said(
             &lines,
             "approval",
-            "An undo of proc.run's tightening from sock#3 through cli did not count"
+            "An undo of proc.run's tightening from the CLI through cli did not count"
         ),
         "{}",
         dump(&lines)
@@ -4369,15 +4371,18 @@ async fn without_approval_every_surface_tightens_and_undoes() {
     use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
     use theseus_protocol::method;
     let r = rig_with(vec![], |cfg| cfg.policy.enforcement = Posture::Notify);
-    for (label, s, discord) in [
-        ("sock#1", Cli, None),
-        ("web#1", Web, None),
+    // Each names its surface, as a cancel does; a connection no listener
+    // named, its own label (theseus-qiy).
+    for (label, s, discord, by) in [
+        ("sock#1", Cli, None, "the CLI"),
+        ("web#1", Web, None, "the web UI"),
         (
             "discord",
             Discord,
             Some((MALLORY, Some("712398310421561444"))),
+            "the Discord binding",
         ),
-        ("test", Unnamed, None),
+        ("test", Unnamed, None, "test"),
     ] {
         let p = json!({"tool": "proc.run", "discord": origin(discord)});
         let t = rpc_as(
@@ -4390,7 +4395,7 @@ async fn without_approval_every_surface_tightens_and_undoes() {
         .unwrap();
         assert_eq!(
             (t["changed"].as_bool(), t["by"].as_str()),
-            (Some(true), Some(label))
+            (Some(true), Some(by))
         );
         let u = rpc_as(&r.core, surface(label, s), method::POLICY_UNTIGHTEN, p)
             .await
@@ -5869,6 +5874,26 @@ mod web {
         for (_, n) in r.core.store.session_nodes(&res.session_id).unwrap() {
             assert!(!serde_json::to_string(&n).unwrap().contains("tv-good"));
         }
+        // The session's hold names the query, not the request; the request
+        // stays on the node (above) and in the hold, for the record; health
+        // says when in local time (theseus-qiy).
+        let rec: SessionRecord = r.core.store.get_session(&res.session_id).unwrap().unwrap();
+        let held = rec.external.expect("the search holds its session");
+        assert_eq!(held.query.as_deref(), Some("rust ignore WalkParallel"));
+        assert!(held.url.contains("/search?q=rust+ignore+WalkParallel"));
+        assert!(crate::external::source(&held)
+            .starts_with("web.search \"rust ignore WalkParallel\", at "));
+        let listed = r.core.health().external_text;
+        assert_eq!(
+            listed[0].held.what(),
+            "web.search \"rust ignore WalkParallel\""
+        );
+        assert_eq!(
+            listed[0].since_local,
+            crate::wake::local(held.since_ms).hms()
+        );
+        let read = ledgered(&r, "session.external_read");
+        assert_eq!(read[0]["query"], "rust ignore WalkParallel");
     }
 }
 

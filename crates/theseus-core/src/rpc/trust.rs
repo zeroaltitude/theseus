@@ -69,6 +69,7 @@ impl Core {
             let Some(held) = rec.external.take() else {
                 return Ok(());
             };
+            let at_ms = theseus_protocol::now_unix_ms();
             let r = TrustResult {
                 session_id: session_id.into(),
                 by: who.label.clone(),
@@ -76,7 +77,8 @@ impl Core {
                 via: who.via(),
                 how: how.into(),
                 correlation_id: correlation_id.map(str::to_string),
-                at_ms: theseus_protocol::now_unix_ms(),
+                at_ms,
+                since_local: crate::external::since_local(&held, at_ms),
                 held,
             };
             let mut data = serde_json::to_value(&r)?;
@@ -116,8 +118,9 @@ impl Core {
         p: PolicyTrustParams,
         conn: Conn<'_>,
     ) -> Result<TrustResult, RpcFailure> {
-        // A trust names the surface or the person, as a cancel does (DD8).
-        let who = conn.answerer(Some(conn.actor(p.author.as_deref())), p.discord);
+        // A trust names the surface or the person, as a cancel does (DD8),
+        // and as an approval's trust does (theseus-qiy): `Conn::answerer`.
+        let who = conn.answerer(p.author, p.discord);
         self.trust_session(&p.session_id, who)
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {
