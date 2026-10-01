@@ -12,15 +12,16 @@ const kindTone: Record<string, Tone> = {
   turn: 'live', lock: 'wait', loop: 'model', compile: 'think', store: 'idle', provider: 'model', tool: 'tool', mark: 'money',
 }
 
-interface Flat { name: string; kind: string; depth: number; start: number; end: number; attrs: unknown }
+export interface Flat { name: string; kind: string; depth: number; start: number; end: number; attrs: unknown }
 
-function flatten(s: Span, depth = 0, out: Flat[] = []): Flat[] {
+export function flatten(s: Span, depth = 0, out: Flat[] = []): Flat[] {
   out.push({ name: s.name, kind: s.kind, depth, start: s.start_us, end: s.end_us ?? s.start_us, attrs: s.attrs })
   for (const c of s.children ?? []) flatten(c, depth + 1, out)
   return out
 }
 
-export function Flame({ trace, onPick }: { trace: Span | null | undefined; onPick?: (f: Flat) => void }) {
+/** `cursor` (µs on the turn's clock) draws the replay's line and dims what has not started yet. */
+export function Flame({ trace, onPick, cursor }: { trace: Span | null | undefined; onPick?: (f: Flat) => void; cursor?: number | null }) {
   const flat = useMemo(() => (trace ? flatten(trace) : []), [trace])
   const option = useMemo<EChartsOption>(() => {
     const maxDepth = Math.max(0, ...flat.map((f) => f.depth))
@@ -54,7 +55,9 @@ export function Flame({ trace, onPick }: { trace: Span | null | undefined; onPic
             return { type: 'polygon' as const, shape: { points: [[cx, cy - 5], [cx + 4, cy], [cx, cy + 5], [cx - 4, cy]] }, style: { fill: toneHex[tone] } }
           }
           const w = Math.max(1.5, e[0] - s[0])
-          const rect = { type: 'rect' as const, shape: { x: s[0], y: s[1] + 1, width: w, height: h, r: 3 }, style: { fill: toneHex[tone], opacity: f.kind === 'loop' || f.kind === 'turn' ? 0.28 : 0.85 } }
+          const future = cursor != null && f.start > cursor
+          const base = f.kind === 'loop' || f.kind === 'turn' ? 0.28 : 0.85
+          const rect = { type: 'rect' as const, shape: { x: s[0], y: s[1] + 1, width: w, height: h, r: 3 }, style: { fill: toneHex[tone], opacity: future ? base * 0.25 : base } }
           if (w < 46) return rect
           return {
             type: 'group',
@@ -63,9 +66,18 @@ export function Flame({ trace, onPick }: { trace: Span | null | undefined; onPic
         },
         encode: { x: [1, 2], y: 0 },
         data: flat.map((f) => [f.depth, f.start, f.end]),
-      }],
+      },
+      ...(cursor != null ? [{
+        type: 'line' as const, data: [], silent: true,
+        markLine: {
+          silent: true, symbol: 'none', animation: false,
+          lineStyle: { color: toneHex.live, width: 2, type: 'solid' as const },
+          label: { formatter: us(cursor), color: toneHex.live, fontFamily: 'JetBrains Mono Variable', fontSize: 11 },
+          data: [{ xAxis: cursor }],
+        },
+      }] : [])],
     }
-  }, [flat])
+  }, [flat, cursor])
   if (!trace) return <Empty>pick a turn with a trace</Empty>
   return <Echart option={option} onClick={(p: any) => onPick?.(flat[p.dataIndex])} />
 }

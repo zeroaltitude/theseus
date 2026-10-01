@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Tabs } from 'radix-ui'
-import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, OctagonX, Pause, ScrollText, ShieldCheck, Timer } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer } from 'lucide-react'
 import type { CompilationInfo, ExecutionInfo, LedgerEntry, SessionHistory, Span } from '@protocol'
 import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
@@ -15,7 +15,7 @@ import { ledgerKind, toneHex } from '@/lib/taxonomy'
 import { axisStyle, type EChartsOption } from '@/lib/chart'
 import { useTick } from '@/lib/hooks'
 import { Echart } from '@/components/Echart'
-import { Flame } from '@/components/Flame'
+import { Flame, flatten } from '@/components/Flame'
 import { JsonView } from '@/components/JsonView'
 import { Transcript } from '@/components/Transcript'
 import { SessionGraph } from '@/components/SessionGraph'
@@ -235,17 +235,94 @@ function Inspector({ turns, traces, comps, rows, calls, session, nodes }: {
 
 interface PickedSpan { name: string; kind: string; start: number; end: number; attrs: unknown }
 
+/** Replay a turn on its own clock: a cursor in µs that you scrub, or play at 1×, 4×, or 16×. */
+function useReplay(trace: Span | null | undefined) {
+  const end = trace?.end_us ?? 0
+  const [t, setT] = useState<number | null>(null)
+  const [playing, setPlaying] = useState(false)
+  const [speed, setSpeed] = useState<1 | 4 | 16>(4)
+  useEffect(() => {
+    if (!playing) return
+    let raf = 0
+    let last = performance.now()
+    const step = (now: number) => {
+      const dt = (now - last) * 1000 * speed
+      last = now
+      setT((cur) => {
+        const next = (cur ?? 0) + dt
+        if (next >= end) { setPlaying(false); return end }
+        return next
+      })
+      raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [playing, speed, end])
+  return {
+    t, end, playing, speed, setSpeed,
+    play: () => { if (t == null || t >= end) setT(0); setPlaying(true) },
+    pause: () => setPlaying(false),
+    seek: (v: number) => { setPlaying(false); setT(v) },
+    stop: () => { setPlaying(false); setT(null) },
+  }
+}
+
+function ReplayBar({ replay }: { replay: ReturnType<typeof useReplay> }) {
+  if (!replay.end) return null
+  return (
+    <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
+      <button onClick={replay.playing ? replay.pause : replay.play} title={replay.playing ? 'pause' : 'replay this turn'}
+        className="grid h-6 w-6 place-items-center rounded-md bg-live/10 text-live ring-1 ring-live/30 hover:bg-live/20">
+        {replay.playing ? <Pause size={12} /> : <Play size={12} />}
+      </button>
+      <input type="range" min={0} max={replay.end} step={Math.max(1, Math.round(replay.end / 1000))} value={replay.t ?? 0}
+        onChange={(e) => replay.seek(Number(e.target.value))} className="h-1 flex-1 cursor-pointer accent-[#22d3ee]" />
+      <span className="num w-28 text-right text-[11px] text-ink-dim">{replay.t != null ? `${ms(replay.t / 1000)} / ${ms(replay.end / 1000)}` : `replay · ${ms(replay.end / 1000)}`}</span>
+      {([1, 4, 16] as const).map((s) => (
+        <button key={s} onClick={() => replay.setSpeed(s)} className={cn('num rounded px-1.5 py-0.5 text-[10px]', replay.speed === s ? 'bg-live/15 text-live' : 'text-ink-faint hover:text-ink')}>{s}×</button>
+      ))}
+      {replay.t != null && <button onClick={replay.stop} className="text-[10.5px] text-ink-faint hover:text-ink">done</button>}
+    </div>
+  )
+}
+
+/** What was happening at instant t of a turn: the spans open then (outermost first), and the marks already past. */
+function AtInstant({ trace, t }: { trace: Span | null | undefined; t: number }) {
+  const flat = useMemo(() => (trace ? flatten(trace) : []), [trace])
+  const open = flat.filter((f) => f.kind !== 'mark' && f.start <= t && t < f.end).sort((a, b) => a.depth - b.depth)
+  const marks = flat.filter((f) => f.kind === 'mark' && f.start <= t)
+  const done = flat.filter((f) => f.kind !== 'mark' && f.end <= t && f.depth >= 2).length
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="panel-title">at {ms(t / 1000)}</div>
+      {open.length === 0 && <div className="text-[12px] text-ink-faint">between spans</div>}
+      {open.map((f, i) => (
+        <div key={`${f.name}-${f.start}`} className="num flex items-baseline gap-2 text-[12px]" style={{ paddingLeft: i * 12 }}>
+          <span className="text-ink">{f.name}</span><span className="text-ink-faint">{f.kind}</span>
+          <span className="ml-auto text-live">{ms((t - f.start) / 1000)} in</span>
+          <span className="text-ink-faint">of {ms((f.end - f.start) / 1000)}</span>
+        </div>
+      ))}
+      <div className="num mt-1 text-[11px] text-ink-faint">
+        {done} spans finished{marks.length ? ` · ${marks.map((m) => `${m.name} at ${ms(m.start / 1000)}`).join(' · ')}` : ''}
+      </div>
+    </div>
+  )
+}
+
 function TimelineTab({ turns, traces }: { turns: TurnRow[]; traces: Map<string, Span> }) {
   const withTrace = turns.filter((t) => traces.has(t.turn_id))
   const [pick, setPick] = useState<string | null>(null)
   const [span, setSpan] = useState<PickedSpan | null>(null)
   const turnId = pick ?? withTrace[withTrace.length - 1]?.turn_id ?? null
+  const trace = turnId ? traces.get(turnId) : null
+  const replay = useReplay(trace)
   if (!withTrace.length) return <Empty>no turn traces in this session’s rows</Empty>
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
         {withTrace.map((t, i) => (
-          <button key={t.turn_id} onClick={() => { setPick(t.turn_id); setSpan(null) }}
+          <button key={t.turn_id} onClick={() => { setPick(t.turn_id); setSpan(null); replay.stop() }}
             className={cn('num shrink-0 rounded-md px-2 py-1 text-left text-[10.5px] ring-1 ring-inset transition-colors',
               t.turn_id === turnId ? 'bg-live/10 text-live ring-live/30' : 'text-ink-faint ring-line hover:text-ink')}>
             <div>turn {i + 1} · {clock(t.start)}</div>
@@ -253,9 +330,10 @@ function TimelineTab({ turns, traces }: { turns: TurnRow[]; traces: Map<string, 
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 p-2"><Flame trace={turnId ? traces.get(turnId) : null} onPick={setSpan} /></div>
+      <ReplayBar replay={replay} />
+      <div className="min-h-0 flex-1 p-2"><Flame trace={trace} onPick={setSpan} cursor={replay.t} /></div>
       <div className="h-44 shrink-0 overflow-auto border-t border-line p-2">
-        {span ? (
+        {replay.t != null ? <AtInstant trace={trace} t={replay.t} /> : span ? (
           <>
             <div className="mb-1 flex items-baseline gap-2 text-[12px]">
               <span className="font-semibold text-ink">{span.name}</span><span className="text-ink-faint">{span.kind}</span>
