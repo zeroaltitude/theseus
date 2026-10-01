@@ -12,10 +12,13 @@
 //! manifest produce the same bytes, and a later request's messages begin with
 //! the earlier request's messages unchanged. That is what keeps the provider's
 //! prompt cache warm and what the preserved-thinking rules require. A recompile
-//! that changes the system prompt or tool set, or drops leading turns, is the
-//! one place thinking blocks are stripped from the prefix (a boundary the
-//! provider documents as safe); a model change keeps them (the provider drops
-//! what the new model cannot read, unbilled).
+//! that changes the model, the provider, the system prompt, or the tool set, or
+//! drops leading turns, is the one place thinking blocks are stripped from the
+//! prefix (a boundary the provider documents as safe). A thinking block's
+//! signature is for the provider and model that wrote it, and another provider
+//! refuses it (400, "Invalid signature in thinking block": GLM's sent to
+//! Anthropic, theseus-kol), so a model change strips them too; and an assistant
+//! message another provider wrote never carries its thinking, wherever it sits.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -249,11 +252,12 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
             if t.is_empty() {
                 None
             } else {
-                // A system or tool change invalidates earlier thinking blocks;
-                // a model change alone does not (the provider drops unreadable
-                // blocks itself). A prefix that was stripped stays stripped.
-                let strip = t.iter().any(|x| *x != "model_changed") || m.strip_thinking;
-                Some((t.join("+"), "transcript", strip))
+                // Each invalidates the prefix's thinking blocks: a system or
+                // tool change the context they were thought in, and a model
+                // or provider change their signatures (theseus-kol). The
+                // earlier model's reasoning goes; its text, calls, and
+                // results stay.
+                Some((t.join("+"), "transcript", true))
             }
         }
     };
@@ -387,8 +391,13 @@ pub fn render_request(
         model: &spec.model,
         blobs,
     };
-    let (messages, repairs, image_tokens) =
-        render_messages(&prefix, &tail, c.manifest.strip_thinking, &media);
+    let (messages, repairs, image_tokens) = render_messages(
+        &prefix,
+        &tail,
+        c.manifest.strip_thinking,
+        &spec.provider,
+        &media,
+    );
 
     let mut betas = Vec::new();
     let mut extra = std::collections::BTreeMap::new();
@@ -499,12 +508,16 @@ fn late_result_text(r: &Node) -> String {
 
 /// Nodes → provider messages. Tool results are placed in one user message
 /// right after the assistant message whose `tool_use` blocks they answer,
-/// `tool_result` blocks first; consecutive same-role messages merge. Also
-/// returns the repaired calls and the tokens the images are estimated at.
+/// `tool_result` blocks first; consecutive same-role messages merge. An
+/// assistant message whose provider is not `provider`, the request's, keeps
+/// no thinking block: its signature is one only its own provider can verify
+/// (theseus-kol). Also returns the repaired calls and the tokens the images
+/// are estimated at.
 pub fn render_messages(
     prefix: &[&Node],
     tail: &[&Node],
     strip_prefix_thinking: bool,
+    provider: &str,
     media: &Media,
 ) -> (Vec<Value>, Vec<String>, u64) {
     let mut image_tokens = 0u64;
@@ -552,8 +565,13 @@ pub fn render_messages(
                 }
                 push(&mut out, "user", blocks)
             }
-            Body::AssistantMessage { blocks, .. } => {
-                let bl: Vec<Value> = if in_prefix && strip_prefix_thinking {
+            Body::AssistantMessage {
+                blocks,
+                provider: wrote,
+                ..
+            } => {
+                let strip = (in_prefix && strip_prefix_thinking) || wrote != provider;
+                let bl: Vec<Value> = if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
                 } else {
                     blocks.clone()
@@ -756,7 +774,7 @@ mod tests {
     }
 
     #[test]
-    fn system_change_recompiles_and_strips_prefix_thinking_but_model_change_keeps_it() {
+    fn a_system_or_model_change_recompiles_and_strips_the_prefixs_thinking() {
         let sp = spec("claude-opus-5", "A");
         let nodes = vec![
             (1, Node::user("s", None, "web", "hi")),
@@ -781,15 +799,97 @@ mod tests {
             1
         );
 
+        // A thinking block's signature is for the model that wrote it
+        // (theseus-kol): a model change strips them as a system change does.
         let sp3 = spec("claude-sonnet-5", "A");
         let c3 = run(&nodes, Some(&c1.compilation), &sp3, 3);
         assert_eq!(c3.trigger.as_deref(), Some("model_changed"));
-        assert!(!c3.compilation.manifest.strip_thinking);
-        assert_eq!(c3.request.messages[1]["content"][0], thinking());
+        assert!(c3.compilation.manifest.strip_thinking);
+        assert_eq!(
+            c3.request.messages[1]["content"],
+            json!([{"type": "text", "text": "hello"}])
+        );
         assert!(
             !c3.request.extra.contains_key("fallbacks"),
             "sonnet 5 has no fallbacks row"
         );
+    }
+
+    /// An assistant message another provider wrote: GLM's, with z.ai's
+    /// signature, as the history a turn on Anthropic replays (theseus-kol).
+    fn glm_said(blocks: Vec<Value>) -> Node {
+        let mut n = assistant(blocks);
+        if let Body::AssistantMessage {
+            model, provider, ..
+        } = &mut n.body
+        {
+            *model = "glm-5.3-flash".into();
+            *provider = "zai".into();
+        }
+        n
+    }
+
+    fn glm_thinking() -> Value {
+        json!({"type": "thinking", "thinking": "I should run it.", "signature": "zai-signature"})
+    }
+
+    /// The history's assistant message came from provider X (GLM, `zai`), and
+    /// the request goes to Y (Anthropic): it carries none of X's thinking
+    /// blocks with their signatures, wherever the message sits, in a new
+    /// compilation's prefix or in an old one's tail, a tool loop's last
+    /// message included (the 400 of theseus-kol). The same provider's keep
+    /// theirs, byte for byte.
+    #[test]
+    fn a_thinking_block_goes_back_only_to_the_provider_that_wrote_it() {
+        let call = json!({"type": "tool_use", "id": "t1", "name": "proc_run", "input": {"argv": ["sleep", "25"]}});
+        let nodes = vec![
+            (1, Node::user("s", None, "cli", "run sleep 25")),
+            (2, glm_said(vec![glm_thinking(), call.clone()])),
+            (
+                3,
+                result("t1", "Still running", ResultStatus::Background, false),
+            ),
+        ];
+        let no_thinking = |c: &Compiled| {
+            c.request.messages.iter().all(|m| {
+                m["content"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|b| !is_thinking(b))
+            }) && !serde_json::to_string(&c.request.messages)
+                .unwrap()
+                .contains("zai-signature")
+        };
+
+        // A new compilation, made for Anthropic: nothing strips its prefix,
+        // and still GLM's thinking stays home.
+        let sonnet = spec("claude-sonnet-5-5", "A");
+        let c = run(&nodes, None, &sonnet, 3);
+        assert!(!c.compilation.manifest.strip_thinking);
+        assert!(no_thinking(&c), "{:?}", c.request.messages);
+        assert_eq!(c.request.messages[1]["content"], json!([call]));
+
+        // The same history, on GLM's own provider: its thinking goes back.
+        let mut glm = spec("glm-5.3-flash", "A");
+        glm.provider = "zai".into();
+        let g = run(&nodes, None, &glm, 3);
+        assert_eq!(g.request.messages[1]["content"][0], glm_thinking());
+
+        // A GLM message in the tail of a compilation made for Anthropic
+        // (one that was never replaced): stripped there too.
+        let c1 = run(&nodes[..1], None, &sonnet, 1);
+        let c2 = run(&nodes, Some(&c1.compilation), &sonnet, 3);
+        assert_eq!(c2.decision(), "append");
+        assert!(no_thinking(&c2), "{:?}", c2.request.messages);
+
+        // And when the operator switches the live profile mid-session, the
+        // next turn's recompile strips every earlier thinking block.
+        let s1 = run(&nodes, None, &glm, 3);
+        let switched = run(&nodes, Some(&s1.compilation), &sonnet, 3);
+        assert_eq!(switched.trigger.as_deref(), Some("model_changed"));
+        assert!(switched.compilation.manifest.strip_thinking);
+        assert!(no_thinking(&switched));
     }
 
     #[test]

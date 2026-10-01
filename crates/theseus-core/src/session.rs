@@ -7,8 +7,9 @@
 use serde::{Deserialize, Serialize};
 use theseus_protocol::{SessionInfo, SessionKind, Usage};
 
-/// What the session's last turn ran against; a continuation reuses it, so a
-/// conversation does not change model under the model's own thinking blocks.
+/// What the session's last turn ran against, recorded from that turn's start
+/// (theseus-kol); a continuation reuses it, so a conversation does not change
+/// model under the model's own thinking blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetRef {
     pub profile: String,

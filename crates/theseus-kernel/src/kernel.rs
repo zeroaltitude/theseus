@@ -901,6 +901,19 @@ impl Kernel {
     /// The results queued for this execution (settled since its last turn),
     /// and clear them in the store as consumed. Call inside a held turn.
     pub fn take_results(&self, guard: &TurnGuard) -> Result<Vec<Action>> {
+        self.take_results_with(guard, |_| Ok(vec![]))
+    }
+
+    /// `take_results`, with what the turn makes of them (`extra`: the nodes
+    /// it writes for them) in the same frame (theseus-kol). A result leaves
+    /// the queue only in the frame that writes it into the session, so no
+    /// crash between the two can lose it. Nothing queued, and nothing is
+    /// written; `extra` is not called.
+    pub fn take_results_with(
+        &self,
+        guard: &TurnGuard,
+        extra: impl FnOnce(&[Action]) -> Result<Vec<NewRecord>>,
+    ) -> Result<Vec<Action>> {
         let _w = self.locks.lock(&guard.execution_id);
         let mut e = self
             .execution(&guard.execution_id)?
@@ -917,14 +930,16 @@ impl Kernel {
         let n = e.queued_results.len();
         e.queued_results.clear();
         e.updated_at_ms = self.now_ms();
-        self.commit(&[
+        let mut frame = vec![
             exec_record(&e)?,
             self.ledger(
                 "execution.results_consumed",
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "count": n}),
             )?,
-        ])?;
+        ];
+        frame.extend(extra(&out)?);
+        self.commit(&frame)?;
         Ok(out)
     }
 

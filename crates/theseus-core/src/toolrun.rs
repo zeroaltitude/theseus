@@ -1987,18 +1987,42 @@ impl ToolRuntime {
         Ok(())
     }
 
-    /// Settled actions queued for this execution since its last turn: a
-    /// background job's real result becomes a late result node.
-    pub fn absorb(&self, tc: &TurnCtx<'_>, settled: &[Action]) -> Result<u32> {
+    /// Take the settled actions queued for this execution since its last
+    /// turn: a background job's real result becomes a late result node, in
+    /// the frame that takes it from the queue (theseus-kol), so a crash
+    /// between the two cannot lose it. Returns what was taken, and how many
+    /// late results were written.
+    pub fn absorb(&self, tc: &TurnCtx<'_>) -> Result<(Vec<Action>, u32)> {
+        let mut late = Vec::new();
+        let settled = tc.kernel.take_results_with(tc.guard, |settled| {
+            let (nodes, records) = self.late_results(tc, settled)?;
+            late = nodes;
+            Ok(records)
+        })?;
+        for node in &late {
+            Self::announce_end(tc, node);
+        }
+        Ok((settled, late.len() as u32))
+    }
+
+    /// The late results among `settled`: for each job whose call was
+    /// answered `background` and has no late result yet, its result's node
+    /// and its `tool.late_result` row, for the frame that takes it from the
+    /// queue.
+    fn late_results(
+        &self,
+        tc: &TurnCtx<'_>,
+        settled: &[Action],
+    ) -> Result<(Vec<Node>, Vec<theseus_store::NewRecord>)> {
+        let (mut late, mut records) = (Vec::new(), Vec::new());
         let jobs: Vec<&Action> = settled
             .iter()
             .filter(|a| a.tool != PROVIDER_TOOL && a.tool != BUDGET_TOOL)
             .collect();
         if jobs.is_empty() {
-            return Ok(0);
+            return Ok((late, records));
         }
         let nodes = tc.store.transcript(tc.session_id)?;
-        let mut n = 0;
         for a in jobs {
             let placeholder = nodes.iter().find_map(|(_, node)| match &node.body {
                 Body::ToolResult {
@@ -2018,20 +2042,21 @@ impl ToolRuntime {
             if already {
                 continue;
             }
-            self.answer(
+            let node = self.result_node(
                 tc,
                 ResultNode {
                     late: true,
                     ..Self::job_result(tc, a, &tool_use_id, &tool)
                 },
-            )?;
-            tc.ledger(
+            );
+            records.push(node.record()?);
+            records.push(tc.ledger_record(
                 "tool.late_result",
                 json!({"correlation_id": a.correlation_id, "tool": tool, "state": a.state}),
-            );
-            n += 1;
+            )?);
+            late.push(node);
         }
-        Ok(n)
+        Ok((late, records))
     }
 }
 

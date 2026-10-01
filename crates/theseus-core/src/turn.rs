@@ -69,6 +69,16 @@ pub struct Target {
     pub refusal_fallbacks: bool,
 }
 
+impl From<&Target> for TargetRef {
+    fn from(t: &Target) -> Self {
+        TargetRef {
+            profile: t.profile.clone(),
+            provider: t.provider.clone(),
+            model: t.model.clone(),
+        }
+    }
+}
+
 pub struct TurnRunner {
     pub cfg: Arc<Config>,
     /// Providers by name; `cfg.model.provider` is the default.
@@ -462,15 +472,23 @@ impl TurnRunner {
         })
     }
 
-    /// A continuation keeps the session's last model so its thinking blocks stay readable.
+    /// What a continuation runs on: the session's last turn's target, which
+    /// every turn records from its start (theseus-kol), so a conversation
+    /// does not change model under its own thinking blocks, whatever profile
+    /// is live. A profile no longer configured gives its provider and model
+    /// under the live profile's settings; only a session with neither falls
+    /// back to the live profile.
     pub fn target_for_session(&self, s: &SessionRecord, live_profile: &str) -> Result<Target> {
         if let Some(t) = &s.last_target {
-            if let Ok(tg) = self.resolve_target(
+            let as_it_ran = self.resolve_target(
                 live_profile,
                 Some(&t.profile),
                 Some(&t.provider),
                 Some(&t.model),
-            ) {
+            );
+            if let Ok(tg) = as_it_ran.or_else(|_| {
+                self.resolve_target(live_profile, None, Some(&t.provider), Some(&t.model))
+            }) {
                 return Ok(tg);
             }
         }
@@ -1055,6 +1073,15 @@ impl TurnRunner {
         {
             session = fresh;
         }
+        // What this turn runs on is the session's target from the turn's
+        // start (theseus-kol): its copy carries it into every session write
+        // the turn makes (a recompile's, a failure's, its end's), and an
+        // input that changes it writes it in the input's own frame. So a
+        // continuation after a crash or a failed call runs where this turn
+        // ran, not on whatever profile is live.
+        let runs_on = TargetRef::from(&target);
+        let moved = session.last_target.as_ref() != Some(&runs_on);
+        session.last_target = Some(runs_on.clone());
         let sid = session.session_id.clone();
         let turn_id = crate::new_id("turn");
         let task_of = session.task.clone();
@@ -1110,7 +1137,19 @@ impl TurnRunner {
                     _ => title,
                 });
             }
-            t.tc.store.append(&[node.record()?])?;
+            // A new target rides in the input's frame, under the record's
+            // lock; the same one writes nothing more.
+            let written = if moved {
+                t.tc.store.update_session(&sid, |r| {
+                    r.last_target = Some(runs_on.clone());
+                    Ok(vec![node.record()?])
+                })?
+            } else {
+                None
+            };
+            if written.is_none() {
+                t.tc.store.append(&[node.record()?])?;
+            }
             t.tc.node_written(&node);
         }
 
@@ -1224,8 +1263,7 @@ impl TurnRunner {
     /// restart survived). Returns how many nodes that wrote.
     async fn catch_up(&self, t: &mut Turn<'_>, has_input: bool) -> Result<u32> {
         let t0 = t.trace.now_us();
-        let settled = t.tc.kernel.take_results(t.tc.guard)?;
-        let absorbed = self.tools.absorb(&t.tc, &settled)?;
+        let (settled, absorbed) = self.tools.absorb(&t.tc)?;
         // A budget question the kernel queued as a result: approved (the
         // spend was reset), or withdrawn by a raised limit (theseus-3pj).
         // Either way the call that did not fit proceeds.
@@ -1459,7 +1497,9 @@ impl TurnRunner {
 
     /// Does the model have anything new to read: input or results it has not
     /// seen, or a user message still waiting for a reply? If not, the turn's
-    /// stop reason says why.
+    /// stop reason says why. Only a continuation that wrote nothing asks the
+    /// transcript, and what it finds after the model's last answer is unread
+    /// by definition.
     fn has_news(t: &mut Turn<'_>, wrote: bool) -> Result<bool> {
         if t.awaiting.is_some() {
             t.stop_reason = "awaiting_confirm".into();
@@ -1479,13 +1519,19 @@ impl TurnRunner {
             .iter()
             .rev()
             .find(|(_, n)| !matches!(n.body, Body::ToolCall { .. }));
-        let awaiting_reply = match last.map(|(_, n)| &n.body) {
-            Some(Body::UserMessage { .. }) => true,
-            // A task goes on by itself (DD7): results its model has not read
-            // yet (a turn that stopped at its loop cap) are its next input.
-            Some(Body::ToolResult { .. }) => t.tc.task.is_some(),
-            _ => false,
-        };
+        // Results the model has not read are its next input (theseus-kol). A
+        // continuation that finds them was woken to have them read: the turn
+        // that wrote them failed or faulted before its model call returned
+        // (its retry), a late result landed as it ended, or a crash cut it.
+        // Ending `nothing_new` here once left a job's result unanswered for
+        // good. A turn that stopped short of them by its own decision (its
+        // loop cap, a `/stop`) parks on input, and nothing wakes it without
+        // writing something new. A task goes on by itself as it always did
+        // (DD7).
+        let awaiting_reply = matches!(
+            last.map(|(_, n)| &n.body),
+            Some(Body::UserMessage { .. } | Body::ToolResult { .. })
+        );
         if !awaiting_reply {
             t.stop_reason = "nothing_new".into();
             narrate_turn!(
@@ -2344,15 +2390,10 @@ impl TurnRunner {
         session: &mut SessionRecord,
         unused_recompile: Option<Recompile>,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool, Option<SessionHold>)> {
-        let settled = t.tc.kernel.take_results(t.tc.guard)?;
-        let late = self.tools.absorb(&t.tc, &settled)?;
+        let (_, late) = self.tools.absorb(&t.tc)?;
         t.close_books(session);
         let target = t.target;
-        session.last_target = Some(TargetRef {
-            profile: target.profile.clone(),
-            provider: target.provider.clone(),
-            model: target.model.clone(),
-        });
+        session.last_target = Some(TargetRef::from(target));
         let w0 = t.trace.now_us();
         // Only the turn's own fields: a recompile asked meanwhile stays
         // (theseus-xeo). The record rides in the turn's last frame, where

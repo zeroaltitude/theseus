@@ -3,16 +3,18 @@
 //! carries a tool result ends the turn with text. Any other call gets the
 //! tool calls `calls` gives for the turn's prompt, the last user text, or
 //! text when it gives none. One response per connection, streamed as the
-//! API streams it.
+//! API streams it, as the model the request named. Every request's body is
+//! kept, in arrival order (theseus-kol).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
-/// The model name the stand-in answers as: the template's live profile's.
+/// The model name the stand-in answers as when a request names none: the
+/// template's live profile's.
 const MODEL: &str = "claude-sonnet-5-5";
 
 /// Tool calls for a prompt: each a tool's wire name (`proc_run`) and its input.
@@ -20,6 +22,7 @@ pub type Calls = dyn Fn(&str) -> Vec<(&'static str, Value)> + Send + Sync;
 
 pub struct FakeModel {
     pub base: String,
+    requests: Arc<Mutex<Vec<Value>>>,
 }
 
 impl FakeModel {
@@ -30,21 +33,28 @@ impl FakeModel {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let calls: Arc<Calls> = Arc::new(calls);
+        let requests: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let seen = requests.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                let calls = calls.clone();
+                let (calls, seen) = (calls.clone(), seen.clone());
                 std::thread::spawn(move || {
-                    if let Err(e) = answer(stream, &*calls) {
+                    if let Err(e) = answer(stream, &*calls, &seen) {
                         eprintln!("fake model: {e}");
                     }
                 });
             }
         });
-        Self { base }
+        Self { base, requests }
+    }
+
+    /// Every request's body so far, in arrival order.
+    pub fn requests(&self) -> Vec<Value> {
+        self.requests.lock().unwrap().clone()
     }
 }
 
-fn answer(mut stream: TcpStream, calls: &Calls) -> std::io::Result<()> {
+fn answer(mut stream: TcpStream, calls: &Calls, seen: &Mutex<Vec<Value>>) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut r = BufReader::new(stream.try_clone()?);
     let mut len = 0usize;
@@ -65,12 +75,14 @@ fn answer(mut stream: TcpStream, calls: &Calls) -> std::io::Result<()> {
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    seen.lock().unwrap().push(req.clone());
+    let model = req["model"].as_str().unwrap_or(MODEL);
     let events = if carries_tool_result(&req) {
-        text_turn("Done.")
+        text_turn(model, "Done.")
     } else {
         match calls(&prompt(&req)) {
-            c if c.is_empty() => text_turn("Nothing to do."),
-            c => tool_turn(&c),
+            c if c.is_empty() => text_turn(model, "Nothing to do."),
+            c => tool_turn(model, &c),
         }
     };
     let mut out = String::from(
@@ -111,8 +123,8 @@ fn prompt(req: &Value) -> String {
     }
 }
 
-fn start(input_tokens: u64) -> Value {
-    json!({"type": "message_start", "message": {"id": "msg_test", "type": "message", "role": "assistant", "model": MODEL, "content": [], "usage": {"input_tokens": input_tokens, "output_tokens": 1}}})
+fn start(model: &str, input_tokens: u64) -> Value {
+    json!({"type": "message_start", "message": {"id": "msg_test", "type": "message", "role": "assistant", "model": model, "content": [], "usage": {"input_tokens": input_tokens, "output_tokens": 1}}})
 }
 
 fn end(stop_reason: &str) -> [Value; 2] {
@@ -122,8 +134,8 @@ fn end(stop_reason: &str) -> [Value; 2] {
     ]
 }
 
-fn tool_turn(calls: &[(&'static str, Value)]) -> Vec<Value> {
-    let mut v = vec![start(40)];
+fn tool_turn(model: &str, calls: &[(&'static str, Value)]) -> Vec<Value> {
+    let mut v = vec![start(model, 40)];
     for (i, (name, input)) in calls.iter().enumerate() {
         v.push(json!({"type": "content_block_start", "index": i, "content_block": {"type": "tool_use", "id": format!("toolu_test_{i}"), "name": name, "input": {}}}));
         v.push(json!({"type": "content_block_delta", "index": i, "delta": {"type": "input_json_delta", "partial_json": input.to_string()}}));
@@ -133,9 +145,9 @@ fn tool_turn(calls: &[(&'static str, Value)]) -> Vec<Value> {
     v
 }
 
-fn text_turn(text: &str) -> Vec<Value> {
+fn text_turn(model: &str, text: &str) -> Vec<Value> {
     let mut v = vec![
-        start(60),
+        start(model, 60),
         json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
         json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
         json!({"type": "content_block_stop", "index": 0}),
