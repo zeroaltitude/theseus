@@ -36,137 +36,122 @@ pub const BUDGET_TOOL: &str = "budget.reset";
 /// its plan and never asks the operator.
 pub const PROVIDER_TOOL: &str = "provider.messages";
 
-/// Method names. Requests (client → server).
-pub mod method {
-    pub const HEALTH: &str = "health";
-    pub const SESSION_OPEN: &str = "session.open";
-    pub const SESSION_LIST: &str = "session.list";
-    pub const TURN_SUBMIT: &str = "turn.submit";
-    pub const LEDGER_TAIL: &str = "ledger.tail";
-    pub const PROFILE_LIST: &str = "profile.list";
-    pub const PROFILE_USE: &str = "profile.use";
-    pub const EXECUTION_LIST: &str = "execution.list";
-    pub const EXECUTION_CANCEL: &str = "execution.cancel";
-    /// `/stop` (W1): halt a conversation's work, and keep the conversation.
-    pub const EXECUTION_STOP: &str = "execution.stop";
-    pub const ACTION_LIST: &str = "action.list";
-    pub const ACTION_CONFIRM: &str = "action.confirm";
-    /// Every question waiting for the operator, across sessions.
-    pub const CONFIRM_LIST: &str = "confirm.list";
-    pub const SESSION_HISTORY: &str = "session.history";
-    pub const SESSION_WATCH: &str = "session.watch";
-    pub const SESSION_UNWATCH: &str = "session.unwatch";
-    pub const SESSION_RECOMPILE: &str = "session.recompile";
-    pub const CATALOG_LIST: &str = "catalog.list";
-    pub const COMPILATION_LIST: &str = "compilation.list";
-    pub const NODE_LIST: &str = "node.list";
-    pub const TOOL_LIST: &str = "tool.list";
-    pub const SHUTDOWN: &str = "shutdown";
-    /// The narrative (`narrative = true`): the recent tail, then every new
-    /// line as a `narrative.line` notification until `narrative.unwatch`.
-    pub const NARRATIVE_WATCH: &str = "narrative.watch";
-    pub const NARRATIVE_UNWATCH: &str = "narrative.unwatch";
-    /// "Should have asked" (theseus-sgh): the tool asks first from now on.
-    /// Stored, never in the config; it can only make a tool stricter.
-    pub const POLICY_TIGHTEN: &str = "policy.tighten";
-    /// Undo a tightening: the tool goes back to what the config says. It
-    /// loosens, so it takes the same trusted answer as an approval.
-    pub const POLICY_UNTIGHTEN: &str = "policy.untighten";
-    /// Trust a session again (theseus-9bp): it no longer holds external
-    /// text, so its calls that act go back to their postures. It loosens, so
-    /// it takes the same trusted answer as an approval.
-    pub const POLICY_TRUST: &str = "policy.trust";
-    /// Tasks (DD7): the child sessions conversations started, with state and
-    /// spend.
-    pub const TASK_LIST: &str = "task.list";
-    /// Stop a task and its jobs; the place hears it once.
-    pub const TASK_CANCEL: &str = "task.cancel";
-    /// Wakes (DD8): the turns conversations asked for at a time, with
-    /// `wake.at`, that have not run yet.
-    pub const WAKE_LIST: &str = "wake.list";
-    /// Cancel a pending wake: nothing fires.
-    pub const WAKE_CANCEL: &str = "wake.cancel";
+/// A module of wire names, from one table: each constant with its docs, and
+/// `ALL`, built from the same table, so no constant is left out of it. The
+/// reader rule's registry test (theseus-wjy, theseus-core's `tests_registry`)
+/// enumerates `ALL`: each method needs its dispatch arm, and each
+/// notification its `Event` and a sender.
+macro_rules! names {
+    ($($(#[$doc:meta])* $name:ident = $value:literal,)*) => {
+        $($(#[$doc])* pub const $name: &str = $value;)*
 
-    /// Every method, so a server can say which only read (theseus-2fo).
-    pub const ALL: [&str; 31] = [
-        HEALTH,
-        SESSION_OPEN,
-        SESSION_LIST,
-        TURN_SUBMIT,
-        LEDGER_TAIL,
-        PROFILE_LIST,
-        PROFILE_USE,
-        EXECUTION_LIST,
-        EXECUTION_CANCEL,
-        EXECUTION_STOP,
-        ACTION_LIST,
-        ACTION_CONFIRM,
-        CONFIRM_LIST,
-        SESSION_HISTORY,
-        SESSION_WATCH,
-        SESSION_UNWATCH,
-        SESSION_RECOMPILE,
-        CATALOG_LIST,
-        COMPILATION_LIST,
-        NODE_LIST,
-        TOOL_LIST,
-        SHUTDOWN,
-        NARRATIVE_WATCH,
-        NARRATIVE_UNWATCH,
-        POLICY_TIGHTEN,
-        POLICY_UNTIGHTEN,
-        POLICY_TRUST,
-        TASK_LIST,
-        TASK_CANCEL,
-        WAKE_LIST,
-        WAKE_CANCEL,
-    ];
+        /// Every name in this module, from the same table as the constants.
+        pub const ALL: &[&str] = &[$($name,)*];
+    };
 }
 
-/// Notification names (server → client).
+/// Method names. Requests (client → server). `ALL` lets a server say which
+/// only read (theseus-2fo).
+pub mod method {
+    names! {
+        HEALTH = "health",
+        SESSION_OPEN = "session.open",
+        SESSION_LIST = "session.list",
+        TURN_SUBMIT = "turn.submit",
+        LEDGER_TAIL = "ledger.tail",
+        PROFILE_LIST = "profile.list",
+        PROFILE_USE = "profile.use",
+        EXECUTION_LIST = "execution.list",
+        EXECUTION_CANCEL = "execution.cancel",
+        /// `/stop` (W1): halt a conversation's work, and keep the conversation.
+        EXECUTION_STOP = "execution.stop",
+        ACTION_LIST = "action.list",
+        ACTION_CONFIRM = "action.confirm",
+        /// Every question waiting for the operator, across sessions.
+        CONFIRM_LIST = "confirm.list",
+        SESSION_HISTORY = "session.history",
+        SESSION_WATCH = "session.watch",
+        SESSION_UNWATCH = "session.unwatch",
+        SESSION_RECOMPILE = "session.recompile",
+        CATALOG_LIST = "catalog.list",
+        COMPILATION_LIST = "compilation.list",
+        NODE_LIST = "node.list",
+        TOOL_LIST = "tool.list",
+        SHUTDOWN = "shutdown",
+        /// The narrative (`narrative = true`): the recent tail, then every new
+        /// line as a `narrative.line` notification until `narrative.unwatch`.
+        NARRATIVE_WATCH = "narrative.watch",
+        NARRATIVE_UNWATCH = "narrative.unwatch",
+        /// "Should have asked" (theseus-sgh): the tool asks first from now on.
+        /// Stored, never in the config; it can only make a tool stricter.
+        POLICY_TIGHTEN = "policy.tighten",
+        /// Undo a tightening: the tool goes back to what the config says. It
+        /// loosens, so it takes the same trusted answer as an approval.
+        POLICY_UNTIGHTEN = "policy.untighten",
+        /// Trust a session again (theseus-9bp): it no longer holds external
+        /// text, so its calls that act go back to their postures. It loosens, so
+        /// it takes the same trusted answer as an approval.
+        POLICY_TRUST = "policy.trust",
+        /// Tasks (DD7): the child sessions conversations started, with state and
+        /// spend.
+        TASK_LIST = "task.list",
+        /// Stop a task and its jobs; the place hears it once.
+        TASK_CANCEL = "task.cancel",
+        /// Wakes (DD8): the turns conversations asked for at a time, with
+        /// `wake.at`, that have not run yet.
+        WAKE_LIST = "wake.list",
+        /// Cancel a pending wake: nothing fires.
+        WAKE_CANCEL = "wake.cancel",
+    }
+}
+
+/// Notification names (server → client). Each has its `Event` variant, which
+/// senders build and clients match on.
 pub mod notify {
-    pub const TURN_STARTED: &str = "turn.started";
-    pub const LOOP_STARTED: &str = "loop.started";
-    pub const MODEL_DELTA: &str = "model.delta";
-    pub const TOOL_PROPOSED: &str = "tool.proposed";
-    pub const LOOP_ENDED: &str = "loop.ended";
-    pub const TURN_ENDED: &str = "turn.ended";
-    pub const PROFILE_CHANGED: &str = "profile.changed";
-    /// Thinking summaries / progress updates as they stream.
-    pub const MODEL_THINKING: &str = "model.thinking";
-    /// The context for a loop was compiled (append or recompile, sizes, digest).
-    pub const CONTEXT_COMPILED: &str = "context.compiled";
-    /// A tool call started (after the gate) and ended (with its result).
-    pub const TOOL_STARTED: &str = "tool.started";
-    pub const TOOL_ENDED: &str = "tool.ended";
-    /// A tool call needs the operator's confirmation; the turn has parked.
-    pub const CONFIRM_REQUESTED: &str = "confirm.requested";
-    pub const CONFIRM_RESOLVED: &str = "confirm.resolved";
-    /// A node was written to a watched session (history stays live).
-    pub const NODE_WRITTEN: &str = "node.written";
-    /// A turn failed after it was admitted (provider error, store error). The
-    /// requester also gets the error response; watchers only get this.
-    pub const TURN_FAILED: &str = "turn.failed";
-    /// A call ran under a `notify` posture (`[policy].enforcement`, or a
-    /// `[policy.tools]` / `[policy.mcp]` line), and the operator is told.
-    pub const POLICY_NOTIFIED: &str = "policy.notified";
-    /// A tool was tightened, or its tightening undone (theseus-sgh). These go
-    /// to every connection watching a session, once each, since a tightening
-    /// holds for every session. The params are a `TightenResult`.
-    pub const POLICY_TIGHTENED: &str = "policy.tightened";
-    pub const POLICY_UNTIGHTENED: &str = "policy.untightened";
-    /// The operator trusted a session again (theseus-9bp), to the session's
-    /// watchers. The params are a `TrustResult`.
-    pub const SESSION_TRUSTED: &str = "session.trusted";
-    /// A Theseus job's process tried to answer an approval, reset the spend,
-    /// or undo a tightening, and was refused (theseus-6qy): a security event,
-    /// to every connection. The params are the `approval.refused` ledger
-    /// row's, with `act` and `session_id`; `asker` names the process and its
-    /// job.
-    pub const APPROVAL_REFUSED: &str = "approval.refused";
-    /// One line of the narrative, to every `narrative.watch` subscriber.
-    /// Unlike the others it is not a ledger row: the narrative is never stored.
-    pub const NARRATIVE_LINE: &str = "narrative.line";
+    names! {
+        TURN_STARTED = "turn.started",
+        LOOP_STARTED = "loop.started",
+        MODEL_DELTA = "model.delta",
+        TOOL_PROPOSED = "tool.proposed",
+        LOOP_ENDED = "loop.ended",
+        TURN_ENDED = "turn.ended",
+        PROFILE_CHANGED = "profile.changed",
+        /// Thinking summaries / progress updates as they stream.
+        MODEL_THINKING = "model.thinking",
+        /// The context for a loop was compiled (append or recompile, sizes, digest).
+        CONTEXT_COMPILED = "context.compiled",
+        /// A tool call started (after the gate) and ended (with its result).
+        TOOL_STARTED = "tool.started",
+        TOOL_ENDED = "tool.ended",
+        /// A tool call needs the operator's confirmation; the turn has parked.
+        CONFIRM_REQUESTED = "confirm.requested",
+        CONFIRM_RESOLVED = "confirm.resolved",
+        /// A node was written to a watched session (history stays live).
+        NODE_WRITTEN = "node.written",
+        /// A turn failed after it was admitted (provider error, store error). The
+        /// requester also gets the error response; watchers only get this.
+        TURN_FAILED = "turn.failed",
+        /// A call ran under a `notify` posture (`[policy].enforcement`, or a
+        /// `[policy.tools]` / `[policy.mcp]` line), and the operator is told.
+        POLICY_NOTIFIED = "policy.notified",
+        /// A tool was tightened, or its tightening undone (theseus-sgh). These go
+        /// to every connection watching a session, once each, since a tightening
+        /// holds for every session. The params are a `TightenResult`.
+        POLICY_TIGHTENED = "policy.tightened",
+        POLICY_UNTIGHTENED = "policy.untightened",
+        /// The operator trusted a session again (theseus-9bp), to the session's
+        /// watchers. The params are a `TrustResult`.
+        SESSION_TRUSTED = "session.trusted",
+        /// A Theseus job's process tried to answer an approval, reset the spend,
+        /// or undo a tightening, and was refused (theseus-6qy): a security event,
+        /// to every connection. The params are the `approval.refused` ledger
+        /// row's, with `act` and `session_id`; `asker` names the process and its
+        /// job.
+        APPROVAL_REFUSED = "approval.refused",
+        /// One line of the narrative, to every `narrative.watch` subscriber.
+        /// Unlike the others it is not a ledger row: the narrative is never stored.
+        NARRATIVE_LINE = "narrative.line",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

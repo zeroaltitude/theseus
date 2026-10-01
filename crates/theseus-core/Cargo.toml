@@ -41,6 +41,10 @@ proptest.workspace = true
 # types (theseus-hee). Messages and serde only: no tonic, and nothing in the
 # shipped build.
 opentelemetry-proto = { version = "0.33", default-features = false, features = ["gen-tonic-messages", "with-serde", "trace", "metrics"] }
+# The reader rule's registry test (theseus-wjy) reads the sources as Rust
+# tokens, so a string or a comment that names a variant is never taken for its
+# sender or its reader. Already in the build, under syn, with these features.
+proc-macro2 = "1"
 
 [lints]
 workspace = true

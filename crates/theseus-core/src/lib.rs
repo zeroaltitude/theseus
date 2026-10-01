@@ -22,6 +22,7 @@ pub mod cpu;
 pub mod disk;
 pub mod external;
 pub mod github;
+pub mod graph;
 pub mod harness;
 pub mod ledger;
 pub mod narrative;
@@ -70,6 +71,8 @@ mod tests_failures;
 mod tests_m3;
 #[cfg(test)]
 mod tests_outside_text;
+#[cfg(test)]
+mod tests_registry;
 #[cfg(test)]
 mod tests_tasks;
 #[cfg(test)]

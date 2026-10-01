@@ -391,6 +391,11 @@ macro_rules! events {
         }
 
         impl Event {
+            /// Every variant's name with its method, from the same table. The
+            /// reader rule's registry test (theseus-wjy) checks that each
+            /// `notify::*` name has a variant, and looks for each one's sender.
+            pub const VARIANTS: &[(&str, &str)] = &[$((stringify!($variant), $method),)*];
+
             /// Its method, one of `notify::*`.
             pub fn method(&self) -> &'static str {
                 match self {
