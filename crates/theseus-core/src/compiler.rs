@@ -95,13 +95,25 @@ pub struct BlockBreakpoint {
     /// `context` (the context files).
     pub block: String,
     /// The prefix the breakpoint closes, the tools and the system through
-    /// this block, in tokens at chars/4.
-    pub prefix_tokens: u64,
+    /// this block, in bytes of their JSON.
+    pub prefix_bytes: u64,
     /// The block carries `cache_control`. Not when the provider does not
-    /// cache, nor when the prefix is under `min_tokens`: the provider would
-    /// never cache it, so the breakpoint would take a slot for nothing.
+    /// cache, nor when the prefix is too short to reach `min_tokens`: then
+    /// the provider would never cache it, and the breakpoint would take a
+    /// slot for nothing.
     pub marked: bool,
 }
+
+/// Bytes a token takes at the fewest, for the minimum's check. A prefix
+/// under `min_tokens` × this can never reach the minimum. Claude's
+/// tokenizers read this JSON at about 2.6 bytes a token (Sonnet 5.5) to 3.1
+/// (Haiku 4.5), and prose at about 4, so the check drops a breakpoint only
+/// when its prefix is surely short. The compiler's chars/4 estimate would
+/// not do: on Eddie's config it put the header at 3,350 tokens, which
+/// Sonnet 5.5 counted 5,045 and Haiku 4.5 about 4,150, over Haiku's 4,096
+/// (the cache2 lane's live check, 2026-10-01). A breakpoint dropped that
+/// would have cached costs a rewrite; one placed that cannot costs nothing.
+pub const MIN_BYTES_PER_TOKEN: u64 = 2;
 
 impl CacheLayout {
     /// The breakpoints set, by name, the conversation's last.
@@ -289,24 +301,22 @@ fn system_digest(spec: &RequestSpec) -> String {
 }
 
 /// Where the breakpoints go (theseus-ev1): on each system block whose
-/// prefix, the tools and the system through it, reaches the model's
-/// minimum, when the provider caches at all. Sizes are chars/4, the
-/// compiler's estimate everywhere.
+/// prefix, the tools and the system through it, can reach the model's
+/// minimum (`MIN_BYTES_PER_TOKEN`), when the provider caches at all.
 pub fn cache_layout(spec: &RequestSpec, catalog: &Catalog) -> CacheLayout {
     let entry = catalog.get(&spec.model);
     let caches = entry.is_none_or(|e| e.caches);
     let min_tokens = entry.map_or(0, |e| e.cache_min_tokens);
-    let len = |v: &Value| serde_json::to_string(v).map_or(0, |s| s.len());
-    let mut chars = len(&Value::Array(spec.tools.clone()));
+    let len = |v: &Value| serde_json::to_string(v).map_or(0, |s| s.len() as u64);
+    let mut bytes = len(&Value::Array(spec.tools.clone()));
     let blocks = system_blocks(spec)
         .into_iter()
         .map(|(block, text)| {
-            chars += len(&json!({"type": "text", "text": text}));
-            let prefix_tokens = (chars / 4) as u64;
+            bytes += len(&json!({"type": "text", "text": text}));
             BlockBreakpoint {
                 block: block.into(),
-                prefix_tokens,
-                marked: caches && prefix_tokens >= min_tokens as u64,
+                prefix_bytes: bytes,
+                marked: caches && bytes >= min_tokens as u64 * MIN_BYTES_PER_TOKEN,
             }
         })
         .collect();
@@ -1210,16 +1220,13 @@ mod tests {
         assert_eq!(m, c.cache);
         assert!(m.caches && m.blocks.iter().all(|b| b.marked));
         assert_eq!(m.min_tokens, 512);
-        // Each prefix is the tools and the system through its block, at chars/4.
-        let len = |v: &Value| serde_json::to_string(v).unwrap().len();
+        // Each prefix is the tools and the system through its block, in bytes.
+        let len = |v: &Value| serde_json::to_string(v).unwrap().len() as u64;
         let tools = len(&Value::Array(sp.tools.clone()));
         let header = len(&json!({"type": "text", "text": sp.system_text}));
         let context = len(&json!({"type": "text", "text": sp.context_text}));
-        assert_eq!(m.blocks[0].prefix_tokens, ((tools + header) / 4) as u64);
-        assert_eq!(
-            m.blocks[1].prefix_tokens,
-            ((tools + header + context) / 4) as u64
-        );
+        assert_eq!(m.blocks[0].prefix_bytes, tools + header);
+        assert_eq!(m.blocks[1].prefix_bytes, tools + header + context);
 
         // An edited context file recompiles; the header's bytes do not move.
         let mut edited = sp;
@@ -1271,11 +1278,13 @@ mod tests {
         assert_eq!(c2.request.system.len(), 2);
     }
 
-    /// A breakpoint whose prefix is under the model's minimum gets none: the
-    /// provider would never cache it, and it would take a slot (theseus-ev1).
-    /// Haiku 4.5's minimum, 4,096 tokens, is above this header's prefix of
-    /// about 1,000; the context block's prefix clears it. The manifest says
-    /// which is which. On Opus 5, whose minimum is 512, both are marked.
+    /// A breakpoint whose prefix can never reach the model's minimum gets
+    /// none: the provider would not cache it, and it would take a slot
+    /// (theseus-ev1). A token takes 2 bytes at the fewest, so on Haiku 4.5
+    /// (4,096 tokens) a prefix under 8,192 bytes is surely short: this
+    /// ~4,100-byte header gets none, and the ~24,000-byte context block one.
+    /// The manifest says which is which. On Opus 5, whose minimum is 512
+    /// (1,024 bytes), both are marked.
     #[test]
     fn a_prefix_under_the_models_minimum_gets_no_breakpoint() {
         let sp = two_blocks("claude-haiku-4-5", 4_000, 20_000);
@@ -1286,13 +1295,23 @@ mod tests {
         assert_eq!(m.min_tokens, 4_096);
         let header = &m.blocks[0];
         assert_eq!((header.block.as_str(), header.marked), ("header", false));
-        assert!((1_000..4_096).contains(&header.prefix_tokens), "{header:?}");
+        assert!((4_000..8_192).contains(&header.prefix_bytes), "{header:?}");
         let context = &m.blocks[1];
         assert_eq!((context.block.as_str(), context.marked), ("context", true));
-        assert!(context.prefix_tokens >= 4_096, "{context:?}");
+        assert!(context.prefix_bytes >= 24_000, "{context:?}");
         assert_eq!(c.cache.breakpoints(), ["context", "conversation"]);
         let stored = serde_json::to_value(&c.compilation.manifest).unwrap();
         assert_eq!(stored["cache"]["blocks"][0]["marked"], false, "{stored}");
+
+        // The bound exactly: a header prefix of 8,192 bytes is marked on
+        // Haiku, and one of 8,191 is not.
+        let len = |v: &Value| serde_json::to_string(v).unwrap().len();
+        let base = len(&Value::Array(sp.tools.clone())) + len(&json!({"type": "text", "text": ""}));
+        for (bytes, marked) in [(8_192, true), (8_191, false)] {
+            let at = spec("claude-haiku-4-5", &"h".repeat(bytes - base));
+            let b = cache_layout(&at, &Catalog::builtin()).blocks[0].clone();
+            assert_eq!((b.prefix_bytes, b.marked), (bytes as u64, marked));
+        }
 
         // Without context files, Haiku's only breakpoint is the conversation's.
         let alone = spec("claude-haiku-4-5", &"h".repeat(4_000));

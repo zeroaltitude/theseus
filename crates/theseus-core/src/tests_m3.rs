@@ -2694,36 +2694,55 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
 }
 
 /// The real header, the persona, the tools note, and the tools, is about
-/// 3.3k tokens: above every Anthropic model's caching minimum but Haiku
-/// 4.5's 4,096 (theseus-ev1). On Haiku it gets no breakpoint of its own, and
-/// the compilation's manifest and the narrative say so; the conversation's
-/// breakpoint stays. On the template's Sonnet 5.5 (512) it has one.
+/// 13 KB, which Haiku 4.5 counts at about 4,150 tokens, past its caching
+/// minimum of 4,096 (the cache2 lane's live check). A token takes 2 bytes at
+/// the fewest, so the header gets its breakpoint on every built-in model,
+/// Haiku included (theseus-ev1). A minimum the prefix can never reach, here a
+/// config's 16,384 tokens (32,768 bytes), drops the header's breakpoint: the
+/// compilation's manifest and the narrative say so, and the conversation's
+/// breakpoint stays.
 #[tokio::test]
 async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
+    async fn on_haiku(r: &Rig) -> TurnSubmitResult {
+        let (live, _) = r.core.live_profile();
+        let haiku = r
+            .core
+            .runner
+            .resolve_target(&live, None, None, Some("claude-haiku-4-5"))
+            .unwrap();
+        turn_on(&r.core, haiku, "hello").await
+    }
     let r = rig(vec![Scripted::text("Small.")]);
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    assert!(r.core.narrator.watch("watcher", tx).is_some());
-    let (live, _) = r.core.live_profile();
-    let haiku = r
-        .core
-        .runner
-        .resolve_target(&live, None, None, Some("claude-haiku-4-5"))
-        .unwrap();
-    let res = turn_on(&r.core, haiku, "hello").await;
+    let res = on_haiku(&r).await;
     assert_eq!(res.model, "claude-haiku-4-5");
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
     let layout = comps[0].manifest.cache.clone().unwrap();
     assert_eq!(layout.min_tokens, 4_096);
     let header = &layout.blocks[0];
     assert_eq!(header.block, "header");
-    assert!(
-        header.prefix_tokens < 4_096,
-        "the header grew past Haiku's minimum ({} tokens): it now gets a breakpoint there too",
-        header.prefix_tokens
-    );
-    assert!(!header.marked && layout.caches);
+    assert!(header.prefix_bytes >= 8_192 && header.marked, "{layout:?}");
     let sent = r.fake.requests().pop().unwrap();
     assert_eq!(sent.system.len(), 1, "no context files: one block");
+    assert_eq!(
+        sent.system[0]["cache_control"],
+        json!({"type": "ephemeral"})
+    );
+
+    let r = rig_with(vec![Scripted::text("Small.")], |cfg| {
+        cfg.catalog
+            .get_mut("claude-haiku-4-5")
+            .unwrap()
+            .cache_min_tokens = Some(16_384);
+    });
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    assert!(r.core.narrator.watch("watcher", tx).is_some());
+    let res = on_haiku(&r).await;
+    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
+    let layout = comps[0].manifest.cache.clone().unwrap();
+    assert_eq!(layout.min_tokens, 16_384);
+    let header = &layout.blocks[0];
+    assert!(header.prefix_bytes < 32_768 && !header.marked && layout.caches);
+    let sent = r.fake.requests().pop().unwrap();
     assert!(sent.system[0].get("cache_control").is_none());
     assert_eq!(sent.cache_control, Some(json!({"type": "ephemeral"})));
     let row = &ledgered(&r, "context.compiled")[0];
@@ -2743,18 +2762,13 @@ async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
         "{lines:?}"
     );
 
-    // The template's Sonnet 5.5: the header is marked.
+    // The template's Sonnet 5.5 (512): the header is marked.
     let r = rig(vec![Scripted::text("Small.")]);
     let res = turn(&r.core, None, "hello").await;
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
     let layout = comps[0].manifest.cache.clone().unwrap();
     assert_eq!(layout.min_tokens, 512);
     assert!(layout.blocks[0].marked, "{layout:?}");
-    let sent = r.fake.requests().pop().unwrap();
-    assert_eq!(
-        sent.system[0]["cache_control"],
-        json!({"type": "ephemeral"})
-    );
 }
 
 /// A task's own conversation is cached for 5 minutes on a 1-hour profile,

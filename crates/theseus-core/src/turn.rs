@@ -1851,9 +1851,9 @@ impl TurnRunner {
                     t.tc,
                     Context,
                     "Context: no cache breakpoint on the system's {} block: with the tools, its \
-                     prefix is about {} tokens, under {}'s minimum of {}.",
+                     prefix is {} bytes, too short to reach {}'s minimum of {} tokens.",
                     b.block,
-                    narrative::thousands(b.prefix_tokens),
+                    narrative::thousands(b.prefix_bytes),
                     spec.model,
                     narrative::thousands(layout.min_tokens as u64)
                 );
