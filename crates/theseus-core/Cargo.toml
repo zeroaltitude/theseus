@@ -32,6 +32,10 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+# The paused clock for tests that prove a wait never happens (theseus-ksfu);
+# theseus-aws and theseus-voice enable it already, so the workspace's test
+# build is unchanged.
+tokio = { workspace = true, features = ["test-util"] }
 proptest.workspace = true
 # The conformance tests read the exporter's OTLP JSON back through OTLP's own
 # types (theseus-hee). Messages and serde only: no tonic, and nothing in the

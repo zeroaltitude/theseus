@@ -149,11 +149,17 @@ fn submit(id: u64, input: &str) -> Request {
     )
 }
 
-/// With a vault that never answers, `health` answers inside the cold-start
-/// budget (§9, 50 ms), from the request to its answer, and says the secrets
-/// are resolving. The process-level budget is the lifecycle bench's, on a
-/// release build (`theseus-sim bench lifecycle`).
-#[tokio::test]
+/// With a vault that never answers, `health` answers at once, and says the
+/// secrets are resolving. The test runs on tokio's paused clock, which moves
+/// only when every task waits on a timer, so it measures waiting, not speed:
+/// had health waited for the vault, the runtime would have sat idle and the
+/// clock run straight to the timeout below; had it waited on a timer of its
+/// own, the clock would show it. Wall time measured speed too, and a busy
+/// machine failed it: 403.6 ms against 50 in a lane's gate (theseus-ksfu).
+/// The cold-start budget itself (§9, 50 ms) is the lifecycle bench's, on a
+/// release build (`theseus-sim bench lifecycle`), which reruns once on a
+/// miss.
+#[tokio::test(start_paused = true)]
 async fn health_answers_at_once_while_a_hung_vault_resolves() {
     let (vault, _never) = crate::secrets::fake::FakeVault::gated(&[]);
     let (core, _) = serving_core(vault, "x");
@@ -165,17 +171,21 @@ async fn health_answers_at_once_while_a_hung_vault_resolves() {
     let req = Request::new(Id::Num(1), method::HEALTH, Value::Null);
     let mut line = serde_json::to_string(&req).unwrap();
     line.push('\n');
-    let t0 = std::time::Instant::now();
+    let t0 = tokio::time::Instant::now();
     cw.write_all(line.as_bytes()).await.unwrap();
-    let answer = loop {
-        let l = lines.next_line().await.unwrap().unwrap();
-        if let Message::Response(r) = serde_json::from_str::<Message>(&l).unwrap() {
-            break r;
+    let answer = tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let l = lines.next_line().await.unwrap().unwrap();
+            if let Message::Response(r) = serde_json::from_str::<Message>(&l).unwrap() {
+                break r;
+            }
         }
-    };
-    let took = t0.elapsed();
+    })
+    .await
+    .expect("health waited: the runtime sat idle until the paused clock ran out");
+    let waited = t0.elapsed();
     let h = answer.result.clone().unwrap();
-    assert!(took < Duration::from_millis(50), "health took {took:?}");
+    assert_eq!(waited, Duration::ZERO, "health waited on a timer");
     assert_eq!(h["secrets"]["state"], "resolving", "{h}");
     assert_eq!(h["secrets"]["resolving"].as_array().unwrap().len(), 2);
     assert_eq!(h["secrets_resolved"], json!([]));
