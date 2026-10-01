@@ -1,0 +1,38 @@
+[package]
+name = "theseus-judge"
+description = "Judgments with TypeSafe Jev (spec §3.7, M5): the typed client, the three-band gate, capped states, batching, the circuit breaker, versioned question packs, the learning math, and a fake Jev. No kernel, store, or core types: the core maps its own onto the plain inputs here."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# A fake Jev on 127.0.0.1 for other crates' tests and the simulator. The
+# crate's own unit tests always have it.
+fake = []
+# The `jev-probe` binary: real calls with a key from the environment.
+probe = ["fake", "dep:clap"]
+
+[[bin]]
+name = "jev-probe"
+path = "src/bin/jev-probe.rs"
+required-features = ["probe"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+zeroize.workspace = true
+uuid.workspace = true
+sha2 = "0.10"
+hex = "0.4"
+clap = { workspace = true, optional = true }
+
+[lints]
+workspace = true

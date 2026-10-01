@@ -6,6 +6,7 @@ members = [
     "crates/theseus-kernel",
     "crates/theseus-tools",
     "crates/theseus-sandbox",
+    "crates/theseus-judge",
     "crates/theseus-sim",
     "crates/theseus-core",
     "crates/theseus-discord",

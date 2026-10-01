@@ -2956,6 +2956,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "theseus-judge"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-util",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror",
+ "tokio",
+ "toml",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "theseus-kernel"
 version = "0.0.1"
 dependencies = [

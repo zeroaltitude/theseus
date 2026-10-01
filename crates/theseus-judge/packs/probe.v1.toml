@@ -1,0 +1,56 @@
+# probe.v1: the test pack. One Choice, one Score with its `applies` Noul, and
+# one Noul, over a synthetic build-failure state. `jev-probe --l1` asks its
+# questions against real Jev; the loader's tests edit it to break each rule.
+# The core never dispatches it (point "probe").
+id = "probe"
+version = 1
+jev_model = "jev-1.13.0"
+point = "probe"
+state = "probe"
+state_cap_tokens = 1000
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "The test pack: the probe's three L1 calls, and the loader's rules."
+
+[questions.cause]
+type = "choice"
+instructions = "What most likely caused this build failure?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "dependency_change", means = "A dependency changed version shortly before the failure, and the error points at that dependency." },
+  { id = "flaky_infrastructure", means = "The build machine, the network, or a cache failed, not the code or its dependencies." },
+  { id = "code_bug", means = "A change to the project's own code broke the build." },
+  { id = "other", means = "None of the causes above fits the evidence." },
+]
+
+[questions.severity]
+type = "score"
+instructions = "How badly does this failure affect the team's release work?"
+act = 0.90
+confirm = 0.60
+applies = "severity_applies"
+levels = [
+  "Cosmetic: nothing is blocked.",
+  "Minor: a workaround exists.",
+  "Major: a release is blocked until it is fixed.",
+  "Critical: software already shipped is affected.",
+]
+
+[questions.severity_applies]
+type = "noul"
+instructions = "Does this event bear on the team's release work at all?"
+act = 0.90
+confirm = 0.60
+when_true = "The event could delay, block, or break a release."
+when_false = "The event has nothing to do with releasing software."
+
+[questions.needs_human]
+type = "noul"
+instructions = "Should a person look at this failure today?"
+act = 0.90
+confirm = 0.60
+when_true = "A person should look at it today."
+when_false = "It can wait for the next scheduled review."
