@@ -475,3 +475,139 @@ async fn live_edits_of_one_message_coalesce_into_the_last() {
     assert!(m.edits < 10, "60 updates cost {} edits", m.edits);
     assert_eq!(fake.messages(CHANNEL).len(), 1);
 }
+
+/// A second user the channel below is bound to (an invented id).
+const OTHER: u64 = 300_000_000_000_000_003;
+
+/// The ledger's `discord.message.out` rows: what Discord said each create
+/// mentioned, by its message id.
+fn mentioned_out(core: &Core) -> Vec<(String, serde_json::Value)> {
+    let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> = core.store.ledger_tail(500).unwrap();
+    rows.into_iter()
+        .filter(|(_, r)| r.kind == "discord.message.out")
+        .map(|(_, r)| {
+            (
+                r.data["message_id"].as_str().unwrap_or("").to_string(),
+                r.data["mentions"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// theseus-9j9: a card in a guild channel names the users who can answer it
+/// (the place's, with no `[approval]`) in its content and in
+/// `allowed_mentions.users`, so Discord notifies them and nobody else. Every
+/// other message there (the bind notice, the turn's tool line, and its
+/// reply, whose text names a user) mentions no one.
+#[tokio::test]
+async fn a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_anyone() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let script = vec![Scripted::tools(
+        &format!("Asking <@{USER}> about it."),
+        &[(
+            "t1",
+            "fs_write",
+            serde_json::json!({"path": "a.txt", "content": "x"}),
+        )],
+    )];
+    let core = core_at(d.path(), &fake, script, |_| {});
+    let bindings = format!(
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"lighthouse\"\nusers = [\"{USER}\", \"{OTHER}\"]\nmention_only = false\n",
+        dm_only()
+    );
+    let rpc = bind(&core, d.path(), &bindings).await;
+    let c = core.clone();
+    until("the channel is bound", 10, move || {
+        c.outbox
+            .place_session(&format!("channel:{CHANNEL}"))
+            .unwrap()
+            .is_some()
+    })
+    .await;
+    let sid = core
+        .outbox
+        .place_session(&format!("channel:{CHANNEL}"))
+        .unwrap()
+        .unwrap();
+    ask(&rpc, &sid, "write a")
+        .await
+        .awaiting_confirm
+        .expect("the write waits");
+    let c = core.clone();
+    until("the card and the reply delivered", 10, move || {
+        pending(&c) == 0
+    })
+    .await;
+    let msgs = fake.messages(CHANNEL);
+    let (cards, others): (Vec<Msg>, Vec<Msg>) = msgs.into_iter().partition(|m| m.components > 0);
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    let card = &cards[0];
+    assert!(
+        card.content.starts_with(&format!(
+            "<@{USER}> <@{OTHER}> **Approve?** `fs.write` a.txt"
+        )),
+        "{}",
+        card.content
+    );
+    assert_eq!(
+        card.allowed_mentions,
+        serde_json::json!({"parse": [], "replied_user": false, "users": [USER.to_string(), OTHER.to_string()]})
+    );
+    assert_eq!(card.mentions, [USER.to_string(), OTHER.to_string()]);
+    // The binding read back whom Discord said it notified.
+    let out = mentioned_out(&core);
+    let card_out = out.iter().find(|(id, _)| *id == card.id).expect("its row");
+    assert_eq!(
+        card_out.1,
+        serde_json::json!([USER.to_string(), OTHER.to_string()])
+    );
+    for what in ["🔗 Theseus is bound here", "Asking <@", "`fs.write`"] {
+        assert!(
+            others.iter().any(|m| m.content.contains(what)),
+            "no message with {what:?}: {others:?}"
+        );
+    }
+    for m in &others {
+        assert!(m.mentions.is_empty(), "{m:?}");
+        assert_eq!(m.allowed_mentions["parse"], serde_json::json!([]), "{m:?}");
+        assert!(m.allowed_mentions.get("users").is_none(), "{m:?}");
+        let row = out.iter().find(|(id, _)| *id == m.id).expect("its row");
+        assert_eq!(row.1, serde_json::json!([]), "{m:?}");
+    }
+}
+
+/// theseus-9j9: a card in a DM reaches its one user anyway, and names no one.
+#[tokio::test]
+async fn a_card_in_a_dm_mentions_no_one() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let script = vec![Scripted::tools(
+        "",
+        &[(
+            "t1",
+            "fs_write",
+            serde_json::json!({"path": "a.txt", "content": "x"}),
+        )],
+    )];
+    let core = core_at(d.path(), &fake, script, |_| {});
+    let rpc = bind(&core, d.path(), &dm_only()).await;
+    ask(&rpc, &session(&core), "write a")
+        .await
+        .awaiting_confirm
+        .expect("the write waits");
+    let c = core.clone();
+    until("the card delivered", 10, move || pending(&c) == 0).await;
+    let card = fake
+        .messages(DM)
+        .into_iter()
+        .find(|m| m.components > 0)
+        .expect("the card");
+    assert!(
+        card.content.starts_with("**Approve?** `fs.write` a.txt"),
+        "{}",
+        card.content
+    );
+    assert!(card.mentions.is_empty(), "{card:?}");
+    assert!(card.allowed_mentions.get("users").is_none(), "{card:?}");
+}

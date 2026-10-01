@@ -1316,6 +1316,14 @@ impl Shared {
         Renderer::new(self.notice_embeds)
     }
 
+    /// Who may drive the bound channel `channel` (its `[[channel]] users`):
+    /// the only people whose presses there count, whom its cards mention
+    /// (theseus-9j9).
+    pub(crate) fn place_users(&self, channel: u64) -> Vec<u64> {
+        let r = self.routes.lock().unwrap();
+        r.users.get(&channel).cloned().unwrap_or_default()
+    }
+
     /// The DM an approval card goes to when its place is not a trusted
     /// channel: the turn's author's, when they are a trusted user with an
     /// open DM here, else the first such DM in the bindings file.

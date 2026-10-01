@@ -63,6 +63,47 @@ pub struct Msg {
     pub reply_to: Option<String>,
     pub edits: u32,
     pub created_ms: u64,
+    /// The create's `allowed_mentions`, as sent (theseus-9j9); null when it
+    /// sent none, which Discord reads as "parse everything".
+    pub allowed_mentions: Value,
+    /// The users the create notified, as Discord's `mentions` answers: each
+    /// one whose `<@id>` the content carries and `allowed_mentions` allows.
+    /// An edit notifies nobody, and the fake leaves this as the create set it.
+    pub mentions: Vec<String>,
+}
+
+/// Whom a create notifies, as Discord decides it: the users the content
+/// mentions (`<@id>` or `<@!id>`) that `allowed` allows, by `users`, or by
+/// `parse` naming "users"; with no `allowed_mentions`, all of them.
+pub fn notified(content: &str, allowed: &Value) -> Vec<String> {
+    let mut named = Vec::new();
+    let mut rest = content;
+    while let Some(at) = rest.find("<@") {
+        rest = &rest[at + 2..];
+        let id: String = rest
+            .trim_start_matches('!')
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        let close = rest.trim_start_matches('!').get(id.len()..id.len() + 1) == Some(">");
+        if !id.is_empty() && close && !named.contains(&id) {
+            named.push(id);
+        }
+    }
+    if allowed.is_null() {
+        return named;
+    }
+    let parse_users = allowed["parse"]
+        .as_array()
+        .is_some_and(|p| p.iter().any(|v| v == "users"));
+    let users: Vec<&str> = allowed["users"]
+        .as_array()
+        .map(|u| u.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    named
+        .into_iter()
+        .filter(|id| parse_users || users.contains(&id.as_str()))
+        .collect()
 }
 
 /// One request, as recorded: never its headers.
@@ -342,10 +383,13 @@ impl FakeDiscord {
                 Some(m) => (m.clone(), "deduped"),
                 None => {
                     st.next_id += 1;
+                    let content = body["content"].as_str().unwrap_or("").to_string();
+                    let allowed = body["allowed_mentions"].clone();
                     let m = Msg {
                         id: st.next_id.to_string(),
                         channel: channel.to_string(),
-                        content: body["content"].as_str().unwrap_or("").to_string(),
+                        mentions: notified(&content, &allowed),
+                        content,
                         nonce: nonce.clone(),
                         components: body["components"].as_array().map_or(0, Vec::len),
                         reply_to: body["message_reference"]["message_id"]
@@ -353,6 +397,7 @@ impl FakeDiscord {
                             .map(str::to_string),
                         edits: 0,
                         created_ms: now,
+                        allowed_mentions: allowed,
                     };
                     st.messages.push(m.clone());
                     (m, "created")
@@ -447,13 +492,19 @@ fn seen(method: &str, path: &str, outcome: &str) -> Seen {
     }
 }
 
-/// A message as Discord answers it: the fields twilight's model requires.
+/// A message as Discord answers it: the fields twilight's model requires,
+/// and the users it notified as its `mentions` (theseus-9j9).
 fn message_json(m: &Msg) -> Value {
+    let mentions: Vec<Value> = m
+        .mentions
+        .iter()
+        .map(|id| json!({"id": id, "username": format!("user-{id}"), "discriminator": "0000", "avatar": null, "bot": false, "public_flags": 0}))
+        .collect();
     json!({
         "id": m.id, "channel_id": m.channel, "content": m.content,
         "author": {"id": BOT_ID.to_string(), "username": "Theseus (fake)", "discriminator": "0000", "bot": true},
         "timestamp": "2026-09-30T00:00:00.000000+00:00", "edited_timestamp": null, "tts": false,
-        "mention_everyone": false, "mentions": [], "mention_roles": [], "attachments": [], "embeds": [],
+        "mention_everyone": false, "mentions": mentions, "mention_roles": [], "attachments": [], "embeds": [],
         "pinned": false, "type": 0, "nonce": m.nonce,
     })
 }
@@ -480,4 +531,23 @@ fn reply_empty(mut stream: TcpStream) -> std::io::Result<()> {
         "HTTP/1.1 204 No Content\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
     )?;
     stream.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Discord notifies a mentioned user only when `allowed_mentions` allows
+    /// it, and every mentioned user when a create sends none (theseus-9j9).
+    #[test]
+    fn a_create_notifies_only_the_mentions_it_allows() {
+        let text = "<@101> <@!202> look, and <@303 and <@101> again";
+        assert_eq!(notified(text, &Value::Null), ["101", "202"]);
+        assert!(notified(text, &json!({"parse": [], "replied_user": false})).is_empty());
+        assert_eq!(
+            notified(text, &json!({"parse": [], "users": ["202", "404"]})),
+            ["202"]
+        );
+        assert_eq!(notified(text, &json!({"parse": ["users"]})), ["101", "202"]);
+    }
 }

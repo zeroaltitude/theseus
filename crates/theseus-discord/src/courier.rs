@@ -136,6 +136,38 @@ struct Write {
     reply_to: Option<u64>,
     /// The message to edit, when the post knows it (a card's settle).
     message: Option<u64>,
+    /// Who its create notifies (theseus-9j9): a card's answerers, named at
+    /// the start of its content; nobody, for every other message.
+    mentions: Vec<u64>,
+}
+
+/// `content`, after a mention of each of `users`: Discord notifies them,
+/// and only them, when `allowed_mentions.users` names the same (theseus-9j9).
+fn mentioning(users: &[u64], content: String) -> String {
+    if users.is_empty() {
+        return content;
+    }
+    let at: Vec<String> = users.iter().map(|u| format!("<@{u}>")).collect();
+    format!("{} {content}", at.join(" "))
+}
+
+/// Who can answer a card in a guild channel (theseus-9j9): the place's
+/// users, whom the binding lets press its buttons, and of them, when
+/// `[approval]` is configured, only those it trusts, since the core refuses
+/// anyone else's answer (`Approval::judge`).
+pub(crate) fn answerers(
+    place_users: &[u64],
+    approval: &theseus_core::approval::Approval,
+) -> Vec<u64> {
+    if !approval.configured() {
+        return place_users.to_vec();
+    }
+    let trusted = approval.discord_users();
+    place_users
+        .iter()
+        .copied()
+        .filter(|u| trusted.contains(u))
+        .collect()
 }
 
 /// What a post comes to: its writes, and what its completion keeps besides
@@ -422,6 +454,7 @@ impl Lane {
             buttons: Buttons::Keep,
             reply_to,
             message: None,
+            mentions: vec![],
         };
         let reply_to = body["reply_to"].as_str().and_then(|s| s.parse().ok());
         match kind_of(a) {
@@ -527,6 +560,7 @@ impl Lane {
                     buttons: Buttons::Keep,
                     reply_to: anchor.take(),
                     message: None,
+                    mentions: vec![],
                 }
             })
             .collect();
@@ -571,15 +605,24 @@ impl Lane {
             Buttons::Confirm(q.clone())
         };
         let mut writes = Vec::new();
+        // A card in a guild channel names the people who can answer it, and
+        // Discord notifies them and nobody else (theseus-9j9): a card is the
+        // one message that waits on a human. A card in a DM needs no mention,
+        // and the note beside a card sent elsewhere names nobody.
+        let mut named = Vec::new();
         let (how, dm) = match &route {
             Route::Here => {
+                if self.kind == "channel" {
+                    named = answerers(&self.shared.place_users(channel), &core.approval);
+                }
                 writes.push(Write {
                     key,
                     channel,
-                    content: card.content,
+                    content: mentioning(&named, card.content),
                     buttons,
                     reply_to: None,
                     message: None,
+                    mentions: named.clone(),
                 });
                 ("here", None)
             }
@@ -592,6 +635,7 @@ impl Lane {
                     buttons,
                     reply_to: None,
                     message: None,
+                    mentions: vec![],
                 });
                 ("dm", Some(dm.clone()))
             }
@@ -605,11 +649,13 @@ impl Lane {
                 buttons: Buttons::Keep,
                 reply_to: None,
                 message: None,
+                mentions: vec![],
             });
         }
+        let named: Vec<String> = named.iter().map(u64::to_string).collect();
         Ok(Plan {
             writes,
-            extra: json!({"question": q, "route": how, "dm": dm, "line": card.line, "budget": card.budget}),
+            extra: json!({"question": q, "route": how, "dm": dm, "line": card.line, "budget": card.budget, "mentions": named}),
         })
     }
 
@@ -647,6 +693,7 @@ impl Lane {
                 buttons,
                 reply_to: None,
                 message: Some(message),
+                mentions: vec![],
             });
         }
         if writes.is_empty() {
@@ -766,7 +813,14 @@ impl Lane {
             }
         }
         let (m, landed) = self
-            .create(w.channel, &w.key, &w.content, &w.buttons, w.reply_to)
+            .create(
+                w.channel,
+                &w.key,
+                &w.content,
+                &w.buttons,
+                w.reply_to,
+                &w.mentions,
+            )
             .await?;
         self.msgs.insert(w.key.clone(), (w.channel, m));
         if landed != w.content {
@@ -781,6 +835,8 @@ impl Lane {
     /// A new message, with its key's nonce and `enforce_nonce`: a second send
     /// of it returns the first message. Returns its id and the content Discord
     /// has for it, which is an earlier send's when the nonce matched one.
+    /// Discord notifies exactly `mentions` (theseus-9j9): nobody for any
+    /// message but a card, whatever its text says.
     async fn create(
         &mut self,
         channel: u64,
@@ -788,12 +844,17 @@ impl Lane {
         content: &str,
         buttons: &Buttons,
         reply_to: Option<u64>,
+        mentions: &[u64],
     ) -> Result<(u64, String), SendErr> {
+        let mut allowed = json!({"parse": [], "replied_user": false});
+        if !mentions.is_empty() {
+            allowed["users"] = json!(mentions.iter().map(u64::to_string).collect::<Vec<_>>());
+        }
         let mut body = json!({
             "content": content,
             "nonce": nonce(key),
             "enforce_nonce": true,
-            "allowed_mentions": {"parse": [], "replied_user": false},
+            "allowed_mentions": allowed,
         });
         let comps = match buttons {
             Buttons::Confirm(corr) => confirm_buttons(corr, false),
@@ -827,12 +888,14 @@ impl Lane {
             message: format!("reading the sent message: {e}"),
         })?;
         self.shared.board.update(|s| s.messages_out += 1);
+        // Whom Discord says the message mentions: what it notified.
+        let mentioned: Vec<String> = m.mentions.iter().map(|u| u.id.to_string()).collect();
         self.shared.core.binding_ledger(
             "discord.message.out",
             None,
             json!({"place": self.label, "message_id": m.id.to_string(), "part": key,
                    "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_)),
-                   "menu": matches!(buttons, Buttons::ShouldHaveAsked(_))}),
+                   "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
         Ok((m.id.get(), m.content))
     }
@@ -898,6 +961,7 @@ impl Lane {
                         buttons,
                         reply_to,
                         message: None,
+                        mentions: vec![],
                     })
                     .await
                     .map(|_| ())
@@ -1014,5 +1078,32 @@ mod tests {
             a.len() <= 25 && a.chars().all(|c| c.is_ascii_digit()),
             "{a}"
         );
+    }
+
+    /// A card's answerers (theseus-9j9): the place's users, and of them, under
+    /// `[approval]`, only the trusted ones, whose answers alone count.
+    #[test]
+    fn a_cards_answerers_are_the_places_users_whom_approval_trusts() {
+        use theseus_core::approval::Approval;
+        use theseus_core::config::ApprovalConfig;
+        // Invented ids, of a Discord id's length.
+        let (a, b, c) = (
+            100_000_000_000_000_101,
+            200_000_000_000_000_202,
+            300_000_000_000_000_303,
+        );
+        let place = [a, b, c];
+        assert_eq!(answerers(&place, &Approval::new(None)), place);
+        let cfg = ApprovalConfig {
+            trusted_users: vec![format!("discord:{b}"), "discord:400000000000000404".into()],
+            channels: vec!["discord:dm".into()],
+        };
+        assert_eq!(answerers(&place, &Approval::new(Some(&cfg))), [b]);
+        assert!(answerers(&[], &Approval::new(Some(&cfg))).is_empty());
+        assert_eq!(
+            mentioning(&[202, 101], "**Approve?** `fs.write` a.txt".into()),
+            "<@202> <@101> **Approve?** `fs.write` a.txt"
+        );
+        assert_eq!(mentioning(&[], "plain".into()), "plain");
     }
 }
