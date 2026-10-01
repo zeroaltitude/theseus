@@ -1,0 +1,368 @@
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::time::{Duration, Instant};
+
+use theseus_store::{kinds, NewRecord, Wal, WalConfig};
+
+use super::*;
+
+fn cfg(segment_bytes: u64) -> WalConfig {
+    WalConfig {
+        segment_bytes,
+        fsync: false,
+        ..WalConfig::default()
+    }
+}
+
+fn row(i: u32) -> NewRecord {
+    NewRecord::bytes(kinds::LEDGER, None, format!("row {i}").into_bytes())
+}
+
+/// Every record a follower reads until it stops, with the stops' kinds.
+fn drain(f: &mut WalFollower, max_bytes: usize) -> Vec<u64> {
+    let mut out = Vec::new();
+    loop {
+        let b = f.read(max_bytes).unwrap();
+        out.extend(b.records.iter().map(|r| r.position));
+        if *f.stop() != Stop::Budget {
+            return out;
+        }
+    }
+}
+
+fn seg(dir: &Path, n: u32) -> PathBuf {
+    wal::segment_path(dir, n)
+}
+
+#[test]
+fn it_reads_every_frame_in_order_from_the_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    for i in 0..5 {
+        w.append(&[row(i), row(i + 100)]).unwrap();
+    }
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    let b = f.read(1 << 20).unwrap();
+    assert_eq!(b.frames, 5);
+    assert_eq!(
+        b.records.iter().map(|r| r.position).collect::<Vec<_>>(),
+        (1..=10).collect::<Vec<_>>()
+    );
+    assert_eq!(b.records[1].payload, b"row 100");
+    assert_eq!(*f.stop(), Stop::CaughtUp);
+    assert_eq!(f.cursor().position, 10);
+    assert_eq!(
+        f.cursor().offset,
+        fs::metadata(seg(dir.path(), 1)).unwrap().len()
+    );
+    // Caught up: an empty read, and the cursor stays.
+    let c = f.cursor().clone();
+    assert!(f.read(1 << 20).unwrap().is_empty());
+    assert_eq!(*f.cursor(), c);
+}
+
+#[test]
+fn an_empty_or_missing_log_is_caught_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("wal");
+    let mut f = WalFollower::open(&missing, Cursor::start()).unwrap();
+    assert!(f.read(1024).unwrap().is_empty());
+    assert_eq!(*f.stop(), Stop::CaughtUp);
+    // The store creates its first segment; the follower then reads it.
+    let w = Wal::open(&missing, cfg(1 << 20)).unwrap();
+    assert!(f.read(1024).unwrap().is_empty());
+    w.append(&[row(1)]).unwrap();
+    assert_eq!(f.read(1024).unwrap().records.len(), 1);
+}
+
+#[test]
+fn it_stops_at_a_torn_tail_and_resumes_after_the_cores_repair() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    for i in 0..5 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    // A crash in the middle of a frame: its header, and part of its body.
+    let mut torn = Vec::new();
+    torn.extend_from_slice(&theseus_store::wal::MAGIC.to_le_bytes());
+    torn.extend_from_slice(&500u32.to_le_bytes());
+    torn.extend_from_slice(&0u32.to_le_bytes());
+    torn.extend_from_slice(&[7u8; 40]);
+    OpenOptions::new()
+        .append(true)
+        .open(seg(dir.path(), 1))
+        .unwrap()
+        .write_all(&torn)
+        .unwrap();
+
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    assert_eq!(drain(&mut f, 1 << 20), vec![1, 2, 3, 4, 5]);
+    let at = f.cursor().clone();
+    assert!(
+        matches!(f.stop(), Stop::Partial { segment: 1, offset, .. } if *offset == at.offset),
+        "{:?}",
+        f.stop()
+    );
+    // It waits there: never past the torn frame, never cutting it.
+    let len = fs::metadata(seg(dir.path(), 1)).unwrap().len();
+    assert!(f.read(1 << 20).unwrap().is_empty());
+    assert_eq!(*f.cursor(), at);
+    assert_eq!(fs::metadata(seg(dir.path(), 1)).unwrap().len(), len);
+
+    // The core's open cuts the torn tail and appends on: the follower reads
+    // the new frames from where it stopped.
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    assert_eq!(w.recovery().truncated_bytes, torn.len() as u64);
+    w.append(&[row(6)]).unwrap();
+    w.append(&[row(7), row(8)]).unwrap();
+    assert_eq!(drain(&mut f, 1 << 20), vec![6, 7, 8]);
+    assert_eq!(*f.stop(), Stop::CaughtUp);
+    let back = f.read(1 << 20).unwrap();
+    assert!(back.is_empty());
+    // And a cursor saved at the torn tail reopens against the repaired log.
+    WalFollower::open(dir.path(), at).unwrap();
+}
+
+#[test]
+fn it_waits_on_a_frame_being_written_and_reads_it_once_whole() {
+    let a = tempfile::tempdir().unwrap();
+    let w = Wal::open(a.path(), cfg(1 << 20)).unwrap();
+    for i in 0..3 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    // The next frame's bytes, as the writer would write them: from a copy
+    // of the log that appended it.
+    let b = tempfile::tempdir().unwrap();
+    fs::copy(seg(a.path(), 1), seg(b.path(), 1)).unwrap();
+    let before = fs::metadata(seg(a.path(), 1)).unwrap().len() as usize;
+    Wal::open(b.path(), cfg(1 << 20))
+        .unwrap()
+        .append(&[row(3), row(4)])
+        .unwrap();
+    let frame = fs::read(seg(b.path(), 1)).unwrap()[before..].to_vec();
+
+    let mut f = WalFollower::open(a.path(), Cursor::start()).unwrap();
+    assert_eq!(drain(&mut f, 1 << 20), vec![1, 2, 3]);
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(seg(a.path(), 1))
+        .unwrap();
+    for cut in [5, 20, frame.len() - 1] {
+        let have = fs::metadata(seg(a.path(), 1)).unwrap().len() as usize - before;
+        file.write_all(&frame[have..cut]).unwrap();
+        assert!(
+            f.read(1 << 20).unwrap().is_empty(),
+            "a frame cut at {cut} was read"
+        );
+        assert!(matches!(f.stop(), Stop::Partial { .. }));
+    }
+    file.write_all(&frame[frame.len() - 1..]).unwrap();
+    assert_eq!(drain(&mut f, 1 << 20), vec![4, 5]);
+    assert_eq!(*f.stop(), Stop::CaughtUp);
+}
+
+#[test]
+fn it_crosses_segment_rotations() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(256)).unwrap();
+    for i in 0..30 {
+        w.append(&[row(i)]).unwrap();
+    }
+    assert!(w.segment_count() >= 4, "{} segments", w.segment_count());
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    // Small reads, so the budget, a segment's end, and a rotation all fall
+    // between reads and inside them.
+    let mut seen = Vec::new();
+    let mut sealed = Vec::new();
+    loop {
+        let b = f.read(90).unwrap();
+        seen.extend(b.records.iter().map(|r| r.position));
+        sealed.extend(b.sealed);
+        if *f.stop() == Stop::CaughtUp {
+            break;
+        }
+    }
+    assert_eq!(seen, (1..=30).collect::<Vec<_>>());
+    let last = w.segment_count();
+    assert_eq!(sealed, (1..last).collect::<Vec<_>>());
+    assert_eq!(f.cursor().segment, last);
+
+    // The writer rolls again while the follower is caught up.
+    for i in 30..60 {
+        w.append(&[row(i)]).unwrap();
+    }
+    assert!(w.segment_count() > last);
+    assert_eq!(drain(&mut f, 1 << 20), (31..=60).collect::<Vec<_>>());
+    assert_eq!(f.cursor().segment, w.segment_count());
+}
+
+#[test]
+fn a_frame_larger_than_the_budget_is_read_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    w.append(&[NewRecord::bytes(kinds::NODE, Some("n"), vec![b'x'; 10_000])])
+        .unwrap();
+    w.append(&[row(2)]).unwrap();
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    let b = f.read(100).unwrap();
+    assert_eq!(b.records.len(), 1);
+    assert_eq!(b.records[0].payload.len(), 10_000);
+    assert_eq!(*f.stop(), Stop::Budget);
+    assert_eq!(drain(&mut f, 100), vec![2]);
+}
+
+#[test]
+fn a_saved_cursor_reopens_where_it_left_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(300)).unwrap();
+    for i in 0..10 {
+        w.append(&[row(i)]).unwrap();
+    }
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    assert_eq!(drain(&mut f, 1 << 20), (1..=10).collect::<Vec<_>>());
+    let saved = serde_json::to_string(f.cursor()).unwrap();
+    for i in 10..20 {
+        w.append(&[row(i)]).unwrap();
+    }
+    let cursor: Cursor = serde_json::from_str(&saved).unwrap();
+    let mut again = WalFollower::open(dir.path(), cursor).unwrap();
+    assert_eq!(drain(&mut again, 1 << 20), (11..=20).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_rewound_or_replaced_log_is_noticed() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    for i in 0..4 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    drain(&mut f, 1 << 20);
+    let at = f.cursor().clone();
+
+    // A tail lost before its sync (a machine crash): the segment is shorter
+    // than the cursor.
+    let path = seg(dir.path(), 1);
+    let whole = fs::read(&path).unwrap();
+    fs::write(&path, &whole[..whole.len() - 5]).unwrap();
+    assert!(matches!(
+        WalFollower::open(dir.path(), at.clone()),
+        Err(FollowError::Rewound(_))
+    ));
+    // And a running follower sees it at its next read.
+    assert!(matches!(f.read(1 << 20), Err(FollowError::Rewound(_))));
+
+    // Another log of the same length and positions (a restore of another
+    // copy): the frame before the cursor is not the one it read.
+    let other = tempfile::tempdir().unwrap();
+    let w = Wal::open(other.path(), cfg(1 << 20)).unwrap();
+    for i in 0..4 {
+        w.append(&[NewRecord::bytes(
+            kinds::LEDGER,
+            None,
+            format!("ROW {i}").into_bytes(),
+        )])
+        .unwrap();
+    }
+    drop(w);
+    fs::copy(seg(other.path(), 1), &path).unwrap();
+    assert_eq!(fs::metadata(&path).unwrap().len(), at.offset);
+    assert!(matches!(
+        WalFollower::open(dir.path(), at.clone()),
+        Err(FollowError::Rewound(_))
+    ));
+
+    // The segment gone altogether.
+    fs::remove_file(&path).unwrap();
+    assert!(matches!(
+        WalFollower::open(dir.path(), at),
+        Err(FollowError::Rewound(_))
+    ));
+}
+
+#[test]
+fn a_frame_cut_short_in_a_sealed_segment_is_corruption() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(200)).unwrap();
+    for i in 0..10 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    assert!(seg(dir.path(), 2).exists());
+    let path = seg(dir.path(), 1);
+    let len = fs::metadata(&path).unwrap().len();
+    OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(len - 3)
+        .unwrap();
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    let mut seen = 0;
+    let err = loop {
+        match f.read(1 << 20) {
+            Ok(b) => {
+                seen += b.records.len();
+                assert!(!b.is_empty(), "stopped without an error: {:?}", f.stop());
+            }
+            Err(e) => break e,
+        }
+    };
+    assert!(matches!(err, FollowError::Corrupt(_)), "{err}");
+    assert!(seen < 10);
+}
+
+#[test]
+fn the_waker_wakes_on_an_append_and_its_timer_is_the_backstop() {
+    let dir = tempfile::tempdir().unwrap();
+    let wal_dir = dir.path().join("wal");
+    // Not there yet: the timer alone, until the directory appears.
+    let mut waker = Waker::new(&wal_dir).unwrap();
+    assert!(!waker.watching());
+    assert_eq!(waker.wait(Duration::from_millis(20)).unwrap(), Wake::Timer);
+    let w = std::sync::Arc::new(Wal::open(&wal_dir, cfg(1 << 20)).unwrap());
+    assert_eq!(
+        waker.wait(Duration::from_millis(20)).unwrap(),
+        Wake::Changed
+    );
+    assert!(waker.watching());
+    // Quiet: the backstop, after its time and not before.
+    let t = Instant::now();
+    assert_eq!(waker.wait(Duration::from_millis(150)).unwrap(), Wake::Timer);
+    assert!(
+        t.elapsed() >= Duration::from_millis(140),
+        "{:?}",
+        t.elapsed()
+    );
+
+    // An append from another thread wakes it well inside the backstop.
+    let writer = w.clone();
+    let t = Instant::now();
+    let h = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        writer.append(&[row(1)]).unwrap();
+    });
+    assert_eq!(waker.wait(Duration::from_secs(30)).unwrap(), Wake::Changed);
+    let waited = t.elapsed();
+    h.join().unwrap();
+    assert!(waited < Duration::from_secs(5), "woke after {waited:?}");
+
+    // An append made before the wait is not missed: the event is queued.
+    w.append(&[row(2)]).unwrap();
+    assert_eq!(waker.wait(Duration::from_secs(30)).unwrap(), Wake::Changed);
+    // And the queue was drained: quiet again.
+    assert_eq!(waker.wait(Duration::from_millis(20)).unwrap(), Wake::Timer);
+
+    // Another thread's kick wakes it too, once per kick.
+    let kicker = waker.kicker();
+    let h = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        kicker.kick();
+    });
+    assert_eq!(waker.wait(Duration::from_secs(30)).unwrap(), Wake::Kicked);
+    h.join().unwrap();
+    assert_eq!(waker.wait(Duration::from_millis(20)).unwrap(), Wake::Timer);
+}

@@ -1,0 +1,21 @@
+[package]
+name = "theseus-follow"
+description = "The WAL follower: a read-only reader of a store's write-ahead log from outside the process that writes it, from a cursor, woken by inotify. Free of any search engine, so the index tender and the durability tender share it."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+theseus-store.workspace = true
+libc = "0.2"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

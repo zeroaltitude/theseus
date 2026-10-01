@@ -1,0 +1,38 @@
+[package]
+name = "theseus-index"
+description = "The index tender (M6 step 29b): follows the WAL, extracts each node's text and entities, and answers BM25 and entity queries as of a position, over its own socket."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "theseus-index"
+path = "src/main.rs"
+
+[dependencies]
+theseus-follow = { path = "../theseus-follow" }
+theseus-protocol.workspace = true
+theseus-store.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+libc = "0.2"
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# Pure Rust only: no zstd (C) and no stemmer; mmap for the on-disk index,
+# lz4 (lz4_flex) for its doc store.
+tantivy = { version = "0.26", default-features = false, features = ["mmap", "lz4-compression"] }
+
+[dev-dependencies]
+# The extractor's registry test matches every `Body` variant (tests only:
+# the tender never links the core).
+theseus-core.workspace = true
+tempfile = "3"
+
+[lints]
+workspace = true

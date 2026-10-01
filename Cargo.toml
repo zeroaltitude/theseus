@@ -16,6 +16,8 @@ members = [
     "crates/theseus",
     "crates/theseus-exam",
     "crates/theseus-mcp",
+    "crates/theseus-follow",
+    "crates/theseus-index",
 ]
 
 # Beyond clippy's defaults, held by the gate's `-D warnings` (theseus-0g4).

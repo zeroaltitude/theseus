@@ -37,7 +37,8 @@ use std::time::{Duration, Instant};
 use crate::record::{now_unix_ms, NewRecord, Record};
 
 pub const MAGIC: u32 = 0x5448_574C; // "THWL"
-const FRAME_HEADER: usize = 12;
+/// MAGIC, the body's length, and its crc.
+pub const FRAME_HEADER: usize = 12;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalError {
@@ -167,11 +168,13 @@ pub struct Wal {
     bad: Arc<OnceLock<(u32, u64, u64)>>,
 }
 
-fn segment_path(dir: &Path, n: u32) -> PathBuf {
+/// Segment `n`'s file in the log's directory.
+pub fn segment_path(dir: &Path, n: u32) -> PathBuf {
     dir.join(format!("{n:09}.seg"))
 }
 
-fn list_segments(dir: &Path) -> io::Result<Vec<u32>> {
+/// The segments in the log's directory, in order.
+pub fn list_segments(dir: &Path) -> io::Result<Vec<u32>> {
     let mut v = Vec::new();
     for e in fs::read_dir(dir)? {
         let e = e?;
@@ -890,6 +893,42 @@ fn check_frame(
     walk.expected = next;
     walk.out.extend(kept);
     Ok(body_end)
+}
+
+/// One frame read on its own, by a reader outside the store (the WAL
+/// follower, `theseus-follow`): what [`read_frame`] found.
+#[derive(Debug)]
+pub enum FrameRead {
+    /// A whole frame: where it ends in the bytes given, the crc of its body,
+    /// and its records with their locations.
+    Whole {
+        end: usize,
+        crc: u32,
+        records: Vec<(Record, RecordLocation)>,
+    },
+    /// Short, bad magic, an absurd length, or a crc mismatch: at the log's
+    /// end, a frame still being written or a torn tail; anywhere else,
+    /// corruption.
+    Partial { reason: &'static str },
+    /// A crc-valid frame that is still wrong (a record that does not decode,
+    /// a position out of sequence): never a write in progress.
+    Wrong(WalError),
+}
+
+/// Check the frame at `off` in `bytes` (which begin at offset `base` of
+/// segment `seg`) as recovery checks it, its records' positions starting
+/// at `first`. Read-only: nothing is cut.
+pub fn read_frame(bytes: &[u8], off: usize, seg: u32, base: u64, first: u64) -> FrameRead {
+    let mut walk = Walk::new(first, 0);
+    match check_frame(bytes, off, seg, base, &mut walk) {
+        Ok(end) => FrameRead::Whole {
+            end,
+            crc: u32_at(bytes, off + 8),
+            records: walk.out,
+        },
+        Err(Bad::Torn { reason, .. }) => FrameRead::Partial { reason },
+        Err(Bad::Wrong(e)) => FrameRead::Wrong(e),
+    }
 }
 
 /// Where a frame that did not check ends, as far as its header can say:
