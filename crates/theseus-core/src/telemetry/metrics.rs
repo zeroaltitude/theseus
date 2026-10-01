@@ -2,9 +2,10 @@
 //! instruments, units, and attributes the OpenTelemetry SDK exported before
 //! theseus-hee, with theseus-yf1's corrections: duration bounds up to 10
 //! minutes, the provider call's provider and model, each tool call's name,
-//! family, backend, outcome, and time, and the tool calls of a failed turn. A
-//! turn records into them when it ends; the sender exports every point each
-//! `metrics_interval_secs`, from the pipeline's start.
+//! family, backend, outcome, and time, the tool calls of a failed turn, and a
+//! finished turn's requested model. A turn records into them when it ends; the
+//! sender exports every point each `metrics_interval_secs`, from the
+//! pipeline's start.
 
 use std::collections::BTreeMap;
 
@@ -213,7 +214,17 @@ impl Metrics {
     /// A finished turn: its outcome and time, its tokens and dollars, its
     /// tool calls, and each provider call's time.
     pub(super) fn turn(&mut self, r: &TurnSubmitResult) {
-        let attrs = turn_attrs(&r.profile, &r.provider, &r.model, "complete");
+        // `gen_ai.request.model` is the model asked for, as the trace's root
+        // recorded it, as a failed turn's is: the result's `model` is the one
+        // that answered last, which an alias or a fallback makes differ
+        // (theseus-yf1).
+        let model = r
+            .trace
+            .as_ref()
+            .and_then(|t| t.attrs.get("model"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&r.model);
+        let attrs = turn_attrs(&r.profile, &r.provider, model, "complete");
         self.add(&TURNS, attrs.clone(), 1);
         self.record(&TURN_DURATION, attrs.clone(), r.elapsed_ms as f64);
         if let Some(ft) = r.first_token_ms {

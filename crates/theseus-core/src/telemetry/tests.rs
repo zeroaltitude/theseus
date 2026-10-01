@@ -1818,6 +1818,55 @@ async fn the_response_model_is_the_served_model() {
     assert_eq!(attr(failed, GEN_AI_RESPONSE_MODEL), None);
 }
 
+/// A finished turn's metrics name the model asked for in
+/// `gen_ai.request.model`, as its trace's root recorded it, and not the one
+/// that answered, which the result names: so a turn on an alias lands in the
+/// series its failure would, and agrees with its provider calls' time.
+#[tokio::test]
+async fn a_turns_metrics_name_the_model_asked_for() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let trace = s(
+        "turn",
+        "turn",
+        0,
+        1_000_000,
+        json!({"origin_unix_ms": 1_790_000_000_000u64, "provider": "anthropic",
+            "model": "claude-haiku-4-5"}),
+        vec![s(
+            "provider.call",
+            "provider",
+            10,
+            900_000,
+            json!({"provider": "anthropic", "model": "claude-haiku-4-5",
+                "served_model": "claude-haiku-4-5-20251001"}),
+            vec![],
+        )],
+    );
+    let mut r = result_with(trace);
+    r.model = "claude-haiku-4-5-20251001".into();
+    tel.record_turn(&r);
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    for name in [
+        "theseus.turns",
+        "theseus.tokens",
+        "theseus.turn.duration_ms",
+        "theseus.provider.first_token_ms",
+        "theseus.provider.call.duration_ms",
+    ] {
+        let points = points_of(&metrics, name);
+        assert!(!points.is_empty(), "{name}");
+        for p in points {
+            assert_eq!(
+                attrs_of(p)["gen_ai.request.model"],
+                "claude-haiku-4-5",
+                "{name}"
+            );
+        }
+    }
+}
+
 /// Each provider call's time carries the provider and model its span
 /// recorded, one series for each pair. It had no attributes, so every
 /// model's calls were one series.
