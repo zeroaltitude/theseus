@@ -840,6 +840,13 @@ async fn serve_socket(
     let stop = core.shutdown.notified();
     tokio::pin!(stop);
     stop.as_mut().enable();
+    // SIGINT and SIGTERM alike (theseus-bv5). SIGTERM is systemd's stop,
+    // `kill`'s default, and most supervisors' signal; it used to kill the
+    // daemon outright, its socket left behind. Each is registered once, as
+    // the stop is, so one that lands while the loop takes a connection waits.
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
     loop {
         tokio::select! {
             accepted = listener.accept() => {
@@ -870,8 +877,14 @@ async fn serve_socket(
                 tracing::info!("restarting onto the vault's changed config note");
                 break;
             }
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("SIGINT");
+            _ = sigint.recv() => {
+                tracing::info!(signal = "SIGINT", "stopping on a signal");
+                core.stopping_on("SIGINT");
+                break;
+            }
+            _ = sigterm.recv() => {
+                tracing::info!(signal = "SIGTERM", "stopping on a signal");
+                core.stopping_on("SIGTERM");
                 break;
             }
         }

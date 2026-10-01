@@ -887,10 +887,23 @@ impl Core {
     /// that connection's writer first, and the client would see the
     /// connection close unanswered though the daemon stopped (theseus-ur0).
     pub(super) fn stopping(&self) -> Value {
-        let _ =
-            self.store
-                .append_ledger(&LedgerRow::new("server.stopping", None, None, Value::Null));
-        let _ = self.store.checkpoint();
+        self.stop_record(Value::Null);
         json!({"ok": true})
+    }
+
+    /// A stop no client asked for (theseus-bv5): SIGINT, or SIGTERM, which is
+    /// systemd's stop and `kill`'s default. The same work as a client's
+    /// `shutdown` before its answer, the row naming the signal, so the next
+    /// start replays nothing.
+    pub fn stopping_on(&self, signal: &str) {
+        self.stop_record(json!({ "signal": signal }));
+    }
+
+    /// The stop's row, then the checkpoint.
+    fn stop_record(&self, data: Value) {
+        let _ = self
+            .store
+            .append_ledger(&LedgerRow::new("server.stopping", None, None, data));
+        let _ = self.store.checkpoint();
     }
 }
