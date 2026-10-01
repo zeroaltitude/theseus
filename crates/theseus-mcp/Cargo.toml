@@ -17,6 +17,14 @@ server = ["dep:axum", "dep:sha2", "dep:rand"]
 name = "theseus-mcp-fake"
 path = "src/bin/theseus-mcp-fake.rs"
 
+[[test]]
+name = "server"
+required-features = ["server"]
+
+[[example]]
+name = "server"
+required-features = ["server"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
