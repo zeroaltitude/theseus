@@ -264,6 +264,9 @@ async fn serve(
     // REST, so it goes out while the rest connects, or while the gateway is
     // down (theseus-q4v).
     shared.clone().start_lanes(&bindings)?;
+    // A post for a place this file no longer names is refused, not kept
+    // pending forever (theseus-l3m).
+    shared.refuse_unbound();
     tokio::spawn(courier::courier(shared.clone()));
     shared.wake_lanes();
 
@@ -707,6 +710,26 @@ impl Shared {
     pub(crate) fn wake_lanes(&self) {
         for tx in self.lanes.lock().unwrap().values() {
             let _ = tx.send(LaneMsg::Wake);
+        }
+    }
+
+    /// Refuse the posts for places the bindings file no longer names
+    /// (theseus-l3m): a place is bound when it has a lane. The file is read
+    /// when the binding starts, so a change to it takes effect, and is
+    /// checked, at the next start; a post written later for such a place is
+    /// refused at the courier's next wake.
+    pub(crate) fn refuse_unbound(&self) {
+        let bound: std::collections::HashSet<String> =
+            self.lanes.lock().unwrap().keys().cloned().collect();
+        let n = self
+            .core
+            .outbox
+            .refuse_unbound("discord", |t| bound.contains(t));
+        if n > 0 {
+            tracing::info!(
+                posts = n,
+                "discord: posts for places no longer bound, refused"
+            );
         }
     }
 

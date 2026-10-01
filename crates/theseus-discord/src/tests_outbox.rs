@@ -283,6 +283,102 @@ fn a_crash_between_send_and_settle_leaves_one_message() {
     assert_eq!(tries, ["hung", "deduped"]);
 }
 
+/// The ledger's `action.failed` rows for posts, by post.
+fn refused_rows(core: &Core) -> Vec<serde_json::Value> {
+    let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> = core.store.ledger_tail(500).unwrap();
+    rows.into_iter()
+        .filter(|(_, r)| r.kind == "action.failed" && r.data["outbox"].is_string())
+        .map(|(_, r)| r.data)
+        .collect()
+}
+
+/// theseus-l3m: a place taken out of the bindings file while a post for it
+/// waits. At the next start the post is settled as refused, with the
+/// reason, ledgered and counted in health's refused, no longer pending, and
+/// nothing reaches the place. A post written for it later is refused too.
+#[test]
+fn a_post_for_a_place_no_longer_bound_is_refused_at_the_next_start() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let place = format!("channel:{CHANNEL}");
+    let with_channel = format!(
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"harbor\"\nusers = [\"{USER}\"]\nmention_only = false\n",
+        dm_only()
+    );
+    // The first life: the channel is bound, and its reply waits while
+    // Discord is away.
+    let sid = {
+        let (dir, fake, place) = (d.path().to_path_buf(), fake.clone(), place.clone());
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let sid = rt.block_on(async {
+                let script = vec![Scripted::text("The tide turns at six.")];
+                let core = core_at(&dir, &fake, script, |_| {});
+                let rpc = bind(&core, &dir, &with_channel).await;
+                let (c, p) = (core.clone(), place.clone());
+                until("the channel is bound", 10, move || {
+                    c.outbox.place_session(&p).unwrap().is_some()
+                })
+                .await;
+                let f = fake.clone();
+                until("both bind notices", 10, move || {
+                    f.messages(DM).len() == 1 && f.messages(CHANNEL).len() == 1
+                })
+                .await;
+                fake.set_mode(Mode::Down);
+                let sid = core.outbox.place_session(&place).unwrap().unwrap();
+                ask(&rpc, &sid, "when does the tide turn?").await;
+                assert_eq!(pending(&core), 1, "the reply waits");
+                sid
+            });
+            rt.shutdown_timeout(Duration::from_secs(2));
+            sid
+        })
+        .join()
+        .unwrap()
+    };
+    // The second life: the channel is gone from the bindings file.
+    fake.set_mode(Mode::Up);
+    let before = fake.seen().len();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let core = core_at(d.path(), &fake, vec![Scripted::text("Still six.")], |_| {});
+        core.outbox.warm();
+        assert_eq!(pending(&core), 1, "still waiting before the binding starts");
+        let rpc = bind(&core, d.path(), &dm_only()).await;
+        let c = core.clone();
+        until("the post is refused", 10, move || pending(&c) == 0).await;
+        let why = format!("not bound here any more ({place})");
+        let st = core.outbox.status("discord");
+        assert_eq!(
+            (st.failed, st.oldest_pending_ms, st.last_error.as_deref()),
+            (1, 0, Some(why.as_str())),
+            "{st:?}"
+        );
+        let rows = refused_rows(&core);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0]["outbox"], format!("discord:{place}"));
+        assert_eq!(rows[0]["detail"]["error"], why.as_str());
+        // A post written for that place later is refused at once.
+        ask(&rpc, &sid, "and tomorrow?").await;
+        let c = core.clone();
+        until("the later post is refused", 10, move || {
+            c.outbox.status("discord").failed == 2
+        })
+        .await;
+        assert_eq!(pending(&core), 0);
+    });
+    // Nothing went to the channel after the restart: its one message is the
+    // first life's bind notice.
+    assert_eq!(fake.messages(CHANNEL).len(), 1);
+    let to_channel: Vec<_> = fake.seen()[before..]
+        .iter()
+        .filter(|s| s.path.contains(&CHANNEL.to_string()))
+        .map(|s| (s.method.clone(), s.path.clone()))
+        .collect();
+    assert!(to_channel.is_empty(), "{to_channel:?}");
+}
+
 /// A card and how its question closed, both written while Discord is away:
 /// when it is back, the card is posted, then edited to say how it closed,
 /// at the id its create returned, its buttons gone.

@@ -1070,7 +1070,9 @@ impl Lane {
     }
 }
 
-/// Wake every lane when the outbox changes, and every half minute besides.
+/// Wake every lane when the outbox changes, and every half minute besides;
+/// first refuse what was written for a place no longer bound (theseus-l3m),
+/// which no lane would ever take.
 pub(crate) async fn courier(shared: Arc<Shared>) {
     let mut rx = shared.core.outbox.subscribe();
     let mut tick = tokio::time::interval(Duration::from_secs(30));
@@ -1080,6 +1082,7 @@ pub(crate) async fn courier(shared: Arc<Shared>) {
             r = rx.changed() => if r.is_err() { break },
             _ = tick.tick() => {}
         }
+        shared.refuse_unbound();
         shared.wake_lanes();
     }
 }

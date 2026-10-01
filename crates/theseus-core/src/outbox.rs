@@ -640,6 +640,36 @@ impl Outbox {
         out
     }
 
+    /// Refuse each unsettled post of `binding` for a place it does not bind
+    /// (theseus-l3m): such a post would wait forever, health would count it
+    /// pending, and its oldest-pending age would grow without end, hiding a
+    /// real delivery problem. Each is settled as refused, "not bound here any
+    /// more (<place>)", ledgered as the settle and counted in health's
+    /// refused; nothing is sent. The operator's posts follow wherever
+    /// approvals go, so they are never refused here. Returns how many.
+    pub fn refuse_unbound(&self, binding: &str, bound: impl Fn(&str) -> bool) -> usize {
+        let mut n = 0;
+        for target in self.open_targets() {
+            if binding_of(&target) != binding || target == OPERATOR_TARGET || bound(&target) {
+                continue;
+            }
+            let place = target.split_once(':').map_or(target.as_str(), |(_, p)| p);
+            let why = format!("not bound here any more ({place})");
+            for a in self.open_for(&target) {
+                let detail = json!({"error": why, "unbound": place});
+                match self.settle(&a.correlation_id, Outcome::Failed, None, detail, binding) {
+                    Ok(_) => n += 1,
+                    Err(e) => tracing::warn!(
+                        error = %format!("{e:#}"),
+                        post = %a.correlation_id,
+                        "a post for a place no longer bound was not settled"
+                    ),
+                }
+            }
+        }
+        n
+    }
+
     /// `dispatched`, before the post's first call.
     pub fn dispatch(&self, correlation_id: &str) -> Result<Action> {
         self.kernel.outbox_dispatch(correlation_id)
