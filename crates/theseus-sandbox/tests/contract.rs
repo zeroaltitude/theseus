@@ -632,23 +632,27 @@ fn tree_killed_on_cancel() -> Result<(), String> {
     wait_until("three processes in the job", || {
         in_namespace(&ns).len() >= 3
     })?;
-    let sessions: Vec<String> = in_namespace(&ns)
-        .iter()
-        .filter_map(|p| fs::read_to_string(format!("/proc/{p}/stat")).ok())
-        .filter_map(|s| {
-            s.rsplit(')')
-                .next()
-                .map(|r| r.split_whitespace().nth(3).unwrap_or("").to_string())
-        })
-        .collect();
-    check(
+    // The shell forks the sleeper before the sleeper calls setsid(2), so a
+    // read can land between the two: wait for the sessions to differ too. A
+    // sleeper that cannot leave the session still fails, at the deadline.
+    let mut sessions: Vec<String> = Vec::new();
+    wait_until("the sleeper to leave the session", || {
+        sessions = in_namespace(&ns)
+            .iter()
+            .filter_map(|p| fs::read_to_string(format!("/proc/{p}/stat")).ok())
+            .filter_map(|s| {
+                s.rsplit(')')
+                    .next()
+                    .map(|r| r.split_whitespace().nth(3).unwrap_or("").to_string())
+            })
+            .collect();
         sessions
             .iter()
             .collect::<std::collections::BTreeSet<_>>()
             .len()
-            >= 2,
-        format!("the sleeper did not leave the session: {sessions:?}"),
-    )?;
+            >= 2
+    })
+    .map_err(|e| format!("the sleeper did not leave the session ({e}): {sessions:?}"))?;
     child.kill().map_err(|e| e.to_string())?;
     let exit = child.wait().map_err(|e| e.to_string())?;
     check(exit.init_signal == Some(libc::SIGKILL), format!("{exit:?}"))?;
