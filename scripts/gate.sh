@@ -19,12 +19,21 @@ cargo build -q -p theseusd -p theseus-sim
 # pays for their writeback (1.3 GB of it once put a clean shutdown's p95 at
 # 148 ms). And one stalled fsync does not fail the gate: a miss runs the
 # bench once more, and only a second miss fails it, as a real regression
-# does (theseus-hee).
+# does (theseus-hee). Each run's p50s, p95s, and limits are appended to a
+# history outside the tree, which every worktree shares, labelled with the
+# branch and the commit judged; a miss is recorded even when its rerun
+# passes. A passing run warns about a phase within 10% of its limit.
+# `theseus-sim bench history` reads it (theseus-1hk).
+history="${THESEUS_BENCH_HISTORY:-$HOME/.cache/theseus/bench-history.csv}"
+label="$(git rev-parse --abbrev-ref HEAD) $(git describe --always --dirty)"
+lifecycle() {
+  target/debug/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label"
+}
 sync
-target/debug/theseus-sim bench lifecycle --runs 10 --check || {
+lifecycle || {
   echo "lifecycle: a budget was missed; running the bench once more"
   sync
-  target/debug/theseus-sim bench lifecycle --runs 10 --check
+  lifecycle
 }
 cargo deny --log-level error check
 if [ -d web/node_modules ]; then (cd web && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi

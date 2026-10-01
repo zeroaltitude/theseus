@@ -15,7 +15,8 @@
 //! `bench lifecycle`  the §9 lifecycle budgets on a real `theseusd` (M3.5,
 //!               theseus-qa0): cold start, clean shutdown with a job running,
 //!               SIGKILL and restart, each p50/p95; `--check` fails a miss.
-//!               The gate runs it (`scripts/gate.sh`).
+//!               The gate runs it (`scripts/gate.sh`), and records each run
+//!               (`--record`); `bench history` reads them back (theseus-1hk).
 //! `synth-store` a store of parked sessions, many to a frame.
 
 use std::io::{BufRead, BufReader, Write};
@@ -30,6 +31,7 @@ use rand::{Rng, RngCore, SeedableRng};
 use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
 
 mod fake_model;
+mod history;
 mod kernel_sim;
 mod lifecycle;
 mod synth;
@@ -45,6 +47,8 @@ struct Cli {
     cmd: Cmd,
 }
 
+// The command line, parsed once at startup: a variant's size is never paid.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Cmd {
     /// Append random records until killed; report each committed record on stdout.
@@ -143,6 +147,7 @@ enum Cmd {
     },
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum BenchCmd {
     /// The §9 lifecycle budgets: cold start to the first health answer, the
@@ -199,6 +204,26 @@ enum BenchCmd {
         /// Wait for the vault to confirm each vault start's copy, and time it.
         #[arg(long)]
         confirm: bool,
+        /// Append the run's p50s, p95s, and limits to this history, a CSV
+        /// that `bench history` reads. The gate passes $THESEUS_BENCH_HISTORY,
+        /// or ~/.cache/theseus/bench-history.csv. A failure to write it is
+        /// reported, and doesn't change the exit status.
+        #[arg(long)]
+        record: Option<PathBuf>,
+        /// The run's label in the history (the gate's: the branch, and `git
+        /// describe --always --dirty`).
+        #[arg(long, requires = "record")]
+        label: Option<String>,
+    },
+    /// The lifecycle bench's history: each phase's last runs, with the
+    /// headroom left under its limit.
+    History {
+        /// How many runs of each phase.
+        #[arg(long, default_value_t = 10)]
+        last: usize,
+        /// The history (default: ~/.cache/theseus/bench-history.csv).
+        #[arg(long, env = "THESEUS_BENCH_HISTORY")]
+        file: Option<PathBuf>,
     },
 }
 
@@ -242,6 +267,8 @@ fn main() -> Result<()> {
                     config,
                     op_token_file,
                     confirm,
+                    record,
+                    label,
                 },
         } => {
             let theseusd = match theseusd {
@@ -275,9 +302,43 @@ fn main() -> Result<()> {
             if let Some(path) = json {
                 std::fs::write(&path, serde_json::to_vec_pretty(&report)?)?;
             }
+            if let Some(path) = record {
+                let label = label.unwrap_or_default();
+                let row = history::Row::of(
+                    &report.phases,
+                    &report.verdicts,
+                    report.ok(),
+                    &label,
+                    history::load1(),
+                    history::now(),
+                );
+                match history::append(&path, &row) {
+                    Ok(()) => println!("lifecycle: recorded in {} as {label:?}", path.display()),
+                    Err(e) => eprintln!("lifecycle: the run was NOT recorded: {e:#}"),
+                }
+            }
+            // Drift shows before it fails: a warning, never a failure.
+            if report.ok() {
+                for line in history::near_limits(&report.verdicts) {
+                    println!("{line}");
+                }
+            }
             if check && !report.ok() {
                 std::process::exit(1);
             }
+            Ok(())
+        }
+        Cmd::Bench {
+            bench: BenchCmd::History { last, file },
+        } => {
+            let path = match file {
+                Some(p) => p,
+                None => history::default_path()?,
+            };
+            print!(
+                "{}",
+                history::render(&path, history::read(&path)?.as_ref(), last.max(1))
+            );
             Ok(())
         }
         Cmd::Worker {

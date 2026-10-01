@@ -125,3 +125,40 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         "no cancel ended an unsent action: {total}"
     );
 }
+
+/// `bench history` reads the file `$THESEUS_BENCH_HISTORY` names: none yet is
+/// not an error, and a torn last line is skipped, and said so (theseus-1hk).
+#[test]
+fn bench_history_reads_the_file_the_environment_names() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("bench-history.csv");
+    let history = || {
+        let out = Command::new(env!("CARGO_BIN_EXE_theseus-sim"))
+            .args(["bench", "history", "--last", "3"])
+            .env("THESEUS_BENCH_HISTORY", &path)
+            .output()
+            .expect("running theseus-sim");
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let out = history();
+    assert!(out.contains("no history yet"), "{out}");
+    std::fs::write(
+        &path,
+        "time,label,load1,cold_p50,cold_p95,cold_limit,passed\n\
+         2026-10-01T10:20:11-07:00,lane/x 1a2b3c4,2.5,23.8,51.3,57,true\n\
+         2026-10-01T10:24:00-07:00,lane/x 1a2b3c4-dirty,2.5,23",
+    )
+    .unwrap();
+    let out = history();
+    assert!(out.contains("1 run(s), 0 missed"), "{out}");
+    assert!(
+        out.contains("skipped line 3: the last line is torn"),
+        "{out}"
+    );
+    assert!(
+        out.lines()
+            .any(|l| l.contains("lane/x 1a2b3c4 ") && l.ends_with("5.7  within 10%")),
+        "{out}"
+    );
+}
