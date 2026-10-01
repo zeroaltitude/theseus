@@ -25,19 +25,26 @@ interface Props {
   className?: string
   style?: React.CSSProperties
   onClick?: (params: unknown) => void
+  /** The first dataZoom's window, in percent, after the user moves it. */
+  onDataZoom?: (z: { start: number; end: number }) => void
 }
 
-export function Echart({ option, className, style, onClick }: Props) {
+export function Echart({ option, className, style, onClick, onDataZoom }: Props) {
   const el = useRef<HTMLDivElement>(null)
   const chart = useRef<echarts.ECharts | null>(null)
   const clickRef = useRef(onClick)
-  useEffect(() => { clickRef.current = onClick }, [onClick])
+  const zoomRef = useRef(onDataZoom)
+  useEffect(() => { clickRef.current = onClick; zoomRef.current = onDataZoom }, [onClick, onDataZoom])
 
   useEffect(() => {
     if (!el.current) return
     const c = echarts.init(el.current, undefined, { renderer: 'canvas' })
     chart.current = c
     c.on('click', (p) => clickRef.current?.(p))
+    c.on('datazoom', () => {
+      const dz = (c.getOption() as { dataZoom?: { start?: number; end?: number }[] }).dataZoom?.[0]
+      if (dz) zoomRef.current?.({ start: dz.start ?? 0, end: dz.end ?? 100 })
+    })
     const ro = new ResizeObserver(() => c.resize())
     ro.observe(el.current)
     return () => {

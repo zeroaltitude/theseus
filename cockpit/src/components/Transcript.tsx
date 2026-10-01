@@ -1,0 +1,183 @@
+// A session's content graph as a readable transcript: turns as sections, model replies as markdown with their
+// thinking, and each tool call as one card holding its input, the gate's decision, and its result.
+import { useMemo, useState } from 'react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Bot, Brain, ChevronRight, CircleCheck, OctagonX, ShieldCheck, User, Wrench } from 'lucide-react'
+import type { NodeInfo } from '@protocol'
+import { cn, ms, stamp, tokens, usd } from '@/lib/format'
+import type { TurnRow } from '@/lib/derive'
+import { JsonView } from './JsonView'
+import { Pill } from './ui'
+
+type D = Record<string, any>
+
+interface Item { kind: 'user' | 'assistant' | 'tool'; node: NodeInfo; result?: NodeInfo }
+
+function items(nodes: NodeInfo[]): Item[] {
+  const results = new Map<string, NodeInfo>()
+  for (const n of nodes) if (n.kind === 'tool_result') { const id = (n.detail as D | null)?.tool_use_id; if (id) results.set(id, n) }
+  const out: Item[] = []
+  for (const n of nodes) {
+    const d = (n.detail ?? {}) as D
+    if (n.kind === 'user_message') out.push({ kind: 'user', node: n })
+    else if (n.kind === 'assistant_message') out.push({ kind: 'assistant', node: n })
+    else if (n.kind === 'tool_call') out.push({ kind: 'tool', node: n, result: d.tool_use_id ? results.get(d.tool_use_id) : undefined })
+    else if (n.kind === 'tool_result' && !d.tool_use_id) out.push({ kind: 'tool', node: n })
+  }
+  return out
+}
+
+export function Transcript({ nodes, turns, live }: { nodes: NodeInfo[]; turns: Map<string, TurnRow>; live?: { turn_id: string; text: string } | null }) {
+  const groups = useMemo(() => {
+    const g: { turn_id: string | null; items: Item[] }[] = []
+    for (const it of items(nodes)) {
+      const t = it.node.turn_id ?? null
+      if (!g.length || g[g.length - 1].turn_id !== t) g.push({ turn_id: t, items: [] })
+      g[g.length - 1].items.push(it)
+    }
+    return g
+  }, [nodes])
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      {groups.map((g, gi) => {
+        const t = g.turn_id ? turns.get(g.turn_id) : undefined
+        return (
+          <section key={`${g.turn_id}-${gi}`} className="relative">
+            <div className="sticky top-0 z-10 -mx-4 mb-2 flex items-center gap-2 border-y border-line bg-hull/90 px-4 py-1 backdrop-blur">
+              <span className="panel-title">turn {gi + 1}</span>
+              {t && <>
+                <span className="num text-[11px] text-ink-faint">{stamp(t.start)}</span>
+                <span className="num text-[11px] text-live">{ms(t.elapsed_ms)}</span>
+                <span className="num text-[11px] text-model">{t.loops ?? '?'} loops</span>
+                <span className="num text-[11px] text-tool">{t.tool_calls ?? 0} tools</span>
+                <span className="num text-[11px] text-money">{usd(t.cost)}</span>
+                {t.failed && <Pill tone="fault">failed</Pill>}
+              </>}
+            </div>
+            <div className="flex flex-col gap-2">
+              {g.items.map((it) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} />
+                : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} />
+                : <ToolItem key={it.node.node_id} call={it.node} result={it.result} />)}
+              {live && live.turn_id === g.turn_id && live.text && <LiveItem text={live.text} />}
+            </div>
+          </section>
+        )
+      })}
+      {live && !groups.some((g) => g.turn_id === live.turn_id) && live.text && <LiveItem text={live.text} />}
+    </div>
+  )
+}
+
+function Gutter({ icon, at, tone }: { icon: React.ReactNode; at: number; tone: string }) {
+  return (
+    <div className="flex w-16 shrink-0 flex-col items-end gap-1 pt-1">
+      <span className={cn('grid h-6 w-6 place-items-center rounded-md ring-1 ring-inset', tone)}>{icon}</span>
+      <span className="num text-[10px] text-ink-faint">{new Date(at).toLocaleTimeString([], { hour12: false })}</span>
+    </div>
+  )
+}
+
+function UserItem({ n }: { n: NodeInfo }) {
+  return (
+    <div className="flex gap-3">
+      <Gutter icon={<User size={13} />} at={n.at_unix_ms} tone="bg-white/5 text-ink ring-line-strong" />
+      <div className="min-w-0 flex-1 rounded-lg bg-white/[0.04] px-3 py-2 ring-1 ring-line">
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{n.author ?? 'user'}</div>
+        <div className="whitespace-pre-wrap text-[13px] text-ink">{n.text}</div>
+      </div>
+    </div>
+  )
+}
+
+function AssistantItem({ n }: { n: NodeInfo }) {
+  const d = (n.detail ?? {}) as D
+  const [think, setThink] = useState(false)
+  const u = d.usage as D | undefined
+  return (
+    <div className="flex gap-3">
+      <Gutter icon={<Bot size={13} />} at={n.at_unix_ms} tone="bg-model/10 text-model ring-model/30" />
+      <div className="min-w-0 flex-1 rounded-lg bg-model/[0.05] px-3 py-2 ring-1 ring-model/15">
+        {n.thinking && (
+          <button onClick={() => setThink((v) => !v)} className="mb-1 flex items-center gap-1 text-[11px] text-think">
+            <ChevronRight size={12} className={cn('transition-transform', think && 'rotate-90')} /><Brain size={12} /> thinking · {n.thinking.length.toLocaleString()} chars
+          </button>
+        )}
+        {think && n.thinking && <div className="mb-2 whitespace-pre-wrap rounded-md bg-think/5 px-2.5 py-1.5 text-[12px] italic text-ink-dim ring-1 ring-think/15">{n.thinking}</div>}
+        {n.text ? <div className="md text-[13px] text-ink"><Markdown remarkPlugins={[remarkGfm]}>{n.text}</Markdown></div>
+          : !n.thinking && <div className="text-[12px] text-ink-faint">(no text: tool calls only)</div>}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-faint">
+          {d.model && <span className="num text-model">{d.model}</span>}
+          {d.cost_usd !== undefined && <span className="num text-money">{usd(d.cost_usd)}</span>}
+          {u && <span className="num">{tokens((u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0))} in · {tokens(u.output_tokens)} out · {tokens(u.cache_read_input_tokens)} cached</span>}
+          {d.stop_reason && <span className="num">{d.stop_reason}</span>}
+          {Array.isArray(d.tool_calls) && d.tool_calls.length > 0 && <span className="num text-tool">→ {d.tool_calls.map((t: D) => t.name).join(', ')}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
+  const d = (call.detail ?? {}) as D
+  const r = (result?.detail ?? (call.kind === 'tool_result' ? call.detail : null) ?? {}) as D
+  const [open, setOpen] = useState(false)
+  const tool = d.tool ?? r.tool ?? 'tool'
+  const decision = d.decision as D | undefined
+  const denied = decision?.mode === 'deny' || r.status === 'declined'
+  const failed = r.is_error && !denied
+  const tone = denied ? 'fault' : failed ? 'fault' : result ? 'ok' : 'wait'
+  return (
+    <div className="flex gap-3">
+      <Gutter icon={<Wrench size={13} />} at={call.at_unix_ms} tone="bg-tool/10 text-tool ring-tool/30" />
+      <div className="min-w-0 flex-1 rounded-lg bg-tool/[0.04] ring-1 ring-tool/15">
+        <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left">
+          <ChevronRight size={13} className={cn('text-ink-faint transition-transform', open && 'rotate-90')} />
+          <span className="num text-[12.5px] font-medium text-tool">{tool}</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-ink-dim">{d.plan?.summary ?? summarizeInput(d.input)}</span>
+          {decision && decision.mode !== 'allow' && <Pill tone={decision.mode === 'deny' ? 'fault' : 'wait'}><ShieldCheck size={11} />{decision.mode}</Pill>}
+          {r.duration_ms !== undefined && r.duration_ms !== null && <span className="num text-[11px] text-ink-faint">{ms(r.duration_ms)}</span>}
+          <Pill tone={tone}>{denied ? <OctagonX size={11} /> : failed ? <OctagonX size={11} /> : result ? <CircleCheck size={11} /> : null}{denied ? 'denied' : failed ? 'error' : result ? (r.status ?? 'ok') : 'pending'}</Pill>
+        </button>
+        {!open && result?.text && <div className="truncate border-t border-tool/10 px-3 py-1 font-mono text-[11.5px] text-ink-faint">{result.text.split('\n')[0]}</div>}
+        {open && (
+          <div className="flex flex-col gap-2 border-t border-tool/10 p-3">
+            {decision && <div className="text-[12px]"><span className="text-ink-faint">gate:</span> <span className={denied ? 'text-fault' : 'text-ok'}>{decision.mode}</span>{decision.reason && <span className="text-ink-dim"> · {decision.reason}</span>}</div>}
+            {Array.isArray(d.plan?.resources) && d.plan.resources.length > 0 && (
+              <div className="flex flex-wrap gap-1">{d.plan.resources.map((res: D, i: number) => <Pill key={i} tone="tool">{res.access} {res.path ?? res.host ?? JSON.stringify(res)}</Pill>)}</div>
+            )}
+            <div><div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">input</div><JsonView value={d.input ?? {}} maxHeight="240px" /></div>
+            {result && (
+              <div>
+                <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                  result {r.truncated && <Pill tone="wait">truncated</Pill>} {r.late && <Pill tone="wait">late</Pill>} {r.external && <Pill tone="wait">external text</Pill>}
+                </div>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2.5 font-mono text-[11.5px] text-ink-dim ring-1 ring-line">{result.text}</pre>
+                {r.meta && Object.keys(r.meta).length > 0 && <div className="mt-1"><JsonView value={r.meta} maxHeight="160px" /></div>}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LiveItem({ text }: { text: string }) {
+  return (
+    <div className="flex gap-3">
+      <Gutter icon={<Bot size={13} />} at={Date.now()} tone="bg-live/10 text-live ring-live/40" />
+      <div className="live-sweep min-w-0 flex-1 rounded-lg bg-live/[0.05] px-3 py-2 ring-1 ring-live/30">
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-live">streaming</div>
+        <div className="md text-[13px] text-ink"><Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown><span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-live align-middle" /></div>
+      </div>
+    </div>
+  )
+}
+
+function summarizeInput(input: unknown): string {
+  if (!input || typeof input !== 'object') return ''
+  const o = input as D
+  return o.command ?? o.path ?? o.pattern ?? o.query ?? o.url ?? JSON.stringify(o).slice(0, 120)
+}

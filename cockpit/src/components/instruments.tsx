@@ -1,8 +1,8 @@
 // Instruments shared by the Bridge and the session deck: turns, tools, context growth, token mix.
 import { useMemo } from 'react'
-import type { LedgerEntry, SessionInfo } from '@protocol'
+import type { LedgerEntry, SessionInfo, StartupPhase } from '@protocol'
 import { contextSeries, quantile, toolStats, turnRows, type ProviderCall } from '@/lib/derive'
-import { clock, ms, pct, short, stamp, tokens, usd } from '@/lib/format'
+import { clock, ms, pct, short, stamp, tokens, us, usd } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
 import { Echart } from './Echart'
 import { axisStyle, type EChartsOption } from '@/lib/chart'
@@ -124,5 +124,37 @@ export function TokenMix({ calls }: { calls: ProviderCall[] }) {
     ],
   }), [last])
   if (!calls.length) return <Empty>no model calls in the rows read</Empty>
+  return <Echart option={option} />
+}
+
+/** The last start's phases, from process start: what blocked serving, and what ran after it. */
+export function Startup({ phases }: { phases: StartupPhase[] }) {
+  const option = useMemo<EChartsOption>(() => {
+    const ps = [...phases].sort((a, b) => a.start_us - b.start_us)
+    const end = Math.max(1, ...ps.map((p) => p.end_us ?? p.start_us))
+    return {
+      grid: { left: 118, right: 16, top: 6, bottom: 22 },
+      tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/>${us(p.value[1])} → ${us(p.value[2])} · <b>${us(p.value[2] - p.value[1])}</b>` },
+      xAxis: { type: 'value', max: end, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => us(v) } },
+      yAxis: { type: 'category', data: ps.map((p) => p.name), inverse: true, ...axisStyle, axisLabel: { color: '#94a3b8', fontSize: 10 } },
+      series: [{
+        type: 'custom',
+        renderItem: (_params: any, api: any) => {
+          const y = api.value(0)
+          const s = api.coord([api.value(1), y])
+          const e = api.coord([api.value(2), y])
+          const h = api.size([0, 1])[1] * 0.55
+          return {
+            type: 'rect',
+            shape: { x: s[0], y: s[1] - h / 2, width: Math.max(2, e[0] - s[0]), height: h, r: 3 },
+            style: { fill: api.value(3) ? toneHex.idle : toneHex.live, opacity: 0.9 },
+          }
+        },
+        encode: { x: [1, 2], y: 0 },
+        data: ps.map((p, i) => ({ name: p.name, value: [i, p.start_us, p.end_us ?? p.start_us, p.background ? 1 : 0] })),
+      }],
+    }
+  }, [phases])
+  if (!phases.length) return <Empty>no start phases reported</Empty>
   return <Echart option={option} />
 }

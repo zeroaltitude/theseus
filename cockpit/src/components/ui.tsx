@@ -20,7 +20,7 @@ export function Panel({
           <div className="ml-auto flex items-center gap-1.5">{actions}</div>
         </header>
       )}
-      <div className={cn('min-h-0 flex-1', bodyClassName)}>{children}</div>
+      <div className={cn('min-h-0 flex-auto', bodyClassName)}>{children}</div>
     </section>
   )
 }
@@ -140,6 +140,17 @@ export function Meter({ value, max, tone = 'live', className }: { value: number;
         style={{ background: toneHex[tone], boxShadow: `0 0 10px ${toneHex[tone]}66` }}
       />
     </div>
+  )
+}
+
+/** An action button in a tone: approve (ok), stop or trust (wait), cancel (fault). */
+export function Btn({ children, onClick, tone = 'live', busy, title }: { children: ReactNode; onClick: () => void; tone?: Tone; busy?: boolean; title?: string }) {
+  return (
+    <button onClick={onClick} disabled={busy} title={title}
+      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-[filter] hover:brightness-125 disabled:opacity-50"
+      style={{ color: toneHex[tone], background: `${toneHex[tone]}14`, boxShadow: `inset 0 0 0 1px ${toneHex[tone]}40` }}>
+      {busy ? '…' : children}
+    </button>
   )
 }
 

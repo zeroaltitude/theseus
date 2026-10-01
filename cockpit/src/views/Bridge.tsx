@@ -4,11 +4,11 @@ import { useNavigate } from 'react-router'
 import {
   Activity, Bot, Brain, Clock, Coins, Flame, Gauge, Hourglass, Radar, Rocket, ShieldCheck, Siren, Timer, Wrench,
 } from 'lucide-react'
-import { ContextGrowth, TokenMix, ToolBoard, TurnsChart } from '@/components/instruments'
-import type { ConfirmRequest, ExecutionInfo, Health, SessionInfo, StartupPhase } from '@protocol'
+import { ContextGrowth, Startup, TokenMix, ToolBoard, TurnsChart } from '@/components/instruments'
+import type { ConfirmRequest, ExecutionInfo, Health, SessionInfo } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useDerived, pulse, spendCurve, totalIn, type ProviderCall } from '@/lib/derive'
-import { ago, ms, pct, short, tokens, usd, us, clock } from '@/lib/format'
+import { ago, ms, pct, short, tokens, usd, clock } from '@/lib/format'
 import { stateTone, toneHex, type Tone } from '@/lib/taxonomy'
 import { Echart } from '@/components/Echart'
 import { axisStyle, type EChartsOption } from '@/lib/chart'
@@ -280,36 +280,5 @@ function SpendFlow({ calls, sessions }: { calls: ProviderCall[]; sessions: Sessi
     }
   }, [calls, sessions])
   if (!calls.some((c) => c.cost > 0)) return <Empty>no spend yet</Empty>
-  return <Echart option={option} />
-}
-
-function Startup({ phases }: { phases: StartupPhase[] }) {
-  const option = useMemo<EChartsOption>(() => {
-    const ps = [...phases].sort((a, b) => a.start_us - b.start_us)
-    const end = Math.max(1, ...ps.map((p) => p.end_us ?? p.start_us))
-    return {
-      grid: { left: 118, right: 16, top: 6, bottom: 22 },
-      tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/>${us(p.value[1])} → ${us(p.value[2])} · <b>${us(p.value[2] - p.value[1])}</b>` },
-      xAxis: { type: 'value', max: end, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => us(v) } },
-      yAxis: { type: 'category', data: ps.map((p) => p.name), inverse: true, ...axisStyle, axisLabel: { color: '#94a3b8', fontSize: 10 } },
-      series: [{
-        type: 'custom',
-        renderItem: (_params: any, api: any) => {
-          const y = api.value(0)
-          const s = api.coord([api.value(1), y])
-          const e = api.coord([api.value(2), y])
-          const h = api.size([0, 1])[1] * 0.55
-          return {
-            type: 'rect',
-            shape: { x: s[0], y: s[1] - h / 2, width: Math.max(2, e[0] - s[0]), height: h, r: 3 },
-            style: { fill: api.value(3) ? toneHex.idle : toneHex.live, opacity: 0.9 },
-          }
-        },
-        encode: { x: [1, 2], y: 0 },
-        data: ps.map((p, i) => ({ name: p.name, value: [i, p.start_us, p.end_us ?? p.start_us, p.background ? 1 : 0] })),
-      }],
-    }
-  }, [phases])
-  if (!phases.length) return <Empty>no start phases reported</Empty>
   return <Echart option={option} />
 }
