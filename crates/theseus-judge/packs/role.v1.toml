@@ -1,0 +1,40 @@
+# role.v1 (ROLE_GUESS): which working role the reply needs. At `inbound`,
+# batched with classify.v1 (the same `inbound` state, which carries the
+# current role). Its options are the roles table's ids, each with its stance,
+# and `other`. Live under a canary (step 26c): a hint note in the tail and a
+# role line on the reply, when the top role differs from the current one, is
+# in the act band, beats the current role's probability by 0.2 or more, and
+# no switch has happened in this exchange (design §2.8c).
+id = "role"
+version = 1
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "current_role"
+action = "role_hint"
+description = "ROLE_GUESS: the working role (reviewer, engineer, researcher, …) that best fits the reply a message needs."
+
+[questions.role]
+type = "choice"
+decides = true
+instructions = "Which working role best fits the reply that the person's new message needs?"
+act = 0.90
+confirm = 0.60
+options_from = "roles"
+only_when = "roles"
+no_match = "other"
+options = [
+  { id = "other", means = "None of the roles listed fits the reply this message needs." },
+]
+
+# §2.7: role churn.
+[[rollback]]
+rule = "switches_per_exchange"
+max = 2
+
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong role"
+count = 2

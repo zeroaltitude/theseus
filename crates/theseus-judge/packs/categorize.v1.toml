@@ -1,0 +1,42 @@
+# categorize.v1: which declared topic a session belongs to. At
+# `exchange_end`: once 10 human messages have arrived since the session's
+# last judgment, or at the first exchange end after 30 minutes' quiet. Its
+# topic options are the candidate topics (up to 50, each with its
+# description), then new_topic and none; one still_member Noul per current
+# membership (at most 5). The state is the session's title and its last ten
+# human messages, without the current memberships: listed there, they
+# anchored `topic` on the session's current topic in a live check. No live
+# action in M5 (live memberships are M6).
+id = "categorize"
+version = 1
+jev_model = "jev-1.13.0"
+point = "exchange_end"
+state = "categorize"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "no_membership"
+action = "none"
+description = "Which declared topic a session's recent human messages belong to, and whether it still belongs to the topics it is in."
+
+[questions.topic]
+type = "choice"
+decides = true
+instructions = "Which declared topic do the recent human messages in this session belong to?"
+act = 0.90
+confirm = 0.60
+options_from = "topics"
+no_match = "none"
+options = [
+  { id = "new_topic", means = "The messages share one clear subject that none of the listed topics covers." },
+  { id = "none", means = "The messages have no single subject, or are too few or too scattered to place." },
+]
+
+[questions.still_member]
+type = "noul"
+per = "memberships"
+max = 5
+instructions = "Are the recent human messages in this session mostly about the topic {item}?"
+act = 0.90
+confirm = 0.60
+when_true = "Most of the recent messages are about this topic: its subject, its work, or the things it names."
+when_false = "Most of the recent messages are about something else, even when a few of them touch this topic or use words it shares with another."

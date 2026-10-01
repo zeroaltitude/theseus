@@ -13,7 +13,9 @@
 //! - thresholds are well formed (0 < confirm ≤ act ≤ 1; a Noul's confirm
 //!   above 0.5, or its middle band would be empty);
 //! - the model is pinned (`jev-1.13.0`), never `jev-latest`;
-//! - the state cap is inside Jev's state limit.
+//! - the state cap is inside Jev's state limit;
+//! - a pack with a live action names its rollback rules (§2.7), and each
+//!   rule's numbers can hold.
 //!
 //! A question's options or its per-item Nouls may come from the builder's
 //! inputs (`options_from`, `per`): live task ids, the roles table, candidate
@@ -31,9 +33,19 @@ use crate::client::{
     ChoiceOption, Kind, Question, MAX_CHOICE_OPTIONS, MAX_SCORE_LEVELS, MIN_SCORE_LEVELS,
     STATE_LIMIT_TOKENS,
 };
+use crate::learn::RollbackRule;
 
-/// Every pack version this build knows, by file name.
-pub const EMBEDDED: &[(&str, &str)] = &[("probe.v1", include_str!("../packs/probe.v1.toml"))];
+/// Every pack version this build knows, by file name: the test pack and
+/// §2.4's six.
+pub const EMBEDDED: &[(&str, &str)] = &[
+    ("probe.v1", include_str!("../packs/probe.v1.toml")),
+    ("loop.v1", include_str!("../packs/loop.v1.toml")),
+    ("security.v1", include_str!("../packs/security.v1.toml")),
+    ("classify.v1", include_str!("../packs/classify.v1.toml")),
+    ("role.v1", include_str!("../packs/role.v1.toml")),
+    ("continue.v1", include_str!("../packs/continue.v1.toml")),
+    ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
+];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
 /// dispatches it.
@@ -53,6 +65,12 @@ pub enum Point {
 #[serde(rename_all = "snake_case")]
 pub enum Builder {
     Probe,
+    Loop,
+    Security,
+    /// `classify.v1` and `role.v1` share it, so they batch.
+    Inbound,
+    Continue,
+    Categorize,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -158,6 +176,8 @@ pub struct Pack {
     pub description: String,
     /// By id.
     pub questions: Vec<QuestionDef>,
+    /// What rolls a canary of this pack back (`learn::check_all`).
+    pub rollback: Vec<RollbackRule>,
     /// The file's sha256, for the record.
     pub sha256: String,
 }
@@ -177,6 +197,8 @@ struct PackFile {
     #[serde(default)]
     description: String,
     questions: BTreeMap<String, QuestionFile>,
+    #[serde(default)]
+    rollback: Vec<RollbackRule>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,6 +252,7 @@ pub enum Rule {
     ScoreShape,
     NoulShape,
     Dynamic,
+    Rollback,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error, Serialize, Deserialize)]
@@ -348,6 +371,7 @@ impl Pack {
             action: file.action,
             description: file.description.trim().to_string(),
             questions: Vec::new(),
+            rollback: file.rollback,
             sha256: hex::encode(Sha256::digest(text.as_bytes())),
         };
         let name = pack.name();
@@ -417,6 +441,19 @@ impl Pack {
                     "a Score names its companion Noul with `applies`, and that Noul exists".into(),
                 ));
             }
+        }
+        // Moving down needs nobody: a pack that can act says what rolls it
+        // back (§2.7).
+        if pack.action != Action::None && pack.rollback.is_empty() {
+            return Err(err(
+                None,
+                Rule::Rollback,
+                "a pack with a live action names its rollback rules".into(),
+            ));
+        }
+        for r in &pack.rollback {
+            r.check()
+                .map_err(|detail| err(None, Rule::Rollback, detail))?;
         }
         Ok(pack)
     }
@@ -906,5 +943,250 @@ mod tests {
                 "other"
             ]
         );
+    }
+
+    #[test]
+    fn a_pack_that_acts_names_rollback_rules_that_can_hold() {
+        assert_eq!(
+            refused(&with("action = \"none\"", "action = \"notice\"")),
+            Rule::Rollback
+        );
+        let rule = |r: &str| format!("{GOOD}\n[[rollback]]\n{r}\n");
+        let acts = |r: &str| rule(r).replacen("action = \"none\"", "action = \"notice\"", 1);
+        assert!(Pack::parse(&acts("rule = \"notices_per_day\"\nmax = 30")).is_ok());
+        for bad in [
+            "rule = \"spend_ratio\"\nratio = 1.0\nmin_tasks = 10",
+            "rule = \"spend_ratio\"\nratio = 2.0\nmin_tasks = 0",
+            "rule = \"on_path_p95\"\nmax_ms = 0\nmin_samples = 20",
+            "rule = \"on_path_p95\"\nmax_ms = 1000\nmin_samples = 0",
+            "rule = \"labels_per_day\"\nlabel = \" \"\ncount = 3",
+            "rule = \"labels_per_day\"\nlabel = \"noise\"\ncount = 0",
+        ] {
+            assert_eq!(refused(&rule(bad)), Rule::Rollback, "{bad}");
+        }
+        assert_eq!(refused(&rule("rule = \"nudge_loops\"")), Rule::Syntax);
+        assert_eq!(
+            refused(&rule("rule = \"notices_per_day\"\nmax = 30\nwhen = 1")),
+            Rule::Syntax
+        );
+    }
+
+    /// A pack's shape, one line per item: where it runs, each question's
+    /// kind, whether it decides, and its options, and the rollback rules.
+    fn shape(p: &Pack) -> Vec<String> {
+        let mut out = vec![format!(
+            "{:?} {:?} {:?} {:?}",
+            p.point, p.builder, p.baseline, p.action
+        )];
+        for q in &p.questions {
+            let mut line = format!("{} {:?}", q.id, q.kind);
+            if q.decides {
+                line.push_str(" decides");
+            }
+            if let Some(s) = q.options_from {
+                line.push_str(&format!(" from {s:?} +"));
+            }
+            if !q.options.is_empty() {
+                let ids: Vec<&str> = q.options.iter().map(|o| o.id.as_str()).collect();
+                line.push_str(&format!(" [{}]", ids.join(" ")));
+            }
+            if let Some(s) = q.per {
+                line.push_str(&format!(" per {s:?} max {}", q.max));
+            }
+            if let Some(s) = q.only_when {
+                line.push_str(&format!(" only_when {s:?}"));
+            }
+            out.push(line);
+        }
+        let rules: Vec<&str> = p.rollback.iter().map(RollbackRule::name).collect();
+        out.push(format!("rollback [{}]", rules.join(" ")));
+        out
+    }
+
+    /// Design §2.4's table and §2.7's rollback table, pack by pack.
+    #[test]
+    fn the_six_packs_ask_what_the_design_says() {
+        let want: &[(&str, &[&str])] = &[
+            (
+                "loop.v1",
+                &[
+                    "LoopEnd Loop UntilNoToolCalls NudgeTask",
+                    "announced_unfinished Noul decides",
+                    "cost_out_of_proportion Noul",
+                    "same_action_repeating Noul",
+                    "stopping_point_defined Noul",
+                    "wants_human_input Noul",
+                    "work_state Choice decides [complete progressing blocked_needs_human thrashing off_task other]",
+                    "rollback [nudge_loop spend_ratio operator_stop_within_nudge on_path_p95]",
+                ],
+            ),
+            (
+                "security.v1",
+                &[
+                    "Gate Security Posture Notice",
+                    "beyond_ask Noul",
+                    "destructive Noul",
+                    "exfiltrates Noul",
+                    "kind Choice [read_only local_edit local_exec remote_write publish credentials_or_config other]",
+                    "risky Noul decides",
+                    "steered Noul",
+                    "touches_credentials Noul",
+                    "rollback [notices_per_day labels_per_day]",
+                ],
+            ),
+            (
+                "classify.v1",
+                &[
+                    "Inbound Inbound Conversation None",
+                    "addressed_task Choice from Tasks + [none] only_when Tasks",
+                    "fragment Noul",
+                    "kind Choice decides [new_ask follow_up correction control addressed_to_task social other]",
+                    "mentions_other_conversation Noul",
+                    "should_promote Noul decides",
+                    "wants_fresh_look Noul",
+                    "rollback []",
+                ],
+            ),
+            (
+                "role.v1",
+                &[
+                    "Inbound Inbound CurrentRole RoleHint",
+                    "role Choice decides from Roles + [other] only_when Roles",
+                    "rollback [switches_per_exchange labels_per_day]",
+                ],
+            ),
+            (
+                "continue.v1",
+                &[
+                    "Compile Continue Append None",
+                    "decision Choice decides [append recompile_transcript recompile_ring recompile_compaction recompile_fresh other]",
+                    "stronger_model_for_compaction Noul",
+                    "rollback []",
+                ],
+            ),
+            (
+                "categorize.v1",
+                &[
+                    "ExchangeEnd Categorize NoMembership None",
+                    "still_member Noul per Memberships max 5",
+                    "topic Choice decides from Topics + [new_topic none]",
+                    "rollback []",
+                ],
+            ),
+        ];
+        for (name, lines) in want {
+            let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
+            assert_eq!(shape(&p), *lines, "{name}");
+            assert_eq!(p.jev_model, "jev-1.13.0", "{name}");
+            assert_eq!(p.sample, 1.0, "{name}: Q16 samples every event");
+            for q in &p.questions {
+                assert_eq!(
+                    (q.thresholds.act, q.thresholds.confirm),
+                    (0.90, 0.60),
+                    "{name}/{}: thresholds start conservative",
+                    q.id
+                );
+            }
+        }
+        // §2.7's numbers, as the rules hold them.
+        let rules = |n: &str| by_name(n).unwrap().rollback.clone();
+        assert_eq!(
+            rules("loop.v1")[1],
+            RollbackRule::SpendRatio {
+                ratio: 2.0,
+                min_tasks: 10
+            }
+        );
+        assert_eq!(
+            rules("loop.v1")[3],
+            RollbackRule::OnPathP95 {
+                max_ms: 1000,
+                min_samples: 20
+            }
+        );
+        assert_eq!(
+            rules("security.v1"),
+            vec![
+                RollbackRule::NoticesPerDay { max: 30 },
+                RollbackRule::LabelsPerDay {
+                    label: "noise".into(),
+                    count: 3
+                }
+            ]
+        );
+        assert_eq!(
+            rules("role.v1"),
+            vec![
+                RollbackRule::SwitchesPerExchange { max: 2 },
+                RollbackRule::LabelsPerDay {
+                    label: "wrong role".into(),
+                    count: 2
+                }
+            ]
+        );
+    }
+
+    /// Each rule, broken in each of the six pack files, refuses that file.
+    #[test]
+    fn the_loaders_rules_hold_on_all_six_packs() {
+        let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
+        assert_eq!(six.len(), 6);
+        for (file, text) in six {
+            let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
+            let edit = |from: &str, to: &str| {
+                assert!(text.contains(from), "{file} lacks {from:?}");
+                text.replacen(from, to, 1)
+            };
+            let check = |broken: String, rule: Rule, what: &str| {
+                assert_eq!(refused(&broken), rule, "{file}: {what}");
+            };
+            check(
+                edit("jev_model = \"jev-1.13.0\"", "jev_model = \"jev-latest\""),
+                Rule::PinnedModel,
+                "jev-latest",
+            );
+            check(
+                edit(
+                    &format!("state_cap_tokens = {}", p.state_cap_tokens),
+                    "state_cap_tokens = 40000",
+                ),
+                Rule::StateCap,
+                "a cap past Jev's limit",
+            );
+            check(
+                edit("act = 0.90", "act = 0.50"),
+                Rule::Thresholds,
+                "act below confirm",
+            );
+            for q in &p.questions {
+                let line = format!("instructions = \"{}\"", q.instructions);
+                check(
+                    edit(
+                        &line,
+                        &format!("instructions = \"Calculate this: {}\"", q.instructions),
+                    ),
+                    Rule::NoComputation,
+                    &q.id,
+                );
+                check(
+                    edit(&line, "instructions = \"Is it?\""),
+                    Rule::Instructions,
+                    &q.id,
+                );
+                if let Some(nm) = &q.no_match {
+                    check(
+                        edit(&format!("no_match = \"{nm}\"\n"), ""),
+                        Rule::NoMatch,
+                        &q.id,
+                    );
+                }
+            }
+            if p.action != Action::None {
+                let cut = text
+                    .find("[[rollback]]")
+                    .expect("a pack that acts has rules");
+                check(text[..cut].to_string(), Rule::Rollback, "no rollback rules");
+            }
+        }
     }
 }

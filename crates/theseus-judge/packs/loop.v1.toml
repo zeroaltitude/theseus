@@ -1,0 +1,90 @@
+# loop.v1 (JUDGE_STOP): where the assistant's work stands when the baseline
+# ends a turn. At `loop_end`: every turn the baseline (UntilNoToolCalls) ends
+# with no tool calls, and a sample of its `continue` decisions. Live, for
+# tasks under a canary only: a nudge when work_state is progressing in the
+# act band, or announced_unfinished is act-true (design §2.8a).
+# Conversations stay in shadow.
+id = "loop"
+version = 1
+jev_model = "jev-1.13.0"
+point = "loop_end"
+state = "loop"
+state_cap_tokens = 4000
+sample = 1.0
+baseline = "until_no_tool_calls"
+action = "nudge_task"
+description = "JUDGE_STOP: is the work on the ask done, still going, blocked on a person, or stuck, when the baseline ends a turn?"
+
+[questions.work_state]
+type = "choice"
+decides = true
+instructions = "At the end of this turn, where does the assistant's work on the ask stand?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "complete", means = "Everything the ask requested is done, and the final message reports the result. Choose this only when nothing the ask requested remains undone; a final message that says the rest will come later is not complete." },
+  { id = "progressing", means = "Work toward the ask remains, and the assistant could take the next step on its own, with nothing needed from a person. Choose this when the final message names a next step the assistant itself could take, such as running a command or editing a file." },
+  { id = "blocked_needs_human", means = "The work cannot go further without something only a person can give: a decision, an approval, a credential, or missing information. Choose this over progressing when the final message asks the person a question that the next step depends on." },
+  { id = "thrashing", means = "The assistant keeps retrying the same failing action, or undoing and redoing the same change, without getting closer to what the ask requested." },
+  { id = "off_task", means = "The recent work does not serve the ask: the assistant pursued something the ask did not request." },
+  { id = "other", means = "None of the options above describes where the work stands." },
+]
+
+[questions.announced_unfinished]
+type = "noul"
+decides = true
+instructions = "Does the assistant's final message say it will do something next that it has not done in this turn?"
+act = 0.90
+confirm = 0.60
+when_true = "The final message announces an action of its own still to come (for example \"next I'll run the tests\"), and the turn ended before that action was taken."
+when_false = "The final message announces no pending action, or every action it announces was already taken in this turn. A question to the person, or an offer to do more if asked, is not an announced action."
+
+[questions.stopping_point_defined]
+type = "noul"
+instructions = "Does the ask make clear what finished looks like?"
+act = 0.90
+confirm = 0.60
+when_true = "The ask names a concrete end point, such as a file to write, a test to pass, a question to answer, or a report to deliver."
+when_false = "The ask is open-ended, exploratory, or vague about when the work is done."
+
+[questions.same_action_repeating]
+type = "noul"
+instructions = "Is the assistant repeating the same action without making progress?"
+act = 0.90
+confirm = 0.60
+when_true = "The recent tool calls repeat one tool with the same or nearly the same arguments, and the outcome does not change from one try to the next. The field most_repeated_call gives how often the commonest identical call appears among them."
+when_false = "The recent calls differ, or a repeated call's outcome changes between tries: a retry that then succeeds is progress, not repetition."
+
+[questions.cost_out_of_proportion]
+type = "noul"
+instructions = "Is the effort spent so far out of proportion to what the ask needs?"
+act = 0.90
+confirm = 0.60
+when_true = "The loops, tool calls, spend, or time are far beyond what work of this size would take, judged against the ask itself."
+when_false = "The effort fits the size of the ask, or the ask is large or hard enough to justify it."
+
+[questions.wants_human_input]
+type = "noul"
+instructions = "Does the final message ask the person for a decision or information that the work waits on?"
+act = 0.90
+confirm = 0.60
+when_true = "The final message asks the person something, and the next step depends on the answer."
+when_false = "The final message asks nothing, or asks only a courtesy question (such as \"anything else?\") that no next step depends on."
+
+# §2.7: the canary rolls back on any of these.
+[[rollback]]
+rule = "nudge_loop"
+
+[[rollback]]
+rule = "spend_ratio"
+ratio = 2.0
+min_tasks = 10
+
+[[rollback]]
+rule = "operator_stop_within_nudge"
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 1000
+min_samples = 20

@@ -15,6 +15,8 @@
 //! - [`band`], [`batch`], [`breaker`]: the three-band gate, batching by
 //!   shared state, and the circuit breaker;
 //! - [`price`]: the catalog-shaped price of the pinned model;
+//! - [`learn`]: the learning math (calibration, holdouts, canary arms,
+//!   rollback rules), pure functions;
 //! - [`fake`] (feature `fake`): a fake Jev on 127.0.0.1.
 //!
 //! `jev-probe` (feature `probe`) makes real calls on synthetic states.
@@ -25,6 +27,7 @@ pub mod breaker;
 pub mod builders;
 pub mod client;
 pub mod judge;
+pub mod learn;
 pub mod pack;
 pub mod price;
 pub mod state;

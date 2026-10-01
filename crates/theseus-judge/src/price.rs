@@ -13,9 +13,24 @@ use crate::client::Usage;
 pub type Micros = u64;
 pub const MICROS_PER_USD: u64 = 1_000_000;
 
-/// The output tokens a reservation allows per question. Observed: 22 to 57
-/// a question on 2026-09-30, the most for a Choice of four options.
-pub const OUTPUT_ALLOWANCE_PER_QUESTION: u64 = 64;
+/// The output tokens a reservation allows a question: this much, plus
+/// [`OUTPUT_PER_OPTION`] for each option or level, since an answer gives
+/// every one a probability. Observed on the lane's live calls (2026-09-30):
+/// a Noul 21 to 26 tokens, a Score of four levels 22, and a Choice about 45
+/// with three options, 57 with four, and 73 to 87 with six or seven.
+pub const OUTPUT_PER_QUESTION: u64 = 32;
+pub const OUTPUT_PER_OPTION: u64 = 10;
+
+/// What a reservation allows one question to output.
+pub fn output_allowance(q: &crate::client::Question) -> u64 {
+    use crate::client::Question;
+    let options = match q {
+        Question::Choice { options, .. } => options.len(),
+        Question::Score { levels, .. } => levels.len(),
+        Question::Noul { .. } => 0,
+    };
+    OUTPUT_PER_QUESTION + OUTPUT_PER_OPTION * options as u64
+}
 
 /// Input tokens Jev bills on every call beyond the request itself. Fitted
 /// on the lane's live calls (2026-09-30): about 260 tokens a call, once per
@@ -94,27 +109,27 @@ impl JevPrice {
 
     /// What a call reserves before it runs, rounded up per call: its whole
     /// request (the state and every question's text, at one token per 3
-    /// bytes) plus Jev's per-call overhead at the input price, and
-    /// [`OUTPUT_ALLOWANCE_PER_QUESTION`] per question at the output price.
+    /// bytes) plus Jev's per-call overhead at the input price, and the
+    /// questions' output allowance ([`output_allowance`]) at the output
+    /// price.
     ///
-    /// §2.6 reserved the state's estimate and the output allowance only. The
-    /// live calls billed 395 to 479 input tokens for a 72-token state and one
-    /// question, so that would have reserved about a third of the cost; this
-    /// covers every live call the lane made (see the lane report).
-    pub fn reserve_micros(&self, request_bytes: usize, questions: usize) -> Micros {
+    /// §2.6 reserved the state's estimate and 64 output tokens a question.
+    /// The live calls billed 395 to 479 input tokens for a 72-token state and
+    /// one question, so that would have reserved about a third of the cost,
+    /// and a Choice's output grows with its options; this covers every live
+    /// call the lane made (see the lane report).
+    pub fn reserve_micros(&self, request_bytes: usize, output_tokens: u64) -> Micros {
         let input = CALL_OVERHEAD_TOKENS + (request_bytes as u64).div_ceil(RESERVE_BYTES_PER_TOKEN);
         micros_of(&[
             (input, self.input_per_mtok),
-            (
-                OUTPUT_ALLOWANCE_PER_QUESTION * questions as u64,
-                self.output_per_mtok,
-            ),
+            (output_tokens, self.output_per_mtok),
         ])
     }
 
     /// What a request reserves (see [`JevPrice::reserve_micros`]).
     pub fn reserve_request(&self, req: &crate::client::Request) -> Micros {
-        self.reserve_micros(req.body().len(), req.questions.len())
+        let output = req.questions.iter().map(|(_, q)| output_allowance(q)).sum();
+        self.reserve_micros(req.body().len(), output)
     }
 }
 
@@ -160,26 +175,49 @@ mod tests {
     #[test]
     fn the_reservation_covers_the_whole_request_and_the_call_overhead() {
         let p = JevPrice::jev_1_13_0();
-        // 320 + 900 / 3 = 620 input tokens, and 3 × 64 output tokens: 812
+        // 320 + 900 / 3 = 620 input tokens, and 192 output tokens: 812
         // tokens at 0.042 is 34.104, rounded up.
-        assert_eq!(p.reserve_micros(900, 3), 35);
-        // Every live call of 2026-09-30 (request bytes, questions, billed in
-        // and out) fits inside its reservation.
-        for (bytes, questions, input_tokens, output_tokens) in [
-            (1_205, 3, 586, 98),
-            (788, 1, 479, 57),
-            (618, 1, 424, 22),
-            (539, 1, 395, 26),
+        assert_eq!(p.reserve_micros(900, 192), 35);
+        // The L1 live calls of 2026-09-30 (request bytes, the output
+        // allowance of what they asked, billed in and out) fit inside their
+        // reservations; the L2 calls are rebuilt and held in `tests.rs`.
+        let choice4 = OUTPUT_PER_QUESTION + 4 * OUTPUT_PER_OPTION;
+        let score4 = choice4;
+        let noul = OUTPUT_PER_QUESTION;
+        for (bytes, output, input_tokens, output_tokens) in [
+            (1_205, choice4 + score4 + noul, 586, 98),
+            (788, choice4, 479, 57),
+            (618, score4, 424, 22),
+            (539, noul, 395, 26),
         ] {
             let billed = p.cost_micros(&Usage {
                 input_tokens,
                 output_tokens,
             });
-            assert!(
-                p.reserve_micros(bytes, questions) >= billed,
-                "{bytes} bytes"
-            );
+            assert!(p.reserve_micros(bytes, output) >= billed, "{bytes} bytes");
         }
+    }
+
+    #[test]
+    fn a_choice_reserves_more_output_with_more_options() {
+        use crate::client::{ChoiceOption, Question};
+        let choice = |n: usize| Question::Choice {
+            instructions: "Which one?".into(),
+            options: (0..n)
+                .map(|i| ChoiceOption {
+                    id: format!("o{i}"),
+                    means: None,
+                })
+                .collect(),
+        };
+        assert_eq!(output_allowance(&choice(6)), 92);
+        assert_eq!(output_allowance(&choice(52)), 552);
+        let noul = Question::Noul {
+            instructions: "Is it?".into(),
+            when_true: None,
+            when_false: None,
+        };
+        assert_eq!(output_allowance(&noul), 32);
     }
 
     #[test]

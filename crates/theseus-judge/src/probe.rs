@@ -24,7 +24,7 @@ use crate::client::{
 };
 use crate::fake::{FakeJev, Scripted};
 use crate::judge::{Ask, DecisionPoint, JevJudge, Judge, Judgment, Mode, Outcome};
-use crate::pack::{by_name, Pack};
+use crate::pack::{by_name, Pack, Point};
 use crate::price;
 use crate::state::NoScrub;
 
@@ -57,6 +57,10 @@ struct Args {
     /// Run against an in-process fake Jev, with no key and no spend.
     #[arg(long)]
     fake: bool,
+    /// Print every embedded pack's questions as Markdown, for review, and
+    /// make no call.
+    #[arg(long)]
+    questions: bool,
 }
 
 pub fn main() -> Result<()> {
@@ -118,6 +122,10 @@ impl Tally {
 }
 
 async fn run(args: Args) -> Result<()> {
+    if args.questions {
+        print!("{}", questions_markdown()?);
+        return Ok(());
+    }
     let mut config = ClientConfig::default();
     let key: Arc<dyn KeySource> = if args.fake {
         // The fake's thread answers until the process ends.
@@ -209,6 +217,81 @@ async fn run(args: Args) -> Result<()> {
     }
     tally.print();
     Ok(())
+}
+
+/// Every embedded pack but the test pack, its questions in full, as the
+/// lane's report lists them for review.
+pub fn questions_markdown() -> Result<String> {
+    use std::fmt::Write as _;
+    let packs = crate::pack::embedded()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let mut out = String::new();
+    for p in packs.iter().filter(|p| p.point != Point::Probe) {
+        writeln!(out, "#### `{}`\n", p.name())?;
+        writeln!(
+            out,
+            "{} At `{:?}`; state `{:?}`, capped at {} tokens; baseline `{:?}`; live action `{:?}`.\n",
+            p.description, p.point, p.builder, p.state_cap_tokens, p.baseline, p.action
+        )?;
+        for q in &p.questions {
+            writeln!(
+                out,
+                "- **`{}`** ({:?}{}; act {:.2}, confirm {:.2}): {}",
+                q.id,
+                q.kind,
+                if q.decides { ", decides" } else { "" },
+                q.thresholds.act,
+                q.thresholds.confirm,
+                q.instructions
+            )?;
+            if let Some(s) = q.options_from {
+                writeln!(out, "  - options: one per item of `{s:?}`, then these:")?;
+            }
+            if let Some(s) = q.only_when {
+                writeln!(out, "  - asked only when `{s:?}` has items")?;
+            }
+            for o in &q.options {
+                let nm = if q.no_match.as_deref() == Some(o.id.as_str()) {
+                    " (no match)"
+                } else {
+                    ""
+                };
+                writeln!(
+                    out,
+                    "  - `{}`{nm}: {}",
+                    o.id,
+                    o.means.as_deref().unwrap_or("")
+                )?;
+            }
+            for (i, l) in q.levels.iter().enumerate() {
+                writeln!(out, "  - level {i}: {l}")?;
+            }
+            if let Some(a) = &q.applies {
+                writeln!(out, "  - applies when `{a}` is true")?;
+            }
+            if let Some(s) = q.per {
+                writeln!(
+                    out,
+                    "  - asked once per item of `{s:?}`, at most {}; `{{item}}` names it",
+                    q.max
+                )?;
+            }
+            if let (Some(t), Some(f)) = (&q.when_true, &q.when_false) {
+                writeln!(out, "  - true: {t}\n  - false: {f}")?;
+            }
+        }
+        if !p.rollback.is_empty() {
+            let rules: Vec<String> = p
+                .rollback
+                .iter()
+                .map(|r| serde_json::to_string(r).unwrap_or_default())
+                .collect();
+            writeln!(out, "\nRolls back on: {}.", rules.join("; "))?;
+        }
+        writeln!(out)?;
+    }
+    Ok(out)
 }
 
 /// The test pack's state.

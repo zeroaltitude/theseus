@@ -742,3 +742,50 @@ async fn a_pack_with_nothing_to_ask_is_skipped_without_a_call() {
     );
     assert_eq!(fake.connections(), 0);
 }
+
+/// Every L2 live call of 2026-09-30 (`jev-probe --pack`), rebuilt from its
+/// fixture and batched as the judge batches it, fits inside its
+/// reservation: the packs, the input, and what Jev billed.
+#[test]
+fn every_live_call_fits_inside_its_reservation() {
+    let client = JevClient::new(
+        ClientConfig::default(),
+        Arc::new(StaticKey::new(KEY.into())),
+    )
+    .unwrap();
+    let judge = JevJudge::new(client, price::builtin(), BreakerConfig::default());
+    let p = price::JevPrice::jev_1_13_0();
+    let calls: [(&[&str], &str, u64, u64); 6] = [
+        (&["loop.v1"], "loop", 1_435, 194),
+        (&["security.v1"], "security", 1_258, 207),
+        (&["classify.v1", "role.v1"], "inbound", 1_353, 297),
+        (&["continue.v1"], "continue", 804, 113),
+        (&["categorize.v1"], "categorize", 732, 103),
+        (&["role.v1"], "inbound", 664, 73),
+    ];
+    for (packs, input, input_tokens, output_tokens) in calls {
+        let path = format!(
+            "{}/fixtures/inputs/{input}.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let text = std::fs::read_to_string(path).unwrap();
+        let asks: Vec<Ask> = packs
+            .iter()
+            .map(|n| {
+                let pack = by_name(n).unwrap();
+                let i = Input::parse(pack.builder, &text).unwrap();
+                let prepared = prepare(&pack, &i, &NoScrub).unwrap();
+                Ask::new(pack, &prepared, Mode::Shadow, json!({}))
+            })
+            .collect();
+        let reserved = judge.reserve_micros(&asks).unwrap();
+        let billed = p.cost_micros(&Usage {
+            input_tokens,
+            output_tokens,
+        });
+        assert!(
+            reserved >= billed,
+            "{packs:?}: reserved {reserved}, billed {billed}"
+        );
+    }
+}

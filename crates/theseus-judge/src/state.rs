@@ -10,8 +10,12 @@
 //!   and a field that cannot shrink further is dropped. So `build()` never
 //!   returns a state over its cap, whatever the inputs.
 //! - A cut text says so in place (`…[cut]`), and a list that lost its oldest
-//!   items starts with `{"cut": "N earlier left out"}`. The built state lists
-//!   every field it cut or dropped, for the record.
+//!   items starts with `{"cut": "N earlier left out"}` (a list whose first
+//!   items matter, such as an argv, keeps those and ends with
+//!   `{"cut": "N later left out"}`). The built state lists every field it cut
+//!   or dropped, for the record, and the builder's own cuts too: a clipped
+//!   string (`…`) or a list it shortened first is marked and listed the same
+//!   way.
 //! - Sizes are measured on the serialized JSON, escapes included, so the
 //!   cap holds on what Jev receives. Tokens are estimated as bytes / 4,
 //!   rounded up.
@@ -226,30 +230,72 @@ fn json(v: &Value) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "null".into())
 }
 
-/// The newest items that fit `cap` bytes as a JSON array, marked when some
-/// were left out; `None` when not even the marker fits.
-fn fit_list(items: &[String], cap: usize) -> Option<(String, bool)> {
+/// Which end of a list survives a cut, and how many items the builder had
+/// already left out at the other end before handing the list over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ends {
+    /// The newest (last) items; a marker first says how many earlier ones
+    /// are gone.
+    Newest { earlier: usize },
+    /// The first items (an argv, a ranked list); a marker last says how many
+    /// later ones are gone.
+    First { later: usize },
+}
+
+/// The items that fit `cap` bytes as a JSON array, from the end `ends`
+/// keeps, marked when any were left out (here or before); `None` when not
+/// even the marker fits.
+fn fit_list(items: &[String], ends: Ends, cap: usize) -> Option<(String, bool)> {
+    let (before, word) = match ends {
+        Ends::Newest { earlier } => (earlier, "earlier"),
+        Ends::First { later } => (later, "later"),
+    };
     let whole = 2 + items.iter().map(String::len).sum::<usize>() + items.len().saturating_sub(1);
-    if whole <= cap {
+    if before == 0 && whole <= cap {
         return Some((format!("[{}]", items.join(",")), false));
     }
-    let marker = |n: usize| json(&serde_json::json!({ "cut": format!("{n} earlier left out") }));
+    let marker = |n: usize| json(&serde_json::json!({ "cut": format!("{n} {word} left out") }));
     // Reserve the marker at its longest (every item left out).
-    let room = cap.checked_sub(2 + marker(items.len()).len() + 1)?;
+    let room = cap.checked_sub(2 + marker(before.saturating_add(items.len())).len() + 1)?;
     let mut used = 0;
     let mut kept = 0;
-    for item in items.iter().rev() {
+    let mut try_add = |item: &String| {
         let add = item.len() + usize::from(kept > 0);
         if used + add > room {
-            break;
+            return false;
         }
         used += add;
         kept += 1;
+        true
+    };
+    match ends {
+        Ends::Newest { .. } => {
+            for item in items.iter().rev() {
+                if !try_add(item) {
+                    break;
+                }
+            }
+        }
+        Ends::First { .. } => {
+            for item in items {
+                if !try_add(item) {
+                    break;
+                }
+            }
+        }
     }
+    let m = marker(before.saturating_add(items.len() - kept));
     let mut out: Vec<&str> = Vec::with_capacity(kept + 1);
-    let m = marker(items.len() - kept);
-    out.push(&m);
-    out.extend(items[items.len() - kept..].iter().map(String::as_str));
+    match ends {
+        Ends::Newest { .. } => {
+            out.push(&m);
+            out.extend(items[items.len() - kept..].iter().map(String::as_str));
+        }
+        Ends::First { .. } => {
+            out.extend(items[..kept].iter().map(String::as_str));
+            out.push(&m);
+        }
+    }
     Some((format!("[{}]", out.join(",")), true))
 }
 
@@ -260,8 +306,11 @@ enum Body {
         windows: Windows,
         keep: Keep,
     },
-    /// Each item's JSON, oldest first.
-    List(Vec<String>),
+    /// Each item's JSON, oldest first, and which end a cut keeps.
+    List {
+        items: Vec<String>,
+        ends: Ends,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -286,7 +335,7 @@ impl Field {
             Body::Text { windows, keep } => {
                 fit_text(windows, *keep, cap).map(|(t, cut)| (json(&Value::String(t)), cut))
             }
-            Body::List(items) => fit_list(items, cap),
+            Body::List { items, ends } => fit_list(items, *ends, cap),
         };
         match fitted {
             Some((r, cut)) => {
@@ -382,12 +431,62 @@ impl<'s> StateBuilder<'s> {
         cap_tokens: u64,
         items: Vec<Value>,
     ) -> &mut Self {
+        self.list_after(name, priority, cap_tokens, items, 0)
+    }
+
+    /// The newest items of a longer list, after the builder already left
+    /// out its `earlier` oldest ones: kept as [`list`](Self::list) keeps
+    /// them, and marked from the start when `earlier` is not zero.
+    pub fn list_after(
+        &mut self,
+        name: &str,
+        priority: u8,
+        cap_tokens: u64,
+        items: Vec<Value>,
+        earlier: usize,
+    ) -> &mut Self {
+        self.push_list(name, priority, cap_tokens, items, Ends::Newest { earlier })
+    }
+
+    /// A list whose first items matter most (an argv, a ranked list): the
+    /// first that fit are kept, and a marker last says how many later ones
+    /// are gone, the builder's own `later` cut included.
+    pub fn list_head(
+        &mut self,
+        name: &str,
+        priority: u8,
+        cap_tokens: u64,
+        items: Vec<Value>,
+        later: usize,
+    ) -> &mut Self {
+        self.push_list(name, priority, cap_tokens, items, Ends::First { later })
+    }
+
+    fn push_list(
+        &mut self,
+        name: &str,
+        priority: u8,
+        cap_tokens: u64,
+        items: Vec<Value>,
+        ends: Ends,
+    ) -> &mut Self {
         let cap = cap_tokens as usize * BYTES_PER_TOKEN;
         let items = items
             .into_iter()
             .map(|v| json(&scrub_value(v, self.scrub)))
             .collect();
-        self.push(name, priority, Body::List(items), cap)
+        self.push(name, priority, Body::List { items, ends }, cap)
+    }
+
+    /// Marks the field just added as cut when the builder cut its value
+    /// before handing it over (a clip, which marks the text in place).
+    pub fn cut_if(&mut self, name: &str, cut: bool) -> &mut Self {
+        if cut {
+            if let Some(f) = self.fields.iter_mut().rev().find(|f| f.name == name) {
+                f.cut = true;
+            }
+        }
+        self
     }
 
     /// A short string for a list item or a scalar: scrubbed, then cut to
@@ -425,7 +524,7 @@ impl<'s> StateBuilder<'s> {
             };
             let f = &mut fields[i];
             let before = f.rendered.len();
-            let shrunk = matches!(f.body, Body::Text { .. } | Body::List(_))
+            let shrunk = matches!(f.body, Body::Text { .. } | Body::List { .. })
                 && before > excess
                 && f.fit(before - excess)
                 && f.rendered.len() < before;
@@ -461,13 +560,18 @@ impl<'s> StateBuilder<'s> {
 
 /// Scrubs, then cuts to `max_chars` characters, marked with `…`.
 pub fn clip_with(scrub: &dyn Scrub, text: &str, max_chars: usize) -> String {
+    clip_cut(scrub, text, max_chars).0
+}
+
+/// As [`clip_with`], and whether it cut, so a builder can mark the field.
+pub fn clip_cut(scrub: &dyn Scrub, text: &str, max_chars: usize) -> (String, bool) {
     let window = floor_boundary(text, text.len().min(max_chars * 4 + SCRUB_MARGIN));
     let s = scrub.scrub(&text[..window]);
     if s.chars().count() <= max_chars && window == text.len() {
-        return s;
+        return (s, false);
     }
     let keep: String = s.chars().take(max_chars.saturating_sub(1)).collect();
-    format!("{keep}…")
+    (format!("{keep}…"), true)
 }
 
 #[cfg(test)]
@@ -625,5 +729,41 @@ mod tests {
         assert!(clipped.ends_with('…'));
         assert_eq!(clipped.chars().count(), 20);
         assert_eq!(clip_with(&NoScrub, "short", 10), "short");
+        assert_eq!(clip_cut(&NoScrub, "short", 10), ("short".into(), false));
+        assert!(clip_cut(&NoScrub, "longer than five", 5).1);
+    }
+
+    #[test]
+    fn a_head_list_keeps_its_first_items_and_counts_both_cuts() {
+        let items: Vec<Value> = (0..100)
+            .map(|i| json!(format!("item number {i}")))
+            .collect();
+        let mut b = StateBuilder::new("t", 1, 1000, &NoScrub);
+        b.list_head("argv", 5, 40, items, 7);
+        let s = b.build();
+        under_cap(&s);
+        let v = s.value();
+        let a = v["argv"].as_array().unwrap();
+        assert_eq!(a[0], "item number 0");
+        let kept = a.len() - 1;
+        assert_eq!(
+            a[kept],
+            json!({ "cut": format!("{} later left out", 107 - kept) })
+        );
+        assert_eq!(s.truncated, vec!["argv"]);
+        // A list the builder shortened first is marked even when the rest
+        // fits, and so is a field whose value the builder clipped.
+        let mut b = StateBuilder::new("t", 1, 1000, &NoScrub);
+        b.list_after("calls", 5, 400, vec![json!("a"), json!("b")], 3)
+            .scalar("title", "a cut title…")
+            .cut_if("title", true)
+            .scalar("kind", "task")
+            .cut_if("kind", false);
+        let s = b.build();
+        assert_eq!(
+            s.value()["calls"],
+            json!([{ "cut": "3 earlier left out" }, "a", "b"])
+        );
+        assert_eq!(s.truncated, vec!["calls", "title"]);
     }
 }

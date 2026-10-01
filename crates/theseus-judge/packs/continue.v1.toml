@@ -1,0 +1,40 @@
+# continue.v1 (CONTINUE): how to prepare the context for the next model call.
+# At `compile`: only when no deterministic trigger fired and one of the cheap
+# candidate signals did (§4.4a step 2: a dormancy gap, the tail crossing a
+# soft band, a task report or wake arriving, a provider cache miss). No
+# signal, no call. No live action in M5 (compaction and the assembled
+# strategy are M6); the baseline appends.
+id = "continue"
+version = 1
+jev_model = "jev-1.13.0"
+point = "compile"
+state = "continue"
+state_cap_tokens = 1500
+sample = 1.0
+baseline = "append"
+action = "none"
+description = "CONTINUE: append to the compiled context, or recompile it (transcript, ring, compaction, fresh), when a candidate signal fires."
+
+[questions.decision]
+type = "choice"
+decides = true
+instructions = "How should the conversation's context be prepared for the next model call?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "append", means = "Keep the current compiled context and add the new turn at its end. Choose this when the conversation is continuous and nothing shows the context going stale or running out of room." },
+  { id = "recompile_transcript", means = "Rebuild the context from the whole transcript, because the current compilation no longer reflects the conversation, while all of it still matters and still fits." },
+  { id = "recompile_ring", means = "Rebuild the context from only the most recent part of the conversation, because the older turns no longer matter to what comes next." },
+  { id = "recompile_compaction", means = "Rebuild the context with the older turns summarized, because they still matter but take too much room." },
+  { id = "recompile_fresh", means = "Start from a clean context, because the person has moved to an unrelated subject or asked to start over." },
+  { id = "other", means = "None of the options above fits." },
+]
+
+[questions.stronger_model_for_compaction]
+type = "noul"
+instructions = "Would a good summary of this conversation's older turns need a stronger model than usual?"
+act = 0.90
+confirm = 0.60
+when_true = "The older turns hold dense technical detail, decisions, or many separate threads that a weak summary would lose."
+when_false = "The older turns are simple or few, and any reasonable summary would keep what matters."

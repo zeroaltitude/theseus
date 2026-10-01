@@ -1,0 +1,1 @@
+{"service":"build-runner","event":"The nightly build failed at the link step: undefined reference to zstd_compress in libarchive.","recent_events":["The zstd dependency was bumped from 1.5 to 1.6 an hour before the build.","The previous nightly build passed."],"operator_on_call":true}

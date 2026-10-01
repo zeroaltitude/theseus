@@ -1,0 +1,77 @@
+# classify.v1 (CLASSIFY): what a person's new message is. At `inbound`:
+# every human message that starts a turn (not a slash command, a wake's turn,
+# a report's turn, or a task's first turn). Batched with role.v1: the same
+# `inbound` state, one request. No live action in M5 (routing a message to a
+# task is M7); the baseline sends every message to the conversation.
+id = "classify"
+version = 1
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "conversation"
+action = "none"
+description = "CLASSIFY: a new ask, a follow-up, a correction, a control word, a message for a live task, or small talk; and whether it should become a task."
+
+[questions.kind]
+type = "choice"
+decides = true
+instructions = "What is the person's new message, in relation to the conversation so far?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "new_ask", means = "It asks for new work that does not continue the previous exchange." },
+  { id = "follow_up", means = "It continues the previous exchange: more detail, a next step, or a related question." },
+  { id = "correction", means = "It says the last reply or the work was wrong, or it changes what was asked." },
+  { id = "control", means = "It tells the assistant to stop, pause, wait, carry on, or change how it works, rather than asking for work." },
+  { id = "addressed_to_task", means = "It is meant for one of the live tasks listed in the state, not for this conversation." },
+  { id = "social", means = "It is a greeting, thanks, or small talk that asks for no work." },
+  { id = "other", means = "None of the kinds above fits." },
+]
+
+[questions.addressed_task]
+type = "choice"
+instructions = "Which of the live tasks, if any, is the person's new message meant for?"
+act = 0.90
+confirm = 0.60
+options_from = "tasks"
+only_when = "tasks"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is not meant for any of the live tasks." },
+]
+
+[questions.should_promote]
+type = "noul"
+decides = true
+instructions = "Should the work this message asks for run as a separate background task rather than inside the conversation?"
+act = 0.90
+confirm = 0.60
+when_true = "The work is long or slow, can go on without the person watching, and the person would not want to wait in the conversation for it."
+when_false = "The work is quick, needs back-and-forth with the person, or the message asks for no work."
+
+[questions.fragment]
+type = "noul"
+instructions = "Is the person's new message an incomplete piece that only makes sense together with their previous message?"
+act = 0.90
+confirm = 0.60
+when_true = "It adds to or finishes the previous message (for example \"and the tests too\"), and read alone its meaning is unclear."
+when_false = "It stands on its own."
+
+[questions.mentions_other_conversation]
+type = "noul"
+instructions = "Does the person's new message refer to a different conversation, channel, or session than this one?"
+act = 0.90
+confirm = 0.60
+when_true = "It points at something said or done elsewhere (for example \"what we discussed in the other channel\")."
+when_false = "It refers only to this conversation, or to nothing earlier at all."
+
+[questions.wants_fresh_look]
+type = "noul"
+instructions = "Does the person want the assistant to set the conversation so far aside and start over?"
+act = 0.90
+confirm = 0.60
+when_true = "The message asks to start fresh, to forget the earlier discussion, or to look at the problem anew."
+when_false = "The message builds on the conversation so far."
