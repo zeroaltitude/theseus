@@ -17,15 +17,23 @@ pub struct Case {
 }
 
 /// The binary's entry: its init role, then `roles` (a probe), then the
-/// cases.
-pub fn main(cases: &[Case], roles: impl FnOnce(&[String])) -> ! {
+/// cases. `ignored` cases run only when asked (`--ignored`, or
+/// `--include-ignored`), as libtest's `#[ignore]` do.
+pub fn main(cases: &[Case], ignored_cases: &[Case], roles: impl FnOnce(&[String])) -> ! {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some(INIT_ROLE) {
         theseus_sandbox::init_main();
     }
     roles(&args);
     let has = |flag: &str| args.iter().any(|a| a == flag);
-    let (list, exact, ignored) = (has("--list"), has("--exact"), has("--ignored"));
+    let (list, exact) = (has("--list"), has("--exact"));
+    let pool: Vec<&Case> = if has("--ignored") {
+        ignored_cases.iter().collect()
+    } else if has("--include-ignored") {
+        cases.iter().chain(ignored_cases).collect()
+    } else {
+        cases.iter().collect()
+    };
     let mut filters: Vec<&str> = Vec::new();
     let mut value_next = false;
     for a in &args {
@@ -40,10 +48,8 @@ pub fn main(cases: &[Case], roles: impl FnOnce(&[String])) -> ! {
             filters.push(a);
         }
     }
-    // No case is ignored, so `--ignored` lists and runs none.
-    let chosen: Vec<&Case> = cases
-        .iter()
-        .filter(|_| !ignored)
+    let chosen: Vec<&Case> = pool
+        .into_iter()
         .filter(|c| {
             filters.is_empty()
                 || filters.iter().any(|f| {

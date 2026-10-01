@@ -22,6 +22,7 @@
 //! piece works for an unprivileged user on a kernel with user namespaces.
 
 pub mod cgroup;
+pub mod egress;
 mod init;
 mod report;
 pub mod seccomp;

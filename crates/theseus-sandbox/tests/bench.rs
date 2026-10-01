@@ -24,6 +24,7 @@ fn main() {
             name: "spawn_100",
             run: bench,
         }],
+        &[],
         |_| {},
     );
 }

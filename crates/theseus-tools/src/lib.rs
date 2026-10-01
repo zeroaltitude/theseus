@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 pub mod fs;
 pub mod git;
 pub mod image;
+pub mod net;
 pub mod paths;
 pub mod proc;
 pub mod text;

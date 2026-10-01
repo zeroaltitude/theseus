@@ -21,15 +21,23 @@ use std::time::{Duration, Instant};
 use common::{check, job, run, Case, Output};
 use serde_json::{json, Value};
 use theseus_sandbox::cgroup::{self, JobCgroup};
+use theseus_sandbox::egress::{self, Allow, Connection, Proxy, Resolver};
 use theseus_sandbox::Spec;
 
 fn main() {
-    common::main(CASES, |args| {
+    common::main(CASES, IGNORED, |args| {
         if args.first().map(String::as_str) == Some("probe") {
             probe::main(&args[1..]);
         }
     });
 }
+
+/// Run only when asked: it reaches a public host, which no build session
+/// does. `THESEUS_SANDBOX_LIVE_EGRESS=github.com:443` names the host.
+const IGNORED: &[Case] = &[Case {
+    name: "egress_18b_live_a_public_host_through_the_proxy",
+    run: egress_live,
+}];
 
 const CASES: &[Case] = &[
     Case {
@@ -95,6 +103,18 @@ const CASES: &[Case] = &[
     Case {
         name: "sigterm_is_forwarded_to_the_command",
         run: sigterm_forwarded,
+    },
+    Case {
+        name: "egress_18b_an_allowed_host_is_reached_and_recorded",
+        run: egress_allowed,
+    },
+    Case {
+        name: "egress_18b_each_refusal_says_why",
+        run: egress_refusals,
+    },
+    Case {
+        name: "egress_18b_without_the_proxy_there_is_no_route",
+        run: egress_no_route,
     },
 ];
 
@@ -684,6 +704,202 @@ fn sigterm_forwarded() -> Result<(), String> {
     check(exit.code == Some(3), format!("after SIGTERM: {exit:?}"))
 }
 
+/// A server on the host's 127.0.0.1 that echoes what it reads: the stand-in
+/// for an allowed host (DD5's tests reach theirs the same way).
+fn echo_server() -> Result<std::net::SocketAddr, String> {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let addr = l.local_addr().map_err(|e| e.to_string())?;
+    std::thread::spawn(move || {
+        for s in l.incoming().flatten() {
+            std::thread::spawn(move || {
+                if let Ok(mut w) = s.try_clone() {
+                    let _ = std::io::copy(&mut &s, &mut w);
+                }
+            });
+        }
+    });
+    Ok(addr)
+}
+
+/// The probe `egress` with `targets`, in a job with egress: the init opens
+/// the listener inside the job's namespace and hands it out, and this
+/// process serves it, as the wrapper will. (How it ended, its JSON, and
+/// the proxy's records.)
+fn egress_job(
+    targets: &[&str],
+    allow: &[String],
+    resolver: Resolver,
+) -> Result<(Value, Vec<Connection>), String> {
+    let ws = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let mut spec = probe_spec(ws.path(), "egress", targets);
+    spec.egress_port = Some(egress::PORT);
+    spec.env.extend(egress::proxy_env(egress::PORT));
+    let allow = allow
+        .iter()
+        .map(|a| a.parse::<Allow>())
+        .collect::<Result<Vec<_>, _>>()?;
+    let out = Output::new();
+    let mut child = common::spawn(&spec, &out)?;
+    let listener = child
+        .take_egress_listener()
+        .ok_or("the init handed out no listener")?;
+    let proxy = Proxy::new(listener, allow, resolver)
+        .start()
+        .map_err(|e| e.to_string())?;
+    let exit = child.wait().map_err(|e| e.to_string())?;
+    let log = proxy.stop(Duration::from_secs(2));
+    let text = out.read();
+    check(
+        exit.success(),
+        format!("the egress probe: {exit:?}\n{text}"),
+    )?;
+    let v = serde_json::from_str(text.lines().last().unwrap_or(""))
+        .map_err(|e| format!("{e}: {text}"))?;
+    if std::env::var_os("THESEUS_SANDBOX_SHOW").is_some() {
+        println!("probe egress: {v}\nproxy log: {log:?}");
+    }
+    Ok((v, log))
+}
+
+fn lo() -> std::net::IpAddr {
+    std::net::IpAddr::from([127, 0, 0, 1])
+}
+
+/// `.test` names answered with 127.0.0.1, taken as public (a test's
+/// server), as DD5's `Dns.hosts` and `Dns.public` are in its tests.
+fn test_resolver(names: &[&str]) -> Resolver {
+    let mut r = Resolver::default();
+    for n in names {
+        r.hosts.insert(n.to_string(), vec![lo()]);
+    }
+    r.public.push(lo());
+    r
+}
+
+// 18b: the listener handoff, CONNECT, the allowlist, and the record.
+fn egress_allowed() -> Result<(), String> {
+    let target = echo_server()?;
+    let t = format!("echo.test:{}", target.port());
+    let via = format!("via={t}");
+    let (v, log) = egress_job(
+        &[&via],
+        std::slice::from_ref(&t),
+        test_resolver(&["echo.test"]),
+    )?;
+    check(
+        v[&via]["status"] == 200 && v[&via]["echo"] == "ping\n",
+        format!("{via}: {}", v[&via]),
+    )?;
+    let [c] = log.as_slice() else {
+        return Err(format!("the proxy recorded {log:?}"));
+    };
+    check(
+        c.host == "echo.test"
+            && c.port == target.port()
+            && c.addr == Some(target)
+            && (c.up, c.down) == (5, 5)
+            && c.refused.is_none()
+            && c.ms < 5_000,
+        format!("the record: {c:?}"),
+    )
+}
+
+// 18b: off the list, a name that resolves to localhost or to the metadata
+// service, the metadata address itself, and a method that is not CONNECT.
+fn egress_refusals() -> Result<(), String> {
+    let port = echo_server()?.port();
+    // Nothing is taken as public here, so localhost is refused by the
+    // system's own answer, whichever loopback address it gives.
+    let mut resolver = Resolver::default();
+    resolver.hosts.insert(
+        "rebind.test".into(),
+        vec![std::net::IpAddr::from([127, 0, 0, 2])],
+    );
+    resolver.hosts.insert(
+        "metadata.test".into(),
+        vec![std::net::IpAddr::from([169, 254, 169, 254])],
+    );
+    let allow = [
+        format!("echo.test:{port}"),
+        format!("rebind.test:{port}"),
+        "metadata.test:80".into(),
+        "169.254.169.254:80".into(),
+        format!("localhost:{port}"),
+    ];
+    let cases: [(String, u16, String); 6] = [
+        (
+            format!("via=other.test:{port}"),
+            403,
+            format!("other.test:{port} is not on this job's egress list"),
+        ),
+        (
+            format!("via=rebind.test:{port}"),
+            403,
+            "rebind.test resolves to 127.0.0.2, a loopback address".into(),
+        ),
+        (
+            "via=metadata.test:80".into(),
+            403,
+            "metadata.test resolves to 169.254.169.254, a link-local address".into(),
+        ),
+        (
+            "via=169.254.169.254:80".into(),
+            403,
+            "169.254.169.254 is a link-local address".into(),
+        ),
+        (
+            format!("via=localhost:{port}"),
+            403,
+            "a loopback address".into(),
+        ),
+        (
+            "get".into(),
+            405,
+            "only CONNECT is served: plain http:// forwarding is not offered".into(),
+        ),
+    ];
+    let targets: Vec<&str> = cases.iter().map(|(t, _, _)| t.as_str()).collect();
+    let (v, log) = egress_job(&targets, &allow, resolver)?;
+    for (t, status, why) in &cases {
+        let body = v[t]["body"].as_str().unwrap_or("");
+        check(
+            v[t]["status"] == *status && body.contains(why.as_str()),
+            format!("{t}: {} (wanted {status}, {why:?})", v[t]),
+        )?;
+    }
+    check(
+        log.len() == cases.len() && log.iter().all(|c| c.refused.is_some() && c.addr.is_none()),
+        format!("the proxy's records: {log:?}"),
+    )
+}
+
+// 18b: a program that ignores the proxy variables has no route, egress or
+// not: the host's loopback is not the job's, and nothing leads out.
+fn egress_no_route() -> Result<(), String> {
+    let target = echo_server()?;
+    let direct = format!("direct={target}");
+    let (v, log) = egress_job(
+        &[&direct, "direct=1.1.1.1:443", "direct=169.254.169.254:80"],
+        &[format!("echo.test:{}", target.port())],
+        test_resolver(&["echo.test"]),
+    )?;
+    is(&v, &direct, "ECONNREFUSED")?;
+    is(&v, "direct=1.1.1.1:443", "ENETUNREACH")?;
+    is(&v, "direct=169.254.169.254:80", "ENETUNREACH")?;
+    check(log.is_empty(), format!("the proxy saw {log:?}"))
+}
+
+// 18b's live check, run only when asked: a public host on the list, through
+// the proxy, by the system's resolver.
+fn egress_live() -> Result<(), String> {
+    let host = std::env::var("THESEUS_SANDBOX_LIVE_EGRESS")
+        .map_err(|_| "set THESEUS_SANDBOX_LIVE_EGRESS=host:port")?;
+    let open = format!("open={host}");
+    let (v, log) = egress_job(&[&open], std::slice::from_ref(&host), Resolver::default())?;
+    println!("live egress to {host}: {}\nrecord: {log:?}", v[&open]);
+    check(v[&open]["status"] == 200, format!("{open}: {}", v[&open]))
+}
+
 /// The probes, run inside L1. Each prints one JSON line.
 mod probe {
     use std::fs;
@@ -709,6 +925,7 @@ mod probe {
             "spew" => spew(rest[0].parse().unwrap_or(1)),
             "fs" => fs_probe(rest[0]),
             "scratch" => scratch(rest[0]),
+            "egress" => egress(&rest),
             "exit" => std::process::exit(rest[0].parse().unwrap_or(1)),
             "abort" => std::process::abort(),
             _ => json!({"error": format!("no probe {name}")}),
@@ -1169,6 +1386,92 @@ mod probe {
             "env": env,
             "ssh_auth_sock": std::env::var_os("SSH_AUTH_SOCK").is_some(),
         })
+    }
+
+    /// 18b, from inside the job: `via=host:port` tunnels through the proxy
+    /// that `HTTPS_PROXY` names and sends a line to be echoed; `open=` only
+    /// asks for the tunnel; `get` sends a plain GET to the proxy; `direct=`
+    /// connects without it.
+    fn egress(targets: &[&str]) -> Value {
+        let proxy = std::env::var("HTTPS_PROXY").unwrap_or_default();
+        let proxy = proxy.trim_start_matches("http://").trim_end_matches('/');
+        let mut m = Map::new();
+        for t in targets {
+            let v = if let Some(to) = t.strip_prefix("via=") {
+                through(
+                    proxy,
+                    &format!("CONNECT {to} HTTP/1.1\r\nHost: {to}\r\n\r\n"),
+                    true,
+                )
+            } else if let Some(to) = t.strip_prefix("open=") {
+                through(
+                    proxy,
+                    &format!("CONNECT {to} HTTP/1.1\r\nHost: {to}\r\n\r\n"),
+                    false,
+                )
+            } else if *t == "get" {
+                let get = "GET http://example.test/ HTTP/1.1\r\nHost: example.test\r\n\r\n";
+                through(proxy, get, false)
+            } else if let Some(to) = t.strip_prefix("direct=") {
+                match to.parse() {
+                    Ok(a) => outcome(std::net::TcpStream::connect_timeout(
+                        &a,
+                        Duration::from_secs(3),
+                    )),
+                    Err(e) => json!(format!("{e}")),
+                }
+            } else {
+                json!("an unknown target")
+            };
+            m.insert(t.to_string(), v);
+        }
+        Value::Object(m)
+    }
+
+    fn through(proxy: &str, request: &str, echo: bool) -> Value {
+        let mut c = match std::net::TcpStream::connect(proxy) {
+            Ok(c) => c,
+            Err(e) => return json!({"error": format!("the proxy at {proxy:?}: {e}")}),
+        };
+        let _ = c.set_read_timeout(Some(Duration::from_secs(5)));
+        if let Err(e) = c.write_all(request.as_bytes()) {
+            return json!({"error": e.to_string()});
+        }
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 512];
+        let end = loop {
+            if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break i + 4;
+            }
+            match c.read(&mut chunk) {
+                Ok(0) | Err(_) => return json!({"error": "no response head"}),
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            }
+        };
+        let head = String::from_utf8_lossy(&buf[..end]).into_owned();
+        let mut rest = buf[end..].to_vec();
+        let status: u16 = head
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if status == 200 && echo {
+            if c.write_all(b"ping\n").is_err() {
+                return json!({"status": status, "error": "the tunnel would not take a write"});
+            }
+            while rest.len() < 5 {
+                match c.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => rest.extend_from_slice(&chunk[..n]),
+                }
+            }
+            json!({"status": status, "echo": String::from_utf8_lossy(&rest)})
+        } else if status == 200 {
+            json!({"status": status})
+        } else {
+            let _ = c.read_to_end(&mut rest);
+            json!({"status": status, "body": String::from_utf8_lossy(&rest).trim_end()})
+        }
     }
 
     fn scratch(ws: &str) -> Value {

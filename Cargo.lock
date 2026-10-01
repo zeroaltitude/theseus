@@ -2989,6 +2989,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "theseus-tools",
 ]
 
 [[package]]
