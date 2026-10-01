@@ -55,11 +55,13 @@ pub mod kinds {
     /// would drop when it rewrote the record: the session's hold on external
     /// text (T1), an execution's wakes, report wakes, and stop (DD8, W1).
     /// Session schema 3 adds its run of failures (theseus-ljr), 4 the images
-    /// its provider refused (theseus-0s4), and 5 a search's query in its hold
-    /// on external text (theseus-qiy); serde's defaults read 2, 3, and 4.
+    /// its provider refused (theseus-0s4), 5 a search's query in its hold on
+    /// external text (theseus-qiy), and 6 the 1-hour cache writes in its
+    /// usage (theseus-ev1); serde's defaults read 2 to 5. Compilation schema
+    /// 3 adds the manifest's cache layout (theseus-ev1), read from 2 as none.
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
-        (SESSION, 5),
+        (SESSION, 6),
         (LEDGER, 1),
         (META, 1),
         (EXECUTION, 2),
@@ -67,7 +69,7 @@ pub mod kinds {
         (COMPLETION, 2),
         (NODE, 2),
         (EDGE, 1),
-        (COMPILATION, 2),
+        (COMPILATION, 3),
         (OUTBOX, 1),
     ];
 

@@ -188,10 +188,15 @@ function TokenBar({ u, price }: { u: D; price?: D }) {
 
 /** The charge, recomputed from the catalog's prices beside what was recorded. */
 function Cost({ u, price, charged }: { u: D; price: D; charged?: number }) {
+  const written = Number(u.cache_creation_input_tokens ?? 0)
+  const written1h = Math.min(Number(u.cache_creation_1h_input_tokens ?? 0), written)
+  // A catalog from before 13c has no 1-hour write price: Anthropic's is 2 × input (theseus-ev1).
+  const per1h = price.cache_write_1h_per_mtok == null ? 2 * Number(price.input_per_mtok) : Number(price.cache_write_1h_per_mtok)
   const lines = [
     { name: 'input, new', n: Number(u.input_tokens ?? 0), per: Number(price.input_per_mtok) },
     { name: 'cache read', n: Number(u.cache_read_input_tokens ?? 0), per: Number(price.cache_read_per_mtok) },
-    { name: 'cache write', n: Number(u.cache_creation_input_tokens ?? 0), per: Number(price.cache_write_per_mtok) },
+    { name: written1h ? 'cache write, 5 min' : 'cache write', n: written - written1h, per: Number(price.cache_write_per_mtok) },
+    ...(written1h ? [{ name: 'cache write, 1 hour', n: written1h, per: per1h }] : []),
     { name: 'output', n: Number(u.output_tokens ?? 0), per: Number(price.output_per_mtok) },
   ]
   const sum = lines.reduce((a, l) => a + (l.n * l.per) / 1e6, 0)

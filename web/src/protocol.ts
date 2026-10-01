@@ -13,7 +13,11 @@ export interface Usage {
   input_tokens: number
   output_tokens: number
   cache_read_input_tokens: number
+  /// Every cache write, whatever its TTL.
   cache_creation_input_tokens: number
+  /// Of those, the writes with the 1-hour TTL, priced at the catalog's `cache_write_1h_per_mtok` (2 × input)
+  /// against `cache_write_per_mtok` for the rest (theseus-ev1). Absent when 0.
+  cache_creation_1h_input_tokens?: number
 }
 
 export interface KernelStatus {

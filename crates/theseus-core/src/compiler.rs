@@ -33,7 +33,9 @@ use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, ProviderRequest};
 
 pub const COMPILER_VERSION: u32 = 1;
-pub const RENDERER_VERSION: u32 = 1;
+/// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block
+/// whose prefix could never reach the model's caching minimum gets no marker.
+pub const RENDERER_VERSION: u32 = 2;
 pub const COMPILATION_SCHEMA: u16 = 1;
 
 pub const BETA_THINKING_UPDATES: &str = "thinking-display-updates-2026-08-18";

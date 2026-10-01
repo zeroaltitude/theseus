@@ -52,16 +52,21 @@ const tokens = (n: unknown) => typeof n !== 'number' ? '—' : n >= 1_000_000 ? 
 /// from the provider's cache and written to it, and the dollars that saved at a model's
 /// catalog prices. A read costs the cache-read price instead of the input price; a write
 /// costs the cache-write price, whose premium over the input price counts against the
-/// saving. `saved` is null when the catalog has no prices for the model.
+/// saving: the 1-hour price for the 1-hour writes (13c), the 5-minute one for the rest.
+/// `saved` is null when the catalog has no prices for the model.
 interface CacheFigures { input: number; read: number; written: number; saved: number | null }
 function cacheFigures(u: Usage, entry: Record<string, unknown> | undefined): CacheFigures {
   const read = u.cache_read_input_tokens
   const written = u.cache_creation_input_tokens
+  const written1h = Math.min(u.cache_creation_1h_input_tokens ?? 0, written)
   const input = u.input_tokens + read + written
   if (!entry) return { input, read, written, saved: null }
   const p = (k: string) => Number(entry[k] ?? 0)
+  // A catalog from before 13c has no 1-hour price: Anthropic's is 2 × input.
+  const write1h = entry.cache_write_1h_per_mtok == null ? 2 * p('input_per_mtok') : p('cache_write_1h_per_mtok')
   const saved = (read * (p('input_per_mtok') - p('cache_read_per_mtok'))
-    - written * (p('cache_write_per_mtok') - p('input_per_mtok'))) / 1e6
+    - (written - written1h) * (p('cache_write_per_mtok') - p('input_per_mtok'))
+    - written1h * (write1h - p('input_per_mtok'))) / 1e6
   return { input, read, written, saved }
 }
 const readShare = (f: CacheFigures) => f.input > 0 ? `${((100 * f.read) / f.input).toFixed(1)}%` : '—'
@@ -71,6 +76,7 @@ const addUsage = (a: Usage, b: Usage): Usage => ({
   output_tokens: a.output_tokens + b.output_tokens,
   cache_read_input_tokens: a.cache_read_input_tokens + b.cache_read_input_tokens,
   cache_creation_input_tokens: a.cache_creation_input_tokens + b.cache_creation_input_tokens,
+  cache_creation_1h_input_tokens: (a.cache_creation_1h_input_tokens ?? 0) + (b.cache_creation_1h_input_tokens ?? 0),
 })
 const NO_USAGE: Usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
