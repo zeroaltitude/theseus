@@ -4,9 +4,9 @@
 //! tool calls `calls` gives for the turn's prompt, the last user text, or
 //! text when it gives none. One response per connection, streamed as the
 //! API streams it, as the model the request named. Every request's body is
-//! kept, in arrival order (theseus-kol), with the time it arrived. It can be
-//! told to refuse the next requests with an error status, as the API refuses
-//! (theseus-ljr).
+//! kept, in arrival order (theseus-kol), with the time it arrived, parsed
+//! and as the bytes that came (theseus-ev1). It can be told to refuse the
+//! next requests with an error status, as the API refuses (theseus-ljr).
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -25,7 +25,7 @@ pub type Calls = dyn Fn(&str) -> Vec<(&'static str, Value)> + Send + Sync;
 
 #[derive(Default)]
 struct Seen {
-    requests: Mutex<Vec<(Instant, Value)>>,
+    requests: Mutex<Vec<(Instant, Value, Vec<u8>)>>,
     /// The statuses the next requests get, one each, in order; `u16::MAX`
     /// for every request from then on.
     fails: Mutex<VecDeque<u16>>,
@@ -62,13 +62,19 @@ impl FakeModel {
     /// Every request's body so far, in arrival order.
     pub fn requests(&self) -> Vec<Value> {
         let r = self.seen.requests.lock().unwrap();
-        r.iter().map(|(_, v)| v.clone()).collect()
+        r.iter().map(|(_, v, _)| v.clone()).collect()
+    }
+
+    /// The same bodies, byte for byte as they arrived (theseus-ev1).
+    pub fn raw_requests(&self) -> Vec<Vec<u8>> {
+        let r = self.seen.requests.lock().unwrap();
+        r.iter().map(|(_, _, b)| b.clone()).collect()
     }
 
     /// When each request arrived, in order.
     pub fn arrivals(&self) -> Vec<Instant> {
         let r = self.seen.requests.lock().unwrap();
-        r.iter().map(|(t, _)| *t).collect()
+        r.iter().map(|(t, _, _)| *t).collect()
     }
 
     /// Refuse the next requests, one per status, with the API's error body
@@ -134,7 +140,7 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
     seen.requests
         .lock()
         .unwrap()
-        .push((Instant::now(), req.clone()));
+        .push((Instant::now(), req.clone(), body));
     let refused = {
         let mut f = seen.fails.lock().unwrap();
         match f.front().copied() {
