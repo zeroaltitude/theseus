@@ -15,10 +15,12 @@ import { Echart } from '@/components/Echart'
 import { JsonView } from '@/components/JsonView'
 import { Empty, Panel, Pill } from '@/components/ui'
 
+const NO_ROWS: LedgerEntry[] = []
+
 export default function Ledger() {
   const nav = useNavigate()
   const { data } = useLedger(20_000, 5000)
-  const rows = data?.rows ?? []
+  const rows = data?.rows ?? NO_ROWS
   const [kinds, setKinds] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
   const [range, setRange] = useState<[number, number] | null>(null)
@@ -146,7 +148,7 @@ function KindMap({ rows, selected, onToggle }: { rows: LedgerEntry[]; selected: 
 function Histogram({ rows, onRange }: { rows: LedgerEntry[]; onRange: (r: [number, number] | null) => void }) {
   const buckets = 90
   const { option, edges } = useMemo(() => {
-    const t0 = Math.min(...rows.map((r) => r.at_unix_ms), Date.now())
+    const t0 = Math.min(...rows.map((r) => r.at_unix_ms))
     const t1 = Math.max(...rows.map((r) => r.at_unix_ms), t0 + 60_000)
     const size = (t1 - t0) / buckets
     const tones = ['live', 'model', 'tool', 'think', 'wait', 'ok', 'money', 'fault', 'idle'] as const

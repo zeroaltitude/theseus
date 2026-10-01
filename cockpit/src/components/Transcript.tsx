@@ -45,7 +45,7 @@ export function Transcript({ nodes, turns, live }: { nodes: NodeInfo[]; turns: M
         const t = g.turn_id ? turns.get(g.turn_id) : undefined
         return (
           <section key={`${g.turn_id}-${gi}`} className="relative">
-            <div className="sticky top-0 z-10 -mx-4 mb-2 flex items-center gap-2 border-y border-line bg-hull/90 px-4 py-1 backdrop-blur">
+            <div className="sticky top-0 z-10 -mx-4 mb-2 flex items-center gap-2 border-y border-line bg-hull px-4 py-1 shadow-[0_6px_12px_-8px_rgba(0,0,0,0.8)]">
               <span className="panel-title">turn {gi + 1}</span>
               {t && <>
                 <span className="num text-[11px] text-ink-faint">{stamp(t.start)}</span>
@@ -70,11 +70,11 @@ export function Transcript({ nodes, turns, live }: { nodes: NodeInfo[]; turns: M
   )
 }
 
-function Gutter({ icon, at, tone }: { icon: React.ReactNode; at: number; tone: string }) {
+function Gutter({ icon, at, tone }: { icon: React.ReactNode; at?: number; tone: string }) {
   return (
     <div className="flex w-16 shrink-0 flex-col items-end gap-1 pt-1">
       <span className={cn('grid h-6 w-6 place-items-center rounded-md ring-1 ring-inset', tone)}>{icon}</span>
-      <span className="num text-[10px] text-ink-faint">{new Date(at).toLocaleTimeString([], { hour12: false })}</span>
+      <span className="num text-[10px] text-ink-faint">{at ? new Date(at).toLocaleTimeString([], { hour12: false }) : 'live'}</span>
     </div>
   )
 }
@@ -125,7 +125,11 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
   const [open, setOpen] = useState(false)
   const tool = d.tool ?? r.tool ?? 'tool'
   const decision = d.decision as D | undefined
-  const denied = decision?.mode === 'deny' || r.status === 'declined'
+  // The gate's verdict is on the call's result (`{gate: allow|deny|confirm}`); older and denied calls carry
+  // it as decision.mode. The posture (open, notify, confirm) is what the policy said about the tool.
+  const gate: string | undefined = (d.result as D | undefined)?.gate ?? decision?.mode
+  const posture: string | undefined = decision?.posture
+  const denied = gate === 'deny' || r.status === 'declined'
   const failed = r.is_error && !denied
   const tone = denied ? 'fault' : failed ? 'fault' : result ? 'ok' : 'wait'
   return (
@@ -136,14 +140,15 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
           <ChevronRight size={13} className={cn('text-ink-faint transition-transform', open && 'rotate-90')} />
           <span className="num text-[12.5px] font-medium text-tool">{tool}</span>
           <span className="min-w-0 flex-1 truncate text-[12px] text-ink-dim">{d.plan?.summary ?? summarizeInput(d.input)}</span>
-          {decision && decision.mode !== 'allow' && <Pill tone={decision.mode === 'deny' ? 'fault' : 'wait'}><ShieldCheck size={11} />{decision.mode}</Pill>}
+          {gate && gate !== 'allow' && <Pill tone={gate === 'deny' ? 'fault' : 'wait'}><ShieldCheck size={11} />{gate}</Pill>}
+          {posture && gate === 'allow' && <span className="num text-[10.5px] text-ink-faint">{posture}</span>}
           {r.duration_ms !== undefined && r.duration_ms !== null && <span className="num text-[11px] text-ink-faint">{ms(r.duration_ms)}</span>}
           <Pill tone={tone}>{denied ? <OctagonX size={11} /> : failed ? <OctagonX size={11} /> : result ? <CircleCheck size={11} /> : null}{denied ? 'denied' : failed ? 'error' : result ? (r.status ?? 'ok') : 'pending'}</Pill>
         </button>
         {!open && result?.text && <div className="truncate border-t border-tool/10 px-3 py-1 font-mono text-[11.5px] text-ink-faint">{result.text.split('\n')[0]}</div>}
         {open && (
           <div className="flex flex-col gap-2 border-t border-tool/10 p-3">
-            {decision && <div className="text-[12px]"><span className="text-ink-faint">gate:</span> <span className={denied ? 'text-fault' : 'text-ok'}>{decision.mode}</span>{decision.reason && <span className="text-ink-dim"> · {decision.reason}</span>}</div>}
+            {(gate || decision) && <div className="text-[12px]"><span className="text-ink-faint">gate:</span> <span className={denied ? 'text-fault' : 'text-ok'}>{gate ?? '—'}</span>{posture && <span className="text-ink-faint"> · posture {posture}</span>}{decision?.reason && <span className="text-ink-dim"> · {decision.reason}</span>}</div>}
             {Array.isArray(d.plan?.resources) && d.plan.resources.length > 0 && (
               <div className="flex flex-wrap gap-1">{d.plan.resources.map((res: D, i: number) => <Pill key={i} tone="tool">{res.access} {res.path ?? res.host ?? JSON.stringify(res)}</Pill>)}</div>
             )}
@@ -167,7 +172,7 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
 function LiveItem({ text }: { text: string }) {
   return (
     <div className="flex gap-3">
-      <Gutter icon={<Bot size={13} />} at={Date.now()} tone="bg-live/10 text-live ring-live/40" />
+      <Gutter icon={<Bot size={13} />} tone="bg-live/10 text-live ring-live/40" />
       <div className="live-sweep min-w-0 flex-1 rounded-lg bg-live/[0.05] px-3 py-2 ring-1 ring-live/30">
         <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-live">streaming</div>
         <div className="md text-[13px] text-ink"><Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown><span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-live align-middle" /></div>

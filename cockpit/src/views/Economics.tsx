@@ -114,8 +114,8 @@ function SpendOverTime({ calls, bucket }: { calls: ProviderCall[]; bucket: 'hour
       by.set(k, m)
     }
     const keys = [...by.keys()].sort((a, b) => a - b)
-    let acc = 0
-    const cum = keys.map((k) => { for (const v of by.get(k)!.values()) acc += v; return [k, Number(acc.toFixed(6))] })
+    const perKey = keys.map((k) => [...by.get(k)!.values()].reduce((a, b) => a + b, 0))
+    const cum = keys.map((k, i) => [k, Number(perKey.slice(0, i + 1).reduce((a, b) => a + b, 0).toFixed(6))])
     return {
       grid: { left: 52, right: 52, top: 30, bottom: 26 },
       legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#94a3b8', fontSize: 10 } },

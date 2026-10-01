@@ -1,11 +1,11 @@
 // The session deck: one session, down to its spans. The transcript streams live; the inspector shows each turn's
 // flame chart, the context lineage, the spend, and the session's own ledger rows.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Tabs } from 'radix-ui'
-import { ArrowLeft, Brain, Coins, Copy, GitBranch, OctagonX, Pause, ScrollText, ShieldCheck, Timer } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, OctagonX, Pause, ScrollText, ShieldCheck, Timer } from 'lucide-react'
 import type { CompilationInfo, ExecutionInfo, LedgerEntry, SessionHistory, Span } from '@protocol'
 import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
@@ -65,9 +65,11 @@ export default function SessionDeck() {
       <Group orientation="horizontal" className="min-h-0 flex-1">
         <RPanel defaultSize="58" minSize={420} className="min-h-0">
           <Panel title={<>transcript · {hist.nodes.length} nodes</>} icon={<ScrollText size={13} />} className="h-full"
-            bodyClassName="min-h-0 overflow-auto"
-            actions={live?.text ? <span className="flex items-center gap-1.5 text-[11px] text-live"><LiveDot size={5} /> streaming</span> : null}>
-            <Transcript nodes={hist.nodes} turns={turnMap} live={live} />
+            bodyClassName="relative min-h-0"
+            actions={live ? <span className="flex items-center gap-1.5 text-[11px] text-live"><LiveDot size={5} /> {live.text ? 'streaming' : 'turn running'}</span> : null}>
+            <Follow deps={[hist.nodes.length, live?.text]}>
+              <Transcript nodes={hist.nodes} turns={turnMap} live={live} />
+            </Follow>
           </Panel>
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
@@ -76,6 +78,36 @@ export default function SessionDeck() {
         </RPanel>
       </Group>
     </div>
+  )
+}
+
+/** A scroller that opens at the newest content and follows it while you are near the bottom; scroll up to read,
+ *  and a button brings you back. */
+function Follow({ children, deps }: { children: React.ReactNode; deps: unknown[] }) {
+  const el = useRef<HTMLDivElement>(null)
+  const [away, setAway] = useState(false)
+  const near = useRef(true)
+  const onScroll = () => {
+    const e = el.current
+    if (!e) return
+    near.current = e.scrollHeight - e.scrollTop - e.clientHeight < 260
+    setAway(!near.current)
+  }
+  useEffect(() => {
+    const e = el.current
+    if (e && near.current) e.scrollTop = e.scrollHeight
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps)
+  return (
+    <>
+      <div ref={el} onScroll={onScroll} className="h-full overflow-auto">{children}</div>
+      {away && (
+        <button onClick={() => { const e = el.current; if (e) { e.scrollTo({ top: e.scrollHeight, behavior: 'smooth' }); near.current = true; setAway(false) } }}
+          className="absolute bottom-3 right-4 flex items-center gap-1 rounded-full bg-live/15 px-3 py-1.5 text-[11.5px] font-medium text-live shadow-lg ring-1 ring-live/40 backdrop-blur">
+          <ArrowDown size={13} /> latest
+        </button>
+      )}
+    </>
   )
 }
 
@@ -144,10 +176,10 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
       )}
       <div className="ml-auto flex gap-2">
         {s.external_text && <Btn tone="wait" onClick={() => act('Trust', 'policy.trust', { session_id: s.session_id })} busy={busy === 'Trust'}><ShieldCheck size={13} /> Trust</Btn>}
-        {exec && ['running', 'queued', 'waiting'].includes(exec.state) && <>
-          <Btn tone="wait" onClick={() => act('Stop', 'execution.stop', { execution_id: exec.execution_id })} busy={busy === 'Stop'}><Pause size={13} /> Stop</Btn>
-          <Btn tone="fault" onClick={() => act('Cancel', 'execution.cancel', { execution_id: exec.execution_id })} busy={busy === 'Cancel'}><OctagonX size={13} /> Cancel</Btn>
-        </>}
+        {exec && ['running', 'queued'].includes(exec.state) &&
+          <Btn tone="wait" title="Halt the running turn; the session stays" onClick={() => act('Stop', 'execution.stop', { execution_id: exec.execution_id })} busy={busy === 'Stop'}><Pause size={13} /> Stop</Btn>}
+        {exec && ['running', 'queued', 'waiting'].includes(exec.state) &&
+          <Btn tone="fault" title="End this execution" onClick={() => act('Cancel', 'execution.cancel', { execution_id: exec.execution_id })} busy={busy === 'Cancel'}><OctagonX size={13} /> Cancel</Btn>}
       </div>
     </div>
   )

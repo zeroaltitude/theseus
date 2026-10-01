@@ -15,6 +15,19 @@ import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Empty, LiveDot, Meter, Panel, Pill, StatePill } from '@/components/ui'
 
 type Key = 'state' | 'title' | 'turns' | 'tools' | 'tokens' | 'cache' | 'cost' | 'active'
+type Sort = { k: Key; desc: boolean }
+
+const NO_SESSIONS: SessionInfo[] = []
+const NO_EXECUTIONS: ExecutionInfo[] = []
+
+function Th({ k, sort, setSort, children, right }: { k: Key; sort: Sort; setSort: (f: (s: Sort) => Sort) => void; children: React.ReactNode; right?: boolean }) {
+  return (
+    <th className={cn('cursor-pointer select-none px-2 py-1.5 font-semibold hover:text-ink', right ? 'text-right' : 'text-left')}
+      onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : true }))}>
+      <span className={cn('inline-flex items-center gap-1', sort.k === k && 'text-live')}>{children}{sort.k === k && <ArrowDownUp size={10} />}</span>
+    </th>
+  )
+}
 
 const tokIn = (s: SessionInfo) => s.usage.input_tokens + s.usage.cache_read_input_tokens + s.usage.cache_creation_input_tokens
 
@@ -23,13 +36,13 @@ export default function Fleet() {
   const now = useTick(5000)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 2000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 2000)
-  const sessions = sl?.sessions ?? []
-  const executions = el?.executions ?? []
+  const sessions = sl?.sessions ?? NO_SESSIONS
+  const executions = el?.executions ?? NO_EXECUTIONS
   const execOf = useMemo(() => new Map(executions.map((e) => [e.execution_id, e])), [executions])
 
   const [q, setQ] = useState('')
   const [state, setState] = useState<string | null>(null)
-  const [sort, setSort] = useState<{ k: Key; desc: boolean }>({ k: 'active', desc: true })
+  const [sort, setSort] = useState<Sort>({ k: 'active', desc: true })
 
   const states = useMemo(() => {
     const m = new Map<string, number>()
@@ -61,13 +74,6 @@ export default function Fleet() {
       })
   }, [sessions, q, state, sort])
 
-  const Th = ({ k, children, right }: { k: Key; children: React.ReactNode; right?: boolean }) => (
-    <th className={cn('cursor-pointer select-none px-2 py-1.5 font-semibold hover:text-ink', right ? 'text-right' : 'text-left')}
-      onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : true }))}>
-      <span className={cn('inline-flex items-center gap-1', sort.k === k && 'text-live')}>{children}{sort.k === k && <ArrowDownUp size={10} />}</span>
-    </th>
-  )
-
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -90,9 +96,9 @@ export default function Fleet() {
             <table className="w-full whitespace-nowrap text-[12px]">
               <thead className="sticky top-0 z-10 bg-hull/95 text-[10px] uppercase tracking-wider text-ink-faint backdrop-blur">
                 <tr>
-                  <Th k="state">state</Th><Th k="title">session</Th><Th k="turns" right>turns</Th><Th k="tools" right>tools</Th>
-                  <Th k="tokens" right>tokens in</Th><Th k="cache" right>cache</Th><Th k="cost" right>cost</Th>
-                  <th className="w-36 px-2 py-1.5 text-left font-semibold">budget</th><Th k="active" right>active</Th>
+                  <Th k="state" sort={sort} setSort={setSort}>state</Th><Th k="title" sort={sort} setSort={setSort}>session</Th><Th k="turns" sort={sort} setSort={setSort} right>turns</Th><Th k="tools" sort={sort} setSort={setSort} right>tools</Th>
+                  <Th k="tokens" sort={sort} setSort={setSort} right>tokens in</Th><Th k="cache" sort={sort} setSort={setSort} right>cache</Th><Th k="cost" sort={sort} setSort={setSort} right>cost</Th>
+                  <th className="w-36 px-2 py-1.5 text-left font-semibold">budget</th><Th k="active" sort={sort} setSort={setSort} right>active</Th>
                 </tr>
               </thead>
               <tbody>
