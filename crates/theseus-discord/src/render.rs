@@ -624,13 +624,32 @@ impl Renderer {
         self.turns.iter_mut().rev().find(|t| t.turn_id == turn_id)
     }
 
+    /// A call's line is in the turn that proposed it. A call approved after
+    /// that turn parked runs in a later turn, whose events name the later
+    /// turn, and so does a background job's late result: either finds its
+    /// line in the turn that holds it, so the line says how the call ended
+    /// (a stop's `⏹️` included, theseus-4uw) instead of keeping `👍 approved`.
     fn update_tool(&mut self, turn_id: &str, tool_use_id: &str, f: impl Fn(&mut ToolLine)) {
-        if let Some(t) = self.turn_mut(turn_id) {
-            for lv in t.loops.values_mut() {
-                if let Some(l) = lv.tools.iter_mut().find(|l| l.tool_use_id == tool_use_id) {
-                    f(l);
-                    t.dirty = true;
-                }
+        let holds = |t: &TurnView| {
+            t.loops
+                .values()
+                .any(|lv| lv.tools.iter().any(|l| l.tool_use_id == tool_use_id))
+        };
+        let at = match self
+            .turns
+            .iter()
+            .position(|t| t.turn_id == turn_id && holds(t))
+        {
+            Some(i) => Some(i),
+            None => self.turns.iter().rposition(holds),
+        };
+        let Some(t) = at.map(|i| &mut self.turns[i]) else {
+            return;
+        };
+        for lv in t.loops.values_mut() {
+            if let Some(l) = lv.tools.iter_mut().find(|l| l.tool_use_id == tool_use_id) {
+                f(l);
+                t.dirty = true;
             }
         }
     }
@@ -2116,6 +2135,53 @@ mod tests {
         assert!(
             !text.contains("❌") && !text.contains("cancelled") && !text.contains("declined"),
             "{text}"
+        );
+    }
+
+    /// A call approved after its turn parked runs in the next turn, whose
+    /// events name that turn: its line, in the turn that proposed it, still
+    /// says how it ran and ended (here a stop), not `👍 approved` forever
+    /// (theseus-4uw's live check found it so).
+    #[test]
+    fn an_approved_call_that_runs_in_a_later_turn_updates_its_own_line() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "proc.run",
+            "input": {"argv": ["sleep", "30"]}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
+        let sleep = request(json!({"correlation_id": "act_3", "session_id": "s",
+            "execution_id": "e", "tool": "proc.run", "input": {"argv": ["sleep", "30"]},
+            "reason": "run sleep 30", "by": "operator", "requested_at_ms": 1,
+            "expires_at_ms": 1790000000000u64}));
+        r.on_notification("confirm.requested", &serde_json::to_value(sleep).unwrap());
+        r.on_notification("turn.ended", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification(
+            "confirm.resolved",
+            &json!({"correlation_id": "act_3", "approved": true, "by": "the CLI"}),
+        );
+        let line = |r: &mut Renderer| upserts(&r.tick())[0].1.clone();
+        assert!(
+            line(&mut r).contains("👍 `proc.run` sleep 30 · approved by the CLI"),
+            "the answer shows first"
+        );
+        // The continuation runs it.
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t2"}));
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t2", "tool_use_id": "u1", "correlation_id": "act_3"}),
+        );
+        assert!(
+            line(&mut r).contains("⏳ `proc.run` sleep 30"),
+            "it runs, on its own line"
+        );
+        r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t2", "tool_use_id": "u1", "status": "cancelled",
+                    "duration_ms": 7853, "stopped_by": "the CLI"}),
+        );
+        let ended = line(&mut r);
+        assert!(
+            ended.contains("⏹️ `proc.run` sleep 30 · stopped by the CLI"),
+            "{ended}"
         );
     }
 
