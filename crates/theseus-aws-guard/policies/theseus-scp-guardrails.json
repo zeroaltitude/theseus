@@ -1,0 +1,239 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GuardrailsEveryone",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutAccountPublicAccessBlock",
+        "cloudtrail:StopLogging",
+        "ec2:DisableEbsEncryptionByDefault",
+        "iam:CreateUser",
+        "iam:CreateAccessKey",
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "iam:CreateServiceSpecificCredential",
+        "iam:UploadSSHPublicKey",
+        "iam:UploadSigningCertificate",
+        "ec2:CreateKeyPair",
+        "ec2:ImportKeyPair",
+        "iam:DeleteAccessKey",
+        "iam:UpdateAccessKey",
+        "iam:DeleteUser",
+        "iam:UpdateUser",
+        "iam:AttachUserPolicy",
+        "iam:DetachUserPolicy",
+        "iam:PutUserPolicy",
+        "iam:DeleteUserPolicy",
+        "iam:AddUserToGroup",
+        "iam:RemoveUserFromGroup",
+        "iam:PutUserPermissionsBoundary",
+        "iam:DeleteUserPermissionsBoundary",
+        "iam:DeleteLoginProfile",
+        "budgets:ExecuteBudgetAction",
+        "organizations:CreateOrganization",
+        "organizations:AcceptHandshake",
+        "organizations:LeaveOrganization",
+        "account:PutAlternateContact",
+        "account:DeleteAlternateContact",
+        "account:PutContactInformation"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "GuardrailsAllButTheDeployer",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:ModifySecurityGroupRules",
+        "ec2:ModifySubnetAttribute",
+        "ec2:AllocateAddress",
+        "ec2:AssociateAddress",
+        "ec2:CreateInternetGateway",
+        "ec2:AttachInternetGateway",
+        "cloudfront:CreateDistribution",
+        "cloudfront:CopyDistribution",
+        "s3:PutBucketPublicAccessBlock",
+        "ec2:ModifySnapshotAttribute",
+        "ec2:ModifyImageAttribute",
+        "rds:ModifyDBSnapshotAttribute",
+        "rds:ModifyDBClusterSnapshotAttribute",
+        "ram:CreateResourceShare",
+        "ram:AssociateResourceShare",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors",
+        "guardduty:DeleteDetector",
+        "guardduty:UpdateDetector",
+        "guardduty:ArchiveFindings",
+        "guardduty:CreateFilter",
+        "guardduty:UpdateFilter",
+        "config:StopConfigurationRecorder",
+        "config:DeleteConfigurationRecorder",
+        "config:DeleteDeliveryChannel",
+        "access-analyzer:DeleteAnalyzer",
+        "access-analyzer:CreateArchiveRule",
+        "access-analyzer:UpdateArchiveRule",
+        "access-analyzer:UpdateFindings",
+        "securityhub:DisableSecurityHub",
+        "iam:CreateOpenIDConnectProvider",
+        "iam:CreateSAMLProvider",
+        "iam:UpdateOpenIDConnectProviderThumbprint",
+        "iam:AddClientIDToOpenIDConnectProvider",
+        "iam:UpdateSAMLProvider",
+        "budgets:ModifyBudget",
+        "budgets:CreateBudgetAction",
+        "budgets:UpdateBudgetAction",
+        "budgets:DeleteBudgetAction"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        }
+      }
+    },
+    {
+      "Sid": "PublicIp",
+      "Effect": "Deny",
+      "Action": "ec2:RunInstances",
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        },
+        "Bool": {
+          "ec2:AssociatePublicIpAddress": "true"
+        }
+      }
+    },
+    {
+      "Sid": "LbInternetFacing",
+      "Effect": "Deny",
+      "Action": "elasticloadbalancing:CreateLoadBalancer",
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        },
+        "StringNotEquals": {
+          "elasticloadbalancing:Scheme": "internal"
+        }
+      }
+    },
+    {
+      "Sid": "LambdaUrlPublic",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:UpdateFunctionUrlConfig"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        },
+        "StringEquals": {
+          "lambda:FunctionUrlAuthType": "NONE"
+        }
+      }
+    },
+    {
+      "Sid": "ApiPublic",
+      "Effect": "Deny",
+      "Action": "apigateway:POST",
+      "Resource": [
+        "arn:aws:apigateway:*::/restapis",
+        "arn:aws:apigateway:*::/apis"
+      ],
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        }
+      }
+    },
+    {
+      "Sid": "KmsGrantDirect",
+      "Effect": "Deny",
+      "Action": "kms:CreateGrant",
+      "Resource": "*",
+      "Condition": {
+        "Bool": {
+          "kms:GrantIsForAWSResource": "false"
+        }
+      }
+    },
+    {
+      "Sid": "TrailStorage",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketVersioning",
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:DeleteBucket"
+      ],
+      "Resource": "arn:aws:s3:::theseus-trail-*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        }
+      }
+    },
+    {
+      "Sid": "TrailKey",
+      "Effect": "Deny",
+      "Action": [
+        "kms:ScheduleKeyDeletion",
+        "kms:DisableKey",
+        "kms:PutKeyPolicy"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        },
+        "ForAnyValue:StringLike": {
+          "kms:ResourceAliases": "alias/theseus-trail*"
+        }
+      }
+    },
+    {
+      "Sid": "AlarmTamper",
+      "Effect": "Deny",
+      "Action": [
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:DisableAlarmActions",
+        "cloudwatch:PutMetricAlarm",
+        "sns:DeleteTopic",
+        "sns:SetTopicAttributes",
+        "sns:Unsubscribe",
+        "logs:DeleteMetricFilter",
+        "logs:PutMetricFilter"
+      ],
+      "Resource": [
+        "arn:aws:cloudwatch:*:*:alarm:theseus-cis-*",
+        "arn:aws:sns:*:*:theseus-alerts",
+        "arn:aws:logs:*:*:log-group:/theseus/trail*"
+      ],
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        }
+      }
+    },
+    {
+      "Sid": "BudgetStopDetach",
+      "Effect": "Deny",
+      "Action": "iam:DetachRolePolicy",
+      "Resource": "*",
+      "Condition": {
+        "ArnLike": {
+          "iam:PolicyARN": "arn:aws:iam::*:policy/theseus-deny-spend"
+        }
+      }
+    }
+  ]
+}

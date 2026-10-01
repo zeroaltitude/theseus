@@ -1,0 +1,19 @@
+[package]
+name = "theseus-aws-guard"
+description = "The AWS guardrails (AWS design §3.6): one list, two enforcers. The gate's check of a call or a template, and the deny-only session guards and SCPs generated from the same list."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+# CloudFormation templates are YAML with short-form tags (`!Ref`, `!Sub`); the event parser keeps them.
+yaml-rust2 = { version = "0.13", default-features = false }
+
+[lints]
+workspace = true

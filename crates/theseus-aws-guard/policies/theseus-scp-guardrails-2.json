@@ -1,0 +1,72 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GuardPolicies",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreatePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:policy/theseus-guard-*",
+        "arn:aws:iam::*:policy/theseus-boundary",
+        "arn:aws:iam::*:policy/theseus-allow-all",
+        "arn:aws:iam::*:policy/theseus-deny-spend"
+      ],
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        }
+      }
+    },
+    {
+      "Sid": "DeployerRole",
+      "Effect": "Deny",
+      "Action": [
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole",
+        "iam:UpdateRole",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:PutRolePermissionsBoundary",
+        "iam:DeleteRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::*:role/theseus-cfn-deployer",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        }
+      }
+    },
+    {
+      "Sid": "DeployerPass",
+      "Effect": "Deny",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/theseus-cfn-deployer",
+      "Condition": {
+        "StringNotEquals": {
+          "iam:PassedToService": "cloudformation.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "HandBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:PutRolePermissionsBoundary",
+        "iam:DeleteRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::*:role/theseus-hand-*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
+        }
+      }
+    }
+  ]
+}

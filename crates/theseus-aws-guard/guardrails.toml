@@ -1,0 +1,955 @@
+# The guardrail list (the AWS design, §3.6 and appendix C): one list, two enforcers.
+#
+# Theseus's gate reads it before an AWS call or a stack applies, and asks at the floor when an entry
+# hits. AWS reads it too, as the deny-only session guards (`theseus-guard-limits`,
+# `theseus-guard-iac`) and, once Eddie holds an Organization, as SCPs. Everything AWS-side is
+# generated from this file; nothing is written by hand.
+#
+# An entry:
+#   name, limit, summary   what the floor's confirm says. `limit` is the operator limit it serves:
+#                          public-ingress, audit-trail, credentials, encryption (the SOC2 stance),
+#                          budget, or guard (the guards' own integrity).
+#   operations             API operations, "service:Operation", by the botocore service id.
+#   iam                    the IAM actions the AWS side denies, when they differ from `operations`.
+#   resources              the IAM resources the AWS side denies them on (default: every resource).
+#   direct                 only a direct call can do this, so it is the floor even when the
+#                          operation is otherwise IaC-only. Its `when` names the direct case.
+#   scp                    the AWS side: "deny" (everyone, the deployer too), "deny-except-deployer"
+#                          (a stack may, after the gate's scan asked), or "none" (the gate alone; the
+#                          note says what holds AWS-side instead). Every entry but "none" is also in
+#                          the session guard.
+#   [guardrail.when]       the input condition. Absent: every call hits.
+#   [guardrail.iam_condition]  the same condition as IAM sees it, when a condition key exists.
+#   [[guardrail.template]] CloudFormation resource types, with their own `when` over properties.
+#   [[guardrail.change]]   resource types (and a physical-id glob) whose change in a change set,
+#                          a modify or a removal, is a hit.
+#
+# A `when` table is a set of tests, and it holds when any test holds:
+#   public_cidr        a CIDR or address that reaches beyond private space (RFC 1918, shared, loopback,
+#                      link-local, and IPv6 ULA and link-local are private; everything else is public)
+#   external_principal a policy document (JSON text or a table) that allows a principal outside the
+#                      account: "*" unpinned, another account, a federated or canonical user
+#   foreign_account    an account id or ARN of another account, or an organization or OU
+#   own_account        an account id or ARN of this account
+#   true, false        a boolean (or "true"/"false")
+#   equals, matches    a string equal to one of the values (case-insensitive), or matching a glob
+#   present, absent    the member is there, or not
+#   any, all, none     nested tests: at least one holds, every one holds, none holds
+# Paths are member names joined by dots, matched case-insensitively. Lists are walked through, and a
+# leading `**.` matches at any depth.
+
+[deployer]
+role = "theseus-cfn-deployer"
+
+# ---------------------------------------------------------------------------------------------
+# Public ingress (SOC2)
+
+[[guardrail]]
+name = "sg-ingress-public"
+limit = "public-ingress"
+summary = "a security group rule open to addresses outside private space, or to another account's group"
+operations = ["ec2:AuthorizeSecurityGroupIngress", "ec2:ModifySecurityGroupRules"]
+scp = "deny-except-deployer"
+note = "No condition key sees a rule's CIDR, so AWS denies the action to all but the deployer, and the gate's scan asks first."
+[guardrail.when]
+public_cidr = ["**.CidrIp", "**.CidrIpv6", "**.CidrIpv4"]
+foreign_account = ["**.UserId", "SourceSecurityGroupOwnerId"]
+[[guardrail.template]]
+types = ["AWS::EC2::SecurityGroup"]
+[guardrail.template.when]
+public_cidr = ["SecurityGroupIngress.CidrIp", "SecurityGroupIngress.CidrIpv6"]
+foreign_account = ["SecurityGroupIngress.SourceSecurityGroupOwnerId"]
+[[guardrail.template]]
+types = ["AWS::EC2::SecurityGroupIngress"]
+[guardrail.template.when]
+public_cidr = ["CidrIp", "CidrIpv6"]
+foreign_account = ["SourceSecurityGroupOwnerId"]
+
+[[guardrail]]
+name = "public-ip"
+limit = "public-ingress"
+summary = "a public IP address on an instance's network interface"
+operations = ["ec2:RunInstances", "ec2:CreateLaunchTemplate", "ec2:CreateLaunchTemplateVersion", "autoscaling:CreateLaunchConfiguration"]
+iam = ["ec2:RunInstances"]
+scp = "deny-except-deployer"
+note = "AWS sees the address at launch, through ec2:AssociatePublicIpAddress; a template or launch configuration is checked by the gate."
+[guardrail.when]
+true = ["**.AssociatePublicIpAddress"]
+[guardrail.iam_condition]
+Bool = { "ec2:AssociatePublicIpAddress" = "true" }
+[[guardrail.template]]
+types = ["AWS::EC2::Instance", "AWS::EC2::LaunchTemplate", "AWS::AutoScaling::LaunchConfiguration"]
+[guardrail.template.when]
+true = ["**.AssociatePublicIpAddress"]
+
+[[guardrail]]
+name = "subnet-public-ip"
+limit = "public-ingress"
+summary = "a subnet that gives every launch a public IP address"
+operations = ["ec2:ModifySubnetAttribute"]
+scp = "deny-except-deployer"
+[guardrail.when]
+true = ["MapPublicIpOnLaunch.Value"]
+[[guardrail.template]]
+types = ["AWS::EC2::Subnet"]
+[guardrail.template.when]
+true = ["MapPublicIpOnLaunch"]
+
+[[guardrail]]
+name = "task-public-ip"
+limit = "public-ingress"
+summary = "a public IP address on an ECS task or Batch job"
+operations = ["ecs:RunTask", "ecs:StartTask", "ecs:CreateService", "ecs:UpdateService", "ecs:CreateTaskSet", "batch:RegisterJobDefinition"]
+scp = "none"
+note = "No IAM condition key sees assignPublicIp. The gate asks first; the hands' subnets have no route from the internet, and their security groups no public ingress."
+[guardrail.when]
+equals = { "**.assignPublicIp" = "ENABLED" }
+[[guardrail.template]]
+types = ["AWS::ECS::Service", "AWS::ECS::TaskSet", "AWS::Events::Rule", "AWS::Scheduler::Schedule", "AWS::Batch::JobDefinition"]
+[guardrail.template.when]
+equals = { "**.AssignPublicIp" = "ENABLED" }
+
+[[guardrail]]
+name = "elastic-ip"
+limit = "public-ingress"
+summary = "an Elastic IP address"
+operations = ["ec2:AllocateAddress", "ec2:AssociateAddress"]
+scp = "deny-except-deployer"
+note = "The hands network's NAT gets its address through the stack, as one floor approval at bootstrap."
+[[guardrail.template]]
+types = ["AWS::EC2::EIP", "AWS::EC2::EIPAssociation"]
+
+[[guardrail]]
+name = "internet-gateway"
+limit = "public-ingress"
+summary = "an internet gateway, the route in from the internet"
+operations = ["ec2:CreateInternetGateway", "ec2:AttachInternetGateway"]
+scp = "deny-except-deployer"
+note = "The NAT's internet gateway comes through the stack, as one floor approval at bootstrap. An egress-only gateway is not a hit."
+[[guardrail.template]]
+types = ["AWS::EC2::InternetGateway"]
+[[guardrail.template]]
+types = ["AWS::EC2::VPCGatewayAttachment"]
+[guardrail.template.when]
+present = ["InternetGatewayId"]
+
+[[guardrail]]
+name = "lb-internet-facing"
+limit = "public-ingress"
+summary = "an internet-facing load balancer"
+operations = ["elbv2:CreateLoadBalancer", "elb:CreateLoadBalancer"]
+iam = ["elasticloadbalancing:CreateLoadBalancer"]
+scp = "deny-except-deployer"
+note = "A load balancer is internet-facing unless its scheme says internal. StringNotEquals also denies a request that names no scheme."
+[guardrail.when]
+equals = { Scheme = "internet-facing" }
+all = [{ absent = ["Scheme"] }, { none = [{ equals = { Type = "gateway" } }] }]
+[guardrail.iam_condition]
+StringNotEquals = { "elasticloadbalancing:Scheme" = "internal" }
+[[guardrail.template]]
+types = ["AWS::ElasticLoadBalancingV2::LoadBalancer", "AWS::ElasticLoadBalancing::LoadBalancer"]
+[guardrail.template.when]
+equals = { Scheme = "internet-facing" }
+all = [{ absent = ["Scheme"] }, { none = [{ equals = { Type = "gateway" } }] }]
+
+[[guardrail]]
+name = "lambda-url-public"
+limit = "public-ingress"
+summary = "a Lambda function URL anyone can call (AuthType NONE)"
+operations = ["lambda:CreateFunctionUrlConfig", "lambda:UpdateFunctionUrlConfig"]
+scp = "deny-except-deployer"
+[guardrail.when]
+equals = { AuthType = "NONE" }
+[guardrail.iam_condition]
+StringEquals = { "lambda:FunctionUrlAuthType" = "NONE" }
+[[guardrail.template]]
+types = ["AWS::Lambda::Url"]
+[guardrail.template.when]
+equals = { AuthType = "NONE" }
+
+[[guardrail]]
+name = "api-public"
+limit = "public-ingress"
+summary = "a public API endpoint (an HTTP or WebSocket API, or a REST API that is not private)"
+operations = ["apigateway:CreateRestApi", "apigatewayv2:CreateApi"]
+iam = ["apigateway:POST"]
+resources = ["arn:aws:apigateway:*::/restapis", "arn:aws:apigateway:*::/apis"]
+scp = "deny-except-deployer"
+note = "API Gateway's IAM actions are HTTP verbs on paths: this denies creating any API, which stacks do."
+[guardrail.when]
+absent = ["endpointConfiguration.types"]
+equals = { "endpointConfiguration.types" = ["EDGE", "REGIONAL"] }
+[[guardrail.template]]
+types = ["AWS::ApiGateway::RestApi"]
+[guardrail.template.when]
+absent = ["EndpointConfiguration.Types"]
+equals = { "EndpointConfiguration.Types" = ["EDGE", "REGIONAL"] }
+[[guardrail.template]]
+types = ["AWS::ApiGatewayV2::Api"]
+
+[[guardrail]]
+name = "cloudfront-distribution"
+limit = "public-ingress"
+summary = "a CloudFront distribution, public by nature"
+operations = ["cloudfront:CreateDistribution", "cloudfront:CreateDistributionWithTags", "cloudfront:CopyDistribution"]
+iam = ["cloudfront:CreateDistribution", "cloudfront:CopyDistribution"]
+scp = "deny-except-deployer"
+[[guardrail.template]]
+types = ["AWS::CloudFront::Distribution"]
+
+[[guardrail]]
+name = "s3-bucket-public-access-block"
+limit = "public-ingress"
+summary = "a bucket's Block Public Access turned off, in whole or in part"
+operations = ["s3:PutPublicAccessBlock", "s3:DeletePublicAccessBlock"]
+iam = ["s3:PutBucketPublicAccessBlock"]
+scp = "deny-except-deployer"
+note = "A flag left out of the configuration is off."
+[guardrail.when]
+false = ["PublicAccessBlockConfiguration.BlockPublicAcls", "PublicAccessBlockConfiguration.IgnorePublicAcls", "PublicAccessBlockConfiguration.BlockPublicPolicy", "PublicAccessBlockConfiguration.RestrictPublicBuckets"]
+absent = ["PublicAccessBlockConfiguration.BlockPublicAcls", "PublicAccessBlockConfiguration.IgnorePublicAcls", "PublicAccessBlockConfiguration.BlockPublicPolicy", "PublicAccessBlockConfiguration.RestrictPublicBuckets"]
+[[guardrail.template]]
+types = ["AWS::S3::Bucket"]
+[guardrail.template.when]
+all = [{ present = ["PublicAccessBlockConfiguration"] }, { any = [{ false = ["PublicAccessBlockConfiguration.BlockPublicAcls", "PublicAccessBlockConfiguration.IgnorePublicAcls", "PublicAccessBlockConfiguration.BlockPublicPolicy", "PublicAccessBlockConfiguration.RestrictPublicBuckets"] }, { absent = ["PublicAccessBlockConfiguration.BlockPublicAcls", "PublicAccessBlockConfiguration.IgnorePublicAcls", "PublicAccessBlockConfiguration.BlockPublicPolicy", "PublicAccessBlockConfiguration.RestrictPublicBuckets"] }] }]
+
+[[guardrail]]
+name = "s3-account-public-access-block"
+limit = "public-ingress"
+summary = "the account's S3 Block Public Access changed"
+operations = ["s3control:PutPublicAccessBlock", "s3control:DeletePublicAccessBlock"]
+iam = ["s3:PutAccountPublicAccessBlock"]
+direct = true
+scp = "deny"
+note = "It has no CloudFormation type: the bootstrap sets it once, under the user key, and nothing changes it after."
+
+[[guardrail]]
+name = "s3-acl-public"
+limit = "public-ingress"
+summary = "an ACL that grants everyone, or every AWS user, access to a bucket or object"
+operations = ["s3:PutBucketAcl", "s3:PutObjectAcl", "s3:PutObject", "s3:CopyObject", "s3:CreateMultipartUpload", "s3:CreateBucket"]
+scp = "none"
+note = "AWS-side, the account's Block Public Access refuses public ACLs, and changing it is s3-account-public-access-block."
+[guardrail.when]
+equals = { ACL = ["public-read", "public-read-write", "authenticated-read"] }
+matches = { GrantRead = ["*AllUsers*", "*AuthenticatedUsers*"], GrantWrite = ["*AllUsers*", "*AuthenticatedUsers*"], GrantReadACP = ["*AllUsers*", "*AuthenticatedUsers*"], GrantWriteACP = ["*AllUsers*", "*AuthenticatedUsers*"], GrantFullControl = ["*AllUsers*", "*AuthenticatedUsers*"], "AccessControlPolicy.Grants.Grantee.URI" = ["*AllUsers*", "*AuthenticatedUsers*"] }
+[[guardrail.template]]
+types = ["AWS::S3::Bucket"]
+[guardrail.template.when]
+equals = { AccessControl = ["PublicRead", "PublicReadWrite", "AuthenticatedRead"] }
+
+[[guardrail]]
+name = "external-principal"
+limit = "public-ingress"
+summary = "a trust or resource policy that allows a principal outside the account"
+operations = [
+    "iam:CreateRole", "iam:UpdateAssumeRolePolicy", "s3:PutBucketPolicy", "kms:CreateKey", "kms:PutKeyPolicy",
+    "sqs:CreateQueue", "sqs:SetQueueAttributes", "sns:CreateTopic", "sns:SetTopicAttributes",
+    "secretsmanager:PutResourcePolicy", "ecr:SetRepositoryPolicy", "ecr:PutRegistryPolicy", "events:PutPermission",
+    "logs:PutResourcePolicy", "logs:PutDestinationPolicy", "efs:PutFileSystemPolicy",
+    "backup:PutBackupVaultAccessPolicy", "glacier:SetVaultAccessPolicy", "opensearch:CreateDomain",
+    "opensearch:UpdateDomainConfig", "apigateway:CreateRestApi",
+]
+scp = "none"
+note = "An SCP sees the action, not what a policy grants. Under an Organization the AWS-side form is a resource control policy on aws:PrincipalOrgID; until then IAM Access Analyzer reports external access, and the IaC guard keeps these writes in stacks."
+[guardrail.when]
+external_principal = ["AssumeRolePolicyDocument", "PolicyDocument", "Policy", "Attributes.Policy", "ResourcePolicy", "policyText", "accessPolicy", "policy.Policy", "AccessPolicies"]
+all = [{ equals = { AttributeName = "Policy" } }, { external_principal = ["AttributeValue"] }]
+[[guardrail.template]]
+types = [
+    "AWS::IAM::Role", "AWS::S3::BucketPolicy", "AWS::KMS::Key", "AWS::SQS::QueuePolicy", "AWS::SNS::TopicPolicy",
+    "AWS::SecretsManager::ResourcePolicy", "AWS::ECR::Repository", "AWS::ECR::RegistryPolicy", "AWS::Events::EventBusPolicy",
+    "AWS::Logs::ResourcePolicy", "AWS::Logs::Destination", "AWS::EFS::FileSystem", "AWS::Backup::BackupVault",
+    "AWS::OpenSearchService::Domain", "AWS::ApiGateway::RestApi",
+]
+[guardrail.template.when]
+external_principal = [
+    "AssumeRolePolicyDocument", "PolicyDocument", "KeyPolicy", "ResourcePolicy", "RepositoryPolicyText", "PolicyText",
+    "Statement", "DestinationPolicy", "FileSystemPolicy", "AccessPolicy", "AccessPolicies", "Policy",
+]
+
+[[guardrail]]
+name = "permission-external"
+limit = "public-ingress"
+summary = "a permission that lets another account, an organization, or anyone use a function, layer, queue, topic, or event bus"
+operations = ["lambda:AddPermission", "lambda:AddLayerVersionPermission", "sqs:AddPermission", "sns:AddPermission", "events:PutPermission"]
+scp = "none"
+note = "As external-principal: AWS-side, an RCP under an Organization; until then Access Analyzer, and the IaC guard keeps these in stacks."
+[guardrail.when]
+foreign_account = ["Principal", "AWSAccountIds", "AWSAccountId"]
+present = ["PrincipalOrgID", "OrganizationId"]
+all = [{ equals = { Principal = "*" } }, { none = [{ own_account = ["SourceAccount", "SourceArn"] }] }]
+[[guardrail.template]]
+types = ["AWS::Lambda::Permission", "AWS::Lambda::LayerVersionPermission", "AWS::Events::EventBusPolicy"]
+[guardrail.template.when]
+foreign_account = ["Principal"]
+present = ["PrincipalOrgID", "OrganizationId"]
+all = [{ equals = { Principal = "*" } }, { none = [{ own_account = ["SourceAccount", "SourceArn"] }] }]
+
+[[guardrail]]
+name = "sharing"
+limit = "public-ingress"
+summary = "sharing a snapshot, an image, or a resource with other accounts or everyone"
+operations = ["ec2:ModifySnapshotAttribute", "ec2:ModifyImageAttribute", "rds:ModifyDBSnapshotAttribute", "rds:ModifyDBClusterSnapshotAttribute", "ram:CreateResourceShare", "ram:AssociateResourceShare"]
+scp = "deny-except-deployer"
+note = "Rare, and a path out of the account: every call asks, removals too."
+[[guardrail.template]]
+types = ["AWS::RAM::ResourceShare"]
+[guardrail.template.when]
+foreign_account = ["Principals"]
+
+[[guardrail]]
+name = "kms-grant-direct"
+limit = "public-ingress"
+summary = "a KMS grant made directly, not by an AWS service on Theseus's behalf"
+operations = ["kms:CreateGrant"]
+scp = "deny"
+note = "A direct call is never for an AWS resource, so the gate asks for every one and AWS refuses exactly those; services still make their grants."
+[guardrail.iam_condition]
+Bool = { "kms:GrantIsForAWSResource" = "false" }
+
+[[guardrail]]
+name = "db-public"
+limit = "public-ingress"
+summary = "a publicly accessible database or broker"
+operations = [
+    "rds:CreateDBInstance", "rds:ModifyDBInstance", "rds:CreateDBCluster", "rds:CreateDBInstanceReadReplica",
+    "rds:RestoreDBInstanceFromDBSnapshot", "rds:RestoreDBInstanceToPointInTime", "rds:RestoreDBInstanceFromS3",
+    "redshift:CreateCluster", "redshift:ModifyCluster", "redshift:RestoreFromClusterSnapshot", "mq:CreateBroker",
+]
+scp = "none"
+note = "No condition key sees PubliclyAccessible. A public database is reachable only through a security group, which sg-ingress-public guards."
+[guardrail.when]
+true = ["PubliclyAccessible"]
+[[guardrail.template]]
+types = ["AWS::RDS::DBInstance", "AWS::RDS::DBCluster", "AWS::Redshift::Cluster", "AWS::AmazonMQ::Broker", "AWS::DMS::ReplicationInstance"]
+[guardrail.template.when]
+true = ["PubliclyAccessible"]
+
+[[guardrail]]
+name = "db-public-default"
+limit = "public-ingress"
+summary = "a database that is public by default: no subnet group, so the default VPC, whose internet gateway makes it public"
+operations = ["rds:CreateDBInstance", "rds:RestoreDBInstanceFromDBSnapshot", "rds:RestoreDBInstanceToPointInTime", "rds:RestoreDBInstanceFromS3"]
+scp = "none"
+note = "As db-public."
+[guardrail.when]
+all = [{ absent = ["PubliclyAccessible"] }, { absent = ["DBSubnetGroupName"] }]
+[[guardrail.template]]
+types = ["AWS::RDS::DBInstance"]
+[guardrail.template.when]
+all = [{ absent = ["PubliclyAccessible"] }, { absent = ["DBSubnetGroupName"] }, { absent = ["DBClusterIdentifier"] }]
+
+[[guardrail]]
+name = "dms-public"
+limit = "public-ingress"
+summary = "a DMS replication instance, which is public unless it says otherwise"
+operations = ["dms:CreateReplicationInstance"]
+scp = "none"
+note = "As db-public."
+[guardrail.when]
+true = ["PubliclyAccessible"]
+absent = ["PubliclyAccessible"]
+[[guardrail.template]]
+types = ["AWS::DMS::ReplicationInstance"]
+[guardrail.template.when]
+absent = ["PubliclyAccessible"]
+
+[[guardrail]]
+name = "search-public"
+limit = "public-ingress"
+summary = "an OpenSearch domain with a public endpoint (no VPC)"
+operations = ["opensearch:CreateDomain", "es:CreateElasticsearchDomain"]
+scp = "none"
+note = "As db-public: its access policy is external-principal's."
+[guardrail.when]
+absent = ["VPCOptions"]
+[[guardrail.template]]
+types = ["AWS::OpenSearchService::Domain", "AWS::Elasticsearch::Domain"]
+[guardrail.template.when]
+absent = ["VPCOptions"]
+
+[[guardrail]]
+name = "build-project-public"
+limit = "public-ingress"
+summary = "a CodeBuild project whose builds anyone can read"
+operations = ["codebuild:UpdateProjectVisibility"]
+scp = "none"
+note = "Rare; the gate asks, and the IaC guard keeps it in stacks."
+[guardrail.when]
+equals = { projectVisibility = "PUBLIC_READ" }
+[[guardrail.template]]
+types = ["AWS::CodeBuild::Project"]
+[guardrail.template.when]
+equals = { Visibility = "PUBLIC_READ" }
+
+# ---------------------------------------------------------------------------------------------
+# The audit trail (SOC2)
+
+[[guardrail]]
+name = "trail-stop"
+limit = "audit-trail"
+summary = "stopping the trail's logging"
+operations = ["cloudtrail:StopLogging"]
+direct = true
+scp = "deny"
+note = "Nothing stops the trail: not a stack, not the floor once SCPs hold."
+[[guardrail.template]]
+types = ["AWS::CloudTrail::Trail"]
+[guardrail.template.when]
+false = ["IsLogging"]
+
+[[guardrail]]
+name = "trail-change"
+limit = "audit-trail"
+summary = "deleting the trail, or changing what it records"
+operations = ["cloudtrail:DeleteTrail", "cloudtrail:UpdateTrail", "cloudtrail:PutEventSelectors"]
+scp = "deny-except-deployer"
+note = "The posture stack can still change the trail; its change set asks at the floor."
+[[guardrail.template]]
+types = ["AWS::CloudTrail::Trail"]
+[guardrail.template.when]
+false = ["IncludeGlobalServiceEvents", "IsMultiRegionTrail", "EnableLogFileValidation", "EventSelectors.IncludeManagementEvents"]
+equals = { "EventSelectors.ReadWriteType" = "ReadOnly" }
+[[guardrail.change]]
+types = ["AWS::CloudTrail::Trail"]
+
+[[guardrail]]
+name = "trail-storage"
+limit = "audit-trail"
+summary = "the trail bucket's policy, lifecycle, versioning, or objects"
+operations = [
+    "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:PutBucketLifecycleConfiguration", "s3:DeleteBucketLifecycle",
+    "s3:PutBucketVersioning", "s3:DeleteObject", "s3:DeleteObjects", "s3:DeleteBucket",
+]
+iam = ["s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:PutLifecycleConfiguration", "s3:PutBucketVersioning", "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:DeleteBucket"]
+resources = ["arn:aws:s3:::theseus-trail-*"]
+scp = "deny-except-deployer"
+note = "The trail's bucket is named theseus-trail-*; the posture stack names it so."
+[guardrail.when]
+matches = { Bucket = "theseus-trail-*" }
+
+[[guardrail]]
+name = "trail-key"
+limit = "audit-trail"
+summary = "disabling, deleting, or re-policying the trail's KMS key"
+operations = ["kms:ScheduleKeyDeletion", "kms:DisableKey", "kms:PutKeyPolicy"]
+scp = "deny-except-deployer"
+note = "The gate sees the key by its alias; by id, the inventory names it (C2). AWS sees it through kms:ResourceAliases."
+[guardrail.when]
+matches = { KeyId = ["alias/theseus-trail*", "*:alias/theseus-trail*"] }
+[guardrail.iam_condition]
+"ForAnyValue:StringLike" = { "kms:ResourceAliases" = "alias/theseus-trail*" }
+
+[[guardrail]]
+name = "detective-controls"
+limit = "audit-trail"
+summary = "turning off GuardDuty, Config, Access Analyzer, or Security Hub, or archiving their findings"
+operations = [
+    "guardduty:DeleteDetector", "guardduty:UpdateDetector", "guardduty:ArchiveFindings", "guardduty:CreateFilter",
+    "guardduty:UpdateFilter", "config:StopConfigurationRecorder", "config:DeleteConfigurationRecorder",
+    "config:DeleteDeliveryChannel", "accessanalyzer:DeleteAnalyzer", "accessanalyzer:CreateArchiveRule",
+    "accessanalyzer:UpdateArchiveRule", "accessanalyzer:UpdateFindings", "securityhub:DisableSecurityHub",
+]
+iam = [
+    "guardduty:DeleteDetector", "guardduty:UpdateDetector", "guardduty:ArchiveFindings", "guardduty:CreateFilter",
+    "guardduty:UpdateFilter", "config:StopConfigurationRecorder", "config:DeleteConfigurationRecorder",
+    "config:DeleteDeliveryChannel", "access-analyzer:DeleteAnalyzer", "access-analyzer:CreateArchiveRule",
+    "access-analyzer:UpdateArchiveRule", "access-analyzer:UpdateFindings", "securityhub:DisableSecurityHub",
+]
+scp = "deny-except-deployer"
+note = "A GuardDuty filter can archive what it matches, and an Access Analyzer finding can be archived by hand: every one asks, unarchiving too."
+[[guardrail.template]]
+types = ["AWS::GuardDuty::Detector"]
+[guardrail.template.when]
+false = ["Enable"]
+[[guardrail.template]]
+types = ["AWS::GuardDuty::Filter"]
+[guardrail.template.when]
+equals = { Action = "ARCHIVE" }
+[[guardrail.template]]
+types = ["AWS::AccessAnalyzer::Analyzer"]
+[guardrail.template.when]
+present = ["ArchiveRules"]
+[[guardrail.change]]
+types = ["AWS::GuardDuty::Detector", "AWS::AccessAnalyzer::Analyzer", "AWS::Config::ConfigurationRecorder", "AWS::Config::DeliveryChannel"]
+
+[[guardrail]]
+name = "alarm-tamper"
+limit = "audit-trail"
+summary = "the CIS alarms, their metric filters, or the alerts topic"
+operations = [
+    "cloudwatch:DeleteAlarms", "cloudwatch:DisableAlarmActions", "cloudwatch:PutMetricAlarm", "sns:DeleteTopic",
+    "sns:SetTopicAttributes", "sns:Unsubscribe", "logs:DeleteMetricFilter", "logs:PutMetricFilter",
+]
+resources = ["arn:aws:cloudwatch:*:*:alarm:theseus-cis-*", "arn:aws:sns:*:*:theseus-alerts", "arn:aws:logs:*:*:log-group:/theseus/trail*"]
+scp = "deny-except-deployer"
+note = "The posture stack names the alarms theseus-cis-*, the topic theseus-alerts, and the trail's log group /theseus/trail."
+[guardrail.when]
+matches = { AlarmNames = "theseus-cis-*", AlarmName = "theseus-cis-*", TopicArn = "*:theseus-alerts", SubscriptionArn = "*:theseus-alerts:*", logGroupName = "/theseus/trail*" }
+[[guardrail.change]]
+types = ["AWS::CloudWatch::Alarm"]
+name = "theseus-cis-*"
+[[guardrail.change]]
+types = ["AWS::SNS::Topic"]
+name = "*:theseus-alerts"
+
+# ---------------------------------------------------------------------------------------------
+# Encryption at rest (SOC2)
+
+[[guardrail]]
+name = "ebs-default-encryption-off"
+limit = "encryption"
+summary = "turning off the account's default EBS encryption"
+operations = ["ec2:DisableEbsEncryptionByDefault"]
+direct = true
+scp = "deny"
+note = "It has no CloudFormation type: the bootstrap turns it on once."
+
+[[guardrail]]
+name = "storage-unencrypted"
+limit = "encryption"
+summary = "a database or file system created without encryption at rest"
+operations = ["rds:CreateDBInstance", "rds:CreateDBCluster", "efs:CreateFileSystem"]
+scp = "none"
+note = "Gate and scan only; S3, DynamoDB, SQS, and Logs encrypt by default, and EBS by the account's default."
+[guardrail.when]
+false = ["StorageEncrypted", "Encrypted"]
+all = [{ absent = ["StorageEncrypted"] }, { absent = ["Encrypted"] }, { absent = ["DBClusterIdentifier"] }]
+[[guardrail.template]]
+types = ["AWS::RDS::DBInstance", "AWS::RDS::DBCluster", "AWS::EFS::FileSystem"]
+[guardrail.template.when]
+false = ["StorageEncrypted", "Encrypted"]
+all = [{ absent = ["StorageEncrypted"] }, { absent = ["Encrypted"] }, { absent = ["DBClusterIdentifier"] }]
+
+# ---------------------------------------------------------------------------------------------
+# Long-lived credentials (SOC2: one IAM user, anywhere, ever)
+
+[[guardrail]]
+name = "long-lived-credentials"
+limit = "credentials"
+summary = "a new IAM user, access key, password, service credential, or SSH key"
+operations = [
+    "iam:CreateUser", "iam:CreateAccessKey", "iam:CreateLoginProfile", "iam:UpdateLoginProfile",
+    "iam:CreateServiceSpecificCredential", "iam:UploadSSHPublicKey", "iam:UploadSigningCertificate",
+    "ec2:CreateKeyPair", "ec2:ImportKeyPair",
+]
+scp = "deny"
+note = "So rotating the root-of-trust key then needs Eddie's management account, to lift the SCP for the rotation."
+[[guardrail.template]]
+types = ["AWS::IAM::User", "AWS::IAM::AccessKey", "AWS::EC2::KeyPair"]
+
+[[guardrail]]
+name = "root-user-change"
+limit = "credentials"
+summary = "a change to an IAM user: its keys, policies, groups, or boundary (the account has one, the root of trust)"
+operations = [
+    "iam:DeleteAccessKey", "iam:UpdateAccessKey", "iam:DeleteUser", "iam:UpdateUser", "iam:AttachUserPolicy",
+    "iam:DetachUserPolicy", "iam:PutUserPolicy", "iam:DeleteUserPolicy", "iam:AddUserToGroup",
+    "iam:RemoveUserFromGroup", "iam:PutUserPermissionsBoundary", "iam:DeleteUserPermissionsBoundary",
+    "iam:DeleteLoginProfile",
+]
+direct = true
+scp = "deny"
+note = "The user predates the stacks, so a change can only be direct."
+
+[[guardrail]]
+name = "identity-provider"
+limit = "credentials"
+summary = "trust in an outside identity provider (OIDC or SAML)"
+operations = [
+    "iam:CreateOpenIDConnectProvider", "iam:CreateSAMLProvider", "iam:UpdateOpenIDConnectProviderThumbprint",
+    "iam:AddClientIDToOpenIDConnectProvider", "iam:UpdateSAMLProvider",
+]
+scp = "deny-except-deployer"
+[[guardrail.template]]
+types = ["AWS::IAM::OIDCProvider", "AWS::IAM::SAMLProvider"]
+
+# ---------------------------------------------------------------------------------------------
+# The budget
+
+[[guardrail]]
+name = "budget-change"
+limit = "budget"
+summary = "creating, changing, or deleting a budget, its notifications, or its actions"
+operations = [
+    "budgets:CreateBudget", "budgets:UpdateBudget", "budgets:DeleteBudget", "budgets:CreateNotification",
+    "budgets:UpdateNotification", "budgets:DeleteNotification", "budgets:CreateSubscriber",
+    "budgets:UpdateSubscriber", "budgets:DeleteSubscriber", "budgets:CreateBudgetAction",
+    "budgets:UpdateBudgetAction", "budgets:DeleteBudgetAction",
+]
+iam = ["budgets:ModifyBudget", "budgets:CreateBudgetAction", "budgets:UpdateBudgetAction", "budgets:DeleteBudgetAction"]
+scp = "deny-except-deployer"
+note = "The budget lives in the foundation stack. The core's reconcile of the amount is not a model call, and does not ask."
+[[guardrail.change]]
+types = ["AWS::Budgets::Budget", "AWS::Budgets::BudgetsAction"]
+
+[[guardrail]]
+name = "budget-stop-lift"
+limit = "budget"
+summary = "executing the budget's action, which can reverse the AWS-side stop"
+operations = ["budgets:ExecuteBudgetAction"]
+direct = true
+scp = "deny"
+note = "Budgets attached the stop outside any stack, so only a direct call lifts it."
+
+[[guardrail]]
+name = "budget-stop-detach"
+limit = "budget"
+summary = "detaching theseus-deny-spend, the budget's stop"
+operations = ["iam:DetachRolePolicy"]
+direct = true
+scp = "deny"
+[guardrail.when]
+matches = { PolicyArn = "arn:*:iam::*:policy/theseus-deny-spend" }
+[guardrail.iam_condition]
+ArnLike = { "iam:PolicyARN" = "arn:aws:iam::*:policy/theseus-deny-spend" }
+
+[[guardrail]]
+name = "organizations"
+limit = "budget"
+summary = "a change to the account's Organization: joining, leaving, creating one, or its policies"
+operations = [
+    "organizations:AcceptHandshake", "organizations:AttachPolicy", "organizations:CancelHandshake",
+    "organizations:CloseAccount", "organizations:CreateAccount", "organizations:CreateGovCloudAccount",
+    "organizations:CreateOrganization", "organizations:CreateOrganizationalUnit", "organizations:CreatePolicy",
+    "organizations:DeclineHandshake", "organizations:DeleteOrganization", "organizations:DeleteOrganizationalUnit",
+    "organizations:DeletePolicy", "organizations:DeleteResourcePolicy", "organizations:DeregisterDelegatedAdministrator",
+    "organizations:DetachPolicy", "organizations:DisableAWSServiceAccess", "organizations:DisablePolicyType",
+    "organizations:EnableAWSServiceAccess", "organizations:EnableAllFeatures", "organizations:EnablePolicyType",
+    "organizations:InviteAccountToOrganization", "organizations:LeaveOrganization", "organizations:MoveAccount",
+    "organizations:PutResourcePolicy", "organizations:RegisterDelegatedAdministrator",
+    "organizations:RemoveAccountFromOrganization", "organizations:TagResource", "organizations:UntagResource",
+    "organizations:UpdateOrganizationalUnit", "organizations:UpdatePolicy",
+]
+iam = ["organizations:CreateOrganization", "organizations:AcceptHandshake", "organizations:LeaveOrganization"]
+direct = true
+scp = "deny"
+note = "An Organization is Eddie's to hold: Theseus never makes, joins, or leaves one. AWS-side only those three need denying: a member account can make no other change, and without CreateOrganization the account never becomes a management account."
+
+[[guardrail]]
+name = "account-contacts"
+limit = "budget"
+summary = "the account's contacts, where AWS sends billing, operations, and security notices"
+operations = ["account:PutAlternateContact", "account:DeleteAlternateContact", "account:PutContactInformation"]
+direct = true
+scp = "deny"
+
+# ---------------------------------------------------------------------------------------------
+# The guards' own integrity
+
+[[guardrail]]
+name = "guard-policies"
+limit = "guard"
+summary = "editing or deleting the guards, the boundary, allow-all, or the budget's stop policy"
+operations = ["iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion", "iam:DeletePolicy", "iam:DeletePolicyVersion"]
+resources = [
+    "arn:aws:iam::*:policy/theseus-guard-*", "arn:aws:iam::*:policy/theseus-boundary",
+    "arn:aws:iam::*:policy/theseus-allow-all", "arn:aws:iam::*:policy/theseus-deny-spend",
+]
+scp = "deny-except-deployer"
+note = "The foundation stack owns them; only its change sets edit them."
+[guardrail.when]
+matches = { PolicyArn = ["*:policy/theseus-guard-*", "*:policy/theseus-boundary", "*:policy/theseus-allow-all", "*:policy/theseus-deny-spend"] }
+[[guardrail.change]]
+types = ["AWS::IAM::ManagedPolicy"]
+name = "*:policy/theseus-*"
+
+[[guardrail]]
+name = "deployer-role"
+limit = "guard"
+summary = "changing the deployer role, the one principal the SCPs let through"
+operations = [
+    "iam:UpdateAssumeRolePolicy", "iam:DeleteRole", "iam:UpdateRole", "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+    "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary",
+]
+resources = ["arn:aws:iam::*:role/theseus-cfn-deployer"]
+scp = "deny-except-deployer"
+note = "Whoever could edit its trust policy could become it, and pass every deny-except-deployer."
+[guardrail.when]
+equals = { RoleName = "theseus-cfn-deployer" }
+[[guardrail.change]]
+types = ["AWS::IAM::Role"]
+name = "theseus-cfn-deployer"
+
+[[guardrail]]
+name = "deployer-pass"
+limit = "guard"
+summary = "passing the deployer role to anything but CloudFormation"
+operations = [
+    "ecs:RunTask", "ecs:StartTask", "ecs:RegisterTaskDefinition", "batch:RegisterJobDefinition",
+    "sagemaker:CreateTrainingJob", "sagemaker:CreateProcessingJob", "codebuild:StartBuild", "ssm:SendCommand",
+]
+iam = ["iam:PassRole"]
+resources = ["arn:aws:iam::*:role/theseus-cfn-deployer"]
+scp = "deny"
+note = "The design's rule (§3.4): Theseus may pass the deployer to CloudFormation and to nothing else. Its trust policy admits only CloudFormation, so a pass elsewhere fails anyway; this keeps it from being tried. The direct operations here take a role; the IaC-only ones are stacks'. Job sessions and hands may not pass it at all (the stack path, below)."
+[guardrail.when]
+matches = { "**.taskRoleArn" = ["*/theseus-cfn-deployer", "theseus-cfn-deployer"], "**.executionRoleArn" = ["*/theseus-cfn-deployer", "theseus-cfn-deployer"], "**.jobRoleArn" = ["*/theseus-cfn-deployer", "theseus-cfn-deployer"], RoleArn = ["*/theseus-cfn-deployer", "theseus-cfn-deployer"], serviceRoleOverride = ["*/theseus-cfn-deployer", "theseus-cfn-deployer"], ServiceRoleArn = ["*/theseus-cfn-deployer", "theseus-cfn-deployer"] }
+[guardrail.iam_condition]
+StringNotEquals = { "iam:PassedToService" = "cloudformation.amazonaws.com" }
+
+[[guardrail]]
+name = "hand-boundary"
+limit = "guard"
+summary = "removing or replacing a hand role's permissions boundary"
+operations = ["iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary"]
+resources = ["arn:aws:iam::*:role/theseus-hand-*"]
+scp = "deny-except-deployer"
+[guardrail.when]
+matches = { RoleName = "theseus-hand-*" }
+
+# ---------------------------------------------------------------------------------------------
+# IaC-only (§3.4): durable infrastructure is made and changed through stacks. `aws.call` returns
+# these as invalid input that points to `aws.stack.plan`, and `theseus-guard-iac` denies them to
+# every work and job session. Deletions stay direct; the stateful ones are on the destructive list.
+
+[[iac]]
+group = "network"
+operations = [
+    "ec2:CreateVpc", "ec2:ModifyVpcAttribute", "ec2:AssociateVpcCidrBlock", "ec2:CreateSubnet", "ec2:ModifySubnetAttribute",
+    "ec2:CreateInternetGateway", "ec2:AttachInternetGateway", "ec2:CreateEgressOnlyInternetGateway", "ec2:CreateNatGateway",
+    "ec2:AllocateAddress", "ec2:AssociateAddress", "ec2:CreateVpcEndpoint", "ec2:ModifyVpcEndpoint",
+    "ec2:CreateSecurityGroup", "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress",
+    "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress", "ec2:ModifySecurityGroupRules",
+    "ec2:CreateRouteTable", "ec2:CreateRoute", "ec2:ReplaceRoute", "ec2:AssociateRouteTable",
+    "ec2:ReplaceRouteTableAssociation", "ec2:CreateNetworkAcl", "ec2:CreateNetworkAclEntry",
+    "ec2:ReplaceNetworkAclEntry", "ec2:ReplaceNetworkAclAssociation", "ec2:CreateVpcPeeringConnection",
+    "ec2:AcceptVpcPeeringConnection", "ec2:CreateTransitGateway", "ec2:CreateTransitGatewayVpcAttachment",
+    "ec2:CreateVpnGateway", "ec2:AttachVpnGateway", "ec2:CreateCustomerGateway", "ec2:CreateVpnConnection",
+    "ec2:CreateFlowLogs",
+]
+
+[[iac]]
+group = "instances and their templates"
+operations = [
+    "ec2:RunInstances", "ec2:CreateLaunchTemplate", "ec2:CreateLaunchTemplateVersion", "ec2:ModifyLaunchTemplate",
+    "ec2:CreateKeyPair", "ec2:ImportKeyPair", "ec2:CreateVolume", "ec2:CreatePlacementGroup",
+    "autoscaling:CreateAutoScalingGroup", "autoscaling:CreateLaunchConfiguration",
+]
+
+[[iac]]
+group = "storage"
+operations = [
+    "s3:CreateBucket", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:PutBucketAcl", "s3:PutPublicAccessBlock",
+    "s3:DeletePublicAccessBlock", "s3:PutBucketVersioning", "s3:PutBucketEncryption", "s3:DeleteBucketEncryption",
+    "s3:PutBucketLifecycleConfiguration", "s3:DeleteBucketLifecycle", "s3:PutBucketReplication",
+    "s3:DeleteBucketReplication", "s3:PutBucketNotificationConfiguration", "s3:PutBucketCors", "s3:DeleteBucketCors",
+    "s3:PutBucketWebsite", "s3:PutBucketLogging", "s3:PutBucketOwnershipControls", "s3:DeleteBucketOwnershipControls",
+    "s3:PutObjectLockConfiguration",
+    "dynamodb:CreateTable", "dynamodb:UpdateTable", "dynamodb:CreateGlobalTable", "dynamodb:UpdateGlobalTable",
+    "dynamodb:UpdateTimeToLive", "efs:CreateFileSystem", "efs:UpdateFileSystem", "efs:CreateMountTarget",
+    "efs:PutFileSystemPolicy", "efs:PutLifecycleConfiguration", "backup:PutBackupVaultAccessPolicy",
+    "glacier:SetVaultAccessPolicy",
+]
+iam = [
+    "s3:CreateBucket", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:PutBucketAcl", "s3:PutBucketPublicAccessBlock",
+    "s3:PutBucketVersioning", "s3:PutEncryptionConfiguration", "s3:PutLifecycleConfiguration",
+    "s3:PutReplicationConfiguration", "s3:PutBucketNotification", "s3:PutBucketCORS", "s3:PutBucketWebsite",
+    "s3:PutBucketLogging", "s3:PutBucketOwnershipControls", "s3:PutBucketObjectLockConfiguration",
+    "dynamodb:CreateTable", "dynamodb:UpdateTable", "dynamodb:CreateGlobalTable", "dynamodb:UpdateGlobalTable",
+    "dynamodb:UpdateTimeToLive", "elasticfilesystem:CreateFileSystem", "elasticfilesystem:UpdateFileSystem",
+    "elasticfilesystem:CreateMountTarget", "elasticfilesystem:PutFileSystemPolicy",
+    "elasticfilesystem:PutLifecycleConfiguration", "backup:PutBackupVaultAccessPolicy", "glacier:SetVaultAccessPolicy",
+]
+
+[[iac]]
+group = "messaging and logs"
+operations = [
+    "sqs:CreateQueue", "sqs:SetQueueAttributes", "sqs:AddPermission", "sns:CreateTopic", "sns:SetTopicAttributes",
+    "sns:AddPermission", "kinesis:CreateStream", "firehose:CreateDeliveryStream", "logs:CreateLogGroup",
+    "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy", "logs:AssociateKmsKey", "logs:DisassociateKmsKey",
+    "logs:PutMetricFilter", "logs:PutSubscriptionFilter", "logs:PutResourcePolicy", "logs:PutDestination",
+    "logs:PutDestinationPolicy",
+]
+
+[[iac]]
+group = "compute"
+operations = [
+    "lambda:CreateFunction", "lambda:UpdateFunctionConfiguration", "lambda:CreateFunctionUrlConfig",
+    "lambda:UpdateFunctionUrlConfig", "lambda:AddPermission", "lambda:AddLayerVersionPermission",
+    "lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "ecs:CreateCluster", "ecs:UpdateCluster",
+    "ecs:CreateService", "ecs:CreateTaskSet", "ecs:CreateCapacityProvider", "ecs:PutClusterCapacityProviders",
+    "batch:CreateComputeEnvironment", "batch:UpdateComputeEnvironment", "batch:CreateJobQueue", "batch:UpdateJobQueue",
+    "eks:CreateCluster", "eks:CreateNodegroup", "eks:CreateFargateProfile", "stepfunctions:CreateStateMachine",
+    "stepfunctions:UpdateStateMachine", "codebuild:CreateProject", "codebuild:UpdateProject",
+    "codebuild:UpdateProjectVisibility", "sagemaker:CreateEndpoint", "sagemaker:CreateNotebookInstance",
+    "ecr:CreateRepository", "ecr:SetRepositoryPolicy", "ecr:PutRegistryPolicy", "ecr:PutLifecyclePolicy",
+]
+iam = [
+    "lambda:CreateFunction", "lambda:UpdateFunctionConfiguration", "lambda:CreateFunctionUrlConfig",
+    "lambda:UpdateFunctionUrlConfig", "lambda:AddPermission", "lambda:AddLayerVersionPermission",
+    "lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "ecs:CreateCluster", "ecs:UpdateCluster",
+    "ecs:CreateService", "ecs:CreateTaskSet", "ecs:CreateCapacityProvider", "ecs:PutClusterCapacityProviders",
+    "batch:CreateComputeEnvironment", "batch:UpdateComputeEnvironment", "batch:CreateJobQueue", "batch:UpdateJobQueue",
+    "eks:CreateCluster", "eks:CreateNodegroup", "eks:CreateFargateProfile", "states:CreateStateMachine",
+    "states:UpdateStateMachine", "codebuild:CreateProject", "codebuild:UpdateProject",
+    "codebuild:UpdateProjectVisibility", "sagemaker:CreateEndpoint", "sagemaker:CreateNotebookInstance",
+    "ecr:CreateRepository", "ecr:SetRepositoryPolicy", "ecr:PutRegistryPolicy", "ecr:PutLifecyclePolicy",
+]
+
+[[iac]]
+group = "databases and caches"
+operations = [
+    "rds:CreateDBInstance", "rds:CreateDBCluster", "rds:CreateDBInstanceReadReplica", "rds:CreateDBSubnetGroup",
+    "rds:CreateDBParameterGroup", "rds:CreateDBClusterParameterGroup", "rds:RestoreDBInstanceFromDBSnapshot",
+    "rds:RestoreDBInstanceToPointInTime", "rds:RestoreDBInstanceFromS3", "rds:RestoreDBClusterFromSnapshot",
+    "elasticache:CreateCacheCluster", "elasticache:CreateReplicationGroup", "redshift:CreateCluster",
+    "redshift:RestoreFromClusterSnapshot", "opensearch:CreateDomain", "opensearch:UpdateDomainConfig",
+    "es:CreateElasticsearchDomain", "es:UpdateElasticsearchDomainConfig", "mq:CreateBroker",
+    "dms:CreateReplicationInstance",
+]
+iam = [
+    "rds:CreateDBInstance", "rds:CreateDBCluster", "rds:CreateDBInstanceReadReplica", "rds:CreateDBSubnetGroup",
+    "rds:CreateDBParameterGroup", "rds:CreateDBClusterParameterGroup", "rds:RestoreDBInstanceFromDBSnapshot",
+    "rds:RestoreDBInstanceToPointInTime", "rds:RestoreDBInstanceFromS3", "rds:RestoreDBClusterFromSnapshot",
+    "elasticache:CreateCacheCluster", "elasticache:CreateReplicationGroup", "redshift:CreateCluster",
+    "redshift:RestoreFromClusterSnapshot", "es:CreateDomain", "es:UpdateDomainConfig", "es:CreateElasticsearchDomain",
+    "es:UpdateElasticsearchDomainConfig", "mq:CreateBroker", "dms:CreateReplicationInstance",
+]
+
+[[iac]]
+group = "identity and keys"
+operations = [
+    "iam:CreateRole", "iam:UpdateRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy",
+    "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PutRolePermissionsBoundary",
+    "iam:DeleteRolePermissionsBoundary", "iam:CreatePolicy", "iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion",
+    "iam:CreateUser", "iam:CreateGroup", "iam:PutGroupPolicy", "iam:AttachGroupPolicy", "iam:CreateInstanceProfile",
+    "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:CreateAccessKey",
+    "iam:CreateLoginProfile", "iam:UpdateLoginProfile", "iam:CreateServiceSpecificCredential",
+    "iam:UploadSSHPublicKey", "iam:UploadSigningCertificate", "iam:UploadServerCertificate",
+    "iam:CreateOpenIDConnectProvider", "iam:CreateSAMLProvider", "iam:UpdateOpenIDConnectProviderThumbprint",
+    "iam:AddClientIDToOpenIDConnectProvider", "iam:UpdateSAMLProvider",
+    "kms:CreateKey", "kms:PutKeyPolicy", "kms:CreateAlias", "kms:UpdateAlias", "kms:EnableKeyRotation",
+    "kms:DisableKeyRotation", "secretsmanager:PutResourcePolicy", "acm:RequestCertificate", "acm:ImportCertificate",
+]
+
+[[iac]]
+group = "edges: load balancers, APIs, distributions, DNS"
+operations = [
+    "elbv2:CreateLoadBalancer", "elbv2:CreateListener", "elbv2:ModifyListener", "elbv2:CreateTargetGroup",
+    "elbv2:ModifyTargetGroup", "elbv2:CreateRule", "elbv2:ModifyRule", "elbv2:SetSecurityGroups", "elbv2:SetSubnets",
+    "elb:CreateLoadBalancer", "elb:CreateLoadBalancerListeners",
+    "apigateway:CreateRestApi", "apigateway:UpdateRestApi", "apigateway:CreateDomainName", "apigatewayv2:CreateApi",
+    "apigatewayv2:UpdateApi", "apigatewayv2:CreateDomainName",
+    "cloudfront:CreateDistribution", "cloudfront:CreateDistributionWithTags", "cloudfront:UpdateDistribution",
+    "cloudfront:CopyDistribution", "route53:CreateHostedZone", "route53:ChangeResourceRecordSets",
+    "route53:AssociateVPCWithHostedZone",
+]
+iam = [
+    "elasticloadbalancing:CreateLoadBalancer", "elasticloadbalancing:CreateListener", "elasticloadbalancing:ModifyListener",
+    "elasticloadbalancing:CreateTargetGroup", "elasticloadbalancing:ModifyTargetGroup", "elasticloadbalancing:CreateRule",
+    "elasticloadbalancing:ModifyRule", "elasticloadbalancing:SetSecurityGroups", "elasticloadbalancing:SetSubnets",
+    "elasticloadbalancing:CreateLoadBalancerListeners",
+    "cloudfront:CreateDistribution", "cloudfront:UpdateDistribution", "cloudfront:CopyDistribution",
+    "route53:CreateHostedZone", "route53:ChangeResourceRecordSets", "route53:AssociateVPCWithHostedZone",
+]
+
+[[iac]]
+group = "API Gateway's verbs"
+operations = []
+iam = ["apigateway:POST", "apigateway:PUT", "apigateway:PATCH"]
+resources = ["arn:aws:apigateway:*::/restapis", "arn:aws:apigateway:*::/restapis/*", "arn:aws:apigateway:*::/apis", "arn:aws:apigateway:*::/apis/*", "arn:aws:apigateway:*::/domainnames", "arn:aws:apigateway:*::/domainnames/*"]
+
+[[iac]]
+group = "alarms, rules, schedules, scaling, posture"
+operations = [
+    "cloudwatch:PutMetricAlarm", "cloudwatch:PutCompositeAlarm", "events:PutRule", "events:PutTargets",
+    "events:CreateEventBus", "events:PutPermission", "scheduler:CreateSchedule", "scheduler:UpdateSchedule",
+    "scheduler:CreateScheduleGroup", "application-autoscaling:RegisterScalableTarget",
+    "application-autoscaling:PutScalingPolicy", "application-autoscaling:PutScheduledAction",
+    "cloudtrail:CreateTrail", "cloudtrail:UpdateTrail", "cloudtrail:PutEventSelectors",
+    "config:PutConfigurationRecorder", "config:PutDeliveryChannel", "config:PutConfigRule",
+    "guardduty:CreateDetector", "accessanalyzer:CreateAnalyzer",
+    "budgets:CreateBudget", "budgets:UpdateBudget", "budgets:CreateNotification", "budgets:UpdateNotification",
+    "budgets:CreateSubscriber", "budgets:UpdateSubscriber", "budgets:CreateBudgetAction", "budgets:UpdateBudgetAction",
+]
+iam = [
+    "cloudwatch:PutMetricAlarm", "cloudwatch:PutCompositeAlarm", "events:PutRule", "events:PutTargets",
+    "events:CreateEventBus", "events:PutPermission", "scheduler:CreateSchedule", "scheduler:UpdateSchedule",
+    "scheduler:CreateScheduleGroup", "application-autoscaling:RegisterScalableTarget",
+    "application-autoscaling:PutScalingPolicy", "application-autoscaling:PutScheduledAction",
+    "cloudtrail:CreateTrail", "cloudtrail:UpdateTrail", "cloudtrail:PutEventSelectors",
+    "config:PutConfigurationRecorder", "config:PutDeliveryChannel", "config:PutConfigRule",
+    "guardduty:CreateDetector", "access-analyzer:CreateAnalyzer",
+    "budgets:ModifyBudget", "budgets:CreateBudgetAction", "budgets:UpdateBudgetAction",
+]
+
+# ---------------------------------------------------------------------------------------------
+# The stack path (§3.4). A stack changes only through aws.stack.plan, .apply, and .delete, whose change
+# sets the gate scans and shows. A stack's service role is the deployer, which CloudFormation reuses for
+# every later update, so a stack write from anywhere else would skip that review and the IaC guard
+# with it, and could even edit the guards the foundation stack holds. `aws.call` returns these as
+# invalid input that points to the stack tools. `theseus-guard-stacks` denies them, and passing the
+# deployer at all, to job sessions, and the boundary does to hands. The work session keeps them: the
+# stack tools are the core's own calls in it. Making and reading change sets stays direct.
+# CloudFormation's operations are their own IAM actions.
+
+[stacks]
+operations = [
+    "cloudformation:CreateStack", "cloudformation:UpdateStack", "cloudformation:DeleteStack",
+    "cloudformation:ExecuteChangeSet", "cloudformation:ContinueUpdateRollback", "cloudformation:RollbackStack",
+    "cloudformation:CancelUpdateStack", "cloudformation:SetStackPolicy", "cloudformation:UpdateTerminationProtection",
+    "cloudformation:CreateStackSet", "cloudformation:UpdateStackSet", "cloudformation:DeleteStackSet",
+    "cloudformation:CreateStackInstances", "cloudformation:UpdateStackInstances",
+    "cloudformation:DeleteStackInstances", "cloudformation:ImportStacksToStackSet",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Destructive (§3.9's approve step): deleting a stateful resource, or a stack. A change set that
+# replaces or removes a stateful resource type waits too. The types follow cfn-lint's list of
+# stateful resources (StatefulResources.json), with DNS zones added.
+
+[destructive]
+operations = [
+    "s3:DeleteBucket", "dynamodb:DeleteTable", "dynamodb:DeleteBackup", "rds:DeleteDBInstance", "rds:DeleteDBCluster",
+    "rds:DeleteDBSnapshot", "rds:DeleteDBClusterSnapshot", "efs:DeleteFileSystem", "kms:ScheduleKeyDeletion",
+    "kms:DisableKey", "logs:DeleteLogGroup", "ec2:TerminateInstances", "ec2:DeleteVolume", "ec2:DeleteSnapshot",
+    "ec2:DeregisterImage", "ecr:DeleteRepository", "ecr:BatchDeleteImage", "secretsmanager:DeleteSecret",
+    "sqs:DeleteQueue", "sqs:PurgeQueue", "sns:DeleteTopic", "kinesis:DeleteStream", "firehose:DeleteDeliveryStream",
+    "cloudformation:DeleteStack", "elasticache:DeleteCacheCluster", "elasticache:DeleteReplicationGroup",
+    "redshift:DeleteCluster", "opensearch:DeleteDomain", "es:DeleteElasticsearchDomain", "backup:DeleteRecoveryPoint",
+    "backup:DeleteBackupVault", "glacier:DeleteVault", "glacier:DeleteArchive", "route53:DeleteHostedZone",
+    "cognito-idp:DeleteUserPool", "fsx:DeleteFileSystem", "neptune:DeleteDBCluster", "docdb:DeleteDBCluster",
+    "emr:TerminateJobFlows",
+]
+stateful_types = [
+    "AWS::Backup::BackupVault", "AWS::CloudFormation::Stack", "AWS::Cognito::UserPool", "AWS::DocDB::DBCluster",
+    "AWS::DocDB::DBInstance", "AWS::DynamoDB::GlobalTable", "AWS::DynamoDB::Table", "AWS::EC2::Volume",
+    "AWS::EFS::FileSystem", "AWS::EMR::Cluster", "AWS::ElastiCache::CacheCluster", "AWS::ElastiCache::ReplicationGroup",
+    "AWS::Elasticsearch::Domain", "AWS::FSx::FileSystem", "AWS::KMS::Key", "AWS::Kinesis::Stream", "AWS::Logs::LogGroup",
+    "AWS::Neptune::DBCluster", "AWS::Neptune::DBInstance", "AWS::OpenSearchService::Domain", "AWS::QLDB::Ledger",
+    "AWS::RDS::DBCluster", "AWS::RDS::DBInstance", "AWS::Redshift::Cluster", "AWS::S3::Bucket", "AWS::SDB::Domain",
+    "AWS::SQS::Queue", "AWS::SecretsManager::Secret", "AWS::Route53::HostedZone", "AWS::ECR::Repository",
+]
+
+# ---------------------------------------------------------------------------------------------
+# The boundary's compaction. theseus-boundary holds every guard (the limits, IaC, and the stack path)
+# in one managed policy (6,144 characters; a role has one boundary), so its unconditional denies are
+# compacted: an action a pattern here matches is denied by the pattern. Work and job sessions carry
+# the guards themselves, exact.
+#
+# A pattern starts with a write verb, so it never matches a read. The botocore test lists what else
+# each one matches: IaC writes, IAM, and posture, which hands never change. No pattern matches a
+# direct operation hands use: data, runs, logs, or the network interfaces a VPC Lambda makes
+# (tests/policies.rs holds that list). Pass, Tag, Invoke, Send, Start, and Run never appear.
+
+[boundary]
+compact = [
+    "iam:Add*", "iam:Attach*", "iam:Create*", "iam:Delete*", "iam:Detach*", "iam:Put*", "iam:Remove*",
+    "iam:Set*", "iam:Update*", "iam:Upload*",
+    "ec2:CreateVpc*", "ec2:ModifyVpc*", "ec2:CreateRoute*", "ec2:ReplaceRoute*", "ec2:CreateNetworkAcl*",
+    "ec2:ReplaceNetworkAcl*", "ec2:AuthorizeSecurityGroup*", "ec2:RevokeSecurityGroup*",
+    "ec2:CreateTransitGateway*", "ec2:CreateVpn*", "ec2:CreateLaunchTemplate*", "ec2:Associate*",
+    "elasticloadbalancing:Create*", "elasticloadbalancing:Modify*", "elasticloadbalancing:Set*",
+    "rds:Create*", "rds:Restore*", "rds:ModifyDB*SnapshotAttribute",
+    "lambda:Create*", "lambda:Update*", "lambda:Add*",
+    "elasticfilesystem:Create*", "elasticfilesystem:Put*",
+    "logs:Put*Policy", "logs:Put*Filter", "logs:PutDestination*",
+    "ecs:Create*", "ecs:UpdateCluster*", "application-autoscaling:Put*", "batch:Create*", "batch:Update*",
+    "es:Create*", "es:Update*", "account:Put*", "codebuild:UpdateProject*", "scheduler:Create*",
+    "autoscaling:Create*", "eks:Create*", "access-analyzer:Create*", "access-analyzer:Update*",
+    "guardduty:Create*", "guardduty:Update*",
+    "ec2:Create*Gateway", "ec2:Attach*Gateway", "ec2:Modify*Attribute", "s3:PutBucket*", "s3:Put*Configuration",
+    "cloudformation:Create*", "cloudformation:Update*", "cloudformation:Delete*",
+]

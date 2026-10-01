@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "IacOnly2",
+      "Effect": "Deny",
+      "Action": [
+        "cloudtrail:PutEventSelectors",
+        "config:PutConfigurationRecorder",
+        "config:PutDeliveryChannel",
+        "config:PutConfigRule",
+        "guardduty:CreateDetector",
+        "access-analyzer:CreateAnalyzer",
+        "budgets:ModifyBudget",
+        "budgets:CreateBudgetAction",
+        "budgets:UpdateBudgetAction"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "APIGatewaySVerbs",
+      "Effect": "Deny",
+      "Action": [
+        "apigateway:POST",
+        "apigateway:PUT",
+        "apigateway:PATCH"
+      ],
+      "Resource": [
+        "arn:aws:apigateway:*::/restapis",
+        "arn:aws:apigateway:*::/restapis/*",
+        "arn:aws:apigateway:*::/apis",
+        "arn:aws:apigateway:*::/apis/*",
+        "arn:aws:apigateway:*::/domainnames",
+        "arn:aws:apigateway:*::/domainnames/*"
+      ]
+    }
+  ]
+}

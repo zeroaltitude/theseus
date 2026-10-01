@@ -1,0 +1,340 @@
+//! The generated AWS side (the AWS design's §3.5 and §3.6): every policy fits its limit, a work session
+//! can carry the guards, every entry is denied in each of its forms, and the copies in `policies/` are
+//! exactly what the list generates. After the list changes, rewrite them with
+//! `THESEUS_GUARD_WRITE=1 cargo test -p theseus-aws-guard --test policies`.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+
+use serde_json::Value;
+use theseus_aws_guard::{
+    embedded, glob, IamCondition, Policy, Scp, Statement, SCPS_PER_TARGET, SESSION_POLICY_ARNS,
+    SESSION_POLICY_PLAINTEXT,
+};
+
+fn policies_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("policies")
+}
+
+#[test]
+fn every_policy_fits_its_limit() {
+    for p in embedded().policies() {
+        assert!(
+            p.fits(),
+            "{} is {} characters, over {}",
+            p.name,
+            p.size(),
+            p.kind.limit()
+        );
+    }
+}
+
+#[test]
+fn the_scps_fit_beside_full_aws_access() {
+    let n = embedded().scps().len();
+    assert!(
+        n < SCPS_PER_TARGET,
+        "{n} SCPs, and FullAWSAccess, are more than an account or OU holds ({SCPS_PER_TARGET})"
+    );
+}
+
+#[test]
+fn a_session_carries_its_guards_and_allow_all() {
+    // A session's managed session policies (§3.5): a work session's guards and theseus-allow-all, and
+    // a job session's, which add the stack path's.
+    let l = embedded();
+    let work: Vec<String> = l
+        .guard_limits()
+        .iter()
+        .chain(&l.guard_iac())
+        .map(|p| p.name.clone())
+        .chain(["theseus-allow-all".to_string()])
+        .collect();
+    let mut job = work.clone();
+    job.extend(l.guard_stacks().iter().map(|p| p.name.clone()));
+    for (session, names) in [("work", work), ("job", job)] {
+        let arns: Vec<String> = names
+            .iter()
+            .map(|name| format!("arn:aws:iam::111122223333:policy/{name}"))
+            .collect();
+        assert!(
+            arns.len() <= SESSION_POLICY_ARNS,
+            "a {session} session takes {} policies",
+            arns.len()
+        );
+        // STS counts the ARNs' text and a job's inline narrowing together; most of it stays the
+        // narrowing's.
+        let text: usize = arns.iter().map(String::len).sum();
+        assert!(
+            text <= SESSION_POLICY_PLAINTEXT / 4,
+            "a {session} session's ARNs take {text} characters"
+        );
+    }
+}
+
+/// Does some deny in `policies` refuse `action` on at least everything `resources` names (all, when
+/// none), under at most `condition` and the deployer's exemption?
+fn denies(
+    policies: &[Policy],
+    action: &str,
+    resources: Option<&[String]>,
+    condition: Option<&IamCondition>,
+    deployer_exempt: Option<&str>,
+) -> bool {
+    let resources = resources.map_or_else(|| vec!["*".to_string()], <[String]>::to_vec);
+    let mut want: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
+    if let Some(c) = condition {
+        for (op, keys) in c {
+            for (k, v) in keys {
+                let v = match v.values() {
+                    [one] => Value::String(one.clone()),
+                    many => Value::Array(many.iter().cloned().map(Value::String).collect()),
+                };
+                want.entry(op.clone()).or_default().insert(k.clone(), v);
+            }
+        }
+    }
+    if let Some(role) = deployer_exempt {
+        want.entry("ArnNotLike".into()).or_default().insert(
+            "aws:PrincipalArn".into(),
+            Value::String(format!("arn:aws:iam::*:role/{role}")),
+        );
+    }
+    let covers = |s: &Statement| {
+        s.effect == "Deny"
+            && s.action.iter().any(|a| glob(a, action))
+            && (s.resource == ["*"] || resources.iter().all(|r| s.resource.contains(r)))
+            && s.condition
+                .clone()
+                .unwrap_or_default()
+                .iter()
+                .all(|(op, keys)| {
+                    keys.iter()
+                        .all(|(k, v)| want.get(op).and_then(|w| w.get(k)) == Some(v))
+                })
+    };
+    policies
+        .iter()
+        .flat_map(|p| &p.document.statement)
+        .any(covers)
+}
+
+#[test]
+fn every_entry_is_denied_in_each_of_its_forms() {
+    // The one list kept in step with its AWS side (§3.6): every guarded entry's actions are denied by
+    // the session guard, the boundary, and the SCPs, scoped as the entry scopes them; every IaC-only
+    // action by the IaC guard and the boundary; and the stack path by its guard and the boundary.
+    let l = embedded();
+    let guard = l.guard_limits();
+    let iac = l.guard_iac();
+    let stacks = l.guard_stacks();
+    let boundary = [l.boundary()];
+    let scps = l.scps();
+    let mut missing = Vec::new();
+    for g in l.guardrails.iter().filter(|g| g.guarded()) {
+        let exempt = (g.scp == Scp::DenyExceptDeployer).then_some(l.deployer_role.as_str());
+        for a in g.iam_actions() {
+            for (form, policies, exempt) in [
+                ("theseus-guard-limits", guard.as_slice(), None),
+                ("theseus-boundary", boundary.as_slice(), None),
+                ("the SCPs", scps.as_slice(), exempt),
+            ] {
+                if !denies(
+                    policies,
+                    a,
+                    g.resources.as_deref(),
+                    g.iam_condition.as_ref(),
+                    exempt,
+                ) {
+                    missing.push(format!("{}: {a} is not denied by {form}", g.name));
+                }
+            }
+        }
+    }
+    for grp in &l.iac {
+        for a in grp.iam_actions() {
+            for (form, policies) in [
+                ("theseus-guard-iac", iac.as_slice()),
+                ("theseus-boundary", &boundary),
+            ] {
+                if !denies(policies, a, grp.resources.as_deref(), None, None) {
+                    missing.push(format!("iac {}: {a} is not denied by {form}", grp.group));
+                }
+            }
+        }
+    }
+    let deployer = [format!("arn:aws:iam::*:role/{}", l.deployer_role)];
+    let stack_path = l
+        .stacks
+        .iter()
+        .map(|a| (a.as_str(), None))
+        .chain([("iam:PassRole", Some(deployer.as_slice()))]);
+    for (a, resources) in stack_path {
+        for (form, policies) in [
+            ("theseus-guard-stacks", stacks.as_slice()),
+            ("theseus-boundary", &boundary),
+        ] {
+            if !denies(policies, a, resources, None, None) {
+                missing.push(format!("stacks: {a} is not denied by {form}"));
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
+/// What stays direct (the design's §3.4: data, runs, operations on what exists, tags, change sets) and
+/// what AWS services do with a role's own permissions: a VPC Lambda makes its network interfaces, and
+/// EBS makes its KMS grants. No guard, and no compaction of the boundary, may deny one everywhere.
+const DIRECT: [&str; 58] = [
+    // data
+    "s3:PutObject",
+    "s3:PutObjectTagging",
+    "s3:DeleteObject",
+    "s3:AbortMultipartUpload",
+    "dynamodb:PutItem",
+    "dynamodb:UpdateItem",
+    "dynamodb:DeleteItem",
+    "dynamodb:BatchWriteItem",
+    "sqs:SendMessage",
+    "sqs:DeleteMessage",
+    "sqs:ChangeMessageVisibility",
+    "sns:Publish",
+    "events:PutEvents",
+    "logs:CreateLogStream",
+    "logs:PutLogEvents",
+    "cloudwatch:PutMetricData",
+    "ssm:PutParameter",
+    "secretsmanager:PutSecretValue",
+    "kinesis:PutRecord",
+    "kinesis:PutRecords",
+    "firehose:PutRecord",
+    // runs
+    "ecs:RunTask",
+    "ecs:StopTask",
+    "ecs:RegisterTaskDefinition",
+    "lambda:InvokeFunction",
+    "states:StartExecution",
+    "batch:SubmitJob",
+    "batch:CancelJob",
+    "codebuild:StartBuild",
+    "athena:StartQueryExecution",
+    "glue:StartJobRun",
+    "sagemaker:CreateTrainingJob",
+    "sagemaker:CreateProcessingJob",
+    "sagemaker:InvokeEndpoint",
+    "ssm:SendCommand",
+    // operations on what exists
+    "ec2:StartInstances",
+    "ec2:StopInstances",
+    "ec2:TerminateInstances",
+    "ecs:UpdateService",
+    "rds:StartDBInstance",
+    "rds:StopDBInstance",
+    "cloudfront:CreateInvalidation",
+    "secretsmanager:RotateSecret",
+    "lambda:PublishVersion",
+    // tags and change sets
+    "ec2:CreateTags",
+    "tag:TagResources",
+    "cloudformation:CreateChangeSet",
+    "cloudformation:ExecuteChangeSet",
+    // a role's permissions, used by AWS services on its behalf
+    "ec2:CreateNetworkInterface",
+    "ec2:DeleteNetworkInterface",
+    "ec2:AssignPrivateIpAddresses",
+    "kms:Decrypt",
+    "kms:GenerateDataKey",
+    "ecr:PutImage",
+    "ecr:InitiateLayerUpload",
+    "ecr:CompleteLayerUpload",
+    "iam:PassRole",
+    "sts:AssumeRole",
+];
+
+#[test]
+fn no_guard_denies_a_direct_operation_everywhere() {
+    // The work session's guards leave every direct operation. A job session's and a hand's leave all
+    // but the stack path's: only the work session's stack tools write stacks.
+    let l = embedded();
+    let mut work = l.guard_limits();
+    work.extend(l.guard_iac());
+    let mut job_and_hand = l.guard_stacks();
+    job_and_hand.push(l.boundary());
+    let mut denied = Vec::new();
+    for (policies, stack_tools) in [(work, true), (job_and_hand, false)] {
+        for p in &policies {
+            for s in p
+                .document
+                .statement
+                .iter()
+                .filter(|s| s.effect == "Deny" && s.condition.is_none() && s.resource == ["*"])
+            {
+                for op in DIRECT
+                    .iter()
+                    .filter(|op| stack_tools || !op.starts_with("cloudformation:"))
+                {
+                    if let Some(a) = s.action.iter().find(|a| glob(a, op)) {
+                        denied.push(format!("{}: {a} denies {op}", p.name));
+                    }
+                }
+            }
+        }
+    }
+    assert!(denied.is_empty(), "{}", denied.join("\n"));
+}
+
+#[test]
+fn the_boundary_is_one_policy_that_holds_every_guard() {
+    let l = embedded();
+    let b = l.boundary();
+    assert!(b.fits(), "theseus-boundary is {} characters", b.size());
+    let patterns = b.document.statement[1]
+        .action
+        .iter()
+        .filter(|a| a.contains('*'))
+        .count();
+    assert_eq!(
+        patterns,
+        l.compact.len(),
+        "every pattern compacts something, so every one is used"
+    );
+}
+
+#[test]
+fn the_policies_on_disk_are_what_the_list_generates() {
+    let write = std::env::var_os("THESEUS_GUARD_WRITE").is_some();
+    let dir = policies_dir();
+    let policies = embedded().policies();
+    let names: BTreeSet<String> = policies
+        .iter()
+        .map(|p| format!("{}.json", p.name))
+        .collect();
+    let mut stale = Vec::new();
+    for p in &policies {
+        let path = dir.join(format!("{}.json", p.name));
+        if write {
+            std::fs::write(&path, p.pretty()).expect("policies/ is writable");
+        } else if std::fs::read_to_string(&path).ok().as_deref() != Some(p.pretty().as_str()) {
+            stale.push(p.name.clone());
+        }
+    }
+    for entry in std::fs::read_dir(&dir).expect("policies/ exists") {
+        let name = entry
+            .expect("a directory entry")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if name.ends_with(".json") && !names.contains(&name) {
+            if write {
+                std::fs::remove_file(dir.join(&name)).expect("a stale policy is removable");
+            } else {
+                stale.push(name);
+            }
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "policies/ is out of step with guardrails.toml ({}): rewrite it with THESEUS_GUARD_WRITE=1 cargo test -p theseus-aws-guard --test policies",
+        stale.join(", ")
+    );
+}

@@ -1,0 +1,1210 @@
+# Every guardrail's hits and near misses (tests/cases.rs holds each entry to at least one of each).
+# The account is 111122223333; 444455556666 is another one. A near miss for an entry with no input
+# condition is the neighbouring operation or resource type that is not on the list.
+
+# --- sg-ingress-public
+[[call]]
+guardrail = "sg-ingress-public"
+op = "ec2:AuthorizeSecurityGroupIngress"
+hit = true
+input = '{"GroupId": "sg-0a1b2c", "IpPermissions": [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]}'
+[[call]]
+guardrail = "sg-ingress-public"
+op = "ec2:AuthorizeSecurityGroupIngress"
+hit = false
+input = '{"GroupId": "sg-0a1b2c", "IpPermissions": [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "10.0.0.0/8"}]}]}'
+[[call]]
+guardrail = "sg-ingress-public"
+op = "ec2:AuthorizeSecurityGroupIngress"
+hit = true
+input = '{"GroupId": "sg-0a1b2c", "CidrIp": "0.0.0.0/1", "IpProtocol": "tcp", "FromPort": 22, "ToPort": 22}'
+[[call]]
+guardrail = "sg-ingress-public"
+op = "ec2:AuthorizeSecurityGroupIngress"
+hit = true
+input = '{"GroupId": "sg-0a1b2c", "IpPermissions": [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-0ffee", "UserId": "444455556666"}]}]}'
+[[call]]
+guardrail = "sg-ingress-public"
+op = "ec2:AuthorizeSecurityGroupIngress"
+hit = false
+input = '{"GroupId": "sg-0a1b2c", "IpPermissions": [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-0ffee", "UserId": "111122223333"}]}]}'
+[[call]]
+guardrail = "sg-ingress-public"
+op = "ec2:ModifySecurityGroupRules"
+hit = true
+input = '{"GroupId": "sg-0a1b2c", "SecurityGroupRules": [{"SecurityGroupRuleId": "sgr-01", "SecurityGroupRule": {"IpProtocol": "tcp", "FromPort": 80, "ToPort": 80, "CidrIpv6": "::/0"}}]}'
+[[template]]
+guardrail = "sg-ingress-public"
+type = "AWS::EC2::SecurityGroup"
+hit = true
+properties = '''
+GroupDescription: web
+SecurityGroupIngress:
+  - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+'''
+[[template]]
+guardrail = "sg-ingress-public"
+type = "AWS::EC2::SecurityGroup"
+hit = false
+properties = '''
+GroupDescription: endpoints, from inside the VPC; egress anywhere is not ingress
+SecurityGroupIngress:
+  - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 10.42.0.0/16 }
+SecurityGroupEgress:
+  - { IpProtocol: "-1", CidrIp: 0.0.0.0/0 }
+'''
+[[template]]
+guardrail = "sg-ingress-public"
+type = "AWS::EC2::SecurityGroupIngress"
+hit = true
+properties = '''
+GroupId: sg-0a1b2c
+IpProtocol: tcp
+FromPort: 22
+ToPort: 22
+CidrIpv6: ::/0
+'''
+
+# --- public-ip
+[[call]]
+guardrail = "public-ip"
+op = "ec2:RunInstances"
+hit = true
+input = '{"ImageId": "ami-0abc", "MinCount": 1, "MaxCount": 1, "NetworkInterfaces": [{"DeviceIndex": 0, "SubnetId": "subnet-01", "AssociatePublicIpAddress": true}]}'
+[[call]]
+guardrail = "public-ip"
+op = "ec2:RunInstances"
+hit = false
+input = '{"ImageId": "ami-0abc", "MinCount": 1, "MaxCount": 1, "NetworkInterfaces": [{"DeviceIndex": 0, "SubnetId": "subnet-01", "AssociatePublicIpAddress": false}]}'
+[[template]]
+guardrail = "public-ip"
+type = "AWS::EC2::LaunchTemplate"
+hit = true
+properties = '''
+LaunchTemplateData:
+  NetworkInterfaces:
+    - { DeviceIndex: 0, AssociatePublicIpAddress: true }
+'''
+[[template]]
+guardrail = "public-ip"
+type = "AWS::EC2::Instance"
+hit = false
+properties = '''
+ImageId: ami-0abc
+NetworkInterfaces:
+  - { DeviceIndex: "0", AssociatePublicIpAddress: false, SubnetId: subnet-01 }
+'''
+
+# --- subnet-public-ip
+[[call]]
+guardrail = "subnet-public-ip"
+op = "ec2:ModifySubnetAttribute"
+hit = true
+input = '{"SubnetId": "subnet-01", "MapPublicIpOnLaunch": {"Value": true}}'
+[[call]]
+guardrail = "subnet-public-ip"
+op = "ec2:ModifySubnetAttribute"
+hit = false
+input = '{"SubnetId": "subnet-01", "MapPublicIpOnLaunch": {"Value": false}}'
+[[template]]
+guardrail = "subnet-public-ip"
+type = "AWS::EC2::Subnet"
+hit = true
+properties = '''
+VpcId: vpc-01
+CidrBlock: 10.42.1.0/24
+MapPublicIpOnLaunch: true
+'''
+[[template]]
+guardrail = "subnet-public-ip"
+type = "AWS::EC2::Subnet"
+hit = false
+properties = '''
+VpcId: vpc-01
+CidrBlock: 10.42.1.0/24
+'''
+
+# --- task-public-ip
+[[call]]
+guardrail = "task-public-ip"
+op = "ecs:RunTask"
+hit = true
+input = '{"cluster": "theseus-hands", "taskDefinition": "hand:3", "networkConfiguration": {"awsvpcConfiguration": {"subnets": ["subnet-01"], "assignPublicIp": "ENABLED"}}}'
+[[call]]
+guardrail = "task-public-ip"
+op = "ecs:RunTask"
+hit = false
+input = '{"cluster": "theseus-hands", "taskDefinition": "hand:3", "networkConfiguration": {"awsvpcConfiguration": {"subnets": ["subnet-01"], "assignPublicIp": "DISABLED"}}}'
+[[call]]
+guardrail = "task-public-ip"
+op = "batch:RegisterJobDefinition"
+hit = true
+input = '{"jobDefinitionName": "hand", "type": "container", "containerProperties": {"image": "hand:latest", "networkConfiguration": {"assignPublicIp": "ENABLED"}}}'
+[[template]]
+guardrail = "task-public-ip"
+type = "AWS::ECS::Service"
+hit = true
+properties = '''
+Cluster: theseus-hands
+NetworkConfiguration:
+  AwsvpcConfiguration:
+    AssignPublicIp: ENABLED
+    Subnets: [subnet-01]
+'''
+[[template]]
+guardrail = "task-public-ip"
+type = "AWS::ECS::Service"
+hit = false
+properties = '''
+Cluster: theseus-hands
+NetworkConfiguration:
+  AwsvpcConfiguration:
+    AssignPublicIp: DISABLED
+    Subnets: [subnet-01]
+'''
+
+# --- elastic-ip
+[[call]]
+guardrail = "elastic-ip"
+op = "ec2:AllocateAddress"
+hit = true
+input = '{"Domain": "vpc"}'
+[[call]]
+guardrail = "elastic-ip"
+op = "ec2:ReleaseAddress"
+hit = false
+input = '{"AllocationId": "eipalloc-01"}'
+[[template]]
+guardrail = "elastic-ip"
+type = "AWS::EC2::EIP"
+hit = true
+properties = '''
+Domain: vpc
+'''
+[[template]]
+guardrail = "elastic-ip"
+type = "AWS::EC2::NatGateway"
+hit = false
+properties = '''
+ConnectivityType: private
+SubnetId: subnet-01
+'''
+
+# --- internet-gateway
+[[call]]
+guardrail = "internet-gateway"
+op = "ec2:CreateInternetGateway"
+hit = true
+input = '{}'
+[[call]]
+guardrail = "internet-gateway"
+op = "ec2:CreateEgressOnlyInternetGateway"
+hit = false
+input = '{"VpcId": "vpc-01"}'
+[[template]]
+guardrail = "internet-gateway"
+type = "AWS::EC2::VPCGatewayAttachment"
+hit = true
+properties = '''
+VpcId: vpc-01
+InternetGatewayId: igw-01
+'''
+[[template]]
+guardrail = "internet-gateway"
+type = "AWS::EC2::VPCGatewayAttachment"
+hit = false
+properties = '''
+VpcId: vpc-01
+VpnGatewayId: vgw-01
+'''
+
+# --- lb-internet-facing
+[[call]]
+guardrail = "lb-internet-facing"
+op = "elbv2:CreateLoadBalancer"
+hit = true
+input = '{"Name": "web", "Scheme": "internet-facing", "Subnets": ["subnet-01", "subnet-02"]}'
+[[call]]
+guardrail = "lb-internet-facing"
+op = "elbv2:CreateLoadBalancer"
+hit = true
+input = '{"Name": "web", "Type": "network", "Subnets": ["subnet-01"]}'
+[[call]]
+guardrail = "lb-internet-facing"
+op = "elbv2:CreateLoadBalancer"
+hit = false
+input = '{"Name": "web", "Scheme": "internal", "Subnets": ["subnet-01", "subnet-02"]}'
+[[call]]
+guardrail = "lb-internet-facing"
+op = "elbv2:CreateLoadBalancer"
+hit = false
+input = '{"Name": "inspection", "Type": "gateway", "Subnets": ["subnet-01"]}'
+[[template]]
+guardrail = "lb-internet-facing"
+type = "AWS::ElasticLoadBalancingV2::LoadBalancer"
+hit = true
+properties = '''
+Subnets: [subnet-01, subnet-02]
+'''
+[[template]]
+guardrail = "lb-internet-facing"
+type = "AWS::ElasticLoadBalancingV2::LoadBalancer"
+hit = false
+properties = '''
+Scheme: internal
+Subnets: [subnet-01, subnet-02]
+'''
+
+# --- lambda-url-public
+[[call]]
+guardrail = "lambda-url-public"
+op = "lambda:CreateFunctionUrlConfig"
+hit = true
+input = '{"FunctionName": "hook", "AuthType": "NONE"}'
+[[call]]
+guardrail = "lambda-url-public"
+op = "lambda:CreateFunctionUrlConfig"
+hit = false
+input = '{"FunctionName": "hook", "AuthType": "AWS_IAM"}'
+[[template]]
+guardrail = "lambda-url-public"
+type = "AWS::Lambda::Url"
+hit = true
+properties = '''
+TargetFunctionArn: !GetAtt Hook.Arn
+AuthType: NONE
+'''
+[[template]]
+guardrail = "lambda-url-public"
+type = "AWS::Lambda::Url"
+hit = false
+properties = '''
+TargetFunctionArn: !GetAtt Hook.Arn
+AuthType: AWS_IAM
+'''
+
+# --- api-public
+[[call]]
+guardrail = "api-public"
+op = "apigatewayv2:CreateApi"
+hit = true
+input = '{"Name": "hooks", "ProtocolType": "HTTP"}'
+[[call]]
+guardrail = "api-public"
+op = "apigateway:CreateRestApi"
+hit = true
+input = '{"name": "hooks"}'
+[[call]]
+guardrail = "api-public"
+op = "apigateway:CreateRestApi"
+hit = false
+input = '{"name": "hooks", "endpointConfiguration": {"types": ["PRIVATE"], "vpcEndpointIds": ["vpce-01"]}}'
+[[template]]
+guardrail = "api-public"
+type = "AWS::ApiGateway::RestApi"
+hit = true
+properties = '''
+Name: hooks
+EndpointConfiguration:
+  Types: [REGIONAL]
+'''
+[[template]]
+guardrail = "api-public"
+type = "AWS::ApiGateway::RestApi"
+hit = false
+properties = '''
+Name: hooks
+EndpointConfiguration:
+  Types: [PRIVATE]
+'''
+
+# --- cloudfront-distribution
+[[call]]
+guardrail = "cloudfront-distribution"
+op = "cloudfront:CreateDistribution"
+hit = true
+input = '{"DistributionConfig": {"CallerReference": "a1", "Enabled": true}}'
+[[call]]
+guardrail = "cloudfront-distribution"
+op = "cloudfront:CreateInvalidation"
+hit = false
+input = '{"DistributionId": "E1", "InvalidationBatch": {"CallerReference": "a2", "Paths": {"Quantity": 1, "Items": ["/*"]}}}'
+[[template]]
+guardrail = "cloudfront-distribution"
+type = "AWS::CloudFront::Distribution"
+hit = true
+properties = '''
+DistributionConfig: { Enabled: true }
+'''
+[[template]]
+guardrail = "cloudfront-distribution"
+type = "AWS::CloudFront::CachePolicy"
+hit = false
+properties = '''
+CachePolicyConfig: { Name: short, DefaultTTL: 60, MaxTTL: 120, MinTTL: 0 }
+'''
+
+# --- s3-bucket-public-access-block
+[[call]]
+guardrail = "s3-bucket-public-access-block"
+op = "s3:PutPublicAccessBlock"
+hit = true
+input = '{"Bucket": "theseus-data", "PublicAccessBlockConfiguration": {"BlockPublicAcls": true, "IgnorePublicAcls": true, "BlockPublicPolicy": false, "RestrictPublicBuckets": true}}'
+[[call]]
+guardrail = "s3-bucket-public-access-block"
+op = "s3:PutPublicAccessBlock"
+hit = true
+input = '{"Bucket": "theseus-data", "PublicAccessBlockConfiguration": {"BlockPublicAcls": true}}'
+[[call]]
+guardrail = "s3-bucket-public-access-block"
+op = "s3:DeletePublicAccessBlock"
+hit = true
+input = '{"Bucket": "theseus-data"}'
+[[call]]
+guardrail = "s3-bucket-public-access-block"
+op = "s3:PutPublicAccessBlock"
+hit = false
+input = '{"Bucket": "theseus-data", "PublicAccessBlockConfiguration": {"BlockPublicAcls": true, "IgnorePublicAcls": true, "BlockPublicPolicy": true, "RestrictPublicBuckets": true}}'
+[[template]]
+guardrail = "s3-bucket-public-access-block"
+type = "AWS::S3::Bucket"
+hit = true
+properties = '''
+PublicAccessBlockConfiguration:
+  BlockPublicAcls: true
+  IgnorePublicAcls: true
+  BlockPublicPolicy: true
+  RestrictPublicBuckets: false
+'''
+[[template]]
+guardrail = "s3-bucket-public-access-block"
+type = "AWS::S3::Bucket"
+hit = false
+properties = '''
+PublicAccessBlockConfiguration:
+  BlockPublicAcls: true
+  IgnorePublicAcls: true
+  BlockPublicPolicy: true
+  RestrictPublicBuckets: true
+'''
+
+# --- s3-account-public-access-block
+[[call]]
+guardrail = "s3-account-public-access-block"
+op = "s3control:PutPublicAccessBlock"
+hit = true
+input = '{"AccountId": "111122223333", "PublicAccessBlockConfiguration": {"BlockPublicAcls": true, "IgnorePublicAcls": true, "BlockPublicPolicy": true, "RestrictPublicBuckets": true}}'
+[[call]]
+guardrail = "s3-account-public-access-block"
+op = "s3control:GetPublicAccessBlock"
+hit = false
+input = '{"AccountId": "111122223333"}'
+
+# --- s3-acl-public
+[[call]]
+guardrail = "s3-acl-public"
+op = "s3:PutObject"
+hit = true
+input = '{"Bucket": "theseus-data", "Key": "report.html", "ACL": "public-read"}'
+[[call]]
+guardrail = "s3-acl-public"
+op = "s3:PutBucketAcl"
+hit = true
+input = '{"Bucket": "theseus-data", "GrantRead": "uri=acs.amazonaws.com/groups/global/AllUsers"}'
+[[call]]
+guardrail = "s3-acl-public"
+op = "s3:PutObject"
+hit = false
+input = '{"Bucket": "theseus-data", "Key": "report.html", "ACL": "bucket-owner-full-control"}'
+[[call]]
+guardrail = "s3-acl-public"
+op = "s3:PutObject"
+hit = false
+input = '{"Bucket": "theseus-data", "Key": "report.html"}'
+[[template]]
+guardrail = "s3-acl-public"
+type = "AWS::S3::Bucket"
+hit = true
+properties = '''
+AccessControl: PublicRead
+'''
+[[template]]
+guardrail = "s3-acl-public"
+type = "AWS::S3::Bucket"
+hit = false
+properties = '''
+AccessControl: Private
+'''
+
+# --- external-principal
+[[call]]
+guardrail = "external-principal"
+op = "iam:CreateRole"
+hit = true
+input = '{"RoleName": "partner", "AssumeRolePolicyDocument": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"arn:aws:iam::444455556666:root\"}, \"Action\": \"sts:AssumeRole\"}]}"}'
+[[call]]
+guardrail = "external-principal"
+op = "iam:CreateRole"
+hit = false
+input = '{"RoleName": "theseus-owner", "AssumeRolePolicyDocument": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"arn:aws:iam::111122223333:user/root-of-trust\"}, \"Action\": [\"sts:AssumeRole\", \"sts:SetSourceIdentity\", \"sts:TagSession\"]}]}"}'
+[[call]]
+guardrail = "external-principal"
+op = "s3:PutBucketPolicy"
+hit = true
+input = '{"Bucket": "theseus-data", "Policy": "{\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": \"*\", \"Action\": \"s3:GetObject\", \"Resource\": \"arn:aws:s3:::theseus-data/*\"}]}"}'
+[[call]]
+guardrail = "external-principal"
+op = "s3:PutBucketPolicy"
+hit = false
+input = '{"Bucket": "theseus-data", "Policy": "{\"Statement\": [{\"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"arn:aws:s3:::theseus-data\", \"arn:aws:s3:::theseus-data/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]}"}'
+[[call]]
+guardrail = "external-principal"
+op = "sns:SetTopicAttributes"
+hit = true
+input = '{"TopicArn": "arn:aws:sns:us-west-2:111122223333:theseus-notes", "AttributeName": "Policy", "AttributeValue": "{\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"*\"}, \"Action\": \"sns:Publish\", \"Resource\": \"*\"}]}"}'
+[[call]]
+guardrail = "external-principal"
+op = "sns:SetTopicAttributes"
+hit = false
+input = '{"TopicArn": "arn:aws:sns:us-west-2:111122223333:theseus-notes", "AttributeName": "DisplayName", "AttributeValue": "*"}'
+[[call]]
+guardrail = "external-principal"
+op = "sqs:SetQueueAttributes"
+hit = true
+input = '{"QueueUrl": "theseus-completions", "Attributes": {"Policy": "{\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"444455556666\"}, \"Action\": \"sqs:SendMessage\", \"Resource\": \"*\"}]}"}}'
+[[template]]
+guardrail = "external-principal"
+type = "AWS::IAM::Role"
+hit = true
+properties = '''
+AssumeRolePolicyDocument:
+  Statement:
+    - Effect: Allow
+      Principal: { AWS: arn:aws:iam::444455556666:root }
+      Action: sts:AssumeRole
+'''
+[[template]]
+guardrail = "external-principal"
+type = "AWS::IAM::Role"
+hit = false
+properties = '''
+AssumeRolePolicyDocument:
+  Statement:
+    - Effect: Allow
+      Principal: { AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/root-of-trust" }
+      Action: [sts:AssumeRole, sts:SetSourceIdentity, sts:TagSession]
+    - Effect: Allow
+      Principal: { Service: [ecs-tasks.amazonaws.com, lambda.amazonaws.com] }
+      Action: sts:AssumeRole
+'''
+[[template]]
+guardrail = "external-principal"
+type = "AWS::KMS::Key"
+hit = true
+properties = '''
+KeyPolicy:
+  Statement:
+    - Effect: Allow
+      Principal: { AWS: "*" }
+      Action: kms:Decrypt
+      Resource: "*"
+'''
+[[template]]
+guardrail = "external-principal"
+type = "AWS::KMS::Key"
+hit = false
+properties = '''
+KeyPolicy:
+  Statement:
+    - Effect: Allow
+      Principal: { AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root" }
+      Action: kms:*
+      Resource: "*"
+    - Effect: Allow
+      Principal: { AWS: "*" }
+      Action: [kms:Decrypt, kms:CreateGrant]
+      Resource: "*"
+      Condition:
+        StringEquals:
+          kms:CallerAccount: !Ref AWS::AccountId
+          kms:ViaService: ec2.us-west-2.amazonaws.com
+'''
+
+# --- permission-external
+[[call]]
+guardrail = "permission-external"
+op = "lambda:AddPermission"
+hit = true
+input = '{"FunctionName": "hook", "StatementId": "partner", "Action": "lambda:InvokeFunction", "Principal": "444455556666"}'
+[[call]]
+guardrail = "permission-external"
+op = "lambda:AddPermission"
+hit = true
+input = '{"FunctionName": "hook", "StatementId": "anyone", "Action": "lambda:InvokeFunctionUrl", "Principal": "*", "FunctionUrlAuthType": "NONE"}'
+[[call]]
+guardrail = "permission-external"
+op = "lambda:AddPermission"
+hit = false
+input = '{"FunctionName": "hook", "StatementId": "bucket", "Action": "lambda:InvokeFunction", "Principal": "s3.amazonaws.com", "SourceAccount": "111122223333"}'
+[[call]]
+guardrail = "permission-external"
+op = "lambda:AddPermission"
+hit = false
+input = '{"FunctionName": "hook", "StatementId": "own", "Action": "lambda:InvokeFunction", "Principal": "*", "SourceAccount": "111122223333"}'
+[[call]]
+guardrail = "permission-external"
+op = "sqs:AddPermission"
+hit = true
+input = '{"QueueUrl": "theseus-completions", "Label": "partner", "AWSAccountIds": ["444455556666"], "Actions": ["SendMessage"]}'
+[[call]]
+guardrail = "permission-external"
+op = "sqs:AddPermission"
+hit = false
+input = '{"QueueUrl": "theseus-completions", "Label": "own", "AWSAccountIds": ["111122223333"], "Actions": ["SendMessage"]}'
+[[template]]
+guardrail = "permission-external"
+type = "AWS::Lambda::Permission"
+hit = true
+properties = '''
+FunctionName: hook
+Action: lambda:InvokeFunction
+Principal: "*"
+'''
+[[template]]
+guardrail = "permission-external"
+type = "AWS::Lambda::Permission"
+hit = false
+properties = '''
+FunctionName: hook
+Action: lambda:InvokeFunction
+Principal: events.amazonaws.com
+SourceArn: !GetAtt Schedule.Arn
+'''
+
+# --- sharing
+[[call]]
+guardrail = "sharing"
+op = "ec2:ModifySnapshotAttribute"
+hit = true
+input = '{"SnapshotId": "snap-01", "Attribute": "createVolumePermission", "CreateVolumePermission": {"Add": [{"Group": "all"}]}}'
+[[call]]
+guardrail = "sharing"
+op = "ec2:DescribeSnapshotAttribute"
+hit = false
+input = '{"SnapshotId": "snap-01", "Attribute": "createVolumePermission"}'
+[[template]]
+guardrail = "sharing"
+type = "AWS::RAM::ResourceShare"
+hit = true
+properties = '''
+Name: partner
+Principals: ["444455556666"]
+'''
+[[template]]
+guardrail = "sharing"
+type = "AWS::RAM::ResourceShare"
+hit = false
+properties = '''
+Name: own
+Principals: ["111122223333"]
+'''
+
+# --- kms-grant-direct
+[[call]]
+guardrail = "kms-grant-direct"
+op = "kms:CreateGrant"
+hit = true
+input = '{"KeyId": "alias/theseus-data", "GranteePrincipal": "arn:aws:iam::111122223333:role/theseus-hand-basic", "Operations": ["Decrypt"]}'
+[[call]]
+guardrail = "kms-grant-direct"
+op = "kms:ListGrants"
+hit = false
+input = '{"KeyId": "alias/theseus-data"}'
+
+# --- db-public
+[[call]]
+guardrail = "db-public"
+op = "rds:CreateDBInstance"
+hit = true
+input = '{"DBInstanceIdentifier": "notes", "Engine": "postgres", "DBInstanceClass": "db.t4g.micro", "PubliclyAccessible": true, "DBSubnetGroupName": "private"}'
+[[call]]
+guardrail = "db-public"
+op = "rds:ModifyDBInstance"
+hit = false
+input = '{"DBInstanceIdentifier": "notes", "PubliclyAccessible": false}'
+[[template]]
+guardrail = "db-public"
+type = "AWS::RDS::DBInstance"
+hit = true
+properties = '''
+Engine: postgres
+PubliclyAccessible: true
+'''
+[[template]]
+guardrail = "db-public"
+type = "AWS::RDS::DBInstance"
+hit = false
+properties = '''
+Engine: postgres
+PubliclyAccessible: false
+DBSubnetGroupName: private
+'''
+
+# --- db-public-default
+[[call]]
+guardrail = "db-public-default"
+op = "rds:CreateDBInstance"
+hit = true
+input = '{"DBInstanceIdentifier": "notes", "Engine": "postgres", "DBInstanceClass": "db.t4g.micro"}'
+[[call]]
+guardrail = "db-public-default"
+op = "rds:CreateDBInstance"
+hit = false
+input = '{"DBInstanceIdentifier": "notes", "Engine": "postgres", "DBInstanceClass": "db.t4g.micro", "DBSubnetGroupName": "private"}'
+[[template]]
+guardrail = "db-public-default"
+type = "AWS::RDS::DBInstance"
+hit = true
+properties = '''
+Engine: postgres
+DBInstanceClass: db.t4g.micro
+'''
+[[template]]
+guardrail = "db-public-default"
+type = "AWS::RDS::DBInstance"
+hit = false
+properties = '''
+Engine: aurora-postgresql
+DBInstanceClass: db.r6g.large
+DBClusterIdentifier: notes
+'''
+
+# --- dms-public
+[[call]]
+guardrail = "dms-public"
+op = "dms:CreateReplicationInstance"
+hit = true
+input = '{"ReplicationInstanceIdentifier": "move", "ReplicationInstanceClass": "dms.t3.micro"}'
+[[call]]
+guardrail = "dms-public"
+op = "dms:CreateReplicationInstance"
+hit = false
+input = '{"ReplicationInstanceIdentifier": "move", "ReplicationInstanceClass": "dms.t3.micro", "PubliclyAccessible": false}'
+[[template]]
+guardrail = "dms-public"
+type = "AWS::DMS::ReplicationInstance"
+hit = true
+properties = '''
+ReplicationInstanceClass: dms.t3.micro
+'''
+[[template]]
+guardrail = "dms-public"
+type = "AWS::DMS::ReplicationInstance"
+hit = false
+properties = '''
+ReplicationInstanceClass: dms.t3.micro
+PubliclyAccessible: false
+'''
+
+# --- search-public
+[[call]]
+guardrail = "search-public"
+op = "opensearch:CreateDomain"
+hit = true
+input = '{"DomainName": "notes"}'
+[[call]]
+guardrail = "search-public"
+op = "opensearch:CreateDomain"
+hit = false
+input = '{"DomainName": "notes", "VPCOptions": {"SubnetIds": ["subnet-01"], "SecurityGroupIds": ["sg-01"]}}'
+[[template]]
+guardrail = "search-public"
+type = "AWS::OpenSearchService::Domain"
+hit = true
+properties = '''
+DomainName: notes
+'''
+[[template]]
+guardrail = "search-public"
+type = "AWS::OpenSearchService::Domain"
+hit = false
+properties = '''
+DomainName: notes
+VPCOptions: { SubnetIds: [subnet-01] }
+'''
+
+# --- build-project-public
+[[call]]
+guardrail = "build-project-public"
+op = "codebuild:UpdateProjectVisibility"
+hit = true
+input = '{"projectArn": "arn:aws:codebuild:us-west-2:111122223333:project/hand", "projectVisibility": "PUBLIC_READ"}'
+[[call]]
+guardrail = "build-project-public"
+op = "codebuild:UpdateProjectVisibility"
+hit = false
+input = '{"projectArn": "arn:aws:codebuild:us-west-2:111122223333:project/hand", "projectVisibility": "PRIVATE"}'
+[[template]]
+guardrail = "build-project-public"
+type = "AWS::CodeBuild::Project"
+hit = true
+properties = '''
+Name: hand
+Visibility: PUBLIC_READ
+'''
+[[template]]
+guardrail = "build-project-public"
+type = "AWS::CodeBuild::Project"
+hit = false
+properties = '''
+Name: hand
+Visibility: PRIVATE
+'''
+
+# --- trail-stop
+[[call]]
+guardrail = "trail-stop"
+op = "cloudtrail:StopLogging"
+hit = true
+input = '{"Name": "theseus-trail"}'
+[[call]]
+guardrail = "trail-stop"
+op = "cloudtrail:StartLogging"
+hit = false
+input = '{"Name": "theseus-trail"}'
+[[template]]
+guardrail = "trail-stop"
+type = "AWS::CloudTrail::Trail"
+hit = true
+properties = '''
+IsLogging: false
+S3BucketName: theseus-trail-logs
+'''
+[[template]]
+guardrail = "trail-stop"
+type = "AWS::CloudTrail::Trail"
+hit = false
+properties = '''
+IsLogging: true
+S3BucketName: theseus-trail-logs
+'''
+
+# --- trail-change
+[[call]]
+guardrail = "trail-change"
+op = "cloudtrail:DeleteTrail"
+hit = true
+input = '{"Name": "theseus-trail"}'
+[[call]]
+guardrail = "trail-change"
+op = "cloudtrail:GetTrailStatus"
+hit = false
+input = '{"Name": "theseus-trail"}'
+[[template]]
+guardrail = "trail-change"
+type = "AWS::CloudTrail::Trail"
+hit = true
+properties = '''
+IsLogging: true
+S3BucketName: theseus-trail-logs
+EventSelectors:
+  - { IncludeManagementEvents: false, ReadWriteType: All }
+'''
+[[template]]
+guardrail = "trail-change"
+type = "AWS::CloudTrail::Trail"
+hit = false
+properties = '''
+IsLogging: true
+IsMultiRegionTrail: true
+IncludeGlobalServiceEvents: true
+EnableLogFileValidation: true
+S3BucketName: theseus-trail-logs
+EventSelectors:
+  - { IncludeManagementEvents: true, ReadWriteType: All }
+'''
+
+# --- trail-storage
+[[call]]
+guardrail = "trail-storage"
+op = "s3:DeleteObject"
+hit = true
+input = '{"Bucket": "theseus-trail-logs", "Key": "AWSLogs/111122223333/CloudTrail/x.json.gz"}'
+[[call]]
+guardrail = "trail-storage"
+op = "s3:DeleteObject"
+hit = false
+input = '{"Bucket": "theseus-data", "Key": "hands/1/out.json"}'
+
+# --- trail-key
+[[call]]
+guardrail = "trail-key"
+op = "kms:ScheduleKeyDeletion"
+hit = true
+input = '{"KeyId": "alias/theseus-trail", "PendingWindowInDays": 7}'
+[[call]]
+guardrail = "trail-key"
+op = "kms:ScheduleKeyDeletion"
+hit = false
+input = '{"KeyId": "alias/theseus-data", "PendingWindowInDays": 7}'
+
+# --- detective-controls
+[[call]]
+guardrail = "detective-controls"
+op = "guardduty:DeleteDetector"
+hit = true
+input = '{"DetectorId": "d01"}'
+[[call]]
+guardrail = "detective-controls"
+op = "guardduty:GetDetector"
+hit = false
+input = '{"DetectorId": "d01"}'
+[[template]]
+guardrail = "detective-controls"
+type = "AWS::GuardDuty::Detector"
+hit = true
+properties = '''
+Enable: false
+'''
+[[template]]
+guardrail = "detective-controls"
+type = "AWS::GuardDuty::Detector"
+hit = false
+properties = '''
+Enable: true
+'''
+[[call]]
+guardrail = "detective-controls"
+op = "accessanalyzer:UpdateFindings"
+hit = true
+input = '{"analyzerArn": "arn:aws:access-analyzer:us-west-2:111122223333:analyzer/theseus", "status": "ARCHIVED", "ids": ["f01"]}'
+[[template]]
+guardrail = "detective-controls"
+type = "AWS::GuardDuty::Filter"
+hit = true
+properties = '''
+DetectorId: d01
+Name: quiet-scans
+Action: ARCHIVE
+Rank: 1
+FindingCriteria: { Criterion: { type: { Eq: [Recon:EC2/Portscan] } } }
+'''
+[[template]]
+guardrail = "detective-controls"
+type = "AWS::GuardDuty::Filter"
+hit = false
+properties = '''
+DetectorId: d01
+Name: saved-view
+Action: NOOP
+Rank: 1
+FindingCriteria: { Criterion: { severity: { Gte: 7 } } }
+'''
+
+# --- alarm-tamper
+[[call]]
+guardrail = "alarm-tamper"
+op = "cloudwatch:DeleteAlarms"
+hit = true
+input = '{"AlarmNames": ["theseus-cis-root-use"]}'
+[[call]]
+guardrail = "alarm-tamper"
+op = "cloudwatch:DeleteAlarms"
+hit = false
+input = '{"AlarmNames": ["theseus-hands-cpu"]}'
+
+# --- ebs-default-encryption-off
+[[call]]
+guardrail = "ebs-default-encryption-off"
+op = "ec2:DisableEbsEncryptionByDefault"
+hit = true
+input = '{}'
+[[call]]
+guardrail = "ebs-default-encryption-off"
+op = "ec2:EnableEbsEncryptionByDefault"
+hit = false
+input = '{}'
+
+# --- storage-unencrypted
+[[call]]
+guardrail = "storage-unencrypted"
+op = "rds:CreateDBInstance"
+hit = true
+input = '{"DBInstanceIdentifier": "notes", "Engine": "postgres", "StorageEncrypted": false, "DBSubnetGroupName": "private"}'
+[[call]]
+guardrail = "storage-unencrypted"
+op = "efs:CreateFileSystem"
+hit = true
+input = '{"CreationToken": "notes"}'
+[[call]]
+guardrail = "storage-unencrypted"
+op = "rds:CreateDBInstance"
+hit = false
+input = '{"DBInstanceIdentifier": "notes", "Engine": "postgres", "StorageEncrypted": true, "DBSubnetGroupName": "private"}'
+[[template]]
+guardrail = "storage-unencrypted"
+type = "AWS::EFS::FileSystem"
+hit = true
+properties = '''
+PerformanceMode: generalPurpose
+'''
+[[template]]
+guardrail = "storage-unencrypted"
+type = "AWS::EFS::FileSystem"
+hit = false
+properties = '''
+Encrypted: true
+'''
+
+# --- long-lived-credentials
+[[call]]
+guardrail = "long-lived-credentials"
+op = "iam:CreateAccessKey"
+hit = true
+input = '{"UserName": "root-of-trust"}'
+[[call]]
+guardrail = "long-lived-credentials"
+op = "iam:ListAccessKeys"
+hit = false
+input = '{"UserName": "root-of-trust"}'
+[[template]]
+guardrail = "long-lived-credentials"
+type = "AWS::IAM::User"
+hit = true
+properties = '''
+UserName: ci
+'''
+[[template]]
+guardrail = "long-lived-credentials"
+type = "AWS::IAM::InstanceProfile"
+hit = false
+properties = '''
+Roles: [theseus-hand-basic]
+'''
+
+# --- root-user-change
+[[call]]
+guardrail = "root-user-change"
+op = "iam:DeleteAccessKey"
+hit = true
+input = '{"UserName": "root-of-trust", "AccessKeyId": "AKIAEXAMPLE"}'
+[[call]]
+guardrail = "root-user-change"
+op = "iam:GetUser"
+hit = false
+input = '{"UserName": "root-of-trust"}'
+
+# --- identity-provider
+[[call]]
+guardrail = "identity-provider"
+op = "iam:CreateOpenIDConnectProvider"
+hit = true
+input = '{"Url": "token.ci.example", "ClientIDList": ["sts.amazonaws.com"]}'
+[[call]]
+guardrail = "identity-provider"
+op = "iam:ListOpenIDConnectProviders"
+hit = false
+input = '{}'
+[[template]]
+guardrail = "identity-provider"
+type = "AWS::IAM::OIDCProvider"
+hit = true
+properties = '''
+ClientIdList: [sts.amazonaws.com]
+'''
+[[template]]
+guardrail = "identity-provider"
+type = "AWS::IAM::InstanceProfile"
+hit = false
+properties = '''
+Roles: [theseus-hand-basic]
+'''
+
+# --- budget-change
+[[call]]
+guardrail = "budget-change"
+op = "budgets:UpdateBudget"
+hit = true
+input = '{"AccountId": "111122223333", "NewBudget": {"BudgetName": "theseus-monthly", "BudgetType": "COST", "TimeUnit": "MONTHLY", "BudgetLimit": {"Amount": "3000", "Unit": "USD"}}}'
+[[call]]
+guardrail = "budget-change"
+op = "budgets:DescribeBudget"
+hit = false
+input = '{"AccountId": "111122223333", "BudgetName": "theseus-monthly"}'
+
+# --- budget-stop-lift
+[[call]]
+guardrail = "budget-stop-lift"
+op = "budgets:ExecuteBudgetAction"
+hit = true
+input = '{"AccountId": "111122223333", "BudgetName": "theseus-monthly", "ActionId": "a1", "ExecutionType": "REVERSE_BUDGET_ACTION"}'
+[[call]]
+guardrail = "budget-stop-lift"
+op = "budgets:DescribeBudgetAction"
+hit = false
+input = '{"AccountId": "111122223333", "BudgetName": "theseus-monthly", "ActionId": "a1"}'
+
+# --- budget-stop-detach
+[[call]]
+guardrail = "budget-stop-detach"
+op = "iam:DetachRolePolicy"
+hit = true
+input = '{"RoleName": "theseus-owner", "PolicyArn": "arn:aws:iam::111122223333:policy/theseus-deny-spend"}'
+[[call]]
+guardrail = "budget-stop-detach"
+op = "iam:DetachRolePolicy"
+hit = false
+input = '{"RoleName": "theseus-owner", "PolicyArn": "arn:aws:iam::111122223333:policy/theseus-scratch"}'
+
+# --- organizations
+[[call]]
+guardrail = "organizations"
+op = "organizations:LeaveOrganization"
+hit = true
+input = '{}'
+[[call]]
+guardrail = "organizations"
+op = "organizations:DescribeOrganization"
+hit = false
+input = '{}'
+
+# --- account-contacts
+[[call]]
+guardrail = "account-contacts"
+op = "account:PutAlternateContact"
+hit = true
+input = '{"AlternateContactType": "SECURITY", "Name": "Ops", "Title": "Ops", "EmailAddress": "ops@example.org", "PhoneNumber": "+15550100"}'
+[[call]]
+guardrail = "account-contacts"
+op = "account:GetAlternateContact"
+hit = false
+input = '{"AlternateContactType": "SECURITY"}'
+
+# --- guard-policies
+[[call]]
+guardrail = "guard-policies"
+op = "iam:CreatePolicyVersion"
+hit = true
+input = '{"PolicyArn": "arn:aws:iam::111122223333:policy/theseus-guard-limits", "PolicyDocument": "{}", "SetAsDefault": true}'
+[[call]]
+guardrail = "guard-policies"
+op = "iam:CreatePolicyVersion"
+hit = false
+input = '{"PolicyArn": "arn:aws:iam::111122223333:policy/theseus-scratch", "PolicyDocument": "{}", "SetAsDefault": true}'
+
+# --- deployer-role
+[[call]]
+guardrail = "deployer-role"
+op = "iam:UpdateAssumeRolePolicy"
+hit = true
+input = '{"RoleName": "theseus-cfn-deployer", "PolicyDocument": "{}"}'
+[[call]]
+guardrail = "deployer-role"
+op = "iam:UpdateAssumeRolePolicy"
+hit = false
+input = '{"RoleName": "theseus-hand-basic", "PolicyDocument": "{}"}'
+
+# --- deployer-pass
+[[call]]
+guardrail = "deployer-pass"
+op = "ecs:RunTask"
+hit = true
+input = '{"cluster": "theseus-hands", "taskDefinition": "hand:3", "overrides": {"taskRoleArn": "arn:aws:iam::111122223333:role/theseus-cfn-deployer"}}'
+[[call]]
+guardrail = "deployer-pass"
+op = "ecs:RunTask"
+hit = false
+input = '{"cluster": "theseus-hands", "taskDefinition": "hand:3", "overrides": {"taskRoleArn": "arn:aws:iam::111122223333:role/theseus-hand-basic"}}'
+[[call]]
+guardrail = "deployer-pass"
+op = "codebuild:StartBuild"
+hit = true
+input = '{"projectName": "hand-image", "serviceRoleOverride": "theseus-cfn-deployer"}'
+[[call]]
+guardrail = "deployer-pass"
+op = "sagemaker:CreateTrainingJob"
+hit = false
+input = '{"TrainingJobName": "probe", "RoleArn": "arn:aws:iam::111122223333:role/not-theseus-cfn-deployer"}'
+
+# --- hand-boundary
+[[call]]
+guardrail = "hand-boundary"
+op = "iam:DeleteRolePermissionsBoundary"
+hit = true
+input = '{"RoleName": "theseus-hand-owner"}'
+[[call]]
+guardrail = "hand-boundary"
+op = "iam:DeleteRolePermissionsBoundary"
+hit = false
+input = '{"RoleName": "theseus-owner"}'
+
+# --- change sets: an entry with change rules asks at a modify or a removal
+[[change]]
+guardrail = "trail-change"
+type = "AWS::CloudTrail::Trail"
+physical = "theseus-trail"
+action = "modify"
+hit = true
+[[change]]
+guardrail = "trail-change"
+type = "AWS::CloudTrail::Trail"
+action = "add"
+hit = false
+[[change]]
+guardrail = "detective-controls"
+type = "AWS::GuardDuty::Detector"
+physical = "d01"
+action = "remove"
+hit = true
+[[change]]
+guardrail = "detective-controls"
+type = "AWS::GuardDuty::Detector"
+action = "add"
+hit = false
+[[change]]
+guardrail = "alarm-tamper"
+type = "AWS::CloudWatch::Alarm"
+physical = "theseus-cis-root-use"
+action = "modify"
+hit = true
+[[change]]
+guardrail = "alarm-tamper"
+type = "AWS::CloudWatch::Alarm"
+physical = "theseus-hands-cpu"
+action = "modify"
+hit = false
+[[change]]
+guardrail = "budget-change"
+type = "AWS::Budgets::Budget"
+physical = "theseus-monthly"
+action = "modify"
+hit = true
+[[change]]
+guardrail = "budget-change"
+type = "AWS::Budgets::Budget"
+action = "add"
+hit = false
+[[change]]
+guardrail = "guard-policies"
+type = "AWS::IAM::ManagedPolicy"
+physical = "arn:aws:iam::111122223333:policy/theseus-guard-limits"
+action = "modify"
+hit = true
+[[change]]
+guardrail = "guard-policies"
+type = "AWS::IAM::ManagedPolicy"
+physical = "arn:aws:iam::111122223333:policy/scratch-readers"
+action = "modify"
+hit = false
+[[change]]
+guardrail = "deployer-role"
+type = "AWS::IAM::Role"
+physical = "theseus-cfn-deployer"
+action = "modify"
+hit = true
+[[change]]
+guardrail = "deployer-role"
+type = "AWS::IAM::Role"
+physical = "theseus-hand-basic"
+action = "modify"
+hit = false
