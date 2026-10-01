@@ -183,9 +183,10 @@ fn loopback_up() -> io::Result<()> {
     for (i, b) in b"lo".iter().enumerate() {
         ifr.ifr_name[i] = *b as libc::c_char;
     }
-    cvt(unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCGIFFLAGS, &mut ifr) })?;
+    // The request's type differs between the C libraries (musl's is an int).
+    cvt(unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCGIFFLAGS as _, &mut ifr) })?;
     unsafe { ifr.ifr_ifru.ifru_flags |= libc::IFF_UP as libc::c_short };
-    cvt(unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCSIFFLAGS, &ifr) })?;
+    cvt(unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCSIFFLAGS as _, &ifr) })?;
     Ok(())
 }
 

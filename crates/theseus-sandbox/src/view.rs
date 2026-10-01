@@ -413,18 +413,22 @@ fn atime_flags(path: &str) -> libc::c_ulong {
     if unsafe { libc::statvfs(p.as_ptr(), &mut st) } != 0 {
         return 0;
     }
-    let f = st.f_flag;
+    // statvfs's flag bits (Linux's; musl's libc crate lacks ST_RELATIME).
+    const ST_NOATIME: libc::c_ulong = 0x400;
+    const ST_NODIRATIME: libc::c_ulong = 0x800;
+    const ST_RELATIME: libc::c_ulong = 0x1000;
+    let f = st.f_flag as libc::c_ulong;
     let mut flags = 0;
-    if f & libc::ST_NOATIME != 0 {
+    if f & ST_NOATIME != 0 {
         flags |= libc::MS_NOATIME;
     }
-    if f & libc::ST_NODIRATIME != 0 {
+    if f & ST_NODIRATIME != 0 {
         flags |= libc::MS_NODIRATIME;
     }
-    if f & libc::ST_RELATIME != 0 {
+    if f & ST_RELATIME != 0 {
         flags |= libc::MS_RELATIME;
     }
-    if f & (libc::ST_NOATIME | libc::ST_RELATIME) == 0 {
+    if f & (ST_NOATIME | ST_RELATIME) == 0 {
         flags |= libc::MS_STRICTATIME;
     }
     flags
