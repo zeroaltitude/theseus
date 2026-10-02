@@ -410,3 +410,147 @@ fn the_waker_wakes_on_an_append_and_its_timer_is_the_backstop() {
     h.join().unwrap();
     assert_eq!(waker.wait(Duration::from_millis(20)).unwrap(), Wake::Timer);
 }
+
+/// Frame `i` of appender `a`: one to three records, each naming itself.
+fn frame_of(a: u32, i: u32) -> Vec<NewRecord> {
+    (0..=i % 3)
+        .map(|j| NewRecord::bytes(kinds::LEDGER, None, format!("a{a} f{i} r{j}").into_bytes()))
+        .collect()
+}
+
+/// What a follower read beside appenders: the records, the segments it
+/// sealed, its spans, and how many records it read while they still ran.
+#[derive(Default)]
+struct Followed {
+    records: Vec<Record>,
+    sealed: Vec<u32>,
+    spans: Vec<(u32, u64, u64)>,
+    while_writing: usize,
+}
+
+/// Read beside `appenders` until they are done and the follower has caught
+/// up with `last`, failing at the first error it reads.
+fn follow_beside(
+    f: &mut WalFollower,
+    appenders: &[std::thread::JoinHandle<()>],
+    last: impl Fn() -> u64,
+) -> Followed {
+    let mut out = Followed::default();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let writing = appenders.iter().any(|h| !h.is_finished());
+        let b = f
+            .read(4096)
+            .unwrap_or_else(|e| panic!("the follower, beside the writer: {e}"));
+        if writing {
+            out.while_writing += b.records.len();
+        }
+        let empty = b.is_empty();
+        out.records.extend(b.records);
+        out.sealed.extend(b.sealed);
+        out.spans.extend(b.spans);
+        if !writing && *f.stop() == Stop::CaughtUp && f.cursor().position == last() {
+            return out;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the follower did not catch up: {:?}",
+            f.stop()
+        );
+        if empty {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
+/// The spans tile each of segments 1 to `last` once, in order: a shipper
+/// copies each byte once.
+fn assert_tiled(dir: &Path, spans: &[(u32, u64, u64)], last: u32) {
+    for s in 1..=last {
+        let mut at = 0;
+        for (_, from, to) in spans.iter().filter(|(seg, ..)| *seg == s) {
+            assert_eq!(*from, at, "segment {s}: a gap or an overlap at {at}");
+            at = *to;
+        }
+        assert_eq!(at, fs::metadata(seg(dir, s)).unwrap().len(), "segment {s}");
+    }
+}
+
+/// The store's writer (theseus-vni9) writes a batch's frames back to back and
+/// syncs once for all of them, where each append used to write and sync its
+/// own. A follower reads the page cache, never the syncs, so beside the writer
+/// it must see what it always saw: whole frames in position order, each record
+/// once, each appender's frames in the order it appended them, a segment
+/// sealed only after its last frame, and no frame it calls corrupt, with the
+/// writer rolling segments inside its batches.
+#[test]
+fn a_follower_beside_the_stores_batching_writer_reads_each_record_once_in_order() {
+    use std::sync::Arc;
+    use theseus_store::{Store as _, WalStore};
+
+    const APPENDERS: u32 = 4;
+    const FRAMES: u32 = 100;
+    let dir = tempfile::tempdir().unwrap();
+    let wal_dir = dir.path().join("wal");
+    // Small segments, so the writer rolls inside its batches; fsync on, so
+    // appends queue while a sync runs, and the batches form.
+    let cfg = WalConfig {
+        segment_bytes: 2048,
+        ..WalConfig::default()
+    };
+    let store = Arc::new(WalStore::open(dir.path(), cfg).unwrap());
+    let mut f = WalFollower::open(&wal_dir, Cursor::start()).unwrap();
+    let appenders: Vec<_> = (0..APPENDERS)
+        .map(|a| {
+            let store = store.clone();
+            std::thread::spawn(move || {
+                for i in 0..FRAMES {
+                    store.append(&frame_of(a, i)).unwrap();
+                }
+            })
+        })
+        .collect();
+    let read = follow_beside(&mut f, &appenders, || store.stats().unwrap().last_position);
+    for h in appenders {
+        h.join().unwrap();
+    }
+
+    let stats = store.stats().unwrap();
+    // What the test is about: the writer batched, and rolled, while the
+    // follower read.
+    assert!(
+        stats.syncs < stats.frames_appended,
+        "{} syncs for {} frames: no batch formed",
+        stats.syncs,
+        stats.frames_appended
+    );
+    assert!(stats.wal_segments >= 4, "{} segments", stats.wal_segments);
+    assert!(
+        read.while_writing > 0,
+        "the follower read nothing while the writer wrote"
+    );
+    // Each record once, in position order.
+    let total = u64::from(APPENDERS) * (0..FRAMES).map(|i| u64::from(i % 3 + 1)).sum::<u64>();
+    assert_eq!(
+        read.records.iter().map(|r| r.position).collect::<Vec<_>>(),
+        (1..=total).collect::<Vec<_>>()
+    );
+    // Each appender's frames whole and in its own order.
+    for a in 0..APPENDERS {
+        let tag = format!("a{a} ");
+        let mine: Vec<&[u8]> = read
+            .records
+            .iter()
+            .map(|r| r.payload.as_slice())
+            .filter(|p| p.starts_with(tag.as_bytes()))
+            .collect();
+        let appended: Vec<Vec<u8>> = (0..FRAMES)
+            .flat_map(|i| frame_of(a, i))
+            .map(|r| r.payload)
+            .collect();
+        assert_eq!(mine, appended, "appender {a}");
+    }
+    // Every segment but the last sealed, once each and in order.
+    assert_eq!(read.sealed, (1..stats.wal_segments).collect::<Vec<_>>());
+    assert_tiled(&wal_dir, &read.spans, stats.wal_segments);
+}
