@@ -65,6 +65,7 @@ ledger_kinds! {
     BudgetLimitChanged = "budget.limit_changed",
     BudgetMigrated = "budget.migrated",
     BudgetOverLimit = "budget.over_limit",
+    BudgetReopened = "budget.reopened",
     BudgetReset = "budget.reset",
     CompletionDuplicate = "completion.duplicate",
     CompletionLateAfterCancel = "completion.late_after_cancel",

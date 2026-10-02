@@ -29,6 +29,7 @@ use theseus_store::{kinds, NewRecord, Record, Store};
 use crate::clock::Clock;
 use crate::gate::{digest_proposal, Proposal};
 use crate::locks::{ExecLock, ExecLocks};
+use crate::reopen::reopens;
 use crate::terms;
 use crate::tx::{Staged, Tx};
 use crate::types::*;
@@ -323,6 +324,10 @@ pub struct ReconcileReport {
 pub struct StartupReport {
     pub steps: Vec<StartupStep>,
     pub requeued_interrupted: Vec<ExecutionId>,
+    /// Executions the old unit budget ended whose dollar spend is under
+    /// their limit, reopened in step 2 to wait on input (theseus-3ebd).
+    #[serde(default)]
+    pub reopened: Vec<ExecutionId>,
     /// Open executions that took a changed spend limit in step 2 (a config
     /// that may act at once; theseus-3pj).
     #[serde(default)]
@@ -2800,15 +2805,17 @@ impl Kernel {
         step(1, "store", t)?;
 
         // 2. load executions; requeue interrupted turns; rewrite, once, the
-        //    executions stored with a unit budget (theseus-0sg); and, under a
+        //    executions stored with a unit budget (theseus-0sg), reopening those
+        //    under their dollar limit (theseus-3ebd); and, under a
         //    config that may act, give every open execution that follows the
         //    config a changed spend limit (theseus-3pj; under a copy the vault
         //    has not confirmed, `follow_spend_limit` does it on the vault's
         //    word). The rewrites share one frame: the first start under this
         //    binary, or under a changed limit, pays one fsync for them, and
         //    every later start finds none. It reads only those executions,
-        //    by their terms (theseus-lv2): a turn running, a unit budget, a
-        //    limit other than the config's. A parked one is read by none.
+        //    by their terms (theseus-lv2): a turn running, a unit budget or
+        //    one a unit budget ended (dollars end none), a limit other than
+        //    the config's. A parked one is read by none.
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 2;
         let now = self.now_ms();
@@ -2818,6 +2825,7 @@ impl Kernel {
         let mut wanted = vec![
             terms::one(&terms::state(ExecState::Running)),
             terms::one("legacy"),
+            terms::one(&terms::state(ExecState::BudgetExhausted)),
         ];
         if follow {
             wanted.extend(terms::limits_other_than(self.cfg.spend_limit_micros));
@@ -2831,7 +2839,10 @@ impl Kernel {
         // taken together in id order and held to the step's end, so the scan
         // decides nothing it writes. A clean start reads and rewrites none.
         let rewrites = |e: &Execution| {
-            e.state == ExecState::Running || e.schema < SCHEMA || (follow && self.follows_limit(e))
+            e.state == ExecState::Running
+                || e.schema < SCHEMA
+                || reopens(e)
+                || (follow && self.follows_limit(e))
         };
         let ids: Vec<&str> = all
             .iter()
@@ -2856,6 +2867,7 @@ impl Kernel {
                 )?);
                 rewritten += 1;
             }
+            self.reopen(&mut e, now, &mut rows, &mut rep.reopened)?;
             let interrupted = e.state == ExecState::Running;
             if interrupted {
                 e.interrupted += 1;
@@ -2907,7 +2919,7 @@ impl Kernel {
         step_rows.push(self.ledger(
             LedgerKind::StartupStep,
             None,
-            json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten, "limits_followed": rep.limits_followed.len()}),
+            json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten, "budgets_reopened": rep.reopened, "limits_followed": rep.limits_followed.len()}),
         )?);
         step(2, "load", t)?;
 

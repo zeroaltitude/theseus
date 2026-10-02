@@ -16,6 +16,7 @@ pub mod kernel;
 mod locks;
 pub mod outbox;
 pub mod redact;
+mod reopen;
 pub mod spool;
 pub mod stops;
 pub mod tasks;
@@ -27,6 +28,8 @@ pub mod wakes;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_budgets;
 #[cfg(test)]
 mod tests_frames;
 #[cfg(test)]

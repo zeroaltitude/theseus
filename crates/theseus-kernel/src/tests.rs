@@ -24,7 +24,7 @@ pub(super) struct World {
 
 /// The store as the daemon opens it: its index keeps the kernel's terms
 /// (theseus-lv2).
-fn open_store(dir: &std::path::Path) -> Arc<dyn Store> {
+pub(super) fn open_store(dir: &std::path::Path) -> Arc<dyn Store> {
     Arc::new(
         WalStore::open_projected(
             &dir.join("store"),
@@ -1800,123 +1800,6 @@ fn rows_stored_before_the_session_model_cut_still_read() {
     };
     assert_eq!(w.kernel.execution(&e.id).unwrap().unwrap(), expected);
     assert_eq!(w.kernel.action(&a.correlation_id).unwrap().unwrap(), a);
-}
-
-/// Executions stored with unit budgets (before theseus-0sg) serve under this
-/// binary: M3.5's rule is that a new on-disk format lands with the reader for
-/// the one it replaces. The reader gives each a dollar budget: the configured
-/// limit, nothing reserved or held, and the unit figures kept as they were.
-/// Startup rewrites each once, taking its spend from the session's recorded
-/// cost (a lookup the core installs). Terminal stays terminal, a turn a crash
-/// interrupted is requeued, and the next startup rewrites nothing.
-#[test]
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-fn executions_stored_with_unit_budgets_serve_in_dollars() {
-    let exhausted = r#"{"id":"exe_old_exhausted","schema":1,"session_id":"ses_old_a","kind":"conversation","state":"budget_exhausted","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}},"outstanding":[],"queued_results":[],"turns":15,"interrupted":0,"resume_pending":false,"ended_reason":"action provider.messages needs 172068 units, 112317 available","created_at_ms":1790000000000,"updated_at_ms":1790000500000}"#;
-    let waiting = r#"{"id":"exe_old_waiting","schema":1,"session_id":"ses_old_b","kind":"conversation","state":"waiting","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":20000000,"spent":154321,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}},"wake":{"on":"input"},"outstanding":[],"queued_results":[],"turns":3,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000500000}"#;
-    let running = r#"{"id":"exe_old_running","schema":1,"session_id":"ses_old_c","kind":"task","state":"running","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":1000000,"spent":5000,"reserved":133351,"held_unknown":2000,"control_reserve":10000,"reservations":{"rsv_old":133351}},"outstanding":[],"queued_results":[],"turns":2,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000500000}"#;
-    let w = world();
-    let raw = |key: &str, session: &str, json: &str| {
-        let v: serde_json::Value = serde_json::from_str(json).unwrap();
-        NewRecord::json(kinds::EXECUTION, Some(key), &v)
-            .unwrap()
-            .scoped(session)
-    };
-    w.kernel
-        .store()
-        .append(&[
-            raw("exe_old_exhausted", "ses_old_a", exhausted),
-            raw("exe_old_waiting", "ses_old_b", waiting),
-            raw("exe_old_running", "ses_old_c", running),
-        ])
-        .unwrap();
-    // Before any rewrite, the reader already serves every one of them.
-    let read = w.kernel.execution("exe_old_exhausted").unwrap().unwrap();
-    assert_eq!(read.state, ExecState::BudgetExhausted);
-    assert_eq!(read.budget.limit_micros, 100 * MICROS_PER_USD);
-    assert_eq!(read.budget.units_before.as_ref().unwrap().spent, 877_683);
-
-    let restart = |w: World| {
-        let World {
-            dir,
-            clock,
-            spool,
-            kernel,
-        } = w;
-        drop(kernel);
-        let spent = |session: &str| match session {
-            "ses_old_a" => 450_000,
-            "ses_old_b" => 12_000,
-            _ => 0,
-        };
-        let kernel = Kernel::new(
-            open_store(dir.path()),
-            clock.clone(),
-            KernelConfig::default(),
-        )
-        .with_legacy_spend(Arc::new(spent));
-        kernel.startup(Some(&spool), &NoEvidence).unwrap();
-        World {
-            dir,
-            clock,
-            spool,
-            kernel,
-        }
-    };
-    let w = restart(w);
-    let x = w.kernel.execution("exe_old_exhausted").unwrap().unwrap();
-    assert_eq!(
-        x.state,
-        ExecState::BudgetExhausted,
-        "terminal stays terminal"
-    );
-    assert_eq!(x.schema, SCHEMA);
-    assert_eq!(
-        (x.budget.limit_micros, x.budget.spent_micros),
-        (100 * MICROS_PER_USD, 450_000),
-        "the configured limit, and the session's recorded $0.45"
-    );
-    let units = x.budget.units_before.clone().unwrap();
-    assert_eq!((units.limit, units.spent), (1_000_000, 877_683));
-    assert_eq!(
-        x.ended_reason.as_deref().map(|r| r.contains("172068")),
-        Some(true)
-    );
-    let y = w.kernel.execution("exe_old_waiting").unwrap().unwrap();
-    assert_eq!(
-        (y.state, y.budget.spent_micros),
-        (ExecState::Waiting, 12_000)
-    );
-    let z = w.kernel.execution("exe_old_running").unwrap().unwrap();
-    assert_eq!((z.state, z.interrupted), (ExecState::Queued, 1));
-    assert_eq!(
-        (z.budget.reserved_micros, z.budget.held_unknown_micros),
-        (0, 0),
-        "units are never read as dollars"
-    );
-    assert!(z.budget.reservations.is_empty());
-    assert_eq!(z.budget.units_before.as_ref().unwrap().held_unknown, 2000);
-    for (session, n) in [("ses_old_a", 1), ("ses_old_b", 1), ("ses_old_c", 1)] {
-        let migrated = rows(&w, session, "budget.migrated");
-        assert_eq!(migrated.len(), n, "{session}");
-        assert!(migrated[0]["units_before"].is_object(), "{:?}", migrated[0]);
-    }
-    assert_eq!(
-        rows(&w, "ses_old_a", "budget.migrated")[0]["spent_usd"],
-        0.45
-    );
-    // The next startup finds nothing to rewrite.
-    let w = restart(w);
-    for session in ["ses_old_a", "ses_old_b", "ses_old_c"] {
-        assert_eq!(rows(&w, session, "budget.migrated").len(), 1, "{session}");
-    }
-    assert_eq!(
-        w.kernel.stats().unwrap().executions_by_state["budget_exhausted"],
-        1
-    );
-    // The rewritten budget counts on from the session's recorded spend.
-    let e = w.kernel.execution("exe_old_waiting").unwrap().unwrap();
-    assert_eq!(e.budget.available(), 100 * MICROS_PER_USD - 12_000);
 }
 
 // ------------------------------------------------------------ one writer per execution (theseus-id9)

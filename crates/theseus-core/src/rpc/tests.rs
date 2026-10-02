@@ -925,11 +925,14 @@ async fn a_store_with_unit_budgets_waits_for_a_config_the_vault_confirmed() {
 
 /// A store the previous binary wrote, whose executions carry unit budgets
 /// (theseus-0sg): one ended `budget_exhausted` at 877,683 of 1,000,000
-/// units, as Eddie's Discord session did on 2026-09-29 for $0.45, and one
-/// waits on input. It serves at once. `session.list`, `session.history`,
-/// and `execution.list` answer; the ended one stays ended, now read in
-/// dollars at the configured limit with its units kept; the waiting one
-/// takes its session's recorded cost as its spend, and its next turn runs.
+/// units, as Eddie's Discord session did on 2026-09-29 for $0.45; one ended
+/// the same way whose session spent its whole $100; and one waits on input.
+/// It serves at once. `session.list`, `session.history`, and
+/// `execution.list` answer, each read in dollars at the configured limit
+/// with its units kept, and each takes its session's recorded cost as its
+/// spend. The one ended at $0.45 of $100 reopens, and its next turn runs
+/// (theseus-3ebd); the one at its dollar limit stays ended and refuses a
+/// turn; the waiting one's next turn runs.
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
@@ -940,11 +943,16 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
     ended.cost_usd = 0.45;
     ended.turns = 15;
     ended.execution_id = Some("exe_old_exhausted".into());
+    let mut spent = SessionRecord::new(SessionKind::Conversation, None);
+    spent.cost_usd = 100.0;
+    spent.turns = 40;
+    spent.execution_id = Some("exe_old_spent".into());
     let mut open = SessionRecord::new(SessionKind::Conversation, None);
     open.cost_usd = 0.012;
     open.turns = 3;
     open.execution_id = Some("exe_old_waiting".into());
     store.put_session(&ended.session_id, &ended).unwrap();
+    store.put_session(&spent.session_id, &spent).unwrap();
     store.put_session(&open.session_id, &open).unwrap();
     let exec = |id: &str, session: &str, rest: &str| {
         let json = format!(
@@ -960,6 +968,11 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
             exec(
                 "exe_old_exhausted",
                 &ended.session_id,
+                r#""state":"budget_exhausted","ended_reason":"action provider.messages needs 172068 units, 112317 available","budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
+            ),
+            exec(
+                "exe_old_spent",
+                &spent.session_id,
                 r#""state":"budget_exhausted","ended_reason":"action provider.messages needs 172068 units, 112317 available","budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
             ),
             exec(
@@ -1013,6 +1026,11 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
     };
     assert_eq!(
         state(&ended.session_id).as_deref(),
+        Some("waiting"),
+        "reopened: $0.45 of $100 (theseus-3ebd)"
+    );
+    assert_eq!(
+        state(&spent.session_id).as_deref(),
         Some("budget_exhausted")
     );
     assert_eq!(state(&open.session_id).as_deref(), Some("waiting"));
@@ -1027,9 +1045,16 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
         .iter()
         .find(|e| e.execution_id == "exe_old_exhausted")
         .unwrap();
-    assert_eq!(x.state, "budget_exhausted", "terminal stays terminal");
+    assert_eq!(x.state, "waiting", "reopened under its dollar limit");
     assert_eq!((x.budget.limit_usd, x.budget.spent_usd), (100.0, 0.45));
     assert_eq!(x.budget.units_before["spent"], 877_683);
+    let s = execs
+        .executions
+        .iter()
+        .find(|e| e.execution_id == "exe_old_spent")
+        .unwrap();
+    assert_eq!(s.state, "budget_exhausted", "at its dollar limit");
+    assert_eq!((s.budget.limit_usd, s.budget.spent_usd), (100.0, 100.0));
     let y = execs
         .executions
         .iter()
@@ -1044,9 +1069,20 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
         .map(|(_, r)| r)
         .filter(|r| r.kind == "budget.migrated")
         .collect();
-    assert_eq!(migrated.len(), 2);
+    assert_eq!(migrated.len(), 3);
+    let reopened: Vec<LedgerRow> = core
+        .store
+        .ledger_tail::<LedgerRow>(500)
+        .unwrap()
+        .into_iter()
+        .map(|(_, r)| r)
+        .filter(|r| r.kind == "budget.reopened")
+        .collect();
+    assert_eq!(reopened.len(), 1, "{reopened:?}");
+    assert_eq!(reopened[0].session_id.as_ref(), Some(&ended.session_id));
 
-    // The ended session refuses a turn as before; the waiting one runs.
+    // The session at its dollar limit refuses a turn as before; the
+    // reopened one and the waiting one run.
     let submit = |id: u64, session: &str| {
         Request::new(
             Id::Num(id),
@@ -1063,7 +1099,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
             },
         )
     };
-    let msgs = roundtrip(core.clone(), vec![submit(5, &ended.session_id)]).await;
+    let msgs = roundtrip(core.clone(), vec![submit(5, &spent.session_id)]).await;
     let refused = responses(&msgs)[0]
         .error
         .clone()
@@ -1072,6 +1108,15 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
         refused.data["class"], "execution_budget_exhausted",
         "{refused:?}"
     );
+    let msgs = roundtrip(core.clone(), vec![submit(7, &ended.session_id)]).await;
+    let reopened: TurnSubmitResult = serde_json::from_value(
+        responses(&msgs)[0]
+            .result
+            .clone()
+            .expect("the reopened session takes a turn"),
+    )
+    .unwrap();
+    assert_eq!(reopened.output, "Still here.");
     let msgs = roundtrip(core.clone(), vec![submit(6, &open.session_id)]).await;
     let ok: TurnSubmitResult =
         serde_json::from_value(responses(&msgs)[0].result.clone().unwrap()).unwrap();
