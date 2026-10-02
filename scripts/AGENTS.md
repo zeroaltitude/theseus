@@ -294,10 +294,15 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   is bounded.
 - **The token flag goes before the subcommand** (`theseusd --op-token-file F install --user`): the order every installed
   build reads, including those from before it became a global flag.
+- **`check` reads the config from the plan's `config:` line**, never from `THESEUS_CONFIG` alone: the unit gets what the plan
+  prints (the variable, else the build's built-in default, made absolute), and a build's default can be a file the machine
+  does not have. A file must be readable and a vault reference well formed, or `check` fails and `install` stops before its
+  first question. That holds on a build before theseus-8d1b (a vault reference as the default) and after it (a file).
 - **Its tests** are `crates/theseusd/tests/user_service_script.rs`. They run the real script and the real `theseusd install
   --user` in a scratch `HOME`, with `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` replaced by one stand-in that
   logs each call and keeps its state in files. A command the script starts to run needs a case in that stand-in, and a line
-  in the dry-run test.
+  in the dry-run test. The config tests swap `theseusd` for a stand-in plan (`PLAN_STANDIN`) that names a file as its default,
+  so they hold before and after theseus-8d1b changes the real default.
 
 ## smoke.sh
 

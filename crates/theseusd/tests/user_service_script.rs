@@ -5,6 +5,10 @@
 //! release, `/etc/wsl.conf`, the cgroup), and are the real tools otherwise. Nothing here reaches the
 //! machine's systemd, its journal, its accounts, or any daemon.
 //!
+//! The config tests swap `theseusd` for a stand-in whose plan names its config the way a build with a file
+//! as its built-in default does (theseus-8d1b), because the real one's default is a vault reference until that
+//! lane joins: `check` reads the config from the plan's `config:` line, so it has to hold on either build.
+//!
 //! The script refuses root, so these tests are skipped as root.
 
 use std::os::unix::fs::PermissionsExt;
@@ -98,6 +102,35 @@ theseus)
   ;;
 op) ;;
 esac
+"#;
+
+/// A `theseusd` whose plan names its config the way a build with a file as its default does: `THESEUS_CONFIG`,
+/// else `$FAKE/default-config` when that file exists (a build whose default is a vault reference), else
+/// `~/.theseus/theseus.toml`. `$FAKE/plan-says` replaces the whole plan, with exit status 2. It logs each call,
+/// answers `--version`, and refuses what a read-only check never asks of it.
+const PLAN_STANDIN: &str = r#"#!/bin/bash
+F=${FAKE:?}
+{ printf 'theseusd'; printf ' %s' "$@"; echo; } >>"$F/calls.log"
+case " $* " in
+*" --version "*)
+  echo "theseusd 0.0.1"
+  exit 0
+  ;;
+*" --apply "* | *" --check "* | *" --remove "*) exit 1 ;;
+*" install --user "*)
+  if [ -f "$F/plan-says" ]; then
+    printf '%s\n' "$(<"$F/plan-says")"
+    exit 2
+  fi
+  if [ -f "$F/default-config" ]; then def=$(<"$F/default-config"); else def=$HOME/.theseus/theseus.toml; fi
+  echo "theseusd install --user: the plan. Nothing is changed: --apply performs it."
+  echo "  operator:  ada (uid 1000)"
+  echo "  binary:    $0"
+  echo "  config:    ${THESEUS_CONFIG:-$def}"
+  exit 0
+  ;;
+esac
+exit 1
 "#;
 
 fn script() -> PathBuf {
@@ -198,6 +231,22 @@ impl Rig {
         std::fs::set_permissions(&at, PermissionsExt::from_mode(0o755)).unwrap();
     }
 
+    /// A `theseusd` that is the plan stand-in: a build whose built-in config is a file this machine does not
+    /// have, until a test sets `default-config` or `plan-says`.
+    fn plan_build(&self) {
+        let at = self.home().join("bin/theseusd");
+        std::fs::remove_file(&at).unwrap(); // a link to the real binary: never write through it
+        std::fs::write(&at, PLAN_STANDIN).unwrap();
+        std::fs::set_permissions(&at, PermissionsExt::from_mode(0o755)).unwrap();
+    }
+
+    /// `check` in a shell that has not exported `THESEUS_CONFIG`.
+    fn check_without_the_variable(&self) -> (i32, String) {
+        let mut c = self.command(&["check"]);
+        c.env_remove("THESEUS_CONFIG");
+        Self::said(&c.output().unwrap())
+    }
+
     /// The script, with the variables a shell that starts the daemon has.
     fn command(&self, args: &[&str]) -> Command {
         let mut c = Command::new("bash");
@@ -287,6 +336,12 @@ fn check_passes_on_a_machine_that_is_ready() {
         assert!(out.contains(want), "{want:?} missing from:\n{out}");
     }
     // Read-only: nothing was started, stopped, enabled, or written.
+    assert_nothing_changed(&r);
+}
+
+/// What neither `check` nor a stopped `install` may have run: nothing started, stopped, enabled, or written, and
+/// no daemon asked to shut down.
+fn assert_nothing_changed(r: &Rig) {
     for mutating in [
         "systemctl --user daemon-reload",
         "systemctl --user enable",
@@ -298,12 +353,17 @@ fn check_passes_on_a_machine_that_is_ready() {
     ] {
         assert!(
             r.at(mutating).is_none(),
-            "check ran `{mutating}`:\n{:?}",
+            "ran `{mutating}`:\n{:?}",
             r.calls()
         );
     }
     assert!(
         !r.calls().iter().any(|c| c.ends_with(" shutdown")),
+        "{:?}",
+        r.calls()
+    );
+    assert!(
+        !r.calls().iter().any(|c| c.contains(" --apply")),
         "{:?}",
         r.calls()
     );
@@ -377,7 +437,12 @@ fn faults<'a>() -> [Fault<'a>; 12] {
         (
             "config not a vault reference",
             |_| {},
-            &["FAIL  config: not-a-ref is not a readable file"],
+            // The plan makes a relative path absolute, and the check reads it from the plan.
+            &[
+                "FAIL  config: ",
+                "/not-a-ref is not a readable file (THESEUS_CONFIG names it)",
+                "export THESEUS_CONFIG=op://<vault>/<item>/notesPlain",
+            ],
         ),
         (
             "config reference malformed",
@@ -420,6 +485,149 @@ fn check_fails_each_way_a_machine_can_be_unready_and_says_how_to_mend_it() {
             assert!(out.contains(want), "{what}: {want:?} missing from:\n{out}");
         }
     }
+}
+
+/// What `check` says of a config that comes from the build's own default.
+const BUILT_IN: &str = "THESEUS_CONFIG is not set here, so this is theseusd's built-in default";
+
+#[test]
+fn check_fails_when_the_plans_config_is_a_file_that_is_not_there_whatever_the_variable_says() {
+    let r = rig!();
+    r.plan_build();
+    let file = r.home().join(".theseus/theseus.toml");
+    // No variable, and the build's default is a file this machine does not have: the variable alone says nothing,
+    // the plan's `config:` line does.
+    let (code, out) = r.check_without_the_variable();
+    assert_eq!(code, 1, "{out}");
+    for want in [
+        format!(
+            "FAIL  config: {} is not a readable file ({BUILT_IN})",
+            file.display()
+        ),
+        "the unit would be written to read it, and the daemon would not start.".into(),
+        "export THESEUS_CONFIG=op://<vault>/<item>/notesPlain".into(),
+        "or write the file.".into(),
+        "result: not ready".into(),
+    ] {
+        assert!(out.contains(&want), "{want:?} missing from:\n{out}");
+    }
+    // The plan was asked, with the token flag before the subcommand, as install asks it.
+    let asked = format!(
+        "theseusd --op-token-file {} install --user",
+        r.token_path().display()
+    );
+    assert!(r.at(&asked).is_some(), "{:?}", r.calls());
+    // A variable that names a file that is not there fails the same way, and says it named it.
+    let other = r.home().join("elsewhere.toml");
+    let mut c = r.command(&["check"]);
+    c.env("THESEUS_CONFIG", &other);
+    let (code, out) = Rig::said(&c.output().unwrap());
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains(&format!(
+            "FAIL  config: {} is not a readable file (THESEUS_CONFIG names it)",
+            other.display()
+        )),
+        "{out}"
+    );
+    // A file that is there is a config.
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "# a config\n").unwrap();
+    let (code, out) = r.check_without_the_variable();
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains(&format!(
+            "ok    config: {} (a file; {BUILT_IN})",
+            file.display()
+        )),
+        "{out}"
+    );
+    // A file that cannot be read is not (unless this process reads it anyway), and nor is a directory.
+    std::fs::set_permissions(&file, PermissionsExt::from_mode(0o000)).unwrap();
+    if std::fs::read(&file).is_err() {
+        let (code, out) = r.check_without_the_variable();
+        assert_eq!(code, 1, "{out}");
+        assert!(out.contains("is not a readable file"), "{out}");
+    }
+    std::fs::remove_file(&file).unwrap();
+    std::fs::create_dir(&file).unwrap();
+    let (code, out) = r.check_without_the_variable();
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("is not a readable file"), "{out}");
+    assert_nothing_changed(&r);
+}
+
+#[test]
+fn check_passes_when_the_plans_config_is_a_vault_reference_and_looks_for_no_file() {
+    let r = rig!();
+    r.plan_build();
+    // Named by the variable, as the rig's shell has it: the plan's line is the reference as it is.
+    let (code, out) = r.run(&["check"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains(
+            "ok    config: op://Example/theseus-config/notesPlain (a vault note: the daemon reads it with the token)"
+        ),
+        "{out}"
+    );
+    // The build's own default is a vault reference (every build before theseus-8d1b's), no variable names one:
+    // it passes, and says whose it is.
+    r.set("default-config", "op://Example/built-in/notesPlain\n");
+    let (code, out) = r.check_without_the_variable();
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains(&format!(
+            "ok    config: op://Example/built-in/notesPlain (a vault note: the daemon reads it with the token; {BUILT_IN})"
+        )),
+        "{out}"
+    );
+    assert!(!r.home().join(".theseus").exists(), "no file was needed");
+    // The reference still has to have a vault, an item, and a field, wherever it came from.
+    r.set("default-config", "op://only-a-vault\n");
+    let (code, out) = r.check_without_the_variable();
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("FAIL  config: op://only-a-vault is not op://<vault>/<item>/<field>"),
+        "{out}"
+    );
+}
+
+#[test]
+fn check_fails_when_the_plan_names_no_config_and_says_what_theseusd_said() {
+    let r = rig!();
+    r.plan_build();
+    r.set("plan-says", "error: unrecognized subcommand 'install'\n");
+    let (code, out) = r.run(&["check"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains(
+            "FAIL  config: the plan names none (theseusd install --user said: error: unrecognized subcommand 'install')"
+        ),
+        "{out}"
+    );
+}
+
+#[test]
+fn install_stops_before_its_first_question_when_the_config_is_a_file_that_is_not_there() {
+    let r = rig!();
+    r.plan_build();
+    // A daemon started by hand answers: an install that went on would stop it. --yes answers every question it
+    // is asked, so any question that was reached would have been answered.
+    r.set("daemon-up", "");
+    let mut c = r.command(&["install", "--yes"]);
+    c.env_remove("THESEUS_CONFIG");
+    let (code, out) = Rig::said(&c.output().unwrap());
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("FAIL  config: "), "{out}");
+    assert!(
+        out.contains("Not installing: fix the FAIL lines above, then run this again."),
+        "{out}"
+    );
+    assert!(!out.contains("[y/N]"), "a question was asked:\n{out}");
+    assert!(!out.contains("== the plan"), "{out}");
+    // The daemon started by hand still answers, and nothing was written or run.
+    assert!(r.home().join("fake/daemon-up").exists());
+    assert_nothing_changed(&r);
 }
 
 #[test]
@@ -492,6 +700,8 @@ fn a_dry_run_prints_every_command_and_runs_none_of_them() {
                 "+ command -v theseusd",
                 "+ theseusd --version",
                 "+ stat -c '%F|%u|%a|%s' -- ",
+                "+ timeout 20 theseusd --op-token-file ",
+                " install --user\n",
                 "+ systemctl --user is-active theseusd.service",
                 "+ timeout 5 theseus --socket ",
             ],
@@ -546,6 +756,11 @@ fn a_dry_run_prints_every_command_and_runs_none_of_them() {
         assert!(
             out.starts_with("dry run: every command is printed with a leading +, and none is run"),
             "{args:?}:\n{out}"
+        );
+        // Nothing ran, so nothing was found wrong: the checks that need an answer say nothing in a dry run.
+        assert!(
+            !out.contains("FAIL  "),
+            "{args:?}: a dry run found a fault:\n{out}"
         );
         for want in says {
             assert!(

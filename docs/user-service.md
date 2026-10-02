@@ -29,7 +29,29 @@ Everything below is what that command does, why, and what to do afterwards.
 Nothing else changes. It is the same binary, config reference, state directory (`~/.theseus` unless your shell says
 otherwise), socket, and web port, so every client works as before.
 
-## Before the first run: a token file
+## Before the first run
+
+The unit has no shell, so two things it needs are named for it, in the shell you run the script from: your config
+(step 0) and a token file.
+
+### Step 0: name your config
+
+The plan writes a config into the unit (`--config`) from the shell you run the script in: `THESEUS_CONFIG`, and when
+that is not set, the built-in default of the `theseusd` on your `PATH`. A build's default can be a local file
+(`~/.theseus/theseus.toml`) that you do not have, and a unit that names a file that is not there cannot start. So, once,
+in the profile of the shell you start the daemon in, name the config your daemon reads today, by the reference of its
+vault note:
+
+```
+export THESEUS_CONFIG=op://<vault>/<item>/notesPlain
+```
+
+Open a new shell (or run the line in this one) before `check`. If you keep your config in a local file instead, leave the
+variable out and make sure the file is where the plan says. `check` tells you which case you are in: it reads the config
+the unit would get from the plan's own `config:` line, not from the variable alone, so it holds for any build of
+`theseusd` (see "The one command" for what it prints).
+
+### A token file
 
 The service has no shell, so it cannot see `OP_SERVICE_ACCOUNT_TOKEN` from yours. It reads the 1Password
 service-account token from a file that its `--op-token-file` names. A unit never holds the token itself, and the
@@ -76,10 +98,11 @@ What it does, in order:
    - cgroups: v2, and your user manager delegates `memory` and `pids`;
    - `theseusd`, `theseus`, and `op` are on `PATH`, and `theseusd` is not a build-tree binary;
    - the token file is right (`stat` only);
-   - the config reference is a readable file, or an `op://<vault>/<item>/<field>` reference;
+   - the config the unit would get, read from the plan's `config:` line (step 0), is a readable file or an
+     `op://<vault>/<item>/<field>` reference;
    - whether the unit is installed, and who answers on the socket.
 
-   A `FAIL` stops the install and says how to fix it. A `WARN` does not.
+   A `FAIL` stops the install before it asks anything, and says how to fix it. A `WARN` does not.
 2. **The plan.** The script runs `theseusd install --user`, which prints the unit it would write and changes
    nothing. It refuses, and says what to run, when the token file is wrong.
 3. **The unit.** After a `y/N`, `theseusd install --user --apply` writes `~/.config/systemd/user/theseusd.service`.
@@ -115,6 +138,19 @@ right now
   info  daemon: a daemon you started by hand answers on /home/ada/.theseus/theseus.sock (the service is inactive)
 result: ready (0 warning(s))
 ```
+
+The `config:` line is the one to look at before you answer a question. In a shell that has not exported
+`THESEUS_CONFIG`, on a build whose default is a local file you do not have, it reads:
+
+```
+  FAIL  config: /home/ada/.theseus/theseus.toml is not a readable file (THESEUS_CONFIG is not set here, so this is theseusd's built-in default)
+        the unit would be written to read it, and the daemon would not start. Name your config's vault note instead,
+        in the shell that runs this script (your profile keeps it):  export THESEUS_CONFIG=op://<vault>/<item>/notesPlain
+        or write the file.
+```
+
+`install` stops there: nothing has been asked, written, or stopped. With the variable exported, or the file written, the
+line is `ok` and says which it is.
 
 ## Day to day
 

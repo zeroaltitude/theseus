@@ -21,7 +21,9 @@
 #
 # The daemon's own variables are read the way `theseusd install --user` reads them, and the plan
 # writes this shell's values into the unit: THESEUS_CONFIG, THESEUS_STATE_DIR, THESEUS_SOCKET, and
-# THESEUS_OP_TOKEN_FILE. Run it from the shell you start the daemon in today.
+# THESEUS_OP_TOKEN_FILE. Run it from the shell you start the daemon in today. `check` reads the config
+# the unit would get from the plan's `config:` line, not from THESEUS_CONFIG alone: a build's built-in
+# default can be a file you do not have, and then the check fails until THESEUS_CONFIG names your note.
 #
 # It never prints a secret. The token file is only checked with `stat`: it is never opened. Every
 # wait is bounded, and a daemon is found by its socket answering `theseus health`, never by
@@ -369,25 +371,58 @@ check_token() {
   for p in "${problems[@]}"; do hint "$p"; done
 }
 
-# The config the unit will name: a file that is readable, or a vault reference of the right shape.
+# plan_config TEXT: the value on the plan's `config:` line, which is the config the unit would get.
+plan_config() {
+  local l
+  while IFS= read -r l; do
+    if [[ $l =~ ^[[:space:]]+config:[[:space:]]+(.*[^[:space:]])[[:space:]]*$ ]]; then
+      printf '%s\n' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done <<<"$1"
+  return 1
+}
+
+# The config the unit would get: what the plan (`theseusd install --user`) prints on its `config:` line,
+# which is THESEUS_CONFIG, else this build's built-in default, made absolute. The variable alone does not
+# say: a build's default can be a file you do not have. A file must be readable; a vault reference must
+# have a vault, an item, and a field.
 check_config() {
-  local ref=${THESEUS_CONFIG:-}
+  local plan ref first built_in=""
+  token_args
+  if dry; then
+    probe timeout 20 theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user >/dev/null
+    note "its \`config:\` line is the config the unit would get: a file is checked with test, a reference by its shape"
+    return
+  fi
+  command -v theseusd >/dev/null 2>&1 || {
+    info "config: not checked: theseusd is not on PATH, so there is no plan to read it from"
+    return
+  }
+  plan=$(probe timeout 20 theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user)
+  if ! ref=$(plan_config "$plan"); then
+    first=$(printf '%s' "$plan" | head -n 1)
+    fail "config: the plan names none (theseusd install --user said: ${first:-nothing})"
+    return
+  fi
+  [ -n "${THESEUS_CONFIG:-}" ] || built_in="THESEUS_CONFIG is not set here, so this is theseusd's built-in default"
   case $ref in
-  "") info "config: THESEUS_CONFIG is not set here, so the unit uses theseusd's built-in reference (the plan's \`config:\` line shows it)" ;;
   op://*)
     if [[ $ref =~ ^op://[^/]+/[^/]+/.+$ ]]; then
-      ok "config: $ref (a vault note: the daemon reads it with the token)"
+      ok "config: $ref (a vault note: the daemon reads it with the token${built_in:+; $built_in})"
     else
       fail "config: $ref is not op://<vault>/<item>/<field>"
     fi
     ;;
   *)
-    probe test -r "$ref" >/dev/null
-    case $? in
-    0) ok "config: $ref (a file)" ;;
-    99) ;;
-    *) fail "config: $ref is not a readable file" ;;
-    esac
+    if [ -f "$ref" ] && [ -r "$ref" ]; then
+      ok "config: $ref (a file${built_in:+; $built_in})"
+    else
+      fail "config: $ref is not a readable file (${built_in:-THESEUS_CONFIG names it})"
+      hint "the unit would be written to read it, and the daemon would not start. Name your config's vault note instead,"
+      hint "in the shell that runs this script (your profile keeps it):  export THESEUS_CONFIG=op://<vault>/<item>/notesPlain"
+      hint "or write the file."
+    fi
     ;;
   esac
 }

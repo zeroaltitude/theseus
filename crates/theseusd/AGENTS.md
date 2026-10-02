@@ -56,7 +56,8 @@ subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindin
 - `tests/common/model.rs` is a stand-in Messages API: tool calls per prompt, and `FakeModel::requests()` keeps
   every request, so a test reads which model each turn asked for.
 - `tests/user_service_script.rs` runs `scripts/user-service.sh` and the real `theseusd install --user` against stand-in
-  `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` in a scratch `HOME`. It touches no real unit or daemon.
+  `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` in a scratch `HOME` (the config tests also stand in for
+  `theseusd`'s plan). It touches no real unit or daemon.
 - The rigs that need a job's real environment (`job_approval.rs`, `reaping.rs`, `broker.rs`) use a fake `op` and a
   file config, never real secrets.
 
