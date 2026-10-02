@@ -1,5 +1,6 @@
 //! Task executions (DD7, theseus-qn2): the carve, depth one, a task's spend in
-//! its parent's, its end reported once, and the races `lock_two` closes.
+//! its parent's, its end reported once, and the races the family's lock
+//! (`lock_family`) closes.
 
 use theseus_store::{kinds, NewRecord};
 
@@ -585,7 +586,7 @@ fn a_reports_wake_outlives_a_stop_of_its_parents_turn() {
 // ------------------------------------------------------------ races
 
 /// A task's settle and its parent's own reservation, each read before the
-/// other's frame: with `lock_two`, the parent's reservation waits for the
+/// other's frame: with `lock_family`, the parent's reservation waits for the
 /// task's frame, and neither update is lost.
 #[test]
 fn a_tasks_settle_and_its_parents_own_reservation_never_lose_each_other() {
@@ -641,10 +642,12 @@ fn a_parents_reservation_and_its_tasks_settle_never_lose_each_other() {
     let (parent, g, task, _) = with_task(&w, 30_000);
     let tg = w.kernel.admit(&task.id).unwrap();
     let a = dispatched(&w, &tg, "provider.messages", 10_000);
+    // The parent's plan is a transaction: its first read finds the family,
+    // before the lock, and its second is the plan's own, under it.
     let r = race(
         &w.kernel,
         &p,
-        (kinds::EXECUTION, &parent.id, 1),
+        (kinds::EXECUTION, &parent.id, 2),
         |k| {
             k.plan_and_dispatch(
                 &g,

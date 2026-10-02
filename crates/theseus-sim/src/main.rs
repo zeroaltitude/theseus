@@ -386,16 +386,16 @@ fn main() -> Result<()> {
                 })
                 .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
                 println!(
-                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
+                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} of them transactions, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined; {} answers in one frame), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
                     rep.steps, rep.crashes, rep.startup_faults, rep.sessions, rep.turns, rep.actions,
                     rep.one_frame_dispatches, rep.batches, rep.batch_actions, rep.batch_crashes,
                     rep.authorized_and_dispatched, rep.input_admits, rep.own_results, rep.faults,
                     rep.fault_wakes,
-                    rep.races, rep.race_ops, rep.race_crashes,
+                    rep.races, rep.race_ops, rep.race_frames, rep.race_crashes,
                     rep.completions_delivered, rep.duplicates, rep.notify_dropped, rep.lost_jobs,
                     rep.late_after_cancel, rep.cancels, rep.unknowns, rep.resolved_unknowns,
                     rep.budget_questions, rep.budget_resets, rep.budget_declines,
-                    rep.asked, rep.asked_declined, rep.ended_unsent,
+                    rep.asked, rep.asked_declined, rep.one_frame_answers, rep.ended_unsent,
                     rep.limit_changes, rep.limit_raises, rep.limits_followed, rep.limit_proceeds,
                     rep.confirmed_after_startup, rep.legacy_migrated,
                     rep.reconciles, rep.invariant_checks, rep.final_positions, rep.wall_ms
@@ -405,6 +405,7 @@ fn main() -> Result<()> {
                 totals.budget_declines += rep.budget_declines;
                 totals.asked += rep.asked;
                 totals.asked_declined += rep.asked_declined;
+                totals.one_frame_answers += rep.one_frame_answers;
                 totals.ended_unsent += rep.ended_unsent;
                 totals.limit_changes += rep.limit_changes;
                 totals.limit_raises += rep.limit_raises;
@@ -426,6 +427,7 @@ fn main() -> Result<()> {
                 totals.fault_wakes += rep.fault_wakes;
                 totals.races += rep.races;
                 totals.race_ops += rep.race_ops;
+                totals.race_frames += rep.race_frames;
                 totals.race_crashes += rep.race_crashes;
                 totals.completions_delivered += rep.completions_delivered;
                 totals.duplicates += rep.duplicates;
@@ -440,16 +442,16 @@ fn main() -> Result<()> {
             }
             if seeds > 1 {
                 println!(
-                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} invariant checks · {} ms · all invariants held",
+                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} of them transactions, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined; {} answers in one frame), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded, {} starts confirmed after startup) · {} invariant checks · {} ms · all invariants held",
                     seeds, totals.crashes, totals.startup_faults, totals.turns, totals.actions,
                     totals.one_frame_dispatches, totals.batches, totals.batch_actions,
                     totals.batch_crashes, totals.authorized_and_dispatched, totals.input_admits,
-                    totals.own_results, totals.faults, totals.fault_wakes, totals.races, totals.race_ops, totals.race_crashes,
+                    totals.own_results, totals.faults, totals.fault_wakes, totals.races, totals.race_ops, totals.race_frames, totals.race_crashes,
                     totals.completions_delivered, totals.duplicates, totals.notify_dropped,
                     totals.lost_jobs, totals.late_after_cancel, totals.cancels, totals.unknowns,
                     totals.resolved_unknowns, totals.budget_questions, totals.budget_resets,
                     totals.budget_declines, totals.asked, totals.asked_declined,
-                    totals.ended_unsent, totals.limit_changes, totals.limit_raises,
+                    totals.one_frame_answers, totals.ended_unsent, totals.limit_changes, totals.limit_raises,
                     totals.limits_followed, totals.limit_proceeds, totals.confirmed_after_startup,
                     totals.invariant_checks, totals.wall_ms
                 );

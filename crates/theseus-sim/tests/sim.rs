@@ -124,6 +124,13 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         count(" unsent actions a cancel ended") > 0,
         "no cancel ended an unsent action: {total}"
     );
+    // Kernel transactions on the racing thread (theseus-0owd). These two
+    // seeds answer no question; longer runs count the answers, each one
+    // frame with its wake (theseus-jj9f).
+    assert!(
+        count(" of them transactions") > 0,
+        "no racing thread ran a transaction: {total}"
+    );
 }
 
 /// `bench history` reads the file `$THESEUS_BENCH_HISTORY` names: none yet is

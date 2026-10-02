@@ -27,7 +27,7 @@ serves. AI agents build it in small, reviewed steps.
 |---|---|---|---|
 | `theseus-protocol` | The wire types (JSON-RPC 2.0 over NDJSON). Types only: no runtime, no clock. | `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`, `push.rs`, `gate.rs`, `ts.rs` | every crate on the wire, and the web apps (generated) |
 | `theseus-store` | The keel: a WAL of checksummed atomic frames (the truth), and a redb index rebuilt from it. | `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs` | kernel, core, theseusd, sim |
-| `theseus-kernel` | The durable kernel: executions, actions, completions, the spool, budgets, locks, tasks, wakes, stops, the outbox's actions, the job wrapper. | `kernel.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.rs` | core, discord, theseusd, sim |
+| `theseus-kernel` | The durable kernel: executions, actions, completions, the spool, budgets, locks, tasks, wakes, stops, the outbox's actions, the job wrapper. | `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.rs` | core, discord, theseusd, sim |
 | `theseus-tools` | Toollets: `fs.*`, `git.diff`, `git.log`, `text.diff`, and `proc.run`'s spec. | `fs.rs`, `git.rs`, `proc.rs`, `paths.rs` | core |
 | `theseus-core` | The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry. | `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs` | theseusd, discord, sim |
 | `theseus-discord` | The Discord binding, in-process; it acts through the protocol. | `runtime.rs`, `courier.rs`, `render.rs` | theseusd |
@@ -80,7 +80,8 @@ Directory guides: `crates/theseus-protocol`, `crates/theseus-store`, `crates/the
 
 ### Where the big things live
 
-- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`. Every mutating method writes one frame.
+- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`, and `tx.rs`. Every mutating method writes
+  one frame.
 - **The store's WAL and index**: `crates/theseus-store/src/wal.rs`, `index.rs`, and `store.rs`.
 - **The turn loop**: `crates/theseus-core/src/turn.rs`, with `advancer.rs`; the harness loop in `harness.rs`, and
   what it drives (continuations, the heartbeat) in `rpc/driver.rs`.
@@ -107,9 +108,10 @@ Each is a requirement, with its spec section.
   happens, in the record. A new kind of work lands with its span, attributes, and metric on the same commit.
 - **Event-driven** (§1, "Execution model"; §2, QUIET BY CONSTRUCTION). No in-flight state lives only in memory: every
   dispatched thing is a WAL record with a correlation id, and its completion arrives as an event. No busy loops.
-- **The WAL and frames** (§6; Part III F2). The WAL is the truth, and every index a projection of it. A kernel method
-  writes exactly one frame, and a fact lands in one frame with the rows that describe it. A plain one-loop turn
-  writes 5 frames: `tests_m3::a_plain_turn_stays_within_its_frame_budget` holds it.
+- **The WAL and frames** (§6; Part III F2). The WAL is the truth, and every index a projection of it. A kernel method,
+  or a kernel transaction (`Kernel::frame`), writes exactly one frame, and a fact lands in one frame with the rows
+  that describe it. A plain one-loop turn writes 5 frames: `tests_m3::a_plain_turn_stays_within_its_frame_budget`
+  holds it.
 - **Append-only** (§2). The record only grows: compaction, supersession, and forgetting are new records. Payload
   erasure (§5.6) is the one receipted exception.
 - **The reader rule** (P0, rule 3). Nothing is declared without its reader: a crate, protocol method,

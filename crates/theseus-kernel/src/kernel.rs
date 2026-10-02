@@ -11,7 +11,10 @@
 //! state no method produces. A method that reads an execution or one of its
 //! actions and writes it back holds the execution's lock from the read until
 //! its frame is indexed, so no two of them lose each other's update
-//! (theseus-id9, `locks.rs`).
+//! (theseus-id9, `locks.rs`). Several transitions share one frame through a
+//! transaction (`Kernel::frame`, `tx.rs`, theseus-0owd): the combined
+//! transitions (`admit_input`, `plan_and_dispatch`, the `_with` family) are
+//! compositions of the ordinary ones.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU32, AtomicU64};
@@ -25,6 +28,7 @@ use theseus_store::{kinds, NewRecord, Record, Store};
 use crate::clock::Clock;
 use crate::gate::{digest_proposal, Proposal};
 use crate::locks::{ExecLock, ExecLocks};
+use crate::tx::{Staged, Tx};
 use crate::types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,6 +296,15 @@ pub struct Ending<'a> {
     pub turn_running: bool,
 }
 
+/// The cancel's own result (`Kernel::cancel`): what it ended, owned, and the
+/// dispatched calls it told to stop.
+struct Cancelled {
+    execution: Execution,
+    not_run: Vec<Action>,
+    turn_running: bool,
+    to_kill: Vec<CorrelationId>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReconcileReport {
     pub woke_due: Vec<ExecutionId>,
@@ -389,6 +402,9 @@ pub struct Kernel {
     /// with every view, so the turns already running see it when the first
     /// watcher installs it; until then the commit path pays one load.
     observer: Arc<std::sync::OnceLock<Observer>>,
+    /// The transaction this view stages for (`Kernel::frame`), if it is one:
+    /// its transitions take no locks, and its commits are staged.
+    tx: Option<Arc<Tx>>,
 }
 
 /// A turn's own results (theseus-l6y): what a turn's view settles for the
@@ -418,6 +434,7 @@ impl Kernel {
             started_at_ms: Arc::default(),
             own: None,
             observer: Arc::default(),
+            tx: None,
         }
     }
 
@@ -438,6 +455,53 @@ impl Kernel {
             started_at_ms: self.started_at_ms.clone(),
             own: None,
             observer: self.observer.clone(),
+            tx: None,
+        }
+    }
+
+    /// This kernel as a transaction's view (`Kernel::frame`): the same turn
+    /// (`turn_of`), locks, and clock, its commits staged in `staged`, and no
+    /// observer, which sees the frame once it commits.
+    pub(crate) fn transaction_view(&self, tx: Arc<Tx>, staged: Arc<Staged>) -> Kernel {
+        Kernel {
+            store: staged,
+            clock: self.clock.clone(),
+            cfg: self.cfg.clone(),
+            held: self.held.clone(),
+            locks: self.locks.clone(),
+            phase: self.phase.clone(),
+            legacy_spend: self.legacy_spend.clone(),
+            started_at_ms: self.started_at_ms.clone(),
+            own: self.own.clone(),
+            observer: Arc::default(),
+            tx: Some(tx),
+        }
+    }
+
+    /// The transaction this view stages for, if it is one.
+    pub(crate) fn tx(&self) -> Option<&Tx> {
+        self.tx.as_deref()
+    }
+
+    /// Lock `ids` for one transition (K1), in id order. Inside a transaction,
+    /// which locked what it touches first, nothing is locked: each id must
+    /// be one it holds.
+    pub(crate) fn lock(&self, ids: &[&str]) -> ExecLock<'_> {
+        match &self.tx {
+            None => self.locks.lock_all(ids),
+            Some(tx) => {
+                tx.require(ids);
+                self.locks.none()
+            }
+        }
+    }
+
+    /// A turn ends: its guard is dropped once its end is written, which
+    /// inside a transaction is when the transaction's frame commits.
+    fn release(&self, guard: TurnGuard) {
+        match &self.tx {
+            None => drop(guard),
+            Some(tx) => tx.release(guard),
         }
     }
 
@@ -532,15 +596,15 @@ impl Kernel {
     }
 
     /// Lock an execution for a transition that may reach its parent: a task
-    /// (DD7) and its parent together, with `lock_two`, since a task's spend
+    /// (DD7) and its parent together, in id order, since a task's spend
     /// and its end are written into the parent in the same frame; any other
     /// execution alone. The parent is read outside the lock, which is sound
     /// because an execution's parent never changes.
     pub(crate) fn lock_family(&self, execution_id: &str) -> Result<ExecLock<'_>> {
         let parent = self.execution(execution_id)?.and_then(|e| e.parent);
         Ok(match parent {
-            Some(p) => self.locks.lock_two(execution_id, &p),
-            None => self.locks.lock(execution_id),
+            Some(p) => self.lock(&[execution_id, &p]),
+            None => self.lock(&[execution_id]),
         })
     }
 
@@ -776,7 +840,7 @@ impl Kernel {
     /// Human input arrived on a session: its execution becomes runnable.
     pub fn wake_input(&self, execution_id: &str) -> Result<Execution> {
         self.require_accepting()?;
-        let _w = self.locks.lock(execution_id);
+        let _w = self.lock(&[execution_id]);
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -808,7 +872,7 @@ impl Kernel {
     /// the harness's driver takes a turn for it without waiting for input.
     pub fn wake(&self, execution_id: &str, why: &str) -> Result<Execution> {
         self.require_accepting()?;
-        let _w = self.locks.lock(execution_id);
+        let _w = self.lock(&[execution_id]);
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -883,68 +947,14 @@ impl Kernel {
 
     /// Take a turn: the execution must be `Queued`, the ceiling must have
     /// room, and no turn may be held on it in this process. Writes `Running`.
+    /// The guard frees the turn when dropped, so a caller whose frame fails
+    /// lets it go.
     pub fn admit(&self, execution_id: &str) -> Result<TurnGuard> {
         self.require_accepting()?;
-        let _w = self.locks.lock(execution_id);
+        let _w = self.lock(&[execution_id]);
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
-        let (guard, frame) = self.admit_frame(&mut e)?;
-        // A frame that fails drops the guard, which frees the turn.
-        self.commit(&frame)?;
-        Ok(guard)
-    }
-
-    /// Human input arrived, and its turn starts (theseus-l6y): `wake_input`
-    /// and `admit` in one frame. Each keeps its record and row, in that
-    /// order, so the WAL reads as the two transitions did in two frames.
-    /// When admission must wait (the ceiling, or a turn already held on the
-    /// execution), only the wake is written, as `wake_input` alone would
-    /// write it, and admission's error is returned.
-    pub fn admit_input(&self, execution_id: &str) -> Result<TurnGuard> {
-        self.require_accepting()?;
-        let _w = self.locks.lock(execution_id);
-        let mut e = self
-            .execution(execution_id)?
-            .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
-        if e.state.is_terminal() {
-            return Err(KernelError::NotRunnable {
-                id: e.id.clone(),
-                state: e.state.as_str(),
-            }
-            .into());
-        }
-        let mut frame = Vec::new();
-        if e.state == ExecState::Waiting || e.state == ExecState::Blocked {
-            e.state = ExecState::Queued;
-            e.wake = None;
-            e.updated_at_ms = self.now_ms();
-            frame.push(exec_record(&e)?);
-            frame.push(self.ledger(
-                "execution.queued",
-                Some(&e.session_id),
-                json!({"execution_id": e.id, "why": "input"}),
-            )?);
-        }
-        match self.admit_frame(&mut e) {
-            Ok((guard, admitted)) => {
-                frame.extend(admitted);
-                self.commit(&frame)?;
-                Ok(guard)
-            }
-            Err(refused) => {
-                if !frame.is_empty() {
-                    self.commit(&frame)?;
-                }
-                Err(refused)
-            }
-        }
-    }
-
-    /// `admit`'s checks on `e`, the turn held, and its frame: `Running`,
-    /// and the `execution.running` row. The guard frees the turn when
-    /// dropped, so a caller whose frame fails lets it go.
-    fn admit_frame(&self, e: &mut Execution) -> Result<(TurnGuard, Vec<NewRecord>)> {
         if e.state != ExecState::Queued {
             return Err(KernelError::NotRunnable {
                 id: e.id.clone(),
@@ -977,34 +987,56 @@ impl Kernel {
         e.wake = None;
         let resumed = std::mem::take(&mut e.resume_pending);
         e.updated_at_ms = now;
-        let frame = vec![
-            exec_record(e)?,
+        // A frame that fails drops the guard, which frees the turn.
+        self.commit(&[
+            exec_record(&e)?,
             self.ledger(
                 "execution.running",
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "turn": e.turns, "queued_results": e.queued_results.len(), "resumed": resumed}),
             )?,
-        ];
-        Ok((guard, frame))
+        ])?;
+        Ok(guard)
     }
 
-    /// The results queued for this execution (settled since its last turn),
-    /// and clear them in the store as consumed. Call inside a held turn.
-    pub fn take_results(&self, guard: &TurnGuard) -> Result<Vec<Action>> {
-        self.take_results_with(guard, |_| Ok(vec![]))
+    /// Human input arrived, and its turn starts (theseus-l6y): `wake_input`
+    /// and `admit` in one frame, a transaction (theseus-0owd). Each keeps its
+    /// record and row, in that order, so the WAL reads as the two transitions
+    /// did in two frames. When admission must wait (the ceiling, or a turn
+    /// already held on the execution), only the wake is written, as
+    /// `wake_input` alone would write it, and admission's error is returned.
+    pub fn admit_input(&self, execution_id: &str) -> Result<TurnGuard> {
+        self.frame(&[execution_id], |k| {
+            k.wake_input(execution_id)?;
+            Ok(k.admit(execution_id))
+        })?
     }
 
     /// `take_results`, with what the turn makes of them (`extra`: the nodes
-    /// it writes for them) in the same frame (theseus-kol). A result leaves
-    /// the queue only in the frame that writes it into the session, so no
-    /// crash between the two can lose it. Nothing queued, and nothing is
-    /// written; `extra` is not called.
+    /// it writes for them) in the same frame (theseus-kol), a transaction. A
+    /// result leaves the queue only in the frame that writes it into the
+    /// session, so no crash between the two can lose it. Nothing queued, and
+    /// nothing is written; `extra` is not called.
     pub fn take_results_with(
         &self,
         guard: &TurnGuard,
         extra: impl FnOnce(&[Action]) -> Result<Vec<NewRecord>>,
     ) -> Result<Vec<Action>> {
-        let _w = self.locks.lock(&guard.execution_id);
+        self.frame(&[&guard.execution_id], |k| {
+            let before = k.staged_len();
+            let taken = k.take_results(guard)?;
+            if k.staged_len() > before {
+                k.stage(&extra(&taken)?)?;
+            }
+            Ok(taken)
+        })
+    }
+
+    /// The results queued for this execution (settled since its last turn),
+    /// and clear them in the store as consumed. Call inside a held turn.
+    /// Nothing queued, and nothing is written.
+    pub fn take_results(&self, guard: &TurnGuard) -> Result<Vec<Action>> {
+        let _w = self.lock(&[&guard.execution_id]);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -1020,37 +1052,45 @@ impl Kernel {
         let n = e.queued_results.len();
         e.queued_results.clear();
         e.updated_at_ms = self.now_ms();
-        let mut frame = vec![
+        self.commit(&[
             exec_record(&e)?,
             self.ledger(
                 "execution.results_consumed",
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "count": n}),
             )?,
-        ];
-        frame.extend(extra(&out)?);
-        self.commit(&frame)?;
+        ])?;
         Ok(out)
     }
 
-    /// End the held turn with the Advancer's decision. Consumes the guard.
-    /// A task that ends here (complete or failed) reaches its parent in the
-    /// same frame (DD7): the carve is released but for what the task still
-    /// has in flight, and the task joins the parent's `reports`.
-    pub fn end_turn(&self, guard: TurnGuard, end: TurnEnd) -> Result<Execution> {
-        self.end_turn_with(guard, end, |_| Ok(vec![]))
-    }
-
     /// `end_turn`, with records `extra` builds from the execution as the
-    /// frame writes it: a task's report (DD7). `extra` runs only when this
-    /// call writes a frame; a turn that ends after a cancel landed writes
-    /// nothing, so its report is the cancel's alone.
+    /// frame writes it (a task's report, DD7; the turn's session record), a
+    /// transaction. `extra` runs only when the end writes something; a turn
+    /// that ends after a cancel landed writes nothing, so its report is the
+    /// cancel's alone.
     pub fn end_turn_with(
         &self,
         guard: TurnGuard,
         end: TurnEnd,
         extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
     ) -> Result<Execution> {
+        let id = guard.execution_id.clone();
+        self.frame(&[&id], |k| {
+            let before = k.staged_len();
+            let e = k.end_turn(guard, end)?;
+            if k.staged_len() > before {
+                k.stage(&extra(&e)?)?;
+            }
+            Ok(e)
+        })
+    }
+
+    /// End the held turn with the Advancer's decision. Consumes the guard,
+    /// which frees the turn once the end is written. A task that ends here
+    /// (complete or failed) reaches its parent in the same frame (DD7): the
+    /// carve is released but for what the task still has in flight, and the
+    /// task joins the parent's `reports`.
+    pub fn end_turn(&self, guard: TurnGuard, end: TurnEnd) -> Result<Execution> {
         let _w = self.lock_family(&guard.execution_id)?;
         let mut e = self
             .execution(&guard.execution_id)?
@@ -1061,7 +1101,7 @@ impl Kernel {
         // this read the last word: a cancel lands before it, or after the
         // frame below.
         if e.state.is_terminal() {
-            drop(guard);
+            self.release(guard);
             return Ok(e);
         }
         // A stop that landed during the turn (W1) wins over the Advancer too,
@@ -1074,7 +1114,7 @@ impl Kernel {
             e.wake = Some(Wake::Input);
             e.resume_pending = false;
             e.updated_at_ms = now;
-            let mut frame = vec![
+            self.commit(&[
                 exec_record(&e)?,
                 self.ledger(
                     "execution.waiting",
@@ -1082,10 +1122,8 @@ impl Kernel {
                     json!({"execution_id": e.id, "turn": guard.turn, "turn_ms": now.saturating_sub(guard.started_at_ms),
                            "wake": e.wake, "why": "stopped", "by": s.by}),
                 )?,
-            ];
-            frame.extend(extra(&e)?);
-            self.commit(&frame)?;
-            drop(guard);
+            ])?;
+            self.release(guard);
             return Ok(e);
         }
         let kind;
@@ -1117,17 +1155,15 @@ impl Kernel {
                             e.state = ExecState::Queued;
                             e.wake = None;
                             e.updated_at_ms = now;
-                            let mut frame = vec![
+                            self.commit(&[
                                 exec_record(&e)?,
                                 self.ledger(
                                     "execution.queued",
                                     Some(&e.session_id),
                                     json!({"execution_id": e.id, "why": "wake_actions_already_settled"}),
                                 )?,
-                            ];
-                            frame.extend(extra(&e)?);
-                            self.commit(&frame)?;
-                            drop(guard);
+                            ])?;
+                            self.release(guard);
                             return Ok(e);
                         }
                     }
@@ -1204,9 +1240,8 @@ impl Kernel {
             }
             self.task_ended(&e, &mut frame)?;
         }
-        frame.extend(extra(&e)?);
         self.commit(&frame)?;
-        drop(guard);
+        self.release(guard);
         Ok(e)
     }
 
@@ -1225,18 +1260,33 @@ impl Kernel {
         deadline_ms: Option<u64>,
         reserve_micros: Micros,
     ) -> Result<Action> {
-        self.plan_action_with(
+        self.plan(
             guard,
             proposal,
             retry_class,
             deadline_ms,
             reserve_micros,
-            |_| Ok(vec![]),
+            false,
         )
     }
 
+    /// `planned` for a call that waits for the operator's confirm (the policy
+    /// stopped it for approval). It reserves nothing, and the action keeps its
+    /// proposal, which the confirm binds and the resumed turn authorizes
+    /// (theseus-0g4).
+    pub fn plan_confirm(
+        &self,
+        guard: &TurnGuard,
+        proposal: &Proposal,
+        retry_class: RetryClass,
+        deadline_ms: Option<u64>,
+    ) -> Result<Action> {
+        self.plan(guard, proposal, retry_class, deadline_ms, 0, true)
+    }
+
     /// `plan_action`, with records the caller builds from the minted action
-    /// (its correlation id) written in the same frame: a `ToolCall` node, say.
+    /// (its correlation id) written in the same frame, a transaction: a
+    /// `ToolCall` node, say.
     pub fn plan_action_with(
         &self,
         guard: &TurnGuard,
@@ -1246,25 +1296,19 @@ impl Kernel {
         reserve_micros: Micros,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
-        let _w = self.locks.lock(&guard.execution_id);
-        let (a, _, mut frame) = self.plan_frame(
-            guard,
-            proposal,
-            retry_class,
-            deadline_ms,
-            reserve_micros,
-            false,
-        )?;
-        frame.extend(extra(&a)?);
-        self.commit(&frame)?;
-        Ok(a)
+        self.frame(&[&guard.execution_id], |k| {
+            let a = k.plan_action(guard, proposal, retry_class, deadline_ms, reserve_micros)?;
+            k.stage(&extra(&a)?)?;
+            Ok(a)
+        })
     }
 
-    /// `plan_action_with`, `authorize`, and `dispatch` in one frame, for an
-    /// action that needs no confirm: the provider call, and a tool call the
-    /// policy runs (theseus-qa0). Each transition keeps its own record and
-    /// row, in that order, so the record reads as it did in three frames; a
-    /// crash leaves all three or none of them. Over budget, it writes nothing.
+    /// `plan_action_with`, `authorize`, and `dispatch` in one frame, a
+    /// transaction, for an action that needs no confirm: the provider call,
+    /// and a tool call the policy runs (theseus-qa0). Each transition keeps
+    /// its own record and row, in that order, so the record reads as it did
+    /// in three frames; a crash leaves all three or none of them. Over
+    /// budget, it writes nothing.
     pub fn plan_and_dispatch(
         &self,
         guard: &TurnGuard,
@@ -1274,26 +1318,16 @@ impl Kernel {
         reserve_micros: Micros,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
-        let _w = self.locks.lock(&guard.execution_id);
-        let (mut a, mut e, mut frame) = self.plan_frame(
-            guard,
-            proposal,
-            retry_class,
-            deadline_ms,
-            reserve_micros,
-            false,
-        )?;
-        frame.extend(extra(&a)?);
-        frame.extend(self.authorize_frame(&mut a, proposal, None)?);
-        frame.extend(self.dispatch_frame(&mut a, &mut e, None)?);
-        self.commit(&frame)?;
-        Ok(a)
+        self.frame(&[&guard.execution_id], |k| {
+            let a = k.plan_action(guard, proposal, retry_class, deadline_ms, reserve_micros)?;
+            k.stage(&extra(&a)?)?;
+            k.authorize(&a.correlation_id, proposal, None)?;
+            k.dispatch(&a.correlation_id, None)
+        })
     }
 
-    /// `plan_action_with` for a call that waits for the operator's confirm
-    /// (the policy stopped it for approval). It reserves nothing, and the
-    /// action keeps its proposal, which the confirm binds and the resumed turn
-    /// authorizes (theseus-0g4).
+    /// `plan_confirm`, with records the caller builds from the minted action
+    /// written in the same frame, a transaction.
     pub fn plan_confirm_with(
         &self,
         guard: &TurnGuard,
@@ -1302,19 +1336,16 @@ impl Kernel {
         deadline_ms: Option<u64>,
         extra: impl FnOnce(&Action) -> Result<Vec<NewRecord>>,
     ) -> Result<Action> {
-        let _w = self.locks.lock(&guard.execution_id);
-        let (a, _, mut frame) =
-            self.plan_frame(guard, proposal, retry_class, deadline_ms, 0, true)?;
-        frame.extend(extra(&a)?);
-        self.commit(&frame)?;
-        Ok(a)
+        self.frame(&[&guard.execution_id], |k| {
+            let a = k.plan_confirm(guard, proposal, retry_class, deadline_ms)?;
+            k.stage(&extra(&a)?)?;
+            Ok(a)
+        })
     }
 
-    /// The planned action, its execution (with the reservation, if any), and
-    /// the frame so far: the execution's record when it reserved, the
-    /// action, and its `action.planned` row. The caller holds the execution's
-    /// lock until the frame commits.
-    fn plan_frame(
+    /// `planned`, and its frame: the execution's record when it reserves,
+    /// the action, and its `action.planned` row.
+    fn plan(
         &self,
         guard: &TurnGuard,
         proposal: &Proposal,
@@ -1322,7 +1353,8 @@ impl Kernel {
         deadline_ms: Option<u64>,
         reserve_micros: Micros,
         keep_proposal: bool,
-    ) -> Result<(Action, Execution, Vec<NewRecord>)> {
+    ) -> Result<Action> {
+        let _w = self.lock(&[&guard.execution_id]);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -1380,7 +1412,8 @@ impl Kernel {
             Some(&a.session_id),
             json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id, "tool": a.tool, "args_digest": a.args_digest, "retry_class": a.retry_class, "deadline_at_ms": a.deadline_at_ms, "reserved_usd": micros_to_usd(reserve_micros)}),
         )?);
-        Ok((a, e, frame))
+        self.commit(&frame)?;
+        Ok(a)
     }
 
     /// Every action waiting for the operator's answer (`Action::awaits_confirm`):
@@ -1429,7 +1462,7 @@ impl Kernel {
         needed_micros: Micros,
         call: Value,
     ) -> Result<Action> {
-        let _w = self.locks.lock(&guard.execution_id);
+        let _w = self.lock(&[&guard.execution_id]);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -1618,7 +1651,7 @@ impl Kernel {
         }
         // Decided from the scan; each is read again under the locks.
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let _w = self.locks.lock_all(&refs);
+        let _w = self.lock(&refs);
         let now = self.now_ms();
         let mut frame = Vec::new();
         let mut followed = Vec::new();
@@ -1789,13 +1822,29 @@ impl Kernel {
         proposal: &Proposal,
         confirm_required_from: Option<&str>,
     ) -> Result<Action> {
+        self.authorize_or_invalid(correlation_id, proposal, confirm_required_from)?
+    }
+
+    /// `authorize`, with its two refusals apart, and nothing written by
+    /// either: `Err` when the action's execution ended it (a cancel or a
+    /// stop settled it) or it cannot be read; `Ok(Err(why))` when the
+    /// proposal or its confirm no longer holds (`authorize_frame`'s checks).
+    fn authorize_or_invalid(
+        &self,
+        correlation_id: &str,
+        proposal: &Proposal,
+        confirm_required_from: Option<&str>,
+    ) -> Result<Result<Action>> {
         let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if let Some(end) = self.ended_with_execution(&a)? {
             return Err(end);
         }
-        let frame = self.authorize_frame(&mut a, proposal, confirm_required_from)?;
+        let frame = match self.authorize_frame(&mut a, proposal, confirm_required_from) {
+            Ok(frame) => frame,
+            Err(why) => return Ok(Err(why)),
+        };
         self.commit(&frame)?;
-        Ok(a)
+        Ok(Ok(a))
     }
 
     /// The refusal for a transition of `a`, which the end of its execution
@@ -1888,7 +1937,66 @@ impl Kernel {
     /// `dispatched`: committed before the call is made (transactional
     /// outbox). The execution records the action as outstanding.
     pub fn dispatch(&self, correlation_id: &str, external_op_id: Option<&str>) -> Result<Action> {
-        let (_w, a) = self.locked_known_action(correlation_id)?;
+        self.dispatch_or_refuse(correlation_id, external_op_id)?
+    }
+
+    /// `authorize` and `dispatch` in one frame, a transaction, for a call the
+    /// operator confirmed (theseus-l6y). Each keeps its record and row, in
+    /// that order, so the WAL reads as the two transitions did in two
+    /// frames. `Ok(Err(why))`: the confirm no longer holds (`authorize`'s
+    /// refusal), and nothing was written. A cancel or a stop that landed
+    /// first is the error, as `dispatch` returns it. It settled the action
+    /// itself, so nothing is written (theseus-w98), except for an action an
+    /// older build's cancel left planned: that frame writes the authorization
+    /// and the action's cancel.
+    pub fn authorize_and_dispatch(
+        &self,
+        correlation_id: &str,
+        proposal: &Proposal,
+        confirm_required_from: Option<&str>,
+        external_op_id: Option<&str>,
+    ) -> Result<Result<Action>> {
+        /// How the transaction ended. Each commits what it staged: nothing
+        /// when the confirm no longer holds, and the action's cancel when a
+        /// cancel or a stop landed first.
+        enum Answered {
+            Dispatched(Box<Action>),
+            Invalid(anyhow::Error),
+            Refused(anyhow::Error),
+        }
+        let execution_id = self
+            .action(correlation_id)?
+            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?
+            .execution_id;
+        let answered = self.frame(&[&execution_id], |k| {
+            Ok(
+                match k.authorize_or_invalid(correlation_id, proposal, confirm_required_from)? {
+                    Err(why) => Answered::Invalid(why),
+                    Ok(_) => match k.dispatch_or_refuse(correlation_id, external_op_id)? {
+                        Ok(a) => Answered::Dispatched(Box::new(a)),
+                        Err(refused) => Answered::Refused(refused),
+                    },
+                },
+            )
+        })?;
+        match answered {
+            Answered::Dispatched(a) => Ok(Ok(*a)),
+            Answered::Invalid(why) => Ok(Err(why)),
+            Answered::Refused(refused) => Err(refused),
+        }
+    }
+
+    /// `dispatch`, with its refusal apart. `Ok(Err(why))`: a cancel or a stop
+    /// (W1) that landed between plan and dispatch kept the action from
+    /// leaving; it is cancelled instead, and that is written. `Err`: nothing
+    /// is written. The frame: the action, the execution with the action
+    /// outstanding, and the `action.dispatched` row.
+    fn dispatch_or_refuse(
+        &self,
+        correlation_id: &str,
+        external_op_id: Option<&str>,
+    ) -> Result<Result<Action>> {
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if let Some(end) = self.ended_with_execution(&a)? {
             return Err(end);
         }
@@ -1900,47 +2008,6 @@ impl Kernel {
             }
             .into());
         }
-        self.dispatch_or_refuse(a, Vec::new(), external_op_id)
-    }
-
-    /// `authorize` and `dispatch` in one frame, for a call the operator
-    /// confirmed (theseus-l6y). Each keeps its record and row, in that
-    /// order, so the WAL reads as the two transitions did in two frames.
-    /// `Ok(Err(why))`: the confirm no longer holds (`authorize`'s refusal),
-    /// and nothing was written. A cancel or a stop that landed first is the
-    /// error, as `dispatch` returns it. It settled the action itself, so
-    /// nothing is written (theseus-w98), except for an action an older
-    /// build's cancel left planned: that frame writes the authorization and
-    /// the action's cancel.
-    pub fn authorize_and_dispatch(
-        &self,
-        correlation_id: &str,
-        proposal: &Proposal,
-        confirm_required_from: Option<&str>,
-        external_op_id: Option<&str>,
-    ) -> Result<Result<Action>> {
-        let (_w, mut a) = self.locked_known_action(correlation_id)?;
-        if let Some(end) = self.ended_with_execution(&a)? {
-            return Err(end);
-        }
-        let authorized = match self.authorize_frame(&mut a, proposal, confirm_required_from) {
-            Ok(frame) => frame,
-            Err(why) => return Ok(Err(why)),
-        };
-        self.dispatch_or_refuse(a, authorized, external_op_id)
-            .map(Ok)
-    }
-
-    /// `dispatch`'s transition of an authorized `a`, after the records in
-    /// `frame`, in one frame. A cancel or a stop (W1) that landed between
-    /// plan and dispatch keeps the action from leaving: it is cancelled
-    /// instead, and that is the error.
-    fn dispatch_or_refuse(
-        &self,
-        mut a: Action,
-        mut frame: Vec<NewRecord>,
-        external_op_id: Option<&str>,
-    ) -> Result<Action> {
         let mut e = self
             .execution(&a.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(a.execution_id.clone()))?;
@@ -1954,36 +2021,23 @@ impl Kernel {
             } else {
                 "execution cancelled before dispatch"
             };
-            frame.push(action_record(&a)?);
-            frame.push(self.ledger(
-                "action.cancelled",
-                Some(&a.session_id),
-                json!({"correlation_id": a.correlation_id, "why": why}),
-            )?);
-            self.commit(&frame)?;
-            return Err(match stopped {
+            self.commit(&[
+                action_record(&a)?,
+                self.ledger(
+                    "action.cancelled",
+                    Some(&a.session_id),
+                    json!({"correlation_id": a.correlation_id, "why": why}),
+                )?,
+            ])?;
+            return Ok(Err(match stopped {
                 Some(by) => KernelError::Stopped { id: e.id, by },
                 None => KernelError::NotRunnable {
                     id: e.id,
                     state: "cancelled",
                 },
             }
-            .into());
+            .into()));
         }
-        frame.extend(self.dispatch_frame(&mut a, &mut e, external_op_id)?);
-        self.commit(&frame)?;
-        Ok(a)
-    }
-
-    /// `dispatch`'s transition of an authorized `a` whose execution `e` was
-    /// not cancelled, and its frame: the action, the execution with the
-    /// action outstanding, and the `action.dispatched` row.
-    fn dispatch_frame(
-        &self,
-        a: &mut Action,
-        e: &mut Execution,
-        external_op_id: Option<&str>,
-    ) -> Result<Vec<NewRecord>> {
         let now = self.now_ms();
         a.state = ActionState::Dispatched;
         a.dispatched_at_ms = Some(now);
@@ -1992,33 +2046,48 @@ impl Kernel {
             e.outstanding.push(a.correlation_id.clone());
         }
         e.updated_at_ms = now;
-        Ok(vec![
-            action_record(a)?,
-            exec_record(e)?,
+        self.commit(&[
+            action_record(&a)?,
+            exec_record(&e)?,
             self.ledger(
                 "action.dispatched",
                 Some(&a.session_id),
                 json!({"correlation_id": a.correlation_id, "execution_id": e.id, "tool": a.tool, "external_op_id": a.external_op_id, "deadline_at_ms": a.deadline_at_ms}),
             )?,
-        ])
-    }
-
-    /// Accept a completion from any transport (§3.16). Idempotent; atomic
-    /// with the owning execution's continuation.
-    pub fn accept_completion(&self, c: &Completion) -> Result<Accepted> {
-        self.accept_completion_with(c, vec![])
+        ])?;
+        Ok(Ok(a))
     }
 
     /// `accept_completion`, with `extra` records (the node that carries the
-    /// result) in the same frame as the settlement. `extra` is written only
-    /// when this call settles or resolves the action; a duplicate, a late
-    /// arrival after cancel, and a quarantined stray write nothing extra.
+    /// result) in the same frame as the settlement, a transaction. `extra` is
+    /// written only when this call settles or resolves the action; a
+    /// duplicate, a late arrival after cancel, and a quarantined stray write
+    /// nothing extra. A stray stays one inside the transaction: an action's
+    /// id is minted at its plan, before anything can complete it.
     pub fn accept_completion_with(
         &self,
         c: &Completion,
         extra: Vec<NewRecord>,
     ) -> Result<Accepted> {
-        let Some((_w, a)) = self.locked_action(&c.correlation_id)? else {
+        let execution = self.action(&c.correlation_id)?.map(|a| a.execution_id);
+        let ids: Vec<&str> = execution.iter().map(String::as_str).collect();
+        self.frame(&ids, |k| {
+            let accepted = k.accept_completion(c)?;
+            if matches!(
+                accepted,
+                Accepted::Settled { .. } | Accepted::ResolvedUnknown { .. }
+            ) {
+                k.stage(&extra)?;
+            }
+            Ok(accepted)
+        })
+    }
+
+    /// Accept a completion from any transport (§3.16). Idempotent; atomic
+    /// with the owning execution's continuation. A task's action locks the
+    /// parent too (`locked_action`).
+    pub fn accept_completion(&self, c: &Completion) -> Result<Accepted> {
+        let Some((_w, mut a)) = self.locked_action(&c.correlation_id)? else {
             // No action, so no execution to lock.
             let key = format!("{QUARANTINE_PREFIX}{}", c.correlation_id);
             self.commit(&[
@@ -2033,17 +2102,6 @@ impl Kernel {
                 correlation_id: c.correlation_id.clone(),
             });
         };
-        self.accept_locked(c, extra, a)
-    }
-
-    /// `accept_completion_with` for an action read under its execution's
-    /// lock, which the caller holds until this returns.
-    fn accept_locked(
-        &self,
-        c: &Completion,
-        extra: Vec<NewRecord>,
-        mut a: Action,
-    ) -> Result<Accepted> {
         let now = self.now_ms();
         a.completions_seen += 1;
         let completion_rec =
@@ -2208,7 +2266,6 @@ impl Kernel {
             Some(&a.session_id),
             json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "cost_usd": c.cost_micros.map(micros_to_usd)}),
         )?);
-        frame.extend(extra);
         self.commit(&frame)?;
         if was_unknown {
             Ok(Accepted::ResolvedUnknown {
@@ -2228,33 +2285,39 @@ impl Kernel {
     /// `OutcomeUnknown` is knowledge: the execution gets it as a result and the
     /// reservation is held, never released (§3.16).
     pub fn mark_unknown(&self, correlation_id: &str, reason: &str) -> Result<Action> {
-        // The check and the settlement are one transition, under one lock:
+        // The check and the settlement are one transaction, under one lock:
         // nothing can settle the action between them.
-        let (_w, a) = self.locked_known_action(correlation_id)?;
-        if a.state != ActionState::Dispatched {
-            return Err(KernelError::ActionState {
-                correlation_id: a.correlation_id,
-                state: a.state.as_str(),
-                expected: "dispatched",
+        let execution_id = self
+            .action(correlation_id)?
+            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?
+            .execution_id;
+        self.frame(&[&execution_id], |k| {
+            let a = k
+                .action(correlation_id)?
+                .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?;
+            if a.state != ActionState::Dispatched {
+                return Err(KernelError::ActionState {
+                    correlation_id: a.correlation_id,
+                    state: a.state.as_str(),
+                    expected: "dispatched",
+                }
+                .into());
             }
-            .into());
-        }
-        let c = Completion {
-            correlation_id: correlation_id.into(),
-            outcome: Outcome::Unknown,
-            result_ref: None,
-            external_op_id: None,
-            started_at_ms: self.now_ms(),
-            finished_at_ms: self.now_ms(),
-            producer: format!("reconciler:{reason}"),
-            signature: None,
-            cost_micros: None,
-            detail: None,
-        };
-        self.accept_locked(&c, vec![], a)?;
-        self.action(correlation_id)?
-            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))
-            .map_err(Into::into)
+            k.accept_completion(&Completion {
+                correlation_id: correlation_id.into(),
+                outcome: Outcome::Unknown,
+                result_ref: None,
+                external_op_id: None,
+                started_at_ms: k.now_ms(),
+                finished_at_ms: k.now_ms(),
+                producer: format!("reconciler:{reason}"),
+                signature: None,
+                cost_micros: None,
+                detail: None,
+            })?;
+            Ok(k.action(correlation_id)?
+                .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?)
+        })
     }
 
     // ------------------------------------------------------------ cancel
@@ -2264,16 +2327,41 @@ impl Kernel {
     /// must now be terminated.
     pub fn cancel_execution(&self, execution_id: &str, by: &str) -> Result<Vec<CorrelationId>> {
         Ok(self
-            .cancel_execution_with(execution_id, by, |_| Ok(vec![]))?
-            .to_kill)
+            .cancel(execution_id, by)?
+            .map(|c| c.to_kill)
+            .unwrap_or_default())
     }
 
     /// `cancel_execution`, with records `extra` builds from what the cancel
-    /// ended, in the same frame: a task's report that it was cancelled (DD7),
-    /// and the result of each tool call it planned and never sent
-    /// (theseus-w98). `extra` runs only when this call cancels it, so a
-    /// second cancel writes nothing, and says nothing twice. A task reaches
-    /// its parent here as it does at `end_turn`.
+    /// ended, in the same frame, a transaction: a task's report that it was
+    /// cancelled (DD7), and the result of each tool call it planned and never
+    /// sent (theseus-w98). `extra` runs only when this call cancels it, so a
+    /// second cancel writes nothing, and says nothing twice.
+    pub fn cancel_execution_with(
+        &self,
+        execution_id: &str,
+        by: &str,
+        extra: impl FnOnce(&Ending<'_>) -> Result<Vec<NewRecord>>,
+    ) -> Result<Cancel> {
+        self.frame(&[execution_id], |k| {
+            let Some(c) = k.cancel(execution_id, by)? else {
+                return Ok(Cancel::default());
+            };
+            k.stage(&extra(&Ending {
+                execution: &c.execution,
+                not_run: &c.not_run,
+                turn_running: c.turn_running,
+            })?)?;
+            Ok(Cancel {
+                to_kill: c.to_kill,
+                not_run: c.not_run,
+            })
+        })
+    }
+
+    /// The cancel (`cancel_execution`). A task reaches its parent here as it
+    /// does at `end_turn`. `None`: the execution had ended already, and
+    /// nothing is written.
     ///
     /// Everything the execution planned and never sent ends in this frame:
     /// a tool call waiting for the operator, a call planned or authorized and
@@ -2283,18 +2371,13 @@ impl Kernel {
     /// nothing counts it as waiting (theseus-w98). Only a dispatched call has
     /// a backend to stop: it is marked `cancel = requested` and returned in
     /// `to_kill`.
-    pub fn cancel_execution_with(
-        &self,
-        execution_id: &str,
-        by: &str,
-        extra: impl FnOnce(&Ending<'_>) -> Result<Vec<NewRecord>>,
-    ) -> Result<Cancel> {
+    fn cancel(&self, execution_id: &str, by: &str) -> Result<Option<Cancelled>> {
         let _w = self.lock_family(execution_id)?;
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
         if e.state.is_terminal() {
-            return Ok(Cancel::default());
+            return Ok(None);
         }
         let now = self.now_ms();
         let turn_running = e.state == ExecState::Running;
@@ -2328,13 +2411,13 @@ impl Kernel {
                    "not_run": not_run.iter().map(|a| a.correlation_id.as_str()).collect::<Vec<_>>()}),
         )?);
         self.task_ended(&e, &mut frame)?;
-        frame.extend(extra(&Ending {
-            execution: &e,
-            not_run: &not_run,
-            turn_running,
-        })?);
         self.commit(&frame)?;
-        Ok(Cancel { to_kill, not_run })
+        Ok(Some(Cancelled {
+            execution: e,
+            not_run,
+            turn_running,
+            to_kill,
+        }))
     }
 
     /// Settle everything `e` planned and never sent, as `e` ends: a cancel,
@@ -2603,7 +2686,7 @@ impl Kernel {
             .filter(|e| rewrites(e))
             .map(|e| e.id.as_str())
             .collect();
-        let rewriting = self.locks.lock_all(&ids);
+        let rewriting = self.lock(&ids);
         for e in all {
             let mut e = if rewrites(&e) {
                 self.execution(&e.id)?.unwrap_or(e)

@@ -2122,10 +2122,13 @@ fn assert_nothing_runs_unasked(w: &World, e: &Execution) {
 fn a_turns_commit_never_puts_running_back_over_a_cancel() {
     let (w, p) = pausing_world();
     let (_, e, g) = running(&w);
+    // The plan is a transaction, whose first read finds the family (its
+    // parent, if any) before it locks, as `lock_family` does: its second read
+    // is the plan's own, under the lock.
     let r = race(
         &w.kernel,
         &p,
-        (kinds::EXECUTION, &e.id, 1),
+        (kinds::EXECUTION, &e.id, 2),
         |k| {
             k.plan_and_dispatch(
                 &g,

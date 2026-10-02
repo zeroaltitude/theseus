@@ -108,7 +108,7 @@ impl Kernel {
     ) -> Result<WakeSet> {
         self.require_accepting()?;
         let id = wake_id(correlation_id);
-        let _w = self.locks().lock(&guard.execution_id);
+        let _w = self.lock(&[&guard.execution_id]);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -163,7 +163,7 @@ impl Kernel {
         guard: &TurnGuard,
         extra: impl FnOnce(&[FiredWake]) -> Result<Vec<NewRecord>>,
     ) -> Result<Vec<FiredWake>> {
-        let _w = self.locks().lock(&guard.execution_id);
+        let _w = self.lock(&[&guard.execution_id]);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -209,7 +209,7 @@ impl Kernel {
         wake_id: &str,
         by: &str,
     ) -> Result<Option<(Execution, PendingWake)>> {
-        let _w = self.locks().lock(execution_id);
+        let _w = self.lock(&[execution_id]);
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -234,7 +234,7 @@ impl Kernel {
     /// or a wake of its own that is due while it is free. Returns the queued
     /// execution, or `None` when it was not due by then.
     pub fn fire_due(&self, execution_id: &str) -> Result<Option<Execution>> {
-        let _w = self.locks().lock(execution_id);
+        let _w = self.lock(&[execution_id]);
         let Some(mut e) = self.execution(execution_id)? else {
             return Ok(None);
         };

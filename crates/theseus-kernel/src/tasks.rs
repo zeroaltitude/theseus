@@ -27,7 +27,7 @@
 //!   task wakes nothing: whoever cancelled it is already there, and its
 //!   report says who did.
 //! - **Locks.** Every transition that writes both takes both locks, in id
-//!   order (`lock_two`), so the parent's own writers and its task's never lose
+//!   order (`Kernel::lock`), so the parent's own writers and its task's never lose
 //!   each other's update.
 
 use anyhow::Result;
@@ -97,7 +97,7 @@ impl Kernel {
     ) -> Result<TaskOpen> {
         self.require_accepting()?;
         let (task_id, session_id) = task_ids(correlation_id);
-        let _w = self.locks().lock_two(&guard.execution_id, &task_id);
+        let _w = self.lock(&[&guard.execution_id, &task_id]);
         let mut parent = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
@@ -200,7 +200,7 @@ impl Kernel {
         guard: &TurnGuard,
         extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
     ) -> Result<TakenReports> {
-        let _w = self.locks().lock(&guard.execution_id);
+        let _w = self.lock(&[&guard.execution_id]);
         let mut e = self
             .execution(&guard.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;

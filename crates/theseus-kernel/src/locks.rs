@@ -18,8 +18,11 @@
 //! view can be one frame stale.
 //!
 //! A transition that touches two executions takes both in id order
-//! (`lock_two`), so two such transitions naming the same pair in either order
-//! cannot deadlock. A lock is never taken twice on one thread: a transition
+//! (`lock_all`): a task and its parent (DD7), opening the task and carving its
+//! budget, each of its settles, and its end. So two such transitions naming
+//! the same pair in either order cannot deadlock. A kernel transaction
+//! (`Kernel::frame`, theseus-0owd) takes every lock its transitions need
+//! first, in the same order, and they take none of their own. A lock is never taken twice on one thread: a transition
 //! that calls another which locks the same execution would wait on itself, so
 //! that panics instead.
 
@@ -61,11 +64,13 @@ impl ExecLocks {
         self.lock_all(&[id])
     }
 
-    /// Lock two executions, in id order: the ordered two-lock helper. A task
-    /// and its parent (DD7): opening the task and carving its budget, each of
-    /// its settles (its spend is the parent's too), and its end.
-    pub(crate) fn lock_two(&self, a: &str, b: &str) -> ExecLock<'_> {
-        self.lock_all(&[a, b])
+    /// No lock: what a transition holds inside a kernel transaction, which
+    /// took every lock it needs first (`Kernel::frame`, theseus-0owd).
+    pub(crate) fn none(&self) -> ExecLock<'_> {
+        ExecLock {
+            locks: self,
+            ids: Vec::new(),
+        }
     }
 
     /// Lock every execution named, one at a time in id order, so that two
@@ -157,7 +162,7 @@ mod tests {
             std::thread::spawn(move || {
                 for _ in 0..20_000 {
                     let _held = match ids {
-                        [a, b] => locks.lock_two(a, b),
+                        [a, b] => locks.lock_all(&[a, b]),
                         [a] => locks.lock(a),
                         _ => unreachable!(),
                     };
@@ -182,7 +187,7 @@ mod tests {
         let locks = ExecLocks::default();
         let b = locks.lock("exe_b");
         let again = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            drop(locks.lock_two("exe_a", "exe_b"))
+            drop(locks.lock_all(&["exe_a", "exe_b"]))
         }));
         let msg = again.expect_err("a second lock of exe_b on this thread");
         let msg = msg.downcast_ref::<String>().unwrap();

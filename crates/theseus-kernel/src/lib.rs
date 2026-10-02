@@ -19,6 +19,7 @@ pub mod redact;
 pub mod spool;
 pub mod stops;
 pub mod tasks;
+mod tx;
 pub mod types;
 pub mod umask;
 pub mod wakes;
@@ -26,9 +27,13 @@ pub mod wakes;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_frames;
+#[cfg(test)]
 mod tests_stops;
 #[cfg(test)]
 mod tests_tasks;
+#[cfg(test)]
+mod tests_tx;
 #[cfg(test)]
 mod tests_wakes;
 

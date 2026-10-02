@@ -144,6 +144,11 @@ pub struct SimReport {
     pub races: u64,
     pub race_ops: u64,
     pub race_crashes: u64,
+    /// Kernel transactions the racing thread ran, two transitions in one
+    /// frame each (theseus-0owd), and answers the operator gave, each one
+    /// frame with its wake (theseus-jj9f).
+    pub race_frames: u64,
+    pub one_frame_answers: u64,
     pub legacy_migrated: u64,
     /// Restarts onto a changed spend limit (theseus-3pj), and how many
     /// raised it; the open executions that took a new limit; the budget waits
@@ -936,19 +941,25 @@ impl World {
         } else {
             "superseded: new input came instead of an answer"
         };
-        // A crash after an earlier answer left it declined and still waiting.
+        // An older build's answer, two frames, may have left it declined and
+        // still waiting: then only the wake.
         let open = self
             .kernel
             .action(&corr)?
             .is_some_and(|a| a.state == ActionState::Planned);
-        if open {
-            self.kernel.decline_action(&corr, "sim", note)?;
-            self.rep.asked_declined += 1;
-            if self.maybe_crash("after decline")? {
-                return Ok(());
+        // The answer and its wake are one frame, a kernel transaction, as the
+        // core answers (theseus-jj9f): a crash comes before it or after it.
+        self.kernel.frame(&[&exec_id], |k| {
+            if open {
+                k.decline_action(&corr, "sim", note)?;
             }
+            k.wake(&exec_id, "confirm")
+        })?;
+        if open {
+            self.rep.asked_declined += 1;
         }
-        self.kernel.wake(&exec_id, "confirm")?;
+        self.rep.one_frame_answers += 1;
+        self.maybe_crash("after the answer")?;
         Ok(())
     }
 
@@ -1126,6 +1137,7 @@ impl World {
                 },
                 5..=6 => RaceOp::Wake,
                 7 => RaceOp::Input,
+                8 => RaceOp::Frame,
                 _ => RaceOp::Reconcile,
             };
             ops.push(op);
@@ -1177,6 +1189,7 @@ impl World {
         let turn = turn?;
         let raced = raced?;
         self.rep.race_ops += raced.ops;
+        self.rep.race_frames += raced.frames;
         self.rep.unknowns += raced.unknowns;
         self.rep.resolved_unknowns += raced.resolved;
         for (corr, acc) in &raced.accepted {
@@ -2030,6 +2043,9 @@ enum RaceOp {
     Input,
     /// The heartbeat's reconcile, over every execution.
     Reconcile,
+    /// Input and a nudge in one kernel transaction (theseus-0owd): one
+    /// frame, or nothing when the execution ended.
+    Frame,
 }
 
 /// Where a raced turn's call finishes.
@@ -2064,6 +2080,8 @@ struct RacedTurn {
 #[derive(Default)]
 struct Raced {
     ops: u64,
+    /// Its kernel transactions.
+    frames: u64,
     /// The calls each cancel said to stop.
     to_kill: Vec<String>,
     /// Each completion it delivered, and what accepting it did.
@@ -2121,6 +2139,13 @@ fn run_racer(
             }
             RaceOp::Wake => ended(k.wake(exec_id, "sim-race"))?,
             RaceOp::Input => ended(k.wake_input(exec_id))?,
+            RaceOp::Frame => {
+                out.frames += 1;
+                ended(k.frame(&[exec_id], |k| {
+                    k.wake_input(exec_id)?;
+                    k.wake(exec_id, "sim-race")
+                }))?
+            }
             RaceOp::Reconcile => {
                 let rep = k.reconcile(&WrapperEvidence {
                     spool: spool.clone(),

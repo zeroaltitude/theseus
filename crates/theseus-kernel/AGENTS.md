@@ -10,6 +10,7 @@ theseusd, and theseus-sim.
   observer.
 - `types.rs`: the durable objects (executions, actions, completions, budgets, wakes).
 - `locks.rs`: one writer at a time per execution (theseus-id9).
+- `tx.rs`: the kernel transaction (`Kernel::frame`, theseus-0owd): several transitions staged, then one frame.
 - `job.rs`: the job wrapper (detached, durable, cancellable), `job::Stopping`, `holder`, and `wrapper_alive`.
 - `children.rs`: the daemon's children: what it spawned, what it adopted, and who reaps each.
 - `outbox.rs`: posts that must reach a channel, as actions of their own record kind, `OUTBOX`.
@@ -19,13 +20,20 @@ theseusd, and theseus-sim.
 
 ## Invariants
 
-- **One frame per mutating method**: the records that change, plus the ledger rows that describe the change. A
-  crash between two frames leaves a state some earlier call produced, never one no call produces.
+- **One frame per mutating method, or per transaction**: the records that change, plus the ledger rows that
+  describe the change. A crash between two frames leaves a state some earlier call produced, never one no call
+  produces.
+- **Several transitions in one frame are a transaction, never a new combined transition** (`Kernel::frame`):
+  `kernel.frame(&[ids], |k| { k.bind_confirm(..)?; k.wake(..)?; Ok(()) })`. It locks the executions named and
+  their parents first, in id order. The transitions called on `k` stage their records and read what was staged,
+  and `k.stage` adds the caller's own (a node, a row). `Ok` commits one frame, observed once; `Err` writes nothing.
+  A `frame` inside one joins it, and its failure takes back only its own part. The `_with` family, `admit_input`,
+  `plan_and_dispatch`, and `authorize_and_dispatch` are such compositions.
 - **The lock.** A transition that reads an execution, or one of its actions, and writes it back holds that
-  execution's lock from the read until its frame is indexed. Never call another public transition that locks the
-  same execution: it panics ("locked twice on one thread"). Use the locked inner form, as `mark_unknown` uses
-  `accept_locked`. Two executions: `lock_two`, which takes them in id order; a task and its parent: `lock_family`.
-  Readers that write nothing take no lock.
+  execution's lock from the read until its frame is indexed. Never call a transition that locks an execution
+  this thread holds: it panics ("locked twice on one thread"), and inside a transaction, so does one of an
+  execution it did not name. Compose in a transaction instead, as `mark_unknown` does. Several executions:
+  `Kernel::lock`, in id order; a task and its parent: `lock_family`. Readers that write nothing take no lock.
 - **Lock order** is always the session, then the execution, and no kernel transition takes a session's lock.
 - **Time is injected** (`Clock`: `RealClock`, `VirtualClock`). The kernel never reads the wall clock.
 - **Every child goes through `children::spawn`.** A child spawned another way, and waited for, can be reaped by the
@@ -38,8 +46,11 @@ theseusd, and theseus-sim.
 
 ## Tests
 
-- In `src/`: `tests.rs` (whose fixtures run on a `VirtualClock`), `tests_stops.rs`, `tests_tasks.rs`, and
-  `tests_wakes.rs`.
+- In `src/`: `tests.rs` (whose fixtures run on a `VirtualClock`), `tests_stops.rs`, `tests_tasks.rs`,
+  `tests_tx.rs` (the transaction), and `tests_wakes.rs`.
+- `tests_frames.rs` is a golden: every frame a scripted run of the transitions commits, record by record, against
+  `tests/golden/kernel_frames.txt`. A refactor leaves it byte-identical; `THESEUS_GOLDEN=write` rewrites it, for a
+  change you mean.
 - `tests/children.rs` makes its process a subreaper, so it is a test binary of its own: a sweep reaps any child of
   the process, other tests' included.
 - `theseus-sim kernel-sim` drives the kernel under seeded faults and races (`--p-race`; 0 is fully

@@ -66,7 +66,8 @@ pub trait Store: Send + Sync {
     fn scan(&self, from: u64, to: Option<u64>, limit: usize) -> Result<Vec<Record>>;
     /// The latest record for (kind, key): current state of an entity.
     fn latest_by_key(&self, kind: RecordKind, key: &str) -> Result<Option<Record>>;
-    /// Latest record for every key of a kind.
+    /// Latest record for every key of a kind, in key order (the bytes'):
+    /// the kernel transaction merges what it staged into it by key.
     fn latest_of_kind(&self, kind: RecordKind) -> Result<Vec<Record>>;
     /// Newest `n` records of a kind, oldest first.
     fn tail_of_kind(&self, kind: RecordKind, n: usize) -> Result<Vec<Record>>;
