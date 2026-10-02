@@ -1265,7 +1265,7 @@ pub struct ChildrenStatus {
 }
 
 /// A long-lived child the daemon supervises (roadmap row 51; M6 §2.2): the
-/// index tender. It starts after serving, never on the start path; it is
+/// index tender. It starts 2 s after serving, never on the start path; it is
 /// restarted whenever it exits, 1 s after the first exit, the wait doubling to
 /// 60 s while it keeps failing; and a stop sends it SIGTERM and never waits.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1273,8 +1273,8 @@ pub struct ChildrenStatus {
 pub struct TenderStatus {
     /// What it tends: `index`.
     pub name: String,
-    /// `pending` (not started yet: it starts once the daemon's socket
-    /// answers), `running`, `backoff` (it exited, and starts again at
+    /// `pending` (not started yet: it starts 2 s after the daemon's socket
+    /// answers, at `next_start_ms`), `running`, `backoff` (it exited, and starts again at
     /// `next_start_ms`), `absent` (its binary is not installed beside the
     /// daemon's: `why`), or `stopped` (the daemon is stopping, and sent it
     /// SIGTERM, or restarts in place and keeps it).

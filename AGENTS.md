@@ -99,7 +99,7 @@ Directory guides: each crate in the first table, `web`, `cockpit`, and `scripts`
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
   (`theseusd example-config` prints it).
 - **The index tender**: the binary in `crates/theseus-index`, its supervisor in `crates/theseus-core/src/tender.rs`
-  (started after serving, restarted with backoff, SIGTERM at a stop), and its child kind in
+  (started 2 s after serving, restarted with backoff, SIGTERM at a stop), and its child kind in
   `crates/theseus-kernel/src/children.rs`.
 
 ## The principles that bind code

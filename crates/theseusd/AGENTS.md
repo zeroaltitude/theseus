@@ -10,8 +10,9 @@ subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindin
   in `after_serving`, as do the actors (the harness loop, the driver, telemetry, the web UI, Discord), which start
   only once the config may act. Also the signal arms (SIGINT and SIGTERM are one clean stop) and the reaper.
 - The index tender (row 51): `after_serving` starts the core's supervisor (`theseus_core::tender`) as soon as the
-  socket answers, the socket daemon only; the reaper hands it each tender's exit; a stop sends the tender SIGTERM
-  and never waits. It runs the `theseus-index` beside this binary, never one on PATH.
+  socket answers, the socket daemon only, and the supervisor starts a tender 2 s later (one an exec kept is taken
+  over at once); the reaper hands it each tender's exit; a stop sends the tender SIGTERM and never waits. It runs
+  the `theseus-index` beside this binary, never one on PATH.
 - `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
   refuses a wrong `Host` or `Origin` and any uid but the daemon's own.
 - `src/install/`: `theseusd install`, the daemon as a systemd service (`--user`, or `--separate` as root). It prints

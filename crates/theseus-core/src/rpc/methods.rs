@@ -151,12 +151,13 @@ impl Core {
         }
     }
 
-    /// `health`, with the index tender's block (roadmap row 51): the tender
-    /// is asked under `tender::HEALTH_DEADLINE`, so health never waits long
-    /// on it.
+    /// `health`, with the index tender's block (roadmap row 51): a tender
+    /// that runs is asked under `tender::HEALTH_DEADLINE`, so health never
+    /// waits long on it, and none is asked before one runs, so a start's
+    /// first answer waits on none.
     pub async fn health_now(&self) -> HealthResult {
         let mut h = self.health();
-        h.index = Some(self.index.health(crate::tender::HEALTH_DEADLINE).await);
+        h.index = Some(self.index.health_block().await);
         h
     }
 

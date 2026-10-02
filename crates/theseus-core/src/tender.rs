@@ -4,8 +4,9 @@
 //! with the core its only client.
 //!
 //! - **After serving**, never on the start path: the socket daemon's
-//!   `after_serving` runs [`IndexTender::run`], once the config may act. A
-//!   `--stdio` daemon runs none.
+//!   `after_serving` runs [`IndexTender::run`], which starts a tender
+//!   [`START_AFTER`] later, once the start's aftermath has settled, and takes
+//!   over at once a tender an exec kept. A `--stdio` daemon runs none.
 //! - **One per index directory.** The tender takes `<state>/index/LOCK`, and a
 //!   second exits 3 at once. A restart onto the vault's changed note execs the
 //!   daemon in place, with its pid and so its children: `children::relearn`
@@ -19,9 +20,10 @@
 //!   node id, and the cursor follows each commit, so a kill costs one batch at
 //!   most. The tender exits with the daemon (`--parent`), so a crash leaves
 //!   none holding the index's lock.
-//! - **The core asks it, bounded**: health's `index` block and `index.status`
-//!   ([`IndexTender::health`]), and `index.query` ([`IndexTender::query`]),
-//!   one connection per call, each under a deadline.
+//! - **The core asks it, bounded**: health's `index` block
+//!   ([`IndexTender::health_block`], only of a tender it runs) and
+//!   `index.status` ([`IndexTender::health`]), and `index.query`
+//!   ([`IndexTender::query`]), one connection per call, each under a deadline.
 //!
 //! Each start, take-over, failed start, settings change, and exit is a fact
 //! (`crate::fact::index`), an `index.tender` ledger row; a stop records none
@@ -63,6 +65,14 @@ pub const BACKOFF_FIRST: Duration = Duration::from_secs(1);
 pub const BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// A run this long was healthy: the next exit waits `BACKOFF_FIRST` again.
 pub const HEALTHY_RUN: Duration = Duration::from_secs(60);
+/// How long after serving a fresh start waits (a tender an exec kept is taken
+/// over at once). The daemon's start and its aftermath settle first, so the
+/// tender's own start (its process, the index's open, its lock and socket, its
+/// first commits, and its `started` row) shares no journal commit with them,
+/// and a daemon stopped, swapped, or killed within it starts none. The
+/// lifecycle bench's daemons each live a few milliseconds: with the tender
+/// started at once, each stop, kill, and swap met one starting.
+pub const START_AFTER: Duration = Duration::from_secs(2);
 /// How long `health` waits for the tender's `index.status`. A tender answers
 /// in well under a millisecond, but its status reads the model's state, which
 /// an embedding batch may hold: then health says what it last heard.
@@ -210,6 +220,8 @@ pub struct IndexTender {
     /// The binary `run` found.
     binary: std::sync::OnceLock<PathBuf>,
     os: Arc<dyn Os>,
+    /// How long a fresh start waits once `run` begins: [`START_AFTER`].
+    start_after: Duration,
     /// Set once the core is built: it writes each `index.tender` row.
     ledger: std::sync::OnceLock<Ledger>,
     board: Mutex<Board>,
@@ -238,6 +250,7 @@ impl IndexTender {
             program,
             binary: std::sync::OnceLock::new(),
             os,
+            start_after: START_AFTER,
             ledger: std::sync::OnceLock::new(),
             board: Mutex::new(Board {
                 state,
@@ -257,6 +270,13 @@ impl IndexTender {
             events,
             inbox: Mutex::new(Some(inbox)),
         }
+    }
+
+    /// The same, with a fresh start waiting `wait` instead of
+    /// [`START_AFTER`] (tests: zero).
+    pub fn with_start_after(mut self, wait: Duration) -> Self {
+        self.start_after = wait;
+        self
     }
 
     pub fn enabled(&self) -> bool {
@@ -357,6 +377,21 @@ impl IndexTender {
         };
         let _ = self.binary.set(program.clone());
         let mut kept = self.os.running();
+        if kept.is_none() && !self.start_after.is_zero() {
+            // A fresh start waits for the daemon's own start to settle.
+            {
+                let mut b = self.board();
+                b.next_start_ms =
+                    Some(theseus_protocol::now_unix_ms() + self.start_after.as_millis() as u64);
+                b.why = Some(format!(
+                    "it starts {:.0} s after the daemon serves",
+                    self.start_after.as_secs_f64()
+                ));
+            }
+            if !self.wait(&mut inbox, self.start_after).await {
+                return;
+            }
+        }
         loop {
             let pid = match kept.take() {
                 Some(pid) => {
@@ -617,11 +652,34 @@ impl IndexTender {
                 },
                 None => IndexHealth {
                     state: "down".into(),
-                    why: Some(down_why(&tender, &e)),
+                    why: Some(down_why(&tender, Some(&e))),
                     tender: Some(tender),
                     status: None,
                 },
             },
+        }
+    }
+
+    /// Health's `index` block for `health`: [`IndexTender::health`] under
+    /// [`HEALTH_DEADLINE`], but only of a tender its supervisor runs. Before
+    /// one starts, between its runs, or with none installed, the block is what
+    /// the supervisor knows, and no socket is asked: so a start's first answer
+    /// never waits on one (a stale socket, or a predecessor's still dying).
+    /// The wait after serving ([`START_AFTER`]) is `starting`.
+    pub async fn health_block(&self) -> IndexHealth {
+        match self.status() {
+            Some(t) if t.state != "running" => IndexHealth {
+                state: if t.state == "pending" && t.next_start_ms.is_some() {
+                    "starting"
+                } else {
+                    "down"
+                }
+                .into(),
+                why: Some(down_why(&t, None)),
+                tender: Some(t),
+                status: None,
+            },
+            _ => self.health(HEALTH_DEADLINE).await,
         }
     }
 
@@ -647,19 +705,26 @@ impl IndexTender {
             )),
             Err(e) => Err((
                 error_code::INTERNAL,
-                format!("the index tender did not answer: {}", down_why(&tender, &e)),
+                format!(
+                    "the index tender did not answer: {}",
+                    down_why(&tender, Some(&e))
+                ),
             )),
         }
     }
 }
 
 /// Why no tender answered, in words: what its supervisor knows, else what the
-/// call met.
-fn down_why(t: &TenderStatus, call: &CallError) -> String {
+/// call met (`None`: none was made).
+fn down_why(t: &TenderStatus, call: Option<&CallError>) -> String {
+    let met = || call.map_or_else(|| "no tender runs".to_string(), |c| c.to_string());
     match t.state.as_str() {
-        "running" => format!("its socket did not answer ({call})"),
-        "pending" => "it starts once the daemon serves".into(),
-        _ => t.why.clone().unwrap_or_else(|| call.to_string()),
+        "running" => format!("its socket did not answer ({})", met()),
+        "pending" => t
+            .why
+            .clone()
+            .unwrap_or_else(|| "it starts once the daemon serves".into()),
+        _ => t.why.clone().unwrap_or_else(met),
     }
 }
 

@@ -9,9 +9,10 @@ import type { TenderStatus } from "./TenderStatus";
  */
 export type IndexHealth = { 
 /**
- * In a word: `off` (`[index] enabled = false`), `down` (no tender
- * answers: `why` says why, and `tender` when it starts again), or the
- * tender's own state (`starting`, `backfilling`, `ready`, `stalled`).
+ * In a word: `off` (`[index] enabled = false`), `starting` (before its
+ * supervisor starts a tender, 2 s after the daemon serves), `down` (no
+ * tender answers: `why` says why, and `tender` when it starts again), or
+ * the tender's own state (`starting`, `backfilling`, `ready`, `stalled`).
  */
 state: string, why?: string, 
 /**

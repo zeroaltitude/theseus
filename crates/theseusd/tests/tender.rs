@@ -139,17 +139,40 @@ fn rows(s: &Served) -> (Vec<Value>, u64) {
     (tender, serving)
 }
 
-/// It starts after serving (its `started` row follows `server.serving` in
-/// the WAL), and indexes the store; a SIGKILL restarts it 1 s later, and a
-/// second, at once, 2 s later; a stop sends it SIGTERM.
+/// It starts after serving, 2 s after (its `started` row follows
+/// `server.serving` in the WAL; health says `starting` meanwhile), and
+/// indexes the store; a SIGKILL restarts it 1 s later, and a second, at once,
+/// 2 s later; a stop sends it SIGTERM.
 #[test]
 fn the_tender_starts_after_serving_and_a_kill_restarts_it_after_its_backoff() {
     tender_bin();
     let s = Served::start(|_| {}, index_on);
     let mut seen = Reap(Vec::new());
+    let h = until(&s, "the wait after serving", |h| {
+        h["index"]["state"] == "starting"
+    });
+    assert_eq!(
+        h["index"]["why"], "it starts 2 s after the daemon serves",
+        "{}",
+        h["index"]
+    );
+    assert!(running(&h).is_none(), "{}", h["index"]);
     let h = until(&s, "the tender's index ready", |h| {
         running(h).is_some() && h["index"]["state"] == "ready"
     });
+    // Its `started` row is 2 s after `server.serving`, by the daemon's clock.
+    let tail = s.call("ledger.tail", json!({"n": 1000})).unwrap();
+    let at = |kind: &str| {
+        tail["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == kind)
+            .and_then(|r| r["at_unix_ms"].as_u64())
+            .unwrap()
+    };
+    let after = at("index.tender") - at("server.serving");
+    assert!(after >= 1990, "it started {after} ms after serving");
     let first = running(&h).unwrap();
     seen.0.push(first);
     assert_eq!(h["index"]["status"]["mode"], "bm25_only", "{}", h["index"]);

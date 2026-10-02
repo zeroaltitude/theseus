@@ -25,7 +25,7 @@ use crate::config::IndexConfig;
 use crate::ledger::LedgerRow;
 use crate::tender::{
     exit_words, next_backoff, IndexTender, Os, BACKOFF_FIRST, BACKOFF_MAX, HEALTHY_RUN,
-    HEALTH_DEADLINE,
+    HEALTH_DEADLINE, START_AFTER, STATUS_DEADLINE,
 };
 
 /// The operating system, as the supervisor sees it: each start recorded with
@@ -89,18 +89,32 @@ impl FakeOs {
     }
 }
 
-/// A supervisor of the store at `<state>/store`, with its rows kept.
+/// A supervisor of the store at `<state>/store`, with its rows kept, whose
+/// fresh start waits nothing (the wait after serving has its own test).
 fn supervisor(
     cfg: IndexConfig,
     state: &Path,
     os: Arc<FakeOs>,
 ) -> (Arc<IndexTender>, Arc<Mutex<Vec<Value>>>) {
-    let t = Arc::new(IndexTender::new(
-        cfg,
-        &state.join("store"),
-        Some(PathBuf::from("/opt/theseus/theseus-index")),
-        os,
-    ));
+    supervisor_waiting(cfg, state, os, Duration::ZERO)
+}
+
+/// The same, whose fresh start waits `wait`.
+fn supervisor_waiting(
+    cfg: IndexConfig,
+    state: &Path,
+    os: Arc<FakeOs>,
+    wait: Duration,
+) -> (Arc<IndexTender>, Arc<Mutex<Vec<Value>>>) {
+    let t = Arc::new(
+        IndexTender::new(
+            cfg,
+            &state.join("store"),
+            Some(PathBuf::from("/opt/theseus/theseus-index")),
+            os,
+        )
+        .with_start_after(wait),
+    );
     let rows = Arc::new(Mutex::new(Vec::new()));
     let kept = rows.clone();
     t.set_ledger(Arc::new(move |row: LedgerRow| {
@@ -418,6 +432,71 @@ async fn a_stop_during_the_backoff_starts_nothing() {
     );
 }
 
+/// A fresh start waits `START_AFTER` once `run` begins (the daemon serves),
+/// and health says `starting` meanwhile; a tender an exec kept is taken over
+/// at once; a stop during the wait ends the supervisor at once, and nothing
+/// starts.
+#[tokio::test(start_paused = true)]
+async fn a_fresh_start_waits_after_serving_and_a_kept_tender_is_taken_over_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let os = Arc::new(FakeOs::default());
+    let (t, rows) = supervisor_waiting(IndexConfig::default(), dir.path(), os.clone(), START_AFTER);
+    let t0 = Instant::now();
+    let task = tokio::spawn(t.clone().run());
+    settle().await;
+    assert_eq!(os.starts(), 0, "nothing starts at once");
+    let h = t.health_block().await;
+    assert_eq!((h.state.as_str(), h.status.is_none()), ("starting", true));
+    assert_eq!(
+        h.why.as_deref(),
+        Some("it starts 2 s after the daemon serves")
+    );
+    assert!(h.tender.unwrap().next_start_ms.is_some());
+    tokio::time::sleep(START_AFTER - Duration::from_millis(1)).await;
+    settle().await;
+    assert_eq!(os.starts(), 0);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    settle().await;
+    assert_eq!(os.starts(), 1);
+    assert_eq!(os.last().1 - t0, START_AFTER);
+    assert_eq!(t.status().unwrap().state, "running");
+    assert_eq!(events(&rows), ["started"]);
+    task.abort();
+
+    let os = Arc::new(FakeOs::default());
+    *os.kept.lock().unwrap() = Some(4242);
+    let (t, rows) = supervisor_waiting(IndexConfig::default(), dir.path(), os.clone(), START_AFTER);
+    let t1 = Instant::now();
+    let task = tokio::spawn(t.clone().run());
+    settle().await;
+    let st = t.status().unwrap();
+    assert_eq!(
+        (st.state.as_str(), st.pid, st.adopted),
+        ("running", Some(4242), true)
+    );
+    assert_eq!(Instant::now(), t1, "taken over with no wait");
+    assert_eq!(events(&rows), ["adopted"]);
+    task.abort();
+
+    let os = Arc::new(FakeOs::default());
+    let (t, rows) = supervisor_waiting(IndexConfig::default(), dir.path(), os.clone(), START_AFTER);
+    let task = tokio::spawn(t.clone().run());
+    settle().await;
+    let t2 = Instant::now();
+    t.stop(false);
+    settle().await;
+    assert!(task.is_finished(), "the supervisor ends at once");
+    assert_eq!(Instant::now(), t2, "no time passed");
+    tokio::time::sleep(START_AFTER * 2).await;
+    assert_eq!(os.starts(), 0, "nothing starts after a stop");
+    assert!(
+        os.terminated.lock().unwrap().is_empty(),
+        "no tender to stop"
+    );
+    assert_eq!(t.status().unwrap().state, "stopped");
+    assert!(events(&rows).is_empty(), "{:?}", events(&rows));
+}
+
 /// A start that fails is tried again after its backoff: 1 s, then 2 s.
 #[tokio::test(start_paused = true)]
 async fn a_start_that_fails_is_tried_again_after_its_backoff() {
@@ -615,5 +694,28 @@ async fn health_waits_no_longer_than_its_deadline_on_a_tender_that_does_not_answ
         why.starts_with("its socket did not answer (no answer within 100 ms): its status as of "),
         "{why}"
     );
+    task.abort();
+}
+
+/// Health's block asks no socket before its supervisor runs a tender: a
+/// stand-in that would answer `ready` (a predecessor's, still dying) is not
+/// asked, while `index.status`, an explicit question, asks it whatever the
+/// supervisor's state. Once a tender runs, health asks it too.
+#[tokio::test]
+async fn health_asks_no_tender_before_one_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    stand_in(dir.path(), Arc::default());
+    let os = Arc::new(FakeOs::default());
+    let (t, _) = supervisor(IndexConfig::default(), dir.path(), os.clone());
+    let h = t.health_block().await;
+    assert_eq!((h.state.as_str(), h.status.is_none()), ("down", true));
+    assert_eq!(h.why.as_deref(), Some("it starts once the daemon serves"));
+    assert_eq!(t.health(STATUS_DEADLINE).await.state, "ready");
+    let task = tokio::spawn(t.clone().run());
+    settle().await;
+    assert_eq!(t.status().unwrap().state, "running");
+    let h = t.health_block().await;
+    assert_eq!(h.state, "ready");
+    assert_eq!(h.status.map(|s| s.pid), Some(7));
     task.abort();
 }

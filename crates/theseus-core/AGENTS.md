@@ -30,10 +30,11 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **Start and stop**: `config.rs`, `config_copy.rs`, `config_gate.rs`, `secrets.rs`, `startup.rs`, `restore.rs`,
   `sweep.rs`, `disk.rs`, and `binary.rs` (whether jobs can write the daemon's own binary, read when health asks).
   The config template is `config/theseus.example.toml`.
-- **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` after serving, restarts it
-  with backoff, takes over the one an exec kept, and asks it for health and `index.query`, each call bounded
-  (health never waits past 100 ms). Its tests, `tests_tender.rs`, run on tokio's paused clock with a stand-in
-  `Os`.
+- **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
+  (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
+  at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
+  never past 100 ms). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
+  clock with a stand-in `Os`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Invariants
