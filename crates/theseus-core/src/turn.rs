@@ -993,6 +993,10 @@ impl TurnRunner {
             *reported.lock().unwrap() = Some(post);
             Ok(records)
         });
+        // A cancel that landed while the turn ran left the calls it was making
+        // unanswered, and wrote nothing into this turn's transcript: this turn
+        // answers them now that it has ended (theseus-0o8).
+        let cancelled = matches!(&ended, Ok(e) if e.state == ExecState::Cancelled);
         if let Err(e) = ended {
             tracing::warn!(error = %e, "end_turn failed");
         }
@@ -1037,6 +1041,21 @@ impl TurnRunner {
                 }
             };
         let rec = self.session_rec(&failure_sink.session_id, To::Sink(&failure_sink));
+        if cancelled {
+            match self.tools.answer_after_cancel(
+                &self.kernel,
+                &self.store,
+                &failure_sink.session_id,
+                &exec_id,
+            ) {
+                Ok(nodes) => {
+                    crate::toolrun::announce_cancelled(&rec, &failure_sink.session_id, &nodes)
+                }
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), execution_id = %exec_id, "a cancelled turn's unanswered calls were not answered");
+                }
+            }
+        }
         if let Some(end) = &parked {
             let turn_id = match &r {
                 Ok((res, _, _)) => Some(res.turn_id.clone()),
@@ -1435,7 +1454,7 @@ impl TurnRunner {
                     spent,
                     limit,
                 } => {
-                    if needed > limit && t.retry_over_limit {
+                    if t.retry_over_limit {
                         t.record(&fact::turn::LoopCut {
                             decision: "over_limit",
                         });
@@ -1525,13 +1544,20 @@ impl TurnRunner {
                 .any(|a| a.tool == BUDGET_TOOL && (a.state == ActionState::Succeeded) == approved)
         };
         let (reset, raised) = (budget(true), budget(false));
-        // An approved reset of a call that alone needed more than the limit
-        // (theseus-kks): the retry gets one try, and asks nothing more.
+        // An approved reset of a call that no reset can fit: it alone needs
+        // more than the limit (theseus-kks), or more than the limit leaves
+        // once what a reset keeps held is taken (theseus-6g6). The retry gets
+        // one try, and asks nothing more.
         t.retry_over_limit = settled.iter().any(|a| {
             a.tool == BUDGET_TOOL
                 && a.state == ActionState::Succeeded
                 && a.proposal.as_ref().is_some_and(|p| {
-                    p.args["needed_micros"].as_u64() > p.args["limit_micros"].as_u64()
+                    let needed = p.args["needed_micros"].as_u64().unwrap_or(0);
+                    t.tc.kernel
+                        .execution(t.tc.execution_id)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|e| needed > e.budget.available_after_reset())
                 })
         });
         let resumed = self.tools.resume(&t.tc, has_input).await?;
@@ -1583,6 +1609,12 @@ impl TurnRunner {
                 );
                 records.push(n.record()?);
                 nodes.push(n);
+            }
+            // Where its reply goes if the session posts nowhere by then,
+            // kept past this turn, so a retry of it answers there too
+            // (theseus-4lx).
+            if let Some(target) = due.iter().find_map(|f| f.wake.target.as_deref()) {
+                records.push(tc.outbox.wake_target_record(tc.session_id, target)?);
             }
             Ok(records)
         })?;
@@ -1666,6 +1698,11 @@ impl TurnRunner {
                     }
                     nodes.push(n);
                     reports.push(r);
+                }
+                // Where the reply to them goes if the session posts nowhere
+                // by then, kept past this turn (theseus-4lx).
+                if let Some(target) = reports.iter().find_map(|r| r.target.as_deref()) {
+                    records.push(tc.outbox.wake_target_record(tc.session_id, target)?);
                 }
                 Ok(records)
             })
@@ -1997,7 +2034,8 @@ impl TurnRunner {
             Some(_) => format!("Task {}", crate::task::short(t.tc.session_id)),
             None => "This session".to_string(),
         };
-        let question = budget_question(&who, spent, limit, needed, &call);
+        let kept = Kept::of(t.tc.kernel, t.tc.execution_id);
+        let question = budget_question(&who, spent, limit, needed, kept, &call);
         let now = theseus_protocol::now_unix_ms();
         let req = ConfirmRequest {
             correlation_id: q.correlation_id.clone(),
@@ -2044,21 +2082,48 @@ impl TurnRunner {
     /// question again. Its failed notice names the figures and the remedies,
     /// and the execution waits on input (a task ends and reports it).
     fn over_limit(t: &mut Turn<'_>, needed: Micros, limit: Micros) -> Failure {
-        let msg = format!(
-            "the call to {} alone reserves {}, more than the whole {} spend limit, so a reset \
-             cannot make it fit and the turn ends here. Raise `[kernel] spend_limit_usd` above \
-             {}, or {}, then send a message to try again",
-            t.target.model,
-            narrative::dollars(needed),
-            narrative::dollars(limit),
-            narrative::dollars(needed),
-            lower_cap(&t.target.profile, u64::from(t.target.max_tokens)),
-        );
+        let kept = Kept::of(t.tc.kernel, t.tc.execution_id);
+        let lower = lower_cap(&t.target.profile, u64::from(t.target.max_tokens));
+        let msg = if needed > limit {
+            format!(
+                "the call to {} alone reserves {}, more than the whole {} spend limit, so a \
+                 reset cannot make it fit and the turn ends here. Raise `[kernel] \
+                 spend_limit_usd` above {}, or {lower}, then send a message to try again",
+                t.target.model,
+                narrative::dollars(needed),
+                narrative::dollars(limit),
+                narrative::dollars(needed),
+            )
+        } else if kept.total() > 0 {
+            // What a reset leaves held (theseus-6g6): the call fits the
+            // limit, and not what the held amounts leave of it.
+            format!(
+                "the call to {} reserves {}, and a reset cannot make it fit: of the whole {} \
+                 spend limit, {}, and a reset leaves it held, so the turn ends here. Raise \
+                 `[kernel] spend_limit_usd` above {}, or {lower}, then send a message to try \
+                 again",
+                t.target.model,
+                narrative::dollars(needed),
+                narrative::dollars(limit),
+                kept.clause(),
+                narrative::dollars(needed + kept.total()),
+            )
+        } else {
+            format!(
+                "the call to {} reserves {}, and it still does not fit under the {} spend limit \
+                 after the reset, so the turn ends here. Raise `[kernel] spend_limit_usd`, or \
+                 {lower}, then send a message to try again",
+                t.target.model,
+                narrative::dollars(needed),
+                narrative::dollars(limit),
+            )
+        };
         t.record(&fact::turn::OverLimit {
             message: &msg,
             target: t.target,
             needed,
             limit,
+            held: kept.total(),
         });
         Failure {
             class: "over_limit".into(),
@@ -2731,12 +2796,28 @@ impl TurnRunner {
     /// It rides in the frame that ends the turn, so a turn that ended has its
     /// reply written, whether or not a binding is connected.
     fn stage_reply(&self, t: &Turn<'_>, result: &TurnSubmitResult) -> Result<()> {
+        // What the reply answers: the wakes and reports this turn took. The
+        // retry of a turn that failed before its reply took none, since the
+        // first took them, and their nodes are still unanswered in the
+        // session: it frames its reply from those, and finds the target the
+        // take kept (theseus-4lx).
+        let (mut wakes, mut reports) = (t.wakes.clone(), t.woke_by.clone());
+        let mut retried = false;
+        if wakes.is_empty() && reports.is_empty() {
+            (wakes, reports) = Self::unread_relays(t)?;
+            retried = !wakes.is_empty() || !reports.is_empty();
+        }
         // A wake's turn in a session its place has moved on from (`/new`)
         // still answers where the wake was set (DD8).
         let Some(target) = self
             .outbox
             .target(t.tc.session_id)
             .or_else(|| t.wake_target.clone())
+            .or_else(|| {
+                retried
+                    .then(|| self.outbox.wake_target(t.tc.session_id))
+                    .flatten()
+            })
         else {
             return Ok(());
         };
@@ -2752,11 +2833,11 @@ impl TurnRunner {
             "result": footer,
             "reply_to": t.reply_to,
         });
-        if !t.wakes.is_empty() {
-            body["wakes"] = json!(t.wakes);
+        if !wakes.is_empty() {
+            body["wakes"] = json!(wakes);
         }
-        if !t.woke_by.is_empty() {
-            body["reports"] = json!(t.woke_by);
+        if !reports.is_empty() {
+            body["reports"] = json!(reports);
         }
         let (post, records) =
             self.outbox
@@ -2766,6 +2847,45 @@ impl TurnRunner {
         }
         t.tc.posts.lock().unwrap().push(post);
         Ok(())
+    }
+
+    /// The wakes and reports an earlier attempt took, which this turn answers
+    /// (theseus-4lx): the harness's wake and task-report nodes written by a
+    /// turn other than this one, after the last answer the session gave. Each
+    /// is the line the reply's header names: the node's own text for a wake,
+    /// and `task:<short>`'s report line, as the turn that took it would have
+    /// said.
+    fn unread_relays(t: &Turn<'_>) -> Result<(Vec<Value>, Vec<Value>)> {
+        let nodes = t.tc.store.transcript(t.tc.session_id)?;
+        let (mut wakes, mut reports) = (Vec::new(), Vec::new());
+        for (_, n) in nodes.iter().rev() {
+            if n.turn_id.as_deref() == Some(t.tc.turn_id) {
+                continue;
+            }
+            match &n.body {
+                // An answer: what comes before it was read.
+                Body::AssistantMessage { blocks, .. }
+                    if crate::provider::tool_uses_in(blocks).is_empty() =>
+                {
+                    break
+                }
+                Body::UserMessage { text, .. }
+                    if matches!(n.origin, crate::node::Origin::Harness) =>
+                {
+                    let author = n.author.as_deref().unwrap_or_default();
+                    if author.starts_with("wake:") {
+                        wakes.push(json!({"text": text}));
+                    } else if let Some(short) = author.strip_prefix("task:") {
+                        reports
+                            .push(json!({"short": short, "text": crate::task::woke_line(short)}));
+                    }
+                }
+                _ => {}
+            }
+        }
+        wakes.reverse();
+        reports.reverse();
+        Ok((wakes, reports))
     }
 
     /// Where the execution waits: on the confirm, on outstanding jobs, or on
@@ -2849,17 +2969,20 @@ impl TurnRunner {
 /// again (`confirm.list`, the Discord card). `call` is the question's
 /// `args.call`: the call's profile, model, and output cap, or `Null` for a
 /// question asked before theseus-kks. A call that alone needs more than the
-/// whole limit cannot fit after any reset (theseus-kks), so its question
-/// says so, with both figures, names the two remedies, and says what an
-/// approval then does: one more try, and no second question.
+/// whole limit cannot fit after any reset (theseus-kks), nor can one that
+/// needs more than the limit leaves once `kept` is taken, what a reset
+/// leaves held (theseus-6g6), so its question says so, with the figures,
+/// names the two remedies, and says what an approval then does: one more
+/// try, and no second question.
 pub(crate) fn budget_question(
     who: &str,
     spent: Micros,
     limit: Micros,
     needed: Micros,
+    kept: Kept,
     call: &Value,
 ) -> String {
-    if needed <= limit {
+    if needed <= limit.saturating_sub(kept.total()) {
         return format!(
             "{who} has spent {} of its {} limit. Reset its spend to $0 and continue?",
             narrative::dollars(spent),
@@ -2874,6 +2997,19 @@ pub(crate) fn budget_question(
         (Some(p), Some(n)) => lower_cap(p, n),
         _ => "lower the profile's `max_output_tokens`".to_string(),
     };
+    if needed <= limit {
+        return format!(
+            "{who} is waiting on {model}, which reserves {}. Of its {} limit, {}, and a reset \
+             leaves it held, so resetting its spend to $0 cannot make the call fit. Raise \
+             `[kernel] spend_limit_usd` above {}, or {lower}. Approving resets the spend and \
+             tries the call once more; if it still does not fit, the turn ends and does not \
+             ask again.",
+            narrative::dollars(needed),
+            narrative::dollars(limit),
+            kept.clause(),
+            narrative::dollars(needed + kept.total()),
+        );
+    }
     format!(
         "{who} is waiting on {model}, which alone reserves {}: more than its whole {} limit, \
          so resetting its spend to $0 cannot make it fit. Raise `[kernel] spend_limit_usd` above \
@@ -2883,6 +3019,53 @@ pub(crate) fn budget_question(
         narrative::dollars(limit),
         narrative::dollars(needed),
     )
+}
+
+/// What an approved reset leaves held against an execution's limit
+/// (theseus-6g6): the amounts reserved for calls in flight and held for calls
+/// whose cost is unknown. A budget question and an over-limit failure name
+/// them, since they are why a reset does not make a call fit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Kept {
+    pub reserved: Micros,
+    pub unknown: Micros,
+}
+
+impl Kept {
+    /// The execution's now, or nothing held when it cannot be read.
+    pub(crate) fn of(kernel: &Kernel, execution_id: &str) -> Self {
+        kernel
+            .execution(execution_id)
+            .ok()
+            .flatten()
+            .map(|e| Self {
+                reserved: e.budget.reserved_micros,
+                unknown: e.budget.held_unknown_micros,
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn total(self) -> Micros {
+        self.reserved + self.unknown
+    }
+
+    /// What is held, as a clause that follows "of its limit,": `$1.00 is
+    /// held for calls whose cost is unknown`.
+    pub(crate) fn clause(self) -> String {
+        let unknown = format!(
+            "{} is held for calls whose cost is unknown",
+            narrative::dollars(self.unknown)
+        );
+        let reserved = format!(
+            "{} is reserved for calls in flight",
+            narrative::dollars(self.reserved)
+        );
+        match (self.unknown > 0, self.reserved > 0) {
+            (true, true) => format!("{unknown} and {reserved}"),
+            (false, true) => reserved,
+            _ => unknown,
+        }
+    }
 }
 
 /// The second remedy for a call over the whole limit (theseus-kks).

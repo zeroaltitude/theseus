@@ -140,9 +140,10 @@ pub fn sweep(kernel: &Kernel, store: &Store, spool: &Spool, now: SystemTime) -> 
             .ok()
             .and_then(|m| now.duration_since(m).ok())
             .unwrap_or_default();
-        let alive = spool
-            .read_pid(id)
-            .is_some_and(|pid| theseus_kernel::job::wrapper_alive(pid, id));
+        // A wrapper that lingers (its command exited, and a process it
+        // started holds the output open) is alive, though its pid file is
+        // gone: it still writes the file (theseus-5wgd).
+        let alive = spool.wrapper_lives(id);
         let known = if alive {
             None
         } else {

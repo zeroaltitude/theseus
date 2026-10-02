@@ -817,9 +817,20 @@ impl Core {
         })
     }
 
-    pub(super) fn session_watch(&self, p: theseus_protocol::SessionRef, conn: Conn<'_>) -> Value {
+    /// `session.watch`: subscribe this connection to a session's events.
+    /// A session's watchers get its `execution.changed` as well as the
+    /// turn's events, so the first watch of any kind seeds the push, as
+    /// `executions.watch` and `session.wait` do (theseus-tq04): before, a
+    /// daemon nothing else watched sent a session's watcher no push at all.
+    /// Seeded first, so a failed seed leaves no subscription behind.
+    pub(super) async fn session_watch(
+        self: &std::sync::Arc<Self>,
+        p: theseus_protocol::SessionRef,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        self.push.ensure(self).await?;
         self.bus.watch(&p.session_id, conn.client, conn.tx.clone());
-        json!({"watching": p.session_id, "watchers": self.bus.watchers(&p.session_id)})
+        Ok(json!({"watching": p.session_id, "watchers": self.bus.watchers(&p.session_id)}))
     }
 
     pub(super) fn session_unwatch(&self, p: theseus_protocol::SessionRef, conn: Conn<'_>) -> Value {

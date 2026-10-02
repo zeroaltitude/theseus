@@ -81,8 +81,9 @@ enum Purpose {
     Answer(Box<ConfirmRequest>),
     /// A message, as `turn.submit`.
     Turn,
-    /// The session's title, which a fresh session gets with its first turn.
-    Title,
+    /// The session again: its title, which a fresh session gets with its
+    /// first turn, and the profile its last turn ran on.
+    Info,
     /// The view and questions again, after `events.lost`.
     Reread,
 }
@@ -129,9 +130,10 @@ pub async fn watch(
         &mut early,
     )
     .await?;
-    // The session's view and its questions, in one read that also seeds the
-    // daemon's push: a `session.watch` alone does not, and without it no
-    // `execution.changed` reaches this watch.
+    // The session's view and its questions, whole, in one read. The watch
+    // above seeds the daemon's push itself (theseus-tq04), so this read no
+    // longer brings `execution.changed`; it stays as the cheapest way to
+    // get the state this watch starts from, and `events.lost` repeats it.
     let first: SessionWaitResult =
         serde_json::from_value(call(conn, method::SESSION_WAIT, reread(&sid), &mut early).await?)?;
     let info = serde_json::from_value::<SessionListResult>(
@@ -146,7 +148,9 @@ pub async fn watch(
     .sessions
     .into_iter()
     .find(|s| s.session_id == sid);
-    let (label, title) = info.map_or((None, None), |i| (i.label, i.title));
+    let turns = info.as_ref().map_or(0, |i| i.turns);
+    let (label, title, profile) =
+        info.map_or((None, None, None), |i| (i.label, i.title, i.profile));
 
     let mut w = Watch {
         sid: sid.clone(),
@@ -161,7 +165,9 @@ pub async fn watch(
         asked: None,
         resolved: HashSet::new(),
         pending: HashMap::new(),
+        profile,
         title_asked_at: 0,
+        profile_read_at: turns,
     };
     eprintln!("watching {sid} (Ctrl-C to stop)");
     if let Some(r) = &w.reporter {
@@ -248,8 +254,14 @@ struct Watch {
     /// Questions answered or withdrawn: a refused answer never brings one back.
     resolved: HashSet<String>,
     pending: HashMap<Id, Purpose>,
+    /// The profile the session's last turn ran on: a message continues the
+    /// session on it, and not on the daemon's live profile (theseus-nu3z). None
+    /// for a session that has not run a turn yet.
+    profile: Option<String>,
     /// The turns the session had when its title was last asked for.
     title_asked_at: u64,
+    /// The turns it had when `profile` was last read.
+    profile_read_at: u64,
 }
 
 impl Watch {
@@ -297,17 +309,24 @@ impl Watch {
             .flatten()
         {
             Some(Event::ExecutionChanged(v)) if v.session_id == self.sid => {
-                if let Some(rep) = &mut self.reporter {
+                let wants_title = self.reporter.as_mut().is_some_and(|rep| {
                     rep.observe(&v);
-                    // Asked again at each new turn until the session has a
-                    // title: it may not have one yet at its first turn's start.
-                    if rep.wants_title() && v.turns > self.title_asked_at {
-                        self.title_asked_at = v.turns;
-                        let id = conn
-                            .send(method::SESSION_LIST, json!({ "ids": [self.sid] }))
-                            .await?;
-                        self.pending.insert(id, Purpose::Title);
-                    }
+                    rep.wants_title()
+                });
+                // Read again at each new turn: for the pane, until the session
+                // has a title (it may not have one yet at its first turn's
+                // start); and for a watch that sends messages, the profile the
+                // turn ran on, which the next message continues on, whoever
+                // ran it (theseus-nu3z).
+                let new_title = wants_title && v.turns > self.title_asked_at;
+                let new_profile = self.interactive && v.turns > self.profile_read_at;
+                if new_title || new_profile {
+                    self.title_asked_at = self.title_asked_at.max(v.turns);
+                    self.profile_read_at = self.profile_read_at.max(v.turns);
+                    let id = conn
+                        .send(method::SESSION_LIST, json!({ "ids": [self.sid] }))
+                        .await?;
+                    self.pending.insert(id, Purpose::Info);
                 }
             }
             Some(Event::ConfirmRequested(c)) if c.session_id == self.sid => {
@@ -386,12 +405,15 @@ impl Watch {
             eprintln!("  nothing waits for an answer now (it was answered or withdrawn): `{text}` was not sent");
             return Ok(());
         }
-        let id = conn
-            .send(
-                method::TURN_SUBMIT,
-                json!({"session_id": self.sid, "input": text, "author": AUTHOR}),
-            )
-            .await?;
+        // On the profile the session's last turn ran on, as a continuation
+        // does: a message sent without one takes the daemon's live profile,
+        // and a session started on another model (`ask -P glm`) then changed
+        // models under the pane without a word (theseus-nu3z).
+        let mut params = json!({"session_id": self.sid, "input": text, "author": AUTHOR});
+        if let Some(profile) = &self.profile {
+            params["profile"] = json!(profile);
+        }
+        let id = conn.send(method::TURN_SUBMIT, params).await?;
         self.pending.insert(id, Purpose::Turn);
         if let Some(rep) = &mut self.reporter {
             rep.working_now();
@@ -433,14 +455,16 @@ impl Watch {
                     rep.restore();
                 }
             }
-            (Purpose::Title, None) => {
-                let title = r
+            (Purpose::Info, None) => {
+                let info = r
                     .result
                     .and_then(|v| serde_json::from_value::<SessionListResult>(v).ok())
-                    .and_then(|l| l.sessions.into_iter().find(|s| s.session_id == self.sid))
-                    .and_then(|s| s.title);
+                    .and_then(|l| l.sessions.into_iter().find(|s| s.session_id == self.sid));
+                if let Some(profile) = info.as_ref().and_then(|s| s.profile.clone()) {
+                    self.profile = Some(profile);
+                }
                 if let Some(rep) = &mut self.reporter {
-                    rep.set_title(title);
+                    rep.set_title(info.and_then(|s| s.title));
                 }
             }
             (Purpose::Reread, None) => {

@@ -1033,7 +1033,7 @@ result: 1 loops, 0 tool calls, stop no_tool_calls, awaiting -, output "It counte
 frame: execution/2 exe_#2 · ledger/1 · execution/2 exe_#2 · ledger/1
   ledger scope=ses_#1 {"at_unix_ms":"<t>","kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":"<t>","kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":0,"resumed":false,"turn":14}}
-frame: ledger/1 · execution/2 exe_#2 · node/3 msg_#105 · edge/1 derived_from|msg_#105|msg_#103 · ledger/1
+frame: ledger/1 · execution/2 exe_#2 · node/3 msg_#105 · edge/1 derived_from|msg_#105|msg_#103 · meta/1 wake.target.ses_#1 · ledger/1
   ledger {"at_unix_ms":"<t>","kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#106","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":22,"kernel_turn":14,"model":"claude-sonnet-5-5","profile":"sonnet","provider":"anthropic"}}
   ledger scope=ses_#1 {"at_unix_ms":"<t>","kind":"task.reports_read","session_id":"ses_#1","data":{"execution_id":"exe_#2","tasks":["exe_#93"],"turn":14,"woke":[]}}
 frame: node/3 msg_#107
@@ -1103,7 +1103,7 @@ frame: execution/2 exe_#112 · ledger/1 · execution/2 exe_#112 · ledger/1
 frame: ledger/1 · node/3 msg_#113 · session/6 ses_#111
   ledger {"at_unix_ms":"<t>","kind":"turn.started","session_id":"ses_#111","turn_id":"turn_#114","data":{"author":"test","continuation":false,"execution_id":"exe_#112","input_chars":20,"kernel_turn":1,"model":"claude-sonnet-5-5","profile":"sonnet","provider":"anthropic"}}
 frame: compilation/3 cmp_#115 · ledger/1 · session/6 ses_#111
-  ledger {"at_unix_ms":"<t>","kind":"context.recompiled","session_id":"ses_#111","turn_id":"turn_#114","data":{"as_of":656,"compilation_id":"cmp_#115","derived_from":null,"includes":1,"model":"claude-sonnet-5-5","strategy":"transcript","strip_thinking":false,"trigger":"new_session"}}
+  ledger {"at_unix_ms":"<t>","kind":"context.recompiled","session_id":"ses_#111","turn_id":"turn_#114","data":{"as_of":657,"compilation_id":"cmp_#115","derived_from":null,"includes":1,"model":"claude-sonnet-5-5","strategy":"transcript","strip_thinking":false,"trigger":"new_session"}}
 frame: ledger/1 · ledger/1 · execution/2 exe_#112 · action/2 act_#116 · ledger/1 · action/2 act_#116 · ledger/1 · action/2 act_#116 · execution/2 exe_#112 · ledger/1
   ledger {"at_unix_ms":"<t>","kind":"context.compiled","session_id":"ses_#111","turn_id":"turn_#114","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"5m","ttl":"5m"},"compilation_id":"cmp_#115","decision":"recompile","digest":"<sha256>","est_tokens":5378,"estimate":{"bytes":13410,"census":{"blocks":1,"ids":0,"json":11898,"messages":2,"opaque":0,"text":1362},"counted":0,"estimated":5378,"method":"bytes","tokens":5378,"upper":7530},"loop":0,"messages":1,"nodes_scanned":1,"prefix_nodes":1,"repairs":[],"session_id":"ses_#111","strategy":"transcript","tail_nodes":0,"tools":15,"trigger":"new_session","turn_id":"turn_#114"}}
   ledger {"at_unix_ms":"<t>","kind":"loop.started","session_id":"ses_#111","turn_id":"turn_#114","data":{"loop":0}}
@@ -1208,7 +1208,7 @@ frame: execution/2 exe_#112 · ledger/1
   ledger scope=ses_#111 {"at_unix_ms":"<t>","kind":"execution.queued","session_id":"ses_#111","data":{"execution_id":"exe_#112","wakes":["wak_#118"],"why":"wake"}}
 frame: execution/2 exe_#112 · ledger/1
   ledger scope=ses_#111 {"at_unix_ms":"<t>","kind":"execution.running","session_id":"ses_#111","data":{"execution_id":"exe_#112","queued_results":0,"resumed":true,"turn":2}}
-frame: ledger/1 · execution/2 exe_#112 · node/3 msg_#124 · ledger/1
+frame: ledger/1 · execution/2 exe_#112 · node/3 msg_#124 · meta/1 wake.target.ses_#111 · ledger/1
   ledger {"at_unix_ms":"<t>","kind":"turn.started","session_id":"ses_#111","turn_id":"turn_#125","data":{"author":"harness","continuation":true,"execution_id":"exe_#112","input_chars":null,"kernel_turn":2,"model":"claude-sonnet-5-5","profile":"sonnet","provider":"anthropic"}}
   ledger scope=ses_#111 {"at_unix_ms":"<t>","kind":"wake.fired","session_id":"ses_#111","data":{"due_at_ms":"<t>","execution_id":"exe_#112","late_ms":"<t>","set_at_ms":"<t>","turn":2,"wake_id":"wak_#118","while_down":false}}
 frame: ledger/1 · ledger/1 · execution/2 exe_#112 · action/2 act_#126 · ledger/1 · action/2 act_#126 · ledger/1 · action/2 act_#126 · execution/2 exe_#112 · ledger/1
@@ -1304,7 +1304,7 @@ frame: ledger/1 · ledger/1 · ledger/1 · execution/2 exe_#131 · action/2 act_
   ledger {"at_unix_ms":"<t>","kind":"context.compiled","session_id":"ses_#129","turn_id":"turn_#133","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"5m","ttl":"5m"},"compilation_id":"cmp_#134","decision":"append","digest":"<sha256>","est_tokens":31050,"estimate":{"bytes":13667,"census":{"blocks":4,"ids":2,"json":11958,"messages":4,"opaque":0,"text":1363},"counted":31000,"estimated":50,"method":"counted","tokens":31050,"upper":31070},"loop":1,"messages":3,"nodes_scanned":4,"prefix_nodes":1,"repairs":[],"session_id":"ses_#129","strategy":"transcript","tail_nodes":2,"tools":15,"trigger":null,"turn_id":"turn_#133"}}
   ledger {"at_unix_ms":"<t>","kind":"loop.started","session_id":"ses_#129","turn_id":"turn_#133","data":{"loop":1}}
   ledger scope=ses_#129 {"at_unix_ms":"<t>","kind":"action.planned","session_id":"ses_#129","data":{"args_digest":"<sha256>","correlation_id":"act_#130","deadline_at_ms":"<t>","execution_id":"exe_#131","reserved_usd":0.0,"retry_class":{"class":"non_repeatable"},"tool":"budget.reset"}}
-  ledger scope=ses_#129 {"at_unix_ms":"<t>","kind":"budget.asked","session_id":"ses_#129","data":{"available_usd":1.098,"correlation_id":"act_#130","exceeds_limit":false,"execution_id":"exe_#131","limit_usd":1.4,"needed_usd":1.3421,"resets":0,"spent_usd":0.302}}
+  ledger scope=ses_#129 {"at_unix_ms":"<t>","kind":"budget.asked","session_id":"ses_#129","data":{"available_usd":1.098,"correlation_id":"act_#130","exceeds_limit":false,"execution_id":"exe_#131","fits_after_reset":true,"held_unknown_usd":0.0,"limit_usd":1.4,"needed_usd":1.3421,"reserved_usd":0.0,"resets":0,"spent_usd":0.302}}
 frame: outbox/1 out_#140 · ledger/1 · session/6 ses_#129 · ledger/1 · outbox/1 out_#141 · ledger/1 · ledger/1 · execution/2 exe_#131 · ledger/1
   outbox scope=ses_#129 {"correlation_id":"out_#140","schema":2,"execution_id":"exe_#131","session_id":"ses_#129","tool":"outbox","args_digest":"<sha256>","proposal":{"tool":"outbox","args":{"kind":"card","question":"act_#130"},"resource":"discord:dm:44","policy_context":null},"resource":"discord:dm:44","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"authorized","deadline_at_ms":"<t>","planned_at_ms":"<t>","authorized_at_ms":"<t>","reserved_micros":0,"completions_seen":0}
   ledger scope=ses_#129 {"at_unix_ms":"<t>","kind":"action.planned","session_id":"ses_#129","data":{"correlation_id":"out_#140","execution_id":"exe_#131","kind":"card","outbox":"discord:dm:44","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"tool":"outbox"}}

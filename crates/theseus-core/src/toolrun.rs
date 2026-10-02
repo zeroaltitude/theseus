@@ -22,8 +22,8 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use theseus_kernel::job::{spawn_detached, WrapperArgs};
 use theseus_kernel::{
-    Action, ActionState, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
-    BUDGET_TOOL, PROVIDER_TOOL,
+    Accepted, Action, ActionState, CancelState, Completion, ExecState, Execution, Kernel, Outcome,
+    Proposal, RetryClass, Spool, TurnGuard, BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
 use theseus_store::Store as _;
@@ -521,6 +521,18 @@ impl ToolRuntime {
 
     /// The node for a result, its text scrubbed of secret values and capped.
     fn result_node(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>) -> Node {
+        self.result_node_in(tc.session_id, Some(tc.turn_id), tc.loop_index, r)
+    }
+
+    /// `result_node` for a writer that holds no turn: a cancel's sweep names
+    /// the turn and loop of the call it answers (theseus-0o8).
+    fn result_node_in(
+        &self,
+        session_id: &str,
+        turn_id: Option<&str>,
+        loop_index: Option<u32>,
+        r: ResultNode<'_>,
+    ) -> Node {
         let (scrubbed, redactions) = self.scrubber.scrub(&r.text);
         // How to get what the cap leaves out is the tool's to say (theseus-46v).
         let tool = self.registry.get(r.tool);
@@ -532,9 +544,9 @@ impl ToolRuntime {
             meta["redactions"] = json!(redactions);
         }
         Node::tool_result(
-            tc.session_id,
-            Some(tc.turn_id),
-            tc.loop_index,
+            session_id,
+            turn_id,
+            loop_index,
             Body::ToolResult {
                 tool_use_id: r.tool_use_id.into(),
                 tool: r.tool.into(),
@@ -1382,17 +1394,24 @@ impl ToolRuntime {
         for r in aws.iter().flat_map(|a| a.requests()) {
             tc.record(&fact::tool::AwsCalled { row: &r.row });
         }
-        self.complete(tc, &c, &node)?;
+        let accepted = self.complete(tc, &c, &node)?;
+        // A call a cancel settled while it ran: its completion is recorded on
+        // the action alone, and the kernel dropped the node that rode with it.
+        // The call did run, and this turn still holds what it said, so the
+        // transcript gets it as the call's result (theseus-0o8).
+        if matches!(accepted, Accepted::LateAfterCancel { .. }) {
+            tc.store.append(&[node.record()?])?;
+        }
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })
     }
 
-    /// An in-process result's completion frame. A result marked external
-    /// (DD5) that its session is the first to read since it was last trusted
-    /// brings the session's hold in the same frame, under the session
-    /// record's lock (theseus-9bp): no crash leaves the text in the context
-    /// without the hold.
-    fn complete(&self, tc: &TurnCtx<'_>, c: &Completion, node: &Node) -> Result<()> {
+    /// An in-process result's completion frame, and what the kernel did with
+    /// it. A result marked external (DD5) that its session is the first to
+    /// read since it was last trusted brings the session's hold in the same
+    /// frame, under the session record's lock (theseus-9bp): no crash leaves
+    /// the text in the context without the hold.
+    fn complete(&self, tc: &TurnCtx<'_>, c: &Completion, node: &Node) -> Result<Accepted> {
         let read = match &node.body {
             Body::ToolResult {
                 external: Some(e),
@@ -1404,8 +1423,7 @@ impl ToolRuntime {
             _ => None,
         };
         let Some((tool, url, meta)) = read else {
-            tc.kernel.accept_completion_with(c, vec![node.record()?])?;
-            return Ok(());
+            return tc.kernel.accept_completion_with(c, vec![node.record()?]);
         };
         // A search's hold names its query; the URL stays on the node.
         let query = crate::external::search_query(tool, meta);
@@ -1418,22 +1436,24 @@ impl ToolRuntime {
                 frame.extend(more);
                 newly = Some(h);
             }
-            tc.kernel.accept_completion_with(c, frame)?;
-            Ok(())
+            tc.kernel.accept_completion_with(c, frame)
         })?;
-        if done.is_none() {
-            // Every session a surface opens has a record before its first
-            // turn; one without cannot keep a hold.
-            tracing::warn!(session_id = %tc.session_id, "external text read in a session with no record: no hold is kept");
-            tc.kernel.accept_completion_with(c, vec![node.record()?])?;
-        }
+        let accepted = match done {
+            Some(accepted) => accepted,
+            None => {
+                // Every session a surface opens has a record before its first
+                // turn; one without cannot keep a hold.
+                tracing::warn!(session_id = %tc.session_id, "external text read in a session with no record: no hold is kept");
+                tc.kernel.accept_completion_with(c, vec![node.record()?])?
+            }
+        };
         if let Some(h) = newly {
             tc.record(&fact::tool::HoldTaken {
                 hold: &h,
                 mode: self.external_text,
             });
         }
-        Ok(())
+        Ok(accepted)
     }
 
     /// A job: started through the wrapper, waited for up to `proc_sync_secs`,
@@ -1608,7 +1628,7 @@ impl ToolRuntime {
             if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
                 let mut r = ResultNode {
                     duration_ms: Some(t0.elapsed().as_millis() as u64),
-                    ..self.job_result(tc, &done, &call.id, tool.name())
+                    ..self.job_result(tc.store, &done, &call.id, tool.name())
                 };
                 if let Some(n) = &note {
                     r.text = format!("{n}\n{}", r.text);
@@ -1766,13 +1786,12 @@ impl ToolRuntime {
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn job_result<'a>(
         &self,
-        tc: &TurnCtx<'_>,
+        store: &Store,
         a: &'a Action,
         tool_use_id: &'a str,
         tool: &'a str,
     ) -> ResultNode<'a> {
-        let completion: Option<Completion> = tc
-            .store
+        let completion: Option<Completion> = store
             .inner()
             .as_ref()
             .latest_by_key(theseus_store::kinds::COMPLETION, &a.correlation_id)
@@ -1949,22 +1968,22 @@ impl ToolRuntime {
     /// Delete a job's raw output once its result's node is written
     /// (theseus-wz2). A job killed before its completion has no `result_ref`,
     /// so its file waited for the spool's sweep after its cancelled result was
-    /// written; now it goes then too, unless the job's wrapper still lives,
-    /// as the sweep checks (theseus-ewev).
-    fn remove_job_output(&self, a: &Action) {
-        if let Some(path) = a.result_ref.as_deref() {
-            self.remove_raw_output(path);
-            return;
-        }
+    /// written; now it goes then too (theseus-ewev). Neither goes while the
+    /// job's wrapper still lives, as the sweep checks: a job can report while a
+    /// process it started holds its output open, and its wrapper then still
+    /// writes the file (its end waits in the ring), so the file stays, and
+    /// the sweep takes it once the wrapper has exited (theseus-5wgd).
+    pub(crate) fn remove_job_output(&self, a: &Action) {
         let Some(spool) = &self.spool else {
             return;
         };
         let corr = &a.correlation_id;
-        let alive = spool
-            .read_pid(corr)
-            .is_some_and(|pid| theseus_kernel::job::wrapper_alive(pid, corr));
-        if !alive {
-            self.remove_raw_output(&spool.result_path(corr).to_string_lossy());
+        if spool.wrapper_lives(corr) {
+            return;
+        }
+        match a.result_ref.as_deref() {
+            Some(path) => self.remove_raw_output(path),
+            None => self.remove_raw_output(&spool.result_path(corr).to_string_lossy()),
         }
     }
 
@@ -2024,6 +2043,10 @@ impl ToolRuntime {
                         &u,
                         "the harness restarted before its result was recorded",
                     )?;
+                    None
+                }
+                Pending::NeverAsked(a) => {
+                    self.answer_never_asked(tc, &u, &a)?;
                     None
                 }
                 Pending::Waiting(corr) if has_input => {
@@ -2105,6 +2128,7 @@ impl ToolRuntime {
             .action(corr)?
             .ok_or_else(|| anyhow!("action {corr} vanished"))?;
         Ok(match a.state {
+            _ if a.awaits_confirm() && Self::never_asked(&a, node) => Pending::NeverAsked(a),
             _ if a.awaits_confirm() => Pending::Waiting(a.correlation_id),
             ActionState::Planned => Pending::Confirmed(a),
             ActionState::Authorized => Pending::Authorized(a),
@@ -2114,6 +2138,46 @@ impl ToolRuntime {
             }
             ActionState::Cancelled => Pending::Cancelled(a),
         })
+    }
+
+    /// Whether a planned call that `awaits_confirm` was never asked
+    /// (theseus-ni5). `awaits_confirm` reads "planned, no confirm bound" as a
+    /// question, which is also what a call looks like when a restart came
+    /// between its plan and its authorization, in a build that wrote the two
+    /// in separate frames. The kernel cannot tell the two apart; the call's
+    /// node can: a question asked since theseus-0g4 keeps its proposal on
+    /// the action, and one from before it kept it on the node, whose gate
+    /// said `needs_confirm`. A call with no proposal whose gate said `allow`
+    /// was never asked.
+    fn never_asked(a: &Action, node: &Node) -> bool {
+        a.proposal.is_none()
+            && matches!(&node.body, Body::ToolCall { gate: Some(g), .. } if g.result.gate == "allow")
+    }
+
+    /// A call planned and never asked, found by a continuation: nothing asked
+    /// the operator and nothing ran it, so it is declined by the harness and
+    /// answered not run, and the model may ask again (theseus-ni5). Before,
+    /// the turn parked on a question no card ever posted.
+    fn answer_never_asked(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<()> {
+        let (_, name) = self.tool_of(u);
+        let corr = &a.correlation_id;
+        tc.kernel
+            .decline_action(corr, "harness", "planned before a restart and never asked")?;
+        tc.record(&fact::tool::CallNeverAsked { tool: &name });
+        self.answer(
+            tc,
+            ResultNode {
+                correlation_id: Some(corr),
+                ..ResultNode::new(
+                    &u.id,
+                    &name,
+                    ResultStatus::Cancelled,
+                    "Not run: this call was planned before a restart and the operator was never \
+                     asked about it. Ask again if it is still wanted.",
+                )
+            },
+        )?;
+        Ok(())
     }
 
     /// New input came instead of an answer: the waiting call is declined.
@@ -2259,7 +2323,7 @@ impl ToolRuntime {
             _ => None,
         };
         if let Some(done) = settled {
-            self.answer_job(tc, self.job_result(tc, &done, &u.id, &name), &done)?;
+            self.answer_job(tc, self.job_result(tc.store, &done, &u.id, &name), &done)?;
             return Ok(None);
         }
         let alive = is_job
@@ -2292,7 +2356,7 @@ impl ToolRuntime {
             return Ok(());
         }
         if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
-            self.answer_job(tc, self.job_result(tc, a, &u.id, &name), a)?;
+            self.answer_job(tc, self.job_result(tc.store, a, &u.id, &name), a)?;
             return Ok(());
         }
         let status = if a.state == ActionState::Succeeded {
@@ -2388,7 +2452,7 @@ impl ToolRuntime {
                 tc,
                 ResultNode {
                     late: true,
-                    ..self.job_result(tc, a, &tool_use_id, &tool)
+                    ..self.job_result(tc.store, a, &tool_use_id, &tool)
                 },
             );
             records.push(node.record()?);
@@ -2402,6 +2466,271 @@ impl ToolRuntime {
         }
         Ok((late, records, outputs))
     }
+
+    /// Answer what a cancelled execution left unanswered in its transcript
+    /// (theseus-0o8): the calls of its last assistant message that no result
+    /// answers, and the jobs it ended whose placeholder never got their end.
+    /// A cancelled execution takes no more turns, so no turn writes them. It
+    /// runs where a cancel's last work is done, once no turn holds the
+    /// execution: after the cancel has stopped what it could
+    /// (`Core::cancel_execution`), and at the end of the turn that held the
+    /// execution when it came, which owns its transcript until then. It
+    /// runs under the execution's lock and answers each call once, so those
+    /// two cannot both write one. Returns the nodes written, for the caller
+    /// to announce.
+    pub fn answer_after_cancel(
+        &self,
+        kernel: &Kernel,
+        store: &Store,
+        session_id: &str,
+        execution_id: &str,
+    ) -> Result<Vec<Node>> {
+        let mut written = Vec::new();
+        let mut outputs = Vec::new();
+        kernel.frame(&[execution_id], |k| {
+            let Some(e) = k.execution(execution_id)? else {
+                return Ok(());
+            };
+            if e.state != ExecState::Cancelled || k.holds_turn(execution_id) {
+                return Ok(());
+            }
+            let (nodes, raw) = self.cancelled_results(k, store, session_id, &e)?;
+            let records = nodes.iter().map(Node::record).collect::<Result<Vec<_>>>()?;
+            k.stage(&records)?;
+            (written, outputs) = (nodes, raw);
+            Ok(())
+        })?;
+        // The nodes are written, so the jobs' raw output goes, as for a
+        // result read within a turn (`answer_job`, theseus-wz2).
+        for a in &outputs {
+            self.remove_job_output(a);
+        }
+        Ok(written)
+    }
+
+    /// The result nodes for `answer_after_cancel`, and the jobs whose raw output
+    /// they read.
+    fn cancelled_results(
+        &self,
+        kernel: &Kernel,
+        store: &Store,
+        session_id: &str,
+        e: &Execution,
+    ) -> Result<(Vec<Node>, Vec<Action>)> {
+        let nodes: crate::store::Transcript = store
+            .session_nodes(session_id)?
+            .into_iter()
+            .map(|(pos, n)| (pos, Arc::new(n)))
+            .collect();
+        let (mut out, mut raw) = (Vec::new(), Vec::new());
+        let mut write = |at: &Node, r: ResultNode<'_>, job: Option<&Action>| {
+            out.push(self.result_node_in(session_id, at.turn_id.as_deref(), at.loop_index, r));
+            raw.extend(job.cloned());
+        };
+        // The last assistant message's calls that nothing answers: planned and
+        // ended by the cancel, dispatched and stopped by it, or never planned.
+        if let Some((assistant, pending)) = unanswered(&nodes) {
+            for u in pending {
+                let call = nodes.iter().find_map(|(_, n)| match &n.body {
+                    Body::ToolCall { tool_use_id, .. } if *tool_use_id == u.id => Some(&**n),
+                    _ => None,
+                });
+                let corr = call.and_then(|n| match &n.body {
+                    Body::ToolCall {
+                        correlation_id: Some(c),
+                        ..
+                    } => Some(c.as_str()),
+                    _ => None,
+                });
+                let action = corr.map(|c| kernel.action(c)).transpose()?.flatten();
+                let (_, tool) = self.tool_of(&u);
+                let answer = match &action {
+                    Some(a) => self.cancelled_call(store, e, a, &u.id, &tool),
+                    None => Some((
+                        ResultNode::new(
+                            &u.id,
+                            &tool,
+                            ResultStatus::Cancelled,
+                            format!("Not run: {}.", cancel_why(e)),
+                        ),
+                        false,
+                    )),
+                };
+                if let Some((r, job)) = answer {
+                    write(
+                        call.unwrap_or(assistant),
+                        r,
+                        job.then_some(action.as_ref()).flatten(),
+                    );
+                }
+            }
+        }
+        // A job answered `background` and ended by the cancel, or settled
+        // before it and never taken: the end a later turn writes as a late
+        // result (theseus-kol), which a cancelled execution never takes.
+        let ended: HashSet<&str> = nodes
+            .iter()
+            .filter_map(|(_, n)| match &n.body {
+                Body::ToolResult {
+                    tool_use_id,
+                    late: true,
+                    ..
+                } => Some(tool_use_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        for (_, n) in &nodes {
+            let Body::ToolResult {
+                tool_use_id,
+                tool,
+                status: ResultStatus::Background,
+                correlation_id: Some(c),
+                late: false,
+                ..
+            } = &n.body
+            else {
+                continue;
+            };
+            if ended.contains(tool_use_id.as_str()) {
+                continue;
+            }
+            let Some(a) = kernel.action(c)? else {
+                continue;
+            };
+            if let Some((r, job)) = self.cancelled_call(store, e, &a, tool_use_id, tool) {
+                write(n, ResultNode { late: true, ..r }, job.then_some(&a));
+            }
+        }
+        Ok((out, raw))
+    }
+
+    /// How one call of a cancelled execution ended, as its result: the
+    /// result, and whether it is a job's, whose raw output goes once its node
+    /// is written. None while the cancel is still stopping it: the sweep
+    /// after the call settles answers it.
+    fn cancelled_call<'a>(
+        &self,
+        store: &Store,
+        e: &Execution,
+        a: &'a Action,
+        tool_use_id: &'a str,
+        tool: &'a str,
+    ) -> Option<(ResultNode<'a>, bool)> {
+        let job = self
+            .registry
+            .get(tool)
+            .is_some_and(|t| t.backend() == Backend::Job);
+        let why = cancel_why(e);
+        let says = |status, text: String, cancel: &str| ResultNode {
+            correlation_id: Some(&a.correlation_id),
+            meta: json!({"cancel": cancel}),
+            ..ResultNode::new(tool_use_id, tool, status, text)
+        };
+        Some(match (a.state, a.cancel) {
+            // Still being stopped.
+            (ActionState::Dispatched, _) => return None,
+            // Never sent: ended in the cancel's frame, or declined before it.
+            (ActionState::Planned | ActionState::Authorized, _)
+            | (ActionState::Cancelled, None) => {
+                let (status, text) = if a.state == ActionState::Cancelled {
+                    not_run_answer(a)
+                } else {
+                    (ResultStatus::Cancelled, format!("Not run: {why}."))
+                };
+                let mut meta = Value::Null;
+                stopped_meta(&mut meta, status, a);
+                let r = ResultNode {
+                    correlation_id: Some(&a.correlation_id),
+                    meta,
+                    ..ResultNode::new(tool_use_id, tool, status, text)
+                };
+                (r, false)
+            }
+            // Told to stop while it ran. What a job printed before it stopped
+            // is in its result; a call that cannot be stopped, or that was
+            // not verified gone, may have run: unknown, never "not sent".
+            (ActionState::Cancelled, Some(c)) => {
+                let (status, how, tag) = match c {
+                    CancelState::TerminationVerified => (
+                        ResultStatus::Cancelled,
+                        "it was stopped".to_string(),
+                        "stopped",
+                    ),
+                    CancelState::Unsupported => (
+                        ResultStatus::Unknown,
+                        "it cannot be stopped once started, so it may have finished: check the \
+                         current state before relying on it"
+                            .to_string(),
+                        "unsupported",
+                    ),
+                    _ => (
+                        ResultStatus::Unknown,
+                        "it was told to stop, but its end was not verified, so it may still be \
+                         running: check the current state before relying on it"
+                            .to_string(),
+                        "uncertain",
+                    ),
+                };
+                let line = format!("{} while this call was running; {how}.", sentence(&why));
+                if job {
+                    let mut r = self.job_result(store, a, tool_use_id, tool);
+                    r.status = status;
+                    r.text = format!("[{line}]\n{}", r.text);
+                    r.meta["cancel"] = json!(tag);
+                    (r, true)
+                } else {
+                    (says(status, line, tag), false)
+                }
+            }
+            // Settled before the cancel, its result never read: a job's is
+            // in the spool; an in-process call's was written with its
+            // settle, so only a lost one reaches here.
+            (ActionState::Succeeded | ActionState::Failed | ActionState::OutcomeUnknown, _) => {
+                if job {
+                    (self.job_result(store, a, tool_use_id, tool), true)
+                } else {
+                    let line = format!(
+                        "{}. This call settled as {} and its result was never recorded: check \
+                         the current state before relying on it.",
+                        sentence(&why),
+                        a.state.as_str()
+                    );
+                    (says(ResultStatus::Unknown, line, "settled"), false)
+                }
+            }
+        })
+    }
+}
+
+/// Tell a session's clients about the results `ToolRuntime::answer_after_cancel`
+/// wrote, as a turn tells them of its own (`announce_end`).
+pub(crate) fn announce_cancelled(rec: &crate::fact::Rec<'_>, session_id: &str, nodes: &[Node]) {
+    for node in nodes {
+        rec.record(&fact::tool::ToolEnded {
+            session_id,
+            turn_id: node.turn_id.as_deref().unwrap_or_default(),
+            node,
+        });
+        rec.record(&fact::turn::NodeWritten { session_id, node });
+    }
+}
+
+/// Why a cancelled execution ended, as its calls' results say it: "the
+/// execution was cancelled by operator".
+fn cancel_why(e: &Execution) -> String {
+    format!(
+        "the execution was {}",
+        e.ended_reason.as_deref().unwrap_or("cancelled")
+    )
+}
+
+/// `text` with a capital first letter, for the start of a sentence.
+fn sentence(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 /// What a call that never ran tells the model: who declined it, or why it
@@ -2576,6 +2905,9 @@ enum Pending {
     /// A tool-call node and no action: it stopped at the gate, and its result
     /// was lost.
     StoppedAtGate,
+    /// Planned and never asked: a restart came between its plan and its
+    /// authorization, and its gate said `allow` (theseus-ni5).
+    NeverAsked(Action),
     /// Waiting for the operator (`Action::awaits_confirm`).
     Waiting(String),
     /// Confirmed, and not yet authorized.

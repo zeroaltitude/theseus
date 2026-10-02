@@ -225,6 +225,16 @@ impl Budget {
             .saturating_sub(self.reserved_micros)
             .saturating_sub(self.held_unknown_micros)
     }
+    /// What an approved reset leaves to reserve with: the limit, less what
+    /// is reserved for calls in flight and what is held for calls whose cost
+    /// is unknown, which a reset leaves as they are (theseus-6g6). A call that
+    /// needs more than this cannot fit after any reset; theseus-kks's call
+    /// over the whole limit is the case where nothing is held.
+    pub fn available_after_reset(&self) -> Micros {
+        self.limit_micros
+            .saturating_sub(self.reserved_micros)
+            .saturating_sub(self.held_unknown_micros)
+    }
     /// A unit budget read in dollars: the given limit, nothing spent,
     /// reserved, or held (a unit has no price), and the unit figures kept.
     /// Startup then takes the spend from the session's recorded cost.

@@ -146,6 +146,30 @@ fn results(core: &Core, sid: &str) -> Vec<(ResultStatus, String)> {
         .collect()
 }
 
+/// A tool result as `answers` reads it: its `tool_use_id`, status, text, and
+/// whether it is a late one.
+type Answered = (String, ResultStatus, String, bool);
+
+/// A session's tool calls and the results that answer them (theseus-0o8):
+/// the `tool_use_id` of each tool-call node, and each result, in order.
+fn answers(core: &Core, sid: &str) -> (Vec<String>, Vec<Answered>) {
+    let (mut calls, mut got) = (Vec::new(), Vec::new());
+    for (_, n) in core.store.session_nodes(sid).unwrap() {
+        match n.body {
+            Body::ToolCall { tool_use_id, .. } => calls.push(tool_use_id),
+            Body::ToolResult {
+                tool_use_id,
+                status,
+                content,
+                late,
+                ..
+            } => got.push((tool_use_id, status, content, late)),
+            _ => {}
+        }
+    }
+    (calls, got)
+}
+
 #[tokio::test]
 async fn a_tool_loop_reads_a_file_and_the_prefix_never_changes() {
     let r = rig(vec![
@@ -951,6 +975,122 @@ async fn a_job_below_the_disk_floor_is_refused_with_its_reason() {
     assert_eq!(r.core.health().disk.state, "low");
 }
 
+/// theseus-ht82: the floor refuses the next job, and now stops the one that
+/// already runs. A job left in the background while the disk is above the
+/// floor is stopped when the disk falls below it: its action is cancelled by
+/// "the disk floor" with the numbers, its result (read by the turn the stop
+/// wakes) says so, and a `job.stopped_below_floor` row records them. With no
+/// job running, or above the floor, nothing is stopped. The job's wrapper is
+/// a stand-in whose command line names it, with its pid in the spool.
+#[tokio::test]
+async fn a_running_job_is_stopped_when_the_disk_falls_below_its_floor() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "echo filling; while [ -e running.marker ]; do sleep 0.05; done"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+            Scripted::text("The disk floor stopped it."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.proc_sync_secs = 1;
+            cfg.server.disk_floor_mb = 1024;
+            cfg.server.disk_warn_mb = 5120;
+        },
+    );
+    std::fs::write(r.root.join("running.marker"), "").unwrap();
+    let space = crate::disk::FixedSpace::new(80_000, 100_000);
+    r.core.tools.disk.set_probe(space.clone());
+    assert_eq!(r.core.stop_jobs_below_floor().await, 0, "no job runs");
+    let first = turn(&r.core, None, "start it").await;
+    let job = the_job(&r.core).correlation_id;
+    let exec = first.execution_id.clone().unwrap();
+    let wrapper = crate::peer::Standin::start(&job);
+    r.core.spool.write_pid(&job, wrapper.wrapper).unwrap();
+    assert_eq!(r.core.spool.running(), vec![(job.clone(), wrapper.wrapper)]);
+
+    // Above the floor, the job runs on; the warning stops nothing.
+    assert_eq!(r.core.stop_jobs_below_floor().await, 0);
+    space.set_free_mb(4000);
+    assert_eq!(
+        r.core.stop_jobs_below_floor().await,
+        0,
+        "a warning stops nothing"
+    );
+    let a = r.core.kernel.action(&job).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Dispatched);
+
+    // Below it, the job is stopped, with the numbers.
+    space.set_free_mb(812);
+    assert_eq!(r.core.stop_jobs_below_floor().await, 1);
+    let by = "the disk floor (812 MB free, below the floor of 1,024 MB)";
+    let a = r.core.kernel.action(&job).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    assert_eq!(
+        a.cancel,
+        Some(theseus_kernel::CancelState::TerminationVerified)
+    );
+    assert_eq!(a.resolution, Some(format!("stopped by {by}")));
+    let rows = ledgered(&r, "job.stopped_below_floor");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (
+            &rows[0]["correlation_id"],
+            &rows[0]["free_mb"],
+            &rows[0]["floor_mb"]
+        ),
+        (&json!(job), &json!(812), &json!(1024))
+    );
+    assert_eq!(
+        r.core.stop_jobs_below_floor().await,
+        0,
+        "a job told to stop is not stopped twice"
+    );
+
+    // Its execution was woken, and the turn it takes reads the result: the
+    // job's, cancelled, saying what stopped it.
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (e.state, e.resume_pending),
+        (theseus_kernel::ExecState::Queued, true)
+    );
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.output, "The disk floor stopped it.");
+    let late = r
+        .core
+        .store
+        .session_nodes(&first.session_id)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult {
+                late: true,
+                status,
+                content,
+                meta,
+                ..
+            } => Some((status, content, meta)),
+            _ => None,
+        })
+        .expect("the stopped job's late result");
+    assert_eq!(late.0, ResultStatus::Cancelled);
+    assert!(
+        late.1
+            .starts_with(&format!("[cancelled: stopped by {by}]\n")),
+        "{}",
+        late.1
+    );
+    assert_eq!(late.2["stopped_by"], by);
+    drop(wrapper);
+    std::fs::remove_file(r.root.join("running.marker")).unwrap();
+}
+
 /// theseus-2ij: the spool's sweep removes the raw output no result will
 /// absorb, by what the store says, and keeps what a turn may still read:
 /// - absorbed: an in-turn job's result was written, and its file came back
@@ -1065,9 +1205,13 @@ async fn the_sweep_removes_raw_output_no_result_will_absorb_and_keeps_the_rest()
             break;
         }
     }
+    // Cancelled as the kernel does, without the core's sweep of the
+    // transcript, which writes a cancelled execution's late results and takes
+    // their files itself (theseus-0o8): this test is about the store states
+    // the spool's sweep reads.
     r.core
+        .kernel
         .cancel_execution(b.execution_id.as_deref().unwrap(), "test")
-        .await
         .unwrap();
 
     // A job that still runs, and one that runs on in a cancelled execution.
@@ -1075,10 +1219,16 @@ async fn the_sweep_removes_raw_output_no_result_will_absorb_and_keeps_the_rest()
     let running = job_of(&d.session_id);
     let e = turn(&r.core, None, "start the fourth").await;
     let running_on = job_of(&e.session_id);
-    r.core
+    // No pid file, as the in-process launcher leaves none: the cancel settles
+    // it as one nothing can reach (`terminate_all`).
+    for corr in r
+        .core
+        .kernel
         .cancel_execution(e.execution_id.as_deref().unwrap(), "test")
-        .await
-        .unwrap();
+        .unwrap()
+    {
+        r.core.kernel.cancel_unsupported(&corr).unwrap();
+    }
     let a = r.core.kernel.action(&running_on).unwrap().unwrap();
     assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
     std::fs::write(
@@ -1580,6 +1730,82 @@ async fn a_stopped_jobs_raw_output_stays_while_its_wrapper_lives() {
     assert_eq!(removed_by, vec![("absorbed".to_string(), 1)]);
 }
 
+/// theseus-5wgd: a job can report while a process it started still holds its
+/// output open. Its wrapper then lingers (its marker names it, and its pid file
+/// is gone) and still writes `<id>.out`, whose end waits in the ring. Neither
+/// the cleanup that follows its result nor the spool's sweep may take the file
+/// under it: both take it once the wrapper has ended. The lingering wrapper
+/// here is a stand-in whose command line names the job.
+#[tokio::test]
+async fn a_jobs_raw_output_stays_while_its_wrapper_lingers_and_goes_when_it_ends() {
+    use std::time::SystemTime;
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[("t1", "proc_run", json!({"argv": ["echo", "printed"]}))],
+            ),
+            Scripted::text("Done."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+        },
+    );
+    turn(&r.core, None, "echo something").await;
+    let job = the_job(&r.core);
+    assert_eq!(job.state, theseus_kernel::ActionState::Succeeded);
+    assert!(job.result_ref.is_some(), "its completion names the file");
+    let out = r.core.spool.result_path(&job.correlation_id);
+    assert!(
+        !out.exists(),
+        "the result's cleanup took it: no wrapper lingered"
+    );
+
+    // The job's wrapper lingers, and the file is what it still writes.
+    let wrapper = crate::peer::Standin::start(&job.correlation_id);
+    r.core
+        .spool
+        .write_lingering(&job.correlation_id, wrapper.wrapper)
+        .unwrap();
+    assert!(r.core.spool.read_pid(&job.correlation_id).is_none());
+    assert!(r.core.spool.wrapper_lives(&job.correlation_id));
+    std::fs::write(&out, "the head\n").unwrap();
+    // The cleanup after a result is written leaves it.
+    r.core.tools.remove_job_output(&job);
+    assert!(
+        out.exists(),
+        "the cleanup took a file its wrapper still writes"
+    );
+    // So does the sweep.
+    let sweep = || {
+        crate::sweep::sweep(
+            &r.core.kernel,
+            &r.core.store,
+            &r.core.spool,
+            SystemTime::now(),
+        )
+    };
+    let swept = sweep();
+    assert!(out.exists(), "the sweep took it: {swept:?}");
+    assert_eq!(swept.removed, 0, "{swept:?}");
+    assert_eq!(swept.kept_by.get("running"), Some(&1), "{swept:?}");
+
+    // The wrapper ends, and the sweep takes the file as one whose result was
+    // written.
+    drop(wrapper);
+    let t0 = std::time::Instant::now();
+    while r.core.spool.wrapper_lives(&job.correlation_id) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "the wrapper lives on"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let swept = sweep();
+    assert!(!out.exists(), "{swept:?}");
+    assert_eq!(swept.removed_by.get("absorbed"), Some(&1), "{swept:?}");
+}
+
 /// theseus-z3de: a job that reports while a process it started still holds
 /// its output open, past the head, says so: its report's detail has `held`
 /// (the ring's bytes, which the file takes only at the pipe's end) and
@@ -2016,6 +2242,317 @@ async fn a_cancel_ends_a_call_waiting_for_approval_and_nothing_counts_it_waiting
     // A second cancel writes nothing more.
     r.core.cancel_execution(&exec, "operator").await.unwrap();
     assert_eq!(results(&r.core, &res.session_id).len(), 1);
+}
+
+/// A cancel that finds a turn running writes no result into its transcript
+/// (theseus-w98): that is the turn's own. The turn answers the calls it left
+/// when it has ended (theseus-0o8), which is `answer_after_cancel`: here the
+/// cancel lands with no result in its frame, as it does for a running turn,
+/// and the turn's end finds a planned call that nothing answers. Answered
+/// once, as the cancel's own sweep would have.
+#[tokio::test]
+async fn a_call_a_running_turn_never_answered_is_answered_at_its_end() {
+    let r = rig_with(
+        vec![Scripted::tools(
+            "",
+            &[("t1", "proc_run", json!({"argv": ["echo", "never run"]}))],
+        )],
+        |cfg| cfg.policy.enforcement = Posture::Approve,
+    );
+    let res = turn(&r.core, None, "echo something").await;
+    let corr = res.awaiting_confirm.clone().expect("approve waits");
+    let exec = res.execution_id.clone().unwrap();
+    r.core
+        .kernel
+        .cancel_execution_with(&exec, "operator", |_| Ok(vec![]))
+        .unwrap();
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    assert!(
+        results(&r.core, &res.session_id).is_empty(),
+        "the cancel wrote no result"
+    );
+    let sweep = || {
+        r.core
+            .tools
+            .answer_after_cancel(&r.core.kernel, &r.core.store, &res.session_id, &exec)
+            .unwrap()
+    };
+    assert_eq!(sweep().len(), 1);
+    assert_eq!(
+        results(&r.core, &res.session_id),
+        vec![(
+            ResultStatus::Cancelled,
+            "Not run: the execution was cancelled by operator.".to_string()
+        )]
+    );
+    assert!(sweep().is_empty(), "each call is answered once");
+}
+
+/// A cancel ends a background job, whose call was answered with a placeholder
+/// ("still running"): the transcript gets its end, as a late result
+/// (theseus-0o8). The test's launcher has no wrapper to signal, so the cancel
+/// cannot stop the job, and the result says the job may have finished: its
+/// outcome is unknown, never "not run". A job the cancel verified gone says
+/// it was stopped. A second cancel writes nothing more.
+#[tokio::test]
+async fn a_cancel_ends_a_background_jobs_placeholder_in_the_transcript() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "echo started; while [ -e running.marker ]; do sleep 0.05; done"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.proc_sync_secs = 1;
+        },
+    );
+    std::fs::write(r.root.join("running.marker"), "").unwrap();
+    let res = turn(&r.core, None, "start it").await;
+    let exec = res.execution_id.clone().unwrap();
+    let sid = res.session_id.clone();
+    let (calls, got) = answers(&r.core, &sid);
+    assert_eq!(calls, ["t1"]);
+    assert_eq!(
+        got.iter().map(|g| (g.1, g.3)).collect::<Vec<_>>(),
+        [(ResultStatus::Background, false)],
+        "answered with its placeholder"
+    );
+
+    let (_, killed) = r.core.cancel_execution(&exec, "operator").await.unwrap();
+    assert_eq!(killed.len(), 1, "the job was told to stop");
+    let (_, got) = answers(&r.core, &sid);
+    assert_eq!(got.len(), 2, "the placeholder, then its end: {got:?}");
+    let (id, status, text, late) = &got[1];
+    assert_eq!(
+        (id.as_str(), *status, *late),
+        ("t1", ResultStatus::Unknown, true)
+    );
+    assert!(
+        text.starts_with(
+            "[The execution was cancelled by operator while this call was running; it cannot be \
+             stopped once started, so it may have finished"
+        ),
+        "{text}"
+    );
+    r.core.cancel_execution(&exec, "operator").await.unwrap();
+    assert_eq!(
+        answers(&r.core, &sid).1.len(),
+        2,
+        "a second cancel writes none"
+    );
+    std::fs::remove_file(r.root.join("running.marker")).unwrap();
+}
+
+/// A job a cancel verified gone says it was stopped (theseus-0o8), with the
+/// job's own result under it, as the late result of any job reads.
+#[tokio::test]
+async fn a_cancel_that_verified_a_job_gone_says_it_was_stopped() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "echo started; while [ -e running.marker ]; do sleep 0.05; done"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.proc_sync_secs = 1;
+        },
+    );
+    std::fs::write(r.root.join("running.marker"), "").unwrap();
+    let res = turn(&r.core, None, "start it").await;
+    let exec = res.execution_id.unwrap();
+    let sid = res.session_id;
+    // The cancel's frame, and the settle a job with a wrapper gets.
+    let cancel = r
+        .core
+        .kernel
+        .cancel_execution_with(&exec, "operator", |_| Ok(vec![]))
+        .unwrap();
+    assert_eq!(cancel.to_kill.len(), 1);
+    let corr = &cancel.to_kill[0];
+    r.core.kernel.cancel_acknowledged(corr).unwrap();
+    r.core.kernel.cancel_verified(corr).unwrap();
+    let written = r
+        .core
+        .tools
+        .answer_after_cancel(&r.core.kernel, &r.core.store, &sid, &exec)
+        .unwrap();
+    assert_eq!(written.len(), 1);
+    let (_, got) = answers(&r.core, &sid);
+    let (_, status, text, late) = &got[1];
+    assert_eq!((*status, *late), (ResultStatus::Cancelled, true));
+    assert!(
+        text.starts_with(
+            "[The execution was cancelled by operator while this call was running; it was stopped.]\n"
+        ),
+        "{text}"
+    );
+    std::fs::remove_file(r.root.join("running.marker")).unwrap();
+}
+
+/// What a restart between a call's plan and its authorization leaves
+/// (theseus-ni5), built with the steps an older build wrote in separate
+/// frames: a session whose last assistant message asks for a read, the call
+/// planned with its node (its gate said `gate`) and no proposal on the action,
+/// and the execution queued for the continuation a restart takes. Returns the
+/// session, the execution, and the call's correlation id.
+fn a_call_planned_and_never_authorized(r: &Rig, gate: &str) -> (String, String, String) {
+    use crate::node::Node;
+    use theseus_kernel::{Authority, Proposal, RetryClass, TurnEnd};
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    let sid = rec.session_id.clone();
+    let k = &r.core.kernel;
+    let exec = k
+        .open_execution(
+            &sid,
+            SessionKind::Conversation,
+            Authority {
+                principal: crate::turn::OPERATOR.into(),
+                ..Default::default()
+            },
+            None,
+            None,
+        )
+        .unwrap();
+    rec.execution_id = Some(exec.id.clone());
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    k.wake(&exec.id, "input").unwrap();
+    let guard = k.admit(&exec.id).unwrap();
+    let turn = "trn_ni5";
+    let user = Node::user(&sid, Some(turn), "test", "read a.txt");
+    let asked = Node::assistant(
+        &sid,
+        turn,
+        0,
+        Body::AssistantMessage {
+            blocks: vec![
+                json!({"type": "tool_use", "id": "t1", "name": "fs_read", "input": {"path": "a.txt"}}),
+            ],
+            model: "fake".into(),
+            provider: "fake".into(),
+            stop_reason: Some("tool_use".into()),
+            usage: theseus_protocol::Usage::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+        },
+    );
+    r.core
+        .store
+        .append(&[user.record().unwrap(), asked.record().unwrap()])
+        .unwrap();
+    let proposal = Proposal {
+        tool: "fs.read".into(),
+        args: json!({"path": "a.txt"}),
+        resource: None,
+        policy_context: Value::Null,
+    };
+    let a = k
+        .plan_action_with(&guard, &proposal, RetryClass::SafeToRepeat, None, 0, |a| {
+            let call = Node::tool_call(
+                &sid,
+                Some(turn),
+                Some(0),
+                Body::ToolCall {
+                    tool_use_id: "t1".into(),
+                    tool: "fs.read".into(),
+                    wire_name: "fs_read".into(),
+                    input: json!({"path": "a.txt"}),
+                    assistant_node: asked.id.clone(),
+                    correlation_id: Some(a.correlation_id.clone()),
+                    gate: Some(Box::new(theseus_protocol::GateRecord {
+                        result: theseus_protocol::GateResult {
+                            gate: gate.into(),
+                            ..Default::default()
+                        },
+                        validated: true,
+                        proposal: proposal.clone(),
+                        ..Default::default()
+                    })),
+                },
+            );
+            Ok(vec![call.record()?])
+        })
+        .unwrap();
+    assert!(a.proposal.is_none() && a.awaits_confirm(), "{a:?}");
+    // The restart: the turn is gone, and the execution waits to be resumed.
+    k.end_turn(guard, TurnEnd::Requeue).unwrap();
+    k.wake(&exec.id, "restart").unwrap();
+    (sid, exec.id, a.correlation_id)
+}
+
+/// theseus-ni5: a call planned and never asked (the gate said `allow`, and a
+/// restart came before its authorization) is not a question. A continuation
+/// finds that its node's gate let it run, declines it as the harness's act,
+/// and answers it not run, where it parked the turn on a question no card
+/// ever posted.
+#[tokio::test]
+async fn a_planned_call_never_asked_is_answered_not_run_and_parks_nothing() {
+    let r = rig_with(vec![Scripted::text("Understood.")], |cfg| {
+        cfg.policy.enforcement = Posture::Approve
+    });
+    let (sid, exec, corr) = a_call_planned_and_never_authorized(&r, "allow");
+    assert_eq!(
+        r.core.kernel.pending_confirms().unwrap().len(),
+        1,
+        "the kernel cannot tell it from a question"
+    );
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.output, "Understood.");
+    assert!(cont.awaiting_confirm.is_none(), "{cont:?}");
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    assert_eq!(
+        a.resolution.as_deref(),
+        Some("declined by harness: planned before a restart and never asked")
+    );
+    assert!(r.core.kernel.pending_confirms().unwrap().is_empty());
+    assert_eq!(
+        results(&r.core, &sid),
+        vec![(
+            ResultStatus::Cancelled,
+            "Not run: this call was planned before a restart and the operator was never asked \
+             about it. Ask again if it is still wanted."
+                .to_string()
+        )]
+    );
+}
+
+/// The other half of theseus-ni5's rule: a question stored before
+/// theseus-0g4 has no proposal on its action either, and its node's gate said
+/// `needs_confirm`. It was asked, and a continuation waits on it, as before.
+#[tokio::test]
+async fn a_question_stored_without_a_proposal_still_parks_the_continuation() {
+    let r = rig_with(vec![Scripted::text("Understood.")], |cfg| {
+        cfg.policy.enforcement = Posture::Approve
+    });
+    let (sid, exec, corr) = a_call_planned_and_never_authorized(&r, "needs_confirm");
+    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(cont.awaiting_confirm.as_deref(), Some(corr.as_str()));
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Planned);
+    assert_eq!(r.core.kernel.pending_confirms().unwrap().len(), 1);
+    assert!(
+        results(&r.core, &sid).is_empty(),
+        "nothing answers a question"
+    );
 }
 
 #[tokio::test]
@@ -3149,6 +3686,168 @@ async fn an_approved_reset_of_a_call_over_the_whole_limit_does_not_ask_again() {
         (&next[0]["then"], &next[0]["class"], &next[0]["settled"]),
         (&json!("park"), &json!("over_limit"), &json!(false))
     );
+}
+
+/// A turn that is expected to fail, and its failure.
+async fn failing_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Error {
+    let rec = core
+        .store
+        .get_session::<SessionRecord>(sid)
+        .unwrap()
+        .unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    let sink = EventSink::new(core.bus.clone(), sid, None);
+    core.runner
+        .run(TurnRequest {
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink,
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            config_wait_us: 0,
+            reply_to: None,
+        })
+        .await
+        .expect_err("the turn fails")
+}
+
+/// 6g6's question, in its words: what the call reserves, the limit, what is
+/// held for calls whose cost is unknown, that a reset leaves it held, the
+/// remedies, and that approving does not ask again.
+fn says_why_a_reset_will_not_do(reason: &str, needed: u64, limit: u64, held: u64) {
+    let dollars = crate::narrative::dollars;
+    for part in [
+        format!("which reserves {}", dollars(needed)),
+        format!("Of its {} limit", dollars(limit)),
+        format!("{} is held for calls whose cost is unknown", dollars(held)),
+        "a reset leaves it held".to_string(),
+        format!(
+            "Raise `[kernel] spend_limit_usd` above {}",
+            dollars(needed + held)
+        ),
+        "lower `max_output_tokens` under `[profiles.".to_string(),
+        "does not ask again".to_string(),
+    ] {
+        assert!(reason.contains(&part), "{part:?} in {reason:?}");
+    }
+}
+
+/// theseus-6g6: a reset leaves what is held for calls whose cost is unknown
+/// as it is, so a call that fits the limit but not what the held amount
+/// leaves of it is a call no reset can fit. The call before it was cut off
+/// with its usage unknown, holding its reservation; the next call needs the
+/// same amount, which fits the $2 limit and not the $0.72 that is left of it
+/// when $1.28 is held. Its question says so (the held amount, that a reset
+/// leaves it held, and the remedies); an approved reset tries the call once
+/// more; and when it still does not fit the turn fails (`over_limit`) and
+/// asks nothing, where the same question came back after every approval.
+#[tokio::test]
+async fn a_reset_that_cannot_free_what_is_held_unknown_asks_once_and_does_not_loop() {
+    use theseus_kernel::{ExecState, Wake};
+    let r = rig_with(
+        vec![
+            Scripted::Fail(crate::provider::ProviderError::Truncated { elapsed_ms: 5 }),
+            Scripted::text("never sent"),
+        ],
+        |c| c.kernel.spend_limit_usd = 2.0,
+    );
+    let (sid, mut rx) = watched_session(&r);
+    let cut = failing_turn(&r.core, &sid, "hello").await;
+    let te = cut.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert!(te.usage_unknown, "{cut:#}");
+    let exec = r
+        .core
+        .kernel
+        .actions()
+        .unwrap()
+        .into_iter()
+        .find(|a| a.session_id == sid)
+        .unwrap()
+        .execution_id;
+    let b = r.core.kernel.execution(&exec).unwrap().unwrap().budget;
+    let held = b.held_unknown_micros;
+    assert!(
+        held > 1_000_000,
+        "the cut call's reservation is held: {b:?}"
+    );
+
+    // The next call asks, and says why a reset will not do.
+    let res = turn(&r.core, Some(&sid), "again").await;
+    assert_eq!(res.stop_reason, "budget", "{res:?}");
+    let q = res.awaiting_confirm.clone().unwrap();
+    let b = r.core.kernel.execution(&exec).unwrap().unwrap().budget;
+    let needed = b.question_needs_micros;
+    assert!(
+        needed <= b.limit_micros && needed > b.available_after_reset(),
+        "it fits the limit, and not what a reset leaves of it: {b:?}"
+    );
+    let asked = sent(&mut rx, theseus_protocol::notify::CONFIRM_REQUESTED);
+    assert_eq!(asked.len(), 1, "asked once: {asked:?}");
+    let req: theseus_protocol::ConfirmRequest = serde_json::from_value(asked[0].clone()).unwrap();
+    says_why_a_reset_will_not_do(&req.reason, needed, b.limit_micros, held);
+    let dollars = crate::narrative::dollars;
+    assert_eq!(r.core.pending_confirms(&sid).unwrap()[0].reason, req.reason);
+    let rows = ledgered(&r, "budget.asked");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        (&rows[0]["fits_after_reset"], &rows[0]["exceeds_limit"]),
+        (&json!(false), &json!(false))
+    );
+    assert_eq!(
+        rows[0]["held_unknown_usd"],
+        json!(theseus_kernel::micros_to_usd(held))
+    );
+
+    // An approved reset tries the call once more and, when it still does not
+    // fit, ends the turn instead of asking the same question again.
+    r.core
+        .confirm_action(&q, true, None, "discord:eddie")
+        .unwrap();
+    let err = r
+        .core
+        .continue_execution(&exec)
+        .await
+        .expect_err("the retry fails instead of asking");
+    let te = err
+        .downcast_ref::<crate::turn::TurnError>()
+        .unwrap_or_else(|| panic!("a turn failure: {err:#}"));
+    assert_eq!(te.class, "over_limit");
+    let why = format!("{:#}", te.source);
+    for part in [
+        "a reset cannot make it fit".to_string(),
+        format!("{} is held for calls whose cost is unknown", dollars(held)),
+        "and a reset leaves it held".to_string(),
+        format!(
+            "Raise `[kernel] spend_limit_usd` above {}",
+            dollars(needed + held)
+        ),
+    ] {
+        assert!(why.contains(&part), "{part:?} in {why:?}");
+    }
+    assert_eq!(r.fake.requests().len(), 1, "only the cut call ran");
+    assert!(
+        sent(&mut rx, theseus_protocol::notify::CONFIRM_REQUESTED).is_empty(),
+        "no second question"
+    );
+    assert_eq!(ledgered(&r, "budget.asked").len(), 1);
+    let over = ledgered(&r, "budget.over_limit");
+    assert_eq!(over.len(), 1);
+    assert_eq!(
+        over[0]["held_usd"],
+        json!(theseus_kernel::micros_to_usd(held))
+    );
+    assert!(r.core.pending_confirms(&sid).unwrap().is_empty());
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(
+        (e.state, e.wake.clone(), e.budget.question.clone()),
+        (ExecState::Waiting, Some(Wake::Input), None)
+    );
+    // The held amount is still held: a reset does not release it.
+    assert_eq!(e.budget.held_unknown_micros, held);
 }
 
 /// The ordinary path is as it was: a call that fits the limit but not what
@@ -6337,6 +7036,136 @@ mod parallel {
         let e = r.core.kernel.execution(&exec).unwrap().unwrap();
         assert_eq!(e.state.as_str(), "cancelled");
         assert!(e.outstanding.is_empty(), "{:?}", e.outstanding);
+    }
+
+    /// The calls of a batch a cancel lands in, each answered once in the
+    /// transcript (theseus-0o8): each running call finishes after the cancel
+    /// settled it, its completion is recorded on the action alone, and the
+    /// turn, which holds what the call said, writes it as the call's result.
+    /// The cancel finds the turn holding the execution and writes none.
+    #[tokio::test]
+    async fn a_cancel_during_a_batch_answers_each_running_call_once() {
+        let timing = Arc::<Timing>::default();
+        let four: Vec<_> = ["a", "b", "c", "d"]
+            .iter()
+            .map(|f| read(&format!("c_{f}"), &format!("{f}.txt")))
+            .collect();
+        let r = rig_full(
+            vec![calls(&four)],
+            |_| {},
+            vec![slowed(
+                "fs.read",
+                ToolClass::Read,
+                Arc::new(theseus_tools::fs::Read),
+                &timing,
+            )],
+        );
+        for f in ["a", "b", "c", "d"] {
+            std::fs::write(r.root.join(format!("{f}.txt")), format!("{f} said hi\n")).unwrap();
+            timing.set(&[(&format!("fs.read:{f}.txt"), 600)]);
+        }
+        let (sid, exec, running) = start_and_cancel_when_dispatched(&r, "read four", 4).await;
+        running
+            .await
+            .unwrap()
+            .expect_err("the next provider call is refused");
+        let (calls, mut got) = answers(&r.core, &sid);
+        assert_eq!(calls.len(), 4);
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            got.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(),
+            ["c_a", "c_b", "c_c", "c_d"],
+            "one result each: {got:?}"
+        );
+        for (id, status, text, late) in &got {
+            assert_eq!(*status, ResultStatus::Ok, "{id}: {text}");
+            assert!(text.contains("said hi"), "{id}: {text}");
+            assert!(!late, "{id}");
+        }
+        let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+        assert_eq!(e.state.as_str(), "cancelled");
+    }
+
+    /// A call of the batch that the cancel kept from ever starting: the turn
+    /// plans nothing after it, and answers the call at its end as not run
+    /// (theseus-0o8). The call that was running keeps its own result.
+    #[tokio::test]
+    async fn a_cancel_during_a_batch_answers_the_call_it_never_let_start() {
+        let timing = Arc::<Timing>::default();
+        let r = rig_full(
+            vec![Scripted::tools(
+                "",
+                &[
+                    ("c_r", "fs_read", json!({"path": "a.txt"})),
+                    ("c_w", "proc_run", json!({"argv": ["echo", "never run"]})),
+                ],
+            )],
+            |_| {},
+            vec![slowed(
+                "fs.read",
+                ToolClass::Read,
+                Arc::new(theseus_tools::fs::Read),
+                &timing,
+            )],
+        );
+        std::fs::write(r.root.join("a.txt"), "a said hi\n").unwrap();
+        timing.set(&[("fs.read:a.txt", 600)]);
+        let (sid, _, running) = start_and_cancel_when_dispatched(&r, "read, then run", 1).await;
+        running
+            .await
+            .unwrap()
+            .expect_err("the turn ends at its next step");
+        let (calls, mut got) = answers(&r.core, &sid);
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(calls, ["c_r"], "the second call was never planned");
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!((got[0].0.as_str(), got[0].1), ("c_r", ResultStatus::Ok));
+        assert!(got[0].2.contains("said hi"), "{}", got[0].2);
+        assert_eq!(
+            (got[1].0.as_str(), got[1].1, got[1].2.as_str()),
+            (
+                "c_w",
+                ResultStatus::Cancelled,
+                "Not run: the execution was cancelled by test."
+            )
+        );
+    }
+
+    /// Start a turn on a new session, and cancel its execution once `n` of
+    /// its calls are dispatched: the session, the execution, and the running
+    /// turn.
+    async fn start_and_cancel_when_dispatched(
+        r: &Rig,
+        input: &str,
+        n: usize,
+    ) -> (
+        String,
+        String,
+        tokio::task::JoinHandle<anyhow::Result<TurnSubmitResult>>,
+    ) {
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        r.core.store.put_session(&rec.session_id, &rec).unwrap();
+        let sid = rec.session_id.clone();
+        let core = r.core.clone();
+        let input = input.to_string();
+        let running = tokio::spawn(async move { try_turn(&core, rec, &input).await });
+        let dispatched = || {
+            r.core
+                .kernel
+                .actions()
+                .unwrap()
+                .into_iter()
+                .filter(|a| a.session_id == sid && a.state == ActionState::Dispatched)
+                .collect::<Vec<_>>()
+        };
+        let t0 = Instant::now();
+        while dispatched().len() < n {
+            assert!(t0.elapsed() < Duration::from_secs(5), "never dispatched");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let exec = dispatched()[0].execution_id.clone();
+        r.core.cancel_execution(&exec, "test").await.unwrap();
+        (sid.clone(), exec, running)
     }
 }
 

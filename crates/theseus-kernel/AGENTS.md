@@ -47,7 +47,12 @@ theseusd, and theseus-sim.
 - **A wrapper's pid can be reused**, so "alive" is `wrapper_alive(pid, job)`, whose command line names the job. A
   process in the middle of its exec has an empty command line: `holder` counts it as still starting (Item 35).
 - **A stop is not a cancel.** A cancel is terminal; `stop_execution` halts the work and keeps the conversation
-  (Item 9). A cancel settles every action that was never dispatched, in its own frame (Item 17).
+  (Item 9). A cancel settles every action that was never dispatched, in its own frame (Item 17). The results of
+  the calls a cancel ended are the core's sweep (`ToolRuntime::answer_after_cancel`, theseus-0o8): it runs under
+  `Kernel::frame`, and only once `holds_turn` is false, since a running turn owns its transcript.
+- **`stop_call` stops one running call** and leaves its execution as it is (theseus-ht82): the daemon stopping a
+  job below the disk's floor. A job the spool says runs is `Spool::running` (its pid file) or `wrapper_lives` (the
+  pid file, or the lingering marker of a wrapper whose command has exited and whose child holds the output open).
 - **An attempt that may have run is `OutcomeUnknown`**, never "not sent".
 - **Read by state, never every record** (theseus-lv2). The store's index keeps `terms.rs`'s terms for each
   execution and action (`s:<state>`, `due`, `x:<execution>`, …). A reader on a path that runs often (the start,

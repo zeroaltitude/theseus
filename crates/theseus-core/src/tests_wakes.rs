@@ -32,6 +32,9 @@ const TARGET: &str = "discord:dm:42";
 /// keeps every request.
 struct Model {
     requests: Mutex<Vec<ProviderRequest>>,
+    /// How many of the next requests that answer a wake fail with a 529
+    /// (theseus-4lx).
+    fail_wake_turns: std::sync::atomic::AtomicU32,
 }
 
 impl Provider for Model {
@@ -45,7 +48,23 @@ impl Provider for Model {
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
             self.requests.lock().unwrap().push(req.clone());
-            let f = FakeProvider::scripted(vec![script(req)]);
+            let overloaded = last_user(req).contains("⏰ wake")
+                && self
+                    .fail_wake_turns
+                    .fetch_update(
+                        std::sync::atomic::Ordering::SeqCst,
+                        std::sync::atomic::Ordering::SeqCst,
+                        |n| n.checked_sub(1),
+                    )
+                    .is_ok();
+            let next = if overloaded {
+                Scripted::Fail(crate::provider::ProviderError::Overloaded {
+                    message: "busy".into(),
+                })
+            } else {
+                script(req)
+            };
+            let f = FakeProvider::scripted(vec![next]);
             f.stream_message(req, on_delta).await
         })
     }
@@ -138,6 +157,7 @@ fn life(dir: &Path, drive: bool) -> Life {
     let store = Store::open(&dir.join("store")).unwrap();
     let model = Arc::new(Model {
         requests: Mutex::default(),
+        fail_wake_turns: Default::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     let driver = drive.then(|| tokio::spawn(crate::harness::drive(core.clone())));
@@ -340,6 +360,51 @@ async fn a_wake_after_two_seconds_runs_a_turn_with_its_note_and_not_before() {
     assert_eq!(fired.len(), 1);
     assert!(fired[0]["late_ms"].as_u64().unwrap() < 1_500);
     assert_eq!(fired[0]["while_down"], false);
+    l.stop().await;
+}
+
+/// theseus-4lx: a wake's turn that fails before its reply (a 529) leaves the
+/// wake's node in the session, and its retry answers it. The retry took no
+/// wake, so it once posted its reply without the wake's line, and, when the
+/// session's place had moved on (`/new`) between the two, nowhere at all. Now
+/// it frames the reply from the wake's unanswered node, and posts where the
+/// wake was set, which the take kept.
+#[tokio::test]
+async fn a_wake_turns_retry_keeps_the_wakes_line_and_where_it_was_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = life(dir.path(), true);
+    let sid = session(&l.core);
+    turn(&l.core, &sid, "WAKE 1s: check the build").await;
+    l.model
+        .fail_wake_turns
+        .store(1, std::sync::atomic::Ordering::SeqCst);
+    let asked = |l: &Life| {
+        l.model
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| last_user(r).contains("⏰ wake"))
+            .count()
+    };
+    // The wake's first turn fails, and nothing is posted for it.
+    until("the failed attempt", 10, || asked(&l) >= 1).await;
+    // `/new` meanwhile: the place moves on to a new session before the retry.
+    let _new = session(&l.core);
+    assert_eq!(
+        l.core.outbox.target(&sid),
+        None,
+        "the session posts nowhere"
+    );
+    // The retry answers the wake, and its reply goes where the wake was set.
+    until("the retry's reply", 15, || replies(&l.core).len() == 2).await;
+    assert!(asked(&l) >= 2, "the wake was asked twice");
+    let nodes = wake_nodes(&l.core, &sid);
+    assert_eq!(nodes.len(), 1, "one node: the retry took no second wake");
+    let reply = replies(&l.core).pop().unwrap();
+    assert_eq!(reply["result"]["session_id"], sid);
+    assert_eq!(reply["wakes"].as_array().map(Vec::len), Some(1), "{reply}");
+    assert_eq!(reply["wakes"][0]["text"], node_text(&nodes[0]));
     l.stop().await;
 }
 

@@ -1859,7 +1859,7 @@ pub fn push_line(p: &theseus_protocol::PushStatus) -> String {
     if !p.seeded {
         return format!(
             "push: not seeded: nothing has watched since the start (the first \
-             executions.watch or session.wait seeds it) · lost {}",
+             session.watch, executions.watch, or session.wait seeds it) · lost {}",
             p.lost
         );
     }

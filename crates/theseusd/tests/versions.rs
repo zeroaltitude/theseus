@@ -445,6 +445,116 @@ fn a_sigterm_or_a_sigint_stops_cleanly_and_the_next_start_replays_nothing() {
     }
 }
 
+/// A client of a `--stdio` daemon: its pipes, one request at a time.
+struct StdioClient {
+    stdin: std::process::ChildStdin,
+    lines: std::io::Lines<BufReader<std::process::ChildStdout>>,
+    next: u64,
+}
+
+impl StdioClient {
+    fn call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
+        self.next += 1;
+        let req = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
+        writeln!(self.stdin, "{req}").map_err(|e| json!(e.to_string()))?;
+        for line in self.lines.by_ref() {
+            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
+                .map_err(|e| json!(e.to_string()))?;
+            if v["id"] == self.next {
+                return match v.get("error") {
+                    Some(e) if !e.is_null() => Err(e.clone()),
+                    _ => Ok(v["result"].clone()),
+                };
+            }
+        }
+        Err(json!("the daemon's stdout closed"))
+    }
+}
+
+impl Rig {
+    /// A `--stdio` daemon on this rig's state dir (its store is
+    /// `state/store-stdio`), and its client, once it answers.
+    fn spawn_stdio(&self) -> (Daemon, StdioClient) {
+        let mut d = Daemon::spawn(
+            self.command()
+                .arg("--stdio")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped()),
+        );
+        let (stdin, stdout) = d.stdio();
+        let mut c = StdioClient {
+            stdin,
+            lines: BufReader::new(stdout).lines(),
+            next: 0,
+        };
+        c.call("health", Value::Null)
+            .unwrap_or_else(|e| panic!("no answer on stdio: {e}\n{}", tail(&self.log(), 20)));
+        (d, c)
+    }
+}
+
+/// A `--stdio` daemon takes SIGTERM and SIGINT the way the socket daemon does
+/// (theseus-p7q): it exits 0 on the clean path, with its `server.stopping` row
+/// naming the signal, and the next open of its store replays nothing and
+/// repairs nothing. A signal used to end it outright: no row, no checkpoint.
+#[test]
+fn a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint() {
+    let rig = Rig::new();
+    let (mut d, mut c) = rig.spawn_stdio();
+    for signal in ["SIGTERM", "SIGINT"] {
+        // Everything a start writes is written: the history check's end, and
+        // this start's driver.
+        rig.wait("the history check and the driver", || {
+            let h = c.call("health", Value::Null).ok()?;
+            h["startup"]
+                .as_array()?
+                .iter()
+                .find(|p| p["name"] == "store.verify" && !p["end_us"].is_null())?;
+            let rows = c.call("ledger.tail", json!({"n": 200})).ok()?;
+            let rows = rows["rows"].as_array()?;
+            let started = rows.iter().rposition(|r| r["kind"] == "server.started")?;
+            rows[started..]
+                .iter()
+                .any(|r| r["kind"] == "driver.started")
+                .then_some(())
+        });
+        let sent = std::process::Command::new("kill")
+            .args([format!("-{}", &signal[3..]), d.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success());
+        let status = rig.wait("the stop", || d.try_wait());
+        assert!(
+            status.success(),
+            "{signal}: {status}; the log ends:\n{}",
+            tail(&rig.log(), 20)
+        );
+        (d, c) = rig.spawn_stdio();
+        let h = c.call("health", Value::Null).unwrap();
+        let s = h["startup"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "store")
+            .map(|p| p["detail"].clone())
+            .unwrap();
+        assert_eq!(s["replayed_into_index"], 0, "{signal}: {s}");
+        assert_eq!(s["index_repaired"], false, "{signal}: {s}");
+        let rows = c.call("ledger.tail", json!({"n": 200})).unwrap();
+        let stopping: Vec<&Value> = rows["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["kind"] == "server.stopping")
+            .collect();
+        assert_eq!(
+            stopping.last().map(|r| r["data"]["signal"].clone()),
+            Some(json!(signal)),
+            "{stopping:?}"
+        );
+    }
+}
+
 /// A start at once after a stop (theseus-qa0 F4b). `shutdown` answers before
 /// the daemon removes its socket and closes its store, so a start that
 /// followed at once could find the store still held and exit with "Database

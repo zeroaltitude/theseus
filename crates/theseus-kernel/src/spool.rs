@@ -153,6 +153,26 @@ impl Spool {
             .ok()
             .and_then(|s| s.trim().parse().ok())
     }
+
+    /// The jobs with a pid file, as (job, wrapper pid): the wrappers whose
+    /// command still runs, since the file is removed at the wrapper's report
+    /// (theseus-ht82). One directory read, so the heartbeat can ask it every
+    /// beat; no process is looked at, and a file a killed wrapper left is
+    /// listed until its job settles.
+    pub fn running(&self) -> Vec<(String, u32)> {
+        let Ok(dir) = fs::read_dir(self.dir.join("pids")) else {
+            return vec![];
+        };
+        let mut out: Vec<(String, u32)> = dir
+            .flatten()
+            .filter_map(|e| {
+                let pid = fs::read_to_string(e.path()).ok()?.trim().parse().ok()?;
+                Some((e.file_name().to_string_lossy().into_owned(), pid))
+            })
+            .collect();
+        out.sort();
+        out
+    }
     pub fn remove_pid(&self, id: &CorrelationId) {
         let _ = fs::remove_file(self.pid_path(id));
     }
@@ -171,6 +191,26 @@ impl Spool {
 
     pub fn remove_lingering(&self, id: &str) {
         let _ = fs::remove_file(self.lingering_path(id));
+    }
+
+    /// The pid a job's `lingering` marker names, if it has one.
+    pub fn read_lingering(&self, id: &str) -> Option<u32> {
+        fs::read_to_string(self.lingering_path(id))
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+    }
+
+    /// Whether job `id`'s wrapper still lives (theseus-5wgd): the pid file's
+    /// while its command runs, or the lingering marker's once the command has
+    /// exited and a process it started holds the output open. The wrapper
+    /// removes its pid file at its report, so a reader that stops there reads
+    /// a lingering wrapper as gone, and takes the file it is still writing.
+    /// Nothing is removed: a marker a killed wrapper left is `lingering()`'s.
+    pub fn wrapper_lives(&self, id: &str) -> bool {
+        [self.read_pid(id), self.read_lingering(id)]
+            .into_iter()
+            .flatten()
+            .any(|pid| crate::job::wrapper_alive(pid, id))
     }
 
     /// The wrappers lingering now, as (job, wrapper pid): each marker whose

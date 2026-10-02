@@ -185,6 +185,7 @@ fn main() -> Result<()> {
     if cli.cmd.is_none() {
         adopt_children();
     }
+    let stdio = cli.stdio;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -192,7 +193,16 @@ fn main() -> Result<()> {
         Exit::Done => {
             // The runtime's tasks go, and with them the store, which closes
             // (redb's close, logged by the index): each timed (theseus-26r).
-            drop(rt);
+            if stdio {
+                // A `--stdio` daemon reads stdin on a blocking thread, which
+                // only the client's end of the pipe ends: a stop by a signal
+                // while the client holds it open would wait on it for ever
+                // (theseus-p7q). The tasks go, and the store closes, within
+                // this bound; the read is left behind, and the process ends.
+                rt.shutdown_timeout(Duration::from_millis(500));
+            } else {
+                drop(rt);
+            }
             stop_phase("runtime dropped");
             Ok(())
         }
@@ -428,6 +438,14 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");
+        // SIGINT and SIGTERM stop a `--stdio` daemon as they do the socket
+        // one (theseus-p7q): a supervisor's stop, or an MCP client's kill,
+        // used to end it outright, with no stopping row and no checkpoint,
+        // and the next open of `store-stdio` replayed the tail and repaired
+        // the index. Registered once, before anything is served.
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigint = signal(SignalKind::interrupt())?;
+        let mut sigterm = signal(SignalKind::terminate())?;
         tokio::spawn(after_serving(core.clone(), keep, None, state_dir, mode));
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
@@ -442,7 +460,20 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         let served = tokio::select! {
             r = conn => r,
             _ = core.restart_asked() => Ok(()),
+            _ = sigint.recv() => {
+                tracing::info!(signal = "SIGINT", "stopping on a signal");
+                core.stopping_on("SIGINT");
+                Ok(())
+            }
+            _ = sigterm.recv() => {
+                tracing::info!(signal = "SIGTERM", "stopping on a signal");
+                core.stopping_on("SIGTERM");
+                Ok(())
+            }
         };
+        // The same end as the socket daemon's: the posts in flight settle
+        // (none, with no channel bound), and the index is checkpointed.
+        core.finish_stop().await;
         flush_telemetry(&core).await;
         served?;
         return Ok(exit(&core));

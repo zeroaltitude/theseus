@@ -372,6 +372,40 @@ impl Fact for JobRefused<'_> {
     }
 }
 
+/// A running job the daemon stopped because the disk fell below its floor
+/// (theseus-ht82): `job.stopped_below_floor`. The floor refuses the next job;
+/// this is the one that was already writing. Which job fills the disk cannot
+/// be told from here, so each running job is stopped and each has its row.
+pub struct JobStoppedBelowFloor<'a> {
+    pub correlation_id: &'a str,
+    pub tool: &'a str,
+    pub free_mb: u64,
+    pub floor_mb: u64,
+}
+
+impl Fact for JobStoppedBelowFloor<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JobStoppedBelowFloor);
+
+    fn row(&self) -> Value {
+        json!({"correlation_id": self.correlation_id, "tool": self.tool,
+            "free_mb": self.free_mb, "floor_mb": self.floor_mb})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Job,
+            format!(
+                "Stopped {} {}: the disk under the state dir has {} MB free, below the floor of \
+                 {} MB.",
+                self.tool,
+                crate::task::short(self.correlation_id),
+                narrative::thousands(self.free_mb),
+                narrative::thousands(self.floor_mb)
+            ),
+        );
+    }
+}
+
 /// A job a stop or a cancel reached before its launch is never started
 /// (theseus-36to): `job.not_started`.
 pub struct JobNotStarted<'a> {
@@ -600,6 +634,26 @@ impl Fact for CallSuperseded<'_> {
             Approval,
             format!(
                 "{}: new input came instead of an answer, so it is declined.",
+                self.tool
+            ),
+        );
+    }
+}
+
+/// A call planned and never asked, found by a continuation (theseus-ni5): a
+/// restart came between its plan and its authorization, so nothing asked the
+/// operator and nothing ran it. It is declined by the harness (the
+/// `action.declined` row says so), and its result says it did not run.
+pub struct CallNeverAsked<'a> {
+    pub tool: &'a str,
+}
+
+impl Fact for CallNeverAsked<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "{}: planned before a restart and never asked, so it did not run.",
                 self.tool
             ),
         );

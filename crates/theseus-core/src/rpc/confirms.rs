@@ -89,6 +89,10 @@ impl Core {
                 b.spent_micros,
                 b.limit_micros,
                 b.question_needs_micros,
+                crate::turn::Kept {
+                    reserved: b.reserved_micros,
+                    unknown: b.held_unknown_micros,
+                },
                 &q.proposal
                     .as_ref()
                     .map(|p| p.args["call"].clone())

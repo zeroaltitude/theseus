@@ -259,7 +259,8 @@ impl Core {
             method::PROFILE_LIST => reply(self.profile_list()),
             method::PROFILE_USE => route(params, |p| self.profile_use(p, conn)),
             method::SESSION_HISTORY => route(params, |p| self.session_history(p)),
-            method::SESSION_WATCH => route(params, |p| Ok(self.session_watch(p, conn))),
+            // The first watch of any kind seeds the push (theseus-tq04).
+            method::SESSION_WATCH => reply(self.session_watch(parse(params)?, conn).await?),
             method::SESSION_UNWATCH => route(params, |p| Ok(self.session_unwatch(p, conn))),
             method::SESSION_RECOMPILE => route(params, |p| self.session_recompile(p, conn)),
             method::CATALOG_LIST => reply(self.catalog_list()),

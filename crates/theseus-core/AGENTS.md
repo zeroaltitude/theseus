@@ -118,5 +118,15 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   approval from inside a job is refused, correctly.
 - A recompile inside a tool loop strips thinking between a call and its result, so context files change on the
   next turn's first loop, never mid-turn.
+- **Every `tool_use` gets a result, whoever ends its execution.** A cancelled execution takes no more turns, so
+  `answer_after_cancel` writes what its calls left unanswered (the cancel's handler, and the end of the turn that held
+  the execution, whichever runs later; each call is answered once). A call that may have run is `unknown`, never
+  "not run". A late completion after a cancel drops the node that rode with it (`accept_completion_with` writes
+  `extra` only for a settle): the turn that holds the result writes it.
+- **A reset never frees held money.** `Budget::available_after_reset` is what a reset leaves; a call over it cannot be
+  answered by a question, so its question says so and the retry's refusal fails the turn (`over_limit`), never asks again.
+- **The take frame keeps what its retry needs.** A turn that takes a wake or a report keeps where its reply goes in a
+  META record written in the taking frame (`wake.target.<session>`); a retry frames its reply from the unanswered
+  wake and report nodes. No in-memory field carries it.
 - `cargo test -p theseus-core` builds a second copy of every dependency. Use
   `cargo nextest run --workspace -E 'package(theseus-core)'`.

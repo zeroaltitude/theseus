@@ -107,6 +107,7 @@ ledger_kinds! {
     JobNotStarted = "job.not_started",
     JobRefused = "job.refused",
     JobStoppedAtLaunch = "job.stopped_at_launch",
+    JobStoppedBelowFloor = "job.stopped_below_floor",
     JobWrapperLost = "job.wrapper_lost",
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",

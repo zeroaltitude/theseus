@@ -177,6 +177,22 @@ impl Core {
             .kernel
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+        // What the cancel left unanswered in the transcript (theseus-0o8): the
+        // calls it stopped, now that they have settled. A turn that holds the
+        // execution answers its own at its end, and this finds it held.
+        match self
+            .tools
+            .answer_after_cancel(&self.kernel, &self.store, &e.session_id, id)
+        {
+            Ok(nodes) => crate::toolrun::announce_cancelled(
+                &self.session_rec(&e.session_id),
+                &e.session_id,
+                &nodes,
+            ),
+            Err(err) => {
+                tracing::warn!(error = %format!("{err:#}"), execution_id = %id, "a cancelled execution's unanswered calls were not answered");
+            }
+        }
         self.session_rec(&e.session_id)
             .record(&fact::driver::ExecutionCancelled {
                 execution: &e,
@@ -223,6 +239,76 @@ impl Core {
                 self.kernel.cancel_uncertain(corr)
             };
         }
+    }
+
+    /// Watch the disk's floor while jobs run (theseus-ht82). The floor refuses
+    /// the next job, and a job already running can still fill the disk through
+    /// files it writes itself (a build's target dir, a log it opens, a
+    /// download); on WSL that is the file on C:, which pauses the whole VM
+    /// when it fills. So below the floor every running job is stopped, with
+    /// its reason: its result reads "stopped by the disk floor (812 MB free,
+    /// below the floor of 1,024 MB)", it has a `job.stopped_below_floor` row,
+    /// and its execution is woken, so the model reads that and can tell the
+    /// operator. The heartbeat's timer calls it. It reads the spool's pid
+    /// files first, so with no job running it costs one directory read, and
+    /// the disk is looked at only while one is.
+    ///
+    /// At L0 the writer cannot be told from the others: nothing meters a
+    /// job's own writes (WSL has no per-process io counters, and no quota or
+    /// cgroup holds a job), so all are stopped. M4's sandbox gives a job its
+    /// own cgroup and a quota on what it may write (row 17): it names the
+    /// writer and stops it alone, before the floor. Returns how many it
+    /// stopped.
+    pub async fn stop_jobs_below_floor(&self) -> usize {
+        let running = self.spool.running();
+        if running.is_empty() {
+            return 0;
+        }
+        let Some(refusal) = self.tools.disk.refusal() else {
+            return 0;
+        };
+        let by = format!(
+            "the disk floor ({} MB free, below the floor of {} MB)",
+            crate::narrative::thousands(refusal.free_mb),
+            crate::narrative::thousands(refusal.floor_mb)
+        );
+        let mut stopped = Vec::new();
+        for (id, _) in &running {
+            match self.kernel.stop_call(id, &by) {
+                Ok(Some(a)) => stopped.push(a),
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(job = %id, error = %format!("{e:#}"), "a job below the disk floor was not stopped");
+                }
+            }
+        }
+        if stopped.is_empty() {
+            return 0;
+        }
+        for a in &stopped {
+            self.session_rec(&a.session_id)
+                .record(&fact::tool::JobStoppedBelowFloor {
+                    correlation_id: &a.correlation_id,
+                    tool: &a.tool,
+                    free_mb: refusal.free_mb,
+                    floor_mb: refusal.floor_mb,
+                });
+        }
+        tracing::warn!(
+            jobs = stopped.len(),
+            free_mb = refusal.free_mb,
+            floor_mb = refusal.floor_mb,
+            "the disk is below its floor: the running jobs are stopped"
+        );
+        let to_kill: Vec<String> = stopped.iter().map(|a| a.correlation_id.clone()).collect();
+        self.terminate_all(&to_kill).await;
+        // Each job's result reaches its conversation: a turn waiting on it
+        // hears so at once, and one that left it running is woken to read it.
+        for a in &stopped {
+            let _ = self.kernel.wake(&a.execution_id, "disk");
+        }
+        self.admission.notify_waiters();
+        stopped.len()
     }
 
     /// `/stop` (W1, theseus-lji): halt a conversation's work and keep the

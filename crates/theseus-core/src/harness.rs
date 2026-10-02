@@ -43,6 +43,9 @@ pub async fn run(core: Arc<Core>) {
                 let c = core.clone();
                 // Store work is blocking; keep it off the reactor.
                 let _ = tokio::task::spawn_blocking(move || c.heartbeat("timer")).await;
+                // The disk's floor holds for a job that already runs, as it
+                // does for the next one (theseus-ht82).
+                core.stop_jobs_below_floor().await;
             }
             accepted = async {
                 match &listener {

@@ -1120,14 +1120,18 @@ impl Fact for LoopEndedOnBudget<'_> {
 }
 
 /// The retry of a call the operator approved a reset for still does not fit,
-/// since it alone needs more than the whole limit (theseus-kks): the turn
-/// ends (`budget.over_limit`).
+/// since it alone needs more than the whole limit (theseus-kks), or more than
+/// the limit leaves once what a reset keeps held is taken (theseus-6g6): the
+/// turn ends (`budget.over_limit`).
 pub struct OverLimit<'a> {
     /// What the turn's failure says, figures and remedies included.
     pub message: &'a str,
     pub target: &'a Target,
     pub needed: Micros,
     pub limit: Micros,
+    /// Reserved for calls in flight and held for calls whose cost is unknown,
+    /// which a reset leaves as it is.
+    pub held: Micros,
 }
 
 impl Fact for OverLimit<'_> {
@@ -1135,7 +1139,7 @@ impl Fact for OverLimit<'_> {
 
     fn row(&self) -> Value {
         let t = self.target;
-        json!({"model": t.model, "profile": t.profile, "max_output_tokens": t.max_tokens, "needed_usd": micros_to_usd(self.needed), "limit_usd": micros_to_usd(self.limit)})
+        json!({"model": t.model, "profile": t.profile, "max_output_tokens": t.max_tokens, "needed_usd": micros_to_usd(self.needed), "limit_usd": micros_to_usd(self.limit), "held_usd": micros_to_usd(self.held)})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

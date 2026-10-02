@@ -555,6 +555,57 @@ fn interactive_answers_the_question_and_sends_messages() {
     );
 }
 
+/// theseus-nu3z: a message sent from a pane continues the session on the
+/// profile its last turn ran on, as a continuation does, and not on the
+/// daemon's live profile: a session started on GLM once ran its next turn on
+/// Sonnet from a pane. The profile is read again at each new turn, so the
+/// pane follows a session whose last turn another client ran elsewhere.
+#[test]
+fn a_message_continues_the_session_on_the_profile_of_its_last_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let profile = Arc::new(Mutex::new("glm".to_string()));
+    let current = profile.clone();
+    let d = FakeDaemon::start(dir.path(), move |req| {
+        Some(Ok(match req["method"].as_str().unwrap() {
+            "session.watch" => json!({"watching": true}),
+            "session.wait" => json!({"reached": "settled", "already": true,
+                "execution": view(10, "waiting", "ready", "ready", None, 0.0), "confirms": []}),
+            "session.list" => json!({"sessions": [{
+                "session_id": S, "kind": "conversation", "label": "Tide notes",
+                "created_at_unix_ms": 1_759_300_000_000u64, "turns": 2,
+                "title": "check the tide tables", "profile": *current.lock().unwrap()}]}),
+            "turn.submit" => json!({}),
+            other => {
+                return Some(Err(
+                    json!({"code": -32601, "message": format!("no {other}")}),
+                ))
+            }
+        }))
+    });
+    let mut w = Watch::start(&d, None, &["--interactive"]);
+    w.wait_err("a line you type is sent", 1);
+    w.type_line("what is the tide at noon?");
+    let first = d.wait_for("turn.submit", 1);
+    assert_eq!(
+        first[0]["params"],
+        json!({"session_id": S, "input": "what is the tide at noon?",
+               "author": "theseus watch", "profile": "glm"})
+    );
+    // Another client's turn ran on another profile: the next message follows.
+    *profile.lock().unwrap() = "sonnet".into();
+    let mut next = view(11, "waiting", "ready", "ready", None, 0.0);
+    next["turns"] = json!(3);
+    d.push("execution.changed", next);
+    d.wait_for("session.list", 2);
+    std::thread::sleep(Duration::from_millis(300));
+    w.type_line("and at midnight?");
+    let both = d.wait_for("turn.submit", 2);
+    assert_eq!(both[1]["params"]["profile"], json!("sonnet"));
+    drop(w.child.stdin.take());
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
+}
+
 /// A line that is not an answer word declines, with the line as the note; a
 /// refused answer is said and asked again; `t` approves and trusts.
 #[test]

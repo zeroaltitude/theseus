@@ -561,6 +561,15 @@ impl Kernel {
         self
     }
 
+    /// Whether a turn holds `execution_id` in this process now. A turn's end
+    /// frees its hold under the execution's lock, so a caller that reads this
+    /// inside `Kernel::frame` for the execution sees the end or not at all:
+    /// a cancel's sweep of the calls it left unanswered waits for the turn
+    /// that was running, which sweeps at its own end (theseus-0o8).
+    pub fn holds_turn(&self, execution_id: &str) -> bool {
+        self.held.lock().unwrap().contains(execution_id)
+    }
+
     /// How many of its turn's own results this view has settled: a turn that
     /// faults after one did is woken, so its continuation reads them.
     pub fn own_settled(&self) -> u32 {
@@ -1676,6 +1685,12 @@ impl Kernel {
             "available_usd": micros_to_usd(b.available()),
             "resets": b.resets,
             "exceeds_limit": needed_micros > b.limit_micros,
+            // What a reset leaves held (theseus-6g6): when the call cannot
+            // fit once the spend is $0, the question says so, and no reset
+            // answers it.
+            "reserved_usd": micros_to_usd(b.reserved_micros),
+            "held_unknown_usd": micros_to_usd(b.held_unknown_micros),
+            "fits_after_reset": needed_micros <= b.available_after_reset(),
         });
         e.budget.question = Some(q.correlation_id.clone());
         e.budget.question_needs_micros = needed_micros;
@@ -2622,6 +2637,35 @@ impl Kernel {
     }
     pub fn cancel_uncertain(&self, correlation_id: &str) -> Result<Action> {
         self.cancel_step(correlation_id, CancelState::OutcomeUncertain, true)
+    }
+
+    /// Tell one running job or call to stop, for `by`, and leave its
+    /// execution as it is (theseus-ht82): the daemon stopping a job below the
+    /// disk's floor, where `/stop` and a cancel stop a whole execution's. The
+    /// action, dispatched and not yet told, is marked `cancel = requested`,
+    /// its resolution `stopped by <by>`, which the call's result reads as, in
+    /// one frame with an `action.cancel` row. The caller terminates its
+    /// backend and walks its cancel (`cancel_acknowledged`, then
+    /// `cancel_verified` or `cancel_uncertain`). None when it is not a running
+    /// call, or was told to stop already: nothing is written.
+    pub fn stop_call(&self, correlation_id: &str, by: &str) -> Result<Option<Action>> {
+        let Some((_w, mut a)) = self.locked_action(correlation_id)? else {
+            return Ok(None);
+        };
+        if a.state != ActionState::Dispatched || a.cancel.is_some() || a.tool == PROVIDER_TOOL {
+            return Ok(None);
+        }
+        a.cancel = Some(CancelState::Requested);
+        a.resolution = Some(format!("stopped by {by}"));
+        self.commit(&[
+            action_record(&a)?,
+            self.ledger(
+                LedgerKind::ActionCancel,
+                Some(&a.session_id),
+                json!({"correlation_id": a.correlation_id, "cancel": CancelState::Requested, "why": by, "settled": false}),
+            )?,
+        ])?;
+        Ok(Some(a))
     }
 
     fn cancel_step(&self, correlation_id: &str, st: CancelState, settle: bool) -> Result<Action> {

@@ -57,7 +57,9 @@ anyhow = "1"
 base64 = "0.22"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# float_roundtrip: a stored float reads as the value it was written from, so a
+# record decodes and encodes again byte for byte (theseus-k52m).
+serde_json = { version = "1", features = ["float_roundtrip"] }
 toml = "0.9"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "sync", "time", "signal", "fs"] }
 tokio-util = { version = "0.7", features = ["codec"] }

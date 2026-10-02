@@ -40,6 +40,12 @@ pub const PLACE_META_PREFIX: &str = "discord.session.";
 /// A task's record of where it reports (DD7): `task.place.<task session>`
 /// names its parent's target when it started.
 pub const TASK_META_PREFIX: &str = "task.place.";
+/// Where the reply to a wake or a task's report goes when its session posts
+/// nowhere by then (theseus-4lx): `wake.target.<session>` names the target the
+/// wake was set from, or the report was sent to, in the frame that took it.
+/// It outlives the turn that took it, so the retry of a turn that failed
+/// before its reply answers where the first would have.
+pub const WAKE_TARGET_PREFIX: &str = "wake.target.";
 /// Where approvals go, whichever DM that is.
 pub const OPERATOR_TARGET: &str = "discord:operator";
 /// The downstream key of a post that creates messages: Discord's nonce.
@@ -448,6 +454,25 @@ impl Outbox {
             Some(&format!("{TASK_META_PREFIX}{task_session}")),
             &target,
         )
+    }
+
+    /// The record of where the reply to what a turn took (a due wake, or a
+    /// task's report) goes when `session_id` posts nowhere, for the frame
+    /// that takes it (theseus-4lx). A later take replaces it.
+    pub fn wake_target_record(&self, session_id: &str, target: &str) -> Result<NewRecord> {
+        NewRecord::json(
+            kinds::META,
+            Some(&format!("{WAKE_TARGET_PREFIX}{session_id}")),
+            &target,
+        )
+    }
+
+    /// What `wake_target_record` last wrote for `session_id`.
+    pub fn wake_target(&self, session_id: &str) -> Option<String> {
+        self.store
+            .get_meta::<String>(&format!("{WAKE_TARGET_PREFIX}{session_id}"))
+            .ok()
+            .flatten()
     }
 
     /// A task's record is written: its posts go to `target` from now on.

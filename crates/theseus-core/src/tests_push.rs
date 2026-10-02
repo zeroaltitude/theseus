@@ -345,6 +345,28 @@ impl Raw {
         self.send(id, m, params).await;
         self.answer(id).await
     }
+
+    /// Read until an `execution.changed` view satisfies `f`, keeping every
+    /// notification on the way; None if none comes in 30 s.
+    async fn until_view(&mut self, f: impl Fn(&ExecutionView) -> bool) -> Option<ExecutionView> {
+        let read = async {
+            loop {
+                let line = self.lines.next_line().await.unwrap().expect("open");
+                if let Message::Notification(n) = serde_json::from_str::<Message>(&line).unwrap() {
+                    self.notes.push(n.clone());
+                    if n.method == notify::EXECUTION_CHANGED {
+                        let v: ExecutionView = serde_json::from_value(n.params).unwrap();
+                        if f(&v) {
+                            return v;
+                        }
+                    }
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(30), read)
+            .await
+            .ok()
+    }
 }
 
 /// Until `f` holds, polled every 5 ms for at most 10 s.
@@ -867,4 +889,57 @@ async fn the_board_keeps_up_while_every_worker_is_held() {
         board.position
     );
     assert_eq!(board.board, 20, "a view for each execution");
+}
+
+// ------------------------------------------------------------- tq04
+
+/// A `session.watch` alone seeds the push (theseus-tq04): on a daemon that
+/// nothing else watches, a client of one session gets that session's
+/// `execution.changed`, and no other session's. Before the fix the watch
+/// never called `push.ensure`, so the board stayed unseeded and the client
+/// heard only the turn's own events.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_watch_alone_seeds_the_push_and_gets_its_executions_changes() {
+    let r = rig();
+    let mine = turn(&r.core, None).await;
+    let other = turn(&r.core, None).await;
+    assert!(!r.core.push.seeded(), "nothing has watched yet");
+    assert!(!r.core.kernel.observed());
+
+    let mut c = Raw::connect(&r.core, "session-watcher", 1 << 20);
+    let a = c
+        .call(1, method::SESSION_WATCH, json!({"session_id": mine}))
+        .await;
+    assert_eq!(a.result.unwrap()["watching"].as_str(), Some(mine.as_str()));
+    assert!(
+        r.core.push.seeded(),
+        "the first session watch seeds the board"
+    );
+    assert!(r.core.kernel.observed());
+    assert_eq!(r.core.bus.all_watchers(), 0, "no executions.watch was made");
+
+    // The other session's turn first, so anything of it that would reach
+    // this client is read before the watched session's last view.
+    turn(&r.core, Some(&other)).await;
+    turn(&r.core, Some(&mine)).await;
+    let last = last_kernel_position(&r.core);
+    let settled = c
+        .until_view(|v| v.session_id == mine && v.position >= last)
+        .await
+        .expect("the watched session's execution.changed reaches its watcher");
+    assert_eq!((settled.state.as_str(), settled.turns), ("waiting", 2));
+    for n in &c.notes {
+        if n.method == notify::EXECUTION_CHANGED {
+            let v: ExecutionView = serde_json::from_value(n.params.clone()).unwrap();
+            assert_eq!(v.session_id, mine, "only the watched session's changes");
+        }
+    }
+
+    // A second watcher on a seeded board seeds nothing again.
+    let mut d = Raw::connect(&r.core, "second-watcher", 1 << 20);
+    d.call(1, method::SESSION_WATCH, json!({"session_id": other}))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(r.core.bus.watchers(&other), 1);
 }
