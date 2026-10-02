@@ -14,14 +14,14 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{Aside, Engine, IndexEntry, MovedAside, RedbIndex};
 use crate::record::{kinds, NewRecord, Record, RecordKind};
-use crate::wal::{History, Recovery, Wal, WalConfig};
+use crate::wal::{History, Recovery, Verified, Wal, WalConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreStats {
@@ -50,6 +50,11 @@ pub struct StoreStats {
     /// before the index was built again from the WAL (theseus-0b8).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index_moved_aside: Option<MovedAside>,
+    /// The keys whose terms open built again (theseus-lv2): the index's
+    /// terms were not whole at its checkpoint (a store an older build wrote
+    /// last, or a new projection). `None` when it built none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terms_rebuilt: Option<u64>,
 }
 
 /// What the kernel writes through. Every method is durable when it returns.
@@ -80,6 +85,65 @@ pub trait Store: Send + Sync {
     /// Make the index durable and record how far it is good.
     fn checkpoint(&self) -> Result<u64>;
     fn stats(&self) -> Result<StoreStats>;
+
+    /// The latest record of each key of `kind` whose terms in the store's
+    /// projection include one in `lo..hi`, each key once, in key order
+    /// (theseus-lv2). `None` when the store keeps no terms: the caller reads
+    /// every record of the kind instead, and asks the projection's own
+    /// function.
+    fn latest_by_terms(
+        &self,
+        _kind: RecordKind,
+        _lo: &str,
+        _hi: &str,
+    ) -> Result<Option<Vec<Record>>> {
+        Ok(None)
+    }
+    /// How many (term, key) pairs of `kind` have a term in `lo..hi`; `None`
+    /// when the store keeps no terms.
+    fn count_by_terms(&self, _kind: RecordKind, _lo: &str, _hi: &str) -> Result<Option<u64>> {
+        Ok(None)
+    }
+    /// The latest record of every key of `kind` that starts with `prefix`,
+    /// in key order.
+    fn latest_with_prefix(&self, kind: RecordKind, prefix: &str) -> Result<Vec<Record>> {
+        Ok(self
+            .latest_of_kind(kind)?
+            .into_iter()
+            .filter(|r| r.key.as_deref().is_some_and(|k| k.starts_with(prefix)))
+            .collect())
+    }
+    /// How many keys `kind` has (its entities), where `count_of_kind` counts
+    /// every record.
+    fn count_keys(&self, kind: RecordKind) -> Result<u64> {
+        Ok(self.latest_of_kind(kind)?.len() as u64)
+    }
+}
+
+/// What a store's index keeps beside each keyed record of the kinds it names
+/// (theseus-lv2): its terms, so a reader asks for the keys with a term (a
+/// state) instead of reading every record of the kind. The index is a
+/// projection of the WAL, and so are the terms: the open builds them from the
+/// WAL, and keeps them with every append.
+#[derive(Debug)]
+pub struct Projection {
+    /// The terms are whole at the index's checkpoint only when its mark under
+    /// this name says so: a writer that kept no terms (an older build, an
+    /// open with no projection) moves the checkpoint alone, and the next open
+    /// with this projection builds them again. A change to what `terms`
+    /// returns gives it a new name.
+    pub name: &'static str,
+    pub kinds: &'static [RecordKind],
+    /// A record's terms, from its kind and payload. A term is not empty and
+    /// holds no 0x00.
+    pub terms: fn(RecordKind, &[u8]) -> Vec<String>,
+}
+
+impl Projection {
+    /// The terms of a keyed record of a kind this projects.
+    fn of(&self, kind: RecordKind, key: Option<&str>, payload: &[u8]) -> Option<Vec<String>> {
+        (key.is_some() && self.kinds.contains(&kind)).then(|| (self.terms)(kind, payload))
+    }
 }
 
 pub struct WalStore {
@@ -93,6 +157,9 @@ pub struct WalStore {
     /// The position the index's last checkpoint claims: a checkpoint with
     /// nothing written since costs nothing (theseus-pfv).
     checkpointed: AtomicU64,
+    /// The position the last durable checkpoint claims: a stop's checkpoint
+    /// is made durable by redb's close, not by itself (theseus-02k).
+    durable_to: AtomicU64,
     /// The newest schema written per kind, as the manifest says; an append
     /// of a newer one rewrites the manifest first (F4a).
     marks: RwLock<BTreeMap<RecordKind, u16>>,
@@ -106,6 +173,58 @@ pub struct WalStore {
     lock_wait_us: u64,
     /// The index file open moved aside, if it did (theseus-0b8).
     moved_aside: Option<MovedAside>,
+    /// The terms the index keeps with every append (theseus-lv2).
+    projection: Option<&'static Projection>,
+    /// The keys whose terms the open built again, when it had to: the
+    /// index's terms were not whole at its checkpoint.
+    terms_rebuilt: Option<u64>,
+    /// How far the last history check proved the WAL, as the index kept it
+    /// (theseus-0dq), read at open.
+    verified: Option<Verified>,
+    /// A newer mark, handed over by the check that made it: the next
+    /// checkpoint writes it.
+    pending_verified: VerifiedSlot,
+}
+
+/// Where a history check hands over the mark it made (theseus-0dq), apart
+/// from the store: the check's thread holds this, never the store, so a
+/// stopping daemon's store still closes. The store's next checkpoint writes
+/// the mark into the index, in its own commit.
+#[derive(Clone, Default)]
+pub struct VerifiedSlot(Arc<std::sync::Mutex<Option<Verified>>>);
+
+impl VerifiedSlot {
+    pub fn set(&self, v: Verified) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(v);
+    }
+    fn take(&self) -> Option<Verified> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+}
+
+/// The index's keys for a history check's mark (theseus-0dq).
+const VERIFIED_KEYS: [&str; 5] = [
+    "verified.segment",
+    "verified.offset",
+    "verified.first",
+    "verified.position",
+    "verified.full_at",
+];
+
+fn verified_meta(v: &Verified) -> [(&'static str, u64); 5] {
+    [
+        (VERIFIED_KEYS[0], u64::from(v.segment)),
+        (VERIFIED_KEYS[1], v.offset),
+        (VERIFIED_KEYS[2], v.first),
+        (VERIFIED_KEYS[3], v.position),
+        (VERIFIED_KEYS[4], v.full_at_unix_ms),
+    ]
 }
 
 /// How long an open waits for another process to release the store before
@@ -307,14 +426,33 @@ impl WalStore {
         Self::open_waiting(dir, wal_cfg, LOCK_WAIT)
     }
 
+    /// `open`, keeping `projection`'s terms with every record (theseus-lv2):
+    /// the open builds them from the WAL when the index's are not whole.
+    pub fn open_projected(
+        dir: &Path,
+        wal_cfg: WalConfig,
+        projection: &'static Projection,
+    ) -> Result<Self> {
+        Self::open_with(dir, wal_cfg, LOCK_WAIT, Some(projection))
+    }
+
     /// `open`, waiting at most `wait` for another process to release the
     /// store.
     pub fn open_waiting(dir: &Path, wal_cfg: WalConfig, wait: std::time::Duration) -> Result<Self> {
+        Self::open_with(dir, wal_cfg, wait, None)
+    }
+
+    fn open_with(
+        dir: &Path,
+        wal_cfg: WalConfig,
+        wait: std::time::Duration,
+        projection: Option<&'static Projection>,
+    ) -> Result<Self> {
         let t0 = std::time::Instant::now();
         // When the try under way began: zero for the first.
         let mut began = std::time::Duration::ZERO;
         loop {
-            match Self::open_once(dir, wal_cfg.clone()) {
+            match Self::open_once(dir, wal_cfg.clone(), projection) {
                 Ok(mut store) => {
                     store.lock_wait_us = began.as_micros() as u64;
                     if !began.is_zero() {
@@ -342,7 +480,11 @@ impl WalStore {
         }
     }
 
-    fn open_once(dir: &Path, wal_cfg: WalConfig) -> Result<Self> {
+    fn open_once(
+        dir: &Path,
+        wal_cfg: WalConfig,
+        projection: Option<&'static Projection>,
+    ) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let fsync = wal_cfg.fsync;
         let manifest_path = dir.join("MANIFEST.json");
@@ -384,6 +526,14 @@ impl WalStore {
             );
         }
 
+        // Whether the index's terms were whole at its checkpoint: then the
+        // replay below keeps them so (theseus-lv2). With no checkpoint, the
+        // replay is every record, and builds them whole (a new store, a
+        // restore).
+        let terms_whole = match projection {
+            Some(p) => cp == 0 || index.terms_mark(p.name)? == Some(cp),
+            None => true,
+        };
         // Rebuild whatever the index lost since its checkpoint.
         let replayed = missing.len() as u64;
         if !missing.is_empty() {
@@ -395,6 +545,7 @@ impl WalStore {
                     key: r.key.clone(),
                     scope: r.scope.clone(),
                     loc: *loc,
+                    terms: projection.and_then(|p| p.of(r.kind, r.key.as_deref(), &r.payload)),
                 })
                 .collect();
             index.apply(&entries, false)?;
@@ -408,7 +559,7 @@ impl WalStore {
                 "index checkpoint {cp} is past the WAL's last position {last}; refusing to open"
             );
         }
-        let store = Self {
+        let mut store = Self {
             wal,
             index,
             dir: dir.to_path_buf(),
@@ -416,12 +567,32 @@ impl WalStore {
             checkpoint_every: 1000,
             since_checkpoint: AtomicU64::new(0),
             checkpointed: AtomicU64::new(cp),
+            durable_to: AtomicU64::new(cp),
             marks: RwLock::new(marks),
             fsync,
             appending: RwLock::new(()),
             lock_wait_us: 0,
             moved_aside,
+            projection,
+            terms_rebuilt: None,
+            verified: None,
+            pending_verified: VerifiedSlot::default(),
         };
+        store.verified = match store.index.meta(&VERIFIED_KEYS)?[..] {
+            [Some(segment), Some(offset), Some(first), Some(position), Some(full_at)] => {
+                Some(Verified {
+                    segment: u32::try_from(segment).unwrap_or(u32::MAX),
+                    offset,
+                    first,
+                    position,
+                    full_at_unix_ms: full_at,
+                })
+            }
+            _ => None,
+        };
+        if let (Some(p), false) = (projection, terms_whole) {
+            store.terms_rebuilt = Some(store.rebuild_terms(p, cp)?);
+        }
         // A manifest that lags its WAL's tail catches up now.
         let tail: Vec<(RecordKind, u16)> =
             missing.iter().map(|(r, _)| (r.kind, r.schema)).collect();
@@ -441,6 +612,37 @@ impl WalStore {
     pub fn with_checkpoint_every(mut self, n: u64) -> Self {
         self.checkpoint_every = n;
         self
+    }
+
+    /// Build `p`'s terms again from every key's latest record, and mark them
+    /// whole at `cp`, the index's checkpoint (theseus-lv2): the open does so
+    /// when they were not whole there, once, after the tail's replay, so the
+    /// latest records include it. Returns how many keys it read. The cost is
+    /// one read of every record of the kinds `p` projects; every later open
+    /// reads none.
+    fn rebuild_terms(&self, p: &Projection, cp: u64) -> Result<u64> {
+        let t0 = std::time::Instant::now();
+        let mut keys = Vec::new();
+        for &kind in p.kinds {
+            let positions: Vec<u64> = self
+                .index
+                .keys_of_kind(kind)?
+                .into_iter()
+                .map(|(_, pos)| pos)
+                .collect();
+            for r in self.read_many(&positions)? {
+                let Some(key) = r.key.clone() else { continue };
+                keys.push((kind, key, r.position, (p.terms)(kind, &r.payload)));
+            }
+        }
+        self.index.rebuild_terms(p.name, &keys, cp)?;
+        tracing::info!(
+            projection = p.name,
+            keys = keys.len(),
+            ms = t0.elapsed().as_secs_f64() * 1000.0,
+            "store: the index's terms were built again from the WAL"
+        );
+        Ok(keys.len() as u64)
     }
 
     pub fn recovery(&self) -> &Recovery {
@@ -506,6 +708,62 @@ impl WalStore {
         self.wal.history_check()
     }
 
+    /// How far the last history check proved the WAL, as the index kept it
+    /// at this open (theseus-0dq): a check may start there
+    /// (`HistoryCheck::from_mark`).
+    pub fn verified(&self) -> Option<Verified> {
+        self.verified
+    }
+
+    /// Where a check hands over its mark; the next checkpoint writes it.
+    pub fn verified_slot(&self) -> VerifiedSlot {
+        self.pending_verified.clone()
+    }
+
+    /// The checkpoint of a stop (theseus-02k): the index's checkpoint, its
+    /// terms' mark, and a history check's mark, in one commit with no sync of
+    /// its own. redb's close, which follows as the store drops, is a durable
+    /// commit, and makes this one durable with it: a stop then pays one
+    /// commit's syncs, not two. A kill between the two only makes the next
+    /// open replay from the checkpoint before.
+    pub fn checkpoint_for_close(&self) -> Result<u64> {
+        self.checkpoint_as(false)
+    }
+
+    fn checkpoint_as(&self, durable: bool) -> Result<u64> {
+        // No append between its WAL write and its index write: every frame
+        // up to `last` is synced and indexed.
+        let _alone = self.appending.write().unwrap();
+        let last = self.wal.last_position();
+        let verified = self.pending_verified.take();
+        // Nothing written since the last checkpoint: the index has `last`
+        // already, and only an append writes it between checkpoints. So a
+        // clean stop's last checkpoint, after its own, is free when nothing
+        // came between them (theseus-pfv). A durable one is free only when
+        // the last durable one claimed `last` too.
+        let done = if durable {
+            &self.durable_to
+        } else {
+            &self.checkpointed
+        };
+        if done.load(Ordering::Relaxed) == last && verified.is_none() {
+            return Ok(last);
+        }
+        let meta = verified.as_ref().map(verified_meta);
+        self.index.set_checkpoint_with(
+            last,
+            self.projection.map(|p| p.name),
+            meta.as_ref().map_or(&[][..], |m| &m[..]),
+            durable,
+        )?;
+        self.checkpointed.store(last, Ordering::Relaxed);
+        if durable {
+            self.durable_to.store(last, Ordering::Relaxed);
+        }
+        self.since_checkpoint.store(0, Ordering::Relaxed);
+        Ok(last)
+    }
+
     fn read(&self, position: u64) -> Result<Option<Record>> {
         match self.index.location(position)? {
             Some(loc) => Ok(Some(checked(position, self.wal.read_at(loc)?)?)),
@@ -565,6 +823,9 @@ impl Store for WalStore {
                     key: r.key.clone(),
                     scope: r.scope.clone(),
                     loc: *loc,
+                    terms: self
+                        .projection
+                        .and_then(|p| p.of(r.kind, r.key.as_deref(), &r.payload)),
                 })
                 .collect();
             self.index.apply(&entries, false)?;
@@ -639,21 +900,7 @@ impl Store for WalStore {
     }
 
     fn checkpoint(&self) -> Result<u64> {
-        // No append between its WAL write and its index write: every frame
-        // up to `last` is synced and indexed.
-        let _alone = self.appending.write().unwrap();
-        let last = self.wal.last_position();
-        // Nothing written since the last checkpoint: the index is durable to
-        // `last` already, and only an append writes it between checkpoints.
-        // So a clean stop's last checkpoint, after its own, is free when
-        // nothing came between them (theseus-pfv).
-        if self.checkpointed.load(Ordering::Relaxed) == last {
-            return Ok(last);
-        }
-        self.index.set_checkpoint(last)?;
-        self.checkpointed.store(last, Ordering::Relaxed);
-        self.since_checkpoint.store(0, Ordering::Relaxed);
-        Ok(last)
+        self.checkpoint_as(true)
     }
 
     fn stats(&self) -> Result<StoreStats> {
@@ -672,7 +919,42 @@ impl Store for WalStore {
             index_repaired: self.index.repaired(),
             lock_wait_us: self.lock_wait_us,
             index_moved_aside: self.moved_aside.clone(),
+            terms_rebuilt: self.terms_rebuilt,
         })
+    }
+
+    fn latest_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Option<Vec<Record>>> {
+        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) {
+            return Ok(None);
+        }
+        let positions: Vec<u64> = self
+            .index
+            .keys_by_terms(kind, lo, hi)?
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect();
+        Ok(Some(self.read_many(&positions)?))
+    }
+
+    fn count_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Option<u64>> {
+        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) {
+            return Ok(None);
+        }
+        Ok(Some(self.index.count_by_terms(kind, lo, hi)?))
+    }
+
+    fn latest_with_prefix(&self, kind: RecordKind, prefix: &str) -> Result<Vec<Record>> {
+        let positions: Vec<u64> = self
+            .index
+            .keys_with_prefix(kind, prefix)?
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect();
+        self.read_many(&positions)
+    }
+
+    fn count_keys(&self, kind: RecordKind) -> Result<u64> {
+        self.index.count_keys(kind)
     }
 }
 
@@ -814,6 +1096,118 @@ mod tests {
                 .unwrap(),
             "glm"
         );
+    }
+
+    /// A toy projection: an execution's payload, a JSON string, is its one
+    /// term.
+    fn toy_terms(_: RecordKind, payload: &[u8]) -> Vec<String> {
+        serde_json::from_slice::<String>(payload)
+            .map(|s| vec![s])
+            .unwrap_or_default()
+    }
+    static TOY: Projection = Projection {
+        name: "terms.toy.1",
+        kinds: &[kinds::EXECUTION],
+        terms: toy_terms,
+    };
+
+    fn by_term(s: &WalStore, t: &str) -> Vec<String> {
+        s.latest_by_terms(kinds::EXECUTION, t, &format!("{t}\u{1}"))
+            .unwrap()
+            .expect("a projected store")
+            .into_iter()
+            .map(|r| r.key.unwrap())
+            .collect()
+    }
+
+    /// The terms follow every append and every replay, and survive a reopen
+    /// (theseus-lv2). A writer that kept none (an open with no projection, as
+    /// an older build is) leaves them stale at a newer checkpoint, so the
+    /// next projected open builds them again, once.
+    #[test]
+    fn the_terms_follow_the_wal_through_reopens_and_a_writer_that_kept_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let ex =
+            |key: &str, state: &str| NewRecord::json(kinds::EXECUTION, Some(key), &state).unwrap();
+        let projected = || {
+            WalStore::open_projected(dir.path(), WalConfig::default(), &TOY)
+                .unwrap()
+                .with_checkpoint_every(0)
+        };
+        let s = projected();
+        assert_eq!(
+            s.stats().unwrap().terms_rebuilt,
+            None,
+            "a new store has none to build"
+        );
+        s.append(&[ex("e1", "waiting"), ex("e2", "running")])
+            .unwrap();
+        s.append(&[ex("e3", "waiting")]).unwrap();
+        s.append(&[ex("e1", "queued")]).unwrap();
+        assert_eq!(by_term(&s, "waiting"), ["e3"]);
+        assert_eq!(by_term(&s, "queued"), ["e1"]);
+        assert_eq!(
+            s.count_by_terms(kinds::EXECUTION, "a", "z").unwrap(),
+            Some(3)
+        );
+        // Another kind keeps no terms; a store with no projection, none.
+        assert!(s
+            .latest_by_terms(kinds::SESSION, "a", "z")
+            .unwrap()
+            .is_none());
+        s.checkpoint().unwrap();
+        // The tail after the checkpoint is replayed with its terms.
+        s.append(&[ex("e2", "waiting")]).unwrap();
+        drop(s);
+        let s = projected();
+        let st = s.stats().unwrap();
+        assert_eq!((st.replayed_into_index, st.terms_rebuilt), (1, None));
+        assert_eq!(by_term(&s, "waiting"), ["e2", "e3"]);
+        assert!(by_term(&s, "running").is_empty());
+        drop(s);
+        // A writer with no projection moves the checkpoint past the terms.
+        let plain = open(dir.path());
+        assert!(plain
+            .latest_by_terms(kinds::EXECUTION, "a", "z")
+            .unwrap()
+            .is_none());
+        plain.append(&[ex("e3", "complete")]).unwrap();
+        plain.checkpoint().unwrap();
+        drop(plain);
+        let s = projected();
+        assert_eq!(s.stats().unwrap().terms_rebuilt, Some(3), "every key, once");
+        assert_eq!(by_term(&s, "waiting"), ["e2"]);
+        assert_eq!(by_term(&s, "complete"), ["e3"]);
+        s.append(&[ex("e4", "waiting")]).unwrap();
+        s.checkpoint().unwrap();
+        drop(s);
+        let s = projected();
+        assert_eq!(
+            s.stats().unwrap().terms_rebuilt,
+            None,
+            "whole at its checkpoint"
+        );
+        assert_eq!(by_term(&s, "waiting"), ["e2", "e4"]);
+    }
+
+    /// Keys by prefix and the count of keys come from the key table alone.
+    #[test]
+    fn keys_by_prefix_and_their_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(dir.path());
+        for (k, v) in [("q_1", 1), ("a_1", 2), ("q_2", 3), ("q_1", 4)] {
+            s.append(&[NewRecord::json(kinds::COMPLETION, Some(k), &v).unwrap()])
+                .unwrap();
+        }
+        let q: Vec<(String, i64)> = s
+            .latest_with_prefix(kinds::COMPLETION, "q_")
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.key.clone().unwrap(), r.decode().unwrap()))
+            .collect();
+        assert_eq!(q, [("q_1".to_string(), 4), ("q_2".to_string(), 3)]);
+        assert_eq!(s.count_keys(kinds::COMPLETION).unwrap(), 3);
+        assert_eq!(s.count_of_kind(kinds::COMPLETION).unwrap(), 4);
     }
 
     /// A store this build did not write is refused and left as it was: another
@@ -1133,6 +1527,134 @@ mod tests {
         let h = s.verify_history(|_| {}).unwrap();
         assert_eq!(h.records, 40);
         assert!(h.segments >= 3 && !h.checked_at_open, "{h:?}");
+    }
+
+    /// theseus-0dq: a history check starts where the last one ended. Its
+    /// mark reaches the index with the next checkpoint, and the check after a
+    /// restart checks the mark's frame again and then only what was written
+    /// since; a mark whose frame no longer checks, or holds other positions,
+    /// is not believed, and the whole log is checked, which finds what is
+    /// wrong.
+    #[test]
+    fn a_history_check_starts_at_the_last_checks_mark() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = WalConfig {
+            segment_bytes: 400,
+            ..Default::default()
+        };
+        let reopen = || {
+            WalStore::open(dir.path(), cfg.clone())
+                .unwrap()
+                .with_checkpoint_every(0)
+        };
+        let rows = |s: &WalStore, from: u32, to: u32| {
+            for i in from..to {
+                s.append(&[NewRecord::json(kinds::LEDGER, None, &[i; 20]).unwrap()])
+                    .unwrap();
+            }
+            s.checkpoint().unwrap()
+        };
+        let s = reopen();
+        rows(&s, 0, 40);
+        drop(s);
+        // The first check reads the whole history and leaves its mark.
+        let s = reopen();
+        assert_eq!(s.verified(), None);
+        let h = s
+            .history_check()
+            .from_mark(s.verified())
+            .run(|_| {})
+            .unwrap();
+        assert_eq!((h.records, h.from_position), (40, None));
+        let mark = h.verified.expect("a mark");
+        assert_eq!(mark.position, 40);
+        assert!(mark.full_at_unix_ms > 0, "a whole check sets its time");
+        s.verified_slot().set(mark);
+        rows(&s, 40, 45);
+        drop(s);
+        // The next reads the mark's frame and what came after it, and keeps
+        // the time of the last whole check.
+        let s = reopen();
+        assert_eq!(s.verified(), Some(mark), "the checkpoint wrote it");
+        let h = s
+            .history_check()
+            .from_mark(s.verified())
+            .run(|_| {})
+            .unwrap();
+        assert_eq!(h.from_position, Some(40));
+        assert_eq!(
+            h.records, 6,
+            "the mark's frame again, and the five after it"
+        );
+        let next = h.verified.unwrap();
+        assert_eq!(next.position, 45);
+        assert_eq!(next.full_at_unix_ms, mark.full_at_unix_ms);
+        // A mark that names other positions for its frame is not believed.
+        let wrong = Verified {
+            first: mark.first + 1,
+            ..mark
+        };
+        let h = s
+            .history_check()
+            .from_mark(Some(wrong))
+            .run(|_| {})
+            .unwrap();
+        assert_eq!((h.records, h.from_position), (45, None), "the whole log");
+        drop(s);
+        // Nor one whose frame no longer checks: the whole check that follows
+        // finds the corrupt frame.
+        let seg = dir
+            .path()
+            .join("wal")
+            .join(format!("{:09}.seg", mark.segment));
+        let mut b = std::fs::read(&seg).unwrap();
+        b[mark.offset as usize + 12 + 4 + 28 + 3] ^= 0x01;
+        std::fs::write(&seg, &b).unwrap();
+        let s = reopen();
+        let e = s
+            .history_check()
+            .from_mark(Some(mark))
+            .run(|_| {})
+            .unwrap_err();
+        assert!(
+            matches!(e, crate::wal::WalError::Corrupt { segment, .. } if segment == mark.segment),
+            "{e}"
+        );
+    }
+
+    /// theseus-02k: a stop's checkpoint syncs nothing of its own, and redb's
+    /// close makes it durable, so the next open replays nothing and repairs
+    /// nothing, and a history check's mark rides along.
+    #[test]
+    fn a_checkpoint_for_close_is_made_durable_by_the_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(dir.path());
+        for i in 0..5u32 {
+            s.append(&[NewRecord::json(kinds::LEDGER, None, &i).unwrap()])
+                .unwrap();
+        }
+        s.checkpoint().unwrap();
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &"stopping").unwrap()])
+            .unwrap();
+        let mark = Verified {
+            segment: 1,
+            offset: 0,
+            first: 1,
+            position: 5,
+            full_at_unix_ms: 7,
+        };
+        s.verified_slot().set(mark);
+        assert_eq!(s.checkpoint_for_close().unwrap(), 6);
+        // A durable checkpoint after it is not free: nothing synced 6 yet.
+        assert_eq!(s.durable_to.load(Ordering::Relaxed), 5);
+        assert_eq!(s.checkpoint_for_close().unwrap(), 6, "and a second is free");
+        drop(s);
+        let s = open(dir.path());
+        let st = s.stats().unwrap();
+        assert_eq!(st.checkpoint, Some(6));
+        assert_eq!(st.replayed_into_index, 0, "the close made it durable");
+        assert!(!st.index_repaired);
+        assert_eq!(s.verified(), Some(mark));
     }
 
     /// When the index's checkpoint does not match the WAL (a WAL copied in

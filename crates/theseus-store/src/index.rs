@@ -6,7 +6,13 @@
 //! - `bykey`:  kind u16 ‖ key bytes → latest position u64
 //! - `bykind`: kind u16 ‖ position u64 → () (per-kind ordered scans)
 //! - `byscope`: scope bytes ‖ 0x00 ‖ position u64 → () (per-session ordered scans, §4.4b)
-//! - `meta`:   "checkpoint" → position u64
+//! - `terms`:  kind u16 ‖ term ‖ 0x00 ‖ key bytes → latest position u64: the terms a
+//!   projection gives each key's latest record (theseus-lv2), so a reader asks for
+//!   the keys with a term instead of reading every record of the kind
+//! - `termsof`: kind u16 ‖ key bytes → that key's terms, each ended by 0x00, so the
+//!   key's next record replaces them
+//! - `meta`:   "checkpoint" → position u64; a projection's name → the checkpoint
+//!   its terms were whole at
 //!
 //! Writes are non-durable by default; `flush_durable` + `set_checkpoint` make
 //! them durable together. Startup replays the WAL past the checkpoint.
@@ -14,7 +20,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use redb::{Database, Durability, ReadableDatabase, TableDefinition};
+use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 
 use crate::record::RecordKind;
@@ -37,6 +43,9 @@ pub struct IndexEntry {
     pub key: Option<String>,
     pub scope: Option<String>,
     pub loc: Location,
+    /// The terms a projection gives a keyed record of a kind it projects,
+    /// which replace its key's last ones; `None` leaves them as they are.
+    pub terms: Option<Vec<String>>,
 }
 
 fn bykey(kind: RecordKind, key: &str) -> Vec<u8> {
@@ -58,6 +67,49 @@ fn byscope(scope: &str, pos: u64) -> Vec<u8> {
     v.extend_from_slice(&pos.to_be_bytes());
     v
 }
+fn term_key(kind: RecordKind, term: &str, key: &str) -> Vec<u8> {
+    let mut v = Vec::with_capacity(3 + term.len() + key.len());
+    v.extend_from_slice(&kind.to_be_bytes());
+    v.extend_from_slice(term.as_bytes());
+    v.push(0);
+    v.extend_from_slice(key.as_bytes());
+    v
+}
+/// The bounds of every `term_key` whose term is in `lo..hi`: a term never
+/// holds a 0x00, so a term `t` with `lo <= t < hi` sorts its keys there.
+fn term_bounds(kind: RecordKind, lo: &str, hi: &str) -> (Vec<u8>, Vec<u8>) {
+    let at = |t: &str| {
+        let mut v = kind.to_be_bytes().to_vec();
+        v.extend_from_slice(t.as_bytes());
+        v
+    };
+    (at(lo), at(hi))
+}
+/// A key's terms as `termsof` keeps them: each ended by 0x00.
+fn terms_bytes(terms: &[String]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(terms.iter().map(|t| t.len() + 1).sum());
+    for t in terms {
+        v.extend_from_slice(t.as_bytes());
+        v.push(0);
+    }
+    v
+}
+fn terms_from(b: &[u8]) -> Vec<String> {
+    b.split(|c| *c == 0)
+        .filter(|t| !t.is_empty())
+        .map(|t| String::from_utf8_lossy(t).into_owned())
+        .collect()
+}
+/// The term and the key in a `term_key`.
+fn term_and_key(b: &[u8]) -> Option<(String, String)> {
+    let rest = b.get(2..)?;
+    let nul = rest.iter().position(|c| *c == 0)?;
+    Some((
+        String::from_utf8_lossy(&rest[..nul]).into_owned(),
+        String::from_utf8_lossy(&rest[nul + 1..]).into_owned(),
+    ))
+}
+
 fn loc_bytes(l: Location) -> [u8; 16] {
     let mut v = [0u8; 16];
     v[..4].copy_from_slice(&l.segment.to_be_bytes());
@@ -83,11 +135,40 @@ const LOC: TableDefinition<u64, &[u8]> = TableDefinition::new("loc");
 const BYKEY: TableDefinition<&[u8], u64> = TableDefinition::new("bykey");
 const BYKIND: TableDefinition<&[u8], ()> = TableDefinition::new("bykind");
 const BYSCOPE: TableDefinition<&[u8], ()> = TableDefinition::new("byscope");
+const TERMS: TableDefinition<&[u8], u64> = TableDefinition::new("terms");
+const TERMSOF: TableDefinition<&[u8], &[u8]> = TableDefinition::new("termsof");
 const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
 
 pub struct RedbIndex {
-    db: Database,
+    db: Db,
     repaired: bool,
+}
+
+/// The database, open until its index drops, which times its close
+/// (theseus-26r): redb's close commits its allocator state and writes its
+/// shutdown header, the last syncs of a clean stop.
+struct Db(Option<Database>);
+
+impl std::ops::Deref for Db {
+    type Target = Database;
+    fn deref(&self) -> &Database {
+        self.0
+            .as_ref()
+            .expect("the index's database is open until it drops")
+    }
+}
+
+impl Drop for RedbIndex {
+    fn drop(&mut self) {
+        if let Some(db) = self.db.0.take() {
+            let t0 = std::time::Instant::now();
+            drop(db);
+            tracing::debug!(
+                ms = (t0.elapsed().as_secs_f64() * 1000.0 * 100.0).round() / 100.0,
+                "store: index closed"
+            );
+        }
+    }
 }
 
 impl RedbIndex {
@@ -107,10 +188,15 @@ impl RedbIndex {
             txn.open_table(BYKEY)?;
             txn.open_table(BYKIND)?;
             txn.open_table(BYSCOPE)?;
+            txn.open_table(TERMS)?;
+            txn.open_table(TERMSOF)?;
             txn.open_table(META)?;
         }
         txn.commit()?;
-        Ok(Self { db, repaired })
+        Ok(Self {
+            db: Db(Some(db)),
+            repaired,
+        })
     }
 
     /// Whether the open repaired the file: its last process did not close it.
@@ -182,9 +268,118 @@ impl RedbIndex {
                     bsc.insert(byscope(sc, e.position).as_slice(), ())?;
                 }
             }
+            if entries.iter().any(|e| e.key.is_some() && e.terms.is_some()) {
+                let mut terms = txn.open_table(TERMS)?;
+                let mut termsof = txn.open_table(TERMSOF)?;
+                for e in entries {
+                    if let (Some(k), Some(t)) = (&e.key, &e.terms) {
+                        put_terms(&mut terms, &mut termsof, e.kind, k, t, e.position)?;
+                    }
+                }
+            }
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// The checkpoint a projection's terms were whole at (`set_checkpoint`
+    /// and `rebuild_terms` set it), if any.
+    pub fn terms_mark(&self, name: &str) -> Result<Option<u64>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(META)?;
+        Ok(t.get(name)?.map(|v| v.value()))
+    }
+
+    /// Replace every key's terms with `keys`' (kind, key, position, terms),
+    /// and mark them whole at checkpoint `mark` under `name`, in one
+    /// transaction, non-durable: a crash before the next checkpoint only
+    /// makes the next open build them again.
+    pub fn rebuild_terms(
+        &self,
+        name: &str,
+        keys: &[(RecordKind, String, u64, Vec<String>)],
+        mark: u64,
+    ) -> Result<()> {
+        let mut txn = self.db.begin_write()?;
+        txn.set_durability(Durability::None)?;
+        txn.delete_table(TERMS)?;
+        txn.delete_table(TERMSOF)?;
+        {
+            let mut terms = txn.open_table(TERMS)?;
+            let mut termsof = txn.open_table(TERMSOF)?;
+            for (kind, key, position, t) in keys {
+                put_terms(&mut terms, &mut termsof, *kind, key, t, *position)?;
+            }
+            txn.open_table(META)?.insert(name, mark)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// (key, latest position) of every key of `kind` with a term in
+    /// `lo..hi`, each key once, in key order.
+    pub fn keys_by_terms(
+        &self,
+        kind: RecordKind,
+        lo: &str,
+        hi: &str,
+    ) -> Result<Vec<(String, u64)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(TERMS)?;
+        let (from, to) = term_bounds(kind, lo, hi);
+        let mut out = std::collections::BTreeMap::new();
+        for row in t.range(from.as_slice()..to.as_slice())? {
+            let (k, v) = row?;
+            if let Some((_, key)) = term_and_key(k.value()) {
+                out.insert(key, v.value());
+            }
+        }
+        Ok(out.into_iter().collect())
+    }
+
+    /// How many (term, key) pairs of `kind` have a term in `lo..hi`: for a
+    /// range of one term, how many keys have it.
+    pub fn count_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(TERMS)?;
+        let (from, to) = term_bounds(kind, lo, hi);
+        Ok(t.range(from.as_slice()..to.as_slice())?.count() as u64)
+    }
+
+    /// The terms a key's latest record has, as the projection gave them.
+    pub fn terms_of(&self, kind: RecordKind, key: &str) -> Result<Vec<String>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(TERMSOF)?;
+        Ok(t.get(bykey(kind, key).as_slice())?
+            .map(|v| terms_from(v.value()))
+            .unwrap_or_default())
+    }
+
+    /// (key, latest position) of every key of `kind` that starts with
+    /// `prefix`, in key order.
+    pub fn keys_with_prefix(&self, kind: RecordKind, prefix: &str) -> Result<Vec<(String, u64)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(BYKEY)?;
+        let lo = bykey(kind, prefix);
+        let mut out = Vec::new();
+        for row in t.range(lo.as_slice()..)? {
+            let (k, v) = row?;
+            let kb = k.value();
+            if !kb.starts_with(&lo) {
+                break;
+            }
+            out.push((String::from_utf8_lossy(&kb[2..]).into_owned(), v.value()));
+        }
+        Ok(out)
+    }
+
+    /// How many keys `kind` has, read from the key table alone.
+    pub fn count_keys(&self, kind: RecordKind) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(BYKEY)?;
+        let lo = kind.to_be_bytes().to_vec();
+        let hi = (kind + 1).to_be_bytes().to_vec();
+        Ok(t.range(lo.as_slice()..hi.as_slice())?.count() as u64)
     }
 
     pub fn location(&self, position: u64) -> Result<Option<Location>> {
@@ -279,17 +474,82 @@ impl RedbIndex {
         Ok(t.get("checkpoint")?.map(|v| v.value()))
     }
 
-    /// Make everything durable and record the checkpoint position.
-    pub fn set_checkpoint(&self, position: u64) -> Result<()> {
+    /// Make everything durable and record the checkpoint position, and, when
+    /// a projection named `terms` kept its terms with every write, that they
+    /// are whole there too (theseus-lv2). A writer with no projection, or an
+    /// older build, moves the checkpoint alone, and the next projected open
+    /// then builds the terms again.
+    pub fn set_checkpoint(&self, position: u64, terms: Option<&str>) -> Result<()> {
+        self.set_checkpoint_with(position, terms, &[], true)
+    }
+
+    /// `set_checkpoint`, with `meta`'s values in the same commit; with no
+    /// sync of its own unless `durable`: then the next durable commit, or
+    /// redb's close, makes it durable (theseus-02k).
+    pub fn set_checkpoint_with(
+        &self,
+        position: u64,
+        terms: Option<&str>,
+        meta: &[(&str, u64)],
+        durable: bool,
+    ) -> Result<()> {
         let mut txn = self.db.begin_write()?;
-        txn.set_durability(Durability::Immediate)?;
+        txn.set_durability(if durable {
+            Durability::Immediate
+        } else {
+            Durability::None
+        })?;
         {
             let mut t = txn.open_table(META)?;
             t.insert("checkpoint", position)?;
+            if let Some(name) = terms {
+                t.insert(name, position)?;
+            }
+            for (k, v) in meta {
+                t.insert(*k, *v)?;
+            }
         }
         txn.commit()?;
         Ok(())
     }
+
+    /// The values `meta` keeps under each of `keys`, in order.
+    pub fn meta(&self, keys: &[&str]) -> Result<Vec<Option<u64>>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(META)?;
+        keys.iter()
+            .map(|k| Ok(t.get(*k)?.map(|v| v.value())))
+            .collect()
+    }
+}
+
+/// Replace `key`'s terms with `new`, each pointing at `position`.
+fn put_terms(
+    terms: &mut redb::Table<&[u8], u64>,
+    termsof: &mut redb::Table<&[u8], &[u8]>,
+    kind: RecordKind,
+    key: &str,
+    new: &[String],
+    position: u64,
+) -> Result<()> {
+    let k = bykey(kind, key);
+    let old = termsof
+        .get(k.as_slice())?
+        .map(|v| terms_from(v.value()))
+        .unwrap_or_default();
+    for t in old.iter().filter(|t| !new.contains(t)) {
+        terms.remove(term_key(kind, t, key).as_slice())?;
+    }
+    for t in new {
+        debug_assert!(!t.is_empty() && !t.contains('\0'), "a term: {t:?}");
+        terms.insert(term_key(kind, t, key).as_slice(), position)?;
+    }
+    if new.is_empty() {
+        termsof.remove(k.as_slice())?;
+    } else if old != new {
+        termsof.insert(k.as_slice(), terms_bytes(new).as_slice())?;
+    }
+    Ok(())
 }
 
 /// redb's magic number, the first bytes of every database it writes (its
@@ -408,6 +668,7 @@ mod tests {
                 offset: p * 100,
                 len: 10,
             },
+            terms: None,
         };
         idx.apply(
             &[
@@ -440,11 +701,93 @@ mod tests {
         );
         assert_eq!(idx.count_in_scope("ses_b").unwrap(), 2);
         assert_eq!(idx.checkpoint().unwrap(), None);
-        idx.set_checkpoint(5).unwrap();
+        idx.set_checkpoint(5, None).unwrap();
         assert_eq!(idx.checkpoint().unwrap(), Some(5));
         drop(idx);
         let idx = RedbIndex::open(&path).unwrap();
         assert_eq!(idx.checkpoint().unwrap(), Some(5));
         assert_eq!(idx.latest_position(1, "s1").unwrap(), Some(4));
+        assert_eq!(idx.count_keys(1).unwrap(), 2);
+        assert_eq!(idx.keys_with_prefix(1, "s").unwrap().len(), 2);
+        assert_eq!(
+            idx.keys_with_prefix(1, "s2").unwrap(),
+            vec![("s2".to_string(), 3)]
+        );
+        assert!(idx.keys_with_prefix(1, "t").unwrap().is_empty());
+    }
+
+    /// A key's terms follow its latest record: a new record's terms replace
+    /// the last ones, a term's keys come back in key order, each once, and a
+    /// checkpoint marks them whole only for the projection that wrote them
+    /// (theseus-lv2).
+    #[test]
+    fn terms_follow_each_keys_latest_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let idx = RedbIndex::open(&dir.path().join("index.redb")).unwrap();
+        let e = |p: u64, key: &str, terms: &[&str]| IndexEntry {
+            position: p,
+            kind: 4,
+            key: Some(key.into()),
+            scope: None,
+            loc: Location {
+                segment: 1,
+                offset: p * 10,
+                len: 10,
+            },
+            terms: Some(terms.iter().map(|t| t.to_string()).collect()),
+        };
+        let keys = |lo: &str, hi: &str| -> Vec<String> {
+            idx.keys_by_terms(4, lo, hi)
+                .unwrap()
+                .into_iter()
+                .map(|(k, _)| k)
+                .collect()
+        };
+        idx.apply(
+            &[
+                e(1, "b", &["s:waiting"]),
+                e(2, "a", &["s:waiting", "due"]),
+                e(3, "c", &["s:running", "l:05"]),
+            ],
+            false,
+        )
+        .unwrap();
+        assert_eq!(keys("s:waiting", "s:waiting\u{1}"), ["a", "b"]);
+        assert_eq!(keys("s:", "s;"), ["a", "b", "c"], "a key once");
+        assert_eq!(idx.count_by_terms(4, "s:", "s;").unwrap(), 3);
+        assert_eq!(keys("due", "due\u{1}"), ["a"]);
+        // The next record of "a" replaces its terms; of "c", drops them.
+        idx.apply(&[e(4, "a", &["s:queued"]), e(5, "c", &[])], false)
+            .unwrap();
+        assert_eq!(keys("s:waiting", "s:waiting\u{1}"), ["b"]);
+        assert!(keys("due", "due\u{1}").is_empty());
+        assert!(keys("l:", "l;").is_empty());
+        assert_eq!(
+            idx.keys_by_terms(4, "s:queued", "s:queued\u{1}").unwrap(),
+            [("a".to_string(), 4)]
+        );
+        assert_eq!(idx.terms_of(4, "a").unwrap(), ["s:queued"]);
+        assert!(idx.terms_of(4, "c").unwrap().is_empty());
+        // A record with no terms (`None`) leaves its key's as they were.
+        let mut plain = e(6, "b", &[]);
+        plain.terms = None;
+        idx.apply(&[plain], false).unwrap();
+        assert_eq!(idx.terms_of(4, "b").unwrap(), ["s:waiting"]);
+        // Whole at a checkpoint only under the name that kept them.
+        idx.set_checkpoint(6, Some("terms.test.1")).unwrap();
+        assert_eq!(idx.terms_mark("terms.test.1").unwrap(), Some(6));
+        idx.set_checkpoint(7, None).unwrap();
+        assert_eq!(idx.terms_mark("terms.test.1").unwrap(), Some(6));
+        assert_eq!(idx.terms_mark("terms.test.2").unwrap(), None);
+        // A rebuild replaces every key's terms.
+        idx.rebuild_terms(
+            "terms.test.2",
+            &[(4, "z".into(), 9, vec!["s:blocked".into()])],
+            7,
+        )
+        .unwrap();
+        assert_eq!(keys("s:", "s;"), ["z"]);
+        assert!(idx.terms_of(4, "b").unwrap().is_empty());
+        assert_eq!(idx.terms_mark("terms.test.2").unwrap(), Some(7));
     }
 }

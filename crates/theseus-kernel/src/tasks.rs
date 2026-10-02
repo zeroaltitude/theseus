@@ -286,9 +286,14 @@ impl Kernel {
     }
 
     /// Every task execution, oldest first; only `parent`'s when it is given.
+    /// Read by their terms (theseus-lv2), never every execution.
     pub fn tasks(&self, parent: Option<&str>) -> Result<Vec<Execution>> {
+        let wanted = match parent {
+            Some(p) => crate::terms::one(&crate::terms::tasks_of(p)),
+            None => crate::terms::prefix("t:"),
+        };
         let mut v: Vec<Execution> = self
-            .executions()?
+            .executions_by(&[wanted])?
             .into_iter()
             .filter(|e| match (&e.parent, parent) {
                 (None, _) => false,

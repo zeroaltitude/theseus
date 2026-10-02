@@ -29,6 +29,7 @@ use theseus_store::{kinds, NewRecord, Record, Store};
 use crate::clock::Clock;
 use crate::gate::{digest_proposal, Proposal};
 use crate::locks::{ExecLock, ExecLocks};
+use crate::terms;
 use crate::tx::{Staged, Tx};
 use crate::types::*;
 
@@ -420,6 +421,42 @@ struct OwnResults {
 
 const QUARANTINE_PREFIX: &str = "quarantine:";
 
+/// Every execution state, as health counts them.
+pub(crate) const EXEC_STATES: [ExecState; 8] = [
+    ExecState::Queued,
+    ExecState::Running,
+    ExecState::Waiting,
+    ExecState::Blocked,
+    ExecState::Cancelled,
+    ExecState::Failed,
+    ExecState::BudgetExhausted,
+    ExecState::Complete,
+];
+/// The states of an execution that has not ended.
+pub(crate) const OPEN_EXECUTIONS: [ExecState; 4] = [
+    ExecState::Queued,
+    ExecState::Running,
+    ExecState::Waiting,
+    ExecState::Blocked,
+];
+/// Every action state, as health counts them.
+pub(crate) const ACTION_STATES: [ActionState; 7] = [
+    ActionState::Planned,
+    ActionState::Authorized,
+    ActionState::Dispatched,
+    ActionState::Succeeded,
+    ActionState::Failed,
+    ActionState::OutcomeUnknown,
+    ActionState::Cancelled,
+];
+/// The states of an action that is not settled.
+pub(crate) const OPEN_ACTIONS: [ActionState; 4] = [
+    ActionState::Planned,
+    ActionState::Authorized,
+    ActionState::Dispatched,
+    ActionState::OutcomeUnknown,
+];
+
 impl Kernel {
     /// Wrap an opened store. The kernel is not accepting events until
     /// `startup` has run; `open_session`/`admit` etc. refuse before that.
@@ -644,6 +681,7 @@ impl Kernel {
     pub(crate) fn exec_locks(&self) -> &ExecLocks {
         &self.locks
     }
+    /// Every execution: O(all), for the listings that show them all.
     pub fn executions(&self) -> Result<Vec<Execution>> {
         self.store
             .latest_of_kind(kinds::EXECUTION)?
@@ -651,37 +689,127 @@ impl Kernel {
             .map(|r| self.read_execution(r))
             .collect()
     }
+    /// Every execution that has not ended, in id order: parked
+    /// conversations too. A reader that needs less asks by its own terms
+    /// (`maybe_runnable`, `executions_by`).
     pub fn open_executions(&self) -> Result<Vec<Execution>> {
-        Ok(self
-            .executions()?
-            .into_iter()
-            .filter(|e| !e.state.is_terminal())
-            .collect())
+        self.executions_by(&OPEN_EXECUTIONS.map(|s| terms::one(&terms::state(s))))
+    }
+    /// What the driver's tick and the reconcile look at (theseus-lv2): the
+    /// queued executions, and the waiting ones a due time or a task's report
+    /// may wake (`wakes::due_now`'s cases), in id order. Never a parked one.
+    pub fn maybe_runnable(&self) -> Result<Vec<Execution>> {
+        self.executions_by(&[
+            terms::one(&terms::state(ExecState::Queued)),
+            terms::one("due"),
+        ])
+    }
+    /// The executions with a term in any of `ranges` (`kernel::terms`), in
+    /// id order (theseus-lv2).
+    pub fn executions_by(&self, ranges: &[(String, String)]) -> Result<Vec<Execution>> {
+        self.records_by(kinds::EXECUTION, ranges)?
+            .iter()
+            .map(|r| self.read_execution(r))
+            .collect()
     }
     pub fn actions(&self) -> Result<Vec<Action>> {
         decode_all(&self.store.latest_of_kind(kinds::ACTION)?)
     }
+    /// Every action not settled, in id order: O(open), from the store's
+    /// terms (theseus-lv2).
     pub fn open_actions(&self) -> Result<Vec<Action>> {
+        self.actions_by(&OPEN_ACTIONS.map(|s| terms::one(&terms::action_state(s))))
+    }
+    /// The actions with a term in any of `ranges`, in id order.
+    pub fn actions_by(&self, ranges: &[(String, String)]) -> Result<Vec<Action>> {
+        decode_all(&self.records_by(kinds::ACTION, ranges)?)
+    }
+    /// An execution's actions that are not settled (theseus-2qt), in id
+    /// order: its own term, never a read of every action.
+    pub fn unsettled_actions(&self, execution_id: &str) -> Result<Vec<Action>> {
         Ok(self
-            .actions()?
+            .actions_by(&[terms::one(&terms::unsettled_of(execution_id))])?
             .into_iter()
-            .filter(|a| !a.state.is_settled())
+            .filter(|a| a.execution_id == execution_id && !a.state.is_settled())
             .collect())
     }
-    /// Completions that matched no action, newest last.
-    pub fn quarantined(&self) -> Result<Vec<Completion>> {
-        let mut out = Vec::new();
-        for r in self.store.latest_of_kind(kinds::COMPLETION)? {
-            if r.key
-                .as_deref()
-                .is_some_and(|k| k.starts_with(QUARANTINE_PREFIX))
-            {
-                out.push(r.decode()?);
+
+    /// The latest records of `kind` with a term in any of `ranges`, each
+    /// once, in key order (theseus-lv2): from the store's terms, or, from a
+    /// store that keeps none, every record of the kind, by the same terms.
+    fn records_by(
+        &self,
+        kind: theseus_store::RecordKind,
+        ranges: &[(String, String)],
+    ) -> Result<Vec<Record>> {
+        let mut by_key: BTreeMap<String, Record> = BTreeMap::new();
+        for (lo, hi) in ranges {
+            let Some(found) = self.store.latest_by_terms(kind, lo, hi)? else {
+                return Ok(self
+                    .store
+                    .latest_of_kind(kind)?
+                    .into_iter()
+                    .filter(|r| terms::any_in(&terms::of(kind, &r.payload), ranges))
+                    .collect());
+            };
+            for r in found {
+                if let Some(k) = r.key.clone() {
+                    by_key.insert(k, r);
+                }
+            }
+        }
+        Ok(by_key.into_values().collect())
+    }
+
+    /// How many latest records of `kind` have each of `wanted`'s terms
+    /// (theseus-lv2): counted in the store's terms, or, from a store that
+    /// keeps none, over every record of the kind, once.
+    fn counts_by(&self, kind: theseus_store::RecordKind, wanted: &[String]) -> Result<Vec<u64>> {
+        let mut out = Vec::with_capacity(wanted.len());
+        for t in wanted {
+            let (lo, hi) = terms::one(t);
+            match self.store.count_by_terms(kind, &lo, &hi)? {
+                Some(n) => out.push(n),
+                None => {
+                    let all: Vec<Vec<String>> = self
+                        .store
+                        .latest_of_kind(kind)?
+                        .iter()
+                        .map(|r| terms::of(kind, &r.payload))
+                        .collect();
+                    return Ok(wanted
+                        .iter()
+                        .map(|t| all.iter().filter(|ts| ts.contains(t)).count() as u64)
+                        .collect());
+                }
             }
         }
         Ok(out)
     }
 
+    /// How many executions have not ended, counted by state.
+    pub fn count_open_executions(&self) -> Result<u64> {
+        let wanted = OPEN_EXECUTIONS.map(terms::state);
+        Ok(self.counts_by(kinds::EXECUTION, &wanted)?.iter().sum())
+    }
+
+    /// How many actions are not settled, counted by state.
+    pub fn count_open_actions(&self) -> Result<u64> {
+        let wanted = OPEN_ACTIONS.map(terms::action_state);
+        Ok(self.counts_by(kinds::ACTION, &wanted)?.iter().sum())
+    }
+
+    /// Completions that matched no action, in key order.
+    pub fn quarantined(&self) -> Result<Vec<Completion>> {
+        decode_all(
+            &self
+                .store
+                .latest_with_prefix(kinds::COMPLETION, QUARANTINE_PREFIX)?,
+        )
+    }
+
+    /// The kernel's counts, for health: each from the store's terms, so a
+    /// health answer reads no execution and no action (theseus-lv2).
     pub fn stats(&self) -> Result<KernelStats> {
         let mut s = KernelStats {
             turns_held: self.held.lock().unwrap().len() as u32,
@@ -689,17 +817,28 @@ impl Kernel {
             accepting: self.is_accepting(),
             ..Default::default()
         };
-        for e in self.executions()? {
-            *s.executions_by_state
-                .entry(e.state.as_str().to_string())
-                .or_default() += 1;
+        let wanted = EXEC_STATES.map(terms::state);
+        for (st, n) in EXEC_STATES
+            .iter()
+            .zip(self.counts_by(kinds::EXECUTION, &wanted)?)
+        {
+            if n > 0 {
+                s.executions_by_state.insert(st.as_str().to_string(), n);
+            }
         }
-        for a in self.actions()? {
-            *s.actions_by_state
-                .entry(a.state.as_str().to_string())
-                .or_default() += 1;
+        let wanted = ACTION_STATES.map(terms::action_state);
+        for (st, n) in ACTION_STATES
+            .iter()
+            .zip(self.counts_by(kinds::ACTION, &wanted)?)
+        {
+            if n > 0 {
+                s.actions_by_state.insert(st.as_str().to_string(), n);
+            }
         }
-        s.quarantined_completions = self.quarantined()?.len() as u64;
+        s.quarantined_completions = self
+            .store
+            .latest_with_prefix(kinds::COMPLETION, QUARANTINE_PREFIX)?
+            .len() as u64;
         Ok(s)
     }
 
@@ -1422,7 +1561,7 @@ impl Kernel {
     /// comes first, then the rest in the order they were planned.
     pub fn pending_confirms(&self) -> Result<Vec<Action>> {
         let mut v: Vec<Action> = self
-            .open_actions()?
+            .actions_by(&[terms::one(&terms::action_state(ActionState::Planned))])?
             .into_iter()
             .filter(Action::awaits_confirm)
             .collect();
@@ -1642,7 +1781,7 @@ impl Kernel {
     pub fn follow_spend_limit(&self) -> Result<Vec<LimitFollowed>> {
         self.require_accepting()?;
         let ids: Vec<ExecutionId> = self
-            .executions()?
+            .executions_by(&terms::limits_other_than(self.cfg.spend_limit_micros))?
             .into_iter()
             .filter(|e| self.follows_limit(e))
             .map(|e| e.id)
@@ -2439,10 +2578,11 @@ impl Kernel {
         e.budget.question_needs_micros = 0;
         let now = self.now_ms();
         let mut ended = Vec::new();
-        for mut a in self.open_actions()?.into_iter().filter(|a| {
-            a.execution_id == e.id
-                && matches!(a.state, ActionState::Planned | ActionState::Authorized)
-        }) {
+        for mut a in self
+            .unsettled_actions(&e.id)?
+            .into_iter()
+            .filter(|a| matches!(a.state, ActionState::Planned | ActionState::Authorized))
+        {
             a.state = ActionState::Cancelled;
             a.settled_at_ms = Some(now);
             a.resolution = Some(why.to_string());
@@ -2523,40 +2663,38 @@ impl Kernel {
 
     /// The heartbeat reconciler (§3.3, §3.16): due wakes fire; dispatched
     /// actions past their deadline are checked against evidence and settled
-    /// or marked unknown; unknowns are re-probed. Cost scales with open work.
+    /// or marked unknown; unknowns are re-probed. Cost scales with the work
+    /// it may act on (theseus-lv2): the executions a due time may wake, and
+    /// the actions sent; the open ones are counted, not read.
     pub fn reconcile(&self, evidence: &dyn Evidence) -> Result<ReconcileReport> {
-        self.reconcile_with(evidence, None, true)
+        self.reconcile_with(evidence, true)
     }
 
-    /// `reconcile`, over open executions already in hand (`Some`: startup's
-    /// step 2 read every one, and nothing since changed them; theseus-qa0),
-    /// or read afresh; `due`: whether due wakes fire in this pass (startup's
-    /// pass leaves them to the driver, DD8).
-    fn reconcile_with(
-        &self,
-        evidence: &dyn Evidence,
-        open: Option<Vec<Execution>>,
-        due: bool,
-    ) -> Result<ReconcileReport> {
+    /// `reconcile`; `due`: whether due wakes fire in this pass (startup's
+    /// pass leaves them to the driver, DD8, and reads no execution).
+    fn reconcile_with(&self, evidence: &dyn Evidence, due: bool) -> Result<ReconcileReport> {
         let t0 = std::time::Instant::now();
         let now = self.now_ms();
-        let mut rep = ReconcileReport::default();
-        let execs = match open {
-            Some(v) => v,
-            None => self.open_executions()?,
+        let mut rep = ReconcileReport {
+            open_executions: self.count_open_executions()?,
+            open_actions: self.count_open_actions()?,
+            ..Default::default()
         };
-        rep.open_executions = execs.len() as u64;
         // A due time it waits on, or a wake of its own (DD8). The scan may be
         // a frame stale: `fire_due` decides again from a read under the lock
         // (a cancel may have landed since), and queues it for the driver.
-        let due_now = |e: &Execution| due && crate::wakes::due_now(e, now);
-        for e in execs.iter().filter(|e| due_now(e)) {
-            if let Some(e) = self.fire_due(&e.id)? {
-                rep.woke_due.push(e.id);
+        if due {
+            let execs = self.executions_by(&[terms::one("due")])?;
+            for e in execs.iter().filter(|e| crate::wakes::due_now(e, now)) {
+                if let Some(e) = self.fire_due(&e.id)? {
+                    rep.woke_due.push(e.id);
+                }
             }
         }
-        let actions = self.open_actions()?;
-        rep.open_actions = actions.len() as u64;
+        let actions = self.actions_by(&[
+            terms::one(&terms::action_state(ActionState::Dispatched)),
+            terms::one(&terms::action_state(ActionState::OutcomeUnknown)),
+        ])?;
         for a in actions {
             match a.state {
                 ActionState::Dispatched => {
@@ -2665,24 +2803,30 @@ impl Kernel {
         //    has not confirmed, `follow_spend_limit` does it on the vault's
         //    word). The rewrites share one frame: the first start under this
         //    binary, or under a changed limit, pays one fsync for them, and
-        //    every later start finds none.
+        //    every later start finds none. It reads only those executions,
+        //    by their terms (theseus-lv2): a turn running, a unit budget, a
+        //    limit other than the config's. A parked one is read by none.
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 2;
         let now = self.now_ms();
         let mut migrated = Vec::new();
         let mut rewritten = 0u32;
-        // Every execution as this step leaves it, for step 4.
-        let mut loaded = Vec::new();
-        let all = self.executions()?;
+        let follow = !self.cfg.unconfirmed_config;
+        let mut wanted = vec![
+            terms::one(&terms::state(ExecState::Running)),
+            terms::one("legacy"),
+        ];
+        if follow {
+            wanted.extend(terms::limits_other_than(self.cfg.spend_limit_micros));
+        }
+        let all = self.executions_by(&wanted)?;
         let legacy = all.iter().filter(|e| e.schema < SCHEMA).count();
         if legacy > 0 && self.cfg.unconfirmed_config {
             return Err(KernelError::UnconfirmedConfig { executions: legacy }.into());
         }
-        let follow = !self.cfg.unconfirmed_config;
         // The executions this step rewrites are read again under their locks,
         // taken together in id order and held to the step's end, so the scan
-        // decides nothing it writes. A clean start rewrites none, and reads
-        // each execution once.
+        // decides nothing it writes. A clean start reads and rewrites none.
         let rewrites = |e: &Execution| {
             e.state == ExecState::Running || e.schema < SCHEMA || (follow && self.follows_limit(e))
         };
@@ -2752,7 +2896,6 @@ impl Kernel {
                 migrated.push(exec_record(&e)?);
                 migrated.extend(rows);
             }
-            loaded.push(e);
         }
         if !migrated.is_empty() {
             self.commit(&migrated)?;
@@ -2787,18 +2930,11 @@ impl Kernel {
         // 4. reconcile
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 4;
-        // Step 2's executions still stand unless the spool settled something:
-        // one read of every execution at startup, not two.
-        let open = (rep.spool_drained == 0).then(|| {
-            loaded
-                .into_iter()
-                .filter(|e| !e.state.is_terminal())
-                .collect()
-        });
         // Due wakes are left to the driver's first tick and the heartbeat
         // (DD8): queueing one here would write before the socket serves, and
-        // its turn waits for the vault's word on the config anyway.
-        rep.reconcile = self.reconcile_with(evidence, open, false)?;
+        // its turn waits for the vault's word on the config anyway. So this
+        // pass reads the actions sent, and counts the open executions.
+        rep.reconcile = self.reconcile_with(evidence, false)?;
         step_rows.push(self.ledger(
             LedgerKind::StartupStep,
             None,

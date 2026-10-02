@@ -122,6 +122,34 @@ pub struct History {
     pub busy_ms: f64,
     /// Open checked every segment, so there was no history to check.
     pub checked_at_open: bool,
+    /// Where the check began, when it began at an earlier check's mark
+    /// (theseus-0dq): the last position that check proved. `None`: from the
+    /// log's start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_position: Option<u64>,
+    /// The mark the next check may start from.
+    #[serde(skip)]
+    pub verified: Option<Verified>,
+}
+
+/// How far a history check proved the log (theseus-0dq): the last frame it
+/// checked, which the next check starts from and checks again, so a check
+/// after a restart reads only what was written since. When that frame no
+/// longer checks, or does not hold the positions named here, the next check
+/// reads the whole log instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Verified {
+    /// The last frame checked: its segment, its offset, and the position of
+    /// its first record.
+    pub segment: u32,
+    pub offset: u64,
+    pub first: u64,
+    /// The last position checked: that frame's last record.
+    pub position: u64,
+    /// When the last check from the log's start ended, in unix ms: a check
+    /// that starts at a mark keeps it, so the caller can ask for a whole
+    /// check again on its own schedule, for what rots where nothing writes.
+    pub full_at_unix_ms: u64,
 }
 
 /// How much `verify_history` checks between two calls of its `pace`.
@@ -653,6 +681,7 @@ impl Wal {
             dir: self.dir.clone(),
             end: self.history_end,
             bad: self.bad.clone(),
+            from: None,
         }
     }
 
@@ -673,15 +702,37 @@ pub struct HistoryCheck {
     dir: PathBuf,
     end: Option<(u64, u32, u64)>,
     bad: Arc<OnceLock<(u32, u64, u64)>>,
+    /// An earlier check's mark, to start from (theseus-0dq).
+    from: Option<Verified>,
+}
+
+/// Where a walk of the history begins: a segment, an offset in it, and the
+/// position expected there.
+#[derive(Clone, Copy)]
+struct Start {
+    segment: u32,
+    offset: u64,
+    first: u64,
 }
 
 impl HistoryCheck {
-    /// Every frame from the log's start to the frame after the index's
-    /// checkpoint, with its crc, its records, and the position sequence,
-    /// which must end at the checkpoint. Read-only. `pace` gets the time
-    /// each stretch of `PACE_BYTES` took, so a caller can keep to its share
-    /// of a core. On a corrupt frame, reads of its records are refused from
-    /// then on (`Wal::read_at`), and the error names it.
+    /// Start at `mark`, an earlier check's (theseus-0dq): the next run checks
+    /// that check's last frame again, then only what follows it.
+    pub fn from_mark(mut self, mark: Option<Verified>) -> Self {
+        self.from = mark;
+        self
+    }
+
+    /// Every frame of the history to the frame after the index's checkpoint,
+    /// with its crc, its records, and the position sequence, which must end
+    /// at the checkpoint. From the log's start, or, given a mark
+    /// (`from_mark`), from the last frame the earlier check proved: that
+    /// frame must still check and hold the positions the mark names, or the
+    /// whole log is checked instead. Read-only. `pace` gets the time each
+    /// stretch of `PACE_BYTES` took, so a caller can keep to its share of a
+    /// core. On a corrupt frame, reads of its records are refused from then
+    /// on (`Wal::read_at`), and the error names it. `History::verified` is
+    /// the mark the next check may start from.
     pub fn run(&self, mut pace: impl FnMut(Duration)) -> Result<History, WalError> {
         let Some((last, end_seg, end_off)) = self.end else {
             return Ok(History {
@@ -689,36 +740,103 @@ impl HistoryCheck {
                 ..History::default()
             });
         };
+        let full = Start {
+            segment: 0,
+            offset: 0,
+            first: 1,
+        };
+        let mark = self.from.filter(|v| {
+            v.position <= last
+                && v.first <= v.position
+                && (v.segment, v.offset) < (end_seg, end_off)
+        });
+        if let Some(v) = mark {
+            let at = Start {
+                segment: v.segment,
+                offset: v.offset,
+                first: v.first,
+            };
+            match self.walk(at, (last, end_seg, end_off), Some(v), &mut pace) {
+                Ok(Some(mut h)) => {
+                    h.from_position = Some(v.position);
+                    if let Some(next) = h.verified.as_mut() {
+                        next.full_at_unix_ms = v.full_at_unix_ms;
+                    }
+                    return Ok(h);
+                }
+                // The mark's frame is not what it says: check everything.
+                Ok(None) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        let mut h = self
+            .walk(full, (last, end_seg, end_off), None, &mut pace)?
+            .expect("a walk from the log's start has no mark to miss");
+        if let Some(next) = h.verified.as_mut() {
+            next.full_at_unix_ms = now_unix_ms();
+        }
+        Ok(h)
+    }
+
+    /// Walk the frames from `at` to the history's end. With a `mark`, the
+    /// first frame is the mark's: `Ok(None)` when it does not check or does
+    /// not end at the mark's position, and nothing is refused for it, since
+    /// the whole check that follows decides.
+    fn walk(
+        &self,
+        at: Start,
+        (last, end_seg, end_off): (u64, u32, u64),
+        mark: Option<Verified>,
+        pace: &mut impl FnMut(Duration),
+    ) -> Result<Option<History>, WalError> {
         let t0 = Instant::now();
         let mut paused = Duration::ZERO;
         let mut h = History::default();
-        let mut walk = Walk::new(1, u64::MAX);
+        let mut walk = Walk::new(at.first, u64::MAX);
         let mut stretch = Instant::now();
         let mut since = 0usize;
+        // The last frame checked: segment, offset, first position.
+        let mut newest: Option<(u32, u64, u64)> = None;
         for seg in list_segments(&self.dir)?
             .into_iter()
-            .filter(|s| *s <= end_seg)
+            .filter(|s| *s >= at.segment && *s <= end_seg)
         {
             let path = segment_path(&self.dir, seg);
-            let bytes = if seg == end_seg {
-                read_range(&path, 0, end_off)?
+            let from = if seg == at.segment { at.offset } else { 0 };
+            let to = if seg == end_seg {
+                end_off
             } else {
-                fs::read(&path)?
+                fs::metadata(&path)?.len()
             };
+            if mark.is_some() && newest.is_none() && from >= to {
+                return Ok(None);
+            }
+            let bytes = read_range(&path, from, to)?;
             let mut off = 0usize;
             while off < bytes.len() {
                 let before = walk.expected;
-                match check_frame(&bytes, off, seg, 0, &mut walk) {
+                match check_frame(&bytes, off, seg, from, &mut walk) {
                     Ok(end) => {
                         since += end - off;
+                        if let (Some(v), None) = (mark, newest) {
+                            if walk.expected != v.position + 1 {
+                                return Ok(None);
+                            }
+                        }
+                        newest = Some((seg, from + off as u64, before));
                         off = end;
                         walk.frames += 1;
                         walk.records += walk.expected - before;
                     }
+                    Err(_) if mark.is_some() && newest.is_none() => return Ok(None),
                     // In the history a frame that does not check is corrupt:
                     // a later frame was written after it.
                     Err(bad) => {
-                        let _ = self.bad.set((seg, off as u64, frame_end(&bytes, off)));
+                        let _ = self.bad.set((
+                            seg,
+                            from + off as u64,
+                            frame_end(&bytes, off).saturating_add(from),
+                        ));
                         return Err(match bad {
                             Bad::Torn { offset, reason } => WalError::Corrupt {
                                 segment: seg,
@@ -740,6 +858,9 @@ impl HistoryCheck {
             h.segments += 1;
             h.bytes += bytes.len() as u64;
         }
+        if mark.is_some() && newest.is_none() {
+            return Ok(None);
+        }
         if walk.expected != last + 1 {
             // No frame to blame: reads are checked against their position.
             return Err(WalError::Corrupt {
@@ -754,7 +875,14 @@ impl HistoryCheck {
         h.frames = walk.frames;
         h.records = walk.records;
         h.busy_ms = t0.elapsed().saturating_sub(paused).as_secs_f64() * 1000.0;
-        Ok(h)
+        h.verified = newest.map(|(segment, offset, first)| Verified {
+            segment,
+            offset,
+            first,
+            position: last,
+            full_at_unix_ms: 0,
+        });
+        Ok(Some(h))
     }
 }
 

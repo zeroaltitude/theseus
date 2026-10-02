@@ -138,6 +138,11 @@ pub struct Parts {
 
 const META_LIVE_PROFILE: &str = "live_profile";
 
+/// How old the last whole check of the WAL's history may be before a start
+/// checks the whole log again, not only what was written since
+/// (theseus-0dq): a day, for what rots where nothing writes.
+pub const HISTORY_WHOLE_EVERY_MS: u64 = 24 * 60 * 60 * 1000;
+
 /// A moment for the answers to the requests that waited at the gate to reach
 /// their clients before a restart closes their connections.
 const RESTART_GRACE: std::time::Duration = std::time::Duration::from_millis(100);
@@ -633,12 +638,24 @@ impl Core {
     /// and the Observatory. A corrupt frame is loud: an error in the log, a
     /// `store.corrupt` ledger row, and its records' reads refused.
     ///
-    /// The thread holds neither the core nor the store, only the check and a
-    /// weak reference, so a daemon that stops meanwhile still drops its store
-    /// and closes the index cleanly.
+    /// It starts where the last check proved the log to (theseus-0dq): that
+    /// check's last frame, checked again, then only what was written since.
+    /// The whole log is checked again when the last whole check is a day
+    /// old (`HISTORY_WHOLE_EVERY_MS`), for what rots where nothing writes.
+    /// Its mark goes to the store's next checkpoint.
+    ///
+    /// The thread holds neither the core nor the store, only the check, the
+    /// mark's slot, and a weak reference, so a daemon that stops meanwhile
+    /// still drops its store and closes the index cleanly.
     pub fn check_store_history(self: &Arc<Self>) -> Option<std::thread::JoinHandle<()>> {
         let phase = self.startup_log.begin("store.verify", true, Instant::now());
-        let check = self.store.inner().history_check();
+        let inner = self.store.inner();
+        let now = theseus_protocol::now_unix_ms();
+        let mark = inner
+            .verified()
+            .filter(|v| now.saturating_sub(v.full_at_unix_ms) < HISTORY_WHOLE_EVERY_MS);
+        let check = inner.history_check().from_mark(mark);
+        let slot = inner.verified_slot();
         let log = self.startup_log.clone();
         let core = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
@@ -646,15 +663,21 @@ impl Core {
             .spawn(move || {
                 let checked = check.run(|took| std::thread::sleep(took * 19));
                 let detail = match checked {
-                    Ok(h) => json!({
-                        "outcome": "ok",
-                        "segments": h.segments,
-                        "frames": h.frames,
-                        "records": h.records,
-                        "bytes": h.bytes,
-                        "busy_ms": (h.busy_ms * 10.0).round() / 10.0,
-                        "checked_at_open": h.checked_at_open,
-                    }),
+                    Ok(h) => {
+                        if let Some(v) = h.verified {
+                            slot.set(v);
+                        }
+                        json!({
+                            "outcome": "ok",
+                            "segments": h.segments,
+                            "frames": h.frames,
+                            "records": h.records,
+                            "bytes": h.bytes,
+                            "busy_ms": (h.busy_ms * 10.0).round() / 10.0,
+                            "checked_at_open": h.checked_at_open,
+                            "from_position": h.from_position,
+                        })
+                    }
                     Err(e) => {
                         tracing::error!(
                             error = %e,

@@ -111,7 +111,9 @@ pub async fn drive(core: Arc<Core>) {
             _ = core.admission.notified() => {}
             _ = core.shutdown.notified() => break,
         }
-        let Ok(execs) = core.kernel.open_executions() else {
+        // The queued executions and those a due time may wake, by their
+        // terms: a tick reads none of the parked ones (theseus-lv2).
+        let Ok(execs) = core.kernel.maybe_runnable() else {
             continue;
         };
         let now = core.kernel.now_ms();

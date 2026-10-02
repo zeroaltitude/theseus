@@ -43,6 +43,12 @@ theseusd, and theseus-sim.
 - **A stop is not a cancel.** A cancel is terminal; `stop_execution` halts the work and keeps the conversation
   (Item 9). A cancel settles every action that was never dispatched, in its own frame (Item 17).
 - **An attempt that may have run is `OutcomeUnknown`**, never "not sent".
+- **Read by state, never every record** (theseus-lv2). The store's index keeps `terms.rs`'s terms for each
+  execution and action (`s:<state>`, `due`, `x:<execution>`, …). A reader on a path that runs often (the start,
+  the driver's tick, the reconcile, health, a stop) asks `executions_by` / `actions_by` for its terms; only the
+  listings that show every one call `executions()` or `actions()`. A change to what a term means renames
+  `terms::PROJECTION`, so every store builds its terms again once. kernel-sim's `check_terms` holds every read by
+  state to a full read.
 
 ## Tests
 

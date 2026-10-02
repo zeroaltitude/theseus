@@ -4,11 +4,36 @@
 //! slow start names its cause in health and the Observatory the first time
 //! it happens.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use serde_json::Value;
 use theseus_protocol::StartupPhase;
+
+/// When this process's clean stop began (theseus-26r). Each of the stop's
+/// phases after it, to the process's exit, is logged at debug with the time
+/// since (`stop_phase`), so a slow stop names the phase that held it.
+static STOP_BEGAN: OnceLock<Instant> = OnceLock::new();
+
+/// The clean stop begins now: its row is the first thing it writes. A second
+/// call keeps the first time.
+pub fn stop_began() {
+    let _ = STOP_BEGAN.set(Instant::now());
+    stop_phase("began");
+}
+
+/// A phase of the stop has ended: logged at debug (`THESEUS_LOG` with
+/// `theseus_core::startup=debug`) with the milliseconds since the stop
+/// began. Nothing before a stop began.
+pub fn stop_phase(phase: &str) {
+    if let Some(t) = STOP_BEGAN.get() {
+        tracing::debug!(
+            phase,
+            ms = (t.elapsed().as_secs_f64() * 1000.0 * 100.0).round() / 100.0,
+            "stop"
+        );
+    }
+}
 
 pub struct StartupLog {
     origin: Instant,

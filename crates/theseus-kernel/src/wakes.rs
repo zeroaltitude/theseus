@@ -270,10 +270,14 @@ impl Kernel {
     }
 
     /// Every pending wake of every open execution, soonest first, each with
-    /// its execution.
+    /// its execution: those that hold wakes, by their term (theseus-lv2).
     pub fn pending_wakes(&self) -> Result<Vec<(Execution, PendingWake)>> {
         let mut out: Vec<(Execution, PendingWake)> = Vec::new();
-        for e in self.open_executions()? {
+        for e in self
+            .executions_by(&[crate::terms::one("w")])?
+            .into_iter()
+            .filter(|e| !e.state.is_terminal())
+        {
             for w in &e.wakes {
                 out.push((e.clone(), w.clone()));
             }

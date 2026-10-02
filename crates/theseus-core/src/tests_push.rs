@@ -787,3 +787,83 @@ async fn a_client_that_stops_reading_hears_what_it_lost_and_catches_up() {
     assert_eq!(key(&again), key(&fresh));
     assert_eq!(again.position, fresh.position);
 }
+
+/// The board keeps up while every runtime worker is held (theseus-hanu). A
+/// burst of requests whose handlers write the store held them all, and the
+/// board, applied on a task of the runtime, fell seconds behind the commits
+/// (in3's live check: 417 views beside 4,782 sessions). Its frames are applied
+/// on a thread of the blocking pool now: here both workers wait on a gate that
+/// the test opens only once the board holds every frame a thread of its own
+/// committed meanwhile.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_board_keeps_up_while_every_worker_is_held() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Instant;
+    let r = rig();
+    r.core.push.ensure(&r.core).await.unwrap();
+    let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let holding = Arc::new(AtomicUsize::new(0));
+    for _ in 0..2 {
+        let (g, h) = (gate.clone(), holding.clone());
+        tokio::spawn(async move {
+            h.fetch_add(1, Ordering::SeqCst);
+            // A blocking wait on a worker, as a handler's fsync is.
+            let (open, cv) = &*g;
+            let mut open = open.lock().unwrap();
+            while !*open {
+                open = cv.wait(open).unwrap();
+            }
+        });
+    }
+    let t0 = Instant::now();
+    while holding.load(Ordering::SeqCst) < 2 {
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "the workers were not held"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    // Twenty executions, committed from a thread that is no worker.
+    let core = r.core.clone();
+    std::thread::spawn(move || {
+        for _ in 0..20 {
+            core.kernel
+                .open_execution(
+                    &theseus_kernel::new_id("ses"),
+                    SessionKind::Conversation,
+                    theseus_kernel::Authority {
+                        principal: crate::turn::OPERATOR.into(),
+                        ..Default::default()
+                    },
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+    })
+    .join()
+    .unwrap();
+    let want = r.core.store.last_position();
+    let t0 = Instant::now();
+    let caught_up = loop {
+        if r.core.push.status(0).position >= want {
+            break true;
+        }
+        if t0.elapsed() > Duration::from_secs(10) {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    };
+    let board = r.core.push.status(0);
+    {
+        let (open, cv) = &*gate;
+        *open.lock().unwrap() = true;
+        cv.notify_all();
+    }
+    assert!(
+        caught_up,
+        "the board stopped at {} of {want} while every worker was held",
+        board.position
+    );
+    assert_eq!(board.board, 20, "a view for each execution");
+}

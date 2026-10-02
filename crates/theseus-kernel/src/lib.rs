@@ -19,6 +19,7 @@ pub mod redact;
 pub mod spool;
 pub mod stops;
 pub mod tasks;
+pub mod terms;
 mod tx;
 pub mod types;
 pub mod umask;
@@ -32,6 +33,8 @@ mod tests_frames;
 mod tests_stops;
 #[cfg(test)]
 mod tests_tasks;
+#[cfg(test)]
+mod tests_terms;
 #[cfg(test)]
 mod tests_tx;
 #[cfg(test)]

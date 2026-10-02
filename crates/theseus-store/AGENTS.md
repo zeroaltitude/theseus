@@ -27,7 +27,17 @@ the reserved theseus-follow, theseus-index, and theseus-exam.
 - **The open reads only the WAL's tail**, from the frame after the index's checkpoint. The rest is checked after
   serving by core's `store-verify` thread, and a corrupt frame there is refused and loud.
 - **A checkpoint takes the store's `appending` lock alone**, so the position it claims is synced and indexed.
-  Don't take a checkpoint while holding that lock.
+  Don't take a checkpoint while holding that lock. A stop's checkpoint (`checkpoint_for_close`) syncs nothing of
+  its own: redb's close, a durable commit, makes it durable (theseus-02k). Only a durable checkpoint advances
+  `durable_to`, so a durable one after it is never skipped as free.
+- **The terms are a projection, whole only when marked** (theseus-lv2). An open with a `Projection` keeps each
+  keyed record's terms (the kernel's: an execution's state, …) with every append and replay. A checkpoint marks
+  them whole under the projection's name; a writer with no projection (an older build, a tool) moves the
+  checkpoint alone, and the next projected open builds them again from every key's latest record. A store with
+  no projection answers `latest_by_terms` with `None`, and the reader reads every record instead.
+- **The history check starts at the last one's mark** (theseus-0dq): `verified.*` in the index's meta, written
+  with the next checkpoint. Its frame is checked again first; a frame that no longer checks or holds other
+  positions sends the check back to the log's start, which finds what is wrong.
 - **Never delete what can't be rebuilt.** An index that is not a database is moved aside as
   `index.redb.bad-<unix ms>`, under the file's lock, and rebuilt from the WAL (Item 17). A real database that fails
   another way is refused: its recovery is `theseusd restore` from the WAL directory.

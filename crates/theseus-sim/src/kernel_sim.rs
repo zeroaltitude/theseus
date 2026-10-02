@@ -270,14 +270,17 @@ fn new_kernel(store: Arc<dyn Store>, clock: Arc<VirtualClock>, c: KernelConfig) 
     Kernel::new(store, clock, c).with_legacy_spend(Arc::new(legacy_spend))
 }
 
+/// The store as the daemon opens it: its index keeps the kernel's terms
+/// (theseus-lv2), which `check_terms` holds to a full read.
 fn open_store(dir: &Path, p: &SimParams) -> Result<Arc<dyn Store>> {
     Ok(Arc::new(
-        WalStore::open(
+        WalStore::open_projected(
             &dir.join("store"),
             WalConfig {
                 fsync: p.fsync,
                 ..Default::default()
             },
+            &theseus_kernel::terms::PROJECTION,
         )?
         .with_checkpoint_every(500),
     ))
@@ -1589,6 +1592,97 @@ impl World {
         Ok(())
     }
 
+    /// The kernel's reads by state agree with a read of every record
+    /// (theseus-lv2): the index's terms are a projection of the WAL, through
+    /// every crash, reopen, and race the run makes.
+    fn check_terms(
+        &self,
+        at: &str,
+        execs: &[Execution],
+        actions: &[Action],
+        stats: &theseus_kernel::KernelStats,
+    ) -> Result<()> {
+        fn ids<'a>(v: impl Iterator<Item = &'a str>) -> Vec<String> {
+            let mut v: Vec<String> = v.map(str::to_string).collect();
+            v.sort();
+            v
+        }
+        let k = &self.kernel;
+        let want = ids(execs
+            .iter()
+            .filter(|e| !e.state.is_terminal())
+            .map(|e| e.id.as_str()));
+        let got = ids(k.open_executions()?.iter().map(|e| e.id.as_str()));
+        if got != want {
+            bail!("{at}: open executions by their terms {got:?}, by a full read {want:?}");
+        }
+        let runnable = |e: &&Execution| {
+            e.state == ExecState::Queued
+                || (e.state == ExecState::Waiting
+                    && (matches!(e.wake, Some(Wake::DueAt { .. }))
+                        || !e.wakes.is_empty()
+                        || !e.report_wakes.is_empty()))
+        };
+        let want = ids(execs.iter().filter(runnable).map(|e| e.id.as_str()));
+        let got = ids(k.maybe_runnable()?.iter().map(|e| e.id.as_str()));
+        if got != want {
+            bail!("{at}: maybe runnable by their terms {got:?}, by a full read {want:?}");
+        }
+        let want = ids(actions
+            .iter()
+            .filter(|a| !a.state.is_settled())
+            .map(|a| a.correlation_id.as_str()));
+        let got = ids(k.open_actions()?.iter().map(|a| a.correlation_id.as_str()));
+        if got != want {
+            bail!("{at}: open actions by their terms {got:?}, by a full read {want:?}");
+        }
+        for e in execs {
+            let want = ids(actions
+                .iter()
+                .filter(|a| a.execution_id == e.id && !a.state.is_settled())
+                .map(|a| a.correlation_id.as_str()));
+            let got = ids(k
+                .unsettled_actions(&e.id)?
+                .iter()
+                .map(|a| a.correlation_id.as_str()));
+            if got != want {
+                bail!(
+                    "{at}: {}'s unsettled actions by their terms {got:?}, by a full read {want:?}",
+                    e.id
+                );
+            }
+        }
+        let mut by_state: BTreeMap<String, u64> = BTreeMap::new();
+        for e in execs {
+            *by_state.entry(e.state.as_str().to_string()).or_default() += 1;
+        }
+        if stats.executions_by_state != by_state {
+            bail!(
+                "{at}: executions by state from their terms {:?}, by a full read {by_state:?}",
+                stats.executions_by_state
+            );
+        }
+        let mut by_state: BTreeMap<String, u64> = BTreeMap::new();
+        for a in actions {
+            *by_state.entry(a.state.as_str().to_string()).or_default() += 1;
+        }
+        if stats.actions_by_state != by_state {
+            bail!(
+                "{at}: actions by state from their terms {:?}, by a full read {by_state:?}",
+                stats.actions_by_state
+            );
+        }
+        let want = ids(execs
+            .iter()
+            .filter(|e| e.parent.is_some())
+            .map(|e| e.id.as_str()));
+        let got = ids(k.tasks(None)?.iter().map(|e| e.id.as_str()));
+        if got != want {
+            bail!("{at}: tasks by their terms {got:?}, by a full read {want:?}");
+        }
+        Ok(())
+    }
+
     fn check_invariants(&mut self, at: &str) -> Result<()> {
         self.rep.invariant_checks += 1;
         let execs = self.kernel.executions()?;
@@ -1611,6 +1705,7 @@ impl World {
         if running > self.p.ceiling {
             bail!("{at}: {running} running > ceiling {}", self.p.ceiling);
         }
+        self.check_terms(at, &execs, &actions, &stats)?;
         // An execution that was cancelled never runs again (theseus-id9). Read
         // in WAL order, as far as the store has gone: after an execution's
         // `execution.cancelled` row, no turn of it starts and no action of it

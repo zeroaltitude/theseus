@@ -135,7 +135,7 @@ struct Frame {
 /// The push's observer: on the committing thread, under the execution's
 /// lock, it keeps what the board reads and sends it on, never waiting. A
 /// frame with no execution or action record costs one pass over its kinds.
-fn observer(tx: mpsc::UnboundedSender<Frame>) -> Observer {
+fn observer(tx: mpsc::UnboundedSender<Option<Frame>>) -> Observer {
     Arc::new(move |c: Committed<'_>| {
         if !c
             .records
@@ -155,13 +155,13 @@ fn observer(tx: mpsc::UnboundedSender<Frame>) -> Observer {
                 _ => {}
             }
         }
-        let _ = tx.send(Frame {
+        let _ = tx.send(Some(Frame {
             at_ms: theseus_protocol::now_unix_ms(),
             committed: Instant::now(),
             position: c.positions.iter().copied().max().unwrap_or(0),
             records,
             nodes,
-        });
+        }));
     })
 }
 
@@ -200,6 +200,9 @@ pub struct Push {
     pub lost: Arc<AtomicU64>,
     /// `session.wait` calls parked now, and each connection's (9c).
     waits: Mutex<HashMap<String, usize>>,
+    /// Ends the thread that applies frames: a stop sends `None`
+    /// (theseus-hanu).
+    applier: Mutex<Option<mpsc::UnboundedSender<Option<Frame>>>>,
 }
 
 impl Default for Push {
@@ -212,6 +215,7 @@ impl Default for Push {
             events: AtomicU64::new(0),
             lost: Arc::default(),
             waits: Mutex::default(),
+            applier: Mutex::default(),
         }
     }
 }
@@ -242,26 +246,32 @@ impl Push {
     /// Seed the board, once; the first caller waits for it alone. The
     /// observer goes in first, so frames start to queue; then every
     /// execution and every action is read, in that order, on a blocking
-    /// thread; then what queued meanwhile is applied, and a task applies
-    /// the rest as they come. It holds the core weakly, so a stopped core
-    /// is dropped and its kernel's observer with it.
+    /// thread; then what queued meanwhile is applied, and a thread of the
+    /// runtime's blocking pool applies the rest as they come. Not a task: a
+    /// burst of requests whose handlers write the store holds every runtime
+    /// worker, and a task behind them let the board fall seconds behind the
+    /// commits (theseus-hanu). It holds the core weakly, so a stopped core
+    /// is dropped and its kernel's observer with it, which ends the thread;
+    /// the runtime's drop waits for it, so the store still closes before the
+    /// process ends.
     pub async fn ensure(&self, core: &Arc<Core>) -> anyhow::Result<()> {
         self.seed
             .get_or_try_init(|| async {
                 let t = Instant::now();
-                let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
+                let (tx, mut rx) = mpsc::unbounded_channel::<Option<Frame>>();
+                *self.applier.lock().unwrap() = Some(tx.clone());
                 if !core.kernel.observe(observer(tx)) {
                     anyhow::bail!("the kernel's observer is installed already");
                 }
                 let c = core.clone();
                 let board = tokio::task::spawn_blocking(move || seed(&c)).await??;
                 *self.board.lock().unwrap() = board;
-                while let Ok(f) = rx.try_recv() {
+                while let Ok(Some(f)) = rx.try_recv() {
                     self.apply(core, f);
                 }
                 let weak = Arc::downgrade(core);
-                tokio::spawn(async move {
-                    while let Some(f) = rx.recv().await {
+                tokio::task::spawn_blocking(move || {
+                    while let Some(Some(f)) = rx.blocking_recv() {
                         let Some(core) = weak.upgrade() else { break };
                         core.push.apply(&core, f);
                     }
@@ -284,6 +294,15 @@ impl Push {
     /// Whether the board is seeded.
     pub fn seeded(&self) -> bool {
         self.seed.initialized()
+    }
+
+    /// End the thread that applies frames, at a stop (theseus-hanu): the
+    /// runtime's drop waits for every thread of its blocking pool, and this
+    /// one would wait for the kernel's last frame until the core drops.
+    pub fn stop(&self) {
+        if let Some(tx) = self.applier.lock().unwrap().take() {
+            let _ = tx.send(None);
+        }
     }
 
     /// A place for one more wait on `conn`, or None at `MAX_WAITS`.

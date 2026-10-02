@@ -10,7 +10,8 @@
 //!   is checked after serving (theseus-8ni). Positions are monotonic u64s.
 //! - **Index**: a rebuildable projection of the WAL in an embedded store
 //!   (redb): position → location, (kind, key) →
-//!   latest position, (kind, position) for per-kind scans, and the checkpoint.
+//!   latest position, (kind, position) for per-kind scans, a projection's
+//!   terms by key (theseus-lv2: an execution's state), and the checkpoint.
 //!   Index writes are non-durable; a **checkpoint** flushes them and records
 //!   the position they are good to. Startup replays the WAL from the last
 //!   checkpoint to rebuild whatever the index lost.
@@ -32,5 +33,5 @@ pub mod wal;
 
 pub use index::{Engine, Location, MovedAside};
 pub use record::{kinds, NewRecord, Record, RecordKind};
-pub use store::{Store, StoreStats, WalStore};
-pub use wal::{History, HistoryCheck, Wal, WalConfig, WalError};
+pub use store::{Projection, Store, StoreStats, VerifiedSlot, WalStore};
+pub use wal::{History, HistoryCheck, Verified, Wal, WalConfig, WalError};

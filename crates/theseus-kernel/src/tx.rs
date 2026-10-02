@@ -27,12 +27,14 @@
 //! - **Nested, it joins.** `frame` on a view runs the closure in the outer
 //!   transaction, and a failure takes back only what it staged.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::Result;
 use theseus_store::{NewRecord, Record, RecordKind, Store, StoreStats};
 
 use crate::kernel::{Kernel, TurnGuard};
+use crate::terms;
 
 /// A transaction in progress: what it locked, its staged frame, and the
 /// turns its transitions ended.
@@ -119,6 +121,18 @@ impl Staged {
 
     fn take(&self) -> Vec<NewRecord> {
         std::mem::take(&mut *self.frame())
+    }
+
+    /// Each staged key of `kind` with its newest staged record, in key order.
+    fn newest_staged(&self, kind: RecordKind) -> BTreeMap<String, Record> {
+        let frame = self.frame();
+        let mut out = BTreeMap::new();
+        for (i, r) in frame.iter().enumerate() {
+            if let (true, Some(k)) = (r.kind == kind, r.key.as_ref()) {
+                out.insert(k.clone(), self.record(i, r));
+            }
+        }
+        out
     }
 
     /// The `i`th staged record, read as the store would return it, at the
@@ -217,6 +231,79 @@ impl Store for Staged {
     fn stats(&self) -> Result<StoreStats> {
         self.under.stats()
     }
+    /// The store's, with each staged key's newest record in its place when
+    /// its terms are in the range, and out of it when they are not
+    /// (theseus-lv2). The store's terms are the kernel's (`terms::PROJECTION`).
+    fn latest_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Option<Vec<Record>>> {
+        let Some(mut found) = self.under.latest_by_terms(kind, lo, hi)? else {
+            return Ok(None);
+        };
+        for (key, r) in self.newest_staged(kind) {
+            let at = found.binary_search_by(|x| {
+                x.key
+                    .as_deref()
+                    .unwrap_or_default()
+                    .as_bytes()
+                    .cmp(key.as_bytes())
+            });
+            let wanted = in_range(&terms::of(kind, &r.payload), lo, hi) > 0;
+            match (at, wanted) {
+                (Ok(i), true) => found[i] = r,
+                (Ok(i), false) => {
+                    found.remove(i);
+                }
+                (Err(i), true) => found.insert(i, r),
+                (Err(_), false) => {}
+            }
+        }
+        Ok(Some(found))
+    }
+    /// The store's count, with each staged key's newest record's terms in
+    /// place of what the store counted for it.
+    fn count_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Option<u64>> {
+        let Some(mut n) = self.under.count_by_terms(kind, lo, hi)? else {
+            return Ok(None);
+        };
+        for (key, r) in self.newest_staged(kind) {
+            let before = match self.under.latest_by_key(kind, &key)? {
+                Some(old) => in_range(&terms::of(kind, &old.payload), lo, hi),
+                None => 0,
+            };
+            n = (n + in_range(&terms::of(kind, &r.payload), lo, hi)).saturating_sub(before);
+        }
+        Ok(Some(n))
+    }
+    fn latest_with_prefix(&self, kind: RecordKind, prefix: &str) -> Result<Vec<Record>> {
+        let mut found: BTreeMap<String, Record> = self
+            .under
+            .latest_with_prefix(kind, prefix)?
+            .into_iter()
+            .filter_map(|r| Some((r.key.clone()?, r)))
+            .collect();
+        for (key, r) in self.newest_staged(kind) {
+            if key.starts_with(prefix) {
+                found.insert(key, r);
+            }
+        }
+        Ok(found.into_values().collect())
+    }
+    fn count_keys(&self, kind: RecordKind) -> Result<u64> {
+        let mut n = self.under.count_keys(kind)?;
+        for key in self.newest_staged(kind).keys() {
+            if self.under.latest_by_key(kind, key)?.is_none() {
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+}
+
+/// How many of `terms` are in `lo..hi`.
+fn in_range(terms: &[String], lo: &str, hi: &str) -> u64 {
+    terms
+        .iter()
+        .filter(|t| lo <= t.as_str() && t.as_str() < hi)
+        .count() as u64
 }
 
 impl Kernel {

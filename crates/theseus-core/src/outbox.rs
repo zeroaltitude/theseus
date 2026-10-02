@@ -868,9 +868,15 @@ impl crate::Core {
                 );
             }
         }
-        if let Err(e) = self.store.checkpoint() {
+        crate::startup::stop_phase("posts settled");
+        // Made durable by redb's close, as the stop's own is (theseus-02k).
+        if let Err(e) = self.store.inner().checkpoint_for_close() {
             tracing::warn!(error = %format!("{e:#}"), "stopping: the last checkpoint failed; the next start replays the tail");
         }
+        crate::startup::stop_phase("last checkpoint");
+        // The board's thread ends now, not when the core drops: the
+        // runtime's drop waits for it (theseus-hanu).
+        self.push.stop();
         posts
     }
 

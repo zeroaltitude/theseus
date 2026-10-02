@@ -79,10 +79,11 @@ impl Kernel {
         // Whatever it planned and has not sent, or still asks the operator,
         // never runs: declined, with its reservation released.
         let mut declined = Vec::new();
-        for mut a in self.open_actions()?.into_iter().filter(|a| {
-            a.execution_id == e.id
-                && matches!(a.state, ActionState::Planned | ActionState::Authorized)
-        }) {
+        for mut a in self
+            .unsettled_actions(&e.id)?
+            .into_iter()
+            .filter(|a| matches!(a.state, ActionState::Planned | ActionState::Authorized))
+        {
             a.state = ActionState::Cancelled;
             a.settled_at_ms = Some(now);
             a.resolution = Some(format!("stopped by {by}"));

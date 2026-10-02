@@ -22,11 +22,17 @@ pub(super) struct World {
     pub(super) spool: Spool,
 }
 
+/// The store as the daemon opens it: its index keeps the kernel's terms
+/// (theseus-lv2).
 fn open_store(dir: &std::path::Path) -> Arc<dyn Store> {
     Arc::new(
-        WalStore::open(&dir.join("store"), WalConfig::default())
-            .unwrap()
-            .with_checkpoint_every(0),
+        WalStore::open_projected(
+            &dir.join("store"),
+            WalConfig::default(),
+            &crate::terms::PROJECTION,
+        )
+        .unwrap()
+        .with_checkpoint_every(0),
     )
 }
 
@@ -2005,6 +2011,22 @@ impl Store for Pausing {
     }
     fn stats(&self) -> anyhow::Result<theseus_store::StoreStats> {
         self.inner.stats()
+    }
+    fn latest_by_terms(
+        &self,
+        kind: theseus_store::RecordKind,
+        lo: &str,
+        hi: &str,
+    ) -> anyhow::Result<Option<Vec<theseus_store::Record>>> {
+        self.inner.latest_by_terms(kind, lo, hi)
+    }
+    fn count_by_terms(
+        &self,
+        kind: theseus_store::RecordKind,
+        lo: &str,
+        hi: &str,
+    ) -> anyhow::Result<Option<u64>> {
+        self.inner.count_by_terms(kind, lo, hi)
     }
 }
 

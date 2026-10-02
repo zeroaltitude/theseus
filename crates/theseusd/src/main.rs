@@ -26,7 +26,7 @@ use theseus_core::config::DEFAULT_CONFIG_REF;
 use theseus_core::config_copy::{self, Compared};
 use theseus_core::config_gate::{self, ConfigGate};
 use theseus_core::secrets::{OpReader, Secret, SecretBoard, Waited};
-use theseus_core::startup::StartupLog;
+use theseus_core::startup::{stop_phase, StartupLog};
 use theseus_core::store::Store;
 use theseus_core::{Config, Core};
 use tokio::net::UnixListener;
@@ -184,11 +184,18 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?;
     match rt.block_on(daemon(cli, origin))? {
-        Exit::Done => Ok(()),
+        Exit::Done => {
+            // The runtime's tasks go, and with them the store, which closes
+            // (redb's close, logged by the index): each timed (theseus-26r).
+            drop(rt);
+            stop_phase("runtime dropped");
+            Ok(())
+        }
         Exit::Exec(var, value) => {
             // The clean shutdown path has run. The runtime's tasks go, and
             // with them the store, which closes; then the same image.
             rt.shutdown_timeout(Duration::from_millis(500));
+            stop_phase("runtime shut down");
             exec_self(var, &value)
         }
     }
@@ -357,6 +364,12 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     if let Some(m) = &st.index_moved_aside {
         detail["index_moved_aside"] = json!(m.path);
     }
+    // The index's terms built again from the WAL (theseus-lv2): the first
+    // start after an older build wrote last reads every execution and
+    // action once.
+    if let Some(n) = st.terms_rebuilt {
+        detail["terms_rebuilt"] = json!(n);
+    }
     startup.record("store", false, t, detail);
     tracing::info!(
         last_position = st.last_position,
@@ -422,10 +435,12 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     // connection per state dir, whose bindings file names its places.
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path));
     let served = serve_socket(core.clone(), socket_path, after_bind).await;
+    stop_phase("serving loop ended");
     // The posts already sent settle within the stop's grace, and the index is
     // checkpointed after them (theseus-pfv).
     core.finish_stop().await;
     flush_telemetry(&core).await;
+    stop_phase("telemetry flushed");
     served?;
     Ok(exit(&core))
 }

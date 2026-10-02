@@ -290,6 +290,18 @@ impl theseus_store::Store for TurnFrames {
     fn stats(&self) -> Result<StoreStats> {
         self.inner.stats()
     }
+    fn latest_by_terms(&self, kind: u16, lo: &str, hi: &str) -> Result<Option<Vec<Record>>> {
+        self.inner.latest_by_terms(kind, lo, hi)
+    }
+    fn count_by_terms(&self, kind: u16, lo: &str, hi: &str) -> Result<Option<u64>> {
+        self.inner.count_by_terms(kind, lo, hi)
+    }
+    fn latest_with_prefix(&self, kind: u16, prefix: &str) -> Result<Vec<Record>> {
+        self.inner.latest_with_prefix(kind, prefix)
+    }
+    fn count_keys(&self, kind: u16) -> Result<u64> {
+        self.inner.count_keys(kind)
+    }
 }
 
 impl Store {
@@ -313,8 +325,10 @@ impl Store {
     }
 
     fn open_with(dir: &Path, cfg: WalConfig) -> Result<Self> {
-        let inner =
-            WalStore::open(dir, cfg).with_context(|| format!("opening store {}", dir.display()))?;
+        // The index keeps the kernel's terms (theseus-lv2), so the kernel's
+        // readers ask by state.
+        let inner = WalStore::open_projected(dir, cfg, &theseus_kernel::terms::PROJECTION)
+            .with_context(|| format!("opening store {}", dir.display()))?;
         let st = inner.stats()?;
         if st.truncated_bytes > 0 || st.replayed_into_index > 0 {
             tracing::warn!(
@@ -542,8 +556,10 @@ impl Store {
             .collect()
     }
 
+    /// How many sessions there are, from the index's keys alone: no record
+    /// is read (theseus-byu).
     pub fn session_count(&self) -> Result<u64> {
-        Ok(self.inner.latest_of_kind(kinds::SESSION)?.len() as u64)
+        self.inner.count_keys(kinds::SESSION)
     }
 
     /// Append a ledger row; returns its position in the WAL.
