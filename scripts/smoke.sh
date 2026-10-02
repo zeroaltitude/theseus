@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end smoke test (M0 First light onward). Needs OP_SERVICE_ACCOUNT_TOKEN (or
-# THESEUS_OP_TOKEN_FILE) and a config (THESEUS_CONFIG, default: the 1Password item).
+# THESEUS_OP_TOKEN_FILE) and a config (THESEUS_CONFIG: a file, or a 1Password note's op://
+# reference; without it, theseusd's default, ~/.theseus/theseus.toml).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BIN=${BIN:-target/debug}
