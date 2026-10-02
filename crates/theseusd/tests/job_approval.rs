@@ -131,6 +131,10 @@ impl Rig {
             w.insert("enabled".into(), true.into());
             w.insert("bind".into(), "127.0.0.1".into());
             w.insert("port".into(), i64::from(port).into());
+            // The web UI answers once [approval] names it (review 2's
+            // consideration 2).
+            let channels = toml::Value::Array(vec!["cli".into(), "web".into()]);
+            table(&mut t, "approval").insert("channels".into(), channels);
             port
         });
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();

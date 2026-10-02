@@ -402,7 +402,13 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     let r = ask(&rpc, &session(&core), "write a").await;
     let q = r.awaiting_confirm.clone().expect("the write waits");
     // Answered from the CLI while Discord is away.
-    core.confirm_action(&q, false, Some("not now"), "cli#1")
+    let cli = theseus_core::approval::Answerer {
+        label: "cli#1".into(),
+        surface: Surface::Cli,
+        discord: None,
+        peer: theseus_core::approval::Peer::None,
+    };
+    core.confirm_action(&q, false, Some("not now"), cli)
         .unwrap();
     // The reply (its footer), the card, and the card's settle wait.
     assert_eq!(pending(&core), 3);
@@ -590,13 +596,14 @@ fn mentioned_out(core: &Core) -> Vec<(String, serde_json::Value)> {
         .collect()
 }
 
-/// theseus-9j9: a card in a guild channel names the users who can answer it
-/// (the place's, with no `[approval]`) in its content and in
-/// `allowed_mentions.users`, so Discord notifies them and nobody else. Every
-/// other message there (the bind notice, the turn's tool line, and its
-/// reply, whose text names a user) mentions no one.
+/// theseus-9j9, under review 2's consideration 2: with no `[approval]`, a
+/// guild channel answers nothing, so its card goes to the owner's DM, which
+/// needs no mention, and the channel gets the note. No message mentions
+/// anyone: the bind notice, the turn's tool line, its reply (whose text
+/// names a user), the note, or the card. (A card that stays in a trusted
+/// channel names its answerers: `courier::answerers` and `mentioning`.)
 #[tokio::test]
-async fn a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_anyone() {
+async fn without_approval_a_channels_card_goes_to_the_dm_and_nothing_mentions_anyone() {
     let d = tempfile::tempdir().unwrap();
     let fake = FakeDiscord::start();
     let script = vec![Scripted::tools(
@@ -633,14 +640,14 @@ async fn a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_an
     // Live progress can come after the outbox first drains, so wait for every
     // message the test reads, not only for an empty outbox.
     let c = core.clone();
-    let expected = ["🔗 Theseus is bound here", "Asking <@", "`fs.write`"];
+    let expected = ["🔗 Theseus is bound here", "Asking <@", "`fs.write`", "🔐"];
     until(
-        "the card, the tool line, and the reply delivered",
+        "the card, the tool line, the reply, and the note delivered",
         10,
         || {
             let msgs = fake.messages(CHANNEL);
             pending(&c) == 0
-                && msgs.iter().any(|m| m.components > 0)
+                && fake.messages(DM).iter().any(|m| m.components > 0)
                 && expected.iter().all(|w| {
                     msgs.iter()
                         .any(|m| m.components == 0 && m.content.contains(w))
@@ -649,54 +656,42 @@ async fn a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_an
     )
     .await;
     let msgs = fake.messages(CHANNEL);
+    assert!(
+        msgs.iter().all(|m| m.components == 0),
+        "no card in the channel: {msgs:#?}"
+    );
     // The channel reads the turn in its order (theseus-50p): its text, the
-    // call's tool line, then the call's card. The reply edits the streamed
-    // text in place, its footer there. Before, the card was written the
-    // moment the call asked and the tool line only at the place's next tick,
-    // so the channel could read card, reply, then the tool line.
+    // call's tool line, then the note where the card would be.
     let at = |what: &str, is: &dyn Fn(&Msg) -> bool| {
         msgs.iter()
             .position(is)
             .unwrap_or_else(|| panic!("no {what}: {msgs:#?}"))
     };
-    let text = at("text", &|m| {
-        m.components == 0 && m.content.contains("Asking <@")
-    });
-    let line = at("tool line", &|m| {
-        m.components == 0 && m.content.contains("`fs.write`")
-    });
-    let card_at = at("card", &|m| m.components > 0);
+    let text = at("text", &|m| m.content.contains("Asking <@"));
+    let line = at("tool line", &|m| m.content.contains("`fs.write`"));
+    let note_at = at("note", &|m| m.content.starts_with("🔐"));
     assert!(
-        text < line && line < card_at,
-        "text {text}, tool line {line}, card {card_at}: {msgs:#?}"
+        text < line && line < note_at,
+        "text {text}, tool line {line}, note {note_at}: {msgs:#?}"
     );
-    assert!(
-        msgs[text].content.contains("waiting for your approval"),
-        "the reply's footer rides on its text: {:?}",
-        msgs[text].content
+    let note = &msgs[note_at];
+    assert_eq!(
+        note.content,
+        "🔐 Approval for `fs.write` a.txt was asked in DM @eddie: this channel is not a trusted \
+         channel (there is no [approval] section, so only the CLI and a Discord DM answer)."
     );
-    let (cards, others): (Vec<Msg>, Vec<Msg>) = msgs.into_iter().partition(|m| m.components > 0);
-    assert_eq!(cards.len(), 1, "{cards:?}");
-    let card = &cards[0];
+    let card = fake
+        .messages(DM)
+        .into_iter()
+        .find(|m| m.components > 0)
+        .expect("the card in the DM");
     assert!(
-        card.content.starts_with(&format!(
-            "<@{USER}> <@{OTHER}> **Approve?** `fs.write` a.txt"
-        )),
+        card.content.starts_with("**Approve?** `fs.write` a.txt"),
         "{}",
         card.content
     );
-    assert_eq!(
-        card.allowed_mentions,
-        serde_json::json!({"parse": [], "replied_user": false, "users": [USER.to_string(), OTHER.to_string()]})
-    );
-    assert_eq!(card.mentions, [USER.to_string(), OTHER.to_string()]);
-    // The binding read back whom Discord said it notified.
     let out = mentioned_out(&core);
-    let card_out = out.iter().find(|(id, _)| *id == card.id).expect("its row");
-    assert_eq!(
-        card_out.1,
-        serde_json::json!([USER.to_string(), OTHER.to_string()])
-    );
+    let others: Vec<Msg> = msgs.into_iter().chain([card]).collect();
     for what in expected {
         assert!(
             others.iter().any(|m| m.content.contains(what)),

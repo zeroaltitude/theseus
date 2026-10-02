@@ -1,9 +1,11 @@
 //! Approval (spec §3.9 "Approval", theseus-sgh): an answer to a waiting call,
 //! a tool call or a budget question, counts only from a trusted user through
 //! a trusted channel. Both lists are `[approval]` in the vault-held config,
-//! which agents cannot write. Without that section there is no rule, and
-//! every surface answers as it did before: the CLI, the local web UI, and a
-//! place's listed Discord users.
+//! which agents cannot write. Without that section the rule fails closed
+//! (review 2's consideration 2): the owner's CLI and Discord DM answer, and
+//! nothing else. The DM is one the bindings file binds, which only its user
+//! reaches; the web UI and a guild channel answer only once `[approval]`
+//! names them.
 //!
 //! The answer is judged in one place, `Core::confirm_action`, which every
 //! surface reaches through `action.confirm`. The judgment trusts the
@@ -109,13 +111,15 @@ pub struct Answerer {
     pub peer: Peer,
 }
 
-/// A bare label (a test, an in-process caller) answers through no surface
-/// Theseus knows: it counts only without an `[approval]` section.
+/// A bare label, a test's, answers as the CLI on this machine does. Tests
+/// only: every answer in the daemon comes through a listener, which names
+/// its surface.
+#[cfg(test)]
 impl From<&str> for Answerer {
     fn from(label: &str) -> Self {
         Self {
             label: label.to_string(),
-            surface: Surface::Unnamed,
+            surface: Surface::Cli,
             discord: None,
             peer: Peer::None,
         }
@@ -243,17 +247,26 @@ enum Bar {
 }
 
 /// `[approval]`, resolved, with the Discord binding's latest checks.
-#[derive(Default)]
 pub struct Approval {
-    /// None without an `[approval]` section: no rule.
-    rules: Option<Rules>,
+    rules: Rules,
     /// Guild channel id → the binding's latest check of who can view it.
     checked: RwLock<BTreeMap<u64, Checked>>,
+}
+
+/// No `[approval]` section: the owner's CLI and Discord DM.
+impl Default for Approval {
+    fn default() -> Self {
+        Self::new(None)
+    }
 }
 
 struct Rules {
     users: Vec<u64>,
     channels: Vec<Channel>,
+    /// There is no `[approval]` section: the channels are the CLI and a DM,
+    /// and a DM counts for its user, whom the bindings file binds, as the
+    /// binding lets nobody else reach it.
+    owner_only: bool,
 }
 
 impl Rules {
@@ -263,6 +276,11 @@ impl Rules {
 
     /// `channels = [...]` as configured, for a reason.
     fn listing(&self) -> String {
+        if self.owner_only {
+            return "there is no [approval] section, so only the CLI and a Discord DM the bindings \
+                    file binds answer: name it in [approval] channels to add it"
+                .into();
+        }
         let keys: Vec<String> = self
             .channels
             .iter()
@@ -270,23 +288,39 @@ impl Rules {
             .collect();
         format!("[approval] channels = [{}]", keys.join(", "))
     }
+
+    /// `user` may answer in a DM: a trusted user, or without a section,
+    /// whoever the binding let reach it.
+    fn trusts_user(&self, user: u64) -> bool {
+        self.owner_only || self.users.contains(&user)
+    }
 }
 
 impl Approval {
-    /// From the loaded config, which has validated every entry.
+    /// From the loaded config, which has validated every entry. Without an
+    /// `[approval]` section: the owner's CLI and Discord DM (review 2's
+    /// consideration 2).
     pub fn new(cfg: Option<&ApprovalConfig>) -> Self {
-        let rules = cfg.map(|c| Rules {
-            users: c
-                .trusted_users
-                .iter()
-                .filter_map(|u| parse_user(u).ok())
-                .collect(),
-            channels: c
-                .channels
-                .iter()
-                .filter_map(|s| Channel::parse(s).ok())
-                .collect(),
-        });
+        let rules = match cfg {
+            Some(c) => Rules {
+                users: c
+                    .trusted_users
+                    .iter()
+                    .filter_map(|u| parse_user(u).ok())
+                    .collect(),
+                channels: c
+                    .channels
+                    .iter()
+                    .filter_map(|s| Channel::parse(s).ok())
+                    .collect(),
+                owner_only: false,
+            },
+            None => Rules {
+                users: Vec::new(),
+                channels: vec![Channel::Cli, Channel::DiscordDm],
+                owner_only: true,
+            },
+        };
         Self {
             rules,
             checked: RwLock::default(),
@@ -295,7 +329,7 @@ impl Approval {
 
     /// The config has an `[approval]` section.
     pub fn configured(&self) -> bool {
-        self.rules.is_some()
+        !self.rules.owner_only
     }
 
     /// Judge an answer: Ok when it counts, else why it does not. The undo of
@@ -307,15 +341,13 @@ impl Approval {
     /// Judge a "should have asked" press (theseus-sgh). It only makes calls
     /// ask, so any surface that can answer an approval may press one: the
     /// CLI, the web UI, or the Discord binding, which lets only a place's
-    /// listed users press anything. Without `[approval]`, anyone may.
+    /// listed users press anything. With `[approval]` or without.
     pub fn judge_tighten(&self, a: &Answerer) -> Result<(), Refusal> {
         self.judge_at(a, Bar::Surface)
     }
 
     fn judge_at(&self, a: &Answerer, bar: Bar) -> Result<(), Refusal> {
-        let Some(rules) = &self.rules else {
-            return Ok(());
-        };
+        let rules = &self.rules;
         let refuse = |why: String| {
             Err(Refusal {
                 who: a.who(),
@@ -348,7 +380,7 @@ impl Approval {
             )),
             (Surface::Discord, Some(d)) => {
                 let mut why = Vec::new();
-                if !snowflake(&d.user_id).is_some_and(|u| rules.users.contains(&u)) {
+                if !snowflake(&d.user_id).is_some_and(|u| rules.trusts_user(u)) {
                     why.push(format!(
                         "discord:{} is not a trusted user ([approval] trusted_users)",
                         d.user_id
@@ -388,72 +420,57 @@ impl Approval {
         }
     }
 
-    /// The trusted Discord users (`[approval].trusted_users`).
+    /// The trusted Discord users (`[approval].trusted_users`); none without
+    /// a section, where only a DM's own user answers.
     pub fn discord_users(&self) -> Vec<u64> {
-        self.rules
-            .as_ref()
-            .map(|r| r.users.clone())
-            .unwrap_or_default()
+        self.rules.users.clone()
     }
 
     /// Every guild channel `[approval].channels` lists.
     pub fn discord_channels(&self) -> Vec<u64> {
         self.rules
-            .as_ref()
-            .map(|r| {
-                r.channels
-                    .iter()
-                    .filter_map(|c| match c {
-                        Channel::Discord(id) => Some(*id),
-                        _ => None,
-                    })
-                    .collect()
+            .channels
+            .iter()
+            .filter_map(|c| match c {
+                Channel::Discord(id) => Some(*id),
+                _ => None,
             })
-            .unwrap_or_default()
+            .collect()
     }
 
-    /// A DM with this user is a trusted channel: there is no rule, or
-    /// `discord:dm` (or the DM's own channel id) is listed and the user is
-    /// trusted.
+    /// A DM with this user is a trusted channel: `discord:dm` (or the DM's
+    /// own channel id) is listed and the user is trusted, or there is no
+    /// section and the bindings file binds the DM.
     pub fn trusts_dm(&self, user: u64, channel: Option<u64>) -> bool {
-        let Some(r) = &self.rules else {
-            return true;
-        };
+        let r = &self.rules;
         let listed =
             r.lists(Channel::DiscordDm) || channel.is_some_and(|c| r.lists(Channel::Discord(c)));
-        listed && r.users.contains(&user)
+        listed && r.trusts_user(user)
     }
 
-    /// A guild channel is a trusted channel: there is no rule, or it is
-    /// listed and its latest check found only trusted users can view it.
+    /// A guild channel is a trusted channel: it is listed, and its latest
+    /// check found only trusted users can view it. Never without a section.
     pub fn trusts_guild_channel(&self, channel: u64) -> bool {
-        let Some(r) = &self.rules else {
-            return true;
-        };
-        r.lists(Channel::Discord(channel)) && self.checked(channel).is_some_and(|k| k.trusted)
+        self.rules.lists(Channel::Discord(channel))
+            && self.checked(channel).is_some_and(|k| k.trusted)
     }
 
     /// Where a Discord card says an approval can also be answered: the
-    /// trusted local surfaces, "" for none. None without `[approval]`, where
-    /// the card says what it always said.
-    pub fn elsewhere(&self) -> Option<String> {
-        let r = self.rules.as_ref()?;
-        Some(
-            match (r.lists(Channel::Web), r.lists(Channel::Cli)) {
-                (true, true) => "in the web UI or with `theseus confirm`",
-                (true, false) => "in the web UI",
-                (false, true) => "with `theseus confirm`",
-                (false, false) => "",
-            }
-            .to_string(),
-        )
+    /// trusted local surfaces, "" for none.
+    pub fn elsewhere(&self) -> String {
+        let r = &self.rules;
+        match (r.lists(Channel::Web), r.lists(Channel::Cli)) {
+            (true, true) => "in the web UI or with `theseus confirm`",
+            (true, false) => "in the web UI",
+            (false, true) => "with `theseus confirm`",
+            (false, false) => "",
+        }
+        .to_string()
     }
 
     /// `[approval].channels` lists this guild channel.
     pub fn lists_discord_channel(&self, channel: u64) -> bool {
-        self.rules
-            .as_ref()
-            .is_some_and(|r| r.lists(Channel::Discord(channel)))
+        self.rules.lists(Channel::Discord(channel))
     }
 
     /// The binding's check of a guild channel. True when the verdict changed
@@ -475,10 +492,8 @@ impl Approval {
     /// Health's view. `web_on` is `[web] enabled`; `discord` is the Discord
     /// binding's state, when it has reported one.
     pub fn status(&self, web_on: bool, discord: Option<&str>) -> ApprovalStatus {
-        let Some(rules) = &self.rules else {
-            return ApprovalStatus::default();
-        };
-        let channels = rules
+        let rules = &self.rules;
+        let channels: Vec<ApprovalChannel> = rules
             .channels
             .iter()
             .map(|&c| {
@@ -501,6 +516,13 @@ impl Approval {
                                 " (it is off: [web] enabled = false)"
                             }
                         ),
+                        0,
+                    ),
+                    Channel::DiscordDm if rules.owner_only => (
+                        true,
+                        "a DM the bindings file binds, between the bot and its user; nobody \
+                         else can see it"
+                            .into(),
                         0,
                     ),
                     Channel::DiscordDm if rules.users.is_empty() => (
@@ -526,10 +548,19 @@ impl Approval {
                 }
             })
             .collect();
+        // Beyond the owner's CLI and DM, what may answer now: the web UI
+        // while it is on, and each guild channel its latest check trusts.
+        let open = channels
+            .iter()
+            .filter(|c| c.state == "trusted" && c.channel != "cli" && c.channel != "discord:dm")
+            .filter(|c| c.channel != "web" || web_on)
+            .map(|c| c.channel.clone())
+            .collect();
         ApprovalStatus {
-            configured: true,
+            configured: !rules.owner_only,
             trusted_users: rules.users.iter().map(|u| format!("discord:{u}")).collect(),
             channels,
+            open,
         }
     }
 }
@@ -586,32 +617,86 @@ mod tests {
         a.judge(who).unwrap_err().why
     }
 
-    /// Without `[approval]`, every answer counts, a bare label and a Discord
-    /// claim from the CLI included: exactly as before theseus-sgh.
+    /// Review 2's consideration 2: without `[approval]` the rule fails
+    /// closed. The owner's CLI answers, and so does a Discord DM, which only
+    /// the user its binding names reaches. The web UI, a guild channel, a
+    /// connection no listener named, and a Discord claim from the CLI do not,
+    /// and each refusal says how to add a surface. Health is not open.
     #[test]
-    fn without_a_section_every_answer_counts() {
+    fn without_a_section_only_the_cli_and_a_bound_dm_answer() {
         let a = Approval::new(None);
         assert!(!a.configured());
-        for who in [
-            Answerer::from("test"),
-            local(Surface::Cli),
-            local(Surface::Web),
-            discord(MALLORY, CHANNEL, Some(GUILD)),
-            Answerer {
-                discord: Some(DiscordOrigin::default()),
-                ..local(Surface::Cli)
-            },
-        ] {
+        for who in [local(Surface::Cli), discord(MALLORY, CHANNEL, None)] {
             assert_eq!(a.judge(&who), Ok(()), "{who:?}");
         }
-        assert!(a.trusts_dm(1, None) && a.trusts_guild_channel(1));
-        assert_eq!(a.status(true, None), ApprovalStatus::default());
-        assert_eq!(a.elsewhere(), None, "a card says what it always said");
+        let named = "there is no [approval] section, so only the CLI and a Discord DM the \
+                     bindings file binds answer: name it in [approval] channels to add it";
+        for (who, says) in [
+            (local(Surface::Web), "the web UI is not a trusted channel"),
+            (
+                discord(MALLORY, CHANNEL, Some(GUILD)),
+                "Discord channel 333333333333333333 is not a trusted channel",
+            ),
+            (local(Surface::Unnamed), "never a trusted channel"),
+            (
+                Answerer {
+                    discord: Some(DiscordOrigin::default()),
+                    ..local(Surface::Cli)
+                },
+                "only the Discord binding can name",
+            ),
+        ] {
+            let w = why(&a, &who);
+            assert!(w.contains(says), "{w}");
+            if !says.contains("never") && !says.contains("only the Discord") {
+                assert!(w.ends_with(&format!("({named})")), "{w}");
+            }
+        }
+        assert!(a.trusts_dm(1, None) && !a.trusts_guild_channel(1));
+        assert_eq!(a.elsewhere(), "with `theseus confirm`");
+        let s = a.status(true, None);
+        assert!(!s.configured && s.open.is_empty(), "{s:?}");
+        let listed: Vec<(&str, &str)> = s
+            .channels
+            .iter()
+            .map(|c| (c.channel.as_str(), c.state.as_str()))
+            .collect();
+        assert_eq!(listed, [("cli", "trusted"), ("discord:dm", "trusted")]);
+    }
+
+    /// Health says `approval: open` while a surface beyond the owner's CLI
+    /// and DM may answer: the web UI while it is on, and a guild channel its
+    /// latest check trusts (review 2's consideration 2).
+    #[test]
+    fn health_is_open_while_more_than_the_cli_and_a_dm_may_answer() {
+        let open = |a: &Approval, web_on: bool| a.status(web_on, Some("ready")).open;
+        let a = approval(&[&format!("discord:{EDDIE}")], &["cli", "discord:dm"]);
+        assert!(open(&a, true).is_empty());
+        let a = approval(
+            &[&format!("discord:{EDDIE}")],
+            &["cli", "web", "discord:dm", &format!("discord:{CHANNEL}")],
+        );
+        assert_eq!(
+            open(&a, true),
+            ["web"],
+            "an unchecked channel cannot answer yet"
+        );
+        assert!(open(&a, false).is_empty(), "the web UI is off");
+        let id: u64 = CHANNEL.parse().unwrap();
+        let check = |trusted| Checked {
+            trusted,
+            detail: "invented".into(),
+            at_ms: 1,
+        };
+        a.report(id, check(true));
+        assert_eq!(open(&a, true), ["web", &format!("discord:{CHANNEL}")]);
+        a.report(id, check(false));
+        assert_eq!(open(&a, false), Vec::<String>::new());
     }
 
     #[test]
     fn a_card_names_the_trusted_local_surfaces() {
-        let says = |channels: &[&str]| approval(&[], channels).elsewhere().unwrap();
+        let says = |channels: &[&str]| approval(&[], channels).elsewhere();
         assert_eq!(
             says(&["cli", "web"]),
             "in the web UI or with `theseus confirm`"
@@ -647,7 +732,7 @@ mod tests {
             }),
             ..local(Surface::Cli)
         };
-        let unnamed = Answerer::from("test");
+        let unnamed = local(Surface::Unnamed);
         let bare = Answerer {
             discord: None,
             ..discord(EDDIE, CHANNEL, None)
@@ -661,13 +746,15 @@ mod tests {
                 assert!(r.unwrap_err().why.contains(says), "{who:?}");
             }
         }
+        // Without a section, too, a press takes a known surface, and its undo
+        // the owner's rule.
         let none = Approval::new(None);
-        for who in [&forged, &unnamed, &local(Surface::Web)] {
-            assert_eq!(
-                none.judge_tighten(who),
-                Ok(()),
-                "without [approval]: {who:?}"
-            );
+        for who in [local(Surface::Web), discord(MALLORY, CHANNEL, Some(GUILD))] {
+            assert_eq!(none.judge_tighten(&who), Ok(()), "{who:?}");
+            assert!(none.judge(&who).is_err(), "{who:?}");
+        }
+        for who in [&forged, &unnamed] {
+            assert!(none.judge_tighten(who).is_err(), "{who:?}");
         }
     }
 
@@ -683,7 +770,7 @@ mod tests {
         let a = approval(&[], &["cli"]);
         assert_eq!(a.judge(&local(Surface::Cli)), Ok(()));
         assert!(why(&a, &local(Surface::Web)).starts_with("the web UI is not a trusted channel"));
-        assert!(why(&a, &Answerer::from("test")).contains("never a trusted channel"));
+        assert!(why(&a, &local(Surface::Unnamed)).contains("never a trusted channel"));
     }
 
     #[test]

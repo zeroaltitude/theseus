@@ -708,15 +708,27 @@ pub fn confirm_lines(c: &ConfirmRequest) -> Vec<Line> {
 }
 
 /// Health's `[approval]` (theseus-sgh): who may answer, and each listed
-/// channel's state, with the reason for any that is not trusted.
+/// channel's state, with the reason for any that is not trusted; first,
+/// `approval: open` while more than the CLI and the owner's Discord DM may
+/// (review 2's consideration 2).
 pub fn approval_lines(a: &theseus_protocol::ApprovalStatus) -> Vec<Line> {
     let mut out = Vec::new();
+    if !a.open.is_empty() {
+        push(
+            &mut out,
+            Tag::Plain,
+            &format!(
+                "approval: open: {} may answer, beyond the CLI and the owner's Discord DM",
+                a.open.join(", ")
+            ),
+        );
+    }
     if !a.configured {
         push(
             &mut out,
             Tag::Plain,
-            "approval: no [approval] section, so the CLI, the web UI, and a place's listed \
-             Discord users answer",
+            "approval: no [approval] section, so only the CLI and a Discord DM the bindings file \
+             binds answer (the web UI answers once [approval] channels names it)",
         );
         return out;
     }
@@ -2147,6 +2159,30 @@ mod tests {
 
     /// The broker line names each grant and its uses, never a value
     /// (theseus-dcy), and says when there is none.
+    #[test]
+    fn approval_says_open_while_more_than_the_cli_and_a_dm_may_answer() {
+        let lines = |a: &theseus_protocol::ApprovalStatus| -> Vec<String> {
+            approval_lines(a).into_iter().map(|l| l.text).collect()
+        };
+        let none = theseus_protocol::ApprovalStatus::default();
+        assert_eq!(
+            lines(&none),
+            [
+                "approval: no [approval] section, so only the CLI and a Discord DM the bindings \
+              file binds answer (the web UI answers once [approval] channels names it)"
+            ]
+        );
+        let open = theseus_protocol::ApprovalStatus {
+            configured: true,
+            open: vec!["web".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            lines(&open)[0],
+            "approval: open: web may answer, beyond the CLI and the owner's Discord DM"
+        );
+    }
+
     #[test]
     fn the_broker_line_names_each_grant_and_its_uses() {
         use theseus_protocol::GrantStatus;

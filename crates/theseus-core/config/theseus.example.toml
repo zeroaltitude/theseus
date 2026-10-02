@@ -425,11 +425,12 @@ port = 7433
 
 # ---------------------------------------------------------------- approval
 # Who may answer a call that waits for approval, or a budget question, and
-# where (spec §3.9 "Approval"). Without this section there is no rule: the
-# CLI, the web UI, and a place's listed Discord users answer. With it, an
-# answer counts only from a trusted user through a trusted channel; any other
-# is turned down with the reason, ledgered as approval.refused, and the call
-# keeps waiting. Channels:
+# where (spec §3.9 "Approval"). Without this section only you answer: the CLI,
+# and a Discord DM your bindings file binds. The web UI and a guild channel
+# answer only once this section names them, and health says "approval: open"
+# while one may. With it, an answer counts only from a trusted user through a
+# trusted channel; any other is turned down with the reason, ledgered as
+# approval.refused, and the call keeps waiting. Channels:
 #   "cli"                    `theseus confirm`: the socket is mode 0600, so only you
 #   "web"                    the web UI: loopback, so anyone on this machine
 #   "discord:dm"             a DM between the bot and a trusted user
@@ -439,10 +440,11 @@ port = 7433
 #                            without it the channel is not trusted
 # The CLI and the web UI need no trusted_users entry: whoever reaches them is
 # this machine's operator. A Discord card for a place that is not trusted goes
-# to a trusted user's DM, when discord:dm is listed.
+# to a trusted user's DM, when discord:dm is listed (without this section, to a
+# DM the bindings file binds).
 # [approval]
 # trusted_users = ["discord:159471966640799744"]   # who may answer on Discord (default: nobody)
-# channels = ["cli", "web", "discord:dm"]          # where (default: ["cli", "web"])
+# channels = ["cli", "web", "discord:dm"]          # where (default: ["cli", "discord:dm"])
 
 # ---------------------------------------------------------------- github
 # The GitHub token is checked at startup: login, expiry, days left. Never fatal.

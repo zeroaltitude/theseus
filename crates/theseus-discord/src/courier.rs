@@ -202,16 +202,14 @@ fn mentioning(users: &[u64], content: String) -> String {
 }
 
 /// Who can answer a card in a guild channel (theseus-9j9): the place's
-/// users, whom the binding lets press its buttons, and of them, when
-/// `[approval]` is configured, only those it trusts, since the core refuses
-/// anyone else's answer (`Approval::judge`).
+/// users, whom the binding lets press its buttons, and of them only those
+/// `[approval]` trusts, since the core refuses anyone else's answer
+/// (`Approval::judge`). Without the section, nobody: a guild channel never
+/// answers then, and its cards go to a DM.
 pub(crate) fn answerers(
     place_users: &[u64],
     approval: &theseus_core::approval::Approval,
 ) -> Vec<u64> {
-    if !approval.configured() {
-        return place_users.to_vec();
-    }
     let trusted = approval.discord_users();
     place_users
         .iter()
@@ -737,10 +735,7 @@ impl Lane {
         };
         let channel = self.place_channel().await?;
         let route = self.route().await?;
-        let elsewhere = core
-            .approval
-            .elsewhere()
-            .unwrap_or_else(|| render::ELSEWHERE.to_string());
+        let elsewhere = core.approval.elsewhere();
         let card = render::card(&req, &route, &elsewhere);
         let note = render::card_note(&route, &card.line, &elsewhere);
         let key = format!("confirm:{q}");
@@ -854,16 +849,18 @@ impl Lane {
     }
 
     /// Where a card goes (theseus-sgh): here when the place is a trusted
-    /// channel, or with no `[approval]`; else a trusted user's DM, with a note
-    /// here; else the note alone.
+    /// channel; else a trusted user's DM, with a note here; else the note
+    /// alone. With no `[approval]`, a bound DM is trusted and a guild channel
+    /// is not (review 2's consideration 2).
     async fn route(&mut self) -> Result<Route, SendErr> {
         let ap = &self.shared.core.approval;
-        if !ap.configured() {
-            return Ok(Route::Here);
-        }
         let channel = self.channel;
         let why = match (self.kind, channel, self.dm_user) {
             ("dm", _, Some(u)) if ap.trusts_dm(u, channel) => return Ok(Route::Here),
+            (_, _, None) if !ap.configured() => {
+                "there is no [approval] section, so only the CLI and a Discord DM answer"
+                    .to_string()
+            }
             ("dm", _, Some(u)) if !ap.discord_users().contains(&u) => {
                 "its user is not in [approval] trusted_users".to_string()
             }
@@ -1274,8 +1271,9 @@ mod tests {
         );
     }
 
-    /// A card's answerers (theseus-9j9): the place's users, and of them, under
-    /// `[approval]`, only the trusted ones, whose answers alone count.
+    /// A card's answerers (theseus-9j9): the place's users whom `[approval]`
+    /// trusts, whose answers alone count; without the section, nobody in a
+    /// guild channel (review 2's consideration 2).
     #[test]
     fn a_cards_answerers_are_the_places_users_whom_approval_trusts() {
         use theseus_core::approval::Approval;
@@ -1287,7 +1285,7 @@ mod tests {
             300_000_000_000_000_303,
         );
         let place = [a, b, c];
-        assert_eq!(answerers(&place, &Approval::new(None)), place);
+        assert!(answerers(&place, &Approval::new(None)).is_empty());
         let cfg = ApprovalConfig {
             trusted_users: vec![format!("discord:{b}"), "discord:400000000000000404".into()],
             channels: vec!["discord:dm".into()],

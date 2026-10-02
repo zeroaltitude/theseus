@@ -3024,12 +3024,16 @@ mod tests {
         let core = core_for_tests(d.path());
         let (rpc, _notes) = RpcClient::connect(core.clone(), Client::new(CLIENT, Surface::Discord));
         let pick = parse_asked_pick(ASKED_MENU, &["proc.run".into()]).unwrap();
-        let dm = DiscordOrigin {
-            user_id: "159471966640799744".into(),
-            channel_id: "444444444444444444".into(),
-            guild_id: None,
+        // The binding names who pressed, and where, on every press: without
+        // `[approval]` too, a press from it that names none is refused.
+        let dm = || {
+            Some(DiscordOrigin {
+                user_id: "159471966640799744".into(),
+                channel_id: "444444444444444444".into(),
+                guild_id: None,
+            })
         };
-        let r = send_tighten(&rpc, &pick, "discord:eddie", Some(dm)).await;
+        let r = send_tighten(&rpc, &pick, "discord:eddie", dm()).await;
         let t = r.as_ref().unwrap();
         assert_eq!(
             (t.tool.as_str(), t.posture.as_str(), t.changed),
@@ -3045,7 +3049,7 @@ mod tests {
             "🔒 `proc.run` asks first from now on. Undo it in the web UI's Tools view, or with \
              `theseus policy untighten proc.run`."
         );
-        let again = send_tighten(&rpc, &pick, "discord:eddie", None).await;
+        let again = send_tighten(&rpc, &pick, "discord:eddie", dm()).await;
         assert_eq!(
             tightened_reply("proc.run", &again),
             "🔒 `proc.run` already asks first: tightened by discord:eddie."
@@ -3054,7 +3058,7 @@ mod tests {
             tool: "fs.read".into(),
             correlation_id: Some("act_nope".into()),
         };
-        let e = send_tighten(&rpc, &bad, "discord:eddie", None).await;
+        let e = send_tighten(&rpc, &bad, "discord:eddie", dm()).await;
         assert_eq!(
             tightened_reply("fs.read", &e),
             "⚠️ Could not tighten `fs.read`: no call act_nope"

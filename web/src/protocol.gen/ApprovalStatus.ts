@@ -7,12 +7,18 @@ import type { ApprovalChannel } from "./ApprovalChannel";
  */
 export type ApprovalStatus = { 
 /**
- * The config has an `[approval]` section. Without one, every surface
- * answers as before theseus-sgh: the CLI, the local web UI, and a
- * place's listed Discord users.
+ * The config has an `[approval]` section. Without one, only the owner's
+ * CLI and Discord DM answer (review 2's consideration 2), and `channels`
+ * lists those two.
  */
 configured: boolean, 
 /**
  * Surface-qualified ids, as configured (`discord:<user id>`).
  */
-trusted_users: Array<string>, channels: Array<ApprovalChannel>, };
+trusted_users: Array<string>, channels: Array<ApprovalChannel>, 
+/**
+ * The channels beyond the CLI and the owner's Discord DM that may answer
+ * now (`web` while it is on, `discord:<channel id>` while its check
+ * trusts it): health says `approval: open` while there is one.
+ */
+open: Array<string>, };

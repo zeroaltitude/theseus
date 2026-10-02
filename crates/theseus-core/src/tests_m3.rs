@@ -4977,9 +4977,15 @@ async fn a_listed_cli_approves_and_an_unlisted_web_ui_is_refused() {
         "{}",
         e.message
     );
+    let unnamed = crate::approval::Answerer {
+        label: "test".into(),
+        surface: crate::approval::Surface::Unnamed,
+        discord: None,
+        peer: crate::approval::Peer::None,
+    };
     let e = r
         .core
-        .confirm_action(&corr, true, None, "test")
+        .confirm_action(&corr, true, None, unnamed)
         .unwrap_err();
     assert!(e.to_string().contains("never a trusted channel"), "{e}");
     answer_as(&r.core, surface("sock#1", Cli), &corr, None)
@@ -5064,29 +5070,51 @@ async fn the_budget_question_follows_the_same_rule() {
     assert_eq!(ledgered(&r, "budget.reset")[0]["by"], "the CLI");
 }
 
-/// Without `[approval]` every surface answers as before theseus-sgh: a CLI,
-/// a web UI, a Discord, and an unnamed connection each approve a waiting
-/// call, and nothing is refused.
+/// Review 2's consideration 2: without `[approval]` the rule fails closed.
+/// The CLI and a Discord DM (which the binding lets only its bound user
+/// reach) approve a waiting call; the web UI, a guild channel, and an
+/// unnamed connection are refused with the reason, ledgered, and the call
+/// keeps waiting. Health is not open.
 #[tokio::test]
-async fn without_approval_every_surface_answers_as_before() {
+async fn without_approval_only_the_cli_and_a_dm_answer() {
     use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
     for (client, discord) in [
         (surface("sock#1", Cli), None),
-        (surface("web#1", Web), None),
-        (
-            surface("discord", Discord),
-            Some((MALLORY, Some("712398310421561444"))),
-        ),
-        (surface("test", Unnamed), None),
+        (surface("discord", Discord), Some((MALLORY, None))),
     ] {
         let r = rig(write_script());
-        assert!(!r.core.health().approval.configured);
         let res = turn(&r.core, None, "write out.txt").await;
         let corr = res.awaiting_confirm.clone().unwrap();
         let label = client.label.clone();
         let ok = answer_as(&r.core, client, &corr, discord).await;
         assert_eq!(ok.unwrap()["approved"], true, "{label}");
         assert!(ledgered(&r, "approval.refused").is_empty());
+    }
+    for (client, discord, why) in [
+        (
+            surface("web#1", Web),
+            None,
+            "the web UI is not a trusted channel",
+        ),
+        (
+            surface("discord", Discord),
+            Some((EDDIE, Some("712398310421561444"))),
+            "Discord channel 444444444444444444 is not a trusted channel",
+        ),
+        (surface("test", Unnamed), None, "never a trusted channel"),
+    ] {
+        let r = rig(write_script());
+        let h = r.core.health().approval;
+        assert!(!h.configured && h.open.is_empty(), "{h:?}");
+        let res = turn(&r.core, None, "write out.txt").await;
+        let corr = res.awaiting_confirm.clone().unwrap();
+        let e = answer_as(&r.core, client, &corr, discord)
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
+        assert!(e.message.contains(why), "{}", e.message);
+        assert_eq!(ledgered(&r, "approval.refused").len(), 1);
+        assert_eq!(r.core.confirm_list().unwrap().len(), 1, "it keeps waiting");
     }
 }
 
@@ -5515,24 +5543,32 @@ async fn only_a_trusted_answer_undoes_a_tightening() {
 }
 
 /// Without `[approval]` a press and an undo behave as an answer does
-/// today: every surface may make them, and nothing is refused.
+/// (review 2's consideration 2): any known surface may press, since a press
+/// only makes calls ask, but the undo loosens, so only the CLI and a Discord
+/// DM make it; a connection no listener named does neither.
 #[tokio::test]
-async fn without_approval_every_surface_tightens_and_undoes() {
+async fn without_approval_any_surface_tightens_and_only_the_owners_undo() {
     use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
     use theseus_protocol::method;
     let r = rig_with(vec![], |cfg| cfg.policy.enforcement = Posture::Notify);
-    // Each names its surface, as a cancel does; a connection no listener
-    // named, its own label (theseus-qiy).
-    for (label, s, discord, by) in [
-        ("sock#1", Cli, None, "the CLI"),
-        ("web#1", Web, None, "the web UI"),
+    // Each names its surface, as a cancel does (theseus-qiy).
+    for (label, s, discord, by, undoes) in [
+        ("sock#1", Cli, None, "the CLI", true),
+        ("web#1", Web, None, "the web UI", false),
         (
             "discord",
             Discord,
             Some((MALLORY, Some("712398310421561444"))),
             "the Discord binding",
+            false,
         ),
-        ("test", Unnamed, None, "test"),
+        (
+            "discord",
+            Discord,
+            Some((MALLORY, None)),
+            "the Discord binding",
+            true,
+        ),
     ] {
         let p = json!({"tool": "proc.run", "discord": origin(discord)});
         let t = rpc_as(
@@ -5547,12 +5583,33 @@ async fn without_approval_every_surface_tightens_and_undoes() {
             (t["changed"].as_bool(), t["by"].as_str()),
             (Some(true), Some(by))
         );
-        let u = rpc_as(&r.core, surface(label, s), method::POLICY_UNTIGHTEN, p)
+        let u = rpc_as(&r.core, surface(label, s), method::POLICY_UNTIGHTEN, p).await;
+        if undoes {
+            assert_eq!(u.unwrap()["posture"], "notify", "{label}");
+        } else {
+            let e = u.unwrap_err();
+            assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{label}");
+            // The refused undo leaves it tightened; the CLI's clears it.
+            rpc_as(
+                &r.core,
+                surface("sock#2", Cli),
+                method::POLICY_UNTIGHTEN,
+                json!({"tool": "proc.run"}),
+            )
             .await
             .unwrap();
-        assert_eq!(u["posture"], "notify", "{label}");
+        }
     }
-    assert!(ledgered(&r, "approval.refused").is_empty());
+    let p = json!({"tool": "proc.run"});
+    let e = rpc_as(&r.core, surface("test", Unnamed), method::POLICY_TIGHTEN, p)
+        .await
+        .unwrap_err();
+    assert!(
+        e.message.contains("never a trusted channel"),
+        "{}",
+        e.message
+    );
+    assert_eq!(ledgered(&r, "approval.refused").len(), 3);
     assert_eq!(ledgered(&r, "policy.tightened").len(), 4);
     assert_eq!(ledgered(&r, "policy.untightened").len(), 4);
 }

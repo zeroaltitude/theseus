@@ -153,8 +153,9 @@ impl Default for DiscordConfig {
 
 /// `[approval]` (spec §3.9 "Approval", theseus-sgh): an answer to a waiting
 /// call counts only from a trusted user through a trusted channel. Without
-/// the section there is no rule: the CLI, the local web UI, and a place's
-/// listed Discord users answer, as before.
+/// the section, only the owner's CLI and Discord DM answer (review 2's
+/// consideration 2); the web UI and a guild channel answer once it names
+/// them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalConfig {
@@ -166,13 +167,13 @@ pub struct ApprovalConfig {
     /// Where an approval dialogue may happen: `cli`, `web`, `discord:dm` (a
     /// DM between the bot and a trusted user), or `discord:<channel id>` (a
     /// guild channel that only trusted users can view). Default: the CLI and
-    /// the web UI.
+    /// a trusted user's DM; the web UI by name.
     #[serde(default = "default_approval_channels")]
     pub channels: Vec<String>,
 }
 
 fn default_approval_channels() -> Vec<String> {
-    vec!["cli".into(), "web".into()]
+    vec!["cli".into(), "discord:dm".into()]
 }
 
 impl DiscordConfig {
@@ -2092,13 +2093,14 @@ mod tests {
     }
 
     /// `[approval]` (theseus-sgh). Eddie's vault config (its sections checked
-    /// 2026-09-29, by name only) has none: it loads with no rule and no new
-    /// warning, and `theseusd config` prints no such section. The template
-    /// keeps it commented, with Eddie's DM as the example, and each of its
-    /// lines parses. A section sets only what it names: channels default to
-    /// the CLI and the web UI, trusted users to nobody.
+    /// 2026-09-29, by name only) has none: it loads with the owner's rule
+    /// (review 2's consideration 2) and no new warning, and `theseusd config`
+    /// prints no such section. The template keeps it commented, with Eddie's
+    /// DM as the example, and each of its lines parses. A section sets only
+    /// what it names: channels default to the CLI and a trusted user's DM
+    /// (the web UI by name), trusted users to nobody.
     #[test]
-    fn approval_is_no_rule_unless_the_config_has_the_section() {
+    fn approval_is_the_owners_unless_the_config_has_the_section() {
         let vault = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
                      [kernel]\nadmission_ceiling = 8\nheartbeat_secs = 60\n\n\
                      [discord]\nenabled = true\ntoken_secret = \"discord_bot_token\"\n\
@@ -2122,10 +2124,17 @@ mod tests {
         let with = |section: &str| Config::parse(&format!("{vault}\n[approval]\n{section}\n"));
         let (cfg, w) = with("").unwrap();
         let a = cfg.approval.unwrap();
-        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(
+            w,
+            [
+                "approval.channels lists Discord, but approval.trusted_users names nobody, so no \
+              Discord answer counts"
+            ],
+            "the default DM needs a trusted user"
+        );
         assert_eq!(
             (a.trusted_users.len(), a.channels),
-            (0, vec!["cli".to_string(), "web".to_string()])
+            (0, vec!["cli".to_string(), "discord:dm".to_string()])
         );
         let (cfg, w) = with(
             "trusted_users = [\"discord:159471966640799744\"]\nchannels = [\"cli\", \"web\", \"discord:dm\", \"discord:333333333333333333\"]",

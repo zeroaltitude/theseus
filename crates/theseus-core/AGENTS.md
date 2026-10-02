@@ -53,6 +53,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **Nothing retractable goes in the shared header** (Appendix F), so sessions on a profile share one cache entry.
 - **The config template is the contract.** Change a default there, not only in code. The loader rejects unknown
   keys, and `example_template_uncommented_still_parses` un-comments every line and parses it.
+- **Approval fails closed** (review 2's consideration 2). Without `[approval]`, only the CLI and a Discord DM the
+  bindings file binds answer; the web UI and a guild channel answer once the section names them, and health then
+  says `approval: open`. A test's bare label answers as the CLI (`From<&str> for Answerer` is test-only).
 - **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output: each board
   value verbatim, in base64, and percent-encoded, and the shapes of secrets never resolved here (token prefixes,
   AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its
