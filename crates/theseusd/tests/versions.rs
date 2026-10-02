@@ -511,8 +511,27 @@ fn the_history_check_after_serving_finds_a_corrupt_frame_and_says_so() {
         .unwrap();
     assert_eq!(rows["rows"].as_array().unwrap().len(), 1, "{rows}");
     assert!(rig.log().contains("the WAL's history does not check"));
-    let refused = rig
-        .call("ledger.tail", json!({"n": 1000}))
-        .expect_err("a read of the corrupt frame's rows is refused");
-    assert!(refused.to_string().contains("corrupt"), "{refused}");
+    // A list read that reaches the corrupt frame skips its rows and counts
+    // them (R4, theseus-15g): it once failed whole. Health says how many, and
+    // what repairs them.
+    let all = rig.call("ledger.tail", json!({"n": 1000})).unwrap();
+    let (shown, total) = (
+        all["rows"].as_array().unwrap().len() as u64,
+        all["total"].as_u64().unwrap(),
+    );
+    assert!(shown > 0 && shown < total, "{shown} of {total} rows");
+    let h = rig.call("health", Value::Null).unwrap();
+    assert_eq!(
+        h["store"]["refused_records"].as_u64().unwrap(),
+        total - shown,
+        "{}",
+        h["store"]
+    );
+    assert!(
+        h["store"]["repair"]
+            .as_str()
+            .is_some_and(|r| r.contains("theseusd restore --repair")),
+        "{}",
+        h["store"]
+    );
 }

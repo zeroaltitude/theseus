@@ -37,6 +37,10 @@ subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindin
   tender would read the operator's model files. `tests/tender.rs` turns it on, with the real binary.
 - **Files are the operator's alone**: umask 077 before anything is created, and the state dir, store, and spool
   0700. A job's command gets the operator's own umask back.
+- **A panic writes a crash file, then aborts** (`panic = "abort"`, Review 2's consideration 1). `daemon()` installs
+  the hook once the state dir exists; it writes `crash-<mode>.json` beside the store. `after_serving` takes it into
+  `crashes/`, logs it, writes `server.crashed`, and health reports the newest. A debug build panics there when
+  `THESEUS_TEST_PANIC=after_serving` (`crash::planted`), for `tests/crash.rs`; a release build has no plant.
 - **Code that runs as root** (`install --separate`): every deletion is one planned file, an empty directory, or a
   socket, never recursive; ownership changes use `lchown`; account tools run by absolute path; `userdel` never
   takes the state dir.

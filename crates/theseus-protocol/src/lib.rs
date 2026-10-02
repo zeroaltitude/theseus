@@ -10,6 +10,7 @@
 
 mod events;
 mod gate;
+mod health;
 pub mod index;
 mod ledger;
 mod push;
@@ -18,6 +19,7 @@ mod ts;
 
 pub use events::*;
 pub use gate::*;
+pub use health::*;
 pub use index::TenderStatus;
 pub use ledger::*;
 pub use push::*;
@@ -436,6 +438,14 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub index: Option<index::IndexHealth>,
+    /// The store's refused reads (R4, theseus-15g); zero from a daemon before it.
+    #[serde(default)]
+    pub store: StoreStatus,
+    /// The newest crash a start found (Review 2's consideration 1): what
+    /// panicked when the daemon last died. Absent when it never has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub crash: Option<CrashStatus>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

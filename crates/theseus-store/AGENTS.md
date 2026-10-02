@@ -38,6 +38,13 @@ the reserved theseus-follow, theseus-index, and theseus-exam.
   newer theseusd"). There is no rolling back: keep the newer binary, or restore a copy taken before the upgrade.
 - **The open reads only the WAL's tail**, from the frame after the index's checkpoint. The rest is checked after
   serving by core's `store-verify` thread, and a corrupt frame there is refused and loud.
+- **A list read skips a refused record** (R4, theseus-15g): `read_many` and `scan` leave out a record whose read is
+  refused (a corrupt frame), log it once, and count it in `StoreStats::refused_records`, which health shows. A read
+  of that record alone (`get`, `latest_by_key`) is still refused. `repair.rs` takes a frame that does not check
+  whole from a copy of the store, and `theseus_core::restore::repair` swaps the repaired WAL in.
+- **An open cuts a bad frame in the last segment, and all after it, as a torn tail** (theseus-gt12, open): a bad
+  frame there with good frames after it loses them. Until that is fixed, don't open a store you suspect is corrupt
+  just to look; repair it from a copy first.
 - **A checkpoint takes the store's `appending` lock alone**, so the position it claims is synced and indexed: the
   writer holds it shared from a batch's first write to its index. Don't take a checkpoint while holding that lock.
   The periodic one (every 1,000 records) runs on the writer, after it has answered the batch that crossed the

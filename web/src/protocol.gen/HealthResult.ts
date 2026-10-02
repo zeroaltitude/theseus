@@ -6,6 +6,7 @@ import type { BindingStatus } from "./BindingStatus";
 import type { ChildrenStatus } from "./ChildrenStatus";
 import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
+import type { CrashStatus } from "./CrashStatus";
 import type { DiskStatus } from "./DiskStatus";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
@@ -15,6 +16,7 @@ import type { PushStatus } from "./PushStatus";
 import type { SecretsStatus } from "./SecretsStatus";
 import type { SpoolStatus } from "./SpoolStatus";
 import type { StartupPhase } from "./StartupPhase";
+import type { StoreStatus } from "./StoreStatus";
 import type { TelemetryStatus } from "./TelemetryStatus";
 import type { Tightening } from "./Tightening";
 import type { Usage } from "./Usage";
@@ -138,4 +140,13 @@ aws?: AwsStatus,
  * supervises it, and its own status when it answers. Absent from a
  * daemon before it.
  */
-index?: IndexHealth, };
+index?: IndexHealth, 
+/**
+ * The store's refused reads (R4, theseus-15g); zero from a daemon before it.
+ */
+store: StoreStatus, 
+/**
+ * The newest crash a start found (Review 2's consideration 1): what
+ * panicked when the daemon last died. Absent when it never has.
+ */
+crash?: CrashStatus, };

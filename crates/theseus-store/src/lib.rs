@@ -28,6 +28,7 @@
 
 pub mod index;
 pub mod record;
+pub mod repair;
 pub mod store;
 pub mod wal;
 

@@ -43,6 +43,7 @@ use crate::trace::Trace;
 pub mod answer;
 pub mod driver;
 pub mod index;
+pub mod start;
 pub mod tool;
 pub mod turn;
 
@@ -304,6 +305,7 @@ facts![
     index::TenderSettingsChanged,
     index::TenderExited<'static>,
     index::TenderStartFailed<'static>,
+    start::CrashFound<'static>,
 ];
 
 #[cfg(test)]

@@ -1006,6 +1006,63 @@ fn a_checkpoint_for_close_is_made_durable_by_the_close() {
     assert_eq!(s.verified(), Some(mark));
 }
 
+/// R4 (theseus-15g): one record in a corrupt frame no longer fails every
+/// list read that reaches it. Three executions, one in each of the first
+/// three frames, then the history check finds the first frame corrupt.
+/// Each list read skips that record, and the store counts it once, by
+/// position, for health; a read of it alone is still refused.
+#[test]
+fn list_reads_skip_a_refused_record_and_count_it_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = open(dir.path());
+    for k in ["exe_a", "exe_b", "exe_c"] {
+        s.append(&[NewRecord::json(kinds::EXECUTION, Some(k), &k)
+            .unwrap()
+            .scoped("ses_1")])
+            .unwrap();
+    }
+    s.checkpoint().unwrap();
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &"after").unwrap()])
+        .unwrap();
+    drop(s);
+    // Frame 1's last byte, its record's payload, flipped: only its crc
+    // knows.
+    let seg = dir.path().join("wal").join(format!("{:09}.seg", 1));
+    let mut b = std::fs::read(&seg).unwrap();
+    let body_len = u32::from_le_bytes(b[4..8].try_into().unwrap()) as usize;
+    b[crate::wal::FRAME_HEADER + body_len - 1] ^= 0x01;
+    std::fs::write(&seg, &b).unwrap();
+    let s = open(dir.path());
+    assert!(
+        s.verify_history(|_| {}).is_err(),
+        "the history check finds it"
+    );
+
+    let keys = |rs: Vec<Record>| -> Vec<String> { rs.into_iter().filter_map(|r| r.key).collect() };
+    assert_eq!(
+        keys(s.latest_of_kind(kinds::EXECUTION).unwrap()),
+        ["exe_b", "exe_c"]
+    );
+    assert_eq!(
+        keys(s.tail_of_kind(kinds::EXECUTION, 10).unwrap()),
+        ["exe_b", "exe_c"]
+    );
+    assert_eq!(
+        keys(s.scan_scope("ses_1", 0, 10).unwrap()),
+        ["exe_b", "exe_c"]
+    );
+    assert_eq!(s.scan(1, None, 10).unwrap().len(), 3, "positions 2 to 4");
+    let st = s.stats().unwrap();
+    assert_eq!(
+        (st.refused_records, st.refused_positions),
+        (1, vec![1]),
+        "one record, counted once over four reads"
+    );
+    let alone = format!("{:#}", s.get(1).unwrap_err());
+    assert!(alone.contains("corrupt frame"), "{alone}");
+    assert!(s.latest_by_key(kinds::EXECUTION, "exe_a").is_err());
+}
+
 /// When the index's checkpoint does not match the WAL (a WAL copied in
 /// under an old index, say), open checks every segment, as it always did,
 /// and a read through a stale index entry is refused, never believed.

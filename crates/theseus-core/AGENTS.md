@@ -27,9 +27,11 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   `record`, or `Core::rec`/`session_rec` for the core's own); `FACTS` lists every one. A row's kind is a
   `theseus_protocol::LedgerKind`; `LedgerRow::new` takes nothing else (tests write an old or unknown name with
   `LedgerRow::named`).
-- **Start and stop**: `config.rs`, `config_copy.rs`, `config_gate.rs`, `secrets.rs`, `startup.rs`, `restore.rs`,
-  `sweep.rs`, `disk.rs`, and `binary.rs` (whether jobs can write the daemon's own binary, read when health asks).
-  The config template is `config/theseus.example.toml`.
+- **Start and stop**: `config.rs`, `config_copy.rs`, `config_gate.rs`, `secrets.rs`, `startup.rs`, `restore.rs`
+  (`restore`, and `repair`: a corrupt frame taken whole from a copy, theseus-15g), `sweep.rs`, `disk.rs`,
+  `binary.rs` (whether jobs can write the daemon's own binary, read when health asks), and `crash.rs` (the panic
+  hook's crash file beside the store, which the next start takes and health reports). The config template is
+  `config/theseus.example.toml`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
@@ -42,6 +44,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **The frame budget.** A plain one-loop turn writes 5 frames, and each loop with one in-process tool adds 4.
   Observability rows ride in the turn's next frame; the session's write rides in `end_turn`'s
   (`Store::defer_session`). `tests_m3::a_plain_turn_stays_within_its_frame_budget` fails a sixth frame.
+- **A turn has one exit after it begins** (R1). `run_inner`'s body is `turn_body`, and its error goes to `fault`,
+  which closes the books as `fail` does (class `internal`). A new `?` in the body or in `finish` lands there; never
+  return an error from a turn by another path.
 - **Lock order**: a session's lock, then an execution's (`Store::with_session`, `update_session`). Both belong
   to their OS thread, so `SessionLock`, `SessionHold`, and the kernel's `ExecLock` are `!Send` (Review 2's R7):
   holding one across an `.await` in a spawned future is a compile error, and a build-time check beside each fails
@@ -81,7 +86,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 
 - In-process suites in `src/`: `tests_m3.rs` (turns through the whole core), `tests_continuations.rs`,
   `tests_failures.rs`, `tests_tasks.rs`, `tests_wakes.rs`, `tests_external.rs`, `tests_overflow.rs`,
-  `tests_push.rs`, `tests_config.rs`, and `rpc/tests.rs`.
+  `tests_push.rs`, `tests_config.rs`, `tests_books.rs` (a fault at each exit after a paid loop still closes the
+  books, R1), `tests_refused.rs` (a corrupt record skipped, counted, and the driver still continuing, R4), and
+  `rpc/tests.rs`.
 - `tests_registry.rs` is the reader rule's test. The gate runs it alone, before the suite.
 - `tests_schemas.rs` holds the store's version rule (P5b; Review 2's R8): each record kind's type, filled through
   its own `Deserialize` (every field, every variant), has its shape recorded under its schema number in

@@ -94,6 +94,8 @@ impl Core {
             // Asked of the tender by `health_now`, never here: this answers
             // at once.
             index: None,
+            store: self.store_status(),
+            crash: self.crash_status(),
         }
     }
 

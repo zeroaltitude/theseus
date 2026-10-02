@@ -107,6 +107,9 @@ pub struct Core {
     /// The index tender's supervisor (roadmap row 51): the socket daemon runs
     /// it after serving; health and `index.*` ask the tender through it.
     pub index: Arc<crate::tender::IndexTender>,
+    /// The newest crash a start found (Review 2's consideration 1), for
+    /// health: set after serving (`report_crash`).
+    crash: std::sync::Mutex<Option<theseus_protocol::CrashStatus>>,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -613,6 +616,7 @@ impl Core {
             last_sweep: Default::default(),
             push: crate::push::Push::default(),
             index,
+            crash: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         // `server.started` waits for `announce_serving`: nothing on the start
@@ -835,6 +839,59 @@ impl Core {
         theseus_protocol::SpoolStatus {
             last_sweep: self.last_sweep.lock().unwrap().clone(),
         }
+    }
+
+    /// The store's refused reads, for health (R4, theseus-15g): the records
+    /// list reads skipped because their frame is corrupt, and what repairs it.
+    pub fn store_status(&self) -> theseus_protocol::StoreStatus {
+        let st = self.store.stats().ok();
+        let refused_records = st.as_ref().map_or(0, |s| s.refused_records);
+        theseus_protocol::StoreStatus {
+            refused_records,
+            refused_positions: st.map(|s| s.refused_positions).unwrap_or_default(),
+            repair: (refused_records > 0).then(|| crate::restore::REPAIR.into()),
+        }
+    }
+
+    /// The crash file the last run left (Review 2's consideration 1), taken
+    /// after serving: moved into `crashes/`, said in the log and in a
+    /// `server.crashed` row, and kept for health. A start that finds none
+    /// keeps the newest one an earlier start found, for health.
+    pub fn report_crash(&self, state_dir: &std::path::Path, mode: &str) {
+        let status = |c: &crate::crash::Crash, file: &std::path::Path, this_start: bool| {
+            theseus_protocol::CrashStatus {
+                at_unix_ms: c.at_unix_ms,
+                pid: c.pid,
+                version: c.version.clone(),
+                thread: c.thread.clone(),
+                location: c.location.clone(),
+                file: file.display().to_string(),
+                this_start,
+            }
+        };
+        let found = crate::crash::take(state_dir, mode).unwrap_or_else(|e| {
+            tracing::warn!(error = %format!("{e:#}"), "the last run's crash file could not be read");
+            None
+        });
+        let kept = match found {
+            Some((c, file)) => {
+                tracing::warn!(at_unix_ms = c.at_unix_ms, pid = c.pid, thread = %c.thread,
+                    location = %c.location, file = %file.display(),
+                    "the last run crashed: a panic; its crash file is kept");
+                self.rec(None).record(&crate::fact::start::CrashFound {
+                    crash: &c,
+                    file: &file.display().to_string(),
+                });
+                Some(status(&c, &file, true))
+            }
+            None => crate::crash::last(state_dir, mode).map(|(c, f)| status(&c, &f, false)),
+        };
+        *self.crash.lock().unwrap() = kept;
+    }
+
+    /// The newest crash a start found, for health.
+    pub fn crash_status(&self) -> Option<theseus_protocol::CrashStatus> {
+        self.crash.lock().unwrap().clone()
     }
 
     /// The spool's sweeps as a tender after serving (theseus-2ij), never on

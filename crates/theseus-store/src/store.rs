@@ -18,17 +18,17 @@
 //! runtime worker (`blocking`). The periodic checkpoint runs on the writer
 //! too, after its answers (theseus-avvb).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{Aside, Engine, IndexEntry, MovedAside, Projected, RedbIndex, Sums};
 use crate::record::{kinds, NewRecord, Record, RecordKind};
-use crate::wal::{History, RecordLocation, Recovery, Verified, Wal, WalConfig};
+use crate::wal::{History, RecordLocation, Recovery, Verified, Wal, WalConfig, WalError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreStats {
@@ -63,7 +63,17 @@ pub struct StoreStats {
     /// read every record (theseus-lv2).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub terms_pending: bool,
+    /// Records a list read skipped since open because their reads are
+    /// refused (a corrupt frame the history check found, R4): how many, and
+    /// the first `REFUSED_SHOWN` of their positions, lowest first.
+    #[serde(default)]
+    pub refused_records: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused_positions: Vec<u64>,
 }
+
+/// How many refused positions `StoreStats` names; the count goes on past it.
+pub const REFUSED_SHOWN: usize = 16;
 
 /// What the kernel writes through. Every method is durable when it returns.
 pub trait Store: Send + Sync {
@@ -232,6 +242,9 @@ struct Inner {
     /// drops.
     #[cfg(test)]
     checkpoint_hold: std::sync::Mutex<Option<mpsc::Receiver<()>>>,
+    /// The positions list reads skipped because their reads are refused
+    /// (R4), and how many there were past the ones kept.
+    refused: Mutex<(BTreeSet<u64>, u64)>,
 }
 
 /// One append, as the writer takes it: its records, each one's terms and
@@ -301,6 +314,9 @@ fn verified_meta(v: &Verified) -> [(&'static str, u64); 5] {
         (VERIFIED_KEYS[4], v.full_at_unix_ms),
     ]
 }
+
+/// The refused positions a store remembers by number; past them it counts.
+const REFUSED_KEPT: usize = 4096;
 
 /// How long an open waits for another process to release the store before
 /// it fails (theseus-qa0 F4b). `theseus shutdown` returns on the daemon's
@@ -819,6 +835,7 @@ impl Inner {
             queued: std::sync::atomic::AtomicI64::new(0),
             #[cfg(test)]
             checkpoint_hold: std::sync::Mutex::default(),
+            refused: Mutex::new((BTreeSet::new(), 0)),
         };
         store.verified = match store.index.meta(&VERIFIED_KEYS)?[..] {
             [Some(segment), Some(offset), Some(first), Some(position), Some(full_at)] => {
@@ -1055,15 +1072,47 @@ impl Inner {
 
     /// Records by position, in order: one index transaction for all of
     /// them, then one `pread` each (theseus-qa0). A position the index does
-    /// not know is skipped, as `read` would skip it.
+    /// not know is skipped, as `read` would skip it, and so is a record whose
+    /// read is refused (`listed`).
     fn read_many(&self, positions: &[u64]) -> Result<Vec<Record>> {
         let mut out = Vec::with_capacity(positions.len());
         for (p, loc) in positions.iter().zip(self.index.locations(positions)?) {
             if let Some(loc) = loc {
-                out.push(checked(*p, self.wal.read_at(loc)?)?);
+                out.extend(self.listed(*p, loc)?);
             }
         }
         Ok(out)
+    }
+
+    /// A list read's record at `position` (R4, theseus-15g). A record whose
+    /// read is refused (its frame is corrupt) is skipped, logged once, and
+    /// counted for health, so one bad record no longer fails every list
+    /// that reaches it: the driver's open executions, health, the session
+    /// list, a transcript, the ledger's tail. A read of that record by
+    /// itself (`get`, `latest_by_key`) is still refused. Any other failure
+    /// fails the read.
+    fn listed(&self, position: u64, loc: RecordLocation) -> Result<Option<Record>> {
+        match self.wal.read_at(loc) {
+            Ok(r) => checked(position, r).map(Some),
+            Err(e @ WalError::Corrupt { .. }) => {
+                let mut refused = self.refused.lock().unwrap();
+                let (kept, past) = &mut *refused;
+                let new = if kept.len() < REFUSED_KEPT {
+                    kept.insert(position)
+                } else {
+                    !kept.contains(&position) && {
+                        *past += 1;
+                        true
+                    }
+                };
+                if new {
+                    tracing::warn!(position, error = %e,
+                        "store: a list read skipped a record whose read is refused; health counts it");
+                }
+                Ok(None)
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 }
 
@@ -1142,8 +1191,8 @@ impl Store for WalStore {
         let mut out = Vec::new();
         let mut p = from.max(1);
         while p <= to && out.len() < limit {
-            if let Some(r) = self.inner.read(p)? {
-                out.push(r);
+            if let Some(loc) = self.inner.index.location(p)? {
+                out.extend(self.inner.listed(p, loc)?);
             }
             p += 1;
         }
@@ -1198,6 +1247,14 @@ impl Store for WalStore {
     fn stats(&self) -> Result<StoreStats> {
         let s = &self.inner;
         let r = s.wal.recovery();
+        let (refused_records, refused_positions) = {
+            let refused = s.refused.lock().unwrap();
+            let (kept, past) = &*refused;
+            (
+                kept.len() as u64 + past,
+                kept.iter().take(REFUSED_SHOWN).copied().collect(),
+            )
+        };
         Ok(StoreStats {
             last_position: s.wal.last_position(),
             checkpoint: s.index.checkpoint()?,
@@ -1213,6 +1270,8 @@ impl Store for WalStore {
             lock_wait_us: s.lock_wait_us,
             index_moved_aside: s.moved_aside.clone(),
             terms_pending: !s.terms_whole(),
+            refused_records,
+            refused_positions,
         })
     }
 

@@ -350,6 +350,11 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
 
     let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     private_dir(&state_dir)?;
+    // A panic aborts the release build (`panic = "abort"`): its hook first
+    // writes what panicked beside the store, which the next start reports
+    // (Review 2's consideration 1). Each mode of a state dir has its own file.
+    let mode = if cli.stdio { "stdio" } else { "socket" };
+    theseus_core::crash::install(&state_dir, mode);
     // The store is single-process. A spawned stdio server must not fight a
     // running daemon for the same directory, so stdio mode uses its own.
     let store_name = if cli.stdio { "store-stdio" } else { "store" };
@@ -413,7 +418,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");
-        tokio::spawn(after_serving(core.clone(), keep, None));
+        tokio::spawn(after_serving(core.clone(), keep, None, state_dir, mode));
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
         // The one client is whoever holds the pipes: the parent that spawned
@@ -435,7 +440,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
 
     // Only the socket daemon binds Discord, never `--stdio`: one gateway
     // connection per state dir, whose bindings file names its places.
-    let after_bind = after_serving(core.clone(), keep, Some(bindings_path));
+    let after_bind = after_serving(core.clone(), keep, Some(bindings_path), state_dir, mode);
     let served = serve_socket(core.clone(), socket_path, after_bind).await;
     stop_phase("serving loop ended");
     // The index tender gets SIGTERM and is never waited for (§9), unless this
@@ -771,10 +776,20 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result
 /// sends a secret, or talks to the network on a copy's word. `keep` is a
 /// note read before serving, kept as the copy now.
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
-async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<PathBuf>) {
+async fn after_serving(
+    core: Arc<Core>,
+    keep: Option<String>,
+    bindings: Option<PathBuf>,
+    state_dir: PathBuf,
+    mode: &'static str,
+) {
     let serving = core.startup_log.us(Instant::now());
     tracing::info!(serving_ms = serving / 1000, "serving");
     core.announce_serving(serving);
+    // The crash file the last run left, if it panicked: said and kept.
+    core.report_crash(&state_dir, mode);
+    // A test's planted panic (a debug build's `THESEUS_TEST_PANIC`).
+    theseus_core::crash::planted("after_serving");
     // What the store's open left unchecked, the WAL's history, is checked
     // now, in the background (theseus-8ni).
     core.check_store_history();

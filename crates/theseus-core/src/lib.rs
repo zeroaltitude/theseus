@@ -21,6 +21,7 @@ pub mod config_copy;
 pub mod config_gate;
 pub mod context_files;
 pub mod cpu;
+pub mod crash;
 pub mod disk;
 pub mod external;
 pub mod fact;
@@ -88,6 +89,8 @@ mod tests_overflow;
 mod tests_push;
 #[cfg(test)]
 mod tests_reach;
+#[cfg(test)]
+mod tests_refused;
 #[cfg(test)]
 mod tests_registry;
 #[cfg(test)]

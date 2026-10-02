@@ -107,6 +107,7 @@ pub async fn drive(core: Arc<Core>) {
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tracing::info!("continuation driver parked");
+    let mut unlisted = Unlisted::default();
     loop {
         tokio::select! {
             _ = tick.tick() => {}
@@ -115,7 +116,7 @@ pub async fn drive(core: Arc<Core>) {
         }
         // The queued executions and those a due time may wake, by their
         // terms: a tick reads none of the parked ones (theseus-lv2).
-        let Ok(execs) = core.kernel.maybe_runnable() else {
+        let Some(execs) = unlisted.runnable(&core) else {
             continue;
         };
         let now = core.kernel.now_ms();
@@ -185,5 +186,78 @@ pub async fn drive(core: Arc<Core>) {
                 c.admission.notify_waiters();
             });
         }
+    }
+}
+
+/// The driver's failure to list the executions it may run (R4): each
+/// distinct failure is news once, and so is the tick that lists them again,
+/// so the log says when the driver stopped and started without a line a tick.
+#[derive(Default)]
+struct Unlisted(Option<String>);
+
+impl Unlisted {
+    /// The executions a tick may run, or `None` when they cannot be read:
+    /// the tick then runs nothing, and says so once for each failure. It
+    /// once skipped them without a word.
+    fn runnable(&mut self, core: &Core) -> Option<Vec<theseus_kernel::Execution>> {
+        match core.kernel.maybe_runnable() {
+            Ok(execs) => {
+                if let Some(was) = self.listed() {
+                    tracing::info!(was = %was, "continuation driver: the runnable executions read again");
+                }
+                Some(execs)
+            }
+            Err(e) => {
+                if self.failed(&e) {
+                    tracing::error!(error = %format!("{e:#}"),
+                        "continuation driver: the runnable executions could not be read; no continuation or wake runs until they can");
+                }
+                None
+            }
+        }
+    }
+
+    /// A tick failed with `e`: true when it is news, to be logged.
+    fn failed(&mut self, e: &anyhow::Error) -> bool {
+        let e = format!("{e:#}");
+        let news = self.0.as_deref() != Some(e.as_str());
+        self.0 = Some(e);
+        news
+    }
+
+    /// A tick listed them: the failure that had stopped the driver, if one
+    /// had.
+    fn listed(&mut self) -> Option<String> {
+        self.0.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Unlisted;
+
+    /// A failure is logged once however many ticks it lasts, a different one
+    /// is logged too, and the tick that lists again says what had stopped it.
+    #[test]
+    fn the_driver_says_each_failure_once_and_when_it_reads_again() {
+        let mut u = Unlisted::default();
+        assert_eq!(u.listed(), None, "nothing had failed");
+        let refused = anyhow::anyhow!("corrupt frame in segment 1 at offset 0");
+        assert!(u.failed(&refused), "the first tick that fails is news");
+        assert!(
+            !u.failed(&refused),
+            "the same failure, a tick later, is not"
+        );
+        assert!(u.failed(&anyhow::anyhow!("io: no space left on device")));
+        assert_eq!(
+            u.listed().as_deref(),
+            Some("io: no space left on device"),
+            "the tick that lists again names what had stopped it"
+        );
+        assert_eq!(u.listed(), None);
+        assert!(
+            u.failed(&refused),
+            "a failure after a recovery is news again"
+        );
     }
 }

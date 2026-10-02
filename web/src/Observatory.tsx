@@ -968,6 +968,31 @@ function phaseOutcome(p: StartupPhase): string {
   return parts.join(' · ')
 }
 
+/// What `theseus health` says loudly about the store and the last crash, said as loudly here
+/// (theseus-15g, Review 2's R4 and consideration 1): the history check's corrupt frame, the
+/// records list reads skipped because of it and what repairs them, and the newest crash a start
+/// found, red when it ended the last run.
+function StoreLines({ health, phases }: { health: Health | null; phases: StartupPhase[] }) {
+  const verify = phases.find((p) => p.name === 'store.verify')
+  const corrupt = verify?.detail?.outcome === 'corrupt'
+  const st = health?.store
+  const c = health?.crash
+  return (
+    <>
+      {corrupt &&
+        <div className="bad">store: CORRUPT history, {String(verify?.detail?.error ?? '?')}; reads from there are refused</div>}
+      {st && st.refused_records > 0 &&
+        <div className="bad">store: {fmt(st.refused_records)} record{st.refused_records === 1 ? '' : 's'} skipped by list reads, their frame corrupt
+          (positions {st.refused_positions.join(', ')}{st.refused_positions.length < st.refused_records ? ', …' : ''})
+          {st.repair && <span className="small"> · {st.repair}</span>}</div>}
+      {c &&
+        <div className={c.this_start ? 'bad' : 'muted small'}>
+          crash: {new Date(c.at_unix_ms).toLocaleString()} at <code>{c.location}</code> (thread {c.thread}, pid {c.pid}, {c.version})
+          {c.this_start ? ', which ended the last run' : ''} · <span className="small">{c.file}</span></div>}
+    </>
+  )
+}
+
 /// The last start (theseus-qa0): the phases on the path to serving, then those after it
 /// (the secrets, and each consumer's wait for its own), on one axis from process start,
 /// so a slow start names its cause the first time it happens.
@@ -1001,6 +1026,7 @@ function StartupView({ health }: { health: Health | null }) {
           <div key={f.name} className="bad small">{f.name} did not resolve: {f.error}. Whatever needs it waits, and never runs without it.</div>
         ))}
         {s?.retry_in_ms != null && s.failed.length > 0 && <div className="muted small">fetched again in {Math.ceil(s.retry_in_ms / 1000)} s</div>}
+        <StoreLines health={health} phases={phases} />
       </div>
       <table className="obs-table startup-phases">
         <thead><tr><th>phase</th><th>began</th><th>took</th><th className="phase-axis">from process start to {fmtUs(span)}</th><th>found</th></tr></thead>

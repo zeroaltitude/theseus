@@ -223,6 +223,142 @@ fn copy_synced(from: &Path, to: &Path, sync: &mut dyn Durable) -> Result<()> {
         .with_context(|| format!("syncing {}", to.display()))
 }
 
+/// What health says repairs a store whose reads are refused (theseus-15g).
+pub const REPAIR: &str = "stop the daemon, then run `theseusd restore --repair --from <a copy of \
+     the store that holds the corrupt frame whole>`: it takes only that frame from the copy, \
+     and keeps the store it repairs";
+
+/// What a repair did (theseus-15g).
+#[derive(Debug, Clone, Serialize)]
+pub struct RepairReport {
+    pub from: String,
+    pub into: String,
+    /// Where the store it repaired went, kept whole.
+    pub moved_aside: String,
+    /// The frames taken from the copy.
+    pub patched: Vec<theseus_store::repair::Patched>,
+    pub last_position: u64,
+    pub sessions: u64,
+}
+
+/// Repair the store in `state_dir` from `from`, a copy of it (a WAL
+/// directory, or a store directory holding `wal/`): each frame of the store's
+/// WAL that does not check is taken whole from the copy, where the same
+/// segment holds it at the same offset (`theseus_store::repair`), and every
+/// other byte stays the store's own. The repaired WAL is staged beside the
+/// store with its blobs, opened (a full replay checks every frame and its
+/// positions), and swapped in; the store it replaces is moved aside, never
+/// deleted. A store whose every frame checks, or a copy that does not hold a
+/// bad frame whole, is refused, and nothing is changed. Run it with the
+/// daemon stopped.
+pub fn repair(from: &Path, state_dir: &Path) -> Result<RepairReport> {
+    repair_with(from, state_dir, &mut Sync)
+}
+
+fn repair_with(from: &Path, state_dir: &Path, sync: &mut dyn Durable) -> Result<RepairReport> {
+    let copy_wal = if from.join("wal").is_dir() {
+        from.join("wal")
+    } else {
+        from.to_path_buf()
+    };
+    let target = state_dir.join("store");
+    let live_wal = target.join("wal");
+    if !live_wal.is_dir() {
+        bail!("no store to repair in {}", target.display());
+    }
+    if std::fs::canonicalize(&copy_wal)? == std::fs::canonicalize(&live_wal)? {
+        bail!("the copy is the store itself; repair from a copy taken elsewhere");
+    }
+    let segments = theseus_store::wal::list_segments(&live_wal)?;
+    // Each segment, repaired in memory, before anything is written.
+    let mut repaired = Vec::with_capacity(segments.len());
+    let mut patched = Vec::new();
+    for seg in segments {
+        let live = std::fs::read(theseus_store::wal::segment_path(&live_wal, seg))?;
+        let copy =
+            std::fs::read(theseus_store::wal::segment_path(&copy_wal, seg)).unwrap_or_default();
+        let (bytes, p) = theseus_store::repair::repair_segment(seg, &live, &copy)?;
+        patched.extend(p);
+        repaired.push((seg, bytes));
+    }
+    if patched.is_empty() {
+        bail!(
+            "every frame of {} checks: there is nothing to repair",
+            live_wal.display()
+        );
+    }
+
+    let ts = theseus_protocol::now_unix_ms();
+    let staging = state_dir.join(format!("store.repairing-{ts}"));
+    std::fs::create_dir_all(staging.join("wal"))?;
+    for (seg, bytes) in &repaired {
+        let to = theseus_store::wal::segment_path(&staging.join("wal"), *seg);
+        std::fs::write(&to, bytes).with_context(|| format!("writing {}", to.display()))?;
+        let f = std::fs::OpenOptions::new().write(true).open(&to)?;
+        sync.file(&f, &to)
+            .with_context(|| format!("syncing {}", to.display()))?;
+    }
+    sync.dir(&staging.join("wal"))
+        .context("syncing the repaired WAL's directory")?;
+    if target.join("blobs").is_dir() {
+        std::fs::create_dir_all(staging.join("blobs"))?;
+        for e in std::fs::read_dir(target.join("blobs"))? {
+            let p = e?.path();
+            let Some(name) = p.file_name() else { continue };
+            if p.is_file() && !name.to_string_lossy().starts_with('.') {
+                copy_synced(&p, &staging.join("blobs").join(name), sync)?;
+            }
+        }
+        sync.dir(&staging.join("blobs"))
+            .context("syncing the repaired store's blobs")?;
+    }
+    let (last_position, sessions) = {
+        let store = Store::open(&staging)
+            .with_context(|| format!("opening the repaired WAL in {}", staging.display()))?;
+        // An open cuts a frame of the last segment that does not check, with
+        // all after it, as a torn tail (theseus-gt12). Every repaired frame
+        // checks, so nothing may be cut; were anything cut, the repair would
+        // lose it, and the store stays as it was.
+        let cut = store.inner().recovery().truncated_bytes;
+        if cut > 0 {
+            bail!(
+                "the repaired WAL still holds a frame that does not check ({cut} bytes would be \
+                 cut at its open); the store is unchanged, and the staged copy is left in {}",
+                staging.display()
+            );
+        }
+        let last = store.stats()?.last_position;
+        let sessions = store.session_count()?;
+        store.append_ledger(&LedgerRow::new(
+            LedgerKind::StoreRestored,
+            None,
+            None,
+            json!({"from": copy_wal.display().to_string(), "repaired": patched}),
+        ))?;
+        store.checkpoint()?;
+        (last, sessions)
+    };
+    sync.dir(&staging)
+        .context("syncing the repaired store's directory")?;
+    let aside = state_dir.join(format!("store.before-repair-{ts}"));
+    std::fs::rename(&target, &aside)
+        .with_context(|| format!("moving {} aside", target.display()))?;
+    sync.dir(state_dir)
+        .context("syncing the state dir after moving the store aside")?;
+    std::fs::rename(&staging, &target)
+        .with_context(|| format!("moving the repaired store into {}", target.display()))?;
+    sync.dir(state_dir)
+        .context("syncing the state dir after the repair's rename")?;
+    Ok(RepairReport {
+        from: copy_wal.display().to_string(),
+        into: target.display().to_string(),
+        moved_aside: aside.display().to_string(),
+        patched,
+        last_position,
+        sessions,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,5 +625,112 @@ mod tests {
             61,
             "60 rows and store.restored"
         );
+    }
+
+    /// Flip a byte of the body of the frame that holds `position`: its crc no
+    /// longer checks.
+    fn corrupt_frame_of(wal: &Path, position: u64) {
+        use theseus_store::wal::{decode_record, list_segments, segment_path, FRAME_HEADER};
+        for seg in list_segments(wal).unwrap() {
+            let path = segment_path(wal, seg);
+            let mut b = std::fs::read(&path).unwrap();
+            let mut off = 0;
+            while off + FRAME_HEADER <= b.len() {
+                let len = u32::from_le_bytes(b[off + 4..off + 8].try_into().unwrap()) as usize;
+                let body = off + FRAME_HEADER;
+                let (first, _) = decode_record(&b[body..body + len], 4).unwrap();
+                if first.position == position {
+                    b[body + len - 1] ^= 0x01;
+                    std::fs::write(&path, &b).unwrap();
+                    return;
+                }
+                off = body + len;
+            }
+        }
+        panic!("no frame holds position {position}");
+    }
+
+    /// theseus-15g: a frame of the store's history goes bad after a backup
+    /// was taken, and more is written after it. The repair takes that one
+    /// frame from the backup, keeps everything else, the writes after the
+    /// backup included, and the history check then finds the store whole.
+    /// The store it repaired is kept aside; a second repair finds nothing to
+    /// do; and a backup taken before the frame was written is refused, with
+    /// the store left as it was.
+    #[test]
+    fn a_repair_takes_the_bad_frame_from_a_copy_and_keeps_every_later_write() {
+        let state = tempfile::tempdir().unwrap();
+        let backups = tempfile::tempdir().unwrap();
+        let (_, first) = store_with_sessions(state.path(), 3);
+        let early = backups.path().join("early");
+        copy_dir(&state.path().join("store/wal"), &early);
+        let (bad, later) = {
+            let store = Store::open(&state.path().join("store")).unwrap();
+            let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+            store.put_session(&rec.session_id, &rec).unwrap();
+            let bad = store.last_position();
+            store.checkpoint().unwrap();
+            (bad, rec.session_id)
+        };
+        let backup = backups.path().join("backup");
+        copy_dir(&state.path().join("store/wal"), &backup);
+        let after = {
+            let store = Store::open(&state.path().join("store")).unwrap();
+            let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+            store.put_session(&rec.session_id, &rec).unwrap();
+            rec.session_id
+        };
+        corrupt_frame_of(&state.path().join("store/wal"), bad);
+        {
+            let store = Store::open(&state.path().join("store")).unwrap();
+            assert!(
+                store.inner().verify_history(|_| {}).is_err(),
+                "the history check finds the bad frame"
+            );
+        }
+
+        let e = repair(&early, state.path()).unwrap_err();
+        assert!(e.to_string().contains("holds no whole frame there"), "{e}");
+        assert!(
+            !state.path().join("store.before-repair").exists()
+                && std::fs::read_dir(state.path()).unwrap().all(|d| !d
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .contains("repair")),
+            "a refused repair changes nothing"
+        );
+
+        let r = repair(&backup, state.path()).unwrap();
+        assert_eq!(r.patched.len(), 1, "{:?}", r.patched);
+        assert_eq!((r.patched[0].first, r.patched[0].last), (bad, bad));
+        assert_eq!(r.sessions, 5);
+        let store = Store::open(&state.path().join("store")).unwrap();
+        let h = store.inner().verify_history(|_| {});
+        assert!(h.is_ok(), "the repaired history checks: {h:?}");
+        for sid in [&first, &later, &after] {
+            assert!(
+                store.get_session::<SessionRecord>(sid).unwrap().is_some(),
+                "{sid}: kept, the write after the backup too"
+            );
+        }
+        let rows: Vec<(u64, LedgerRow)> = store.ledger_tail(1).unwrap();
+        assert_eq!(rows[0].1.kind, "store.restored");
+        assert_eq!(rows[0].1.data["repaired"][0]["first"], bad);
+        assert!(
+            PathBuf::from(&r.moved_aside).join("wal").is_dir(),
+            "kept aside"
+        );
+        drop(store);
+        let e = repair(&backup, state.path()).unwrap_err();
+        assert!(e.to_string().contains("nothing to repair"), "{e}");
+    }
+
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap() {
+            let p = e.unwrap().path();
+            std::fs::copy(&p, to.join(p.file_name().unwrap())).unwrap();
+        }
     }
 }
