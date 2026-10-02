@@ -19,6 +19,10 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection).
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
   `telemetry/` (OTLP, metrics, spans).
+- **Facts**: `fact/` (theseus-j6qn, Review 2's C2). One type per thing that happened, which says in one place what
+  each channel gets: its ledger row (`KIND`, `row`), its notification (`METHOD`, `event`), its sentences
+  (`narrate`), and its span (`span`). A site builds the fact and records it once (`TurnCtx::record`, a turn's
+  `record`, or a `Rec` for the session's own); `FACTS` lists every one.
 - **Start and stop**: `config.rs`, `config_copy.rs`, `config_gate.rs`, `secrets.rs`, `startup.rs`, `restore.rs`,
   `sweep.rs`, and `disk.rs`. The config template is `config/theseus.example.toml`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
@@ -49,6 +53,10 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   keys, and `example_template_uncommented_still_parses` un-comments every line and parses it.
 - **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output, and the
   broker hands a value only to the program it is granted to.
+- **One fact, recorded once.** A new ledger row, notification, or narrative sentence is a fact's projection in
+  `fact/`, not a hand-written channel at its site. Recording writes no frame: its row rides in the turn's next frame
+  (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest
+  announced once that frame is written (`Rec::announce`).
 
 ## Tests
 
@@ -56,6 +64,10 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   `tests_failures.rs`, `tests_tasks.rs`, `tests_wakes.rs`, `tests_external.rs`, `tests_overflow.rs`,
   `tests_push.rs`, `tests_config.rs`, and `rpc/tests.rs`.
 - `tests_registry.rs` is the reader rule's test. The gate runs it alone, before the suite.
+- `tests_output.rs` is the output golden (theseus-j6qn): scripted scenarios through whole cores, and every frame,
+  notification, and narrative line they produce, against `tests/golden/core_output.txt`. A refactor of a channel
+  leaves it byte-identical; `THESEUS_GOLDEN=write` rewrites it, for a change you mean, and the diff is the review.
+  A narrative line that the machine's load decides is left out there (`by_the_load`); a new one joins it.
 - `tests_outside_text.rs`: property tests over every reader of outside text (the HTML reader, the wake's time
   parsers, the provider's SSE lines), with a fresh seed each run, so the gate keeps looking (Item 13). The release
   profile aborts on a panic, so one panic on outside text takes the daemon down. A new reader joins them.

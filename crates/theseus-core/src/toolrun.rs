@@ -102,6 +102,23 @@ pub struct TurnCtx<'a> {
 }
 
 impl TurnCtx<'_> {
+    /// Where this turn's facts go (`crate::fact`): its session and turn, its
+    /// clients, and its next frame.
+    pub fn rec(&self) -> crate::fact::Rec<'_> {
+        crate::fact::Rec {
+            narrator: self.narrator,
+            session: Some(self.session_id),
+            turn: Some(self.turn_id),
+            to: crate::fact::To::Sink(self.sink),
+            store: self.store,
+        }
+    }
+
+    /// Record a fact of this turn's on each of its channels.
+    pub fn record<F: crate::fact::Fact>(&self, f: &F) {
+        self.rec().record(f);
+    }
+
     /// A ledger row for this turn. It is no state transition, so it rides in
     /// the turn's next frame (theseus-qa0). A row that cannot be encoded is
     /// logged, not fatal.

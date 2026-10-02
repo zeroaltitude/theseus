@@ -26,7 +26,7 @@ use theseus_kernel::{
 };
 use theseus_protocol::{
     BudgetAsk, CacheSummary, ConfirmRequest, ConfirmResolved, ContextCompiled, Event, LoopEnded,
-    LoopStarted, ModelDelta, SessionKind, Span, TurnStarted, TurnSubmitResult, Usage,
+    LoopStarted, ModelDelta, SessionKind, Span, TurnSubmitResult, Usage,
 };
 use theseus_store::NewRecord;
 
@@ -36,6 +36,7 @@ use crate::catalog::Catalog;
 use crate::compiler::{compile, CompileInput, Compiled, Overflowed, Recompile, RequestSpec};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
+use crate::fact::{self, Fact};
 use crate::ledger::LedgerRow;
 use crate::narrative::{self, narrate, narrate_turn, Narrator};
 use crate::node::{Body, Node};
@@ -170,8 +171,6 @@ pub struct TurnRequest {
 
 /// How long a turn may wait for admission before the client gets an error.
 const ADMISSION_WAIT_MAX: Duration = Duration::from_secs(600);
-/// A wait for admission and the turn lock the narrative mentions.
-const LOCK_WAIT_NOTICEABLE_US: u64 = 50_000;
 /// The principal of every local protocol client (file permissions are the auth).
 pub const OPERATOR: &str = "operator";
 
@@ -314,100 +313,31 @@ impl<'a> Turn<'a> {
         }
     }
 
-    /// Tell the trace, the session's clients, and the ledger that the turn began.
+    /// Record that the turn began, after its waits (`fact::turn::TurnStarted`).
     fn announce(&mut self, input: Option<&str>, files: usize, author: &str, waits: &Waits) {
-        let (guard, target) = (self.tc.guard, self.target);
-        let (lock_wait_us, admit_us) = (waits.lock_us, waits.admit_us);
-        let config_us = waits.config_us;
-        if config_us > 0 {
-            self.trace.record(
-                "config.wait",
-                "lock",
-                0,
-                config_us,
-                json!({"note": "the vault's confirmation of the config this start served from (theseus-2fo)"}),
-            );
-            narrate_turn!(
-                self.tc,
-                Turn,
-                "Waited {} for the vault to confirm the config this daemon started from:                  nothing acts on its copy's word.",
-                narrative::duration(config_us / 1000)
-            );
-        }
-        let secrets_end = config_us + waits.secrets_us;
-        if waits.secrets_us > 0 {
-            self.trace.record(
-                "secrets.wait",
-                "lock",
-                config_us,
-                secrets_end,
-                json!({"provider": target.provider, "note": "the provider's key and the first round of secrets (theseus-qa0)"}),
-            );
-            narrate_turn!(
-                self.tc,
-                Turn,
-                "Waited {} for the vault: {} needs its key, and every secret must be known before \
-                 a tool result is scrubbed.",
-                narrative::duration(waits.secrets_us / 1000),
-                target.provider
-            );
-        }
-        self.trace.record(
-            "admission.wait",
-            "lock",
-            secrets_end,
-            lock_wait_us,
-            json!({"execution_id": guard.execution_id, "turn": guard.turn, "note": "kernel admission + per-execution turn lock"}),
-        );
-        self.tc.sink.send(Event::TurnStarted(TurnStarted {
-            session_id: self.tc.session_id.into(),
-            turn_id: self.tc.turn_id.into(),
-            execution_id: Some(guard.execution_id.clone()),
+        let f = fact::turn::TurnStarted {
+            session_id: self.tc.session_id,
+            turn_id: self.tc.turn_id,
+            execution_id: &self.tc.guard.execution_id,
+            kernel_turn: self.tc.guard.turn,
+            target: self.target,
             continuation: self.continuation,
-        }));
-        let mut row = json!({"input_chars": input.map(|s| s.chars().count()), "profile": target.profile, "provider": target.provider, "model": target.model, "execution_id": guard.execution_id, "kernel_turn": guard.turn, "continuation": self.continuation, "author": author});
-        if files > 0 {
-            row["attachments"] = json!(files);
-        }
-        self.tc.ledger("turn.started", row);
-        let with_files = match files {
-            0 => String::new(),
-            n => format!(
-                " and {}",
-                narrative::count(n as u64, "attachment", "attachments")
-            ),
+            input_chars: input.map(|s| s.chars().count()),
+            attachments: files,
+            author,
+            config_us: waits.config_us,
+            secrets_us: waits.secrets_us,
+            lock_us: waits.lock_us,
+            admit_us: waits.admit_us,
         };
-        match input {
-            Some(text) => narrate_turn!(
-                self.tc,
-                Turn,
-                "Turn {} started by {author} on {} ({}): {} of input{with_files}; up to \
-                 {}.",
-                narrative::short(self.tc.turn_id),
-                target.profile,
-                target.model,
-                narrative::count(text.chars().count() as u64, "character", "characters"),
-                narrative::count(target.max_loops as u64, "loop", "loops")
-            ),
-            None => narrate_turn!(
-                self.tc,
-                Turn,
-                "Continuation turn {} started by the {author} on {} ({}): \
-                 no new input; up to {}.",
-                narrative::short(self.tc.turn_id),
-                target.profile,
-                target.model,
-                narrative::count(target.max_loops as u64, "loop", "loops")
-            ),
-        }
-        if admit_us >= LOCK_WAIT_NOTICEABLE_US {
-            narrate_turn!(
-                self.tc,
-                Turn,
-                "It waited {} for admission and the turn lock.",
-                narrative::duration(admit_us / 1000)
-            );
-        }
+        self.record(&f);
+    }
+
+    /// Record a fact of this turn's: its span in the trace, then every other
+    /// channel it has.
+    fn record<F: Fact>(&mut self, f: &F) {
+        f.span(&mut self.trace);
+        self.tc.record(f);
     }
 
     /// Count the turn in its session. The success path and both failure

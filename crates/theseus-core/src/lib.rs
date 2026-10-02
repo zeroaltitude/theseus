@@ -21,6 +21,7 @@ pub mod context_files;
 pub mod cpu;
 pub mod disk;
 pub mod external;
+pub mod fact;
 pub mod github;
 pub mod graph;
 pub mod harness;
