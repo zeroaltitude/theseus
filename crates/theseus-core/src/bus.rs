@@ -23,6 +23,10 @@ pub struct SessionBus {
     /// The `executions.watch` subscribers (theseus-in3). The lock order is
     /// `subs`, then `all`.
     all: Mutex<Vec<Watcher>>,
+    /// A test's tap: every message published, whoever watches (the output
+    /// golden, theseus-j6qn).
+    #[cfg(test)]
+    pub(crate) tap: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Message>>>,
 }
 
 /// What goes to every session's watchers as well as the session's own: the
@@ -86,6 +90,8 @@ impl SessionBus {
     /// that asked for the turn, which got it directly). The push's
     /// notifications go to the all-session watchers too, once each.
     pub fn publish(&self, session: &str, msg: &Message, except: Option<&str>) {
+        #[cfg(test)]
+        self.tapped(msg);
         let mut g = self.subs.lock().unwrap();
         let mut sent = HashSet::new();
         let stream = format!("session:{session}");
@@ -111,6 +117,8 @@ impl SessionBus {
     /// Send to every connection that watches a session, once each: news that
     /// holds for every session, such as a tightening (theseus-sgh).
     pub fn publish_all(&self, msg: &Message) {
+        #[cfg(test)]
+        self.tapped(msg);
         let mut g = self.subs.lock().unwrap();
         let mut sent = std::collections::HashSet::new();
         for v in g.values_mut() {
@@ -125,6 +133,13 @@ impl SessionBus {
             .get(session)
             .map(Vec::len)
             .unwrap_or(0)
+    }
+
+    #[cfg(test)]
+    fn tapped(&self, msg: &Message) {
+        if let Some(tx) = &*self.tap.lock().unwrap() {
+            let _ = tx.send(msg.clone());
+        }
     }
 }
 

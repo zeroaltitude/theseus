@@ -73,6 +73,8 @@ mod tests_failures;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]
+mod tests_output;
+#[cfg(test)]
 mod tests_outside_text;
 #[cfg(test)]
 mod tests_overflow;
