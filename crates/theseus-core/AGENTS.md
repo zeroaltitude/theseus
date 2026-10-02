@@ -26,7 +26,8 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   `theseus_protocol::LedgerKind`; `LedgerRow::new` takes nothing else (tests write an old or unknown name with
   `LedgerRow::named`).
 - **Start and stop**: `config.rs`, `config_copy.rs`, `config_gate.rs`, `secrets.rs`, `startup.rs`, `restore.rs`,
-  `sweep.rs`, and `disk.rs`. The config template is `config/theseus.example.toml`.
+  `sweep.rs`, `disk.rs`, and `binary.rs` (whether jobs can write the daemon's own binary, read when health asks).
+  The config template is `config/theseus.example.toml`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Invariants

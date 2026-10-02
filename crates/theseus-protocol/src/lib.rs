@@ -404,6 +404,10 @@ pub struct HealthResult {
     /// (theseus-102).
     #[serde(default)]
     pub disk: DiskStatus,
+    /// Whether this daemon's jobs can write the binary it runs, read when
+    /// health is asked (review 2's consideration 3).
+    #[serde(default)]
+    pub binary: BinaryStatus,
     /// The spool's sweeps of raw job output (theseus-2ij).
     #[serde(default)]
     pub spool: SpoolStatus,
@@ -480,6 +484,23 @@ pub struct DiskStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub error: Option<String>,
+}
+
+/// The binary this daemon runs, and whether its jobs can write it (review
+/// 2's consideration 3). At L0 a job runs as the daemon's user, so a binary
+/// that user can write, or one in a directory it can write, is one a job can
+/// replace, and the next start runs what it finds there.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct BinaryStatus {
+    /// The path the next start runs ("" when it could not be read).
+    pub path: String,
+    /// `jobs_can_write` (the file, or its directory, is writable by the
+    /// daemon's user), `ok`, or `unknown` (`detail` says why).
+    pub state: String,
+    /// What is writable, or why it is not known, in words.
+    #[serde(default)]
+    pub detail: String,
 }
 
 /// What the web UI refused (theseus-70f): a request whose `Host` is not the

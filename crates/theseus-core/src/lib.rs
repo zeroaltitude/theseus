@@ -9,6 +9,7 @@
 pub mod advancer;
 pub mod approval;
 pub mod attach;
+pub mod binary;
 pub mod blobs;
 pub mod broker;
 pub mod bus;

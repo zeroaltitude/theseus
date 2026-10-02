@@ -13,6 +13,7 @@ export type * from './ApprovalStatus';
 export type * from './Asker';
 export type * from './Attachment';
 export type * from './Attention';
+export type * from './BinaryStatus';
 export type * from './BindingStatus';
 export type * from './BudgetAsk';
 export type * from './BudgetInfo';

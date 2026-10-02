@@ -876,6 +876,21 @@ pub fn children_line(c: &theseus_protocol::ChildrenStatus) -> Option<String> {
     Some(line)
 }
 
+/// Said only when this daemon's jobs can write the binary it runs, or that
+/// could not be read (review 2's consideration 3); a daemon older than that
+/// says nothing.
+pub fn binary_line(b: &theseus_protocol::BinaryStatus) -> Option<String> {
+    match b.state.as_str() {
+        "jobs_can_write" => Some(format!(
+            "binary: JOBS CAN WRITE {}: {} (run the builder as its own user: theseusd install \
+             --separate)",
+            b.path, b.detail
+        )),
+        "unknown" => Some(format!("binary: unknown: {}", b.detail)),
+        _ => None,
+    }
+}
+
 /// `disk: 81,920 MB free of 1,006,712 MB under /home/x/.theseus · health warns
 /// below 5,120 MB, jobs are refused below 1,024 MB` (theseus-102): the
 /// filesystem that holds the state dir, as `statvfs` reads it. `LOW` under the
@@ -1616,6 +1631,9 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);
     }
+    if let Some(line) = binary_line(&h.binary) {
+        push(o, Tag::Plain, &line);
+    }
     if let Some(line) = spool_line(&h.spool, now_ms) {
         push(o, Tag::Plain, &line);
     }
@@ -2180,6 +2198,25 @@ mod tests {
         assert_eq!(
             lines(&open)[0],
             "approval: open: web may answer, beyond the CLI and the owner's Discord DM"
+        );
+    }
+
+    #[test]
+    fn the_binary_line_says_only_when_jobs_can_write_it() {
+        let b = |state: &str| theseus_protocol::BinaryStatus {
+            path: "/home/invented/.local/bin/theseusd".into(),
+            state: state.into(),
+            detail: "its directory is writable by this daemon's user".into(),
+        };
+        assert_eq!(binary_line(&b("ok")), None);
+        assert_eq!(
+            binary_line(&b("jobs_can_write")).unwrap(),
+            "binary: JOBS CAN WRITE /home/invented/.local/bin/theseusd: its directory is writable \
+             by this daemon's user (run the builder as its own user: theseusd install --separate)"
+        );
+        assert_eq!(
+            binary_line(&theseus_protocol::BinaryStatus::default()),
+            None
         );
     }
 
