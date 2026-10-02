@@ -38,6 +38,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("lib.rs"),
         include_str!("events.rs"),
         include_str!("gate.rs"),
+        include_str!("index.rs"),
         include_str!("push.rs"),
     ] {
         let lines: Vec<&str> = src.lines().collect();
@@ -102,7 +103,15 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         Notice, GateDecision, GateResult, GateRecord, Level, Attention, WaitingOn, PendingConfirm,
         ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, SessionListParams, PushStatus,
         WaitUntil, SessionWaitParams, SessionWaitResult, EventsLost, ToolClass, AwsPlan, AwsStatus,
-        AwsAccountStatus,
+        AwsAccountStatus, TenderStatus,
+        index::IndexQueryParams, index::IndexWeights, index::IndexFilters, index::IndexSourceRank,
+        index::IndexHit, index::IndexTimings, index::IndexLag, index::IndexQueryResult,
+        index::IndexStamp, index::IndexEmbedTask, index::IndexNeighboursParams,
+        index::IndexNeighbour, index::IndexNeighboursResult, index::IndexEmbedParams,
+        index::IndexEmbedResult, index::IndexForgetParams, index::IndexChunkRef,
+        index::IndexForgetResult, index::IndexWarmResult, index::IndexBackfill, index::IndexStatus,
+        index::IndexVectorStatus, index::IndexCompactions, index::IndexReembed,
+        index::IndexEmbedStats, index::IndexRebuildResult, index::IndexHealth,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

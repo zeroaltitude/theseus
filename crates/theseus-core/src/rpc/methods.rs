@@ -91,6 +91,9 @@ impl Core {
             spool: self.spool_status(),
             push: Some(self.push.status(self.bus.all_watchers())),
             aws: self.tools.aws.as_ref().map(|a| a.status()),
+            // Asked of the tender by `health_now`, never here: this answers
+            // at once.
+            index: None,
         }
     }
 
@@ -146,6 +149,22 @@ impl Core {
                 .filter(|s| s.external.is_some())
                 .collect(),
         }
+    }
+
+    /// `health`, with the index tender's block (roadmap row 51): the tender
+    /// is asked under `tender::HEALTH_DEADLINE`, so health never waits long
+    /// on it.
+    pub async fn health_now(&self) -> HealthResult {
+        let mut h = self.health();
+        h.index = Some(self.index.health(crate::tender::HEALTH_DEADLINE).await);
+        h
+    }
+
+    /// The daemon stops (roadmap row 51): the index tender gets SIGTERM and
+    /// is never waited for, unless the daemon restarts in place onto the
+    /// vault's changed note, whose next image takes the tender over.
+    pub fn stop_index_tender(&self) {
+        self.index.stop(self.restart_requested().is_some());
     }
 
     /// The web UI refused a request that was not from its own page or

@@ -36,6 +36,8 @@ serves. AI agents build it in small, reviewed steps.
 | `theseusd` | The daemon: serving, `job-wrapper`, `check`, `restore`, `install`, the web server. | `main.rs`, `web.rs`, `install/` | (a binary) |
 | `theseus` | The CLI, and its library `theseus_client` (client, render), which the terminal UI shares. | `main.rs`, `cmd.rs`, `render.rs`, `client.rs` | (a binary) |
 | `theseus-tui` | The terminal UI: every session in a sidebar, what needs you answered inline, a session's history and input line. A protocol client. | `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs` | `theseus tui`, which execs it |
+| `theseus-index` | The index tender (M6): a child of the daemon that follows the WAL read-only into BM25, exact entities, and vectors, and answers on `<state>/index/sock`. An installed binary of its own, beside `theseusd`. | `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs` | `theseusd`, which runs it after serving (row 51; the core's `tender.rs`) |
+| `theseus-follow` | The WAL follower: a store's log read from outside the process that writes it, from a cursor, woken by inotify. | `lib.rs`, `wake.rs` | `theseus-index` (and step 15's durability tender) |
 | `theseus-sim` | A tool beside the binaries: the crash test, `kernel-sim`, the lifecycle bench and its history, fake Discord and model servers. | `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs` | the gate, and tests |
 
 The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each says so in its own manifest:
@@ -47,7 +49,6 @@ The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each
 | `theseus-ontology` | The fungible ontology's first slice (§4.1a) | row 26 (21b) |
 | `theseus-aws-guard` | The AWS guardrails: the gate's check, and the generated guards and SCPs | row 30 (C2, 14b) |
 | `theseus-judge` | Jev: the typed client, bands, batching, the breaker, the question packs | row 37 (23a) |
-| `theseus-follow`, `theseus-index` | The WAL follower, and the index tender (BM25, entities, vectors) | row 51 |
 | `theseus-memory` | FSRS-6 and spreading activation, pure | row 52 (30a) |
 | `theseus-exam` | The memory exam | row 55 |
 | `theseus-mcp` | MCP, client and server, written by hand | row 66 (36b) |
@@ -97,6 +98,9 @@ Directory guides: each crate in the first table, `web`, `cockpit`, and `scripts`
   `crates/theseus-discord/src/courier.rs`.
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
   (`theseusd example-config` prints it).
+- **The index tender**: the binary in `crates/theseus-index`, its supervisor in `crates/theseus-core/src/tender.rs`
+  (started after serving, restarted with backoff, SIGTERM at a stop), and its child kind in
+  `crates/theseus-kernel/src/children.rs`.
 
 ## The principles that bind code
 
@@ -200,8 +204,10 @@ Each traces to the Part III item that taught it.
   commit records it: the spec's Part III item, its version line, and `docs/status.md` (its "Updated" line, the
   recently landed step, the roadmap's row). Take every time you write from `date`, never a guess.
 - **Installing** a reviewed build (`scripts/build.sh --profile release-thin`): copy-then-rename each of `theseus`,
-  `theseusd`, `theseus-sim`, and `theseus-tui` into `~/.local/bin` (`cp target/release-thin/$b ~/.local/bin/.$b.new &&
-  mv -f ~/.local/bin/.$b.new ~/.local/bin/$b`). A running daemon survives the swap.
+  `theseusd`, `theseus-sim`, `theseus-tui`, and `theseus-index` into `~/.local/bin` (`cp target/release-thin/$b
+  ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new ~/.local/bin/$b`). A running daemon survives the swap. The daemon
+  runs the `theseus-index` beside its own binary as its index tender, and only that one; a running tender keeps its old
+  image until it restarts.
 - **The README stays stable.** It says what Theseus is and why. What changes with each step goes in
   `docs/status.md`.
 - **Reviews are appendices.** A review of the design is answered in an appendix of the spec (Appendices A, C to F),

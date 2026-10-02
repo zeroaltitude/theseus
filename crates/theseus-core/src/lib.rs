@@ -47,6 +47,7 @@ pub mod store;
 pub mod sweep;
 pub mod task;
 pub mod telemetry;
+pub mod tender;
 pub mod tighten;
 pub mod toolrun;
 pub mod trace;
@@ -89,5 +90,7 @@ mod tests_reach;
 mod tests_registry;
 #[cfg(test)]
 mod tests_tasks;
+#[cfg(test)]
+mod tests_tender;
 #[cfg(test)]
 mod tests_wakes;

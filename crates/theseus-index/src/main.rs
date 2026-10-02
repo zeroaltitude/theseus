@@ -1,6 +1,8 @@
-//! `theseus-index`: run the index tender, or ask one. Until the wire-in
-//! (roadmap row 51) gives `theseusd` a `tender index` role, this binary is
-//! how the tender runs and how it is checked.
+//! `theseus-index`: run the index tender, or ask one. Installed beside
+//! `theseusd`, which runs it after serving as `serve --parent <its pid>`
+//! (roadmap row 51), restarts it when it exits, and forwards `index.status`
+//! and `index.query` to its socket for every other client. The other
+//! subcommands ask a tender's socket directly, for checks by hand.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -61,6 +63,10 @@ enum Cmd {
         /// (`bm25=1,entity=1,vector=2`; `[index] fusion` at the wire-in).
         #[arg(long)]
         weights: Option<String>,
+        /// Exit when this process does: the daemon that started this tender
+        /// passes its own pid (roadmap row 51), so no tender outlives it.
+        #[arg(long)]
+        parent: Option<u32>,
     },
     /// Hits for a text.
     Query {
@@ -138,6 +144,76 @@ enum Cmd {
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The idle I/O class (roadmap row 51): the tender's commits, about 140 ms of
+/// fsyncs each on this disk, wait for the disk to be otherwise idle, so the
+/// core's WAL syncs never queue behind them, where the I/O scheduler honours
+/// classes. Set before any thread starts, and every thread inherits it.
+fn io_idle() {
+    const IOPRIO_WHO_PROCESS: libc::c_int = 1;
+    const IOPRIO_CLASS_IDLE: libc::c_int = 3;
+    const IOPRIO_CLASS_SHIFT: libc::c_int = 13;
+    // SAFETY: plain integers; it sets this thread's own I/O priority.
+    let set = unsafe {
+        libc::syscall(
+            libc::SYS_ioprio_set,
+            IOPRIO_WHO_PROCESS,
+            0,
+            IOPRIO_CLASS_IDLE << IOPRIO_CLASS_SHIFT,
+        )
+    };
+    if set != 0 {
+        tracing::warn!(
+            error = %std::io::Error::last_os_error(),
+            "index: could not take the idle I/O class"
+        );
+    }
+}
+
+/// Exit when `parent` exits (roadmap row 51): the daemon that started this
+/// tender. A restart onto a changed config note execs the daemon in place,
+/// with the same pid, and this tender lives on for the new image to take
+/// over; a crash or a kill of the daemon ends it here, so no tender outlives
+/// its daemon holding the index's lock. A pidfd, so nothing polls: a thread
+/// waits on it and exits the process, which is what SIGTERM does (ingest is
+/// idempotent, and the cursor follows each commit).
+fn exit_with(parent: u32) {
+    // SAFETY: plain integers; it returns a new fd, or -1.
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, parent as libc::pid_t, 0) };
+    if fd < 0 {
+        tracing::warn!(
+            parent,
+            error = %std::io::Error::last_os_error(),
+            "index: cannot watch the daemon that started this tender; it will not exit with it"
+        );
+        return;
+    }
+    let fd = fd as libc::c_int;
+    // The daemon may have gone before the pidfd was taken, and this tender
+    // was reparented: then that pid is no longer its parent.
+    if std::os::unix::process::parent_id() != parent {
+        tracing::info!(parent, "index: the daemon that started this tender is gone");
+        std::process::exit(0);
+    }
+    let watch = std::thread::Builder::new()
+        .name("index-parent".into())
+        .spawn(move || {
+            let mut p = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: one pollfd, owned by this frame; no timeout.
+            while unsafe { libc::poll(&mut p, 1, -1) } < 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
+            {}
+            tracing::info!(parent, "index: the daemon that started this tender exited");
+            std::process::exit(0);
+        });
+    if let Err(e) = watch {
+        tracing::warn!(parent, error = %e, "index: cannot watch the daemon that started this tender");
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli.cmd) {
@@ -162,6 +238,7 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             idle_unload_mins,
             threads,
             weights,
+            parent,
         } => {
             // Before any thread starts: candle reads these at every matmul,
             // and rayon's pool at its first use. Every core when unset.
@@ -181,6 +258,10 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             // SAFETY: no pointers; it sets this process's own priority.
             if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) } != 0 {
                 tracing::warn!(nice, "index: could not lower its priority");
+            }
+            io_idle();
+            if let Some(parent) = parent {
+                exit_with(parent);
             }
             let mut cfg = Config::new(&store, &index);
             cfg.backstop = Duration::from_secs(backstop_secs.max(1));

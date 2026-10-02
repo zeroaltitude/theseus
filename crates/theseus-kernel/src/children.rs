@@ -9,6 +9,11 @@
 //!   These are the `op` processes: tokio's process driver reaps each of its
 //!   children by its pid, and a reap here would take the status its `wait()`
 //!   needs, so the `op` call would fail with `ECHILD`.
+//! - A **tender** (roadmap row 51) is a long-lived child its supervisor
+//!   restarts: the index tender, `theseus-index serve`. `sweep` reaps it by
+//!   its pid, as it does a wrapper, and reports how it ended, so the
+//!   supervisor starts the next one. After an exec, `relearn` knows a tender
+//!   by its command line, so the new image takes over the running one.
 //! - Any other child is an **orphan**: a job's descendant whose wrapper died,
 //!   which the kernel reparented here because the socket daemon is a child
 //!   subreaper (`adopt`). `sweep` reaps it once it has exited. Nothing that
@@ -36,7 +41,14 @@ pub enum Kind<'a> {
     Wrapper(&'a str),
     /// Its spawner waits for it (tokio, for `op`): never reaped here.
     Owned,
+    /// A long-lived child, by what it tends (`index`): `sweep` reaps it and
+    /// reports its exit to its supervisor, which starts the next.
+    Tender(&'a str),
 }
+
+/// The tenders `relearn` knows by their command lines: the binary's file
+/// name, its first argument, and what it tends.
+const TENDERS: &[(&str, &str, &str)] = &[("theseus-index", "serve", "index")];
 
 struct Registry {
     /// Wrappers not yet reaped: pid, then job.
@@ -45,6 +57,8 @@ struct Registry {
     /// could be read, so a pid reused after the owner reaped it is not taken
     /// for its child. With none, any process with that pid is taken for it.
     owned: BTreeMap<u32, Option<u64>>,
+    /// Tenders not yet reaped: pid, then what it tends.
+    tenders: BTreeMap<u32, String>,
     reaped_wrappers: u64,
     reaped_orphans: u64,
 }
@@ -60,6 +74,7 @@ impl Registry {
 static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
     wrappers: BTreeMap::new(),
     owned: BTreeMap::new(),
+    tenders: BTreeMap::new(),
     reaped_wrappers: 0,
     reaped_orphans: 0,
 });
@@ -94,6 +109,9 @@ pub fn spawn<C>(
             Kind::Owned => {
                 reg.owned.insert(p, stat(p).map(|s| s.start));
             }
+            Kind::Tender(name) => {
+                reg.tenders.insert(p, name.to_string());
+            }
         }
     }
     Ok(child)
@@ -106,13 +124,17 @@ pub struct Swept {
     pub wrappers: Vec<(u32, String, ExitStatus)>,
     /// Orphans: pid, and how each ended.
     pub orphans: Vec<(u32, ExitStatus)>,
+    /// Tenders: pid, what it tended, and how it ended (`None`: it was no
+    /// longer this process's child, so its status was never this process's
+    /// to read).
+    pub tenders: Vec<(u32, String, Option<ExitStatus>)>,
 }
 
 /// Reap every child that has exited and is this process's to reap: each
-/// registered wrapper, by its pid, then each zombie child that is neither a
-/// wrapper nor owned. An owned child is left to its owner. Its entry goes once
-/// its pid is no longer a child with its start time, which means the owner
-/// has reaped it.
+/// registered wrapper and tender, by its pid, then each zombie child that is
+/// none of those and not owned. An owned child is left to its owner. Its entry
+/// goes once its pid is no longer a child with its start time, which means the
+/// owner has reaped it.
 pub fn sweep() -> Swept {
     let mut reg = registry();
     let mut out = Swept::default();
@@ -131,9 +153,21 @@ pub fn sweep() -> Swept {
             }
         }
     }
+    let tenders: Vec<u32> = reg.tenders.keys().copied().collect();
+    for pid in tenders {
+        let status = match reap(pid) {
+            Wait::Running => continue,
+            Wait::Exited(status) => Some(status),
+            // Gone, and not as this process's child: still the end of it,
+            // which its supervisor must hear.
+            Wait::NotAChild => None,
+        };
+        let name = reg.tenders.remove(&pid).unwrap_or_default();
+        out.tenders.push((pid, name, status));
+    }
     let me = std::process::id();
     for pid in children() {
-        if reg.wrappers.contains_key(&pid) {
+        if reg.wrappers.contains_key(&pid) || reg.tenders.contains_key(&pid) {
             continue;
         }
         let Some(s) = stat(pid) else { continue };
@@ -167,6 +201,8 @@ pub struct Census {
     pub zombies: u64,
     /// Live children their spawner waits for.
     pub owned: u64,
+    /// The live tenders among its children: pid, then what it tends.
+    pub tenders: Vec<(u32, String)>,
     /// Reaped since this image started.
     pub reaped_wrappers: u64,
     pub reaped_orphans: u64,
@@ -191,6 +227,8 @@ pub fn census() -> Census {
             c.zombies += 1;
         } else if let Some(job) = reg.wrappers.get(&pid) {
             c.wrappers.push((pid, job.clone()));
+        } else if let Some(name) = reg.tenders.get(&pid) {
+            c.tenders.push((pid, name.clone()));
         } else if reg.owns(pid, s.start) {
             c.owned += 1;
         } else {
@@ -204,23 +242,29 @@ pub fn census() -> Census {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Relearned {
     pub wrappers: u64,
+    pub tenders: u64,
     pub orphans: u64,
     pub zombies: u64,
 }
 
 /// After an exec, which keeps the pid and so every child (theseus-2fo's
 /// restart onto a changed note): register each live child whose command line
-/// is a job wrapper's, with its job, as 6qy's check reads it. Every other
-/// child is an orphan, reaped by a sweep once it exits. The old image's `op`,
-/// which its runtime killed as it stopped, is among them, since the new
-/// image's tokio never knew it.
+/// is a job wrapper's, with its job, as 6qy's check reads it, and each whose
+/// command line is a tender's (`TENDERS`), so its supervisor takes it over
+/// instead of starting a second. Every other child is an orphan, reaped by a
+/// sweep once it exits. The old image's `op`, which its runtime killed as it
+/// stopped, is among them, since the new image's tokio never knew it.
 pub fn relearn() -> Relearned {
     let mut reg = registry();
     let me = std::process::id();
     let mut r = Relearned::default();
     for pid in children() {
         let Some(s) = stat(pid) else { continue };
-        if s.ppid != me || reg.wrappers.contains_key(&pid) || reg.owns(pid, s.start) {
+        if s.ppid != me
+            || reg.wrappers.contains_key(&pid)
+            || reg.tenders.contains_key(&pid)
+            || reg.owns(pid, s.start)
+        {
             continue;
         }
         if matches!(s.state, 'Z' | 'X') {
@@ -228,11 +272,46 @@ pub fn relearn() -> Relearned {
         } else if let Some(job) = crate::job::wrapper_job(pid) {
             reg.wrappers.insert(pid, job);
             r.wrappers += 1;
+        } else if let Some(name) = tender_of(pid) {
+            reg.tenders.insert(pid, name.to_string());
+            r.tenders += 1;
         } else {
             r.orphans += 1;
         }
     }
     r
+}
+
+/// The live tender of `name` among this process's children: the one it
+/// spawned, or the one `relearn` found after an exec.
+pub fn tender(name: &str) -> Option<u32> {
+    let reg = registry();
+    let me = std::process::id();
+    reg.tenders
+        .iter()
+        .filter(|(_, n)| n.as_str() == name)
+        .map(|(&pid, _)| pid)
+        .find(|&pid| stat(pid).is_some_and(|s| s.ppid == me && !matches!(s.state, 'Z' | 'X')))
+}
+
+/// What a process tends, read from its command line (`TENDERS`): a tender's
+/// binary, by its file name, with its first argument.
+pub fn tender_of(pid: u32) -> Option<&'static str> {
+    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    tender_in(&cmdline)
+}
+
+fn tender_in(cmdline: &[u8]) -> Option<&'static str> {
+    let mut args = cmdline.split(|&b| b == 0);
+    let bin = std::path::Path::new(std::str::from_utf8(args.next()?).ok()?)
+        .file_name()?
+        .to_str()?
+        .to_string();
+    let first = std::str::from_utf8(args.next()?).ok()?;
+    TENDERS
+        .iter()
+        .find(|(b, a, _)| *b == bin && *a == first)
+        .map(|(_, _, name)| *name)
 }
 
 /// Make this process a child subreaper (theseus-z4b). A job's descendant
@@ -410,6 +489,7 @@ mod tests {
         let mut reg = Registry {
             wrappers: BTreeMap::new(),
             owned: BTreeMap::new(),
+            tenders: BTreeMap::new(),
             reaped_wrappers: 0,
             reaped_orphans: 0,
         };
@@ -419,5 +499,18 @@ mod tests {
         assert!(!reg.owns(10, 501), "a pid reused later is another process");
         assert!(reg.owns(11, 1) && reg.owns(11, 2));
         assert!(!reg.owns(12, 500));
+    }
+
+    /// A tender is known by its binary's file name and its first argument
+    /// (row 51): the same binary as a client, or another binary, is not one.
+    #[test]
+    fn a_tender_is_known_by_its_command_line() {
+        let serve = b"/home/op/.local/bin/theseus-index\0serve\0--store\0/s\0--parent\x0012\0";
+        assert_eq!(tender_in(serve), Some("index"));
+        assert_eq!(tender_in(b"theseus-index\0serve\0"), Some("index"));
+        assert_eq!(tender_in(b"/x/theseus-index\0query\0--socket\0/s\0"), None);
+        assert_eq!(tender_in(b"/x/theseusd\0serve\0"), None);
+        assert_eq!(tender_in(b"/x/theseus-index\0"), None);
+        assert_eq!(tender_in(b""), None);
     }
 }

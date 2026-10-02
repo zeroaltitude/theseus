@@ -20,7 +20,7 @@ use theseus_protocol::{
 };
 
 use crate::print::{self, Mode, Printer};
-use crate::{AskArgs, ConfirmArgs, ExecutionsCmd, PolicyCmd, ProfileCmd, SessionsCmd};
+use crate::{AskArgs, ConfirmArgs, ExecutionsCmd, IndexCmd, PolicyCmd, ProfileCmd, SessionsCmd};
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it
 /// decoded.
@@ -583,6 +583,43 @@ pub async fn health(conn: &mut Conn, json: bool) -> Result<()> {
         )?;
         Ok(())
     })
+}
+
+/// `theseus index status` and `theseus index search` (roadmap row 51): the
+/// core answers each by asking its index tender.
+pub async fn index(conn: &mut Conn, json: bool, cmd: IndexCmd) -> Result<()> {
+    use theseus_protocol::index::{IndexHealth, IndexQueryParams, IndexQueryResult};
+    match cmd {
+        IndexCmd::Status => {
+            let v = conn.request(method::INDEX_STATUS, Value::Null).await?;
+            output(json, v, |h: IndexHealth| {
+                print::lines(&mut io::stdout().lock(), &render::index_status_lines(&h))?;
+                Ok(())
+            })
+        }
+        IndexCmd::Search {
+            query,
+            k,
+            as_of,
+            sources,
+        } => {
+            let text = query.join(" ");
+            let mut p = IndexQueryParams::new(&text);
+            p.k = k;
+            p.as_of = as_of;
+            p.sources = sources;
+            let v = conn
+                .request(method::INDEX_QUERY, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: IndexQueryResult| {
+                print::lines(
+                    &mut io::stdout().lock(),
+                    &render::index_hits_lines(&text, &r),
+                )?;
+                Ok(())
+            })
+        }
+    }
 }
 
 /// `theseus sessions`: list, open, or recompile.

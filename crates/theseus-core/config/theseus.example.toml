@@ -454,6 +454,20 @@ port = 7433
 # server's port is open to every local user, and it relays to the daemon.
 # dev_origin = "http://localhost:5173"
 
+# ---------------------------------------------------------------- index
+# The index tender (M6): `theseus-index`, installed beside theseusd. It starts
+# once the socket answers, never before; follows the store's log, read-only,
+# into a search index in <state_dir>/index (BM25 and exact entities, and
+# vectors once the model's files are in weights_dir); and answers `theseus
+# index search`. Whenever it exits it starts again, after 1 s, the wait
+# doubling to 60 s while it keeps failing. A stop never waits for it. Without
+# its binary, or with this off, nothing else changes, and health says why.
+[index]
+enabled = true
+weights_dir = "~/.cache/theseus/models"   # the embedding model's files; nothing is fetched, and without them BM25 and entities answer alone
+threads = 1                               # the embedding model's threads
+idle_unload_mins = 10.0                   # the model unloads after this long unused (about 500 MB), and loads again on the next use
+
 # ---------------------------------------------------------------- approval
 # Who may answer a call that waits for approval, or a budget question, and
 # where (spec §3.9 "Approval"). Without this section only you answer: the CLI,

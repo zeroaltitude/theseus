@@ -45,9 +45,11 @@ fn children_of(pid: u32) -> Vec<u32> {
 
 /// A wrapper is reaped by its pid, and an orphan that this subreaper adopted
 /// once it exits. An owned child is left as a zombie until its owner waits,
-/// and the owner's wait still gets its status. After an exec, a live child
-/// whose command line is a wrapper's is learned as that job's wrapper, and
-/// any other as an orphan.
+/// and the owner's wait still gets its status. A tender (row 51) is reaped by
+/// its pid and reported with how it ended, never as an orphan. After an exec,
+/// a live child whose command line is a wrapper's is learned as that job's
+/// wrapper, one whose command line is a tender's as that tender, and any other
+/// as an orphan.
 #[test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn a_sweep_reaps_wrappers_and_orphans_and_never_an_owned_child() {
@@ -127,10 +129,56 @@ fn a_sweep_reaps_wrappers_and_orphans_and_never_an_owned_child() {
     children::sweep();
     assert_eq!(children::census().zombies, 0);
 
+    // A tender: listed while it runs, then reaped by its pid once it is
+    // killed, and reported with its signal, so its supervisor starts the next.
+    let t = children::spawn(
+        Kind::Tender("index"),
+        || Command::new("sleep").arg("30").spawn(),
+        |c| Some(c.id()),
+    )
+    .unwrap();
+    let tender = t.id();
+    std::mem::forget(t);
+    assert_eq!(children::tender("index"), Some(tender));
+    assert_eq!(children::tender("vectors"), None);
+    assert_eq!(children::census().tenders, [(tender, "index".to_string())]);
+    kill(tender);
+    wait_for("the tender to exit", || {
+        (stat(tender)? == ('Z', me)).then_some(())
+    });
+    assert_eq!(children::tender("index"), None, "a zombie tends nothing");
+    let swept = children::sweep();
+    let tenders: Vec<(u32, &str, Option<i32>)> = swept
+        .tenders
+        .iter()
+        .map(|(p, n, s)| {
+            use std::os::unix::process::ExitStatusExt;
+            (*p, n.as_str(), s.and_then(|s| s.signal()))
+        })
+        .collect();
+    assert_eq!(tenders, [(tender, "index", Some(libc::SIGKILL))]);
+    assert!(swept.orphans.is_empty() && swept.wrappers.is_empty());
+    let c = children::census();
+    assert_eq!((c.zombies, c.tenders.len(), c.reaped_orphans), (0, 0, 1));
+
     // After an exec. A stand-in wrapper: `flock`, with the lock file named
-    // for the mode word, has a wrapper's command line. And a plain `sleep`.
-    // Neither is registered, as nothing is in a new image.
+    // for the mode word, has a wrapper's command line. A stand-in tender: a
+    // shell named `theseus-index`, running the script `serve`, which waits on
+    // its stdin and starts nothing. And a plain `sleep`. None is registered,
+    // as nothing is in a new image.
     let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("serve"), "read x\nexit 0\n").unwrap();
+    let mut old_tender_child = {
+        use std::os::unix::process::CommandExt;
+        Command::new("sh")
+            .arg0(dir.path().join("theseus-index"))
+            .arg("serve")
+            .current_dir(dir.path())
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let old_tender = old_tender_child.id();
     let old_wrapper = Command::new("flock")
         .current_dir(dir.path())
         .args([
@@ -152,14 +200,32 @@ fn a_sweep_reaps_wrappers_and_orphans_and_never_an_owned_child() {
         children::relearn(),
         Relearned {
             wrappers: 1,
+            tenders: 1,
             orphans: 1,
             zombies: 0
         }
     );
     let c = children::census();
     assert_eq!(
-        (c.wrappers, c.orphans),
-        (vec![(old_wrapper, "act_old".to_string())], 1)
+        (c.wrappers, c.tenders, c.orphans),
+        (
+            vec![(old_wrapper, "act_old".to_string())],
+            vec![(old_tender, "index".to_string())],
+            1
+        )
+    );
+    assert_eq!(children::tender("index"), Some(old_tender));
+    // Its stdin closes, so it ends, and the sweep reaps it as the tender.
+    drop(old_tender_child.stdin.take());
+    std::mem::forget(old_tender_child);
+    let gone = wait_for("the old tender to be reaped", || {
+        let s = children::sweep();
+        assert!(s.orphans.is_empty(), "{s:?}");
+        s.tenders.first().cloned()
+    });
+    assert_eq!(
+        (gone.0, gone.1.as_str(), gone.2.map(|s| s.success())),
+        (old_tender, "index", Some(true))
     );
     // The job kills its wrapper: what the wrapper held comes here.
     kill(old_wrapper);

@@ -635,6 +635,99 @@ fn health() -> Value {
     })
 }
 
+/// The core's `index.status` (roadmap row 51): a hybrid index, caught up, its
+/// tender restarted once, after a SIGKILL.
+fn index_ready() -> Value {
+    json!({
+        "state": "ready",
+        "tender": {"name": "index", "state": "running", "pid": 4242, "adopted": false,
+                   "started_at_ms": 1_759_300_000_000u64, "restarts": 1, "last_exit": "signal 9",
+                   "last_exit_ms": 1_759_299_999_000u64, "backoff_ms": 1000,
+                   "binary": "/opt/theseus/bin/theseus-index"},
+        "status": {"state": "ready", "mode": "hybrid", "pid": 4242,
+                   "index_dir": "/home/op/.theseus/index", "wal_dir": "/home/op/.theseus/store/wal",
+                   "position": 1607, "segment": 0, "offset": 182_340, "documents": 151, "nodes": 100,
+                   "lag": {"bytes": 0, "ms": 0}, "commits": 12, "records_read": 1490,
+                   "nodes_indexed": 100, "nodes_skipped": 11, "undecodable": 0, "rebuilds": 0,
+                   "extractor": 2, "schema": 1, "rss_bytes": 25_165_824,
+                   "started_at_ms": 1_759_300_000_000u64, "last_commit_ms": 1_759_300_100_000u64,
+                   "vectors": {"model": "loaded", "weights_dir": "/home/op/.cache/theseus/models",
+                               "stamp": {"model": "nomic-embed-text-v1.5@e5cf08a",
+                                         "weights": "ab12", "tokenizer": "cd34",
+                                         "engine": "candle-0.11.0+embed.2", "precision": "f32",
+                                         "dims": [256, 768]},
+                               "chunks": 151, "vectors": 149, "pending": 2,
+                               "backfill": {"texts": 149, "batches": 12, "tokens": 40_210,
+                                            "truncated": 0, "wall_ms": 118_000, "cpu_ms": 117_000,
+                                            "failed": 0},
+                               "loads": 1, "unloads": 0, "load_ms": 530.0,
+                               "loaded_at_ms": 1_759_300_000_600u64,
+                               "last_used_ms": 1_759_300_100_000u64, "idle_unload_secs": 600,
+                               "threads": "RAYON_NUM_THREADS=1 CANDLE_NUM_THREADS=1"}}
+    })
+}
+
+/// The same tender, down: it exited, and waits its backoff.
+fn index_down() -> Value {
+    json!({
+        "state": "down",
+        "why": "it exited (exit 1) after 0.4 s; it starts again in 4 s",
+        "tender": {"name": "index", "state": "backoff", "restarts": 3, "last_exit": "exit 1",
+                   "last_exit_ms": 1_759_300_000_000u64, "next_start_ms": 1_759_300_004_000u64,
+                   "backoff_ms": 4000, "why": "it exited (exit 1) after 0.4 s; it starts again in 4 s",
+                   "binary": "/opt/theseus/bin/theseus-index"}
+    })
+}
+
+/// The core's `index.query`: two hits, one a tool's external result held by
+/// an entity alone.
+fn index_hits() -> Value {
+    json!({
+        "hits": [
+            {"node_id": "nod_u1", "chunk": 0, "session_id": S, "position": 1509,
+             "kind": "user_message", "origin": "cli", "time_ms": 1_759_300_000_000u64,
+             "external": false, "text": "the web UI listens on 7433,\nnot on 7434",
+             "sources": {"bm25": {"rank": 1, "score": 3.2}, "vector": {"rank": 2, "score": 0.71}},
+             "fused": 0.1148},
+            {"node_id": "nod_t2", "chunk": 1, "session_id": "ses_b2c9w1", "position": 1388,
+             "kind": "tool_result", "origin": "tool", "tool": "fs.read",
+             "time_ms": 1_759_299_000_000u64, "external": true,
+             "text": "[workspace]\nmembers = [\"crates/core\", \"crates/cli\"]\nresolver = \"2\"\n\n[workspace.package]\nversion = \"0.0.1\"\nedition = \"2021\"\nlicense = \"MIT OR Apache-2.0\"\nrust-version = \"1.85\"\n# the port is 7433 in the template",
+             "entities_matched": ["file:Cargo.toml"],
+             "sources": {"entity": {"rank": 1, "score": 2.0}}, "fused": 0.0164}
+        ],
+        "indexed_through": 1607, "lag": {"bytes": 0, "ms": 0},
+        "timings": {"bm25_ms": 0.4, "entity_ms": 0.1, "embed_ms": 74.2, "vector_ms": 0.6,
+                    "fuse_ms": 0.0, "load_ms": 0.0, "total_ms": 75.5},
+        "weights": {"bm25": 1.0, "entity": 1.0, "vector": 6.0}
+    })
+}
+
+/// The params `theseus ARGS` sends with its one request, answered `result`.
+fn request_params(args: &[&str], result: Value) -> Value {
+    let dir = tempfile::tempdir().unwrap();
+    let sock = dir.path().join("sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let daemon = std::thread::spawn(move || {
+        let (s, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(&s).read_line(&mut line).unwrap();
+        let req: Value = serde_json::from_str(&line).unwrap();
+        let answer = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
+        (&s).write_all(format!("{answer}\n").as_bytes()).unwrap();
+        req["params"].clone()
+    });
+    let out = Command::new(THESEUS)
+        .arg("--socket")
+        .arg(&sock)
+        .args(args)
+        .env_remove("THESEUS_SOCKET")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    daemon.join().unwrap()
+}
+
 fn tools() -> Value {
     json!({
         "tools": [
@@ -1037,6 +1130,124 @@ fn health_says_where_the_push_stands() {
     assert!(
         out.contains("push: not seeded: nothing has watched since the start"),
         "{out}"
+    );
+}
+
+/// A daemon with the index tender (roadmap row 51): health's `index:` line,
+/// and the tender in its `children:` line; off, and down.
+#[test]
+fn health_says_where_the_index_stands() {
+    let mut h = health();
+    h["index"] = index_ready();
+    h["children"] = json!({"subreaper": true, "wrappers_running": 1, "wrappers_lingering": 0,
+                           "orphans": 0, "zombies": 0, "owned": 0, "reaped_wrappers": 7,
+                           "reaped_orphans": 0, "tenders": [index_ready()["tender"]]});
+    golden(
+        "health_index",
+        &run(&["health"], vec![step("health", h.clone())]),
+    );
+    h["index"] = json!({"state": "off", "why": "[index] enabled = false"});
+    let out = run(&["health"], vec![step("health", h.clone())]);
+    assert!(
+        out.contains("\nindex: off · [index] enabled = false\n"),
+        "{out}"
+    );
+    h["index"] = index_down();
+    let out = run(&["health"], vec![step("health", h)]);
+    assert!(
+        out.contains("\nindex: down · it exited (exit 1) after 0.4 s; it starts again in 4 s\n"),
+        "{out}"
+    );
+}
+
+/// `theseus index status` and `theseus index search` (roadmap row 51): the
+/// index, its tender, cursor, and vectors; one that is down; the hits with
+/// each source's rank, cut to one line; a search the core could not answer;
+/// and the query the core gets, `--sources` included.
+#[test]
+fn index_status_and_search_print_the_index_and_its_hits() {
+    golden(
+        "index_status",
+        &run(
+            &["index", "status"],
+            vec![step("index.status", index_ready())],
+        ),
+    );
+    golden(
+        "index_status_json",
+        &run(
+            &["--json", "index", "status"],
+            vec![step("index.status", index_ready())],
+        ),
+    );
+    golden(
+        "index_status_down",
+        &run(
+            &["index", "status"],
+            vec![step("index.status", index_down())],
+        ),
+    );
+    golden(
+        "index_search",
+        &run(
+            &["index", "search", "port", "7433", "-k", "5"],
+            vec![step("index.query", index_hits())],
+        ),
+    );
+    let mut loading = index_hits();
+    loading["skipped"] = json!({"vector": "the model is loading"});
+    loading["hits"] = json!([]);
+    golden(
+        "index_search_skipped",
+        &run(
+            &["index", "search", "nothing", "like", "it"],
+            vec![step("index.query", loading)],
+        ),
+    );
+    golden(
+        "index_search_json",
+        &run(
+            &["--json", "index", "search", "port 7433"],
+            vec![step("index.query", index_hits())],
+        ),
+    );
+    let down = Step {
+        method: "index.query",
+        before: vec![],
+        answer: Err(json!({"code": -32603, "message":
+            "the index tender did not answer: it exited (exit 1) after 0.4 s; it starts again in 4 s"})),
+        after: vec![],
+    };
+    golden(
+        "index_search_down",
+        &run(&["index", "search", "port", "7433"], vec![down]),
+    );
+    // The query as the core gets it: its words joined, `-k`, `--as-of`.
+    assert_eq!(
+        request_params(
+            &["index", "search", "port", "7433", "-k", "5", "--as-of", "1600"],
+            index_hits()
+        ),
+        json!({"text": "port 7433", "k": 5, "as_of": 1600})
+    );
+    assert_eq!(
+        request_params(&["index", "search", "7433"], index_hits()),
+        json!({"text": "7433", "k": 10})
+    );
+    // `--sources`: these sources alone.
+    assert_eq!(
+        request_params(
+            &[
+                "index",
+                "search",
+                "what",
+                "looks",
+                "--sources",
+                "bm25,entity"
+            ],
+            index_hits()
+        ),
+        json!({"text": "what looks", "k": 10, "sources": ["bm25", "entity"]})
     );
 }
 

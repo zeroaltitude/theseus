@@ -58,9 +58,11 @@ impl Drop for Daemon {
     }
 }
 
-/// The template, made safe to serve in a test: the web UI and Discord off, no
-/// GitHub token, every secret a reference to the vault `Test`, the model
-/// endpoints on a port nothing answers, and `projects` as the projects dir.
+/// The template, made safe to serve in a test: the web UI, Discord, and the
+/// index tender off, no GitHub token, every secret a reference to the vault
+/// `Test`, the model endpoints on a port nothing answers, and `projects` as
+/// the projects dir. A tender would read the operator's model files; the
+/// tender's own tests turn it on, with a stand-in.
 pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> String {
     let out = Command::new(theseusd)
         .arg("example-config")
@@ -91,6 +93,7 @@ pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> Stri
     }
     table(&mut t, "discord").insert("enabled".into(), false.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
+    table(&mut t, "index").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
     table(&mut t, "kernel").insert("spend_limit_usd".into(), spend_limit_usd.into());
     toml::to_string(&t).unwrap()

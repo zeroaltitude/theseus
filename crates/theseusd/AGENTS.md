@@ -9,6 +9,9 @@ subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindin
   background, the store, the kernel's startup, then serving. The network, and every fsync but the kernel's one, go
   in `after_serving`, as do the actors (the harness loop, the driver, telemetry, the web UI, Discord), which start
   only once the config may act. Also the signal arms (SIGINT and SIGTERM are one clean stop) and the reaper.
+- The index tender (row 51): `after_serving` starts the core's supervisor (`theseus_core::tender`) as soon as the
+  socket answers, the socket daemon only; the reaper hands it each tender's exit; a stop sends the tender SIGTERM
+  and never waits. It runs the `theseus-index` beside this binary, never one on PATH.
 - `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
   refuses a wrong `Host` or `Origin` and any uid but the daemon's own.
 - `src/install/`: `theseusd install`, the daemon as a systemd service (`--user`, or `--separate` as root). It prints
@@ -27,6 +30,10 @@ subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindin
   the daemon stops.
 - **A serving daemon is a child subreaper** (`children::adopt`), and nothing that answers an approval may descend
   from a serving `theseusd`. `job::DAEMON_VALUE_FLAGS` must match clap's options; a test here holds them together.
+- **One index tender per state dir**, and none outlives its daemon: it holds `<state>/index/LOCK`, exits when the
+  daemon's pid does (`--parent`), and after a restart in place the new image takes it over (`children::relearn`
+  knows it by its command line). A test config from the template turns `[index]` off (`common::safe_note`): a
+  tender would read the operator's model files. `tests/tender.rs` turns it on, with the real binary.
 - **Files are the operator's alone**: umask 077 before anything is created, and the state dir, store, and spool
   0700. A job's command gets the operator's own umask back.
 - **Code that runs as root** (`install --separate`): every deletion is one planned file, an empty directory, or a

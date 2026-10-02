@@ -201,7 +201,7 @@ git clone https://github.com/zeroaltitude/theseus && cd theseus
 (cd web && npm ci && npm run build)
 (cd cockpit && npm ci && npm run build)
 cargo build --release
-install -m 755 target/release/theseus target/release/theseusd target/release/theseus-tui ~/.local/bin/
+install -m 755 target/release/theseus target/release/theseusd target/release/theseus-tui target/release/theseus-index ~/.local/bin/
 
 # Configure: start from the annotated template.
 mkdir -p ~/.theseus

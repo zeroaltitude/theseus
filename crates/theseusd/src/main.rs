@@ -438,6 +438,9 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path));
     let served = serve_socket(core.clone(), socket_path, after_bind).await;
     stop_phase("serving loop ended");
+    // The index tender gets SIGTERM and is never waited for (§9), unless this
+    // is a restart in place, whose next image takes it over (roadmap row 51).
+    core.stop_index_tender();
     // The posts already sent settle within the stop's grace, and the index is
     // checkpointed after them (theseus-pfv).
     core.finish_stop().await;
@@ -575,6 +578,7 @@ fn adopt_children() {
     if found != children::Relearned::default() {
         tracing::info!(
             wrappers = found.wrappers,
+            tenders = found.tenders,
             orphans = found.orphans,
             zombies = found.zombies,
             "children kept across the restart"
@@ -623,6 +627,16 @@ async fn reap_children() {
                 }
                 for (pid, status) in &swept.orphans {
                     tracing::info!(pid, status = %status, "reaped an orphan a job left");
+                }
+                // A tender's exit goes to its supervisor, which starts the
+                // next (roadmap row 51). Before the core is built there is
+                // none: the supervisor finds no tender, and starts one.
+                if let Some(core) = CORE.get().and_then(std::sync::Weak::upgrade) {
+                    for (pid, name, status) in swept.tenders {
+                        if name == theseus_core::tender::NAME {
+                            core.index.exited(pid, status);
+                        }
+                    }
                 }
             }
             Err(e) => tracing::warn!(error = %e, "the reaper's sweep failed"),
@@ -746,8 +760,9 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result
 
 /// What runs once the socket answers: the kernel's startup report and the
 /// start path's phases in the ledger (one frame), the kernel's counts in the
-/// log, and the GitHub token check once its secret resolves. The network and
-/// every fsync but the kernel's one stay off the start path (§9).
+/// log, the index tender (the socket daemon's, row 51), and the GitHub token
+/// check once its secret resolves. The network and every fsync but the
+/// kernel's one stay off the start path (§9).
 ///
 /// Then, once the config may act (at once for a file or a vault read before
 /// serving; when the vault confirms the copy otherwise, theseus-2fo), the
@@ -784,6 +799,14 @@ async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<P
     // no turn waits for it (theseus-q4v).
     let outbox = core.outbox.clone();
     tokio::task::spawn_blocking(move || outbox.warm());
+    // The index tender (roadmap row 51; M6 §2.2), started once the socket
+    // answers, never before, and by the socket daemon alone (`bindings` is
+    // its): a `--stdio` daemon serves `store-stdio` for one client. The
+    // tender reads the WAL and writes only its own directory, so it waits
+    // for nothing the config gate guards.
+    if bindings.is_some() {
+        tokio::spawn(core.index.clone().run());
+    }
     if !core.config_gate.opened().await {
         return;
     }

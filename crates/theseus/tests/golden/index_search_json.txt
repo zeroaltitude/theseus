@@ -1,0 +1,7 @@
+$ theseus --json index search port 7433
+--- requests
+index.query
+--- stdout
+{"hits":[{"chunk":0,"external":false,"fused":0.1148,"kind":"user_message","node_id":"nod_u1","origin":"cli","position":1509,"session_id":"ses_q7f3k2","sources":{"bm25":{"rank":1,"score":3.2},"vector":{"rank":2,"score":0.71}},"text":"the web UI listens on 7433,\nnot on 7434","time_ms":1759300000000},{"chunk":1,"entities_matched":["file:Cargo.toml"],"external":true,"fused":0.0164,"kind":"tool_result","node_id":"nod_t2","origin":"tool","position":1388,"session_id":"ses_b2c9w1","sources":{"entity":{"rank":1,"score":2.0}},"text":"[workspace]\nmembers = [\"crates/core\", \"crates/cli\"]\nresolver = \"2\"\n\n[workspace.package]\nversion = \"0.0.1\"\nedition = \"2021\"\nlicense = \"MIT OR Apache-2.0\"\nrust-version = \"1.85\"\n# the port is 7433 in the template","time_ms":1759299000000,"tool":"fs.read"}],"indexed_through":1607,"lag":{"bytes":0,"ms":0},"timings":{"bm25_ms":0.4,"embed_ms":74.2,"entity_ms":0.1,"fuse_ms":0.0,"load_ms":0.0,"total_ms":75.5,"vector_ms":0.6},"weights":{"bm25":1.0,"entity":1.0,"vector":6.0}}
+--- stderr
+--- exit 0

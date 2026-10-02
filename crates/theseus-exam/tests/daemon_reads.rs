@@ -96,6 +96,8 @@ fn safe_config(bin: &Path, projects: &Path) -> String {
     }
     table(&mut t, "discord").insert("enabled".into(), false.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
+    // The index tender (row 51) would read the operator's model files.
+    table(&mut t, "index").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
     toml::to_string(&t).unwrap()
 }

@@ -9,6 +9,7 @@ import type { ContextStatus } from "./ContextStatus";
 import type { DiskStatus } from "./DiskStatus";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
+import type { IndexHealth } from "./IndexHealth";
 import type { KernelStatus } from "./KernelStatus";
 import type { PushStatus } from "./PushStatus";
 import type { SecretsStatus } from "./SecretsStatus";
@@ -131,4 +132,10 @@ push?: PushStatus,
  * The AWS accounts the config binds (AWS design §3.10), each as its
  * check left it. Absent when it binds none.
  */
-aws?: AwsStatus, };
+aws?: AwsStatus, 
+/**
+ * The index tender (M6 §2.2, roadmap row 51): the tender as the core
+ * supervises it, and its own status when it answers. Absent from a
+ * daemon before it.
+ */
+index?: IndexHealth, };

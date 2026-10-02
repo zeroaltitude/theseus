@@ -64,6 +64,7 @@ impl Core {
             owned: c.owned,
             reaped_wrappers: c.reaped_wrappers,
             reaped_orphans: c.reaped_orphans,
+            tenders: self.index.status().into_iter().collect(),
         }
     }
 

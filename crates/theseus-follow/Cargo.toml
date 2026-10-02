@@ -7,10 +7,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
-[package.metadata.theseus]
-reserved_for = "row 51 (29b's wire-in), M6: the index tender's WAL follower; the durability tender's at row 32 (15)"
-
 [dependencies]
 theseus-store.workspace = true
 libc = "0.2"

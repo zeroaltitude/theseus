@@ -1,0 +1,7 @@
+$ theseus index search port 7433
+--- requests
+index.query
+--- stdout
+--- stderr
+theseus: the index tender did not answer: it exited (exit 1) after 0.4 s; it starts again in 4 s (code -32603)
+--- exit 1

@@ -51,6 +51,7 @@ Quick start:
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
   theseus policy trust <session>             after a session read a web page, its calls that act wait; this trusts it again
   theseus catalog                            models, context windows, and prices
+  theseus index search \"port 7433\"           find what was said, run, or read; `index status`: how far the index has read
   theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn
   theseus shutdown
 
@@ -257,6 +258,13 @@ enum Cmd {
         #[command(subcommand)]
         cmd: herdr_sync::HerdrCmd,
     },
+    /// The index (M6): `index status` says how far the index tender has read the store and what
+    /// it holds; `index search <QUERY>` finds what was said, run, and read, by its words and
+    /// names (BM25, exact entities, and vectors once the model's files are installed).
+    Index {
+        #[command(subcommand)]
+        cmd: IndexCmd,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -350,6 +358,29 @@ enum ExecutionsCmd {
     /// budget, its pending wakes, and its session's last ledger rows. ID is an execution's or a
     /// session's id, or at least the last four characters of either.
     Explain { id: String },
+}
+
+#[derive(Subcommand, Debug)]
+enum IndexCmd {
+    /// The index and its tender: state, nodes and chunks, how far behind the store it is, its
+    /// process, and its vectors.
+    Status,
+    /// The best chunks for QUERY, each with its node, session, WAL position, and the sources that
+    /// ranked it (bm25, entity, vector), fused as recall fuses them, vectors weighing most.
+    Search {
+        #[arg(required = true, value_name = "QUERY")]
+        query: Vec<String>,
+        /// How many hits (at most 100).
+        #[arg(short, long, default_value_t = 10)]
+        k: usize,
+        /// Only nodes written before this WAL position.
+        #[arg(long, value_name = "POSITION")]
+        as_of: Option<u64>,
+        /// Rank by these sources alone, comma-separated: `bm25,entity` finds the words you remember,
+        /// as written (default: every source the index has).
+        #[arg(long, value_delimiter = ',', value_name = "SOURCES")]
+        sources: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -452,6 +483,7 @@ async fn run(cli: Cli) -> Result<()> {
             let socket = cli.spawn.is_none().then_some(cli.socket.as_str());
             herdr_sync::run(c, json, cmd, socket).await
         }
+        Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

@@ -750,6 +750,13 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
     discord.insert("rest_proxy".into(), NOWHERE.into());
     discord.insert("gateway_proxy".into(), format!("ws://{NOWHERE}").into());
     table(&mut t, "web").insert("enabled".into(), false.into());
+    // The index tender runs, as Eddie's does (M6 §2.12: the bench runs with
+    // it configured, and the start path must not move), on BM25 alone: the
+    // model's files are never where it looks, so no bench loads 500 MB.
+    table(&mut t, "index").insert(
+        "weights_dir".into(),
+        projects.join("no-models").display().to_string().into(),
+    );
     let tools = table(&mut t, "tools");
     tools.insert("projects_dir".into(), projects.display().to_string().into());
     tools.insert("proc_sync_secs".into(), 1.into());
@@ -1062,6 +1069,13 @@ pub fn run(o: &Opts) -> Result<Report> {
             std::fs::create_dir_all(work.join("swap"))?;
             std::fs::copy(&o.theseusd, &copy)
                 .with_context(|| format!("copying {} for the swap", o.theseusd.display()))?;
+            // A daemon runs the index tender beside its own binary (row 51):
+            // the copy gets one too, as an install does.
+            let tender = o.theseusd.with_file_name("theseus-index");
+            if tender.is_file() {
+                std::fs::copy(&tender, copy.with_file_name("theseus-index"))
+                    .with_context(|| format!("copying {} for the swap", tender.display()))?;
+            }
             copy
         }
         (None, false) => o.theseusd.clone(),
@@ -1797,6 +1811,9 @@ mod tests {
         assert_eq!(a.endpoint.as_deref(), Some("http://127.0.0.1:9"));
         assert!(cfg.secrets.contains_key(&a.credentials.access_key_id));
         assert!(cfg.secrets.contains_key(&a.credentials.secret_access_key));
+        // The index tender runs, and finds no model's files.
+        assert!(cfg.index.enabled);
+        assert!(!theseus_core::config::expand(&cfg.index.weights_dir).exists());
     }
 
     #[test]

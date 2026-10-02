@@ -1,0 +1,8 @@
+$ theseus index status
+--- requests
+index.status
+--- stdout
+index: down · it exited (exit 1) after 0.4 s; it starts again in 4 s
+tender: index tender in backoff (exit 1, next wait 4 s, 3 restarts) · /opt/theseus/bin/theseus-index
+--- stderr
+--- exit 0

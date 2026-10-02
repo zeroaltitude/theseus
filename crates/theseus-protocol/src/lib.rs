@@ -10,6 +10,7 @@
 
 mod events;
 mod gate;
+pub mod index;
 mod ledger;
 mod push;
 #[cfg(test)]
@@ -120,6 +121,13 @@ pub mod method {
         /// The daemon owns the wait; it answers at once when it is satisfied
         /// already. A read.
         SESSION_WAIT = "session.wait",
+        /// The index tender (roadmap row 51), as health's `index` block says
+        /// it: the tender as the core supervises it, and its own status. A
+        /// read; the core asks the tender, bounded.
+        INDEX_STATUS = "index.status",
+        /// A search of the index, forwarded to the tender as it came
+        /// (`index::IndexQueryParams`): fused hits as of a position. A read.
+        INDEX_QUERY = "index.query",
     }
 }
 
@@ -421,6 +429,12 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub aws: Option<AwsStatus>,
+    /// The index tender (M6 §2.2, roadmap row 51): the tender as the core
+    /// supervises it, and its own status when it answers. Absent from a
+    /// daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub index: Option<index::IndexHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).
@@ -1243,6 +1257,65 @@ pub struct ChildrenStatus {
     pub reaped_wrappers: u64,
     /// Orphans reaped since the daemon's image started.
     pub reaped_orphans: u64,
+    /// The long-lived children it supervises (roadmap row 51): the index
+    /// tender, restarted with backoff whenever it exits. Empty from a daemon
+    /// before it, and from one that runs none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tenders: Vec<TenderStatus>,
+}
+
+/// A long-lived child the daemon supervises (roadmap row 51; M6 §2.2): the
+/// index tender. It starts after serving, never on the start path; it is
+/// restarted whenever it exits, 1 s after the first exit, the wait doubling to
+/// 60 s while it keeps failing; and a stop sends it SIGTERM and never waits.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct TenderStatus {
+    /// What it tends: `index`.
+    pub name: String,
+    /// `pending` (not started yet: it starts once the daemon's socket
+    /// answers), `running`, `backoff` (it exited, and starts again at
+    /// `next_start_ms`), `absent` (its binary is not installed beside the
+    /// daemon's: `why`), or `stopped` (the daemon is stopping, and sent it
+    /// SIGTERM, or restarts in place and keeps it).
+    pub state: String,
+    /// Its pid, while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub pid: Option<u32>,
+    /// It was already running when this image started (a restart onto the
+    /// vault's changed note keeps the pid, and so its children): the core
+    /// took it over instead of starting a second.
+    #[serde(default)]
+    pub adopted: bool,
+    /// When its process started, unix ms.
+    #[serde(default)]
+    pub started_at_ms: u64,
+    /// Starts after the first: one for each exit.
+    #[serde(default)]
+    pub restarts: u64,
+    /// How its last run ended (`exit 1`, `signal 9`), and when.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub last_exit: Option<String>,
+    #[serde(default)]
+    pub last_exit_ms: u64,
+    /// In `backoff`: when it starts again, unix ms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub next_start_ms: Option<u64>,
+    /// The wait after its next exit: 1 s, doubling to 60 s, and 1 s again
+    /// after a run of a minute.
+    #[serde(default)]
+    pub backoff_ms: u64,
+    /// Why it is not running, in words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    /// The binary it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub binary: Option<String>,
 }
 
 /// One grant of the secret broker (theseus-dcy): who gets which secret, how,

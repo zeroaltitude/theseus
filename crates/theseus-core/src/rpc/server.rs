@@ -248,7 +248,7 @@ impl Core {
         };
         let params = req.params;
         match req.method.as_str() {
-            method::HEALTH => reply(self.health()),
+            method::HEALTH => reply(self.health_now().await),
             method::SESSION_OPEN => route(params, |p| self.session_open(p)),
             method::SESSION_LIST => {
                 // Its filter is optional: no params lists every session.
@@ -320,6 +320,17 @@ impl Core {
             method::EXECUTIONS_UNWATCH => reply(self.executions_unwatch(conn)),
             // A wait parks on the board's feed, never holding a worker.
             method::SESSION_WAIT => reply(self.session_wait(parse(params)?, conn).await?),
+            // The index tender (roadmap row 51), asked on its socket, bounded.
+            method::INDEX_STATUS => reply(self.index.health(crate::tender::STATUS_DEADLINE).await),
+            method::INDEX_QUERY => {
+                let p: theseus_protocol::index::IndexQueryParams = parse(params)?;
+                reply(
+                    self.index
+                        .query(&p)
+                        .await
+                        .map_err(|(code, message)| RpcFailure::new(code, message))?,
+                )
+            }
             // The loops wake once the answer is written (`serve_connection`).
             method::SHUTDOWN => reply(self.stopping()),
             other => Err(RpcFailure::new(

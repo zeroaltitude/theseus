@@ -1,0 +1,8 @@
+$ theseus index search nothing like it
+--- requests
+index.query
+--- stdout
+0 hits for "nothing like it" · through position 1607 · 0 B behind · 75.5 ms (bm25 0.4, entity 0.1, embed 74.2, vector 0.6)
+vector skipped: the model is loading
+--- stderr
+--- exit 0

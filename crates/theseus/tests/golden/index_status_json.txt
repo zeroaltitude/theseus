@@ -1,0 +1,7 @@
+$ theseus --json index status
+--- requests
+index.status
+--- stdout
+{"state":"ready","status":{"commits":12,"documents":151,"extractor":2,"index_dir":"/home/op/.theseus/index","lag":{"bytes":0,"ms":0},"last_commit_ms":1759300100000,"mode":"hybrid","nodes":100,"nodes_indexed":100,"nodes_skipped":11,"offset":182340,"pid":4242,"position":1607,"rebuilds":0,"records_read":1490,"rss_bytes":25165824,"schema":1,"segment":0,"started_at_ms":1759300000000,"state":"ready","undecodable":0,"vectors":{"backfill":{"batches":12,"cpu_ms":117000,"failed":0,"texts":149,"tokens":40210,"truncated":0,"wall_ms":118000},"chunks":151,"idle_unload_secs":600,"last_used_ms":1759300100000,"load_ms":530.0,"loaded_at_ms":1759300000600,"loads":1,"model":"loaded","pending":2,"stamp":{"dims":[256,768],"engine":"candle-0.11.0+embed.2","model":"nomic-embed-text-v1.5@e5cf08a","precision":"f32","tokenizer":"cd34","weights":"ab12"},"threads":"RAYON_NUM_THREADS=1 CANDLE_NUM_THREADS=1","unloads":0,"vectors":149,"weights_dir":"/home/op/.cache/theseus/models"},"wal_dir":"/home/op/.theseus/store/wal"},"tender":{"adopted":false,"backoff_ms":1000,"binary":"/opt/theseus/bin/theseus-index","last_exit":"signal 9","last_exit_ms":1759299999000,"name":"index","pid":4242,"restarts":1,"started_at_ms":1759300000000,"state":"running"}}
+--- stderr
+--- exit 0

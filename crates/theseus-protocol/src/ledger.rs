@@ -102,6 +102,7 @@ ledger_kinds! {
     ExecutionStopped = "execution.stopped",
     ExecutionWaiting = "execution.waiting",
     ImageNotShown = "image.not_shown",
+    IndexTender = "index.tender",
     JobNotStarted = "job.not_started",
     JobRefused = "job.refused",
     JobStoppedAtLaunch = "job.stopped_at_launch",

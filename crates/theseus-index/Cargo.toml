@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
+# The reader rule (theseus-wjy): an installed binary of its own, which row 51 wired in.
 [package.metadata.theseus]
-reserved_for = "row 51 (29b's wire-in), M6: theseusd spawns it as the index tender after serving; theseus index status and search"
+tool = "installed beside theseusd, which runs it after serving as the index tender: the reader of theseus index status and search"
 
 [[bin]]
 name = "theseus-index"

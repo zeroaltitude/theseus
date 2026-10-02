@@ -104,6 +104,32 @@ pub struct Core {
     last_sweep: std::sync::Mutex<Option<theseus_protocol::SpoolSweep>>,
     /// The push (theseus-in3): one view per execution, seeded on first need.
     pub push: crate::push::Push,
+    /// The index tender's supervisor (roadmap row 51): the socket daemon runs
+    /// it after serving; health and `index.*` ask the tender through it.
+    pub index: Arc<crate::tender::IndexTender>,
+}
+
+/// Where the index tender's supervisor writes its facts' rows
+/// (`crate::fact::index`, all `index.tender`): the ledger, off the
+/// runtime's workers (a row is an fsync). It holds the core by `Weak`, so
+/// the tender's task never keeps the store open past a stop.
+fn index_ledger(core: &Arc<Core>) -> crate::tender::Ledger {
+    let core = Arc::downgrade(core);
+    Arc::new(move |row: LedgerRow| {
+        let core = core.clone();
+        let write = move || {
+            let Some(core) = core.upgrade() else { return };
+            if let Err(e) = core.store.append_ledger(&row) {
+                tracing::warn!(error = %e, "ledger append failed");
+            }
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => {
+                rt.spawn_blocking(write);
+            }
+            Err(_) => write(),
+        }
+    })
 }
 
 /// A store's completion spool, the directory beside it: `store` → `spool`,
@@ -551,6 +577,13 @@ impl Core {
         };
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
         let approval = crate::approval::Approval::new(cfg.approval.as_ref());
+        // Nothing starts, and nothing is looked for, until after serving.
+        let index = Arc::new(crate::tender::IndexTender::new(
+            cfg.index.clone(),
+            store.dir(),
+            None,
+            Arc::new(crate::tender::ChildrenOs),
+        ));
         let core = Arc::new(Self {
             cfg,
             store,
@@ -579,7 +612,9 @@ impl Core {
             web_refusals: Arc::default(),
             last_sweep: Default::default(),
             push: crate::push::Push::default(),
+            index,
         });
+        core.index.set_ledger(index_ledger(&core));
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);

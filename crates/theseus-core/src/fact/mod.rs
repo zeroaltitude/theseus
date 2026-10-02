@@ -42,6 +42,7 @@ use crate::trace::Trace;
 
 pub mod answer;
 pub mod driver;
+pub mod index;
 pub mod tool;
 pub mod turn;
 
@@ -298,6 +299,11 @@ facts![
     driver::ExecutionStopped<'static>,
     driver::WrapperLost<'static>,
     driver::DriverResumes<'static>,
+    index::TenderStarted<'static>,
+    index::TenderAdopted,
+    index::TenderSettingsChanged,
+    index::TenderExited<'static>,
+    index::TenderStartFailed<'static>,
 ];
 
 #[cfg(test)]
