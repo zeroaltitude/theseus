@@ -701,34 +701,10 @@ impl FakeDiscord {
             return Ok(());
         }
         stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-        let mut r = BufReader::new(stream.try_clone()?);
-        let mut line = String::new();
-        if r.read_line(&mut line)? == 0 {
+        let Some((method, full, body)) = read_request(&stream)? else {
             return Ok(());
-        }
-        let mut parts = line.split_whitespace();
-        let method = parts.next().unwrap_or("").to_string();
-        let full = parts.next().unwrap_or("").to_string();
+        };
         let path = full.split('?').next().unwrap_or("").to_string();
-        let mut len = 0usize;
-        loop {
-            let mut h = String::new();
-            if r.read_line(&mut h)? == 0 {
-                break;
-            }
-            let h = h.trim_end();
-            if h.is_empty() {
-                break;
-            }
-            // Only the body's length is read; every other header, the
-            // token's among them, is dropped unread.
-            if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
-                len = v.trim().parse().unwrap_or(0);
-            }
-        }
-        let mut body = vec![0; len];
-        r.read_exact(&mut body)?;
-        let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
         let route = path.trim_start_matches("/api/v10");
         let segs: Vec<&str> = route.trim_matches('/').split('/').collect();
         if let ["_fake", rest @ ..] = segs.as_slice() {
@@ -747,91 +723,15 @@ impl FakeDiscord {
                 &json!({"message": "Service Unavailable (fake)", "code": 0}),
             );
         }
+        if let Some(v) = self.bot_route(&method, &segs, &body) {
+            self.record(seen(&method, route, "other"));
+            return reply(stream, 200, &v);
+        }
         match (method.as_str(), segs.as_slice()) {
-            ("GET", ["users", "@me"]) => {
-                self.record(seen(&method, route, "other"));
-                reply(
-                    stream,
-                    200,
-                    &json!({"id": BOT_ID.to_string(), "username": "Theseus (fake)",
-                    "discriminator": "0000", "bot": true, "mfa_enabled": false}),
-                )
-            }
-            ("GET", ["oauth2", "applications", "@me"] | ["applications", "@me"]) => {
-                self.record(seen(&method, route, "other"));
-                reply(
-                    stream,
-                    200,
-                    &json!({"id": APP_ID.to_string(), "name": "theseus-fake", "description": "",
-                    "bot_public": false, "bot_require_code_grant": false, "verify_key": "",
-                    "flags": self.app_flags()}),
-                )
-            }
-            ("GET", ["users", "@me", "guilds"]) => {
-                self.record(seen(&method, route, "other"));
-                let guilds: Vec<Value> = self
-                    .state
-                    .lock()
-                    .unwrap()
-                    .guild
-                    .iter()
-                    .map(|g| {
-                        json!({"id": g.id.to_string(), "name": g.name, "icon": null,
-                        "owner": false, "permissions": "0", "features": []})
-                    })
-                    .collect();
-                reply(stream, 200, &json!(guilds))
-            }
             ("GET", ["channels", c]) => self.channel_read(stream, route, c),
             ("GET", ["guilds", g, rest @ ..]) => self.guild_read(stream, route, g, rest, &full),
-            ("POST", ["interactions", id, _, "callback"]) => self.interaction_reply(
-                stream,
-                &method,
-                &format!("/interactions/{id}/{{token}}/callback"),
-                Some(id),
-                "callback",
-                &body,
-            ),
-            ("PATCH", ["webhooks", app, token, "messages", "@original"]) => {
-                let path = format!("/webhooks/{app}/{{token}}/messages/@original");
-                self.interaction_reply(
-                    stream,
-                    &method,
-                    &path,
-                    token.strip_prefix(TOKEN_PREFIX),
-                    "original",
-                    &body,
-                )
-            }
-            ("POST", ["webhooks", app, token]) => {
-                let path = format!("/webhooks/{app}/{{token}}");
-                self.interaction_reply(
-                    stream,
-                    &method,
-                    &path,
-                    token.strip_prefix(TOKEN_PREFIX),
-                    "followup",
-                    &body,
-                )
-            }
-            ("PUT", ["applications", _, "commands"]) => {
-                self.record(seen(&method, route, "other"));
-                reply(stream, 200, &json!([]))
-            }
-            ("POST", ["users", "@me", "channels"]) => {
-                self.record(seen(&method, route, "other"));
-                // A DM's channel: the user's id plus one, stable per user.
-                let user: u64 = body["recipient_id"]
-                    .as_str()
-                    .and_then(|s| s.parse().ok())
-                    .or_else(|| body["recipient_id"].as_u64())
-                    .unwrap_or(0);
-                self.state.lock().unwrap().dms.insert(user + 1, user);
-                reply(
-                    stream,
-                    200,
-                    &json!({"id": (user + 1).to_string(), "type": 1}),
-                )
+            ("POST" | "PATCH", ["interactions" | "webhooks", ..]) => {
+                self.interaction_route(stream, &method, &segs, &body)
             }
             ("POST", ["channels", c, "typing"]) => {
                 self.record(Seen {
@@ -992,6 +892,90 @@ impl FakeDiscord {
                 )
             }
         }
+    }
+
+    /// What the bot asks about itself and sets up as it connects: who it is,
+    /// its application (with the members intent when a guild is set), its
+    /// guilds, its commands, and a DM's channel (the user's id plus one,
+    /// stable per user). Answered 200; None for every other route.
+    fn bot_route(&self, method: &str, segs: &[&str], body: &Value) -> Option<Value> {
+        Some(match (method, segs) {
+            ("GET", ["users", "@me"]) => {
+                json!({"id": BOT_ID.to_string(), "username": "Theseus (fake)",
+                    "discriminator": "0000", "bot": true, "mfa_enabled": false})
+            }
+            ("GET", ["oauth2", "applications", "@me"] | ["applications", "@me"]) => {
+                json!({"id": APP_ID.to_string(), "name": "theseus-fake", "description": "",
+                    "bot_public": false, "bot_require_code_grant": false, "verify_key": "",
+                    "flags": self.app_flags()})
+            }
+            ("GET", ["users", "@me", "guilds"]) => {
+                let st = self.state.lock().unwrap();
+                let guilds: Vec<Value> = st
+                    .guild
+                    .iter()
+                    .map(|g| {
+                        json!({"id": g.id.to_string(), "name": g.name, "icon": null,
+                            "owner": false, "permissions": "0", "features": []})
+                    })
+                    .collect();
+                json!(guilds)
+            }
+            ("PUT", ["applications", _, "commands"]) => json!([]),
+            ("POST", ["users", "@me", "channels"]) => {
+                let user: u64 = body["recipient_id"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok())
+                    .or_else(|| body["recipient_id"].as_u64())
+                    .unwrap_or(0);
+                self.state.lock().unwrap().dms.insert(user + 1, user);
+                json!({"id": (user + 1).to_string(), "type": 1})
+            }
+            _ => return None,
+        })
+    }
+
+    /// An answer to an interaction, by its route: the callback, an edit of
+    /// the original response, or a follow-up. Anything else there is a 404.
+    fn interaction_route(
+        &self,
+        stream: TcpStream,
+        method: &str,
+        segs: &[&str],
+        body: &Value,
+    ) -> std::io::Result<()> {
+        let (path, interaction, kind) = match (method, segs) {
+            ("POST", ["interactions", id, _, "callback"]) => (
+                format!("/interactions/{id}/{{token}}/callback"),
+                Some(*id),
+                "callback",
+            ),
+            ("PATCH", ["webhooks", app, token, "messages", "@original"]) => (
+                format!("/webhooks/{app}/{{token}}/messages/@original"),
+                token.strip_prefix(TOKEN_PREFIX),
+                "original",
+            ),
+            ("POST", ["webhooks", app, token]) => (
+                format!("/webhooks/{app}/{{token}}"),
+                token.strip_prefix(TOKEN_PREFIX),
+                "followup",
+            ),
+            _ => {
+                // The route as asked, with its token (the third segment) cut
+                // out, as for every route above.
+                let mut cut = segs.to_vec();
+                if let Some(token) = cut.get_mut(2) {
+                    *token = "{token}";
+                }
+                self.record(seen(method, &format!("/{}", cut.join("/")), "unknown"));
+                return reply(
+                    stream,
+                    404,
+                    &json!({"message": "Unknown (fake)", "code": 10000}),
+                );
+            }
+        };
+        self.interaction_reply(stream, method, &path, interaction, kind, body)
     }
 
     /// A channel, as the viewer check reads it: a guild channel with its
@@ -1162,6 +1146,41 @@ impl FakeDiscord {
         };
         reply(stream, status, &out)
     }
+}
+
+/// One request: its method, its target with the query, and its body. Only
+/// the body's length is read of the headers; every other header, the
+/// token's among them, is dropped unread. None when the client sent nothing.
+fn read_request(stream: &TcpStream) -> std::io::Result<Option<(String, String, Value)>> {
+    let mut r = BufReader::new(stream.try_clone()?);
+    let mut line = String::new();
+    if r.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    let mut parts = line.split_whitespace();
+    let method = parts.next().unwrap_or("").to_string();
+    let full = parts.next().unwrap_or("").to_string();
+    let mut len = 0usize;
+    loop {
+        let mut h = String::new();
+        if r.read_line(&mut h)? == 0 {
+            break;
+        }
+        let h = h.trim_end();
+        if h.is_empty() {
+            break;
+        }
+        if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
+            len = v.trim().parse().unwrap_or(0);
+        }
+    }
+    let mut body = vec![0; len];
+    r.read_exact(&mut body)?;
+    Ok(Some((
+        method,
+        full,
+        serde_json::from_slice(&body).unwrap_or(Value::Null),
+    )))
 }
 
 /// A query parameter's value.
@@ -1430,6 +1449,21 @@ mod tests {
         assert_eq!(
             (r[2].content.as_deref(), r[2].ephemeral),
             (Some("done"), false)
+        );
+        // A route under /webhooks the fake doesn't know is a 404 that
+        // answers no interaction, and is recorded as asked, token cut out.
+        let (s, _) = http(
+            &fake.addr,
+            "POST",
+            &format!("/api/v10/webhooks/{APP_ID}/{tok}/messages/@sideways"),
+            &json!({"content": "?"}),
+        );
+        assert_eq!(s, 404);
+        assert_eq!(fake.replies().len(), 3);
+        let unknown = fake.seen().into_iter().find(|s| s.outcome == "unknown");
+        assert_eq!(
+            unknown.map(|s| s.path),
+            Some(format!("/webhooks/{APP_ID}/{{token}}/messages/@sideways"))
         );
         assert!(fake.seen().iter().all(|s| !s.path.contains(&tok)));
     }
