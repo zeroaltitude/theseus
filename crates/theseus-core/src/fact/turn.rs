@@ -3,7 +3,9 @@
 use serde_json::{json, Value};
 use theseus_kernel::{micros_to_usd, Action, FiredWake, Kernel, Micros, TurnEnd, Wake};
 use theseus_protocol::NarrativePart::{Approval, Context, Loop, Model, Session, Turn};
-use theseus_protocol::{notify, ConfirmRequest, ConfirmResolved, Event, TurnSubmitResult, Usage};
+use theseus_protocol::{
+    notify, ConfirmRequest, ConfirmResolved, Event, LedgerKind, TurnSubmitResult, Usage,
+};
 
 use super::{Fact, Say};
 use crate::advancer::{Decision, LoopOutcome};
@@ -47,7 +49,7 @@ pub struct TurnStarted<'a> {
 }
 
 impl Fact for TurnStarted<'_> {
-    const KIND: Option<&'static str> = Some("turn.started");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnStarted);
     const METHOD: Option<&'static str> = Some(notify::TURN_STARTED);
 
     fn row(&self) -> Value {
@@ -228,7 +230,7 @@ pub struct TurnRefused<'a> {
 }
 
 impl Fact for TurnRefused<'_> {
-    const KIND: Option<&'static str> = Some("turn.refused");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnRefused);
 
     fn row(&self) -> Value {
         json!({"class": self.class, "secret": self.secret, "error": self.error, "author": self.author, "provider": self.provider})
@@ -515,7 +517,7 @@ pub struct ContextFileMissing<'a> {
 }
 
 impl Fact for ContextFileMissing<'_> {
-    const KIND: Option<&'static str> = Some("context.file_missing");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ContextFileMissing);
 
     fn row(&self) -> Value {
         json!({"path": self.path, "error": self.error, "profile": self.profile})
@@ -572,7 +574,7 @@ pub struct ContextCompiled<'a> {
 }
 
 impl Fact for ContextCompiled<'_> {
-    const KIND: Option<&'static str> = Some("context.compiled");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ContextCompiled);
     const METHOD: Option<&'static str> = Some(notify::CONTEXT_COMPILED);
 
     fn row(&self) -> Value {
@@ -687,7 +689,7 @@ pub struct LoopStarted<'a> {
 }
 
 impl Fact for LoopStarted<'_> {
-    const KIND: Option<&'static str> = Some("loop.started");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::LoopStarted);
     const METHOD: Option<&'static str> = Some(notify::LOOP_STARTED);
 
     fn row(&self) -> Value {
@@ -735,7 +737,7 @@ pub struct LoopEnded<'a> {
 }
 
 impl Fact for LoopEnded<'_> {
-    const KIND: Option<&'static str> = Some("loop.ended");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::LoopEnded);
     const METHOD: Option<&'static str> = Some(notify::LOOP_ENDED);
 
     fn row(&self) -> Value {
@@ -971,7 +973,7 @@ pub struct ProviderCall<'a> {
 }
 
 impl Fact for ProviderCall<'_> {
-    const KIND: Option<&'static str> = Some("provider.call");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderCall);
 
     fn row(&self) -> Value {
         let resp = self.resp;
@@ -1044,7 +1046,7 @@ pub struct ProviderRefused<'a> {
 }
 
 impl Fact for ProviderRefused<'_> {
-    const KIND: Option<&'static str> = Some("provider.refusal");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderRefusal);
 
     fn row(&self) -> Value {
         json!({"stop_details": self.resp.stop_details, "model": self.resp.model})
@@ -1129,7 +1131,7 @@ pub struct OverLimit<'a> {
 }
 
 impl Fact for OverLimit<'_> {
-    const KIND: Option<&'static str> = Some("budget.over_limit");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::BudgetOverLimit);
 
     fn row(&self) -> Value {
         let t = self.target;
@@ -1152,7 +1154,7 @@ pub struct ImageNotShown<'a> {
 }
 
 impl Fact for ImageNotShown<'_> {
-    const KIND: Option<&'static str> = Some("image.not_shown");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ImageNotShown);
 
     fn row(&self) -> Value {
         let r = self.refused;
@@ -1200,7 +1202,7 @@ pub struct ContextOverflow<'a> {
 }
 
 impl Fact for ContextOverflow<'_> {
-    const KIND: Option<&'static str> = Some("context.overflow");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ContextOverflow);
 
     fn row(&self) -> Value {
         let o = self.overflow;
@@ -1292,7 +1294,7 @@ pub struct ProviderError<'a> {
 }
 
 impl Fact for ProviderError<'_> {
-    const KIND: Option<&'static str> = Some("provider.error");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderError);
 
     fn row(&self) -> Value {
         json!({
@@ -1369,7 +1371,7 @@ pub struct ContextRecompiled<'a> {
 }
 
 impl Fact for ContextRecompiled<'_> {
-    const KIND: Option<&'static str> = Some("context.recompiled");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ContextRecompiled);
 
     fn row(&self) -> Value {
         let c = self.compilation;
@@ -1392,7 +1394,7 @@ pub struct TurnFailed<'a> {
 }
 
 impl Fact for TurnFailed<'_> {
-    const KIND: Option<&'static str> = Some("turn.failed");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnFailed);
 
     fn row(&self) -> Value {
         json!({"loops": self.loops, "reason": self.reason, "usage_so_far": self.usage, "cost_usd": self.cost_usd, "tool_calls": self.tool_calls})
@@ -1447,7 +1449,7 @@ pub struct TurnBooked<'a> {
 }
 
 impl Fact for TurnBooked<'_> {
-    const KIND: Option<&'static str> = Some("turn.ended");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnEnded);
 
     fn row(&self) -> Value {
         let result = self.result;
@@ -1474,7 +1476,7 @@ pub struct TurnEnded<'a> {
 }
 
 impl Fact for TurnEnded<'_> {
-    const KIND: Option<&'static str> = Some("turn.trace");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnTrace);
     const METHOD: Option<&'static str> = Some(notify::TURN_ENDED);
 
     fn row(&self) -> Value {
@@ -1519,7 +1521,7 @@ pub struct TurnNext<'a> {
 }
 
 impl Fact for TurnNext<'_> {
-    const KIND: Option<&'static str> = Some("turn.next");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnNext);
 
     fn row(&self) -> Value {
         let run = self.run;

@@ -12,6 +12,7 @@
 //! after each rename. A power loss after "restored" loses nothing of it.
 
 use std::path::{Path, PathBuf};
+use theseus_protocol::LedgerKind;
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -160,7 +161,7 @@ fn restore_with(
         report.nodes = store.node_count()?;
         report.ledger_rows = store.ledger_len()?;
         store.append_ledger(&LedgerRow::new(
-            "store.restored",
+            LedgerKind::StoreRestored,
             None,
             None,
             json!({"from": report.from, "segments": report.segments, "frames": report.frames,
@@ -220,7 +221,7 @@ mod tests {
             last = rec.session_id;
         }
         store
-            .append_ledger(&LedgerRow::new("test.row", None, None, json!({})))
+            .append_ledger(&LedgerRow::named("test.row", None, None, json!({})))
             .unwrap();
         (store.last_position(), last)
     }

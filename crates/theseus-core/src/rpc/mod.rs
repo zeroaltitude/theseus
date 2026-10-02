@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Instant;
+use theseus_protocol::LedgerKind;
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -344,14 +345,14 @@ impl Core {
         );
         let row = if st.failed.is_empty() {
             LedgerRow::new(
-                "secrets.resolved",
+                LedgerKind::SecretsResolved,
                 None,
                 None,
                 json!({"names": st.ready, "ms": st.settled_ms, "method": st.method, "rounds": st.rounds}),
             )
         } else {
             LedgerRow::new(
-                "secrets.failed",
+                LedgerKind::SecretsFailed,
                 None,
                 None,
                 json!({"failed": st.failed, "ready": st.ready, "ms": st.settled_ms, "method": st.method, "rounds": st.rounds, "retry_in_ms": st.retry_in_ms}),
@@ -374,7 +375,7 @@ impl Core {
             let st = self.secrets.status();
             tracing::info!(secrets = ?newly, rounds = st.rounds, "secrets resolved on a retry");
             let row = LedgerRow::new(
-                "secrets.resolved",
+                LedgerKind::SecretsResolved,
                 None,
                 None,
                 json!({"names": newly, "ms": self.startup_log.us(std::time::Instant::now()) / 1000, "method": st.method, "rounds": st.rounds, "still_failed": st.failed}),
@@ -592,13 +593,13 @@ impl Core {
             .collect();
         let mut rows = vec![
             LedgerRow::new(
-                "server.started",
+                LedgerKind::ServerStarted,
                 None,
                 None,
                 json!({"startup": self.startup_report}),
             ),
             LedgerRow::new(
-                "server.serving",
+                LedgerKind::ServerServing,
                 None,
                 None,
                 json!({"serving_us": serving_us, "phases": phases}),
@@ -607,7 +608,7 @@ impl Core {
         if let Ok(st) = self.store.stats() {
             if let Some(m) = st.index_moved_aside {
                 rows.push(LedgerRow::new(
-                    "store.index_replaced",
+                    LedgerKind::StoreIndexReplaced,
                     None,
                     None,
                     json!({"moved_aside": m.path, "bytes": m.bytes, "why": m.why,
@@ -660,7 +661,7 @@ impl Core {
                             "store: the WAL's history does not check; reads from the corrupt frame on are refused"
                         );
                         let row = LedgerRow::new(
-                            "store.corrupt",
+                            LedgerKind::StoreCorrupt,
                             None,
                             None,
                             json!({"error": e.to_string()}),
@@ -699,7 +700,7 @@ impl Core {
         );
         if s.removed > 0 || (first && s.kept > 0) {
             let row = LedgerRow::new(
-                "spool.swept",
+                LedgerKind::SpoolSwept,
                 None,
                 None,
                 serde_json::to_value(&s).unwrap_or(Value::Null),

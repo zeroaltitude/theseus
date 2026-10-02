@@ -22,7 +22,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **Facts**: `fact/` (theseus-j6qn, Review 2's C2). One type per thing that happened, which says in one place what
   each channel gets: its ledger row (`KIND`, `row`), its notification (`METHOD`, `event`), its sentences
   (`narrate`), and its span (`span`). A site builds the fact and records it once (`TurnCtx::record`, a turn's
-  `record`, or a `Rec` for the session's own); `FACTS` lists every one.
+  `record`, or `Core::rec`/`session_rec` for the core's own); `FACTS` lists every one. A row's kind is a
+  `theseus_protocol::LedgerKind`; `LedgerRow::new` takes nothing else (tests write an old or unknown name with
+  `LedgerRow::named`).
 - **Start and stop**: `config.rs`, `config_copy.rs`, `config_gate.rs`, `secrets.rs`, `startup.rs`, `restore.rs`,
   `sweep.rs`, and `disk.rs`. The config template is `config/theseus.example.toml`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.

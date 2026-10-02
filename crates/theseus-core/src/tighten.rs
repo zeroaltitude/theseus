@@ -114,6 +114,7 @@ pub fn as_tightened(t: &Tightening) -> Tightened<'_> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use theseus_protocol::LedgerKind;
 
     fn tightening(tool: &str, at_ms: u64) -> Tightening {
         Tightening {
@@ -137,7 +138,12 @@ mod tests {
         t.load(&store).unwrap();
         assert!(t.all().is_empty());
         let frames = store.stats().unwrap().frames_appended;
-        let row = LedgerRow::new("policy.tightened", None, None, json!({"tool": "proc.run"}));
+        let row = LedgerRow::new(
+            LedgerKind::PolicyTightened,
+            None,
+            None,
+            json!({"tool": "proc.run"}),
+        );
         assert!(t.insert(&store, tightening("proc.run", 2), &row).unwrap());
         assert!(t.insert(&store, tightening("fs.write", 1), &row).unwrap());
         assert_eq!(store.stats().unwrap().frames_appended - frames, 2);
@@ -149,7 +155,7 @@ mod tests {
         let tools: Vec<String> = t.all().into_iter().map(|x| x.tool).collect();
         assert_eq!(tools, ["fs.write", "proc.run"], "oldest first");
         let undo = LedgerRow::new(
-            "policy.untightened",
+            LedgerKind::PolicyUntightened,
             None,
             None,
             json!({"tool": "fs.write"}),

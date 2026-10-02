@@ -4,7 +4,8 @@ use serde_json::{json, Value};
 use theseus_kernel::Action;
 use theseus_protocol::NarrativePart::{Approval, Job, Tool};
 use theseus_protocol::{
-    notify, ConfirmRequest, ConfirmResolved, Event, ExternalText, GateRecord, PolicyNotified,
+    notify, ConfirmRequest, ConfirmResolved, Event, ExternalText, GateRecord, LedgerKind,
+    PolicyNotified,
 };
 
 use super::{Fact, Say};
@@ -85,7 +86,7 @@ pub struct ToolNotified<'a> {
 }
 
 impl Fact for ToolNotified<'_> {
-    const KIND: Option<&'static str> = Some("tool.notified");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolNotified);
     const METHOD: Option<&'static str> = Some(notify::POLICY_NOTIFIED);
 
     fn row(&self) -> Value {
@@ -104,7 +105,7 @@ pub struct CallAsked<'a> {
 }
 
 impl Fact for CallAsked<'_> {
-    const KIND: Option<&'static str> = Some("tool.confirm_requested");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolConfirmRequested);
     const METHOD: Option<&'static str> = Some(notify::CONFIRM_REQUESTED);
 
     fn row(&self) -> Value {
@@ -141,7 +142,7 @@ pub struct InvalidJson<'a> {
 }
 
 impl Fact for InvalidJson<'_> {
-    const KIND: Option<&'static str> = Some("tool.invalid_input");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolInvalidInput);
 
     fn row(&self) -> Value {
         json!({"tool": self.tool, "tool_use_id": self.tool_use_id})
@@ -167,7 +168,7 @@ pub struct InvalidInput<'a> {
 }
 
 impl Fact for InvalidInput<'_> {
-    const KIND: Option<&'static str> = Some("tool.invalid_input");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolInvalidInput);
 
     fn row(&self) -> Value {
         json!({"tool": self.tool, "tool_use_id": self.call.id, "reason": self.reason, "input": self.call.input})
@@ -228,7 +229,7 @@ pub struct JobStarted<'a> {
 }
 
 impl Fact for JobStarted<'_> {
-    const KIND: Option<&'static str> = Some("tool.job_started");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolJobStarted);
     const METHOD: Option<&'static str> = Some(notify::TOOL_STARTED);
 
     fn row(&self) -> Value {
@@ -281,7 +282,7 @@ pub struct SecretGranted<'a> {
 }
 
 impl Fact for SecretGranted<'_> {
-    const KIND: Option<&'static str> = Some("secret.granted");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SecretGranted);
 
     fn row(&self) -> Value {
         let g = self.grant;
@@ -300,7 +301,7 @@ pub struct SecretWithheld<'a> {
 }
 
 impl Fact for SecretWithheld<'_> {
-    const KIND: Option<&'static str> = Some("secret.withheld");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SecretWithheld);
 
     fn row(&self) -> Value {
         let g = self.grant;
@@ -318,7 +319,7 @@ pub struct SecretHanded<'a> {
 }
 
 impl Fact for SecretHanded<'_> {
-    const KIND: Option<&'static str> = Some("secret.granted");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SecretGranted);
 
     fn row(&self) -> Value {
         json!({"tool": self.tool, "secret": self.secret, "correlation_id": self.correlation_id})
@@ -348,7 +349,7 @@ pub struct JobRefused<'a> {
 }
 
 impl Fact for JobRefused<'_> {
-    const KIND: Option<&'static str> = Some("job.refused");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JobRefused);
 
     fn row(&self) -> Value {
         json!({"correlation_id": self.correlation_id, "tool": self.tool,
@@ -364,7 +365,7 @@ pub struct JobNotStarted<'a> {
 }
 
 impl Fact for JobNotStarted<'_> {
-    const KIND: Option<&'static str> = Some("job.not_started");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JobNotStarted);
 
     fn row(&self) -> Value {
         let a = self.action;
@@ -397,7 +398,7 @@ pub struct JobStoppedAtLaunch<'a> {
 }
 
 impl Fact for JobStoppedAtLaunch<'_> {
-    const KIND: Option<&'static str> = Some("job.stopped_at_launch");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JobStoppedAtLaunch);
 
     fn row(&self) -> Value {
         json!({"correlation_id": self.correlation_id, "pid": self.pid, "gone": self.gone})
@@ -648,7 +649,7 @@ pub struct LateResult<'a> {
 }
 
 impl Fact for LateResult<'_> {
-    const KIND: Option<&'static str> = Some("tool.late_result");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolLateResult);
 
     fn row(&self) -> Value {
         json!({"correlation_id": self.correlation_id, "tool": self.tool, "state": self.state})

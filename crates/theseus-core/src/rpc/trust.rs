@@ -7,6 +7,7 @@
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
+use theseus_protocol::LedgerKind;
 use theseus_protocol::{Event, Message, PolicyTrustParams, TrustResult};
 
 use super::confirms::Act;
@@ -131,7 +132,7 @@ pub(super) fn trusted(
     if *asker != Traced::NoProcess {
         data["asker"] = asker.json();
     }
-    let row = LedgerRow::new("session.trusted", Some(session_id), None, data);
+    let row = LedgerRow::new(LedgerKind::SessionTrusted, Some(session_id), None, data);
     let frame = vec![
         NewRecord::json(kinds::LEDGER, None, &row)?,
         NewRecord::json(kinds::SESSION, Some(session_id), &rec)?,

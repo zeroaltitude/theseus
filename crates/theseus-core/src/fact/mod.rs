@@ -30,7 +30,7 @@
 //! can list them all.
 
 use serde_json::Value;
-use theseus_protocol::{Event, Message, NarrativePart};
+use theseus_protocol::{Event, LedgerKind, Message, NarrativePart};
 use theseus_store::{kinds, NewRecord};
 
 use crate::bus::{EventSink, SessionBus};
@@ -46,7 +46,7 @@ pub mod turn;
 /// A fact: what happened, and what each channel says of it.
 pub trait Fact {
     /// Its ledger row's kind; `None`, no row.
-    const KIND: Option<&'static str> = None;
+    const KIND: Option<LedgerKind> = None;
     /// Its notification's method; `None`, no notification.
     const METHOD: Option<&'static str> = None;
 
@@ -189,7 +189,7 @@ impl Say<'_> {
 #[derive(Debug, Clone, Copy)]
 pub struct Listed {
     pub name: &'static str,
-    pub kind: Option<&'static str>,
+    pub kind: Option<LedgerKind>,
     pub method: Option<&'static str>,
 }
 
@@ -293,7 +293,7 @@ facts![
 mod tests {
     use super::*;
 
-    /// Each fact is listed once, its kind looks like a kind, and its method
+    /// Each fact is listed once, its kind is the registry's, and its method
     /// is a notification's.
     #[test]
     fn every_fact_is_listed_once_with_a_kind_and_a_method_that_exist() {
@@ -304,11 +304,10 @@ mod tests {
         assert_eq!(names.len(), n, "a fact listed twice");
         for f in FACTS {
             if let Some(k) = f.kind {
-                assert!(
-                    k.split('.').count() >= 2
-                        && k.split('.').all(|w| !w.is_empty()
-                            && w.chars().all(|c| c.is_ascii_lowercase() || c == '_')),
-                    "{}: `{k}` is not a ledger kind's form",
+                assert_eq!(
+                    LedgerKind::parse(k.as_str()),
+                    Some(k),
+                    "{}: `{k}` is not a registry kind",
                     f.name
                 );
             }

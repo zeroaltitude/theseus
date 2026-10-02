@@ -24,6 +24,7 @@
 //! - **The cap.** At most `MAX_PENDING` per execution.
 
 use std::sync::atomic::Ordering;
+use theseus_protocol::LedgerKind;
 
 use anyhow::Result;
 use serde_json::json;
@@ -139,7 +140,7 @@ impl Kernel {
         self.commit(&[
             exec_record(&e)?,
             self.ledger(
-                "wake.set",
+                LedgerKind::WakeSet,
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": due_at_ms,
                        "in_ms": due_at_ms.saturating_sub(now), "note": clip(&wake.note),
@@ -189,7 +190,7 @@ impl Kernel {
         frame.extend(extra(&fired)?);
         for f in &fired {
             frame.push(self.ledger(
-                "wake.fired",
+                LedgerKind::WakeFired,
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "wake_id": f.wake.id, "due_at_ms": f.wake.due_at_ms,
                        "set_at_ms": f.wake.set_at_ms, "late_ms": f.late_ms,
@@ -221,7 +222,7 @@ impl Kernel {
         self.commit(&[
             exec_record(&e)?,
             self.ledger(
-                "wake.cancelled",
+                LedgerKind::WakeCancelled,
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": wake.due_at_ms, "by": by}),
             )?,
@@ -259,7 +260,7 @@ impl Kernel {
         if why == "report" {
             body["tasks"] = json!(e.report_wakes);
         }
-        let row = self.ledger("execution.queued", Some(&e.session_id), body)?;
+        let row = self.ledger(LedgerKind::ExecutionQueued, Some(&e.session_id), body)?;
         e.state = ExecState::Queued;
         e.wake = None;
         e.resume_pending = true;
@@ -293,7 +294,7 @@ impl Kernel {
     ) -> Result<()> {
         for w in std::mem::take(&mut e.wakes) {
             frame.push(self.ledger(
-                "wake.cancelled",
+                LedgerKind::WakeCancelled,
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "wake_id": w.id, "due_at_ms": w.due_at_ms, "by": by, "why": why}),
             )?);

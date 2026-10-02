@@ -34,6 +34,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use theseus_protocol::ExternalText;
+use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 use theseus_tools::ToolClass;
 
@@ -223,7 +224,7 @@ pub fn hold(
         return Ok(None);
     }
     let row = LedgerRow::new(
-        "session.external_read",
+        LedgerKind::SessionExternalRead,
         Some(&rec.session_id),
         turn_id,
         json!({"node_id": h.node_id, "tool": h.tool, "url": h.url, "query": h.query,

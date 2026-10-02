@@ -15,6 +15,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use theseus_protocol::LedgerKind;
 
 use serde_json::{json, Value};
 use tokio::time::Instant;
@@ -202,7 +203,7 @@ fn ledger(store: &Store, why: Row, count: u64, last: Value) {
                 why.what()
             );
             (
-                "web.refused",
+                LedgerKind::WebRefused,
                 json!({"why": why.as_str(), "count": count, "last": last}),
             )
         }
@@ -212,7 +213,10 @@ fn ledger(store: &Store, why: Row, count: u64, last: Value) {
                 last = %last,
                 "the web UI served {count} WebSocket(s) for the dev page ([web] dev_origin)"
             );
-            ("web.dev_origin", json!({"count": count, "last": last}))
+            (
+                LedgerKind::WebDevOrigin,
+                json!({"count": count, "last": last}),
+            )
         }
     };
     let row = LedgerRow::new(kind, None, None, data);

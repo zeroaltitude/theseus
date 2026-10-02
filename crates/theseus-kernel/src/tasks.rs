@@ -32,6 +32,7 @@
 
 use anyhow::Result;
 use serde_json::json;
+use theseus_protocol::LedgerKind;
 use theseus_store::NewRecord;
 
 use crate::kernel::{exec_record, Kernel, KernelError, TurnGuard};
@@ -162,14 +163,14 @@ impl Kernel {
         let mut frame = vec![exec_record(&parent)?, exec_record(&task)?];
         frame.extend(extra(&task)?);
         frame.push(self.ledger(
-            "execution.opened",
+            LedgerKind::ExecutionOpened,
             Some(&task.session_id),
             json!({"execution_id": task.id, "kind": task.kind, "limit_usd": micros_to_usd(limit),
                    "parent": parent.id, "reports_to": task.reports_to, "by": correlation_id,
                    "wake_parent": wake_parent}),
         )?);
         frame.push(self.ledger(
-            "budget.carved",
+            LedgerKind::BudgetCarved,
             Some(&parent.session_id),
             json!({"execution_id": parent.id, "task": task.id, "carved_usd": micros_to_usd(limit),
                    "asked_usd": micros_to_usd(want_micros),
@@ -177,7 +178,7 @@ impl Kernel {
                    "available_after_usd": micros_to_usd(parent.budget.available())}),
         )?);
         frame.push(self.ledger(
-            "execution.queued",
+            LedgerKind::ExecutionQueued,
             Some(&task.session_id),
             json!({"execution_id": task.id, "why": "task"}),
         )?);
@@ -213,7 +214,7 @@ impl Kernel {
         let mut frame = vec![exec_record(&e)?];
         frame.extend(extra(&ids)?);
         frame.push(self.ledger(
-            "task.reports_read",
+            LedgerKind::TaskReportsRead,
             Some(&e.session_id),
             json!({"execution_id": e.id, "tasks": ids, "woke": woke, "turn": guard.turn}),
         )?);
@@ -253,7 +254,7 @@ impl Kernel {
             }
             let queued = crate::wakes::free(&parent);
             woke.push(self.ledger(
-                "task.report_wake",
+                LedgerKind::TaskReportWake,
                 Some(&parent.session_id),
                 json!({"execution_id": parent.id, "task": e.id, "task_session": e.session_id,
                        "state": e.state, "parent_state": parent.state, "queued": queued}),
@@ -263,7 +264,7 @@ impl Kernel {
                 parent.wake = None;
                 parent.resume_pending = true;
                 woke.push(self.ledger(
-                    "execution.queued",
+                    LedgerKind::ExecutionQueued,
                     Some(&parent.session_id),
                     json!({"execution_id": parent.id, "why": "report", "tasks": parent.report_wakes}),
                 )?);
@@ -272,7 +273,7 @@ impl Kernel {
         parent.updated_at_ms = now;
         frame.push(exec_record(&parent)?);
         frame.push(self.ledger(
-            "task.ended",
+            LedgerKind::TaskEnded,
             Some(&parent.session_id),
             json!({"execution_id": parent.id, "task": e.id, "state": e.state,
                    "reason": e.ended_reason, "spent_usd": micros_to_usd(e.budget.spent_micros),

@@ -7,6 +7,7 @@
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
+use theseus_protocol::LedgerKind;
 use theseus_protocol::{
     error_code, Event, Message, PolicyTightenParams, PolicyUntightenParams, TightenResult,
     Tightening,
@@ -75,7 +76,7 @@ impl Core {
             .posture_now(tool, Some(crate::tighten::as_tightened(&t)));
         let changed = after.posture != before.posture;
         let row = LedgerRow::new(
-            "policy.tightened",
+            LedgerKind::PolicyTightened,
             t.session_id.as_deref(),
             None,
             json!({"tool": tool, "by": t.by, "who": t.who, "via": t.via,
@@ -136,7 +137,7 @@ impl Core {
         let after = self.tools.policy.posture_now(tool, None);
         let changed = after.posture != before.posture;
         let row = LedgerRow::new(
-            "policy.untightened",
+            LedgerKind::PolicyUntightened,
             t.session_id.as_deref(),
             None,
             json!({"tool": tool, "by": who.label, "who": who.who(), "via": who.via(),

@@ -714,7 +714,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn row(kind: &str) -> NewRecord {
-        let r = LedgerRow::new(kind, Some("ses_t"), Some("turn_t"), serde_json::Value::Null);
+        let r = LedgerRow::named(kind, Some("ses_t"), Some("turn_t"), serde_json::Value::Null);
         NewRecord::json(kinds::LEDGER, None, &r).unwrap()
     }
 

@@ -5,7 +5,7 @@
 use serde_json::{json, Value};
 use theseus_kernel::{Action, LimitFollowed, Micros};
 use theseus_protocol::NarrativePart::{Approval, Session};
-use theseus_protocol::{notify, ApprovalRefused, ConfirmResolved, Event};
+use theseus_protocol::{notify, ApprovalRefused, ConfirmResolved, Event, LedgerKind};
 
 use super::{Fact, Say};
 use crate::approval::Refusal;
@@ -30,7 +30,7 @@ pub struct CallAnswered<'a> {
 }
 
 impl Fact for CallAnswered<'_> {
-    const KIND: Option<&'static str> = Some("action.confirm_answered");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ActionConfirmAnswered);
     const METHOD: Option<&'static str> = Some(notify::CONFIRM_RESOLVED);
 
     fn row(&self) -> Value {
@@ -97,7 +97,7 @@ pub struct BudgetAnswered<'a> {
 }
 
 impl Fact for BudgetAnswered<'_> {
-    const KIND: Option<&'static str> = Some("action.confirm_answered");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ActionConfirmAnswered);
     const METHOD: Option<&'static str> = Some(notify::CONFIRM_RESOLVED);
 
     fn row(&self) -> Value {
@@ -187,7 +187,7 @@ impl ActRefused<'_> {
 }
 
 impl Fact for ActRefused<'_> {
-    const KIND: Option<&'static str> = Some("approval.refused");
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ApprovalRefused);
 
     fn row(&self) -> Value {
         let (r, act) = (self.refusal, self.act);

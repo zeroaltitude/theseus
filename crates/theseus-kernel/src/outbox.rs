@@ -23,6 +23,7 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
+use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
 use crate::gate::{digest_proposal, Proposal};
@@ -97,7 +98,7 @@ impl Kernel {
             detail: None,
         };
         let row = self.ledger(
-            "action.planned",
+            LedgerKind::ActionPlanned,
             scope(&a),
             json!({"correlation_id": a.correlation_id, "execution_id": a.execution_id, "tool": a.tool,
                    "outbox": a.resource, "kind": kind, "retry_class": a.retry_class}),
@@ -151,7 +152,7 @@ impl Kernel {
         a.state = ActionState::Dispatched;
         a.dispatched_at_ms = Some(self.now_ms());
         let row = self.ledger(
-            "action.dispatched",
+            LedgerKind::ActionDispatched,
             scope(&a),
             json!({"correlation_id": a.correlation_id, "tool": a.tool, "outbox": a.resource}),
         )?;
@@ -187,8 +188,8 @@ impl Kernel {
         }
         a.detail = c.detail.clone();
         let kind = match a.state {
-            ActionState::Succeeded => "action.succeeded",
-            _ => "action.failed",
+            ActionState::Succeeded => LedgerKind::ActionSucceeded,
+            _ => LedgerKind::ActionFailed,
         };
         let row = self.ledger(
             kind,

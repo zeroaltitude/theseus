@@ -24,6 +24,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
+use theseus_protocol::LedgerKind;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -1038,7 +1039,7 @@ impl Lane {
         // Whom Discord says the message mentions: what it notified.
         let mentioned: Vec<String> = m.mentions.iter().map(|u| u.id.to_string()).collect();
         self.shared.core.binding_ledger(
-            "discord.message.out",
+            LedgerKind::DiscordMessageOut,
             None,
             json!({"place": self.label, "message_id": m.id.to_string(), "part": key,
                    "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_)),
@@ -1188,7 +1189,7 @@ impl Lane {
                 self.msgs.insert(key.to_string(), (channel, m.id.get()));
                 self.shared.board.update(|s| s.messages_out += 1);
                 self.shared.core.binding_ledger(
-                    "discord.message.out",
+                    LedgerKind::DiscordMessageOut,
                     None,
                     json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "notice": card.title}),
                 );

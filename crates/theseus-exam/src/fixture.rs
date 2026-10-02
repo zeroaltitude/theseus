@@ -21,6 +21,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use theseus_protocol::LedgerKind;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -202,21 +203,22 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
         created_at_ms: start,
         updated_at_ms: end,
     };
-    let ledger = |kind: &str, turn: Option<&str>, at: u64, data: Value| -> Result<NewRecord> {
-        let mut row = LedgerRow::new(kind, Some(&sid), turn, data);
-        row.at_unix_ms = at;
-        Ok(NewRecord::json(kinds::LEDGER, None, &row)?.scoped(&sid))
-    };
+    let ledger =
+        |kind: LedgerKind, turn: Option<&str>, at: u64, data: Value| -> Result<NewRecord> {
+            let mut row = LedgerRow::new(kind, Some(&sid), turn, data);
+            row.at_unix_ms = at;
+            Ok(NewRecord::json(kinds::LEDGER, None, &row)?.scoped(&sid))
+        };
     let mut records = vec![
         NewRecord::json(kinds::EXECUTION, Some(&exec.id), &exec)?.scoped(&sid),
         ledger(
-            "execution.opened",
+            LedgerKind::ExecutionOpened,
             None,
             start,
             json!({"execution_id": exec.id, "kind": "conversation", "limit_usd": 100.0}),
         )?,
         ledger(
-            "session.opened",
+            LedgerKind::SessionOpened,
             None,
             start,
             json!({"execution_id": exec.id}),
@@ -250,7 +252,7 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
         if p.is_operator() {
             if let Some(t) = turn.take() {
                 records.push(ledger(
-                    "turn.ended",
+                    LedgerKind::TurnEnded,
                     Some(&t),
                     at,
                     json!({"execution_id": exec.id, "outcome": "waiting", "loops": lp + 1, "cost_usd": 0.0}),
@@ -346,7 +348,7 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
     }
     if let Some(t) = turn.take() {
         records.push(ledger(
-            "turn.ended",
+            LedgerKind::TurnEnded,
             Some(&t),
             end,
             json!({"execution_id": exec.id, "outcome": "waiting", "loops": lp + 1, "cost_usd": 0.0}),

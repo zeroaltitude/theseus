@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
+use theseus_protocol::LedgerKind;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::UnixListener;
@@ -94,7 +95,7 @@ pub async fn drive(core: Arc<Core>) {
     core.startup_log
         .record("driver", true, t0, serde_json::Value::Null);
     if let Err(e) = core.store.append_ledger(&crate::ledger::LedgerRow::new(
-        "driver.started",
+        LedgerKind::DriverStarted,
         None,
         None,
         serde_json::json!({"after_start_ms": core.startup_log.us(t0) / 1000}),

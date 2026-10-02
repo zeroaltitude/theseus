@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
+use theseus_protocol::LedgerKind;
 
 use serde_json::{json, Value};
 use theseus_core::approval::{Checked, Client, Surface};
@@ -101,7 +102,7 @@ impl Board {
         let msg = format!("{op}: {e}");
         tracing::warn!(error = %msg, "discord");
         self.core.binding_ledger(
-            "discord.error",
+            LedgerKind::DiscordError,
             session,
             json!({"op": op, "error": e.to_string()}),
         );
@@ -415,7 +416,7 @@ async fn event_loop(
                     }
                 });
                 shared.core.binding_ledger(
-                    "discord.ready",
+                    LedgerKind::DiscordReady,
                     None,
                     json!({"bot": me.name, "guilds": r.guilds.len(), "revision": bindings.revision}),
                 );
@@ -435,9 +436,11 @@ async fn event_loop(
                 let why = frame
                     .map(|f| format!("close {} {}", f.code, f.reason))
                     .unwrap_or_else(|| "closed".into());
-                shared
-                    .core
-                    .binding_ledger("discord.disconnected", None, json!({"why": why}));
+                shared.core.binding_ledger(
+                    LedgerKind::DiscordDisconnected,
+                    None,
+                    json!({"why": why}),
+                );
                 board.state("resuming", Some(why));
             }
             Event::MessageCreate(m) => shared.clone().on_message(&m.0),
@@ -1022,7 +1025,7 @@ impl Shared {
         // The place's record, and where the session's posts go from now on.
         self.core.outbox.bind_place(key, &info.session_id)?;
         self.core.binding_ledger(
-            "discord.bound",
+            LedgerKind::DiscordBound,
             Some(&info.session_id),
             json!({"place": key, "label": label}),
         );
@@ -1106,7 +1109,7 @@ impl Shared {
         if !allowed {
             self.board.update(|s| s.ignored += 1);
             self.core.binding_ledger(
-                "discord.ignored",
+                LedgerKind::DiscordIgnored,
                 None,
                 json!({"channel": m.channel_id.to_string(), "author": m.author.name, "author_id": m.author.id.to_string(), "reason": "not in this place's users"}),
             );
@@ -1240,7 +1243,7 @@ impl Shared {
                         // buttons for one that does, and only the presser
                         // is told why.
                         self.core.binding_ledger(
-                            "discord.confirm",
+                            LedgerKind::DiscordConfirm,
                             None,
                             json!({"correlation_id": corr, "approve": approve, "trust": trust, "by": who, "ok": false, "refused": true, "error": e.message}),
                         );
@@ -1277,7 +1280,7 @@ impl Shared {
                     Err(e) => format!("⚠️ Could not answer: {e} · {line}"),
                 };
                 self.core.binding_ledger(
-                    "discord.confirm",
+                    LedgerKind::DiscordConfirm,
                     None,
                     json!({"correlation_id": corr, "approve": approve, "trust": trust, "by": who, "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
                 );
@@ -1329,7 +1332,7 @@ impl Shared {
                 )
                 .await;
                 self.core.binding_ledger(
-                    "discord.command",
+                    LedgerKind::DiscordCommand,
                     None,
                     json!({"command": c.name, "by": who}),
                 );
@@ -1376,7 +1379,7 @@ impl Shared {
         .await;
         let r = send_tighten(&self.rpc, &asked, who, discord).await;
         self.core.binding_ledger(
-            "discord.tighten",
+            LedgerKind::DiscordTighten,
             None,
             json!({"tool": asked.tool, "correlation_id": asked.correlation_id, "by": who,
                    "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
@@ -1907,9 +1910,11 @@ impl Place {
                 if let Some(p) = &m.files {
                     row["attachments"] = json!(p.metas.len());
                 }
-                self.shared
-                    .core
-                    .binding_ledger("discord.message.in", Some(&self.session_id), row);
+                self.shared.core.binding_ledger(
+                    LedgerKind::DiscordMessageIn,
+                    Some(&self.session_id),
+                    row,
+                );
                 if let Some(cmd) = parse_control(&m.text) {
                     let cmd = match cmd {
                         Control::Trust(None) => Control::Trust(Some(m.origin())),

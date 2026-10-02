@@ -3,6 +3,7 @@
 //! returns its typed result, and `?` on an internal error is `INTERNAL`.
 
 use std::sync::atomic::Ordering;
+use theseus_protocol::LedgerKind;
 
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -154,7 +155,7 @@ impl Core {
         rec.execution_id = Some(exec.id);
         self.store.put_session(&rec.session_id, &rec)?;
         self.store.append_ledger(&LedgerRow::new(
-            "session.opened",
+            LedgerKind::SessionOpened,
             Some(&rec.session_id),
             None,
             json!({"execution_id": rec.execution_id}),
@@ -690,7 +691,7 @@ impl Core {
             by: by.to_string(),
         };
         self.store.append_ledger(&LedgerRow::new(
-            "profile.changed",
+            LedgerKind::ProfileChanged,
             None,
             None,
             serde_json::to_value(&changed)?,
@@ -762,7 +763,7 @@ impl Core {
         by: &str,
     ) -> Result<bool> {
         let row = LedgerRow::new(
-            "context.recompile_requested",
+            LedgerKind::ContextRecompileRequested,
             Some(session_id),
             None,
             json!({"strategy": strategy, "by": by}),
@@ -1120,9 +1121,12 @@ impl Core {
     /// (`Core::finish_stop`, theseus-pfv).
     fn stop_record(&self, data: Value) {
         self.outbox.stop_sending();
-        let _ = self
-            .store
-            .append_ledger(&LedgerRow::new("server.stopping", None, None, data));
+        let _ = self.store.append_ledger(&LedgerRow::new(
+            LedgerKind::ServerStopping,
+            None,
+            None,
+            data,
+        ));
         let _ = self.store.checkpoint();
     }
 }

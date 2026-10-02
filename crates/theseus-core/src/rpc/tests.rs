@@ -1081,7 +1081,7 @@ async fn rows_stored_with_the_old_denied_names_still_decode() {
     let old_row = json!({"correlation_id": "act_1", "tool": "fs.write", "by": "operator", "reason": "not now"});
     for kind in ["action.denied", "action.declined"] {
         core.store
-            .append_ledger(&LedgerRow::new(kind, Some(&sid), None, old_row.clone()))
+            .append_ledger(&LedgerRow::named(kind, Some(&sid), None, old_row.clone()))
             .unwrap();
     }
 

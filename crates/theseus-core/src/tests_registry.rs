@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 use serde_json::Value;
-use theseus_protocol::{error_code, method, notify, Event, Id, Message, Request};
+use theseus_protocol::{error_code, method, notify, Event, Id, LedgerKind, Message, Request};
 use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::graph::{EdgeKind, Label};
@@ -465,6 +465,40 @@ fn every_notification_has_its_event_and_a_sender() {
         }
     }
     problems.extend(orphans("notify", notify::ALL));
+    fail_on(problems);
+}
+
+// ---------------------------------------------------------------- ledger kinds
+
+/// Every ledger kind is written (theseus-j6qn, C2). A writer names a
+/// `LedgerKind`, so a kind is declared by being written, and the type keeps
+/// any other name out; this is the other half: a variant that nothing the
+/// binaries run builds, its tests aside, is a kind with no row. A kind needs
+/// no reader of its own: the ledger's readers (`ledger.tail`, the CLI's
+/// `theseus ledger`, the Observatory's ledger view, `push.rs`'s rows) read
+/// every kind by its name, the ones this build no longer writes included.
+#[test]
+fn every_ledger_kind_is_written() {
+    let members = members();
+    let reached = reached(&members);
+    let root = workspace_root();
+    let dirs: Vec<PathBuf> = members
+        .iter()
+        .filter(|m| reached.contains_key(&m.name))
+        .map(|m| root.join(&m.dir))
+        .collect();
+    let uses = uses_of(&dirs, &["LedgerKind"]);
+    let mut problems = Vec::new();
+    for k in LedgerKind::ALL {
+        let variant = format!("LedgerKind::{k:?}");
+        if !uses.built.contains_key(&variant) {
+            problems.push(format!(
+                "ledger kind `{}` (`{variant}`) is written by nothing the binaries run, its tests \
+                 aside: write it, or remove its line from theseus-protocol's ledger.rs",
+                k.as_str()
+            ));
+        }
+    }
     fail_on(problems);
 }
 

@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord, Record, Store};
 
 use crate::clock::Clock;
@@ -706,13 +707,13 @@ impl Kernel {
 
     pub(crate) fn ledger(
         &self,
-        kind: &str,
+        kind: LedgerKind,
         session: Option<&str>,
         data: Value,
     ) -> Result<NewRecord> {
         let row = LedgerRow {
             at_unix_ms: self.now_ms(),
-            kind: kind.into(),
+            kind: kind.as_str().into(),
             session_id: session.map(str::to_string),
             turn_id: None,
             data,
@@ -827,7 +828,7 @@ impl Kernel {
         self.commit(&[
             exec_record(&exec)?,
             self.ledger(
-                "execution.opened",
+                LedgerKind::ExecutionOpened,
                 Some(session_id),
                 json!({"execution_id": exec.id, "kind": kind, "limit_usd": micros_to_usd(exec.budget.limit_micros)}),
             )?,
@@ -858,7 +859,7 @@ impl Kernel {
             self.commit(&[
                 exec_record(&e)?,
                 self.ledger(
-                    "execution.queued",
+                    LedgerKind::ExecutionQueued,
                     Some(&e.session_id),
                     json!({"execution_id": e.id, "why": "input"}),
                 )?,
@@ -894,7 +895,7 @@ impl Kernel {
             self.commit(&[
                 exec_record(&e)?,
                 self.ledger(
-                    "execution.queued",
+                    LedgerKind::ExecutionQueued,
                     Some(&e.session_id),
                     json!({"execution_id": e.id, "why": why}),
                 )?,
@@ -937,7 +938,7 @@ impl Kernel {
             self.carry_to_parent(&e, spent_before, &mut frame)?;
         }
         frame.push(self.ledger(
-            "action.declined",
+            LedgerKind::ActionDeclined,
             Some(&a.session_id),
             json!({"correlation_id": a.correlation_id, "tool": a.tool, "by": by, "reason": reason}),
         )?);
@@ -991,7 +992,7 @@ impl Kernel {
         self.commit(&[
             exec_record(&e)?,
             self.ledger(
-                "execution.running",
+                LedgerKind::ExecutionRunning,
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "turn": e.turns, "queued_results": e.queued_results.len(), "resumed": resumed}),
             )?,
@@ -1055,7 +1056,7 @@ impl Kernel {
         self.commit(&[
             exec_record(&e)?,
             self.ledger(
-                "execution.results_consumed",
+                LedgerKind::ExecutionResultsConsumed,
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "count": n}),
             )?,
@@ -1117,7 +1118,7 @@ impl Kernel {
             self.commit(&[
                 exec_record(&e)?,
                 self.ledger(
-                    "execution.waiting",
+                    LedgerKind::ExecutionWaiting,
                     Some(&e.session_id),
                     json!({"execution_id": e.id, "turn": guard.turn, "turn_ms": now.saturating_sub(guard.started_at_ms),
                            "wake": e.wake, "why": "stopped", "by": s.by}),
@@ -1136,14 +1137,14 @@ impl Kernel {
             TurnEnd::Complete { reason } => {
                 e.state = ExecState::Complete;
                 e.ended_reason = Some(reason);
-                kind = "execution.complete";
+                kind = LedgerKind::ExecutionComplete;
             }
             TurnEnd::Wait { wake } => {
                 // Results that arrived during the turn make it runnable again.
                 if !e.queued_results.is_empty() {
                     e.state = ExecState::Queued;
                     e.wake = None;
-                    kind = "execution.queued";
+                    kind = LedgerKind::ExecutionQueued;
                 } else {
                     if let Wake::Actions { correlation_ids } = &wake {
                         // All named actions must still be outstanding; otherwise
@@ -1158,7 +1159,7 @@ impl Kernel {
                             self.commit(&[
                                 exec_record(&e)?,
                                 self.ledger(
-                                    "execution.queued",
+                                    LedgerKind::ExecutionQueued,
                                     Some(&e.session_id),
                                     json!({"execution_id": e.id, "why": "wake_actions_already_settled"}),
                                 )?,
@@ -1179,26 +1180,26 @@ impl Kernel {
                         } else {
                             "report"
                         });
-                        kind = "execution.queued";
+                        kind = LedgerKind::ExecutionQueued;
                     } else {
-                        kind = "execution.waiting";
+                        kind = LedgerKind::ExecutionWaiting;
                     }
                 }
             }
             TurnEnd::Requeue => {
                 e.state = ExecState::Queued;
                 e.wake = None;
-                kind = "execution.queued";
+                kind = LedgerKind::ExecutionQueued;
             }
             TurnEnd::Fail { reason } => {
                 e.state = ExecState::Failed;
                 e.ended_reason = Some(reason);
-                kind = "execution.failed";
+                kind = LedgerKind::ExecutionFailed;
             }
             TurnEnd::Blocked { reason } => {
                 e.state = ExecState::Blocked;
                 e.ended_reason = Some(reason);
-                kind = "execution.blocked";
+                kind = LedgerKind::ExecutionBlocked;
             }
         }
         e.updated_at_ms = now;
@@ -1231,7 +1232,7 @@ impl Kernel {
                         a.cancel = Some(CancelState::Requested);
                         frame.push(action_record(&a)?);
                         frame.push(self.ledger(
-                            "action.cancel",
+                            LedgerKind::ActionCancel,
                             Some(&a.session_id),
                             json!({"correlation_id": a.correlation_id, "cancel": CancelState::Requested, "why": "execution ended", "settled": false}),
                         )?);
@@ -1408,7 +1409,7 @@ impl Kernel {
         };
         frame.push(action_record(&a)?);
         frame.push(self.ledger(
-            "action.planned",
+            LedgerKind::ActionPlanned,
             Some(&a.session_id),
             json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id, "tool": a.tool, "args_digest": a.args_digest, "retry_class": a.retry_class, "deadline_at_ms": a.deadline_at_ms, "reserved_usd": micros_to_usd(reserve_micros)}),
         )?);
@@ -1477,7 +1478,7 @@ impl Kernel {
                     q.resolution = Some("superseded by a newer budget question".into());
                     frame.push(action_record(&q)?);
                     frame.push(self.ledger(
-                        "action.declined",
+                        LedgerKind::ActionDeclined,
                         Some(&q.session_id),
                         json!({"correlation_id": q.correlation_id, "tool": q.tool, "by": "harness", "reason": "superseded by a newer budget question"}),
                     )?);
@@ -1537,11 +1538,11 @@ impl Kernel {
         frame.push(exec_record(&e)?);
         frame.push(action_record(&q)?);
         frame.push(self.ledger(
-            "action.planned",
+            LedgerKind::ActionPlanned,
             Some(&q.session_id),
             json!({"execution_id": q.execution_id, "correlation_id": q.correlation_id, "tool": q.tool, "args_digest": q.args_digest, "retry_class": q.retry_class, "deadline_at_ms": q.deadline_at_ms, "reserved_usd": 0.0}),
         )?);
-        frame.push(self.ledger("budget.asked", Some(&e.session_id), asked)?);
+        frame.push(self.ledger(LedgerKind::BudgetAsked, Some(&e.session_id), asked)?);
         self.commit(&frame)?;
         Ok(q)
     }
@@ -1604,7 +1605,7 @@ impl Kernel {
             action_record(&q)?,
             exec_record(&e)?,
             self.ledger(
-                "budget.reset",
+                LedgerKind::BudgetReset,
                 Some(&e.session_id),
                 json!({
                     "execution_id": e.id,
@@ -1620,7 +1621,7 @@ impl Kernel {
         ];
         if woke {
             frame.push(self.ledger(
-                "execution.queued",
+                LedgerKind::ExecutionQueued,
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "why": "budget_reset"}),
             )?);
@@ -1736,7 +1737,7 @@ impl Kernel {
         }
         let b = &e.budget;
         records.push(self.ledger(
-            "budget.limit_changed",
+            LedgerKind::BudgetLimitChanged,
             Some(&e.session_id),
             json!({
                 "execution_id": e.id,
@@ -1753,7 +1754,7 @@ impl Kernel {
         )?);
         if woke {
             records.push(self.ledger(
-                "execution.queued",
+                LedgerKind::ExecutionQueued,
                 Some(&e.session_id),
                 json!({"execution_id": e.id, "why": "limit_raised"}),
             )?);
@@ -1804,7 +1805,7 @@ impl Kernel {
         self.commit(&[
             action_record(&a)?,
             self.ledger(
-                "action.confirmed",
+                LedgerKind::ActionConfirmed,
                 Some(&a.session_id),
                 json!({"correlation_id": a.correlation_id, "by": by, "confirm": a.confirm}),
             )?,
@@ -1927,7 +1928,7 @@ impl Kernel {
         Ok(vec![
             action_record(a)?,
             self.ledger(
-                "action.authorized",
+                LedgerKind::ActionAuthorized,
                 Some(&a.session_id),
                 json!({"correlation_id": a.correlation_id, "confirmed": a.confirm.is_some()}),
             )?,
@@ -2024,7 +2025,7 @@ impl Kernel {
             self.commit(&[
                 action_record(&a)?,
                 self.ledger(
-                    "action.cancelled",
+                    LedgerKind::ActionCancelled,
                     Some(&a.session_id),
                     json!({"correlation_id": a.correlation_id, "why": why}),
                 )?,
@@ -2050,7 +2051,7 @@ impl Kernel {
             action_record(&a)?,
             exec_record(&e)?,
             self.ledger(
-                "action.dispatched",
+                LedgerKind::ActionDispatched,
                 Some(&a.session_id),
                 json!({"correlation_id": a.correlation_id, "execution_id": e.id, "tool": a.tool, "external_op_id": a.external_op_id, "deadline_at_ms": a.deadline_at_ms}),
             )?,
@@ -2093,7 +2094,7 @@ impl Kernel {
             self.commit(&[
                 NewRecord::json(kinds::COMPLETION, Some(&key), c)?,
                 self.ledger(
-                    "completion.quarantined",
+                    LedgerKind::CompletionQuarantined,
                     None,
                     json!({"correlation_id": c.correlation_id, "producer": c.producer, "outcome": c.outcome}),
                 )?,
@@ -2111,7 +2112,7 @@ impl Kernel {
                 self.commit(&[
                     action_record(&a)?,
                     self.ledger(
-                        "completion.duplicate",
+                        LedgerKind::CompletionDuplicate,
                         Some(&a.session_id),
                         json!({"correlation_id": a.correlation_id, "seen": a.completions_seen, "producer": c.producer}),
                     )?,
@@ -2155,7 +2156,7 @@ impl Kernel {
                     }
                 }
                 frame.push(self.ledger(
-                    "completion.late_after_cancel",
+                    LedgerKind::CompletionLateAfterCancel,
                     Some(&a.session_id),
                     json!({"correlation_id": a.correlation_id, "outcome": c.outcome, "producer": c.producer, "cost_usd": c.cost_micros.map(micros_to_usd)}),
                 )?);
@@ -2256,10 +2257,10 @@ impl Kernel {
         // A task's cost is its parent's spend too, in this frame (DD7).
         self.carry_to_parent(&e, spent_before, &mut frame)?;
         let kind = match (was_unknown, c.outcome) {
-            (true, _) => "action.resolved",
-            (false, Outcome::Unknown) => "action.outcome_unknown",
-            (false, Outcome::Succeeded) => "action.succeeded",
-            (false, Outcome::Failed) => "action.failed",
+            (true, _) => LedgerKind::ActionResolved,
+            (false, Outcome::Unknown) => LedgerKind::ActionOutcomeUnknown,
+            (false, Outcome::Succeeded) => LedgerKind::ActionSucceeded,
+            (false, Outcome::Failed) => LedgerKind::ActionFailed,
         };
         frame.push(self.ledger(
             kind,
@@ -2405,7 +2406,7 @@ impl Kernel {
             }
         }
         frame.push(self.ledger(
-            "execution.cancelled",
+            LedgerKind::ExecutionCancelled,
             Some(&e.session_id),
             json!({"execution_id": e.id, "by": by, "outstanding": to_kill,
                    "not_run": not_run.iter().map(|a| a.correlation_id.as_str()).collect::<Vec<_>>()}),
@@ -2450,7 +2451,7 @@ impl Kernel {
             }
             frame.push(action_record(&a)?);
             frame.push(self.ledger(
-                "action.cancelled",
+                LedgerKind::ActionCancelled,
                 Some(&a.session_id),
                 json!({"correlation_id": a.correlation_id, "tool": a.tool, "by": by, "why": why}),
             )?);
@@ -2510,7 +2511,7 @@ impl Kernel {
         }
         frame.push(action_record(&a)?);
         frame.push(self.ledger(
-            "action.cancel",
+            LedgerKind::ActionCancel,
             Some(&a.session_id),
             json!({"correlation_id": a.correlation_id, "cancel": st, "settled": settle}),
         )?);
@@ -2600,7 +2601,11 @@ impl Kernel {
             && rep.marked_unknown.is_empty()
             && rep.resolved_unknown.is_empty())
         {
-            self.commit(&[self.ledger("reconcile", None, serde_json::to_value(&rep)?)?])?;
+            self.commit(&[self.ledger(
+                LedgerKind::Reconcile,
+                None,
+                serde_json::to_value(&rep)?,
+            )?])?;
         }
         Ok(rep)
     }
@@ -2647,7 +2652,7 @@ impl Kernel {
             .store(self.now_ms(), std::sync::atomic::Ordering::Relaxed);
         let st = self.store.stats()?;
         step_rows.push(self.ledger(
-            "startup.step",
+            LedgerKind::StartupStep,
             None,
             json!({"step": 1, "name": "store", "last_position": st.last_position, "truncated_bytes": st.truncated_bytes, "replayed_into_index": st.replayed_into_index}),
         )?);
@@ -2698,7 +2703,7 @@ impl Kernel {
                 e.budget.spent_micros = self.legacy_spend.as_ref().map_or(0, |f| f(&e.session_id));
                 e.schema = SCHEMA;
                 rows.push(self.ledger(
-                    "budget.migrated",
+                    LedgerKind::BudgetMigrated,
                     Some(&e.session_id),
                     json!({"execution_id": e.id, "state": e.state, "limit_usd": micros_to_usd(e.budget.limit_micros), "spent_usd": micros_to_usd(e.budget.spent_micros), "units_before": e.budget.units_before}),
                 )?);
@@ -2723,7 +2728,7 @@ impl Kernel {
                 rows.insert(
                     0,
                     self.ledger(
-                        "execution.interrupted",
+                        LedgerKind::ExecutionInterrupted,
                         Some(&e.session_id),
                         json!({"execution_id": e.id, "interrupted": e.interrupted, "turn": e.turns,
                                "stopped_by": stopped.map(|s| s.by)}),
@@ -2754,7 +2759,7 @@ impl Kernel {
         }
         drop(rewriting);
         step_rows.push(self.ledger(
-            "startup.step",
+            LedgerKind::StartupStep,
             None,
             json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten, "limits_followed": rep.limits_followed.len()}),
         )?);
@@ -2773,7 +2778,7 @@ impl Kernel {
             rep.spool_quarantined = drained.malformed as u32;
         }
         step_rows.push(self.ledger(
-            "startup.step",
+            LedgerKind::StartupStep,
             None,
             json!({"step": 3, "name": "spool", "drained": rep.spool_drained, "malformed": rep.spool_quarantined}),
         )?);
@@ -2795,7 +2800,7 @@ impl Kernel {
         // its turn waits for the vault's word on the config anyway.
         rep.reconcile = self.reconcile_with(evidence, open, false)?;
         step_rows.push(self.ledger(
-            "startup.step",
+            LedgerKind::StartupStep,
             None,
             json!({"step": 4, "name": "reconcile", "report": rep.reconcile}),
         )?);
@@ -2805,7 +2810,7 @@ impl Kernel {
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 5;
         step_rows.push(self.ledger(
-            "startup.step",
+            LedgerKind::StartupStep,
             None,
             json!({"step": 5, "name": "accepting"}),
         )?);

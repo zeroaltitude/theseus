@@ -7,6 +7,7 @@
 
 use std::path::Path;
 use std::time::Instant;
+use theseus_protocol::LedgerKind;
 
 use anyhow::Result;
 use serde_json::json;
@@ -126,7 +127,7 @@ fn parked_session(k: u64) -> Result<Vec<NewRecord>> {
     rec.last_turn_id = Some(turn_id.clone());
     rec.cost_usd = 0.0054;
     rec.title = Some(question.chars().take(60).collect());
-    let ledger = |kind: &str, turn: Option<&str>, data: serde_json::Value| {
+    let ledger = |kind: LedgerKind, turn: Option<&str>, data: serde_json::Value| {
         NewRecord::json(
             kinds::LEDGER,
             None,
@@ -137,16 +138,20 @@ fn parked_session(k: u64) -> Result<Vec<NewRecord>> {
     Ok(vec![
         NewRecord::json(kinds::EXECUTION, Some(&exec.id), &exec)?.scoped(&sid),
         ledger(
-            "execution.opened",
+            LedgerKind::ExecutionOpened,
             None,
             json!({"execution_id": exec.id, "kind": "conversation", "limit_usd": 100.0}),
         )?,
         NewRecord::json(kinds::SESSION, Some(&sid), &rec)?,
-        ledger("session.opened", None, json!({"execution_id": exec.id}))?,
+        ledger(
+            LedgerKind::SessionOpened,
+            None,
+            json!({"execution_id": exec.id}),
+        )?,
         user.record()?,
         answer.record()?,
         ledger(
-            "turn.ended",
+            LedgerKind::TurnEnded,
             Some(&turn_id),
             json!({"execution_id": exec.id, "outcome": "waiting", "loops": 1, "cost_usd": 0.0054}),
         )?,

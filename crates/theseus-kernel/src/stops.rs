@@ -22,6 +22,7 @@
 
 use anyhow::Result;
 use serde_json::json;
+use theseus_protocol::LedgerKind;
 
 use crate::kernel::{action_record, exec_record, settle_reservation_in, Kernel, KernelError};
 use crate::types::*;
@@ -90,7 +91,7 @@ impl Kernel {
             }
             frame.push(action_record(&a)?);
             frame.push(self.ledger(
-                "action.declined",
+                LedgerKind::ActionDeclined,
                 Some(&a.session_id),
                 json!({"correlation_id": a.correlation_id, "tool": a.tool, "by": by, "reason": "stopped"}),
             )?);
@@ -118,7 +119,7 @@ impl Kernel {
         e.updated_at_ms = now;
         frame.insert(0, exec_record(&e)?);
         frame.push(self.ledger(
-            "execution.stopped",
+            LedgerKind::ExecutionStopped,
             Some(&e.session_id),
             json!({"execution_id": e.id, "by": by, "state_before": before, "turn_running": turn_running,
                    "turn": e.turns, "outstanding": to_kill,

@@ -12,6 +12,10 @@ Every client and the core read it, and the web apps' TypeScript is generated fro
   records keep their bytes.
 - `push.rs`: what every surface shows of an execution: `ExecutionView` and `attention()`, the design's rules,
   first match wins. The caller passes how to write a time of day, since this crate reads no clock.
+- `ledger.rs`: the ledger's kinds, `LedgerKind` (theseus-j6qn): every kind a row is written under, by any crate,
+  one line each. Writers take a variant, so a new kind is a new line here, and core's `tests_registry` fails a
+  variant nothing writes. A row stores the kind's name, so old kinds (`LedgerKind::RENAMED`) and unknown ones still
+  read; renaming a kind is a store version change (P5b).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

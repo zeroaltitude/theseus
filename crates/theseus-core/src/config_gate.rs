@@ -16,6 +16,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use theseus_protocol::LedgerKind;
 
 use futures_util::future::BoxFuture;
 use serde_json::json;
@@ -420,7 +421,7 @@ pub async fn confirm(
                 ledger(
                     &core,
                     LedgerRow::new(
-                        "config.confirmed",
+                        LedgerKind::ConfigConfirmed,
                         None,
                         None,
                         json!({"reference": reference, "how": how, "ms": gate.status().confirmed_ms, "reads": reads, "restarted": restarted}),
@@ -474,14 +475,14 @@ fn ledger(core: &Core, row: LedgerRow) {
 /// Judge one answer from the vault against the copy this start served from.
 fn judge(core: &Core, reference: &str, answer: Result<String, String>) -> Step {
     let gate = &core.config_gate;
-    let row = |kind: &str, data: serde_json::Value| LedgerRow::new(kind, None, None, data);
+    let row = |kind: LedgerKind, data: serde_json::Value| LedgerRow::new(kind, None, None, data);
     let text = match answer {
         Ok(t) => t,
         Err(why) => {
             return Step::Held(
                 format!("the vault did not answer: {why}"),
                 row(
-                    "config.unreachable",
+                    LedgerKind::ConfigUnreachable,
                     json!({"reference": reference, "error": why}),
                 ),
             )
@@ -494,7 +495,7 @@ fn judge(core: &Core, reference: &str, answer: Result<String, String>) -> Step {
             return Step::Held(
                 format!("the vault's note does not load ({e}); the copy is left as it was"),
                 row(
-                    "config.invalid",
+                    LedgerKind::ConfigInvalid,
                     json!({"reference": reference, "vault_sha256": config_copy::sha256(&text), "error": e}),
                 ),
             );
@@ -528,7 +529,7 @@ fn judge(core: &Core, reference: &str, answer: Result<String, String>) -> Step {
                 return Step::Held(
                     "the vault's note changed again since the restart; restart to apply".into(),
                     row(
-                        "config.held",
+                        LedgerKind::ConfigHeld,
                         json!({"why": "changed again since the restart", "change": r}),
                     ),
                 );
@@ -536,7 +537,7 @@ fn judge(core: &Core, reference: &str, answer: Result<String, String>) -> Step {
             ledger(
                 core,
                 row(
-                    "config.changed",
+                    LedgerKind::ConfigChanged,
                     serde_json::to_value(&r).unwrap_or_default(),
                 ),
             );
@@ -561,7 +562,7 @@ fn judge(core: &Core, reference: &str, answer: Result<String, String>) -> Step {
                         r.tables.join(", ")
                     ),
                     row(
-                        "config.held",
+                        LedgerKind::ConfigHeld,
                         json!({"why": "the copy could not be rewritten", "error": e, "change": r}),
                     ),
                 ),

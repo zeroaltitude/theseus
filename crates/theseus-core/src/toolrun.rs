@@ -25,7 +25,7 @@ use theseus_kernel::{
     Action, ActionState, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
     BUDGET_TOOL, PROVIDER_TOOL,
 };
-use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, PolicyNotified};
+use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
 use theseus_store::Store as _;
 use theseus_tools::{Access, Backend, JobSpec, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
 use zeroize::Zeroize;
@@ -120,7 +120,7 @@ impl TurnCtx<'_> {
     /// A ledger row for this turn. It is no state transition, so it rides in
     /// the turn's next frame (theseus-qa0). A row that cannot be encoded is
     /// logged, not fatal.
-    pub fn ledger(&self, kind: &str, data: Value) {
+    pub fn ledger(&self, kind: LedgerKind, data: Value) {
         if let Err(e) = self
             .ledger_record(kind, data)
             .and_then(|r| self.store.defer(r))
@@ -130,7 +130,7 @@ impl TurnCtx<'_> {
     }
 
     /// A ledger row for this turn, as a record for a frame the caller builds.
-    pub fn ledger_record(&self, kind: &str, data: Value) -> Result<theseus_store::NewRecord> {
+    pub fn ledger_record(&self, kind: LedgerKind, data: Value) -> Result<theseus_store::NewRecord> {
         theseus_store::NewRecord::json(
             theseus_store::kinds::LEDGER,
             None,

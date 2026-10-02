@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::RwLock;
 
 use serde_json::Value;
-use theseus_protocol::BindingStatus;
+use theseus_protocol::{BindingStatus, LedgerKind};
 
 use super::Core;
 use crate::ledger::LedgerRow;
@@ -43,7 +43,7 @@ impl Core {
         }
         tracing::info!(channel, trusted, detail = %detail, "approval: Discord channel checked");
         self.binding_ledger(
-            "approval.channel_checked",
+            LedgerKind::ApprovalChannelChecked,
             None,
             serde_json::json!({"channel": format!("discord:{channel}"), "trusted": trusted, "detail": detail}),
         );
@@ -59,12 +59,12 @@ impl Core {
 
     /// A ledger row written on behalf of a binding (`discord.*`), so its traffic
     /// sits in the same readable history as everything else.
-    pub fn binding_ledger(&self, kind: &str, session_id: Option<&str>, data: Value) {
+    pub fn binding_ledger(&self, kind: LedgerKind, session_id: Option<&str>, data: Value) {
         if let Err(e) = self
             .store
             .append_ledger(&LedgerRow::new(kind, session_id, None, data))
         {
-            tracing::warn!(error = %e, kind, "binding ledger append failed");
+            tracing::warn!(error = %e, kind = kind.as_str(), "binding ledger append failed");
         }
     }
 }

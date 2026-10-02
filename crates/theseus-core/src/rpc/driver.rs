@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 use std::time::Instant;
+use theseus_protocol::LedgerKind;
 
 use anyhow::Result;
 use serde_json::Value;
@@ -371,7 +372,7 @@ impl Core {
         }
         tracing::warn!(pid, job, signal, tool = %a.tool, "a job's wrapper was killed before it reported; its outcome is unknown");
         let row = crate::ledger::LedgerRow::new(
-            "job.wrapper_lost",
+            LedgerKind::JobWrapperLost,
             Some(&a.session_id),
             None,
             serde_json::json!({"correlation_id": job, "pid": pid, "signal": signal,
