@@ -14,8 +14,8 @@ use ratatui::Terminal;
 use serde_json::{json, Value};
 use theseus_client::Conn;
 use theseus_protocol::{
-    attention, utc_hm, Attention, ConfirmRequest, ExecutionStopResult, ExecutionView, Level,
-    PendingConfirm, SessionInfo, SessionKind, TurnSubmitResult, WaitingOn,
+    attention, utc_hm, Attention, BudgetAsk, ConfirmRequest, ExecutionStopResult, ExecutionView,
+    Level, PendingConfirm, SessionInfo, SessionKind, TurnSubmitResult, WaitingOn,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -1178,4 +1178,253 @@ async fn stop_and_cancel_each_ask_for_a_second_key() {
         [json!({"session_id": "ses_dm0001"})],
         "the focus moved: the DM is unwatched"
     );
+}
+
+// ---------------------------------------------------------------- 10d
+
+/// `proc.run scripts/gate.sh`, asked at `T0 + at` seconds, expiring at
+/// `T0 + expires` seconds.
+pub fn gate_question(sid: &str, correlation_id: &str, at: u64, expires: u64) -> ConfirmRequest {
+    let mut q = question(sid, correlation_id, "run the gate", at);
+    q.expires_at_ms = T0 + expires * 1000;
+    q
+}
+
+/// The harbour, with the tide task asking too (later than the spec review).
+pub fn two_questions() -> Arc<Mutex<World>> {
+    let world = harbour_world();
+    {
+        let mut w = world.lock().unwrap();
+        let tide = view(
+            99,
+            "ses_tide01",
+            SessionKind::Task,
+            Some("ses_dm0001"),
+            "waiting",
+            Some(WaitingOn::Confirm {
+                confirm_id: "cor_tide01".into(),
+            }),
+            vec![pending("cor_tide01", "push the branch")],
+            2,
+            0.11,
+        );
+        replace_view(&mut w.board, &tide);
+        w.board["confirms"].as_array_mut().unwrap().push(
+            serde_json::to_value(question("ses_tide01", "cor_tide01", "push the branch", 99))
+                .unwrap(),
+        );
+    }
+    world
+}
+
+pub fn focused(rig: &Rig) -> Option<String> {
+    rig.runner.app.detail.as_ref().map(|d| d.session_id.clone())
+}
+
+/// The queue's order (design §2.2): needs you, the longest waiting first.
+/// `tab` walks it with each session's pane open, and wraps; `shift-tab`
+/// walks it back.
+#[tokio::test]
+async fn tab_walks_the_queue_longest_waiting_first() {
+    let mut rig = Rig::new(120, 20, script(two_questions()));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab]).await;
+    assert_eq!(
+        focused(&rig).as_deref(),
+        Some("ses_spec01"),
+        "the longest waiting first"
+    );
+    rig.press(&[KeyCode::Tab]).await;
+    assert_eq!(focused(&rig).as_deref(), Some("ses_tide01"));
+    rig.press(&[KeyCode::Tab]).await;
+    assert_eq!(focused(&rig).as_deref(), Some("ses_spec01"), "it wraps");
+    rig.press(&[KeyCode::BackTab]).await;
+    assert_eq!(
+        focused(&rig).as_deref(),
+        Some("ses_tide01"),
+        "shift-tab walks back"
+    );
+}
+
+/// The card: the tool and its input, the reason, the floor, the countdown,
+/// and the keys. `y` answers as the TUI, over the `cli` channel's method.
+#[tokio::test]
+async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
+    let world = harbour_world();
+    {
+        let mut w = world.lock().unwrap();
+        let mut q = gate_question("ses_spec01", "cor_spec01", 98, 98 + 252);
+        q.floor = true;
+        w.board["confirms"] = json!([q]);
+    }
+    NOW.with(|n| n.set(T0 + 98_000));
+    let mut rig = Rig::new(120, 20, script(world));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab]).await;
+    rig.shows("expires in 4:12").await;
+    let rows = pane(&rig.screen(), 120);
+    // The pane's foot: a rule as wide as the pane (83 columns), then the card.
+    assert_eq!(
+        rows[15..19],
+        [
+            "─".repeat(83),
+            " ⏸ confirm proc.run: scripts/gate.sh".to_string(),
+            "   why: run the gate · FLOOR · expires in 4:12".to_string(),
+            "   [y] approve  [n] decline".to_string(),
+        ]
+    );
+    // A second later, the countdown has moved.
+    NOW.with(|n| n.set(T0 + 99_000));
+    rig.runner.draw().unwrap();
+    assert!(rig.screen().iter().any(|l| l.contains("expires in 4:11")));
+    rig.press(&[KeyCode::Char('t')]).await;
+    assert!(
+        rig.screen()[19].contains("nothing to trust"),
+        "{:?}",
+        rig.screen()
+    );
+    rig.press(&[KeyCode::Char('y')]).await;
+    rig.asked("action.confirm", 1).await;
+    assert_eq!(
+        rig.daemon().asked("action.confirm"),
+        [json!({"correlation_id": "cor_spec01", "approve": true, "author": "the TUI"})]
+    );
+}
+
+/// `n` asks for a note, and the decline carries it; `t` approves and trusts a
+/// session that holds external text.
+#[tokio::test]
+async fn n_declines_with_a_note_and_t_trusts_external_text() {
+    let world = two_questions();
+    {
+        let mut w = world.lock().unwrap();
+        let confirms = w.board["confirms"].as_array_mut().unwrap();
+        confirms[1]["external_text"] = json!({
+            "since_ms": T0, "tool": "web.search", "url": "", "node_id": "nod_s1",
+            "query": "harbour tide tables",
+        });
+    }
+    let mut rig = Rig::new(120, 20, script(world));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab, KeyCode::Char('n')]).await;
+    rig.type_text("not before the review").await;
+    rig.press(&[KeyCode::Enter]).await;
+    rig.asked("action.confirm", 1).await;
+    rig.press(&[KeyCode::Tab]).await;
+    rig.shows("[t] approve + trust").await;
+    assert!(rig
+        .screen()
+        .iter()
+        .any(|l| l.contains("web.search \"harbour tide tables\"")));
+    rig.press(&[KeyCode::Char('t')]).await;
+    rig.asked("action.confirm", 2).await;
+    assert_eq!(
+        rig.daemon().asked("action.confirm"),
+        [
+            json!({"correlation_id": "cor_spec01", "approve": false, "author": "the TUI",
+                   "note": "not before the review"}),
+            json!({"correlation_id": "cor_tide01", "approve": true, "author": "the TUI",
+                   "trust": true}),
+        ]
+    );
+}
+
+/// An answer that does not count (-32005) shows its reason on the card, and
+/// the question stays; so does a job's refusal (`approval.refused`).
+#[tokio::test]
+async fn a_refusal_shows_its_reason_on_the_card() {
+    let world = harbour_world();
+    world.lock().unwrap().answers.insert(
+        "action.confirm".into(),
+        Err((
+            -32005,
+            "the cli channel is not trusted to answer ([approval] channels lists web)".into(),
+        )),
+    );
+    let mut rig = Rig::new(120, 20, script(world));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab, KeyCode::Char('y')]).await;
+    rig.shows("refused: the cli channel is not trusted").await;
+    assert!(
+        rig.screen()
+            .iter()
+            .any(|l| l.contains("⏸ confirm proc.run")),
+        "the question stays"
+    );
+    rig.daemon().notify(
+        "approval.refused",
+        json!({"act": "action.confirm", "session_id": "ses_spec01", "correlation_id": "cor_spec01",
+               "tool": "proc.run", "approve": true, "who": "sock#3", "via": "cli",
+               "why": "from a Theseus job's process", "by": "the TUI", "from_job": true}),
+    );
+    rig.shows("refused: an answer to proc.run from a Theseus job's process through cli")
+        .await;
+    assert!(
+        !rig.screen().iter().any(|l| l.contains("is not trusted")),
+        "the job's refusal replaces the reason: {:?}",
+        rig.screen()
+    );
+    assert!(
+        rig.screen()
+            .iter()
+            .any(|l| l.contains("⏸ confirm proc.run")),
+        "the question stays"
+    );
+}
+
+/// A budget question's card: spent, limit, needed, lifetime, and what an
+/// approval does.
+#[tokio::test]
+async fn a_budget_question_says_what_approving_does() {
+    let world = harbour_world();
+    {
+        let mut w = world.lock().unwrap();
+        let mut q = question(
+            "ses_spec01",
+            "cor_spec01",
+            "the session reached its limit",
+            98,
+        );
+        q.tool = "budget.reset".into();
+        q.budget = Some(BudgetAsk {
+            spent_usd: 10.02,
+            limit_usd: 10.0,
+            needed_usd: 0.5,
+            lifetime_usd: 42.0,
+        });
+        w.board["confirms"] = json!([q]);
+        let mut spec = view(
+            98,
+            "ses_spec01",
+            SessionKind::Conversation,
+            None,
+            "waiting",
+            Some(WaitingOn::Budget {
+                correlation_id: "cor_spec01".into(),
+            }),
+            vec![PendingConfirm {
+                budget: true,
+                tool: "budget.reset".into(),
+                ..pending("cor_spec01", "the session reached its limit")
+            }],
+            1,
+            10.02,
+        );
+        spec.limit_usd = 10.0;
+        spec.attention = attention(&spec, &utc_hm);
+        replace_view(&mut w.board, &spec);
+    }
+    let mut rig = Rig::new(120, 20, script(world));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab]).await;
+    rig.shows("$ budget: spent $10.02 of $10 · needs $0.50 · lifetime $42")
+        .await;
+    assert!(rig
+        .screen()
+        .iter()
+        .any(|l| l.contains("approve resets its spend to $0")));
+    assert!(rig
+        .screen()
+        .iter()
+        .any(|l| l.contains("[y] reset and continue  [n] keep waiting")));
 }

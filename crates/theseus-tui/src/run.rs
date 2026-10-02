@@ -145,8 +145,18 @@ impl<B: Backend> Runner<B> {
         Ok(())
     }
 
+    /// The soonest of: the retry's backoff, the next frame, and what the app
+    /// asks for (the card's countdown), on the wall clock.
     fn deadline(&self) -> Option<Instant> {
-        [self.retry_at, self.draw_at].into_iter().flatten().min()
+        let now_ms = (self.clock)();
+        let app = self
+            .app
+            .deadline()
+            .map(|at| Instant::now() + Duration::from_millis(at.saturating_sub(now_ms)));
+        [self.retry_at, self.draw_at, app]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     async fn deadlines(&mut self) {
@@ -158,6 +168,8 @@ impl<B: Backend> Runner<B> {
         if self.draw_at.is_some_and(|at| at <= now) {
             self.draw_at = None;
         }
+        // The countdown moved: draw it.
+        self.dirty = true;
     }
 
     async fn reconnect(&mut self) {

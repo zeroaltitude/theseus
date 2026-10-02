@@ -12,6 +12,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{App, Link, Mode};
 use crate::board::{short, Only, Row};
+use crate::card;
 
 /// The done-until-seen mark (design §2.9): teal, between needs you and
 /// working.
@@ -204,7 +205,35 @@ fn detail(app: &App, area: Rect, buf: &mut Buffer) {
         width,
         Style::default().add_modifier(Modifier::BOLD),
     );
-    let height = area.height.saturating_sub(1) as usize;
+    let mut height = area.height.saturating_sub(1) as usize;
+    // The card: the session's first question, at the pane's foot, under a
+    // rule (design §2.9, "Answering").
+    let card: Vec<(Tag, String)> = app
+        .card()
+        .map(|(q, more)| {
+            card::lines(
+                q,
+                app.now_ms,
+                app.refused.get(q.correlation_id()).map(String::as_str),
+                more,
+            )
+        })
+        .unwrap_or_default();
+    if !card.is_empty() {
+        let card_h = (card.len() + 1).min(height);
+        let top = area.y + area.height - card_h as u16;
+        buf.set_stringn(
+            area.x,
+            top,
+            "─".repeat(area.width as usize),
+            area.width as usize,
+            dim(),
+        );
+        for (i, (tag, text)) in card.iter().enumerate().take(card_h - 1) {
+            buf.set_stringn(x, top + 1 + i as u16, text, width, tag_style(*tag));
+        }
+        height -= card_h;
+    }
     if !d.loaded && d.lines().is_empty() {
         buf.set_stringn(x, area.y + 1, "reading the history…", width, dim());
         return;
@@ -302,6 +331,7 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
     let typed = match &app.mode {
         Mode::Filter => Some(("/", app.filter.as_str())),
         Mode::Input => Some(("> ", app.input.as_str())),
+        Mode::Note(_) => Some(("decline, with a note (enter: none)> ", app.note.as_str())),
         _ => None,
     };
     if let Some((prompt, text)) = typed {
@@ -355,10 +385,12 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 14] = [
+    const KEYS: [&str; 16] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
+        " tab ⇧tab   the next / previous session that needs you",
+        " y t n      approve / approve + trust / decline (with a note)",
         " esc        back to the list (narrow screens); clear the filters",
         " i          type to the open session: enter sends, esc leaves",
         " s          stop the open conversation (s twice)",

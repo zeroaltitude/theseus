@@ -1,11 +1,13 @@
 //! `theseus-tui` (design `stage2` §2.9, theseus-7yx): every session's state
-//! in one sidebar, with its task trees, kept current by the daemon's push.
-//! A client of `theseusd` like the CLI, over the same socket: it links the
-//! protocol crate and the CLI's library (`theseus_client`), never the core.
-//! `theseus tui` will exec it (step 10f).
+//! in one sidebar, with its task trees, kept current by the daemon's push;
+//! the session in focus, with its input line; and the queue of what needs
+//! you, answered inline. A client of `theseusd` like the CLI, over the same
+//! socket: it links the protocol crate and the CLI's library
+//! (`theseus_client`), never the core. `theseus tui` will exec it (step 10f).
 
 mod app;
 mod board;
+mod card;
 mod detail;
 mod run;
 mod ui;

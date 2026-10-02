@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use theseus_protocol::{
     Attention, ConfirmRequest, ConfirmResolved, ExecutionView, ExecutionsWatchResult, Level,
-    SessionInfo, SessionKind,
+    PendingConfirm, SessionInfo, SessionKind,
 };
 
 /// How many resolved questions the board remembers, so a `confirm.requested`
@@ -81,6 +81,37 @@ impl Only {
             Only::Ready => "ready",
             Only::Done => "done",
         }
+    }
+}
+
+/// A question as the board holds it: whole (from `confirm.requested` or a
+/// snapshot), or only the brief a view carries while the whole one is asked
+/// for.
+#[derive(Debug, Clone, Copy)]
+pub enum Question<'a> {
+    Whole(&'a ConfirmRequest),
+    Brief(&'a PendingConfirm),
+}
+
+impl Question<'_> {
+    pub fn correlation_id(&self) -> &str {
+        match self {
+            Question::Whole(c) => &c.correlation_id,
+            Question::Brief(p) => &p.correlation_id,
+        }
+    }
+
+    pub fn expires_at_ms(&self) -> u64 {
+        match self {
+            Question::Whole(c) => c.expires_at_ms,
+            Question::Brief(p) => p.expires_at_ms,
+        }
+    }
+
+    /// Approving it can trust its session again: it waits because the
+    /// session read external text.
+    pub fn trusts(&self) -> bool {
+        matches!(self, Question::Whole(c) if c.external_text.is_some())
     }
 }
 
@@ -235,6 +266,49 @@ impl Board {
     /// A session's latest view.
     pub fn view(&self, sid: &str) -> Option<&ExecutionView> {
         self.views.get(sid)
+    }
+
+    /// A session's questions, in its view's order (a budget question first),
+    /// then any asked after the view.
+    pub fn questions(&self, sid: &str) -> Vec<Question<'_>> {
+        let Some(v) = self.views.get(sid) else {
+            return Vec::new();
+        };
+        let mut out: Vec<Question<'_>> = v
+            .pending
+            .iter()
+            .map(|p| match self.confirms.get(&p.correlation_id) {
+                Some(c) => Question::Whole(c),
+                None => Question::Brief(p),
+            })
+            .collect();
+        let mut later: Vec<&ConfirmRequest> = self
+            .confirms
+            .values()
+            .filter(|c| {
+                c.session_id == sid
+                    && !v
+                        .pending
+                        .iter()
+                        .any(|p| p.correlation_id == c.correlation_id)
+            })
+            .collect();
+        later.sort_by_key(|c| (c.requested_at_ms, c.correlation_id.clone()));
+        out.extend(later.into_iter().map(Question::Whole));
+        out
+    }
+
+    /// The attention queue (design §2.2's order): every session that needs
+    /// you, the longest waiting first, then every one done until seen, the
+    /// most recent first.
+    pub fn queue(&self, done: &dyn Fn(&ExecutionView) -> bool) -> Vec<String> {
+        let mut q: Vec<&ExecutionView> = self
+            .views
+            .values()
+            .filter(|v| v.attention.level == Level::NeedsYou || done(v))
+            .collect();
+        q.sort_by(|a, b| queue_order(a, done(a), b, done(b)));
+        q.into_iter().map(|v| v.session_id.clone()).collect()
     }
 
     /// A session's title, kind, and model, as `session.list` said.

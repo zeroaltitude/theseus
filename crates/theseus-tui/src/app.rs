@@ -1,19 +1,21 @@
 //! The TUI's state and what changes it (design `stage2` §2.9): the board, the
-//! cursor, the filters, the session in focus and its pane, what is being
-//! typed, the connection's state. It does no I/O. The loop (`run.rs`) hands it
-//! the daemon's messages and the terminal's events, and carries out the
-//! effects it returns: requests to send, and quitting.
+//! cursor, the filters, the session in focus and its pane, its question's
+//! card, what is being typed, the connection's state. It does no I/O. The
+//! loop (`run.rs`) hands it the daemon's messages and the terminal's events,
+//! and carries out the effects it returns: requests to send, and quitting.
+
+use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use serde_json::{json, Value};
 use theseus_client::render::{self, Tag};
 use theseus_protocol::{
-    error_code, method, ConfirmListResult, Event, EventsLost, ExecutionStopResult, ExecutionView,
-    ExecutionsWatchResult, RpcError, SessionHistoryResult, SessionKind, SessionListResult,
-    TaskCancelResult,
+    error_code, method, ActionConfirmResult, ConfirmListResult, Event, EventsLost,
+    ExecutionStopResult, ExecutionView, ExecutionsWatchResult, RpcError, SessionHistoryResult,
+    SessionKind, SessionListResult, TaskCancelResult,
 };
 
-use crate::board::{short, Board, Only, Row};
+use crate::board::{short, Board, Only, Question, Row};
 use crate::detail::Detail;
 
 /// What the TUI's requests carry as their author: the ledger names it, and
@@ -55,6 +57,8 @@ pub enum Purpose {
     Stop(String),
     /// `task.cancel`.
     Cancel(String),
+    /// `action.confirm`: an answer to a question.
+    Answer { correlation_id: String },
 }
 
 /// What the loop does for the app.
@@ -94,6 +98,8 @@ pub enum Mode {
     Input,
     /// `s` or `c` was pressed once, for this session: the same key again acts.
     Armed(Arm, String),
+    /// `n` on a question (its correlation id): the decline's note.
+    Note(String),
     /// `?`: the keys.
     Help,
 }
@@ -118,6 +124,11 @@ pub struct App {
     pub filter: String,
     /// The input line's text.
     pub input: String,
+    /// The decline's note, while `n` waits for it.
+    pub note: String,
+    /// Why an answer did not count, by its question: on its card until the
+    /// question closes.
+    pub refused: HashMap<String, String>,
     pub link: Link,
     /// A line for the operator in the footer: an error, a refusal, a result.
     pub flash: Option<(Tag, String)>,
@@ -143,6 +154,8 @@ impl App {
             only: Only::All,
             filter: String::new(),
             input: String::new(),
+            note: String::new(),
+            refused: HashMap::new(),
             link: Link::Connecting,
             flash: None,
             now_ms: 0,
@@ -168,6 +181,26 @@ impl App {
     pub fn shown(&self) -> Option<&str> {
         let d = self.detail.as_ref()?;
         (self.wide() || self.pane == Pane::Session).then_some(d.session_id.as_str())
+    }
+
+    /// The card: the first question of the session on screen, and how many
+    /// wait behind it.
+    pub fn card(&self) -> Option<(Question<'_>, usize)> {
+        let questions = self.board.questions(self.shown()?);
+        let behind = questions.len().saturating_sub(1);
+        questions.into_iter().next().map(|q| (q, behind))
+    }
+
+    /// When the app needs the loop next, if ever: the card's countdown ticks
+    /// once a second while it is on screen (design §2.9, quiet).
+    pub fn deadline(&self) -> Option<u64> {
+        let (q, _) = self.card()?;
+        let left = q
+            .expires_at_ms()
+            .checked_sub(self.now_ms)
+            .filter(|l| *l > 0)?;
+        // The moment the countdown's seconds change.
+        Some(self.now_ms + if left % 1000 == 0 { 1000 } else { left % 1000 })
     }
 
     // ------------------------------------------------------------ the link
@@ -224,7 +257,20 @@ impl App {
                 out.extend(self.follow_up());
             }
             Event::ConfirmRequested(c) => self.board.confirm_requested(c),
-            Event::ConfirmResolved(r) => self.board.confirm_resolved(&r),
+            Event::ConfirmResolved(r) => {
+                self.refused.remove(&r.correlation_id);
+                self.board.confirm_resolved(&r);
+            }
+            // J1 (theseus-6qy): an answer from a Theseus job's process does
+            // not count. Its card says so, and the question stays.
+            Event::ApprovalRefused(r) => {
+                if let Some(id) = r.correlation_id.clone() {
+                    let line = render::job_refusal_line(&r);
+                    let why = line.strip_prefix("refused ").unwrap_or(&line).to_string();
+                    self.refused.insert(id, why);
+                    self.flash = Some((Tag::Bad, line));
+                }
+            }
             Event::EventsLost(lost) => out.extend(self.lost(&lost)),
             _ => {}
         }
@@ -319,6 +365,16 @@ impl App {
                     self.flash = Some((Tag::Warn, line));
                 }
             }
+            Purpose::Answer { correlation_id, .. } => {
+                self.refused.remove(&correlation_id);
+                if let Ok(r) = serde_json::from_value::<ActionConfirmResult>(v) {
+                    self.flash = Some(if r.approved {
+                        (Tag::Ok, format!("✓ approved {correlation_id}"))
+                    } else {
+                        (Tag::Warn, format!("✗ declined {correlation_id}"))
+                    });
+                }
+            }
             // A turn's answer comes at its end; its events said the rest.
             Purpose::Submit(_) | Purpose::Watch => {}
         }
@@ -327,6 +383,16 @@ impl App {
 
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
+        // An answer that did not count (theseus-sgh): its card says why, and
+        // the question stays.
+        if let Purpose::Answer { correlation_id, .. } = purpose {
+            if e.code == error_code::REFUSED {
+                self.refused
+                    .insert(correlation_id.clone(), e.message.clone());
+                self.flash = Some((Tag::Bad, format!("refused: {}", e.message)));
+                return;
+            }
+        }
         let what = match purpose {
             Purpose::Snapshot => method::EXECUTIONS_WATCH,
             Purpose::Titles => method::SESSION_LIST,
@@ -339,6 +405,7 @@ impl App {
             Purpose::Submit(_) => method::TURN_SUBMIT,
             Purpose::Stop(_) => method::EXECUTION_STOP,
             Purpose::Cancel(_) => method::TASK_CANCEL,
+            Purpose::Answer { .. } => method::ACTION_CONFIRM,
         };
         let text = if e.code == error_code::CONFIG_UNCONFIRMED {
             format!("{what}: {} (the daemon waits for its vault)", e.message)
@@ -426,6 +493,7 @@ impl App {
             }
             Mode::Input => self.input_key(k),
             Mode::Armed(arm, sid) => self.armed_key(k, arm, &sid),
+            Mode::Note(id) => self.note_key(k, &id),
             Mode::Normal => self.normal_key(k),
         }
     }
@@ -475,6 +543,11 @@ impl App {
                     self.mode = Mode::Input;
                 }
             }
+            KeyCode::Tab => return self.jump(true),
+            KeyCode::BackTab => return self.jump(false),
+            KeyCode::Char('y') => return self.answer_key(true, false),
+            KeyCode::Char('t') => return self.answer_key(true, true),
+            KeyCode::Char('n') => return self.answer_key(false, false),
             KeyCode::Char('s') => self.arm(Arm::Stop),
             KeyCode::Char('c') => self.arm(Arm::Cancel),
             KeyCode::PageUp => self.scroll(true),
@@ -521,6 +594,82 @@ impl App {
             Some(why) => self.flash = Some((Tag::Warn, why.to_string())),
             None => self.mode = Mode::Armed(arm, sid),
         }
+    }
+
+    /// `y`, `t`, or `n` on the card's question: `n` asks for a note first.
+    fn answer_key(&mut self, approve: bool, trust: bool) -> Vec<Effect> {
+        if self.on_screen().is_none() {
+            return Vec::new();
+        }
+        let Some((q, _)) = self.card() else {
+            self.flash = Some((Tag::Dim, "no question waits here".to_string()));
+            return Vec::new();
+        };
+        let (id, trusts) = (q.correlation_id().to_string(), q.trusts());
+        if trust && !trusts {
+            self.flash = Some((
+                Tag::Dim,
+                "nothing to trust: the session holds no external text (y approves)".to_string(),
+            ));
+            return Vec::new();
+        }
+        if !approve {
+            self.note.clear();
+            self.mode = Mode::Note(id);
+            return Vec::new();
+        }
+        vec![answer(&id, true, trust, None)]
+    }
+
+    /// The decline's note: `enter` sends the decline, with the note if one
+    /// was typed; `esc` answers nothing.
+    fn note_key(&mut self, k: KeyEvent, id: &str) -> Vec<Effect> {
+        match k.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+                self.flash = Some((Tag::Dim, "not declined".to_string()));
+            }
+            KeyCode::Backspace => {
+                self.note.pop();
+            }
+            KeyCode::Char(c) => self.note.push(c),
+            KeyCode::Enter => {
+                self.mode = Mode::Normal;
+                let note = std::mem::take(&mut self.note).trim().to_string();
+                return vec![answer(
+                    id,
+                    false,
+                    false,
+                    Some(note).filter(|n| !n.is_empty()),
+                )];
+            }
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    /// `tab` / `shift-tab`: the next or previous session that needs attention
+    /// (design §2.2's queue), focused with its pane open. Both wrap.
+    fn jump(&mut self, forward: bool) -> Vec<Effect> {
+        let queue = self.board.queue(&|_| false);
+        if queue.is_empty() {
+            self.flash = Some((Tag::Dim, "nothing needs you".to_string()));
+            return Vec::new();
+        }
+        let here = self
+            .detail
+            .as_ref()
+            .map(|d| d.session_id.as_str())
+            .and_then(|s| queue.iter().position(|q| q == s));
+        let n = queue.len();
+        let next = match (here, forward) {
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+            (None, true) => 0,
+            (None, false) => n - 1,
+        };
+        let sid = queue[next].clone();
+        self.focus(&sid)
     }
 
     fn armed_key(&mut self, k: KeyEvent, arm: Arm, sid: &str) -> Vec<Effect> {
@@ -700,4 +849,27 @@ fn read_session(sid: &str) -> Vec<Effect> {
             Purpose::Watch,
         ),
     ]
+}
+
+/// An answer to a question (design §2.9, "Answering"): `action.confirm` as
+/// the TUI, so `[approval]` judges it as the `cli` channel's.
+fn answer(id: &str, approve: bool, trust: bool, note: Option<String>) -> Effect {
+    let mut params = json!({
+        "correlation_id": id,
+        "approve": approve,
+        "author": AUTHOR,
+    });
+    if trust {
+        params["trust"] = json!(true);
+    }
+    if let Some(n) = note {
+        params["note"] = json!(n);
+    }
+    call(
+        method::ACTION_CONFIRM,
+        params,
+        Purpose::Answer {
+            correlation_id: id.to_string(),
+        },
+    )
 }
