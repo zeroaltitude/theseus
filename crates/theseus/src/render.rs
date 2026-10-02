@@ -1526,24 +1526,30 @@ fn binding_line(b: &theseus_protocol::BindingStatus) -> String {
 }
 
 /// The push (theseus-in3), as `theseus health` says it: `push: 2 watchers ·
-/// board 212 · 1 question · 340 events · seeded in 38 ms`, or that nothing
-/// has watched since the start.
+/// 1 waiting · board 212 · 1 question · 340 events · lost 0 · at position
+/// 48213 · seeded in 38 ms`, or that nothing has watched since the start.
+/// What a connection's backlog cap dropped counts, seeded or not.
 pub fn push_line(p: &theseus_protocol::PushStatus) -> String {
     if !p.seeded {
-        return "push: not seeded: nothing has watched since the start (the first \
-                executions.watch seeds it)"
-            .into();
+        return format!(
+            "push: not seeded: nothing has watched since the start (the first \
+             executions.watch or session.wait seeds it) · lost {}",
+            p.lost
+        );
     }
     let s = |n: u64| if n == 1 { "" } else { "s" };
     format!(
-        "push: {} watcher{} · board {} · {} question{} · {} event{} · at position {} · seeded in {}",
+        "push: {} watcher{} · {} waiting · board {} · {} question{} · {} event{} · lost {} · at \
+         position {} · seeded in {}",
         p.watchers,
         s(p.watchers),
+        p.waiting,
         p.board,
         p.questions,
         s(p.questions),
         p.events,
         s(p.events),
+        p.lost,
         p.position,
         fmt_us(p.seed_us)
     )

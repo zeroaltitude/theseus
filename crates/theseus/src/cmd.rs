@@ -185,6 +185,9 @@ pub async fn watch(
     Ok(())
 }
 
+/// The snapshot's limit for a read of every view.
+const EVERY: u32 = u32::MAX;
+
 /// `theseus watch --all` (theseus-in3): the board's snapshot, then each
 /// change. A view is printed only if its position is greater than the last
 /// one printed for its execution, so an event that came before the snapshot,
@@ -254,10 +257,16 @@ pub async fn watch_all(conn: &mut Conn, json: bool) -> Result<()> {
         if n.method == notify::EVENTS_LOST && !json {
             let lost: theseus_protocol::EventsLost = serde_json::from_value(n.params.clone())?;
             eprintln!("{}", render::lost_line(&lost));
+            // Every view this time, not the default 200: a session that
+            // changed while this terminal was behind prints, however idle.
             let v = conn
-                .call(method::EXECUTIONS_WATCH, serde_json::json!({}), |m, p| {
-                    let _ = show(m, p, &mut seen);
-                })
+                .call(
+                    method::EXECUTIONS_WATCH,
+                    serde_json::json!({"limit": EVERY}),
+                    |m, p| {
+                        let _ = show(m, p, &mut seen);
+                    },
+                )
                 .await?;
             let snap: theseus_protocol::ExecutionsWatchResult = serde_json::from_value(v)?;
             for view in &snap.executions {

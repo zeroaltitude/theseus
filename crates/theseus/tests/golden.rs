@@ -869,7 +869,8 @@ fn health_prints_every_line() {
 fn health_says_where_the_push_stands() {
     let mut h = health();
     h["push"] = json!({"seeded": true, "seed_us": 38_400, "board": 212, "questions": 1,
-                       "watchers": 2, "events": 340, "position": 48213});
+                       "watchers": 2, "events": 340, "waiting": 1, "lost": 865,
+                       "position": 48213});
     golden(
         "health_push",
         &run(&["health"], vec![step("health", h.clone())]),
