@@ -25,8 +25,8 @@ use theseus_kernel::{
     BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{
-    BudgetAsk, CacheSummary, ConfirmRequest, ConfirmResolved, ContextCompiled, Event, LoopEnded,
-    LoopStarted, ModelDelta, SessionKind, Span, TurnSubmitResult, Usage,
+    BudgetAsk, CacheSummary, ConfirmRequest, ContextCompiled, SessionKind, Span, TurnSubmitResult,
+    Usage,
 };
 use theseus_store::NewRecord;
 
@@ -36,9 +36,8 @@ use crate::catalog::Catalog;
 use crate::compiler::{compile, CompileInput, Compiled, Overflowed, Recompile, RequestSpec};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
-use crate::fact::{self, Fact};
-use crate::ledger::LedgerRow;
-use crate::narrative::{self, narrate, narrate_turn, Narrator};
+use crate::fact::{self, Fact, To};
+use crate::narrative::{self, Narrator};
 use crate::node::{Body, Node};
 use crate::provider::{
     Delta, ModelResponse, Overflow, Provider, ProviderError, ToolUse, WINDOW_EXCEEDED,
@@ -340,6 +339,13 @@ impl<'a> Turn<'a> {
         self.tc.record(f);
     }
 
+    /// A fact of this turn's whose row rode in a frame the turn wrote itself
+    /// (`Rec::row`): its span, its notification, and its sentences.
+    fn announce_fact<F: Fact>(&mut self, f: &F) {
+        f.span(&mut self.trace);
+        self.tc.rec().announce(f);
+    }
+
     /// Count the turn in its session. The success path and both failure
     /// exits call it, so a turn that fails in a later loop keeps what its
     /// earlier loops spent.
@@ -359,18 +365,18 @@ pub const WINDOW_CLASS: &str = "context_window";
 
 /// A request of this turn's that the provider said passed the model's
 /// window (theseus-9p88): it refused the prompt, or cut the answer there.
-struct Overflowing {
+pub(crate) struct Overflowing {
     /// `refused` or `cut`.
-    source: &'static str,
+    pub(crate) source: &'static str,
     /// What the next compilation rings by.
-    hint: Overflowed,
+    pub(crate) hint: Overflowed,
     /// The request's digest: a retry that would render the same request is
     /// not made.
-    digest: String,
+    pub(crate) digest: String,
     /// The catalog's window for the model.
-    window: Option<u64>,
+    pub(crate) window: Option<u64>,
     /// A cut answer's output tokens.
-    output: Option<u64>,
+    pub(crate) output: Option<u64>,
 }
 
 impl Overflowing {
@@ -410,7 +416,7 @@ impl Overflowing {
     }
 
     /// What the provider said, in words.
-    fn said(&self) -> String {
+    pub(crate) fn said(&self) -> String {
         let n = |v: u64| narrative::thousands(v);
         match (self.source, self.hint.counted, self.hint.maximum) {
             ("cut", Some(p), _) => format!(
@@ -430,7 +436,7 @@ impl Overflowing {
     }
 
     /// The window, as the catalog and the provider say it.
-    fn window_words(&self) -> String {
+    pub(crate) fn window_words(&self) -> String {
         let n = |v: u64| narrative::thousands(v);
         match (self.window, self.hint.maximum) {
             (Some(w), Some(m)) if self.source == "refused" && m < w => format!(
@@ -617,17 +623,25 @@ impl TurnRunner {
         if written.is_none() {
             self.store.put_session(&session.session_id, session)?;
         }
-        narrate!(
-            self.narrator,
-            Session,
-            Some(&session.session_id),
-            None,
-            "Session {} had no execution; opened {} with a spend limit of {}.",
-            narrative::short(&session.session_id),
-            narrative::short(&e.id),
-            narrative::dollars(e.budget.limit_micros)
-        );
+        self.session_rec(&session.session_id, To::Nobody)
+            .record(&fact::turn::ExecutionOpened {
+                session_id: &session.session_id,
+                execution_id: &e.id,
+                limit_micros: e.budget.limit_micros,
+            });
         Ok(e)
+    }
+
+    /// Where a session's own facts go, outside a turn: its rows are written
+    /// now, and its notifications go `to`.
+    fn session_rec<'a>(&'a self, session: &'a str, to: To<'a>) -> fact::Rec<'a> {
+        fact::Rec {
+            narrator: &self.narrator,
+            session: Some(session),
+            turn: None,
+            to,
+            store: &self.store,
+        }
     }
 
     /// New input came while a budget question was open: the question is
@@ -644,27 +658,19 @@ impl TurnRunner {
              it still does not fit",
         ) {
             Ok(_) => {
-                sink.send(Event::ConfirmResolved(ConfirmResolved {
-                    session_id: exec.session_id.clone(),
-                    correlation_id: q.into(),
-                    by: Some(author.into()),
-                    superseded: true,
-                    ..Default::default()
-                }));
+                self.session_rec(&exec.session_id, To::Sink(sink)).record(
+                    &fact::turn::BudgetQuestionSuperseded {
+                        session_id: &exec.session_id,
+                        question: q,
+                        author,
+                    },
+                );
                 if let Err(e) = self
                     .outbox
                     .closed(q, crate::outbox::Closed::new("superseded", Some(author)))
                 {
                     tracing::warn!(error = %format!("{e:#}"), "the card's settle was not written");
                 }
-                narrate!(
-                    self.narrator,
-                    Approval,
-                    Some(&exec.session_id),
-                    None,
-                    "The budget question was superseded by new input from {author}; the next \
-                     call asks again if it still does not fit."
-                );
             }
             Err(e) => {
                 tracing::warn!(error = %e, correlation_id = q, "superseding a budget question failed")
@@ -802,30 +808,15 @@ impl TurnRunner {
                 "a continuation of session {sid} waits for its secrets"
             ));
         }
-        if let Err(e) = self.store.append_ledger(&LedgerRow::new(
-            "turn.refused",
-            Some(sid),
-            None,
-            json!({"class": r.class, "secret": r.secret, "error": r.error, "author": req.author, "provider": req.target.provider}),
-        )) {
-            tracing::warn!(error = %e, "ledger append failed");
-        }
+        self.session_rec(sid, To::Sink(&req.sink))
+            .record(&fact::turn::TurnRefused {
+                class: r.class,
+                secret: &r.secret,
+                error: &r.error,
+                author: &req.author,
+                provider: &req.target.provider,
+            });
         tracing::warn!(session_id = %sid, class = r.class, secret = %r.secret, error = %r.error, "turn refused: a secret it needs is not there");
-        narrate!(
-            self.narrator,
-            Turn,
-            Some(sid),
-            None,
-            "A turn from {} was refused: {} needs the secret {}, which {}.",
-            req.author,
-            req.target.provider,
-            r.secret,
-            if r.class == "secret_failed" {
-                "did not resolve"
-            } else {
-                "is still resolving"
-            }
-        );
         turn_error(r.class, sid, "", 0, source)
     }
 
@@ -837,9 +828,8 @@ impl TurnRunner {
             Err(r) => return Err(self.refuse(&req, r)),
         };
         let exec = self.execution_for(&mut req.session)?;
-        // The narrative's session id and clock, taken only when it is on.
-        let sid = self.narrator.on().then(|| req.session.session_id.clone());
-        let admitting = sid.is_some().then(Instant::now);
+        // The narrative's clock, taken only when it is on.
+        let admitting = self.narrator.on().then(Instant::now);
         // An input wakes its execution and takes the turn in one frame
         // (theseus-l6y). When admission must wait, the wake is written alone,
         // and the wait below takes the turn.
@@ -854,14 +844,11 @@ impl TurnRunner {
                         state: "running", ..
                     }) => {}
                     Some(KernelError::NotRunnable { state, .. }) => {
-                        narrate!(
-                            self.narrator,
-                            Turn,
-                            sid.as_deref(),
-                            None,
-                            "A turn from {} was refused: the execution is {state}.",
-                            req.author
-                        );
+                        self.session_rec(&req.session.session_id, To::Sink(&req.sink))
+                            .record(&fact::turn::TurnNotRunnable {
+                                author: &req.author,
+                                state,
+                            });
                         return Err(turn_error(
                             &format!("execution_{state}"),
                             &req.session.session_id,
@@ -874,14 +861,10 @@ impl TurnRunner {
                 },
             }
             if matches!(exec.state, ExecState::Waiting | ExecState::Blocked) {
-                narrate!(
-                    self.narrator,
-                    Session,
-                    sid.as_deref(),
-                    None,
-                    "Woken by new input from {}.",
-                    req.author
-                );
+                self.session_rec(&req.session.session_id, To::Sink(&req.sink))
+                    .record(&fact::turn::WokenByInput {
+                        author: &req.author,
+                    });
             }
         }
         let guard = match admitted {
@@ -944,7 +927,8 @@ impl TurnRunner {
             .flatten()
             .and_then(|e| e.stopped)
             .map(|s| s.by);
-        let parked = self.narrator.on().then(|| self.park_sentence(&end));
+        // Where it parks, for its line: kept only when the narrative is on.
+        let parked = self.narrator.on().then(|| end.clone());
         // A task's report rides in the frame that ends it, and only in a
         // frame that does: a turn that ends after a cancel landed writes
         // none, and the cancel reports (DD7).
@@ -1012,7 +996,8 @@ impl TurnRunner {
                     false
                 }
             };
-        if let Some(p) = parked {
+        let rec = self.session_rec(&failure_sink.session_id, To::Sink(&failure_sink));
+        if let Some(end) = &parked {
             let turn_id = match &r {
                 Ok((res, _, _)) => Some(res.turn_id.clone()),
                 Err(e) => e
@@ -1020,33 +1005,18 @@ impl TurnRunner {
                     .map(|t| t.turn_id.clone())
                     .filter(|t| !t.is_empty()),
             };
-            narrate!(
-                self.narrator,
-                Session,
-                sid.as_deref(),
-                turn_id.as_deref(),
-                "{p}"
-            );
+            rec.in_turn(turn_id.as_deref()).record(&fact::turn::Parked {
+                end,
+                kernel: &self.kernel,
+            });
         }
         if let Err(e) = &r {
             let te = e.downcast_ref::<TurnError>();
             if let Some(by) = &stopped {
-                narrate!(
-                    self.narrator,
-                    Turn,
-                    sid.as_deref(),
-                    None,
-                    "Stopped by {by}, the turn ended at its next step, which the stop refused."
-                );
+                rec.record(&fact::turn::StoppedAtStep { by });
             } else if te.is_none() {
                 // A fault, not a failure the turn reports itself (`fail`).
-                narrate!(
-                    self.narrator,
-                    Turn,
-                    sid.as_deref(),
-                    None,
-                    "The turn stopped on an internal error; the log has it."
-                );
+                rec.record(&fact::turn::TurnFaulted);
             }
             let failed = theseus_protocol::TurnFailed {
                 session_id: failure_sink.session_id.clone(),
@@ -1073,58 +1043,21 @@ impl TurnRunner {
                     tracing::warn!(error = %format!("{e:#}"), "the failed turn's notice was not written");
                 }
             }
-            failure_sink.send(Event::TurnFailed(failed));
+            rec.record(&fact::turn::TurnFailureTold { failed: &failed });
         }
         if rewake && stopped.is_none() {
             // A background result landed while the turn ran; the model has not
             // read it yet, so the driver takes another turn.
             let _ = self.kernel.wake(&exec_id, "late_result");
-            narrate!(
-                self.narrator,
-                Session,
-                sid.as_deref(),
-                None,
-                "Woken again at once: a background result landed during the \
-                 turn."
-            );
+            rec.record(&fact::turn::WokenAgain);
         }
-        match &run {
-            Some((f, Then::Backoff, _)) if woke_on_fault => narrate!(
-                self.narrator,
-                Session,
-                sid.as_deref(),
-                None,
-                "Woken again: {} passes with time, so the driver retries with its backoff \
-                 ({} in a row).",
-                f.class,
-                narrative::count(f.turns as u64, "failed turn", "failed turns")
-            ),
-            Some((f, Then::Retry, _)) if woke_on_fault => narrate!(
-                self.narrator,
-                Session,
-                sid.as_deref(),
-                None,
-                "Woken for one retry: {} will not pass by waiting, but a config or profile \
-                 change may have cured it.",
-                f.class
-            ),
-            Some((f, Then::Park, _)) => narrate!(
-                self.narrator,
-                Session,
-                sid.as_deref(),
-                None,
-                "Not retried: {} ({}), so the session waits on its next message, which \
-                 retries.",
-                f.class,
-                if f.class == WINDOW_CLASS {
-                    "the same request would pass the window again"
-                } else if settled {
-                    "it failed again after its retry"
-                } else {
-                    "it failed before any provider call returned"
-                }
-            ),
-            _ => {}
+        if let Some((f, then, _)) = &run {
+            rec.record(&fact::turn::RetryDecided {
+                run: f,
+                then: *then,
+                woke: woke_on_fault,
+                settled,
+            });
         }
         self.admission.notify_waiters();
         r.map(|(res, _, _)| res)
@@ -1157,21 +1090,20 @@ impl TurnRunner {
                 settled,
                 theseus_protocol::now_unix_ms(),
             );
-            let row = LedgerRow::new(
-                "turn.next",
-                Some(sid),
-                te.map(|t| t.turn_id.as_str()).filter(|t| !t.is_empty()),
-                json!({"then": then, "class": class, "transient": transient, "settled": settled,
-                       "turns": run.turns, "lasting": run.lasting, "notice": notice,
-                       "since_ms": run.since_ms}),
-            );
+            let row = self
+                .session_rec(sid, To::Nobody)
+                .in_turn(te.map(|t| t.turn_id.as_str()).filter(|t| !t.is_empty()))
+                .row(&fact::turn::TurnNext {
+                    then,
+                    class,
+                    transient,
+                    settled,
+                    run: &run,
+                    notice,
+                })?;
             r.failing = Some(run.clone());
             decided = Some((run, then, notice));
-            Ok(vec![NewRecord::json(
-                theseus_store::kinds::LEDGER,
-                None,
-                &row,
-            )?])
+            Ok(vec![row])
         });
         match (written, decided) {
             (Ok(Some(_)), Some(d)) => d,
@@ -1266,17 +1198,11 @@ impl TurnRunner {
             task: task_of.as_ref(),
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
-            narrate!(
-                self.narrator,
-                Session,
-                Some(&sid),
-                None,
-                "Session {} resumed: its first turn since the daemon \
-                 started, after {} and {}.",
-                narrative::short(&sid),
-                narrative::count(session.turns, "turn", "turns"),
-                narrative::money(Some(session.cost_usd))
-            );
+            tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
+                session_id: &sid,
+                turns: session.turns,
+                cost_usd: session.cost_usd,
+            });
         }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
         t.reply_to = reply_to;
@@ -1325,18 +1251,11 @@ impl TurnRunner {
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
-            t.tc.ledger(
-                "context.file_missing",
-                json!({"path": u.path, "error": u.error, "profile": target.profile}),
-            );
-            narrate_turn!(
-                t.tc,
-                Context,
-                "Context: the context file {} could not be read ({}), so the system block says \
-                 it is missing.",
-                u.path,
-                u.error
-            );
+            t.record(&fact::turn::ContextFileMissing {
+                path: &u.path,
+                error: &u.error,
+                profile: &target.profile,
+            });
         }
         // A recompile the operator asked for is taken from the stored record
         // under its lock, so one asked while this turn runs stays for the
@@ -1374,15 +1293,10 @@ impl TurnRunner {
             }
             let i = t.loops;
             t.loops += 1;
-            narrate_turn!(
-                t.tc,
-                Loop,
-                "Loop {} of up to {}.",
-                t.loops,
-                t.target.max_loops
-            );
-            t.trace
-                .enter(&format!("loop {i}"), "loop", json!({"loop": i}));
+            t.record(&fact::turn::LoopOpened {
+                index: i,
+                max_loops: t.target.max_loops,
+            });
             let compiled = self.compile_step(
                 &mut t,
                 &mut session,
@@ -1414,7 +1328,9 @@ impl TurnRunner {
                         {
                             image_retried = true;
                             strip = edited.then_some("image_not_shown");
-                            t.trace.exit(json!({"decision": "image_not_shown"}));
+                            t.record(&fact::turn::LoopCut {
+                                decision: "image_not_shown",
+                            });
                             continue;
                         }
                     }
@@ -1427,7 +1343,9 @@ impl TurnRunner {
                         match Self::overflowed(&mut t, o, retrying.take(), i) {
                             Ok(next) => {
                                 overflow = Some(next);
-                                t.trace.exit(json!({"decision": WINDOW_CLASS}));
+                                t.record(&fact::turn::LoopCut {
+                                    decision: WINDOW_CLASS,
+                                });
                                 continue;
                             }
                             Err(f) => return Err(Self::fail(t, &mut session, f)),
@@ -1442,16 +1360,20 @@ impl TurnRunner {
                     limit,
                 } => {
                     if needed > limit && t.retry_over_limit {
-                        t.trace.exit(json!({"decision": "over_limit"}));
+                        t.record(&fact::turn::LoopCut {
+                            decision: "over_limit",
+                        });
                         let f = Self::over_limit(&mut t, needed, limit);
                         return Err(Self::fail(t, &mut session, f));
                     }
                     self.ask_budget(&mut t, &session, needed, available, spent, limit)?;
-                    t.trace.exit(json!({"decision": "budget"}));
+                    t.record(&fact::turn::LoopCut { decision: "budget" });
                     break;
                 }
                 Called::Stopped { by } => {
-                    t.trace.exit(json!({"decision": "stopped"}));
+                    t.record(&fact::turn::LoopCut {
+                        decision: "stopped",
+                    });
                     Self::stopped(&mut t, &by);
                     break;
                 }
@@ -1472,7 +1394,9 @@ impl TurnRunner {
                 for u in &uses {
                     self.tools.not_run_stopped(&tc, u, &by)?;
                 }
-                t.trace.exit(json!({"decision": "stopped"}));
+                t.record(&fact::turn::LoopCut {
+                    decision: "stopped",
+                });
                 t.last = Some(resp);
                 Self::stopped(&mut t, &by);
                 break;
@@ -1542,62 +1466,16 @@ impl TurnRunner {
         // Its wakes that are due (DD8), last: each is this turn's input, or
         // comes before the input that arrived with it.
         let woke = Self::read_wakes(t)?;
-        t.trace.record(
-            "continuation",
-            "tool",
+        t.record(&fact::turn::CaughtUp {
             t0,
-            t.trace.now_us(),
-            json!({"settled": settled.len(), "late_results": absorbed, "resumed": resumed.wrote, "awaiting": resumed.awaiting, "background": resumed.background, "budget_reset": reset, "limit_raised": raised, "task_reports": reported, "wakes": woke}),
-        );
-        if t.tc.narrator.on() {
-            let mut done = Vec::new();
-            if reset {
-                done.push("the spend was reset, so the waiting call proceeds".to_string());
-            } else if raised {
-                done.push("the spend limit was raised, so the waiting call proceeds".to_string());
-            }
-            if !settled.is_empty() {
-                done.push(format!(
-                    "{} settled",
-                    narrative::count(settled.len() as u64, "action", "actions")
-                ));
-            }
-            if absorbed > 0 {
-                done.push(format!(
-                    "{} written",
-                    narrative::count(absorbed as u64, "late result", "late results")
-                ));
-            }
-            if resumed.wrote > 0 {
-                done.push(format!(
-                    "{} answered",
-                    narrative::count(resumed.wrote as u64, "pending call", "pending calls")
-                ));
-            }
-            if resumed.awaiting.is_some() {
-                done.push("a call still waits for approval".into());
-            }
-            if reported > 0 {
-                done.push(format!(
-                    "{} read",
-                    narrative::count(reported as u64, "task report", "task reports")
-                ));
-            }
-            if woke > 0 {
-                done.push(format!(
-                    "{} came due",
-                    narrative::count(woke as u64, "wake", "wakes")
-                ));
-            }
-            if !done.is_empty() {
-                narrate_turn!(
-                    t.tc,
-                    Turn,
-                    "Caught up on the time between turns: {}.",
-                    done.join(", ")
-                );
-            }
-        }
+            settled: settled.len(),
+            absorbed,
+            resumed: &resumed,
+            reset,
+            raised,
+            reported,
+            woke,
+        });
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
         Ok(absorbed + resumed.wrote + u32::from(reset || raised) + reported + woke)
@@ -1607,12 +1485,7 @@ impl TurnRunner {
     /// and it posts no reply. Its end parks the execution on input.
     fn stopped(t: &mut Turn<'_>, by: &str) {
         t.stop_reason = "stopped".into();
-        narrate_turn!(
-            t.tc,
-            Turn,
-            "Stopped by {by}: the turn plans nothing more, posts no reply, and the session \
-             waits on its next input."
-        );
+        t.record(&fact::turn::Stopped { by });
     }
 
     /// The session's wakes that are due (DD8): each becomes a node the model
@@ -1642,18 +1515,7 @@ impl TurnRunner {
             tc.node_written(n);
         }
         for f in &fired {
-            narrate_turn!(
-                tc,
-                Session,
-                "Wake {} came due{}: \"{}\" is this turn's input.",
-                crate::task::short(&f.wake.id),
-                if f.late_ms > crate::wake::LATE_AFTER_MS {
-                    format!(", {} late", crate::wake::span(f.late_ms))
-                } else {
-                    String::new()
-                },
-                crate::session::title_from(&f.wake.note)
-            );
+            tc.record(&fact::turn::WakeCameDue { fired: f });
         }
         t.wake_target = fired.iter().find_map(|f| f.wake.target.clone());
         t.wakes = fired
@@ -1744,25 +1606,16 @@ impl TurnRunner {
             tc.node_written(n);
         }
         if let Some(h) = &held {
-            narrate_turn!(
-                tc,
-                Approval,
-                "{}",
-                crate::external::narrated(h, self.tools.external_text)
-            );
+            tc.record(&fact::turn::HoldBrought {
+                hold: h,
+                mode: self.tools.external_text,
+            });
         }
         for r in reports
             .iter()
             .filter(|r| taken.woke.contains(&r.execution_id))
         {
-            narrate_turn!(
-                tc,
-                Session,
-                "Task {}'s report started this turn (wake_parent): \"{}\" {}.",
-                r.short,
-                r.title.as_deref().unwrap_or("its brief"),
-                r.outcome
-            );
+            tc.record(&fact::turn::ReportWoke { report: r });
             t.woke_by.push(json!({"task": r.task, "short": r.short,
                 "text": crate::task::woke_line(&r.short), "outcome": r.outcome}));
             if t.wake_target.is_none() {
@@ -1780,12 +1633,7 @@ impl TurnRunner {
     fn has_news(t: &mut Turn<'_>, wrote: bool) -> Result<bool> {
         if t.awaiting.is_some() {
             t.stop_reason = "awaiting_confirm".into();
-            narrate_turn!(
-                t.tc,
-                Turn,
-                "A call still waits for approval, so the model is not \
-                 called."
-            );
+            t.record(&fact::turn::NoCall::AwaitingApproval);
             return Ok(false);
         }
         if wrote {
@@ -1811,11 +1659,7 @@ impl TurnRunner {
         );
         if !awaiting_reply {
             t.stop_reason = "nothing_new".into();
-            narrate_turn!(
-                t.tc,
-                Turn,
-                "Nothing new for the model to read, so it is not called."
-            );
+            t.record(&fact::turn::NoCall::NothingNew);
         }
         Ok(awaiting_reply)
     }
@@ -1892,102 +1736,20 @@ impl TurnRunner {
                 conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
             },
         };
-        // The trace's span and the ledger row carry the notification's params.
-        let row = serde_json::to_value(&summary)?;
-        t.trace.record("compile", "compile", c0, c1, row.clone());
-        t.tc.ledger("context.compiled", row);
-        t.tc.sink.send(Event::ContextCompiled(summary));
-        let missing = spec
-            .context_files
-            .iter()
-            .filter(|f| f.missing.is_some())
-            .count();
-        let mut files = match (spec.context_files.len() - missing, missing) {
-            (0, 0) => String::new(),
-            (n, 0) => format!(
-                ", {}",
-                narrative::count(n as u64, "context file", "context files")
-            ),
-            (n, m) => format!(
-                ", {} ({m} missing)",
-                narrative::count(n as u64, "context file", "context files")
-            ),
-        };
-        if let Some(p) = &spec.persona {
-            files.push_str(&format!(", persona {p}"));
-        }
-        let sizes = |c: &Compiled| {
-            format!(
-                "prefix {} + tail {}, {}, about {} tokens{files}",
-                narrative::count(c.prefix_nodes as u64, "node", "nodes"),
-                c.tail_nodes,
-                narrative::count(c.messages as u64, "message", "messages"),
-                narrative::thousands(c.est_tokens)
-            )
-        };
-        if compiled.new_compilation {
-            narrate_turn!(
-                t.tc,
-                Context,
-                "Context: new compilation {} ({}) because {}: {}.",
-                narrative::short(&compiled.compilation.id),
-                compiled.compilation.strategy,
-                narrative::trigger_phrase(compiled.trigger.as_deref().unwrap_or("unknown")),
-                sizes(&compiled)
-            );
-        } else {
-            narrate_turn!(
-                t.tc,
-                Context,
-                "Context: appending to compilation {}: {}.",
-                narrative::short(&compiled.compilation.id),
-                sizes(&compiled)
-            );
-        }
-        // A system block left without its cache breakpoint is said once, when
-        // the compilation is made (theseus-ev1); its manifest records it.
-        if compiled.new_compilation {
-            let layout = &compiled.cache;
-            if !layout.caches {
-                narrate_turn!(
-                    t.tc,
-                    Context,
-                    "Context: no cache breakpoints, since the catalog says {} does not cache.",
-                    spec.model
-                );
-            }
-            for b in layout.blocks.iter().filter(|b| layout.caches && !b.marked) {
-                narrate_turn!(
-                    t.tc,
-                    Context,
-                    "Context: no cache breakpoint on the system's {} block: with the tools, its \
-                     prefix is {} bytes, too short to reach {}'s minimum of {} tokens.",
-                    b.block,
-                    narrative::thousands(b.prefix_bytes),
-                    spec.model,
-                    narrative::thousands(layout.min_tokens as u64)
-                );
-            }
-        }
-        if !compiled.repairs.is_empty() {
-            narrate_turn!(
-                t.tc,
-                Context,
-                "Context: repaired {} with a synthetic result.",
-                narrative::count(
-                    compiled.repairs.len() as u64,
-                    "tool call that had no result",
-                    "tool calls that had no result"
-                )
-            );
-        }
-        t.tc.sink.send(Event::LoopStarted(LoopStarted {
-            turn_id: t.tc.turn_id.into(),
-            loop_index: i,
-            model: t.target.model.clone(),
+        // Its span and its row carry the notification's params.
+        t.record(&fact::turn::ContextCompiled {
+            summary: &summary,
+            compiled: &compiled,
+            spec,
+            c0,
+            c1,
+        });
+        t.record(&fact::turn::LoopStarted {
+            turn_id: t.tc.turn_id,
+            index: i,
+            model: &t.target.model,
             tools_offered: spec.tools.len() as u32,
-        }));
-        t.tc.ledger("loop.started", json!({"loop": i}));
+        });
         Ok(compiled)
     }
 
@@ -2010,12 +1772,9 @@ impl TurnRunner {
         };
         // Budgets are dollars (theseus-0sg), so nothing runs unpriced.
         let Some(price) = self.catalog.get(&target.model) else {
-            narrate_turn!(
-                t.tc,
-                Model,
-                "{} has no price in the catalog, so it is not called.",
-                target.model
-            );
+            t.record(&fact::turn::ModelUnpriced {
+                model: &target.model,
+            });
             return Ok(Called::Failed(Failure {
                 class: "unpriced".into(),
                 transient: false,
@@ -2061,12 +1820,10 @@ impl TurnRunner {
                 if let Some(KernelError::Stopped { by, .. }) = e.downcast_ref::<KernelError>() {
                     return Ok(Called::Stopped { by: by.clone() });
                 }
-                narrate_turn!(
-                    t.tc,
-                    Model,
-                    "The kernel would not plan the call to {}: {e}.",
-                    target.model
-                );
+                t.record(&fact::turn::ModelNotPlanned {
+                    model: &target.model,
+                    error: &e,
+                });
                 return Ok(Called::Failed(Failure {
                     class: "kernel".into(),
                     transient: false,
@@ -2076,71 +1833,43 @@ impl TurnRunner {
                 }));
             }
         };
-        narrate_turn!(
-            t.tc,
-            Model,
-            "Calling {} on {}: reserving {} ({} for {} output tokens, {} for about {} \
-             input tokens).",
-            target.model,
-            target.provider,
-            narrative::dollars(reserve),
-            narrative::dollars(price.reserve_micros(target.max_tokens, 0)),
-            narrative::thousands(target.max_tokens as u64),
-            narrative::dollars(price.reserve_micros(0, compiled.est_tokens)),
-            narrative::thousands(compiled.est_tokens)
-        );
-        t.trace.record(
-            "action.outbox",
-            "store",
-            o0,
-            t.trace.now_us(),
-            json!({"correlation_id": action.correlation_id, "tool": action.tool, "reserved_usd": micros_to_usd(reserve)}),
-        );
         let started_ms = theseus_protocol::now_unix_ms();
 
         let (sink, tid) = (t.tc.sink.clone(), t.tc.turn_id.to_string());
         let mut on_delta = move |d: Delta<'_>| match d {
-            Delta::Text(text) => sink.send(Event::ModelDelta(ModelDelta {
-                turn_id: tid.clone(),
+            Delta::Text(text) => To::Sink(&sink).tell(&fact::turn::ModelDelta {
+                turn_id: &tid,
                 loop_index: i,
-                text: text.to_string(),
-            })),
-            Delta::Thinking(text) => sink.send(Event::ModelThinking(ModelDelta {
-                turn_id: tid.clone(),
+                text,
+            }),
+            Delta::Thinking(text) => To::Sink(&sink).tell(&fact::turn::ModelThinking {
+                turn_id: &tid,
                 loop_index: i,
-                text: text.to_string(),
-            })),
+                text,
+            }),
             Delta::ToolUseStart { .. } => {}
         };
         let call_started = Instant::now();
-        t.trace.enter(
-            "provider.call",
-            "provider",
-            json!({"provider": target.provider, "model": target.model, "max_tokens": target.max_tokens, "digest": compiled.digest}),
-        );
+        t.record(&fact::turn::ModelCalling {
+            target,
+            action: &action,
+            reserve,
+            output_micros: price.reserve_micros(target.max_tokens, 0),
+            input_micros: price.reserve_micros(0, compiled.est_tokens),
+            est_tokens: compiled.est_tokens,
+            digest: &compiled.digest,
+            o0,
+        });
         let call_t0 = t.trace.now_us();
         match provider
             .stream_message(&compiled.request, &mut on_delta)
             .await
         {
             Ok(resp) => {
-                if let Some(fb) = resp.timing.first_byte_ms {
-                    t.trace
-                        .mark_at(call_t0 + fb * 1000, "first_byte", "mark", Value::Null);
-                }
-                if let Some(ft) = resp.timing.first_token_ms {
-                    t.trace
-                        .mark_at(call_t0 + ft * 1000, "first_token", "mark", Value::Null);
-                }
-                t.trace.exit(json!({
-                    "request_id": resp.request_id,
-                    "served_model": resp.model,
-                    "usage": resp.usage,
-                    "stop_reason": resp.stop_reason,
-                    "blocks": resp.content.len(),
-                    "output_chars": resp.text.chars().count(),
-                    "rate_limit_tokens_remaining": resp.rate_limit.tokens_remaining,
-                }));
+                t.record(&fact::turn::ModelAnswered {
+                    resp: &resp,
+                    call_t0,
+                });
                 let node = self.settle_call(t, &action, compiled, &resp, started_ms, i)?;
                 Ok(Called::Answered(Box::new((resp, node))))
             }
@@ -2215,29 +1944,19 @@ impl TurnRunner {
             task: crate::task::task_ref(session),
             external_text: None,
         };
-        t.tc.sink.send(Event::ConfirmRequested(req));
-        t.tc.sink.send(Event::LoopEnded(LoopEnded {
-            turn_id: t.tc.turn_id.into(),
-            loop_index: t.loops.saturating_sub(1),
-            provider_stop_reason: None,
-            tool_calls: 0,
-            advancer: "budget".into(),
-            decision: "budget".into(),
-        }));
-        narrate!(
-            self.narrator,
-            Session,
-            Some(t.tc.session_id),
-            Some(t.tc.turn_id),
-            "Session {} reached its {} limit: it has spent {}, and the call to {} needs {} \
-             with {} left; waiting for the operator to reset it.",
-            narrative::short(t.tc.session_id),
-            narrative::dollars(limit),
-            narrative::dollars(spent),
-            t.target.model,
-            narrative::dollars(needed),
-            narrative::dollars(available)
-        );
+        t.record(&fact::turn::BudgetAsked {
+            request: &req,
+            session_id: t.tc.session_id,
+            model: &t.target.model,
+            limit,
+            spent,
+            needed,
+            available,
+        });
+        t.record(&fact::turn::LoopEndedOnBudget {
+            turn_id: t.tc.turn_id,
+            index: t.loops.saturating_sub(1),
+        });
         t.budget_question = Some(q.correlation_id);
         t.stop_reason = "budget".into();
         Ok(())
@@ -2259,11 +1978,12 @@ impl TurnRunner {
             narrative::dollars(needed),
             lower_cap(&t.target.profile, u64::from(t.target.max_tokens)),
         );
-        narrate_turn!(t.tc, Model, "Still over the limit after the reset: {msg}.");
-        t.tc.ledger(
-            "budget.over_limit",
-            json!({"model": t.target.model, "profile": t.target.profile, "max_output_tokens": t.target.max_tokens, "needed_usd": micros_to_usd(needed), "limit_usd": micros_to_usd(limit)}),
-        );
+        t.record(&fact::turn::OverLimit {
+            message: &msg,
+            target: t.target,
+            needed,
+            limit,
+        });
         Failure {
             class: "over_limit".into(),
             transient: false,
@@ -2319,28 +2039,20 @@ impl TurnRunner {
             .get(&resp.model)
             .or_else(|| self.catalog.get(&target.model))
             .map_or(action.reserved_micros, |e| e.cost_micros(&resp.usage));
+        let call = fact::turn::ProviderCall {
+            loop_index: i,
+            provider: &target.provider,
+            resp,
+            cost_usd: call_cost,
+            catalog_version: &self.catalog.version,
+            node_id: &node.id,
+            correlation_id: &action.correlation_id,
+            settled_micros: cost,
+            s0: t.trace.now_us(),
+        };
         // The call's `provider.call` row rides in its completion's frame, after
         // the node (theseus-qa0).
-        let row = t.tc.ledger_record(
-            "provider.call",
-            json!({
-                "loop": i,
-                "provider": target.provider,
-                "model": resp.model,
-                "request_id": resp.request_id,
-                "usage": resp.usage,
-                "cost_usd": call_cost,
-                "catalog_version": self.catalog.version,
-                "timing": resp.timing,
-                "rate_limit": resp.rate_limit,
-                "stop_reason": resp.stop_reason,
-                "stop_details": resp.stop_details,
-                "blocks": resp.content.len(),
-                "input_transformations": resp.input_transformations,
-                "node_id": node.id,
-            }),
-        )?;
-        let s0 = t.trace.now_us();
+        let row = t.tc.rec().row(&call)?;
         t.tc.kernel.accept_completion_with(
             &Completion {
                 correlation_id: action.correlation_id.clone(),
@@ -2356,13 +2068,6 @@ impl TurnRunner {
             },
             vec![node.record()?, row],
         )?;
-        t.trace.record(
-            "action.settle",
-            "store",
-            s0,
-            t.trace.now_us(),
-            json!({"correlation_id": action.correlation_id, "outcome": "succeeded", "cost_usd": micros_to_usd(cost), "node_id": node.id}),
-        );
         t.tc.node_written(&node);
         add_usage(&mut t.usage, &resp.usage);
         if !resp.text.is_empty() {
@@ -2372,41 +2077,9 @@ impl TurnRunner {
             t.output.push_str(&resp.text);
             t.said.push((i, node.id.clone()));
         }
-        narrate_turn!(
-            t.tc,
-            Model,
-            "{} answered in {}{}: {} in{}, {} out, {}; {}.",
-            resp.model,
-            narrative::duration(resp.timing.total_ms),
-            resp.timing
-                .first_token_ms
-                .map(|ms| format!(" (first token {})", narrative::duration(ms)))
-                .unwrap_or_default(),
-            narrative::count(
-                resp.usage.input_tokens
-                    + resp.usage.cache_read_input_tokens
-                    + resp.usage.cache_creation_input_tokens,
-                "token",
-                "tokens"
-            ),
-            if resp.usage.cache_read_input_tokens > 0 {
-                format!(
-                    " ({} from the cache)",
-                    narrative::thousands(resp.usage.cache_read_input_tokens)
-                )
-            } else {
-                String::new()
-            },
-            narrative::thousands(resp.usage.output_tokens),
-            narrative::money(call_cost),
-            narrative::stop_phrase(resp.stop_reason.as_deref(), resp.tool_uses().len())
-        );
+        t.announce_fact(&call);
         if resp.stop_reason.as_deref() == Some("refusal") {
-            t.tc.ledger(
-                "provider.refusal",
-                json!({"stop_details": resp.stop_details, "model": resp.model}),
-            );
-            narrate_turn!(t.tc, Model, "{} refused; the turn ends.", resp.model);
+            t.record(&fact::turn::ProviderRefused { resp });
         }
         Ok(node)
     }
@@ -2449,11 +2122,10 @@ impl TurnRunner {
             })
             .collect();
         for r in &refused {
-            t.tc.ledger(
-                "image.not_shown",
-                json!({"digest": r.digest, "message_index": r.message, "why": r.why,
-                       "provider": t.target.provider, "model": t.target.model}),
-            );
+            t.record(&fact::turn::ImageNotShown {
+                refused: r,
+                target: t.target,
+            });
         }
         // Written now, with its rows: a restart before the turn ends keeps it.
         t.tc.store.update_session(t.tc.session_id, |rec| {
@@ -2464,19 +2136,11 @@ impl TurnRunner {
             }
             Ok(vec![])
         })?;
-        let (it, line) = match refused.len() {
-            1 => ("it is", "its line"),
-            _ => ("they are", "their lines"),
-        };
-        narrate_turn!(
-            t.tc,
-            Model,
-            "{} refused {} ({}): from now on {it} not shown, and the call is made again with \
-             {line}.",
-            t.target.model,
-            narrative::count(refused.len() as u64, "image", "images"),
-            first.why
-        );
+        t.record(&fact::turn::ImagesHidden {
+            model: &t.target.model,
+            count: refused.len(),
+            why: &first.why,
+        });
         // Every copy of a hidden image renders as its line, not only the one
         // the 400 named. If any copy sat before an answer of the model's, the
         // history under that answer's thinking changed: the API binds a
@@ -2506,32 +2170,15 @@ impl TurnRunner {
         retried: Option<Overflowing>,
         i: u32,
     ) -> Result<Overflowing, Failure> {
-        t.tc.ledger(
-            "context.overflow",
-            json!({"loop": i, "source": o.source, "provider_tokens": o.hint.counted,
-                   "provider_maximum": o.hint.maximum, "output_tokens": o.output,
-                   "window": o.window, "estimate": o.hint.estimated,
-                   "then": if retried.is_some() { "fail" } else { "ring" },
-                   "node_id": o.hint.retrying}),
-        );
+        t.record(&fact::turn::ContextOverflow {
+            loop_index: i,
+            overflow: &o,
+            retried: retried.is_some(),
+            model: &t.target.model,
+        });
         if retried.is_some() {
             return Err(Self::window_failure(t, &o, true));
         }
-        narrate_turn!(
-            t.tc,
-            Context,
-            "Context: {}'s request passed its window: {}; Theseus estimated {} tokens against {}. \
-             The context is recompiled with a ring{}, to call once more.",
-            t.target.model,
-            o.said(),
-            narrative::thousands(o.hint.estimated),
-            o.window_words(),
-            if o.source == "cut" {
-                " that leaves the cut answer out"
-            } else {
-                ""
-            }
-        );
         Ok(o)
     }
 
@@ -2553,17 +2200,7 @@ impl TurnRunner {
             narrative::thousands(o.hint.estimated),
             o.window_words()
         );
-        narrate_turn!(
-            t.tc,
-            Context,
-            "Context: {}, so the turn fails.",
-            if retried {
-                "the retry passed the window too"
-            } else {
-                "the ring could drop nothing earlier in the session, and the same request would \
-                 pass the window again"
-            }
-        );
+        t.record(&fact::turn::WindowFailed { retried });
         Failure {
             class: WINDOW_CLASS.into(),
             transient: false,
@@ -2588,8 +2225,10 @@ impl TurnRunner {
         let (class, transient, unknown) = pe
             .map(|p| (p.class(), p.is_transient(), p.usage_unknown()))
             .unwrap_or(("unknown", false, true));
-        t.trace
-            .exit(json!({"error": class, "message": e.to_string()}));
+        t.record(&fact::turn::ModelCallFailed {
+            class,
+            message: e.to_string(),
+        });
         let s0 = t.trace.now_us();
         let settled = t.tc.kernel.accept_completion(&Completion {
             correlation_id: action.correlation_id.clone(),
@@ -2607,44 +2246,23 @@ impl TurnRunner {
             cost_micros: if unknown { None } else { Some(0) },
             detail: Some(json!({"class": class})),
         });
-        t.trace.record(
-            "action.settle",
-            "store",
+        t.record(&fact::turn::ProviderError {
+            loop_index: i,
+            target,
+            class,
+            transient,
+            unknown,
+            elapsed_ms: call_started.elapsed().as_millis() as u64,
+            detail: pe.map(|p| serde_json::to_value(p).unwrap_or(Value::Null)),
+            message: e.to_string(),
+            correlation_id: &action.correlation_id,
+            reserved_micros: action.reserved_micros,
+            settled: settled
+                .as_ref()
+                .map(|a| format!("{a:?}"))
+                .unwrap_or_else(|e| e.to_string()),
             s0,
-            t.trace.now_us(),
-            json!({"correlation_id": action.correlation_id, "outcome": if unknown {"unknown"} else {"failed"}, "result": settled.as_ref().map(|a| format!("{a:?}")).unwrap_or_else(|e| e.to_string())}),
-        );
-        t.tc.ledger(
-            "provider.error",
-            json!({
-                "loop": i,
-                "provider": target.provider,
-                "model": target.model,
-                "class": class,
-                "transient": transient,
-                "usage_unknown": unknown,
-                "elapsed_ms": call_started.elapsed().as_millis() as u64,
-                "detail": pe.map(|p| serde_json::to_value(p).unwrap_or(Value::Null)),
-                "message": e.to_string(),
-            }),
-        );
-        narrate_turn!(
-            t.tc,
-            Model,
-            "{} failed after {}: {class}{}; {}.",
-            target.model,
-            narrative::duration(call_started.elapsed().as_millis() as u64),
-            if transient { " (transient)" } else { "" },
-            if unknown {
-                format!(
-                    "whether the provider did the work is unknown, so its reservation of {} \
-                     stays held",
-                    narrative::dollars(action.reserved_micros)
-                )
-            } else {
-                "the call is settled as failed".into()
-            }
-        );
+        });
         Failure {
             class: class.into(),
             transient,
@@ -2790,54 +2408,18 @@ impl TurnRunner {
         } else {
             advancer.decide(&outcome)
         };
-        t.trace.record(
-            "advancer",
-            "advancer",
+        t.record(&fact::turn::LoopEnded {
+            turn_id: t.tc.turn_id,
+            outcome: &outcome,
+            advancer: advancer.name(),
+            decision: &decision,
+            usage: &resp.usage,
+            provider_stop_reason: resp.stop_reason.as_deref(),
+            uses,
+            answered,
+            window_retry,
             a0,
-            t.trace.now_us(),
-            json!({"advancer": advancer.name(), "decision": decision.label()}),
-        );
-        t.tc.sink.send(Event::LoopEnded(LoopEnded {
-            turn_id: t.tc.turn_id.into(),
-            loop_index: i,
-            provider_stop_reason: resp.stop_reason.clone(),
-            tool_calls: uses as u32,
-            advancer: advancer.name().into(),
-            decision: decision.label(),
-        }));
-        t.tc.ledger(
-            "loop.ended",
-            json!({"loop": i, "outcome": outcome, "advancer": advancer.name(), "decision": decision, "usage": resp.usage}),
-        );
-        t.trace
-            .exit(json!({"decision": decision.label(), "usage": resp.usage}));
-        match &decision {
-            Decision::Continue if window_retry => {}
-            Decision::Continue => narrate_turn!(
-                t.tc,
-                Loop,
-                "Loop {}: continuing, because the model asked for {} and \
-                 {}.",
-                i + 1,
-                narrative::count(uses as u64, "tool", "tools"),
-                if answered == 1 {
-                    "it has an answer"
-                } else {
-                    "each has an answer"
-                }
-            ),
-            Decision::EndTurn(reason) if reason == "no_tool_calls" && uses > 0 => {
-                narrate_turn!(
-                    t.tc,
-                    Loop,
-                    "Stopping: none of the model's {} ran.",
-                    narrative::count(uses as u64, "call", "calls")
-                )
-            }
-            Decision::EndTurn(reason) => {
-                narrate_turn!(t.tc, Loop, "Stopping: {}.", narrative::end_phrase(reason))
-            }
-        }
+        });
         match decision {
             Decision::Continue => true,
             Decision::EndTurn(reason) => {
@@ -2851,45 +2433,18 @@ impl TurnRunner {
     /// spent, close its trace, and write `turn.failed`.
     fn fail(t: Turn<'_>, session: &mut SessionRecord, f: Failure) -> anyhow::Error {
         t.close_books(session);
-        let finished = t.loops.saturating_sub(1) as u64;
-        if finished == 0 {
-            narrate_turn!(
-                t.tc,
-                Turn,
-                "Turn {} failed ({}) in loop {}, before any loop finished; \
-                 it spent {}.",
-                narrative::short(t.tc.turn_id),
-                f.class,
-                t.loops,
-                narrative::money(t.cost)
-            );
-        } else {
-            narrate_turn!(
-                t.tc,
-                Turn,
-                "Turn {} failed ({}) in loop {}, after {}; {} spent {}: {}, \
-                 {}.",
-                narrative::short(t.tc.turn_id),
-                f.class,
-                t.loops,
-                narrative::count(finished, "finished loop", "finished loops"),
-                if finished == 1 {
-                    "that loop"
-                } else {
-                    "those loops"
-                },
-                narrative::money(t.cost),
-                narrative::count(t.usage.output_tokens, "token out", "tokens out"),
-                narrative::count(t.tool_calls as u64, "tool call", "tool calls")
-            );
-        }
+        t.tc.record(&fact::turn::TurnFailed {
+            turn_id: t.tc.turn_id,
+            class: &f.class,
+            reason: &f.reason,
+            loops: t.loops,
+            usage: &t.usage,
+            cost_usd: t.cost,
+            tool_calls: t.tool_calls,
+        });
         let trace = t
             .trace
             .finish(json!({"outcome": "failed", "class": f.class}));
-        t.tc.ledger(
-            "turn.failed",
-            json!({"loops": t.loops, "reason": f.reason, "usage_so_far": t.usage, "cost_usd": t.cost, "tool_calls": t.tool_calls}),
-        );
         let _ = t.tc.store.update_session(t.tc.session_id, |r| {
             r.take_turns_fields(session);
             Ok(vec![])
@@ -2936,8 +2491,6 @@ impl TurnRunner {
                 r.pending_recompile = unused_recompile;
             }
         })?;
-        t.trace
-            .record("session.write", "store", w0, t.trace.now_us(), Value::Null);
 
         let last = t.last.as_ref();
         let mut result = TurnSubmitResult {
@@ -2966,10 +2519,12 @@ impl TurnRunner {
             stop_details: last.and_then(|r| r.stop_details.clone()),
             continuation: t.continuation,
         };
-        t.tc.ledger(
-            "turn.ended",
-            json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "cost_usd": result.cost_usd, "tool_calls": result.tool_calls, "session_usage": session.usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model, "awaiting_confirm": result.awaiting_confirm, "continuation": result.continuation, "late_results": late}),
-        );
+        t.record(&fact::turn::TurnBooked {
+            result: &result,
+            session_usage: &session.usage,
+            late,
+            w0,
+        });
         // A task's turns post nothing to the place: its report does, once,
         // when it ends (DD7). A stopped turn posts nothing either (W1): the
         // stop's answer says what stopped.
@@ -2982,23 +2537,8 @@ impl TurnRunner {
             "stop_reason": result.stop_reason,
             "usage": result.usage,
         })));
-        t.tc.ledger(
-            "turn.trace",
-            serde_json::to_value(&result.trace).unwrap_or(Value::Null),
-        );
-        t.tc.sink.send(Event::TurnEnded(result.clone()));
-        narrate_turn!(
-            t.tc,
-            Turn,
-            "Turn {} ended after {} in {}: {}, {}, {}; {}.",
-            narrative::short(t.tc.turn_id),
-            narrative::count(result.loops as u64, "loop", "loops"),
-            narrative::duration(result.elapsed_ms),
-            narrative::count(result.tool_calls as u64, "tool call", "tool calls"),
-            narrative::count(result.usage.output_tokens, "token out", "tokens out"),
-            narrative::money(result.cost_usd),
-            narrative::end_phrase(&result.stop_reason)
-        );
+        // The trace is finished: the fact draws no span.
+        t.tc.record(&fact::turn::TurnEnded { result: &result });
         let is_task = t.tc.task.is_some();
         let stop = result.stop_reason.clone();
         let end = match t.budget_question {
@@ -3109,36 +2649,6 @@ impl TurnRunner {
         Ok(TurnEnd::Wait { wake })
     }
 
-    /// Where the execution waits, as the narrative says it.
-    fn park_sentence(&self, end: &TurnEnd) -> String {
-        match end {
-            TurnEnd::Wait {
-                wake: Wake::Confirm { confirm_id },
-            } => {
-                let tool = self
-                    .kernel
-                    .action(confirm_id)
-                    .ok()
-                    .flatten()
-                    .map_or_else(|| "a call".to_string(), |a| a.tool);
-                format!("Parked until the operator answers the approval for {tool}.")
-            }
-            TurnEnd::Wait {
-                wake: Wake::Actions { correlation_ids },
-            } => match correlation_ids.len() {
-                1 => "Parked until 1 background job finishes.".into(),
-                n => format!("Parked until one of {n} background jobs finishes."),
-            },
-            TurnEnd::Wait { wake: Wake::Input } => "Parked until the next input.".into(),
-            TurnEnd::Wait {
-                wake: Wake::Budget { .. },
-            } => "Parked on the budget until the operator resets the spend; a new message asks \
-                  again."
-                .into(),
-            other => format!("The turn ends the execution's wait: {other:?}."),
-        }
-    }
-
     /// A new compilation (it carries its own `derived_from`) and the
     /// session's pointer, in one frame. The stored record takes only the
     /// turn's fields (theseus-xeo).
@@ -3154,15 +2664,10 @@ impl TurnRunner {
             Ok(vec![
                 NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
                     .scoped(&c.session_id),
-                NewRecord::json(
-                    theseus_store::kinds::LEDGER,
-                    None,
-                    &LedgerRow::new(
-                        "context.recompiled",
-                        Some(&c.session_id),
-                        Some(turn_id),
-                        json!({"compilation_id": c.id, "trigger": c.trigger, "strategy": c.strategy, "as_of": c.as_of, "includes": c.includes.len(), "derived_from": c.derived_from, "strip_thinking": c.manifest.strip_thinking, "model": c.manifest.model}),
-                    ),
+                fact::row(
+                    &fact::turn::ContextRecompiled { compilation: c },
+                    Some(&c.session_id),
+                    Some(turn_id),
                 )?,
             ])
         };

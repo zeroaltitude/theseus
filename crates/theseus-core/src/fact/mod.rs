@@ -79,6 +79,42 @@ pub enum To<'a> {
     Session(&'a SessionBus, &'a str),
     /// Every connection that watches a session, once each.
     Everyone(&'a SessionBus),
+    /// No one: the site's facts have no notification.
+    Nobody,
+}
+
+impl To<'_> {
+    /// Send a fact's notification alone: for a fact that is nothing else,
+    /// told where no recorder is at hand (a stream's pieces).
+    pub fn tell<F: Fact>(self, f: &F) {
+        debug_assert!(F::KIND.is_none(), "a fact with a row is recorded, not told");
+        if F::METHOD.is_some() {
+            if let Some(e) = f.event() {
+                debug_assert_eq!(Some(e.method()), F::METHOD, "a fact sends its METHOD");
+                self.send(e);
+            }
+        }
+    }
+
+    fn send(self, e: Event) {
+        match self {
+            To::Sink(sink) => sink.send(e),
+            To::Session(bus, session) => bus.publish(session, &Message::from(e), None),
+            To::Everyone(bus) => bus.publish_all(&Message::from(e)),
+            To::Nobody => debug_assert!(false, "a notification with no one to hear it"),
+        }
+    }
+}
+
+/// A fact's row as a record, for a frame the caller builds, whose session
+/// and turn are given.
+pub fn row<F: Fact>(f: &F, session: Option<&str>, turn: Option<&str>) -> anyhow::Result<NewRecord> {
+    let kind = F::KIND.ok_or_else(|| anyhow::anyhow!("this fact writes no ledger row"))?;
+    NewRecord::json(
+        kinds::LEDGER,
+        None,
+        &LedgerRow::new(kind, session, turn, f.row()),
+    )
 }
 
 /// Where a fact is recorded: its site's context.
@@ -110,12 +146,7 @@ impl<'a> Rec<'a> {
     /// The fact's row as a record, for a frame the caller builds; its other
     /// channels follow with `announce`, once that frame is written.
     pub fn row<F: Fact>(&self, f: &F) -> anyhow::Result<NewRecord> {
-        let kind = F::KIND.ok_or_else(|| anyhow::anyhow!("this fact writes no ledger row"))?;
-        NewRecord::json(
-            kinds::LEDGER,
-            None,
-            &LedgerRow::new(kind, self.session, self.turn, f.row()),
-        )
+        row(f, self.session, self.turn)
     }
 
     /// The fact's notification and its sentences: every channel but its row.
@@ -123,7 +154,7 @@ impl<'a> Rec<'a> {
         if F::METHOD.is_some() {
             if let Some(e) = f.event() {
                 debug_assert_eq!(Some(e.method()), F::METHOD, "a fact sends its METHOD");
-                self.send(e);
+                self.to.send(e);
             }
         }
         if self.narrator.on() {
@@ -134,14 +165,6 @@ impl<'a> Rec<'a> {
     /// The same context, as another turn's (`None`: the session's own).
     pub fn in_turn(self, turn: Option<&'a str>) -> Self {
         Rec { turn, ..self }
-    }
-
-    fn send(&self, e: Event) {
-        match self.to {
-            To::Sink(sink) => sink.send(e),
-            To::Session(bus, session) => bus.publish(session, &Message::from(e), None),
-            To::Everyone(bus) => bus.publish_all(&Message::from(e)),
-        }
     }
 }
 
@@ -180,7 +203,56 @@ macro_rules! facts {
     };
 }
 
-facts![turn::TurnStarted<'static>];
+facts![
+    turn::TurnStarted<'static>,
+    turn::ExecutionOpened<'static>,
+    turn::BudgetQuestionSuperseded<'static>,
+    turn::TurnRefused<'static>,
+    turn::TurnNotRunnable<'static>,
+    turn::WokenByInput<'static>,
+    turn::SessionResumed<'static>,
+    turn::Parked<'static>,
+    turn::CaughtUp<'static>,
+    turn::Stopped<'static>,
+    turn::WakeCameDue<'static>,
+    turn::HoldBrought<'static>,
+    turn::ReportWoke<'static>,
+    turn::NoCall,
+    turn::ContextFileMissing<'static>,
+    turn::LoopOpened,
+    turn::ContextCompiled<'static>,
+    turn::LoopStarted<'static>,
+    turn::LoopCut<'static>,
+    turn::LoopEnded<'static>,
+    turn::ModelUnpriced<'static>,
+    turn::ModelNotPlanned<'static>,
+    turn::ModelCalling<'static>,
+    turn::ModelDelta<'static>,
+    turn::ModelThinking<'static>,
+    turn::ModelAnswered<'static>,
+    turn::ProviderCall<'static>,
+    turn::ProviderRefused<'static>,
+    turn::BudgetAsked<'static>,
+    turn::LoopEndedOnBudget<'static>,
+    turn::OverLimit<'static>,
+    turn::ImageNotShown<'static>,
+    turn::ImagesHidden<'static>,
+    turn::ContextOverflow<'static>,
+    turn::WindowFailed,
+    turn::ModelCallFailed<'static>,
+    turn::ProviderError<'static>,
+    turn::NodeWritten<'static>,
+    turn::ContextRecompiled<'static>,
+    turn::TurnFailed<'static>,
+    turn::TurnBooked<'static>,
+    turn::TurnEnded<'static>,
+    turn::TurnNext<'static>,
+    turn::StoppedAtStep<'static>,
+    turn::TurnFaulted,
+    turn::TurnFailureTold<'static>,
+    turn::WokenAgain,
+    turn::RetryDecided<'static>,
+];
 
 #[cfg(test)]
 mod tests {

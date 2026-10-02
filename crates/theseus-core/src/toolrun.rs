@@ -26,8 +26,8 @@ use theseus_kernel::{
     BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{
-    ConfirmRequest, ConfirmResolved, Event, GateRecord, GateResult, NodeWritten, PolicyNotified,
-    ToolEnded, ToolProposed, ToolStarted,
+    ConfirmRequest, ConfirmResolved, Event, GateRecord, GateResult, PolicyNotified, ToolEnded,
+    ToolProposed, ToolStarted,
 };
 use theseus_store::Store as _;
 use theseus_tools::{Access, Backend, JobSpec, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
@@ -142,11 +142,10 @@ impl TurnCtx<'_> {
 
     /// Tell the session's clients about a node this turn wrote.
     pub fn node_written(&self, node: &Node) {
-        self.sink.send(Event::NodeWritten(NodeWritten {
-            session_id: self.session_id.into(),
-            node_id: node.id.clone(),
-            kind: node.kind_str().into(),
-        }));
+        self.record(&crate::fact::turn::NodeWritten {
+            session_id: self.session_id,
+            node,
+        });
     }
 }
 
