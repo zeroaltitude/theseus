@@ -193,9 +193,9 @@ Each traces to the Part III item that taught it.
   A lane pushes only its own branch. The reviewer merges it once reviewed, one lane at a time and never while a
   spine step works on `main`: rebased, `Cargo.lock` regenerated, the whole gate, `main` fast-forwarded, and the
   branch and worktree deleted.
-- **The gate before every commit.** `scripts/gate.sh`, under the shared lock:
-  `flock -o ~/.cache/theseus-gate.lock scripts/gate.sh && git commit …`. Chain with `&&`, never `;`.
-  `scripts/AGENTS.md` says what it runs and how long it takes.
+- **The gate before every commit.** A lane: `THESEUS_GATE_LOCK=inner THESEUS_GATE_NO_BENCH=1 scripts/gate.sh && git
+  commit …`, which takes the shared lock itself (never also wrap it in `flock`). The chain's gate on `main`: `flock -o
+  ~/.cache/theseus-gate.lock scripts/gate.sh && …`. Chain with `&&`, never `;`. `scripts/AGENTS.md` has the rest.
 - **Commits** are signed (`git commit -S`), one per green sub-step. The subject is `area: what changed (<issue>)`,
   the area in lower case (`kernel`, `store`, `toolrun`, `cli`, `docs`, …), and the body says what changed and why, in
   plain words. A trailer names the agent, as `Co-Authored-By: Tabitha/Claude <noreply@anthropic.com>` does, or the
@@ -244,8 +244,8 @@ Theseus is built on one WSL2 machine, beside the operator's own running daemon a
 - **`pgrep -f`, `pkill -f`, and `ps | grep` match your own shell**, whose command line holds the pattern. Find a
   process by pid (`$!`, `pgrep -P`) or by `/proc/<pid>/comm`.
 - **`git stash` is shared by every worktree.** Set work aside as a patch file instead.
-- **The gate lock.** Take it with `flock -o`, so nothing the gate starts can keep it. A gate that sits at 0% CPU is
-  waiting on a lock, cargo's package cache or this one: find the holder before waiting longer.
+- **The gate lock.** An inner-mode gate takes it itself; any other holder uses `flock -o`. A gate at 0% CPU is waiting
+  on a lock (cargo's package cache, or this one): find the holder before waiting longer.
 - **`/tmp` is wiped by a WSL restart.** Keep harnesses, logs, and reports where they survive, and commit and push at
   every green point: a restart, or an account's usage limit, can end a run at any moment.
 
