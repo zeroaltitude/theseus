@@ -259,8 +259,7 @@ pub(crate) fn started(
 /// tool's own posture say, since an L1 job can reach none of what they
 /// guard. `why` is what chose L1.
 pub fn decision(tool: &str, why: &str) -> Decision {
-    let rule =
-        format!("{tool} — notify (L1, since {why}: no network, no secret, writes to scratch)");
+    let rule = format!("{tool} — notify (L1: {why}; no network, no secret, writes to scratch)");
     Decision {
         posture: Posture::Notify,
         reason: rule.clone(),
@@ -428,7 +427,7 @@ impl Sandbox {
             return Some(format!("[sandbox] l1_argv names `{}`", p.join(" ")));
         }
         (input.get("sandbox").and_then(Value::as_bool) == Some(true))
-            .then(|| "the call asked for it (sandbox: true)".into())
+            .then(|| "the call asked for it with sandbox: true".into())
     }
 
     /// A job started, by class (health's `jobs_l0`, `jobs_l1`).
@@ -451,7 +450,7 @@ impl Sandbox {
     pub fn limits_line(&self) -> String {
         let memory = match self.jobs.lock().unwrap().as_ref() {
             Some(Ok(_)) => format!("{} MB of memory, ", self.cfg.memory_mb),
-            Some(Err(why)) => format!("no memory limit ({why}), "),
+            Some(Err(why)) => format!("no memory limit, since {why}; "),
             None => String::new(),
         };
         format!(
@@ -702,7 +701,7 @@ fn judge(unit: &str, show: &str, pid: u32, dir: &Path) -> Result<(), String> {
     };
     if prop("Delegate") != Some("yes") {
         return Err(format!(
-            "{unit} is not delegated (its unit needs Delegate=yes, as `theseusd install` writes)"
+            "{unit} is not delegated: its unit needs Delegate=yes, as `theseusd install` writes"
         ));
     }
     let main: Option<u32> = prop("MainPID").and_then(|p| p.parse().ok());
