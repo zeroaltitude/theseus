@@ -107,6 +107,11 @@ enum Cmd {
         /// Move the existing store aside instead of refusing.
         #[arg(long)]
         force: bool,
+        /// Repair the store in place instead: take each frame of its WAL that does not check
+        /// whole from the copy at --from, keep every other byte, and keep the store it repairs
+        /// aside (theseus-15g).
+        #[arg(long, conflicts_with = "force")]
+        repair: bool,
     },
     /// Install the daemon as a systemd service: --user (yours), or --separate (as its own
     /// user; needs root). Prints a plan; --apply performs it, --check compares, --remove undoes.
@@ -299,8 +304,13 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         out(&text)?;
         return Ok(Exit::Done);
     }
-    if let Some(Cmd::Restore { from, force }) = &cli.cmd {
-        restore(&cli, &cfg, from, *force).await?;
+    if let Some(Cmd::Restore {
+        from,
+        force,
+        repair,
+    }) = &cli.cmd
+    {
+        restore(&cli, &cfg, from, *force, *repair).await?;
         return Ok(Exit::Done);
     }
     tracing::info!(source = %cli.config, from, model = %cfg.model.model, "config loaded");
@@ -973,8 +983,15 @@ async fn serve_socket(
     Ok(())
 }
 
-/// `theseusd restore`: refuse while a daemon serves this store, then rebuild it.
-async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -> Result<()> {
+/// `theseusd restore`: refuse while a daemon serves this store, then rebuild
+/// it, or repair it from a copy (`--repair`, theseus-15g).
+async fn restore(
+    cli: &Cli,
+    cfg: &Config,
+    from: &std::path::Path,
+    force: bool,
+    repair: bool,
+) -> Result<()> {
     let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     let socket = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
     if tokio::net::UnixStream::connect(&socket).await.is_ok() {
@@ -984,6 +1001,22 @@ async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -
         );
     }
     private_dir(&state_dir)?;
+    if repair {
+        let r = theseus_core::restore::repair(from, &state_dir)?;
+        let mut text = format!("repaired {} frame(s) from {}:\n", r.patched.len(), r.from);
+        for p in &r.patched {
+            text.push_str(&format!(
+                "  segment {} at offset {}: {} bytes, positions {} to {}\n",
+                p.segment, p.offset, p.bytes, p.first, p.last
+            ));
+        }
+        text.push_str(&format!(
+            "{} session(s), last position {}\ninto {}\nthe store it repaired is kept at {}\n\
+             start theseusd to serve it; the ledger's last row is store.restored\n",
+            r.sessions, r.last_position, r.into, r.moved_aside
+        ));
+        return out(&text);
+    }
     let r = theseus_core::restore::restore(from, &state_dir, force)?;
     let mut text = format!(
         "restored {} segment(s): {} frames, {} records, last position {}\n",
