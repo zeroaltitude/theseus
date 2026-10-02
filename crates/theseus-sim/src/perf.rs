@@ -218,8 +218,12 @@ pub struct TurnReport {
     pub start_ms: f64,
     pub plain: Kind,
     pub tool: Kind,
-    /// One `fdatasync` of a 4 KiB append on this disk, in ms.
+    /// One `fdatasync` of a 4 KiB append on this disk, in ms: the quieter of
+    /// two probes, one before the daemon starts and one after it stops, since
+    /// a disk another process is using changes in seconds.
     pub fsync_ms: Summary,
+    /// Each probe's p50 (before, after), in ms.
+    pub fsync_probes_ms: [f64; 2],
     pub rss_start: Sample,
     pub rss_burst: Sample,
     pub burst: Burst,
@@ -366,7 +370,7 @@ impl Driver<'_> {
 pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
     let wall = Instant::now();
     let s = scratch(&o.theseusd, o.dir.as_deref())?;
-    let fsync_ms = fsync_probe(&s.work, 20)?;
+    let fsync_before = fsync_probe(&s.work, 20)?;
     let (mut daemon, start) = s.rig.start()?;
     let pid = daemon.0.id();
     // The start's own background work is done before a turn is timed.
@@ -392,6 +396,13 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
     std::thread::sleep(Duration::from_millis(300));
     let rss_burst = procfs::sample(pid)?;
     s.rig.stop(&mut daemon)?;
+    let fsync_after = fsync_probe(&s.work, 20)?;
+    let fsync_probes_ms = [fsync_before.p50, fsync_after.p50];
+    let fsync_ms = if fsync_after.p50 < fsync_before.p50 {
+        fsync_after
+    } else {
+        fsync_before
+    };
     let verdicts = turn_verdicts(&plain.frames);
     Ok(TurnReport {
         theseusd: o.theseusd.display().to_string(),
@@ -400,6 +411,7 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
         plain,
         tool,
         fsync_ms,
+        fsync_probes_ms,
         rss_start,
         rss_burst,
         burst,
@@ -479,12 +491,14 @@ pub fn print_turn(r: &TurnReport) {
     let fsync = r.fsync_ms.p50;
     let plain_frames = r.plain.frames.p50;
     println!(
-        "  this disk's fdatasync: p50 {fsync:.1} ms (p95 {:.1}). A plain turn's {plain_frames} frames \
-         are about {:.1} ms of its {:.1} ms; the harness's own share is {:.1} ms",
-        r.fsync_ms.p95,
+        "  this disk's fdatasync: p50 {fsync:.1} ms, the quieter of two probes ({:.1} before the turns, {:.1} after). \
+         A plain turn's {plain_frames} frames are about {:.1} ms of its {:.1} ms, so the harness's own share is at \
+         most {:.1} ms",
+        r.fsync_probes_ms[0],
+        r.fsync_probes_ms[1],
         plain_frames * fsync,
         r.plain.wall_ms.p50,
-        r.plain.wall_ms.p50 - plain_frames * fsync
+        (r.plain.wall_ms.p50 - plain_frames * fsync).max(0.0)
     );
     if r.burst.turns == 0 {
         println!(
@@ -548,6 +562,9 @@ pub struct IdleOpts {
     pub theseusd: PathBuf,
     /// The window, in seconds.
     pub seconds: u64,
+    /// How long the daemon may take to go quiet after its first answer before
+    /// the window begins anyway, in seconds.
+    pub settle_secs: u64,
     /// A synthetic store of this many parked sessions (0: empty).
     pub sessions: u64,
     /// Or a copy of this store directory.
@@ -566,6 +583,9 @@ pub struct IdleReport {
     pub settled_s: f64,
     /// Whether it settled within the limit; if not, the window began anyway.
     pub settled: bool,
+    /// The CPU used in each ten seconds of the wait, as a share of one core
+    /// (%), so a daemon that does not go quiet shows whether it is slowing.
+    pub settle_trace: Vec<f64>,
     pub cpu_ms: f64,
     pub cpu_percent: f64,
     pub wakeups: u64,
@@ -589,8 +609,8 @@ impl IdleReport {
     }
 }
 
-/// How long the daemon may take to go quiet after its start, in seconds: a
-/// 10,000-session store checks its history after serving.
+/// How long the daemon may take to go quiet after its start, in seconds, by
+/// default: a 10,000-session store checks its history after serving.
 const SETTLE_MAX_S: u64 = 60;
 
 /// CPU in a half second at or under this is quiet, in ns (2 ms).
@@ -614,9 +634,13 @@ pub fn run_idle(o: &IdleOpts) -> Result<IdleReport> {
     let pid = daemon.0.id();
     let first_answer = Instant::now();
     // Quiet: four half-second stretches in a row that used under 2 ms of CPU.
+    // Every tenth second the CPU used since the last one is kept, as a
+    // percentage of one core, so a daemon that never goes quiet shows whether
+    // it is slowing down.
     let (mut settled, mut quiet_run) = (false, 0);
     let mut last = procfs::sample(pid)?;
-    while first_answer.elapsed() < Duration::from_secs(SETTLE_MAX_S) {
+    let (mut trace, mut mark) = (Vec::new(), (Instant::now(), last.cpu_ns));
+    while first_answer.elapsed() < Duration::from_secs(o.settle_secs) {
         std::thread::sleep(Duration::from_millis(500));
         let now = procfs::sample(pid)?;
         if now.cpu_ns.saturating_sub(last.cpu_ns) <= QUIET_CPU_NS {
@@ -625,6 +649,11 @@ pub fn run_idle(o: &IdleOpts) -> Result<IdleReport> {
             quiet_run = 0;
         }
         last = now;
+        if mark.0.elapsed() >= Duration::from_secs(10) {
+            let secs = mark.0.elapsed().as_secs_f64();
+            trace.push(now.cpu_ns.saturating_sub(mark.1) as f64 / 1e9 / secs * 100.0);
+            mark = (Instant::now(), now.cpu_ns);
+        }
         if quiet_run >= 4 {
             settled = true;
             break;
@@ -648,6 +677,7 @@ pub fn run_idle(o: &IdleOpts) -> Result<IdleReport> {
         window_s,
         settled_s,
         settled,
+        settle_trace: trace,
         cpu_ms,
         cpu_percent: cpu_ms / (window_s * 1000.0) * 100.0,
         wakeups,
@@ -673,6 +703,16 @@ pub fn print_idle(r: &IdleReport) {
             " (the daemon never went quiet: measured anyway)"
         }
     );
+    if !r.settle_trace.is_empty() {
+        println!(
+            "  CPU while it settled, % of one core by ten seconds: {}",
+            r.settle_trace
+                .iter()
+                .map(|p| format!("{p:.1}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     println!(
         "  CPU {:.1} ms ({:.3} % of one core) · {} wakeups ({:.1} a second) over {} threads · {} frame(s) written",
         r.cpu_ms, r.cpu_percent, r.wakeups, r.wakeups_per_s, r.threads, r.frames
@@ -912,6 +952,10 @@ pub struct IdleArgs {
     /// The window, in seconds.
     #[arg(long, default_value_t = 30)]
     seconds: u64,
+    /// How long to wait for the daemon to go quiet before the window begins
+    /// anyway, in seconds (a long wait shows whether it ever does).
+    #[arg(long, default_value_t = SETTLE_MAX_S)]
+    settle: u64,
     /// A synthetic store of this many parked sessions (0: empty).
     #[arg(long, default_value_t = 0)]
     sessions: u64,
@@ -936,6 +980,7 @@ pub fn idle_cmd(a: IdleArgs) -> Result<()> {
     let report = run_idle(&IdleOpts {
         theseusd: theseusd_or_beside(a.theseusd)?,
         seconds: a.seconds.max(1),
+        settle_secs: a.settle,
         sessions: a.sessions,
         store: a.store,
         dir: a.dir,
@@ -1063,6 +1108,7 @@ mod tests {
             window_s: 30.0,
             settled_s: 1.0,
             settled: true,
+            settle_trace: Vec::new(),
             cpu_ms: 3.0,
             cpu_percent: 0.01,
             wakeups: 40,
@@ -1096,6 +1142,7 @@ mod tests {
             plain: kind("plain"),
             tool: kind("tool-call"),
             fsync_ms: single(7.0),
+            fsync_probes_ms: [7.0, 8.0],
             rss_start: Sample::default(),
             rss_burst: Sample::default(),
             burst: Burst {
