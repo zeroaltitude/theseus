@@ -22,11 +22,14 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
     daemon's WAL by `src/walcount.rs` (a read-only tail; the daemon reports no frame count, and the core is not changed
     for a bench). A frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit that does not depend on the
     disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (5; the floor is 2). Beside them:
-    this disk's `fdatasync` (so the harness's own share of a turn reads off), and the daemon's resident memory after the
-    start and after a burst of turns. The scratch daemon has Discord and the web UI off.
+    this disk's `fdatasync`, probed before the daemon starts and after it stops (the quieter is used, so the harness's own
+    share of a turn reads off as an upper bound), and the daemon's resident memory after the start and after a burst. The scratch daemon has Discord and the web UI off.
   - `bench idle`: an idle daemon over a window (30 s): CPU time, wakeups (its threads' voluntary context switches, from
     `src/procfs.rs`), frames written (a quiet daemon writes none), and memory, on an empty store or `--sessions N`.
-    Measured, no budget yet.
+    `--settle N` waits up to N s (default 60) for the daemon to go quiet before the window begins, and shows the CPU in
+    each ten seconds meanwhile, so a daemon that never goes quiet shows whether it is slowing. Measured, no budget yet:
+    an empty store is quiet (5 ms of CPU in 30 s, 4.5 wakeups a second), and at 10,000 parked sessions a release build is
+    still at 5.8 % of a core 300 s after its first answer, writing no frames (review 2's S1).
   - `bench size`: the shipped binaries' sizes against §9's 60 MB. Meaningful on a release or install build.
   - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends. The
     other benches' columns (`history::OTHER`) are in the same file, each with its unit.

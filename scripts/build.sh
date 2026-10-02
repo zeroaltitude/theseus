@@ -4,19 +4,25 @@
 # commit and the pinned toolchain (rust-toolchain.toml), and not of the directory
 # it was built in or the minute it was built.
 #
-#   scripts/build.sh [--profile release|release-thin] [cargo build arguments…]
+#   scripts/build.sh [--profile release|release-thin] [--shipped] [cargo build arguments…]
 #
 #   release       fat LTO and one codegen unit: a tagged release (the default).
 #   release-thin  thin LTO and 16 codegen units: the install profile, for a chain's
 #                 install, built far faster (Cargo.toml says why it is not `install`,
 #                 and scripts/AGENTS.md has the measurements).
 #
-# What it builds: with no `-p`, `--workspace`, or `--package` among its arguments, the four
-# binaries an install ships (theseusd, theseus, theseus-tui, theseus-sim). A build of the
-# whole workspace also compiles the crates no shipped binary reaches yet (theseus-index's
-# candle and tantivy, the voice stack, the AWS clients: 272 of 607 crates on 2026-10-01),
-# which no install links, and a wired-in crate joins the build as soon as a binary depends
-# on it. The gate and the tests still build the whole workspace, as the repository asks.
+# What it builds: the whole workspace, as the gate and the tests do, so that what is shipped
+# is what was tested. Cargo unifies a dependency's features across the packages it builds,
+# and the whole workspace gives 29 of the shipped binaries' 334 shared crates more features
+# than the four binaries alone do (serde_json's `alloc`, `time`'s `serde-well-known`, and
+# twilight-gateway's `rustls-native-roots`, which the voice crate asks for): a build of just
+# the shipped binaries is a different build from the tested one.
+#
+# `--shipped` builds only the four binaries an install ships (theseusd, theseus, theseus-tui,
+# theseus-sim): 335 of the workspace's 607 crates, since the rest (theseus-index's candle and
+# tantivy, the voice stack, the AWS clients) are linked into no shipped binary yet. A cold
+# build is shorter, and the binaries have the narrower features above: use it to look, not
+# to install. Any `-p`, `--package`, or `--workspace` of your own is passed through.
 #
 # What it fixes, beyond the profile:
 #   - `--locked`: Cargo.lock is the dependency set, and a build never changes it.
@@ -34,10 +40,14 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 
 profile=release
-if [ "${1:-}" = --profile ]; then
-  profile="${2:?--profile needs release or release-thin}"
-  shift 2
-fi
+shipped=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --profile) profile="${2:?--profile needs release or release-thin}"; shift 2 ;;
+    --shipped) shipped=1; shift ;;
+    *) break ;;
+  esac
+done
 case "$profile" in release | release-thin) ;; *)
   echo "build: no profile $profile (release or release-thin)" >&2
   exit 2
@@ -58,8 +68,5 @@ export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$flags"
 export SOURCE_DATE_EPOCH
 
 pkgs=()
-case " $* " in
-  *" -p "* | *" --package "* | *" --package="* | *" --workspace "* | *" --all "*) ;;
-  *) pkgs=(-p theseusd -p theseus -p theseus-tui -p theseus-sim) ;;
-esac
+[ -z "$shipped" ] || pkgs=(-p theseusd -p theseus -p theseus-tui -p theseus-sim)
 exec cargo build --locked --profile "$profile" "${pkgs[@]}" "$@"

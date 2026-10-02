@@ -62,8 +62,8 @@ The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each
   `check.sh` (see its README).
 - **`docs/`**: the spec and its PDF, `status.md`, `technical-overview.md`, `design/`, `research/`, and `notes/`.
 - **At the root**: `deny.toml` (permissive licences only; each ignored advisory gives its reason),
-  `rust-toolchain.toml`, `.cargo/config.toml` (the static musl target), `.config/nextest.toml` (a hung test is
-  killed at two minutes), and `.github/workflows/ci.yml`.
+  `rust-toolchain.toml` (one exact release), `clippy.toml` (shape), `.cargo/config.toml` (the musl target),
+  `.config/nextest.toml` (a hung test dies at two minutes; named flaky tests retry), and `.github/workflows/ci.yml`.
 
 Directory guides: each crate in the first table, `web`, `cockpit`, and `scripts` has an `AGENTS.md`.
 
@@ -114,7 +114,7 @@ Each is a requirement, with its spec section.
 - **The WAL and frames** (§6; Part III F2). The WAL is the truth, and every index a projection of it. A kernel method,
   or a kernel transaction (`Kernel::frame`), writes exactly one frame, and a fact lands in one frame with the rows
   that describe it. A plain one-loop turn writes 5 frames: `tests_m3::a_plain_turn_stays_within_its_frame_budget`
-  holds it.
+  holds it in the core, `bench turn` at the daemon.
 - **Append-only** (§2). The record only grows: compaction, supersession, and forgetting are new records. Payload
   erasure (§5.6) is the one receipted exception.
 - **The reader rule** (P0, rule 3). Nothing is declared without its reader: a crate, protocol method,
@@ -127,6 +127,8 @@ Each is a requirement, with its spec section.
 - **A typed protocol** (§1, "Wire protocol"; §3.18; Item 30). Every client, the CLI, Discord, and the web apps
   included, reaches the core only through the protocol. Each wire shape has one Rust definition, and the TypeScript is
   generated from it.
+- **Shape** (C1). A function over 100 lines or complexity 25, or a file over 2,500 lines, fails the gate:
+  split it, or mark it (`scripts/AGENTS.md`).
 - **Opinionated** (§2, OPINIONATED and NATIVE FIRST). One blessed path and few knobs: no plugin architecture, and no
   hooks (deleted in A3b). A new capability is a native toollet unless a written reason says it can't be. "Ruthlessly
   remove complexity" (Eddie, A3b).
@@ -196,12 +198,12 @@ Each traces to the Part III item that taught it.
   the area in lower case (`kernel`, `store`, `toolrun`, `cli`, `docs`, …), and the body says what changed and why, in
   plain words. A trailer names the agent, as `Co-Authored-By: Tabitha/Claude <noreply@anthropic.com>` does, or the
   pilot's `Co-Authored-By: Theseus (Claude Opus 5.5) <noreply@anthropic.com>`.
-- **Every step is reviewed**: a written review, the gate rerun, and a live check of the release build. Then a docs
+- **Every step is reviewed**: a written review, the gate rerun, and a live check of the install build. Then a docs
   commit records it: the spec's Part III item, its version line, and `docs/status.md` (its "Updated" line, the
   recently landed step, the roadmap's row). Take every time you write from `date`, never a guess.
-- **Installing** a reviewed release build: copy-then-rename each of `theseus`, `theseusd`, `theseus-sim`, and
-  `theseus-tui` into `~/.local/bin` (`cp target/release/$b ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new
-  ~/.local/bin/$b`). A running daemon survives the swap.
+- **Installing** a reviewed build (`scripts/build.sh --profile release-thin`): copy-then-rename each of `theseus`,
+  `theseusd`, `theseus-sim`, and `theseus-tui` into `~/.local/bin` (`cp target/release-thin/$b ~/.local/bin/.$b.new &&
+  mv -f ~/.local/bin/.$b.new ~/.local/bin/$b`). A running daemon survives the swap.
 - **The README stays stable.** It says what Theseus is and why. What changes with each step goes in
   `docs/status.md`.
 - **Reviews are appendices.** A review of the design is answered in an appendix of the spec (Appendices A, C to F),
@@ -232,8 +234,7 @@ Theseus is built on one WSL2 machine, beside the operator's own running daemon a
   build, and don't build under 30 GB. Keep one target dir per worktree. Delete build caches outright, never to the
   Trash, which keeps every byte on C:.
 - **sccache.** No server survives a restart, and by default it exits after 10 idle minutes. Its client then hangs.
-  If `pgrep -a sccache` shows no server, start one with `SCCACHE_IDLE_TIMEOUT=0 sccache --start-server`, or unset
-  `RUSTC_WRAPPER`.
+  If `pgrep -x sccache` finds none, run `SCCACHE_IDLE_TIMEOUT=0 sccache --start-server`, or unset `RUSTC_WRAPPER`.
 - **A connect to a loopback port with no listener hangs**: the packet is dropped, not refused. Bound every connect,
   and test a service that is down with a fake, never with a closed port.
 - **`pgrep -f`, `pkill -f`, and `ps | grep` match your own shell**, whose command line holds the pattern. Find a
@@ -241,8 +242,6 @@ Theseus is built on one WSL2 machine, beside the operator's own running daemon a
 - **`git stash` is shared by every worktree.** Set work aside as a patch file instead.
 - **The gate lock.** Take it with `flock -o`, so nothing the gate starts can keep it. A gate that sits at 0% CPU is
   waiting on a lock, cargo's package cache or this one: find the holder before waiting longer.
-- **A bench miss beside a neighbour's load.** The gate waits for the machine to settle and reruns a miss once. A
-  miss that its rerun passes is the machine. Rerun the bench alone before calling a miss a regression.
 - **`/tmp` is wiped by a WSL restart.** Keep harnesses, logs, and reports where they survive, and commit and push at
   every green point: a restart, or an account's usage limit, can end a run at any moment.
 

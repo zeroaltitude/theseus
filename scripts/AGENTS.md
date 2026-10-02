@@ -148,22 +148,48 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   change `channel`, run the gate, fix what the new clippy finds in the same commit, run `repro.sh`, and commit it alone as
   `toolchain: bump to <version>`. A machine without the pinned release downloads it on its first `cargo` call (rustup's
   auto-install): run `rustup toolchain install` in the tree once, before the gate. CI does.
-- **`build.sh [--profile release|release-thin] [cargo args]`** is the one way to build for an install or a release. It
-  builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the target
-  directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. With no `-p` it builds the four binaries an
-  install ships, which reach 335 of the workspace's 607 crates: the rest (candle, tantivy, the voice stack, the AWS
-  clients) link into no shipped binary yet, and join the build when a binary depends on them. rust-embed's `deterministic-timestamps`
-  (theseusd's manifest) gives the embedded web files no modification time. A plain `cargo build --release` still works, and
-  embeds the directory it was built in.
+- **`build.sh [--profile release|release-thin] [--shipped] [cargo args]`** is the one way to build for an install or a
+  release. It builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the
+  target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the whole workspace**,
+  as the gate and the tests do, because cargo unifies a dependency's features over the packages it builds: the four
+  binaries built alone get fewer features on 29 of their 334 shared crates (one is a TLS trust setting,
+  `twilight-gateway`'s `rustls-native-roots`, which the voice crate turns on), so a binary built from its own packages is
+  not the one that was tested. `--shipped` builds only `theseusd`, `theseus`, `theseus-tui`, and `theseus-sim` (335 of the
+  workspace's 607 crates; the rest, candle, tantivy, the voice stack, and the AWS clients, link into no shipped binary
+  yet): a cold build about 40 % shorter, for looking, not installing. rust-embed's `deterministic-timestamps` (theseusd's
+  manifest) gives the embedded web files no modification time. A plain `cargo build --release` still works, and embeds
+  the directory it was built in.
 - **The profiles.** `release` is fat LTO with one codegen unit: a tagged release. `release-thin` (cargo reserves the name
-  `install`) is thin LTO with 16 codegen units: the install profile, for an install by the chain or by anyone building for
-  themselves. Its output is `target/release-thin/`. Measurements: see the numbers below.
-- **`repro.sh [--rev REV] [--profile P] [--keep]`** extracts the commit twice with `git archive`, into two directories whose
-  names differ in length, builds each with `build.sh` into a fresh target and with no compile cache (a cached object would
-  copy, and prove nothing), and `cmp`s `theseusd`, `theseus`, `theseus-tui`, and `theseus-sim`. Two full builds from
-  scratch: tens of minutes, so run it niced and detached. It exits 1 when a binary differs, and keeps the trees. Run it
-  after a toolchain bump, a dependency change that adds a build script, and before a release; a nightly job is not
-  installed.
+  `install`) is thin LTO with 16 codegen units: the install profile, for the chain's installs and for anyone building for
+  themselves. Its output is `target/release-thin/`. Measured on 2026-10-02 (commit 364b82e, the four binaries, uncached,
+  one 16-core machine under a load of 10 to 30, the two builds interleaved):
+  - **Build time.** A cold build costs the same: 10 min 47 s against 10 min 44 s for the first of each pair, and thin
+    used about 10 % more CPU (1,600 against 1,460 CPU-seconds: 16 codegen units repeat work). An incremental rebuild after
+    a change to `theseus-core` is where it pays: 4 min 30 s and 2 min 11 s, against 7 min 37 s and 12 min 27 s.
+  - **Size.** `theseusd` 28.8 MB against 23.4 MB (+23 %); `theseus` 3.5 against 2.7, `theseus-tui` 2.5 against 2.2,
+    `theseus-sim` 4.6 against 3.7. Every one is under §9's 60 MB.
+  - **Speed.** CPU-bound work is slower. `theseus-sim kernel-sim --seeds 10 --p-race 0`, ten runs of each, interleaved:
+    3.13 s of CPU at its best against 2.84 s (+10 %; the medians, +8 %; a noisier earlier pass read +18 %). The daemon's
+    own benches cannot resolve it. A cold start is 24 to 38 ms on either. A plain turn is 40 to 80 ms on either, 5 frames
+    each, and its five `fdatasync`s (6 to 15 ms apiece, swinging with the neighbours' load) outweigh the CPU: thin's turn
+    read slower in three of four interleaved passes (by 3 to 27 ms) and faster in the fourth (by 8 ms), far more than 10 %
+    of a turn's 15 ms of harness CPU could make, so it is noise. An idle daemon's CPU is 7.2 ms against 7.5 ms in 30 s.
+    Resident memory is higher: 17.5 MB against 14.1 MB at idle (+24 %), and 23.2 against 21.3 MB after a burst of 30
+    turns.
+  - **The call.** Review 2's S7 expected an install "a little slower" and asked for a measurement. Ten percent of
+    CPU-bound work is more than a few percent, but a daemon that waits on its disk and its model does not show it, and the
+    install is rebuilt after every reviewed step: so the chain installs `release-thin`, and a tagged release keeps
+    `release`. If a bench ever blames the profile, tell by interleaving the two builds' `kernel-sim` runs and comparing
+    the least user time.
+- **`repro.sh [--rev REV] [--profile P] [--keep] [--bench]`** extracts the commit twice with `git archive`, into two
+  directories whose names differ in length, builds each with `build.sh` into a fresh target and with no compile cache (a
+  cached object would copy, and prove nothing), and `cmp`s `theseusd`, `theseus`, `theseus-tui`, and `theseus-sim`. Two
+  full builds of the workspace from scratch: about an hour beside other work (`THESEUS_REPRO_BUILD_ARGS=--shipped` halves it),
+  so run it niced and detached. It exits 1 when a binary differs, and keeps the trees. With `--bench`, a reproducible
+  result is followed by `bench size`, `turn`, and `idle` on the first build's binaries, recorded in the bench history
+  under the profile and the commit: the numbers that mean something only on an optimized build, which the gate never
+  makes. Run it after a toolchain bump, a dependency change that adds a build script, and before a release; a nightly
+  job is not installed.
 - **The cockpit** (`cockpit/dist`) is not committed, so a binary built with it depends on an npm build. `repro.sh` builds
   from the committed tree, with the page that says the cockpit is missing. Whether `npm run build` is itself reproducible is
   not checked.
