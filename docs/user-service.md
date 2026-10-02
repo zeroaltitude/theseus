@@ -174,7 +174,8 @@ touches your state directory, your store, or your token file**, and it leaves li
 
 ## WSL
 
-This machine is WSL2 on Ubuntu 22.04, with systemd 249.
+The machine this was written on is WSL2 on Ubuntu 22.04, with systemd 249. The rest holds for any WSL2 distro that
+runs systemd.
 
 - **systemd must be on.** `/etc/wsl.conf` needs a `[boot]` section with `systemd=true`. After you add it, run
   `wsl --shutdown` from Windows once; the setting takes effect when the distro next starts. `check` verifies it.

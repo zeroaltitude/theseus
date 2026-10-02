@@ -1161,6 +1161,34 @@ mod tests {
         }
     }
 
+    /// A job's command may carry words that look like the daemon's options. The wrapper takes
+    /// everything after its own words as the command's, so a global `--op-token-file` there is
+    /// the command's argument, not the flag (theseus-w1nf).
+    #[test]
+    fn a_job_commands_words_are_not_taken_for_the_global_flag() {
+        let cli = Cli::try_parse_from([
+            "theseusd",
+            "job-wrapper",
+            "--correlation-id",
+            "c1",
+            "--",
+            "echo",
+            "--op-token-file",
+            "/x/tok",
+        ])
+        .unwrap();
+        assert_eq!(cli.op_token_file, None);
+        let Some(Cmd::JobWrapper { args }) = cli.cmd else {
+            panic!("not a job wrapper: {:?}", cli.cmd);
+        };
+        for word in ["echo", "--op-token-file", "/x/tok"] {
+            assert!(
+                args.iter().any(|a| a == word),
+                "{word:?} lost from {args:?}"
+            );
+        }
+    }
+
     /// The core knows a serving daemon by its command line (theseus-6uo), so
     /// it must know which of the daemon's options take a value: exactly
     /// these, with no positional argument but the subcommands.
