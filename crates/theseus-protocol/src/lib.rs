@@ -416,6 +416,51 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub push: Option<PushStatus>,
+    /// The AWS accounts the config binds (AWS design §3.10), each as its
+    /// check left it. Absent when it binds none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub aws: Option<AwsStatus>,
+}
+
+/// The AWS accounts the config binds (`[aws.accounts.<id>]`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AwsStatus {
+    pub accounts: Vec<AwsAccountStatus>,
+}
+
+/// One AWS account: whether its key is bound, and its calls. The key is
+/// bound once STS has named this account for it, after serving; until then,
+/// and when that fails, no AWS call signs (it fails closed).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AwsAccountStatus {
+    /// The account's id.
+    pub account: String,
+    /// The region a call goes to unless it names one.
+    pub region: String,
+    /// The regions a call may name.
+    pub regions: Vec<String>,
+    /// `unchecked` (nothing has asked yet), `waiting` (for its key's
+    /// secrets), `checking`, `bound`, or `failed`.
+    pub state: String,
+    /// Who the key is, as STS answered: `arn:aws:iam::…:user/…`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub arn: Option<String>,
+    /// When the check last ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub checked_at_unix_ms: Option<u64>,
+    /// Why it is not bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub error: Option<String>,
+    /// AWS requests since the daemon started, the check's included, and how
+    /// many of them failed.
+    pub calls: u64,
+    pub failed: u64,
 }
 
 /// The spool's sweeps (theseus-2ij): a job's raw output, what it printed

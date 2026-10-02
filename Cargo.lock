@@ -6421,6 +6421,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "theseus-aws",
  "theseus-kernel",
  "theseus-protocol",
  "theseus-store",

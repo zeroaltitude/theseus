@@ -677,6 +677,7 @@ fn plan_typed(argv: bool) -> Plan {
         argv: argv.then(|| vec!["make".into(), "notes".into()]),
         url: None,
         summary: if argv { "run make notes" } else { "list notes" }.into(),
+        ..Default::default()
     }
 }
 

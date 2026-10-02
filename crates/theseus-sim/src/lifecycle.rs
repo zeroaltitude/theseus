@@ -754,8 +754,20 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
     tools.insert("projects_dir".into(), projects.display().to_string().into());
     tools.insert("proc_sync_secs".into(), 1.into());
     table(&mut t, "policy").insert("enforcement".into(), "open".into());
+    // An AWS account bound, its endpoint on a port nothing listens on (row
+    // 29, C1): every phase meets its budget with an account to check and AWS
+    // out of reach, so nothing on the start path waits for AWS (§3.10).
+    let account: toml::Table = toml::from_str(&format!(
+        "region = \"us-west-2\"\nendpoint = \"http://{NOWHERE}\""
+    ))?;
+    let mut accounts = toml::Table::new();
+    accounts.insert(BENCH_AWS_ACCOUNT.into(), account.into());
+    table(&mut t, "aws").insert("accounts".into(), accounts.into());
     Ok(toml::to_string(&t)?)
 }
+
+/// The bench's AWS account: AWS's documentation's example id.
+pub const BENCH_AWS_ACCOUNT: &str = "111122223333";
 
 pub(crate) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
@@ -1779,6 +1791,12 @@ mod tests {
             .values()
             .all(|p| p.api_base == "http://127.0.0.1:9"));
         assert_eq!(cfg.tools.proc_sync_secs, 1);
+        // An AWS account is bound, and AWS too is a port nothing listens on
+        // (row 29, C1): its key's secrets are the fake vault's.
+        let a = &cfg.aws.accounts[BENCH_AWS_ACCOUNT];
+        assert_eq!(a.endpoint.as_deref(), Some("http://127.0.0.1:9"));
+        assert!(cfg.secrets.contains_key(&a.credentials.access_key_id));
+        assert!(cfg.secrets.contains_key(&a.credentials.secret_access_key));
     }
 
     #[test]

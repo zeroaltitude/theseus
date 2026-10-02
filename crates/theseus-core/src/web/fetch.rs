@@ -96,6 +96,7 @@ impl Tool for Fetch {
             argv: None,
             url: Some(url.to_string()),
             summary: format!("fetch {url}"),
+            ..Default::default()
         })
     }
     fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {

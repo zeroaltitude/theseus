@@ -23,26 +23,9 @@ pub mod paths;
 pub mod proc;
 pub mod text;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ToolClass {
-    /// Reads files or repository state; changes nothing.
-    Read,
-    /// Changes files.
-    Write,
-    /// Runs a program.
-    Run,
-}
-
-impl ToolClass {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ToolClass::Read => "read",
-            ToolClass::Write => "write",
-            ToolClass::Run => "run",
-        }
-    }
-}
+/// Read, write, or run: the protocol's type, since a call's plan carries its
+/// own (an `aws.call` is a read or a write by its operation).
+pub use theseus_protocol::ToolClass;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -82,7 +65,7 @@ pub enum Retry {
 /// How a call touches a path, the path, and the plan the gate reads: the
 /// protocol's types, since a tool call's gate record carries them
 /// (theseus-0g4).
-pub use theseus_protocol::{Access, Plan, Resource};
+pub use theseus_protocol::{Access, AwsPlan, Plan, Resource};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolOutput {
@@ -169,6 +152,46 @@ pub trait Secrets: Send + Sync + std::fmt::Debug {
     fn secret(&self, name: &str) -> Result<zeroize::Zeroizing<String>, String>;
 }
 
+/// An AWS call's binding (AWS design §3.9), made per call by the runtime for
+/// the `aws.*` tools: whose call it is, which the user agent names to AWS
+/// and CloudTrail keeps (§3.5), and the requests the call made, which the
+/// runtime ledgers (`aws.called`) and traces once the call ends (§3.8). It
+/// holds no credential: the core signs.
+#[derive(Debug, Default)]
+pub struct AwsBinding {
+    pub execution_id: String,
+    pub correlation_id: String,
+    requests: std::sync::Mutex<Vec<AwsRequest>>,
+}
+
+/// One AWS request a call made: when it ran, and its `aws.called` row.
+#[derive(Debug, Clone)]
+pub struct AwsRequest {
+    pub started: std::time::Instant,
+    pub ended: std::time::Instant,
+    pub row: Value,
+}
+
+impl AwsBinding {
+    pub fn new(execution_id: &str, correlation_id: &str) -> Self {
+        Self {
+            execution_id: execution_id.into(),
+            correlation_id: correlation_id.into(),
+            requests: Default::default(),
+        }
+    }
+
+    /// A request the call made.
+    pub fn record(&self, r: AwsRequest) {
+        self.requests.lock().unwrap().push(r);
+    }
+
+    /// Every request so far, in the order they were made.
+    pub fn requests(&self) -> Vec<AwsRequest> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
 /// What every toollet gets: where it may work and how much it may return.
 #[derive(Debug, Clone)]
 pub struct ToolCtx {
@@ -202,6 +225,9 @@ pub struct ToolCtx {
     /// workspace gets this one's mode instead, as the operator's shell would
     /// make it. `None`: the process's umask applies as it is.
     pub umask: Option<u32>,
+    /// For an `aws.*` tool, its call's binding (AWS design §3.9), set per
+    /// call by the runtime. `None` for every other tool.
+    pub aws: Option<Arc<AwsBinding>>,
 }
 
 impl ToolCtx {
@@ -219,6 +245,7 @@ impl ToolCtx {
             secrets: None,
             approved: false,
             umask: None,
+            aws: None,
         }
     }
 

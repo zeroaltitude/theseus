@@ -109,6 +109,11 @@ impl Walk {
             kind = otlp::KIND_CLIENT;
             attrs.extend(gen_ai(&node.attrs));
         }
+        // An AWS request (row 29, C1) is a client span, its attributes in
+        // OpenTelemetry's AWS names (`rpc.system`, `aws.request_id`, …).
+        if node.kind == "aws" {
+            kind = otlp::KIND_CLIENT;
+        }
         let (attributes, dropped_attributes_count) = capped(attrs, MAX_ATTRIBUTES);
         let id = span_id();
         let at = out.len();

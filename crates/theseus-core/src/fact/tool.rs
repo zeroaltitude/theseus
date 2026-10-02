@@ -326,6 +326,21 @@ impl Fact for SecretHanded<'_> {
     }
 }
 
+/// One request an AWS call made (`aws.called`, AWS design §3.8). The row is
+/// its binding's (`aws::Account::row`): never a credential, never the
+/// result. Its span is the trace's own (`Aws::spans`).
+pub struct AwsCalled<'a> {
+    pub row: &'a Value,
+}
+
+impl Fact for AwsCalled<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::AwsCalled);
+
+    fn row(&self) -> Value {
+        self.row.clone()
+    }
+}
+
 /// The session took a hold on external text (theseus-9bp): a result it
 /// read, or a task's report that carried one. A call that acts now waits,
 /// or is notified.

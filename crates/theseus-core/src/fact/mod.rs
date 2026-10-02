@@ -267,6 +267,7 @@ facts![
     tool::SecretGranted<'static>,
     tool::SecretWithheld<'static>,
     tool::SecretHanded<'static>,
+    tool::AwsCalled<'static>,
     tool::HoldTaken<'static>,
     tool::JobRefused<'static>,
     tool::JobNotStarted<'static>,

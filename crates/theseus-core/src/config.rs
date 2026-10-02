@@ -66,6 +66,10 @@ pub struct Config {
     pub policy: PolicyConfig,
     #[serde(default)]
     pub discord: DiscordConfig,
+    /// `[aws.accounts.<id>]`: the AWS accounts Theseus owns (AWS design
+    /// §3.5). None: no AWS tool, and nothing AWS runs.
+    #[serde(default, skip_serializing_if = "AwsConfig::is_empty")]
+    pub aws: AwsConfig,
     /// Who may answer a waiting call, and through which channels. Absent (as
     /// in a config from before theseus-sgh): no rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -417,6 +421,11 @@ pub struct PolicyConfig {
     /// notice at least. Either holds until the operator trusts the session.
     #[serde(default)]
     pub external_text: crate::external::Mode,
+    /// `[policy.aws]` (AWS design §3.9): an AWS call's posture when its tool
+    /// has no `[policy.tools]` line: `"service:Operation"`, then `"service"`,
+    /// then its class's (`read`), then `enforcement`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub aws: BTreeMap<String, crate::policy::Posture>,
 }
 
 fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
@@ -453,6 +462,7 @@ impl Default for PolicyConfig {
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
             external_text: Default::default(),
+            aws: BTreeMap::new(),
         }
     }
 }
@@ -637,6 +647,128 @@ impl Default for GitHubConfig {
             token_secret: default_github_secret(),
             warn_days: default_warn_days(),
         }
+    }
+}
+
+/// `[aws]` (AWS design §3.5; row 29, C1 = 14a): the accounts Theseus owns,
+/// each by its id. Empty: no AWS tool is registered, and nothing AWS runs.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AwsConfig {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub accounts: BTreeMap<String, AwsAccountConfig>,
+}
+
+impl AwsConfig {
+    pub fn is_empty(&self) -> bool {
+        self.accounts.is_empty()
+    }
+}
+
+/// One account: its key (the root of trust), its default region, and the
+/// regions a call may name. Its key is checked after serving: STS must name
+/// this account for it, or no call of the account signs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AwsAccountConfig {
+    /// The key: the `[secrets]` entries holding its access key id and its
+    /// secret access key.
+    #[serde(default)]
+    pub credentials: AwsCredentialNames,
+    /// The region a call goes to unless it names one.
+    pub region: String,
+    /// The regions a call may name. Empty: `region` alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub regions: Vec<String>,
+    /// A local stand-in for AWS, `http://127.0.0.1:<port>`: tests and
+    /// scratch daemons only, so that no request and no signature leaves the
+    /// machine. Every call goes there, signed as AWS's own endpoint would be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+}
+
+impl AwsAccountConfig {
+    /// The regions a call may name: `regions`, or `region` alone.
+    pub fn allowed_regions(&self) -> Vec<String> {
+        if self.regions.is_empty() {
+            vec![self.region.clone()]
+        } else {
+            self.regions.clone()
+        }
+    }
+}
+
+/// The two `[secrets]` entries of an AWS key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AwsCredentialNames {
+    #[serde(default = "default_aws_key_id_secret")]
+    pub access_key_id: String,
+    #[serde(default = "default_aws_secret_key_secret")]
+    pub secret_access_key: String,
+}
+
+fn default_aws_key_id_secret() -> String {
+    "aws_access_key_id".into()
+}
+fn default_aws_secret_key_secret() -> String {
+    "aws_secret_access_key".into()
+}
+
+impl Default for AwsCredentialNames {
+    fn default() -> Self {
+        Self {
+            access_key_id: default_aws_key_id_secret(),
+            secret_access_key: default_aws_secret_key_secret(),
+        }
+    }
+}
+
+/// `us-west-2`, `eu-central-1`, `us-gov-west-1`, `cn-north-1`: a region's
+/// form, letters and dashes ending in a number.
+fn aws_region_ok(r: &str) -> bool {
+    let mut parts = r.split('-');
+    let first = parts.next().unwrap_or("");
+    let rest: Vec<&str> = parts.collect();
+    first.len() == 2
+        && first.bytes().all(|b| b.is_ascii_lowercase())
+        && rest.len() >= 2
+        && rest[..rest.len() - 1]
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_lowercase()))
+        && rest
+            .last()
+            .is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// A `[policy.aws]` key: `read`, a service (`ec2`, `s3`), or a service and
+/// an operation (`s3:ListBuckets`), as `aws.describe` names them. `write` and
+/// `run` arrive with the writes (14b); until then they would govern nothing.
+fn aws_policy_key(k: &str) -> Result<(), String> {
+    let service = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    };
+    match k.split_once(':') {
+        _ if k == "read" => Ok(()),
+        _ if k == "write" || k == "run" => Err(format!(
+            "policy.aws.{k}: AWS calls that {} arrive with step 14b, with the guards; until then \
+             aws.call makes reads only, so the key would govern nothing",
+            if k == "write" { "write" } else { "run code" }
+        )),
+        None if service(k) => Ok(()),
+        Some((s, op))
+            if service(s)
+                && op.starts_with(|c: char| c.is_ascii_uppercase())
+                && op.bytes().all(|b| b.is_ascii_alphanumeric()) =>
+        {
+            Ok(())
+        }
+        _ => Err(format!(
+            "policy.aws.\"{k}\" is not `read`, a service (\"ec2\"), or a service and an \
+             operation (\"s3:ListBuckets\") as aws.describe names them"
+        )),
     }
 }
 
@@ -1207,16 +1339,25 @@ impl Config {
             let parts: Vec<&str> = k.split('/').collect();
             parts.len() <= 2 && parts.iter().all(|p| !p.is_empty())
         };
+        // The core's own tools beside the toollets: the web's, a task's, a
+        // wake's, and AWS's.
+        let core_tools = || {
+            crate::web::NAMES
+                .into_iter()
+                .chain(crate::task::NAMES)
+                .chain(crate::wake::NAMES)
+                .chain(crate::aws::NAMES)
+        };
         for name in self.policy.tools.keys() {
             let known = match name.strip_prefix(crate::policy::MCP_PREFIX) {
                 Some(rest) => rest.contains('/') && mcp_key(rest),
-                None => registry.get(name).is_some() || crate::web::NAMES.contains(&name.as_str()),
+                None => registry.get(name).is_some() || core_tools().any(|t| t == name),
             };
             if !known {
                 let names: Vec<&str> = registry
                     .all()
                     .map(|t| t.name())
-                    .chain(crate::web::NAMES)
+                    .chain(core_tools())
                     .collect();
                 anyhow::bail!(
                     "policy.tools.\"{name}\" is not a tool (the tools: {}; an MCP tool is \"mcp:<server>/<tool>\")",
@@ -1286,6 +1427,54 @@ impl Config {
                      (for the Vite dev server, http://localhost:5173)"
                 );
             }
+        }
+        self.validate_aws()
+    }
+
+    /// `[aws.accounts.<id>]` and `[policy.aws]` (AWS design §3.5, §3.9):
+    /// checked as they are read, with no lookup in the catalog, which stays
+    /// undecoded until a call (§3.10).
+    fn validate_aws(&self) -> Result<()> {
+        for (id, a) in &self.aws.accounts {
+            if id.len() != 12 || !id.bytes().all(|b| b.is_ascii_digit()) {
+                anyhow::bail!("aws.accounts.\"{id}\" is not an account's id, which is 12 digits");
+            }
+            for (key, name) in [
+                ("access_key_id", &a.credentials.access_key_id),
+                ("secret_access_key", &a.credentials.secret_access_key),
+            ] {
+                if !self.secrets.contains_key(name) {
+                    anyhow::bail!(
+                        "aws.accounts.{id}.credentials.{key} = {name:?} has no matching entry \
+                         under [secrets]"
+                    );
+                }
+            }
+            if let Some(r) = std::iter::once(&a.region)
+                .chain(&a.regions)
+                .find(|r| !aws_region_ok(r))
+            {
+                anyhow::bail!("aws.accounts.{id}: {r:?} is not a region's name, as us-west-2 is");
+            }
+            if !a.allowed_regions().contains(&a.region) {
+                anyhow::bail!(
+                    "aws.accounts.{id}.region = {:?} is not one of its regions: {}",
+                    a.region,
+                    a.regions.join(", ")
+                );
+            }
+            if let Some(e) = &a.endpoint {
+                if !dev_origin_ok(e) {
+                    anyhow::bail!(
+                        "aws.accounts.{id}.endpoint = {e:?} is not a stand-in on this machine: it \
+                         must be http://, then localhost or a loopback address, then a port, and \
+                         nothing more"
+                    );
+                }
+            }
+        }
+        for key in self.policy.aws.keys() {
+            aws_policy_key(key).map_err(anyhow::Error::msg)?;
         }
         Ok(())
     }
@@ -1577,7 +1766,17 @@ mod tests {
         assert_eq!(cfg.policy.tools["http.fetch"], Posture::Notify);
         assert_eq!(cfg.policy.tools["task.create"], Posture::Notify);
         assert_eq!(cfg.policy.tools["wake.at"], Posture::Notify);
-        assert_eq!(cfg.policy.tools.len(), 15);
+        assert_eq!(cfg.policy.tools["aws.call"], Posture::Approve);
+        assert_eq!(cfg.policy.tools.len(), 19);
+        // The AWS account's table, and [policy.aws]'s lines (row 29, C1).
+        let a = &cfg.aws.accounts["111122223333"];
+        assert_eq!(a.credentials, AwsCredentialNames::default());
+        assert_eq!(a.region, "us-west-2");
+        assert_eq!(a.allowed_regions(), ["us-west-2", "us-east-1"]);
+        assert_eq!(a.endpoint.as_deref(), Some("http://127.0.0.1:4566"));
+        assert_eq!(cfg.policy.aws["read"], Posture::Open);
+        assert_eq!(cfg.policy.aws["ec2"], Posture::Notify);
+        assert_eq!(cfg.policy.aws["s3:ListBuckets"], Posture::Approve);
         assert_eq!(cfg.policy.mcp["some-server"], Posture::Notify);
         assert_eq!(cfg.policy.mcp["some-server/read-only-tool"], Posture::Open);
         assert_eq!(
@@ -1664,6 +1863,7 @@ mod tests {
             .chain(crate::web::NAMES.map(String::from))
             .chain(crate::task::NAMES.map(String::from))
             .chain(crate::wake::NAMES.map(String::from))
+            .chain(crate::aws::NAMES.map(String::from))
             .collect();
         for t in &tools {
             assert!(
@@ -1675,7 +1875,8 @@ mod tests {
             assert!(tools.contains(l), "[policy.tools] lists `{l}`, not a tool");
         }
         assert_eq!(listed.len(), tools.len(), "one line per tool: {listed:?}");
-        // Reads stay quiet out of the box; everything else inherits.
+        // Reads stay quiet out of the box; everything else inherits (an AWS
+        // call's posture is [policy.aws]'s).
         let set = Config::example().policy.tools;
         let reads = [
             "fs.read",
@@ -1685,6 +1886,7 @@ mod tests {
             "git.diff",
             "git.log",
             "text.diff",
+            "aws.describe",
         ];
         for r in reads {
             assert_eq!(set.get(r), Some(&Posture::Open), "{r}");
@@ -2443,6 +2645,138 @@ mod tests {
         assert!(CacheTtl::FiveMinutes < CacheTtl::OneHour);
     }
 
+    /// `[aws.accounts.<id>]` (row 29, C1): an account is its 12 digits, its
+    /// key's two `[secrets]` entries, a region, and the regions a call may
+    /// name; a stand-in endpoint only on this machine. Anything else fails to
+    /// load, and the error says which. The template binds none.
+    #[test]
+    fn an_aws_account_names_its_id_its_key_and_its_regions() {
+        assert!(
+            Config::example().aws.is_empty(),
+            "the template binds no account"
+        );
+        let with = |aws: &str| {
+            Config::parse(&format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\
+                 aws_access_key_id = \"op://v/k/notesPlain#AWS_ACCESS_KEY_ID\"\n\
+                 aws_secret_access_key = \"op://v/k/notesPlain#AWS_SECRET_ACCESS_KEY\"\n\
+                 other_key = \"op://v/o/f\"\n\n{aws}\n"
+            ))
+            .map(|(c, _)| c)
+        };
+        let ok = with("[aws.accounts.111122223333]\nregion = \"us-west-2\"").unwrap();
+        let a = &ok.aws.accounts["111122223333"];
+        assert_eq!(a.credentials, AwsCredentialNames::default());
+        assert_eq!(a.allowed_regions(), ["us-west-2"]);
+        assert_eq!(a.endpoint, None);
+        let named = with(
+            "[aws.accounts.444455556666]\nregion = \"eu-central-1\"\n\
+             regions = [\"eu-central-1\", \"us-east-1\"]\n\
+             credentials = { access_key_id = \"other_key\", secret_access_key = \"other_key\" }\n\
+             endpoint = \"http://127.0.0.1:4566\"",
+        )
+        .unwrap();
+        let a = &named.aws.accounts["444455556666"];
+        assert_eq!(a.credentials.access_key_id, "other_key");
+        assert_eq!(a.allowed_regions(), ["eu-central-1", "us-east-1"]);
+        for (bad, says) in [
+            ("[aws.accounts.home]\nregion = \"us-west-2\"", "12 digits"),
+            (
+                "[aws.accounts.11112222333]\nregion = \"us-west-2\"",
+                "12 digits",
+            ),
+            (
+                "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n\
+                 credentials = { access_key_id = \"nope\" }",
+                "credentials.access_key_id = \"nope\" has no matching entry under [secrets]",
+            ),
+            (
+                "[aws.accounts.111122223333]\nregion = \"US-West-2\"",
+                "not a region's name",
+            ),
+            (
+                "[aws.accounts.111122223333]\nregion = \"west\"",
+                "not a region's name",
+            ),
+            (
+                "[aws.accounts.111122223333]\nregion = \"us-west-2\"\nregions = [\"us-east-1\"]",
+                "is not one of its regions: us-east-1",
+            ),
+            (
+                "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n\
+                 endpoint = \"https://sts.us-west-2.amazonaws.com\"",
+                "is not a stand-in on this machine",
+            ),
+            (
+                "[aws.accounts.111122223333]\nregion = \"us-west-2\"\nprofile = \"default\"",
+                "unknown field `profile`",
+            ),
+            ("[aws.accounts.111122223333]", "missing field `region`"),
+            ("[aws]\nregion = \"us-west-2\"", "unknown field `region`"),
+        ] {
+            let e = format!("{:#}", with(bad).unwrap_err());
+            assert!(e.contains(says), "{bad}: {e}");
+        }
+    }
+
+    /// `[policy.aws]` (AWS design §3.9): `read`, a service, or a service and
+    /// an operation, as aws.describe names them. `write` and `run` arrive
+    /// with the writes (14b): until then they would govern nothing.
+    #[test]
+    fn policy_aws_takes_read_a_service_or_an_operation() {
+        let cfg = policy_only(
+            "[policy.aws]\nread = \"open\"\nec2 = \"notify\"\n\"s3:ListBuckets\" = \"approve\"\n\
+             resource-groups = \"open\"",
+        )
+        .unwrap();
+        assert_eq!(cfg.policy.aws["read"], Posture::Open);
+        assert_eq!(cfg.policy.aws["ec2"], Posture::Notify);
+        assert_eq!(cfg.policy.aws["s3:ListBuckets"], Posture::Approve);
+        assert!(policy_only("").unwrap().policy.aws.is_empty());
+        for (bad, says) in [
+            ("write = \"notify\"", "arrive with step 14b"),
+            ("run = \"notify\"", "arrive with step 14b"),
+            ("\"EC2\" = \"open\"", "is not `read`, a service"),
+            ("\"s3:listBuckets\" = \"open\"", "is not `read`, a service"),
+            ("\"s3:\" = \"open\"", "is not `read`, a service"),
+            ("read = \"never\"", "open"),
+        ] {
+            let e = format!(
+                "{:#}",
+                policy_only(&format!("[policy.aws]\n{bad}")).unwrap_err()
+            );
+            assert!(e.contains(says), "{bad}: {e}");
+        }
+    }
+
+    /// A `[policy.tools]` line loads for every tool: the toollets', and the
+    /// core's own, the web's, a task's, a wake's, and AWS's. Until row 29 a
+    /// config with the template's `task.create` or `wake.at` line uncommented
+    /// failed to load.
+    #[test]
+    fn a_policy_tools_line_loads_for_every_tool() {
+        let names: Vec<String> = theseus_tools::default_registry()
+            .all()
+            .map(|t| t.name().to_string())
+            .chain(crate::web::NAMES.map(String::from))
+            .chain(crate::task::NAMES.map(String::from))
+            .chain(crate::wake::NAMES.map(String::from))
+            .chain(crate::aws::NAMES.map(String::from))
+            .collect();
+        for n in &names {
+            policy_only(&format!("[policy.tools]\n\"{n}\" = \"approve\""))
+                .unwrap_or_else(|e| panic!("{n}: {e:#}"));
+        }
+        let e = format!(
+            "{:#}",
+            policy_only("[policy.tools]\n\"aws.nope\" = \"open\"").unwrap_err()
+        );
+        assert!(
+            e.contains("is not a tool") && e.contains("aws.s3.list"),
+            "{e}"
+        );
+    }
+
     /// Every key the code can read appears in the template (set or commented),
     /// so a new field cannot be added without documenting it.
     #[test]
@@ -2470,6 +2804,14 @@ mod tests {
             "posture =",
             "cache_ttl =",
             "caches =",
+            "[aws.accounts.",
+            "credentials =",
+            "access_key_id =",
+            "secret_access_key =",
+            "region =",
+            "regions =",
+            "endpoint =",
+            "[policy.aws]",
         ] {
             assert!(
                 Config::EXAMPLE_TOML.contains(must),

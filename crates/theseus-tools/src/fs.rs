@@ -267,6 +267,7 @@ impl Tool for Read {
             }],
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -467,6 +468,7 @@ impl Tool for WriteFile {
             }],
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -560,6 +562,7 @@ impl Tool for Edit {
             }],
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -709,6 +712,7 @@ impl Tool for Patch {
             resources,
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -833,6 +837,7 @@ impl Tool for Glob {
             }],
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
@@ -1039,6 +1044,7 @@ impl Tool for Grep {
             }],
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
@@ -1440,6 +1446,7 @@ impl Tool for List {
             }],
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {

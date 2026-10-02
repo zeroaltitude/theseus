@@ -30,7 +30,8 @@ serves. AI agents build it in small, reviewed steps.
 | `theseus-store` | The keel: a WAL of checksummed atomic frames (the truth), and a redb index rebuilt from it. | `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs` | kernel, core, theseusd, sim |
 | `theseus-kernel` | The durable kernel: executions, actions, completions, the spool, budgets, locks, tasks, wakes, stops, the outbox's actions, the job wrapper. | `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.rs` | core, discord, theseusd, sim |
 | `theseus-tools` | Toollets: `fs.*`, `git.diff`, `git.log`, `text.diff`, and `proc.run`'s spec. | `fs.rs`, `git.rs`, `proc.rs`, `paths.rs` | core |
-| `theseus-core` | The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry. | `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs` | theseusd, discord, sim |
+| `theseus-core` | The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools. | `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `aws/` | theseusd, discord, sim |
+| `theseus-aws-catalog`, `theseus-aws` | Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1). | `classify.rs`, `describe.rs`; `client.rs`, `error.rs` | core (`aws/`) |
 | `theseus-discord` | The Discord binding, in-process; it acts through the protocol. | `runtime.rs`, `courier.rs`, `render.rs` | theseusd |
 | `theseusd` | The daemon: serving, `job-wrapper`, `check`, `restore`, `install`, the web server. | `main.rs`, `web.rs`, `install/` | (a binary) |
 | `theseus` | The CLI, and its library `theseus_client` (client, render), which the terminal UI shares. | `main.rs`, `cmd.rs`, `render.rs`, `client.rs` | (a binary) |
@@ -44,7 +45,6 @@ The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each
 |---|---|---|
 | `theseus-sandbox` | L1: a job in its own namespaces, seccomp, and cgroup; the egress proxy | row 17 (17b) |
 | `theseus-ontology` | The fungible ontology's first slice (§4.1a) | row 26 (21b) |
-| `theseus-aws-catalog`, `theseus-aws` | Every AWS operation's model, and one caller for all six protocols | row 29 (C1, 14a) |
 | `theseus-aws-guard` | The AWS guardrails: the gate's check, and the generated guards and SCPs | row 30 (C2, 14b) |
 | `theseus-judge` | Jev: the typed client, bands, batching, the breaker, the question packs | row 37 (23a) |
 | `theseus-follow`, `theseus-index` | The WAL follower, and the index tender (BM25, entities, vectors) | row 51 |

@@ -90,6 +90,7 @@ impl Core {
             binary: crate::binary::status(),
             spool: self.spool_status(),
             push: Some(self.push.status(self.bus.all_watchers())),
+            aws: self.tools.aws.as_ref().map(|a| a.status()),
         }
     }
 

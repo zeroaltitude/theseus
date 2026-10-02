@@ -96,6 +96,16 @@ pub struct Output {
     pub idempotency_token: Option<(String, String)>,
 }
 
+/// A call as the client checked it, before credentials or the network.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Checked {
+    /// The catalog's names: `stepfunctions` for `states`, `ListObjectsV2`
+    /// for `list-objects-v2`.
+    pub service: String,
+    pub operation: String,
+    pub classification: Classification,
+}
+
 /// A request as it would be sent: signed, with what the gate reads.
 #[derive(Clone, Debug)]
 pub struct Prepared {
@@ -289,6 +299,25 @@ impl Client {
             .headers
             .push(("User-Agent".into(), self.user_agent(call.attribution)));
         Ok(b)
+    }
+
+    /// A call checked as `call` would check it, with no credentials and no
+    /// network: the service and operation (their canonical names), what the
+    /// client can make, the region's endpoint, and the input against the
+    /// shape. What the gate reads before a call runs (AWS design §3.9).
+    pub fn check(&self, call: &Call<'_>) -> Result<Checked, CallError> {
+        let svc = self
+            .catalog()?
+            .service(call.service)
+            .map_err(|e| CallError::InvalidInput(e.to_string()))?;
+        let op = Client::operation(&svc, call)?;
+        let (input, _) = Client::fill_token(op, call);
+        self.built(op, &input, call)?;
+        Ok(Checked {
+            service: svc.name().to_owned(),
+            operation: op.name().to_owned(),
+            classification: op.classify(),
+        })
     }
 
     /// The signed request a call's first page would send, without sending

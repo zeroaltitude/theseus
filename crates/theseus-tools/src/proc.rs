@@ -71,6 +71,7 @@ impl Tool for Run {
             }],
             argv: Some(a.argv),
             url: None,
+            ..Default::default()
         })
     }
     fn job(&self, input: &Value, ctx: &ToolCtx) -> Result<JobSpec, String> {

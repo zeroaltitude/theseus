@@ -78,6 +78,7 @@ impl Tool for Diff {
             resources,
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {

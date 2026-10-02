@@ -283,10 +283,13 @@ impl Renderer {
             }
             Event::ToolProposed(p) => {
                 let decision = p.gate.decision.as_ref();
+                // An AWS call's line names its operation, region, and
+                // account, from its plan (row 29, C1).
+                let aws = p.gate.plan.as_ref().and_then(|pl| pl.aws.as_ref());
                 let line = ToolLine {
                     tool_use_id: p.tool_use_id.clone(),
                     tool: p.tool.clone(),
-                    summary: summarize(&p.tool, &p.input),
+                    summary: aws.map_or_else(|| summarize(&p.tool, &p.input), aws_summary),
                     correlation_id: None,
                     state: ToolState::Proposed,
                     notice: decision
@@ -1176,6 +1179,19 @@ fn footer(r: &TurnSubmitResult) -> String {
 }
 
 /// One short line for a tool call: the argument a person would look for.
+/// An AWS call's tool line (row 29, C1): `cloudformation:DescribeStacks ·
+/// us-west-2 · account 111122223333`, with the resources its input names.
+pub fn aws_summary(a: &theseus_protocol::AwsPlan) -> String {
+    let mut text = format!(
+        "{}:{} · {} · account {}",
+        a.service, a.operation, a.region, a.account
+    );
+    if !a.resources.is_empty() {
+        text.push_str(&format!(" · {}", a.resources.join(", ")));
+    }
+    clip(&text.replace('`', "'").replace('\n', " "), 120)
+}
+
 pub fn summarize(tool: &str, input: &Value) -> String {
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
     let text = if let Some(argv) = input.get("argv").and_then(Value::as_array) {
@@ -1196,6 +1212,12 @@ pub fn summarize(tool: &str, input: &Value) -> String {
         u
     } else if let Some(q) = s("query") {
         format!("\"{q}\"")
+    } else if let Some(svc) = s("service") {
+        // `aws.describe`'s service and operation.
+        match s("operation") {
+            Some(op) => format!("{svc}:{op}"),
+            None => svc,
+        }
     } else {
         serde_json::to_string(input).unwrap_or_default()
     };
@@ -2455,6 +2477,41 @@ mod tests {
                 &json!({"query": "ignore WalkParallel", "count": 3})
             ),
             "\"ignore WalkParallel\""
+        );
+        // `aws.describe` (row 29, C1): the service, and its operation.
+        assert_eq!(
+            summarize(
+                "aws.describe",
+                &json!({"service": "s3", "operation": "ListObjectsV2"})
+            ),
+            "s3:ListObjectsV2"
+        );
+        assert_eq!(summarize("aws.describe", &json!({"service": "ec2"})), "ec2");
+    }
+
+    /// An AWS call's tool line (row 29, C1) names its operation, region, and
+    /// account, and the resources its input gives, from its plan, whatever
+    /// its input says.
+    #[test]
+    fn an_aws_calls_line_names_its_operation_region_and_account() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        r.on_notification(
+            "tool.proposed",
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "aws.s3.list",
+                "input": {"path": "s3://example-bucket/logs/"},
+                "gate": {"result": {"gate": "allow"}, "decision": {"posture": "open"},
+                    "plan": {"resources": [], "summary": "list s3://example-bucket/logs/ in us-west-2",
+                        "class": "read",
+                        "aws": {"account": "111122223333", "region": "us-west-2", "service": "s3",
+                            "operation": "ListObjectsV2", "resources": ["example-bucket", "logs/"]}}}}),
+        );
+        let (content, _) = tool_message(&r.tick());
+        assert!(
+            content.contains(
+                "`aws.s3.list` s3:ListObjectsV2 · us-west-2 · account 111122223333 · example-bucket, logs/"
+            ),
+            "{content}"
         );
     }
 

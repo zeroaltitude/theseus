@@ -1103,4 +1103,79 @@ mod tests {
         assert_eq!(into[0].decode::<Edge>().unwrap(), edge);
         assert_eq!(store.stats().unwrap().last_position, 122);
     }
+
+    /// A tool-call node as a build before theseus-ppsd wrote it (NODE schema
+    /// 2): its gate record's plan has no class and no AWS call.
+    const NODE_SCHEMA_2: &str = r#"{"id":"tcl_00000000000000000000000000000021","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t2","loop_index":0,"origin":"harness","author":null,"created_at_ms":1790000000021,"body":{"kind":"tool_call","tool_use_id":"tu_21","tool":"fs.read","wire_name":"fs_read","input":{"path":"/w/log/tides.md"},"assistant_node":"asm_00000000000000000000000000000021","correlation_id":"act_t21","gate":{"decision":{"posture":"open","reason":"fs.read — open (policy.tools)"},"plan":{"resources":[{"access":"read","path":"/w/log/tides.md"}],"summary":"read /w/log/tides.md"},"proposal":{"args":{"path":"/w/log/tides.md"},"policy_context":{"cwd":"/w","roots":["/w"]},"resource":"/w/log/tides.md","tool":"fs.read"},"result":{"gate":"allow"},"validated":true}}}"#;
+
+    /// NODE schema 3 (theseus-ppsd): this build reads a schema-2 tool-call
+    /// node through the store with neither `plan.class` nor `plan.aws`, and
+    /// its bytes encode again unchanged; an AWS call's node, which carries
+    /// both, is written at schema 3 and reads back whole.
+    #[test]
+    fn a_tool_call_node_written_before_its_class_and_aws_reads() {
+        use crate::node::Body;
+        use theseus_protocol::{AwsPlan, ToolClass};
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        assert_eq!(store.inner.schema_marks()[&kinds::NODE], 3);
+        let old = NewRecord {
+            schema: 2,
+            ..NewRecord::bytes(
+                kinds::NODE,
+                Some("tcl_00000000000000000000000000000021"),
+                NODE_SCHEMA_2.as_bytes().to_vec(),
+            )
+        }
+        .scoped("ses_lighthouse");
+        store.append(&[old]).unwrap();
+
+        let stored = store.scope_after("ses_lighthouse", 0).unwrap();
+        assert_eq!(stored[0].schema, 2, "it keeps the schema it was written at");
+        let nodes = store.session_nodes("ses_lighthouse").unwrap();
+        let read = nodes[0].1.clone();
+        let Body::ToolCall { gate: Some(g), .. } = &read.body else {
+            panic!("a tool call with its gate: {read:?}");
+        };
+        let plan = g.plan.as_ref().unwrap();
+        assert_eq!((plan.class, plan.aws.as_ref()), (None, None));
+        assert_eq!(plan.summary, "read /w/log/tides.md");
+        assert_eq!(
+            serde_json::to_string(&read).unwrap(),
+            NODE_SCHEMA_2,
+            "a node with neither keeps its bytes"
+        );
+
+        let mut aws = read.clone();
+        aws.id = "tcl_00000000000000000000000000000022".into();
+        let Body::ToolCall { tool, gate, .. } = &mut aws.body else {
+            unreachable!()
+        };
+        *tool = "aws.call".into();
+        let plan = gate.as_mut().unwrap().plan.as_mut().unwrap();
+        plan.class = Some(ToolClass::Read);
+        plan.aws = Some(AwsPlan {
+            account: "111122223333".into(),
+            region: "us-west-2".into(),
+            service: "cloudformation".into(),
+            operation: "DescribeStacks".into(),
+            ..Default::default()
+        });
+        let r = aws.record().unwrap();
+        assert_eq!(r.schema, 3);
+        let text = String::from_utf8_lossy(&r.payload).into_owned();
+        assert!(
+            text.contains(r#""class":"read""#)
+                && text.contains(r#""aws":{"account":"111122223333""#),
+            "{text}"
+        );
+        store.append(&[r]).unwrap();
+        let nodes: Vec<Node> = store
+            .session_nodes("ses_lighthouse")
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect();
+        assert_eq!(nodes, vec![read, aws]);
+    }
 }

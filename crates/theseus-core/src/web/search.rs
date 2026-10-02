@@ -121,6 +121,7 @@ impl Tool for Search {
             argv: None,
             url: Some(url.to_string()),
             summary: format!("search the web for \"{query}\" ({count} results)"),
+            ..Default::default()
         })
     }
     fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {

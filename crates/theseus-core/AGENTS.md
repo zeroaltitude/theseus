@@ -14,7 +14,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action), with the gate in `policy.rs`
   (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
   `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,
-  `task.rs` and `wake.rs`, and the web tools in `web/`.
+  `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
+  serving (its calls fail closed until STS names the account), and `aws.call`, `aws.describe`, `aws.whoami`, and
+  `aws.s3.list` (reads only until 14b; a write is invalid input).
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection).
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and

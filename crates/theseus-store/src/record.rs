@@ -59,6 +59,10 @@ pub mod kinds {
     /// external text (theseus-qiy), and 6 the 1-hour cache writes in its
     /// usage (theseus-ev1); serde's defaults read 2 to 5. Compilation schema
     /// 3 adds the manifest's cache layout (theseus-ev1), read from 2 as none.
+    /// Node schema 3 adds a tool call's own class and its AWS call to its
+    /// gate record's plan (`plan.class`, `plan.aws`, theseus-ppsd), read from
+    /// 2 as neither (theseus-core's
+    /// `a_tool_call_node_written_before_its_class_and_aws_reads`).
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
         (SESSION, 6),
@@ -67,7 +71,7 @@ pub mod kinds {
         (EXECUTION, 2),
         (ACTION, 2),
         (COMPLETION, 2),
-        (NODE, 2),
+        (NODE, 3),
         (EDGE, 1),
         (COMPILATION, 3),
         (OUTBOX, 1),

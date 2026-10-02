@@ -207,6 +207,21 @@ timeout_secs = 30                       # a fetch's or a search's whole time, re
 max_bytes = 2097152                     # the most of a body a fetch reads; a call may ask for fewer
 search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Brave Search API key; without it, web.search says it has no key
 
+# ---------------------------------------------------------------- aws
+# The AWS accounts Theseus owns, each by its id, with its key (the root of
+# trust) as two [secrets] entries. After serving, the key is checked once:
+# sts:GetCallerIdentity must name the account. Until that passes, no call of
+# the account signs, and health says why. Then aws.call reads any service,
+# aws.describe looks AWS's API up in the local catalog, aws.whoami asks AWS who
+# Theseus is, and aws.s3.list lists buckets and prefixes. Until step 14b a call
+# that writes, runs code, or returns a secret is invalid input, and nothing is
+# sent. With no table, no AWS tool exists, and nothing AWS runs.
+# [aws.accounts.111122223333]           # the account's id (12 digits), which STS must name
+# credentials = { access_key_id = "aws_access_key_id", secret_access_key = "aws_secret_access_key" }   # its key's [secrets] entries (these, by default)
+# region = "us-west-2"                  # where a call goes unless it names a region
+# regions = ["us-west-2", "us-east-1"]  # the regions a call may name (default: region alone)
+# endpoint = "http://127.0.0.1:4566"    # tests and scratch daemons only: a stand-in for AWS on this machine
+
 # ---------------------------------------------------------------- policy
 # The gate (spec §3.9) decides per tool, from the finite list of tools (and,
 # when MCP lands, of MCP servers); it never guesses what a command does. Every
@@ -263,6 +278,13 @@ external_text = "ask"                   # ask | notify: notify runs those calls 
 # a wake into this conversation later (DD8): inherits enforcement, so each one
 # set is a notice with its time; its turn spends from this session's limit
 # "wake.at" = "notify"
+# AWS, when an [aws.accounts] table binds an account: aws.describe reads the
+# local catalog; the others call AWS, and [policy.aws] gives each call its
+# posture unless a line here sets the tool's
+"aws.describe" = "open"
+# "aws.call" = "approve"
+# "aws.whoami" = "approve"
+# "aws.s3.list" = "approve"
 
 # Per-MCP postures, for when MCP servers land (M7): "server" covers every tool
 # from that server, "server/tool" one tool. An MCP tool's posture comes from
@@ -271,6 +293,15 @@ external_text = "ask"                   # ask | notify: notify runs those calls 
 # "some-server" = "notify"              # every tool from this MCP server
 # "some-server/read-only-tool" = "open"
 # "some-server/dangerous-tool" = "approve"
+
+# AWS calls, when an [aws.accounts] table binds an account: a call whose tool
+# has no [policy.tools] line takes its operation's line here, then its
+# service's, then its class's, then enforcement. Until step 14b every AWS call
+# is a read: a write or a run is invalid input, whatever its posture says.
+[policy.aws]
+read = "open"                           # a Describe, List, or Get: safe to leave open (unset: enforcement)
+# "ec2" = "notify"                      # every call to one service
+# "s3:ListBuckets" = "approve"          # one operation
 
 # ---------------------------------------------------------------- catalog
 # Every model's prices, in US dollars per million tokens. Budgets count in

@@ -795,6 +795,16 @@ async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<P
     tokio::spawn(theseus_core::harness::run(core.clone()));
     tokio::spawn(theseus_core::harness::drive(core.clone()));
     tokio::spawn(core.clone().install_telemetry());
+    // Each bound AWS account's check (row 29, C1): its key from the board,
+    // then `sts:GetCallerIdentity`, which must name the account (AWS design
+    // §3.10). Its calls fail closed until it passes.
+    if let Some(aws) = core.tools.aws.clone() {
+        let log = core.startup_log.clone();
+        tokio::spawn(async move {
+            let phase = log.begin("aws.check", true, Instant::now());
+            log.end(phase, aws.check_all().await);
+        });
+    }
     if let Some(path) = bindings {
         core.post_restart_notice();
         if core.cfg.web.enabled {

@@ -125,6 +125,17 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
             push(&mut out, Tag::Tool, &format!("  → {}{argv}", s.tool));
         }
         Event::ToolEnded(t) => push(&mut out, Tag::Tool, &tool_ended_line(t)),
+        // An AWS call's line (row 29, C1): its operation, region, and
+        // account, which its `→` line cannot say.
+        Event::ToolProposed(p) => {
+            if let Some(a) = p.gate.plan.as_ref().and_then(|pl| pl.aws.as_ref()) {
+                push(
+                    &mut out,
+                    Tag::Tool,
+                    &format!("  ☁ {} {}", p.tool, aws_call_line(a)),
+                );
+            }
+        }
         Event::ConfirmRequested(c) if c.budget.is_some() => {
             push(&mut out, Tag::Ask, &format!("  $ {}", c.reason));
             budget_answers(&mut out, c);
@@ -972,6 +983,87 @@ pub fn spool_line(s: &theseus_protocol::SpoolStatus, now_ms: u64) -> Option<Stri
     Some(line)
 }
 
+/// `s3:ListObjectsV2 · us-west-2 · account 111122223333 · example-bucket,
+/// logs/`: an AWS call as the CLI and Discord name it (row 29, C1).
+pub fn aws_call_line(a: &theseus_protocol::AwsPlan) -> String {
+    let mut line = format!(
+        "{}:{} · {} · account {}",
+        a.service, a.operation, a.region, a.account
+    );
+    if !a.resources.is_empty() {
+        line.push_str(&format!(" · {}", a.resources.join(", ")));
+    }
+    if a.cost_bearing {
+        line.push_str(" · $");
+    }
+    line
+}
+
+/// `aws: 111122223333 bound (arn:aws:iam::…:user/x) 2 min ago · us-west-2 (may
+/// name us-east-1) · 4 requests` (row 29, C1): each bound AWS account, as its
+/// check left it, and its requests. Nothing when the config binds none.
+pub fn aws_lines(s: Option<&theseus_protocol::AwsStatus>, now_ms: u64) -> Vec<String> {
+    let Some(s) = s else {
+        return Vec::new();
+    };
+    s.accounts
+        .iter()
+        .map(|a| {
+            let ago = a.checked_at_unix_ms.map(|t| {
+                let secs = now_ms.saturating_sub(t) / 1000;
+                if secs < 120 {
+                    format!(" {secs} s ago")
+                } else {
+                    format!(" {} min ago", secs / 60)
+                }
+            });
+            let state = match a.state.as_str() {
+                "bound" => format!(
+                    "bound ({}){}",
+                    a.arn.as_deref().unwrap_or("?"),
+                    ago.unwrap_or_default()
+                ),
+                "failed" => format!(
+                    "NOT BOUND{}: {}; its calls fail closed",
+                    ago.unwrap_or_default(),
+                    a.error.as_deref().unwrap_or("?")
+                ),
+                "waiting" => format!(
+                    "waiting for its key{}",
+                    a.error
+                        .as_deref()
+                        .map(|e| format!(": {e}"))
+                        .unwrap_or_default()
+                ),
+                other => other.to_string(),
+            };
+            let more: Vec<&str> = a
+                .regions
+                .iter()
+                .map(String::as_str)
+                .filter(|r| *r != a.region)
+                .collect();
+            format!(
+                "aws: {} {state} · {}{} · {} {}{}",
+                a.account,
+                a.region,
+                if more.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (may name {})", more.join(", "))
+                },
+                thousands(a.calls),
+                if a.calls == 1 { "request" } else { "requests" },
+                if a.failed > 0 {
+                    format!(", {} failed", thousands(a.failed))
+                } else {
+                    String::new()
+                }
+            )
+        })
+        .collect()
+}
+
 /// `130,300`.
 pub fn thousands(n: u64) -> String {
     let d = n.to_string();
@@ -1666,6 +1758,9 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         Tag::Plain,
         &secrets_line(&h.secrets, &h.secrets_resolved),
     );
+    for line in aws_lines(h.aws.as_ref(), now_ms) {
+        push(o, Tag::Plain, &line);
+    }
     if let Some(line) = startup_line(&h.startup) {
         push(o, Tag::Plain, &line);
     }
@@ -2320,6 +2415,63 @@ mod tests {
         assert!(spool_line(&s, 1_005_000)
             .unwrap()
             .starts_with("spool: swept 5 s ago"));
+    }
+
+    /// Health's `aws:` line per bound account (row 29, C1): bound with its
+    /// identity, not bound with why, waiting for its key; and an AWS call's
+    /// line, its operation, region, account, and resources.
+    #[test]
+    fn the_aws_lines_say_each_account_and_each_call() {
+        use theseus_protocol::{AwsAccountStatus, AwsPlan, AwsStatus};
+        assert!(aws_lines(None, 0).is_empty(), "no account bound");
+        let account = |state: &str, error: Option<&str>| AwsAccountStatus {
+            account: "111122223333".into(),
+            region: "us-west-2".into(),
+            regions: vec!["us-west-2".into(), "us-east-1".into()],
+            state: state.into(),
+            arn: (state == "bound").then(|| "arn:aws:iam::111122223333:user/example".into()),
+            checked_at_unix_ms: (state != "waiting").then_some(1_000_000),
+            error: error.map(String::from),
+            calls: 1_204,
+            failed: if state == "bound" { 0 } else { 1 },
+        };
+        let s = AwsStatus {
+            accounts: vec![
+                account("bound", None),
+                account(
+                    "failed",
+                    Some("its key is account 444455556666's, not 111122223333"),
+                ),
+                account(
+                    "waiting",
+                    Some("its secret aws_access_key_id did not resolve"),
+                ),
+            ],
+        };
+        assert_eq!(
+            aws_lines(Some(&s), 1_012_000),
+            [
+                "aws: 111122223333 bound (arn:aws:iam::111122223333:user/example) 12 s ago · \
+                 us-west-2 (may name us-east-1) · 1,204 requests",
+                "aws: 111122223333 NOT BOUND 12 s ago: its key is account 444455556666's, not \
+                 111122223333; its calls fail closed · us-west-2 (may name us-east-1) · 1,204 \
+                 requests, 1 failed",
+                "aws: 111122223333 waiting for its key: its secret aws_access_key_id did not \
+                 resolve · us-west-2 (may name us-east-1) · 1,204 requests, 1 failed",
+            ]
+        );
+        let call = AwsPlan {
+            account: "111122223333".into(),
+            region: "us-west-2".into(),
+            service: "s3".into(),
+            operation: "ListObjectsV2".into(),
+            cost_bearing: false,
+            resources: vec!["example-bucket".into(), "logs/".into()],
+        };
+        assert_eq!(
+            aws_call_line(&call),
+            "s3:ListObjectsV2 · us-west-2 · account 111122223333 · example-bucket, logs/"
+        );
     }
 
     #[test]

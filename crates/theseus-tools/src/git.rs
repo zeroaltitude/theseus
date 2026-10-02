@@ -391,6 +391,7 @@ impl Tool for Diff {
             }],
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
@@ -692,6 +693,7 @@ impl Tool for Log {
             }],
             argv: None,
             url: None,
+            ..Default::default()
         })
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {

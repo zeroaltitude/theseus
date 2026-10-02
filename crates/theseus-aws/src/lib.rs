@@ -38,7 +38,7 @@ pub mod sign;
 pub mod value;
 mod xml;
 
-pub use client::{Attribution, Call, Client, ClientConfig, Output, Prepared};
+pub use client::{Attribution, Call, Checked, Client, ClientConfig, Output, Prepared};
 pub use creds::Credentials;
 pub use error::{parse_denial, AwsError, CallError, Denial, Enforcer, ErrorRetry};
 pub use request::HttpRequest;

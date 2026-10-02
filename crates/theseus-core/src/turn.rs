@@ -2313,7 +2313,8 @@ impl TurnRunner {
             .collect();
         let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;
         t.tool_calls += batch.ran.len() as u32;
-        Self::trace_calls(&mut t.trace, &self.tools.registry, uses, &batch.ran);
+        let aws = self.tools.aws.as_deref();
+        Self::trace_calls(&mut t.trace, &self.tools.registry, aws, uses, &batch.ran);
         let mut answered = 0;
         for r in batch.ran {
             match r.outcome {
@@ -2333,10 +2334,12 @@ impl TurnRunner {
     /// ran together sit under one `tools` span, so their spans overlap there.
     /// Each names its tool, family, and backend (`none` for a tool that is
     /// not registered), and the call's result, which telemetry's tool metrics
-    /// read (theseus-yf1).
+    /// read (theseus-yf1). An AWS call's requests are spans under its own
+    /// (AWS design §3.8).
     fn trace_calls(
         trace: &mut Trace,
         tools: &theseus_tools::Registry,
+        aws: Option<&crate::aws::Aws>,
         uses: &[ToolUse],
         ran: &[Ran],
     ) {
@@ -2353,7 +2356,9 @@ impl TurnRunner {
                     "family": tool.map_or("unknown", |t| t.family()),
                     "backend": tool.map_or("none", |t| t.backend().as_str()),
                     "result": call_result(&r.outcome)}),
-                children: Vec::new(),
+                children: aws
+                    .map(|a| a.spans(&uses[r.index].id, |i| trace.at(i)))
+                    .unwrap_or_default(),
             }
         };
         let mut groups: BTreeMap<usize, Vec<Span>> = BTreeMap::new();

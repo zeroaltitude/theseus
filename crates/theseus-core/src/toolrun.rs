@@ -238,6 +238,9 @@ pub struct ToolRuntime {
     /// The free space under the state dir: below its floor a job is refused
     /// (theseus-102), and health reads it.
     pub disk: Arc<crate::disk::Disk>,
+    /// The AWS accounts the config binds, behind the `aws.*` tools (AWS
+    /// design §3.5); None when it binds none.
+    pub aws: Option<Arc<crate::aws::Aws>>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -378,6 +381,7 @@ impl ToolRuntime {
                 enforcement: crate::policy::Posture::Approve,
                 tools: BTreeMap::new(),
                 mcp: BTreeMap::new(),
+                aws: BTreeMap::new(),
                 confirmer: "operator".into(),
                 floor_paths: vec![],
                 floor_argv: crate::policy::floor_argv(),
@@ -397,6 +401,7 @@ impl ToolRuntime {
             external_text: Default::default(),
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp, 0, 0)),
+            aws: None,
         }
     }
 
@@ -722,7 +727,7 @@ impl ToolRuntime {
         let mut group = Vec::new();
         let mut next = ran.len();
         for (i, tool, g) in runnable {
-            if tool.class() == ToolClass::Read {
+            if g.plan.class.unwrap_or(tool.class()) == ToolClass::Read {
                 group.push((i, tool, g));
                 continue;
             }
@@ -921,14 +926,15 @@ impl ToolRuntime {
             // After the whole order (theseus-9bp): a call that acts in a
             // session that read external text waits. A read and `wake.at`
             // keep their postures (T1b), and cost no record read.
-            let held = if crate::external::exempt(tool.class(), tool.name()) {
+            let class = plan.class.unwrap_or(tool.class());
+            let held = if crate::external::exempt(class, tool.name()) {
                 Ok(None)
             } else {
                 crate::external::held(tc.store, tc.session_id)
             };
             let decision = crate::external::gate(
                 decision,
-                tool.class(),
+                class,
                 &held,
                 self.external_text,
                 tool.name(),
@@ -1263,6 +1269,11 @@ impl ToolRuntime {
         } else {
             None
         };
+        // An AWS call names its execution and itself to AWS (AWS design §3.5).
+        if let Some(a) = self.aws.as_ref().filter(|_| tool.family() == "aws") {
+            ctx.aws = Some(a.bind(tc.execution_id, correlation_id, &call.id));
+        }
+        let aws = ctx.aws.clone();
         let deadline = Duration::from_millis(INPROC_DEADLINE_MS);
         let timed_out = || format!("timed out after {} ms", INPROC_DEADLINE_MS);
         let (started, outcome, took) = if tool.backend() == Backend::Async {
@@ -1367,6 +1378,9 @@ impl ToolRuntime {
                 secret: &secret,
                 correlation_id,
             });
+        }
+        for r in aws.iter().flat_map(|a| a.requests()) {
+            tc.record(&fact::tool::AwsCalled { row: &r.row });
         }
         self.complete(tc, &c, &node)?;
         Self::announce_end(tc, &node);
@@ -2655,11 +2669,17 @@ pub fn build_runtime(
     }
     let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
     let cpu = crate::cpu::CpuPool::for_host();
+    // AWS (row 29, C1): its tools when the config binds an account. Nothing
+    // runs until a call, or the daemon's check after serving.
+    let aws = crate::aws::Aws::from_config(&cfg.aws, secrets.clone()).filter(|_| t.enabled);
     let registry = if t.enabled {
         let mut r = theseus_tools::default_registry();
         // The web tools wait on the network, as async tools (DD5).
         let web = crate::web::Web::new(&t.web, t.result_max_chars, cpu.clone());
         for tool in web.tools() {
+            r.register(tool);
+        }
+        for tool in aws.iter().flat_map(|a| a.tools()) {
             r.register(tool);
         }
         // Task sessions (DD7) and wakes (DD8): the harness runs them.
@@ -2693,6 +2713,7 @@ pub fn build_runtime(
             enforcement: cfg.policy.enforcement,
             tools: cfg.policy.tools.clone(),
             mcp: cfg.policy.mcp.clone(),
+            aws: cfg.policy.aws.clone(),
             confirmer: crate::turn::OPERATOR.into(),
             floor_paths: floor_paths.clone(),
             floor_argv: crate::policy::floor_argv(),
@@ -2709,6 +2730,7 @@ pub fn build_runtime(
             secrets: None,
             approved: false,
             umask: theseus_kernel::umask::operator(),
+            aws: None,
         },
         spool,
         scrubber,
@@ -2729,6 +2751,7 @@ pub fn build_runtime(
             cfg.server.disk_warn_mb,
             cfg.server.disk_floor_mb,
         )),
+        aws,
     })
 }
 

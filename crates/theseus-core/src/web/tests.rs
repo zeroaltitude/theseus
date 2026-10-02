@@ -554,6 +554,7 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
         enforcement: Posture::Open,
         tools: BTreeMap::new(),
         mcp: BTreeMap::new(),
+        aws: BTreeMap::new(),
         confirmer: "operator".into(),
         floor_paths: vec![],
         floor_argv: crate::policy::floor_argv(),

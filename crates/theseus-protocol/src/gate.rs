@@ -30,6 +30,50 @@ pub struct Resource {
     pub access: Access,
 }
 
+/// What a tool does: read, write, or run a program. The tools' type
+/// (`theseus_tools` re-exports it), here since a plan carries a call's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ToolClass {
+    /// Reads files or repository state; changes nothing.
+    Read,
+    /// Changes files.
+    Write,
+    /// Runs a program.
+    Run,
+}
+
+impl ToolClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ToolClass::Read => "read",
+            ToolClass::Write => "write",
+            ToolClass::Run => "run",
+        }
+    }
+}
+
+/// An AWS call's plan (AWS design §3.9): the account and region it goes to,
+/// the operation, and what the catalog says of it. The gate's
+/// `[policy.aws]` reads it, and the surfaces show it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AwsPlan {
+    pub account: String,
+    pub region: String,
+    /// The service as the catalog names it (`cloudformation`).
+    pub service: String,
+    /// `DescribeStacks`.
+    pub operation: String,
+    /// Charged per request, or it starts something metered.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cost_bearing: bool,
+    /// The names, ids, and ARNs its input gives (an S3 bucket and prefix).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<String>,
+}
+
 /// What a call will do, before it does it: the gate reads this.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -46,6 +90,16 @@ pub struct Plan {
     pub url: Option<String>,
     /// One line for humans ("edit src/main.rs (1 occurrence)").
     pub summary: String,
+    /// This call's class, when it is the call's and not the tool's (an
+    /// `aws.call` is a read or a write by its operation): the gate, the
+    /// external-text hold, and the reads that run together read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub class: Option<ToolClass>,
+    /// For an AWS call (AWS design §3.9): its account, region, and operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub aws: Option<AwsPlan>,
 }
 
 /// A proposed tool call as the model (or a test) states it: what a

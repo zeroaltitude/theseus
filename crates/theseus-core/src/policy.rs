@@ -24,7 +24,9 @@
 //!    argument is inside the roots. An entry is a prefix (`["ls"]` also runs
 //!    `ls -la src`), so entries should be narrow;
 //! 4. otherwise the tool's posture: `[policy.tools]`, then for an MCP tool
-//!    `[policy.mcp]` "server/tool" and "server", then `[policy].enforcement`.
+//!    `[policy.mcp]` "server/tool" and "server", for an AWS call
+//!    `[policy.aws]` "service:Operation", "service", and its class (AWS
+//!    design §3.9), then `[policy].enforcement`.
 //!    A runtime tightening ("should have asked", theseus-sgh) applies here,
 //!    after the config's posture, and the stricter of the two wins. So a
 //!    tightening never loosens anything, and a config that already asks is
@@ -216,6 +218,9 @@ pub struct ToolPolicy {
     pub tools: BTreeMap<String, Posture>,
     /// Per-MCP postures by `server/tool` or `server` (`[policy.mcp]`).
     pub mcp: BTreeMap<String, Posture>,
+    /// An AWS call's postures (`[policy.aws]`, AWS design §3.9): by
+    /// `service:Operation`, by `service`, then by class (`read`).
+    pub aws: BTreeMap<String, Posture>,
     /// Who confirms (the execution's principal).
     pub confirmer: String,
     /// Paths that always wait for approval: Theseus's store, spool, and
@@ -284,7 +289,8 @@ fn normalized_argv(argv: &[String]) -> Vec<String> {
 impl ToolPolicy {
     /// A tool's posture and the setting that chose it: `[policy.tools]`, then
     /// for an MCP tool (`mcp:<server>/<tool>`) `[policy.mcp]` "server/tool"
-    /// and "server", then `[policy].enforcement`.
+    /// and "server", for an AWS tool `[policy.aws]`'s class line, then
+    /// `[policy].enforcement`.
     pub fn posture(&self, name: &str) -> (Posture, String) {
         if let Some(p) = self.tools.get(name) {
             return (*p, format!("[policy.tools] \"{name}\" = {}", p.as_str()));
@@ -297,16 +303,43 @@ impl ToolPolicy {
                 }
             }
         }
+        // Every call of an AWS tool is a read until 14b, so `[policy.aws]
+        // read` is the tool's; a call's own service and operation lines are
+        // the gate's to read (`decide_with`).
+        if crate::aws::CALLS.contains(&name) {
+            if let Some(p) = self.aws.get("read") {
+                return (*p, format!("[policy.aws] read = {}", p.as_str()));
+            }
+        }
         (
             self.enforcement,
             format!("enforcement = {}", self.enforcement.as_str()),
         )
     }
 
+    /// An AWS call's own line (AWS design §3.9): `[policy.aws]` for its
+    /// operation, then for its service. None: the tool's posture decides.
+    fn aws_line(&self, a: &theseus_tools::AwsPlan) -> Option<(Posture, String)> {
+        let op = format!("{}:{}", a.service, a.operation);
+        for k in [op.as_str(), a.service.as_str()] {
+            if let Some(p) = self.aws.get(k) {
+                return Some((*p, format!("[policy.aws] \"{k}\" = {}", p.as_str())));
+            }
+        }
+        None
+    }
+
     /// A tool's posture now: the config's posture, then a tightening, and
     /// the stricter one wins (theseus-sgh).
     pub fn posture_now(&self, name: &str, tightened: Option<Tightened<'_>>) -> PostureNow {
-        let (config, config_setting) = self.posture(name);
+        Self::now_from(self.posture(name), tightened)
+    }
+
+    /// The config's posture and its setting, then a tightening.
+    fn now_from(
+        (config, config_setting): (Posture, String),
+        tightened: Option<Tightened<'_>>,
+    ) -> PostureNow {
         match tightened {
             Some(t) if t.posture > config => PostureNow {
                 posture: t.posture,
@@ -389,7 +422,17 @@ impl ToolPolicy {
                 );
             }
         }
-        let now = self.posture_now(name, tightened);
+        // An AWS call with no `[policy.tools]` line takes its operation's or
+        // its service's `[policy.aws]` line first.
+        let line = plan
+            .aws
+            .as_ref()
+            .filter(|_| !self.tools.contains_key(name))
+            .and_then(|a| self.aws_line(a));
+        let now = match line {
+            Some(line) => Self::now_from(line, tightened),
+            None => self.posture_now(name, tightened),
+        };
         let reason = format!("{name} — {} ({})", now.posture.as_str(), now.why());
         match now.posture {
             Posture::Approve => Decision::new(now.posture, format!("{}: {reason}", plan.summary)),
@@ -560,6 +603,7 @@ mod tests {
             enforcement,
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
+            aws: BTreeMap::new(),
             confirmer: "operator".into(),
             floor_paths: vec![root.join("state")],
             floor_argv: floor_argv(),
@@ -572,6 +616,7 @@ mod tests {
             argv: argv.map(|v| v.into_iter().map(String::from).collect()),
             url: None,
             summary: "the call".into(),
+            ..Default::default()
         }
     }
 

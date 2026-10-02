@@ -7,10 +7,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
-[package.metadata.theseus]
-reserved_for = "row 29 (C1, 14a), AWS: theseus-aws's operation models, under aws.call and aws.describe"
-
 [dependencies]
 # Pure-Rust brotli, decoder only. The encoder is the generator's alone (a
 # dev-dependency, used by `examples/theseus-aws-catalog-gen.rs` and the tests).
