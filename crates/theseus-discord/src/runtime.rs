@@ -1413,6 +1413,16 @@ impl Shared {
         r.users.get(&channel).cloned().unwrap_or_default()
     }
 
+    /// A place here renders this session's turns: its calls' tool lines are
+    /// shown here, before their cards (theseus-50p).
+    pub(crate) fn renders(&self, session_id: &str) -> bool {
+        self.routes
+            .lock()
+            .unwrap()
+            .by_session
+            .contains_key(session_id)
+    }
+
     /// The DM an approval card goes to when its place is not a trusted
     /// channel: the turn's author's, when they are a trusted user with an
     /// open DM here, else the first such DM in the bindings file.
@@ -1938,6 +1948,12 @@ impl Place {
                 }
                 let ops = self.renderer.on_event(&e);
                 self.apply(ops);
+                // The renderer has shown the call that asks, and its tool line
+                // went to the lane first: the question's card may follow
+                // (theseus-50p).
+                if let CoreEvent::ConfirmRequested(r) = &e {
+                    let _ = self.lane.send(LaneMsg::Asked(r.correlation_id.clone()));
+                }
             }
             PlaceMsg::SubmitDone(r) => {
                 self.inflight = false;

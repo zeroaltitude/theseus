@@ -13,8 +13,15 @@
 //! carries Discord's nonce, with `enforce_nonce`, derived from its message's
 //! key: a retry after a crash between the send and the settle returns the
 //! first message instead of posting again.
+//!
+//! A card keeps its turn's order (theseus-50p). Its call's tool line is live
+//! progress, and the card is a post written the moment the call asks, so the
+//! card would go first, and the turn's reply after it, and the tool line last.
+//! A card written while this lane runs, for a session a place here renders,
+//! waits until the place has shown its call (`LaneMsg::Asked`), at most
+//! `CARD_WAIT`; what the place showed before that goes first.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,6 +45,12 @@ use crate::runtime::{asked_button, asked_menu, confirm_buttons, Shared};
 pub const NONCE_WINDOW_MS: u64 = 120_000;
 /// The longest a lane waits before it tries Discord again.
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
+/// The longest a card waits for its place to show its call (theseus-50p).
+/// The place says so within milliseconds; past this, something kept it from
+/// seeing the question, and the card goes without it.
+const CARD_WAIT: Duration = Duration::from_secs(5);
+/// How many questions a lane remembers its place has shown.
+const ASKED_KEPT: usize = 64;
 
 /// What a lane is told.
 pub(crate) enum LaneMsg {
@@ -51,6 +64,9 @@ pub(crate) enum LaneMsg {
     Author(u64),
     /// The message a turn's first streamed message replies to.
     Anchor(u64),
+    /// The place has shown a question's call, its tool line sent on before
+    /// this: the question's card may follow (theseus-50p).
+    Asked(String),
 }
 
 /// Why a call to Discord did not go through.
@@ -214,6 +230,13 @@ pub(crate) struct Lane {
     /// When this process started, in unix ms: a post dispatched before it may
     /// have landed.
     pub started_ms: u64,
+    /// Questions whose calls the place has shown, the newest last.
+    pub asked: VecDeque<String>,
+    /// A card waiting for its place to show its call, and until when.
+    pub held: Option<(String, tokio::time::Instant)>,
+    /// The place showed a call after live progress came: that progress goes
+    /// before the next post.
+    pub stream_first: bool,
 }
 
 impl Lane {
@@ -242,12 +265,22 @@ impl Lane {
             attempt: 0,
             unsure: HashSet::new(),
             started_ms: theseus_protocol::now_unix_ms(),
+            asked: VecDeque::new(),
+            held: None,
+            stream_first: false,
         }
     }
 
     pub(crate) async fn run(mut self, mut rx: mpsc::UnboundedReceiver<LaneMsg>) {
         loop {
-            let msg = match self.retry_at {
+            // Woken by a message, by the end of Discord's absence, or by the
+            // end of a held card's wait.
+            let wake = self
+                .retry_at
+                .into_iter()
+                .chain(self.held.as_ref().map(|h| h.1))
+                .min();
+            let msg = match wake {
                 Some(at) => tokio::select! {
                     m = rx.recv() => m.map(Some),
                     _ = tokio::time::sleep_until(at) => Some(None),
@@ -257,7 +290,7 @@ impl Lane {
             match msg {
                 None => break,
                 Some(Some(m)) => self.take(m),
-                Some(None) => self.retry_at = None,
+                Some(None) => {}
             }
             // Everything queued meanwhile: live ops collapse to their latest.
             while let Ok(m) = rx.try_recv() {
@@ -270,6 +303,11 @@ impl Lane {
                 continue;
             }
             self.retry_at = None;
+            // What the place showed before it showed a call goes before the
+            // call's card (theseus-50p).
+            if std::mem::take(&mut self.stream_first) {
+                self.apply_live().await;
+            }
             // The posts first, in order; then the stream.
             if self.deliver_posts().await {
                 self.apply_live().await;
@@ -288,6 +326,13 @@ impl Lane {
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => self.anchor = Some(a),
+            LaneMsg::Asked(q) => {
+                self.stream_first |= !self.live.is_empty();
+                self.asked.push_back(q);
+                if self.asked.len() > ASKED_KEPT {
+                    self.asked.pop_front();
+                }
+            }
         }
     }
 
@@ -335,6 +380,11 @@ impl Lane {
             let Some(a) = self.shared.core.outbox.next_for(&self.target) else {
                 return true;
             };
+            // It waits, and the posts after it wait behind it; the stream
+            // goes on.
+            if self.waits_for_its_call(&a) {
+                return true;
+            }
             match self.deliver(&a).await {
                 Ok(()) => self.attempt = 0,
                 // The stop came while this post was planned or sent: it is
@@ -350,6 +400,41 @@ impl Lane {
             }
         }
         false
+    }
+
+    /// Does this post wait for its place (theseus-50p)? A card written while
+    /// this lane runs, for a session a place here renders, waits until the
+    /// place has shown its call (the call's tool line, sent on to this lane
+    /// first), or `CARD_WAIT` is over. A card from before this process, or
+    /// for a session no place here renders (a task's), has no tool line here
+    /// to wait for.
+    fn waits_for_its_call(&mut self, a: &Action) -> bool {
+        if kind_of(a) != "card" {
+            return false;
+        }
+        let q = body_of(a)["question"].as_str().unwrap_or("").to_string();
+        if let Some(i) = self.asked.iter().position(|x| *x == q) {
+            self.asked.remove(i);
+            self.held = None;
+            return false;
+        }
+        if let Some((held, until)) = &self.held {
+            if *held == q {
+                if tokio::time::Instant::now() < *until {
+                    return true;
+                }
+                tracing::warn!(target = %self.target, question = %q, "a card went without its call's tool line: its place never showed the call");
+                self.held = None;
+                return false;
+            }
+        }
+        let rendered_here = matches!(self.shared.core.kernel.action(&q), Ok(Some(question))
+            if self.shared.renders(&question.session_id));
+        if a.planned_at_ms < self.started_ms || !rendered_here {
+            return false;
+        }
+        self.held = Some((q, tokio::time::Instant::now() + CARD_WAIT));
+        true
     }
 
     /// One post: planned into writes, dispatched, written, settled. An error

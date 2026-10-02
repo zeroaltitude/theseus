@@ -441,11 +441,14 @@ impl Renderer {
                 ops.extend(self.tick());
                 ops
             }
-            // The card is a post (`card`); here only the tool line waits.
+            // The card is a post (`card`); here only the tool line waits. It
+            // is shown now, not at the next tick, and the stream before it:
+            // the card waits for them, so the place reads the text, the call,
+            // then its card (theseus-50p).
             Event::ConfirmRequested(req) => {
                 if req.budget.is_some() {
                     // No tool line waits: the turn stopped before its call.
-                    return vec![];
+                    return self.tick();
                 }
                 // The newest proposed call of this tool is the one waiting.
                 if let Some(t) = self.turns.iter_mut().rev().find(|t| !t.ended) {
@@ -461,7 +464,7 @@ impl Renderer {
                     }
                     t.dirty = true;
                 }
-                vec![]
+                self.tick()
             }
             // The card's settle is a post (`settled`); here the tool line says
             // who answered.
@@ -1540,17 +1543,23 @@ mod tests {
         let req = json!({"correlation_id": "act_1", "session_id": "s",
             "execution_id": "e", "tool": "proc.run", "input": {"argv": ["cargo", "test"]}, "reason": "run cargo test",
             "by": "operator", "requested_at_ms": 1, "expires_at_ms": 1790000000000u64});
-        // The card is a post; the stream only marks the tool line.
-        assert!(r.on_notification("confirm.requested", &req).is_empty());
+        // The card is a post; the stream marks the tool line, and shows it at
+        // once, so that it goes before the card (theseus-50p).
+        let tools = upserts(&r.on_notification("confirm.requested", &req));
+        assert!(
+            tools
+                .iter()
+                .any(|(k, c)| k == "t1:L0:tools" && c.contains("waiting for approval")),
+            "{tools:?}"
+        );
         let card = card(&request(req), &Route::Here, ELSEWHERE);
         assert!(card
             .content
             .starts_with("**Approve?** `proc.run` cargo test\nrun cargo test"));
         assert_eq!(card.line, "`proc.run` cargo test");
+        // The turn's end has nothing new for it.
         let tools = upserts(&r.on_notification("turn.ended", &ended("t1", Some("act_1"))));
-        assert!(tools
-            .iter()
-            .any(|(k, c)| k == "t1:L0:tools" && c.contains("waiting for approval")));
+        assert!(!tools.iter().any(|(k, _)| k == "t1:L0:tools"), "{tools:?}");
         assert!(r
             .on_notification(
                 "confirm.resolved",

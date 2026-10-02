@@ -630,8 +630,8 @@ async fn a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_an
         .await
         .awaiting_confirm
         .expect("the write waits");
-    // The tool line can be posted after the outbox first drains, so wait for
-    // every message the test reads, not only for an empty outbox.
+    // Live progress can come after the outbox first drains, so wait for every
+    // message the test reads, not only for an empty outbox.
     let c = core.clone();
     let expected = ["🔗 Theseus is bound here", "Asking <@", "`fs.write`"];
     until(
@@ -649,6 +649,32 @@ async fn a_card_in_a_channel_mentions_its_answerers_and_nothing_else_mentions_an
     )
     .await;
     let msgs = fake.messages(CHANNEL);
+    // The channel reads the turn in its order (theseus-50p): its text, the
+    // call's tool line, then the call's card. The reply edits the streamed
+    // text in place, its footer there. Before, the card was written the
+    // moment the call asked and the tool line only at the place's next tick,
+    // so the channel could read card, reply, then the tool line.
+    let at = |what: &str, is: &dyn Fn(&Msg) -> bool| {
+        msgs.iter()
+            .position(is)
+            .unwrap_or_else(|| panic!("no {what}: {msgs:#?}"))
+    };
+    let text = at("text", &|m| {
+        m.components == 0 && m.content.contains("Asking <@")
+    });
+    let line = at("tool line", &|m| {
+        m.components == 0 && m.content.contains("`fs.write`")
+    });
+    let card_at = at("card", &|m| m.components > 0);
+    assert!(
+        text < line && line < card_at,
+        "text {text}, tool line {line}, card {card_at}: {msgs:#?}"
+    );
+    assert!(
+        msgs[text].content.contains("waiting for your approval"),
+        "the reply's footer rides on its text: {:?}",
+        msgs[text].content
+    );
     let (cards, others): (Vec<Msg>, Vec<Msg>) = msgs.into_iter().partition(|m| m.components > 0);
     assert_eq!(cards.len(), 1, "{cards:?}");
     let card = &cards[0];
