@@ -87,3 +87,12 @@ codegen-units = 1
 opt-level = 3
 strip = true
 panic = "abort"
+
+# The install profile (theseus-goa8; review 2's S7), for an install by the chain or by anyone building for themselves:
+# the release profile without fat LTO and its single codegen unit, so a build after a change takes minutes less.
+# Cargo reserves the name `install`, hence this one. `scripts/build.sh --profile release-thin` builds it; a tagged
+# release keeps `release`. The measurements, and what the bench says of the binary's speed, are in scripts/AGENTS.md.
+[profile.release-thin]
+inherits = "release"
+lto = "thin"
+codegen-units = 16

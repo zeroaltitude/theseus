@@ -1,4 +1,16 @@
+# The toolchain is one exact release, never `stable` (theseus-goa8; review 2's SC1).
+# A new stable's clippy can fail `-D warnings` on a commit that changed nothing, and two
+# machines, or two days, would build with different compilers. A binary is reproducible
+# only from a fixed compiler (scripts/repro.sh).
+#
+# To bump it, as its own commit, `toolchain: bump to <version>`:
+#   1. `rustup toolchain install <version> -c rustfmt -c clippy -t x86_64-unknown-linux-musl`
+#      (a bare `rustup toolchain install` in this directory reads this file);
+#   2. change `channel` below, and `rust-version` in the root Cargo.toml if it must follow;
+#   3. run the gate, and fix in the same commit whatever the new clippy finds;
+#   4. run `scripts/repro.sh`: a new compiler must still build the same bytes twice.
+# CI installs from this file (`rustup toolchain install`), so there is one place to change.
 [toolchain]
-channel = "stable"
+channel = "1.98.1"
 components = ["rustfmt", "clippy"]
 targets = ["x86_64-unknown-linux-musl"]

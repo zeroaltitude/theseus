@@ -2,6 +2,7 @@
 
 - `gate.sh`: the commit gate. Every check must pass, and the first failure stops it.
 - `smoke.sh`: an end-to-end check of a built daemon, with real secrets and real model calls.
+- `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 
 `gate.sh` is a shared file: it changes only at a join, one change at a time.
 
@@ -81,6 +82,35 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
 - **Off the list**: in the commit that fixes the test, proven under load (the load-flake recipe: loops at a lower nice
   than the test) and against a planted revert. Delete the override with it.
 - **A test not on the list that flakes fails the gate**, as before. The flaky log shows what has been passing on luck.
+
+## Releases: the pinned toolchain, one build script, and a reproducibility check
+
+(theseus-goa8; review 2's SC1, SC3, and S7.)
+
+- **The toolchain is one release**, pinned in `rust-toolchain.toml`, never `stable`, so a new clippy cannot fail a commit
+  that changed nothing and two machines build with one compiler. The file says how to bump it: install the release,
+  change `channel`, run the gate, fix what the new clippy finds in the same commit, run `repro.sh`, and commit it alone as
+  `toolchain: bump to <version>`. A machine without the pinned release downloads it on its first `cargo` call (rustup's
+  auto-install): run `rustup toolchain install` in the tree once, before the gate. CI does.
+- **`build.sh [--profile release|release-thin] [cargo args]`** is the one way to build for an install or a release. It
+  builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the target
+  directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. With no `-p` it builds the four binaries an
+  install ships, which reach 335 of the workspace's 607 crates: the rest (candle, tantivy, the voice stack, the AWS
+  clients) link into no shipped binary yet, and join the build when a binary depends on them. rust-embed's `deterministic-timestamps`
+  (theseusd's manifest) gives the embedded web files no modification time. A plain `cargo build --release` still works, and
+  embeds the directory it was built in.
+- **The profiles.** `release` is fat LTO with one codegen unit: a tagged release. `release-thin` (cargo reserves the name
+  `install`) is thin LTO with 16 codegen units: the install profile, for an install by the chain or by anyone building for
+  themselves. Its output is `target/release-thin/`. Measurements: see the numbers below.
+- **`repro.sh [--rev REV] [--profile P] [--keep]`** extracts the commit twice with `git archive`, into two directories whose
+  names differ in length, builds each with `build.sh` into a fresh target and with no compile cache (a cached object would
+  copy, and prove nothing), and `cmp`s `theseusd`, `theseus`, `theseus-tui`, and `theseus-sim`. Two full builds from
+  scratch: tens of minutes, so run it niced and detached. It exits 1 when a binary differs, and keeps the trees. Run it
+  after a toolchain bump, a dependency change that adds a build script, and before a release; a nightly job is not
+  installed.
+- **The cockpit** (`cockpit/dist`) is not committed, so a binary built with it depends on an npm build. `repro.sh` builds
+  from the committed tree, with the page that says the cockpit is missing. Whether `npm run build` is itself reproducible is
+  not checked.
 
 ## smoke.sh
 
