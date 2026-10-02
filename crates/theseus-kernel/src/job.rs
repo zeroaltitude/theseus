@@ -454,7 +454,8 @@ fn linger(spool: &Spool, correlation_id: &str) {
 /// process whose first argument is the mode word is a wrapper, and its
 /// `--correlation-id`, before the `--` that starts the job's own argv, names
 /// the job ("?" if it has none). A zombie's command line is empty, so a
-/// wrapper that has exited is none.
+/// wrapper that has exited is none, and so is one still in its exec, whose
+/// job cannot be read yet (see `holder`).
 pub fn wrapper_job(pid: u32) -> Option<String> {
     let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     job_in_cmdline(&cmdline)
@@ -545,21 +546,72 @@ pub fn pid_alive(pid: u32) -> bool {
 
 /// A zombie, or a process being reaped (`/proc/<pid>/stat` state Z or X).
 fn exited(pid: u32) -> bool {
-    std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .ok()
-        .and_then(|s| {
-            s.rfind(')')
-                .map(|i| s[i + 1..].trim_start().starts_with(['Z', 'X']))
-        })
-        .unwrap_or(false)
+    proc_stat(pid).is_some_and(|s| matches!(s.state, 'Z' | 'X'))
 }
 
-/// Is `pid` the live wrapper of `job`? Its command line names the job, which
-/// a zombie's (empty) does not, and no other process's can: the daemon reaps
-/// its wrappers (theseus-z4b), so a wrapper's pid may be reused once it has
-/// gone.
+/// What holds a job's wrapper pid now (theseus-mi6a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Holder {
+    /// The job's wrapper: its command line names the job.
+    Wrapper,
+    /// A live process whose command line is still empty: in its exec, or
+    /// ending. Whose it is shows at the next look.
+    Starting,
+    /// Another process, which took the pid once the wrapper was reaped, or a
+    /// kernel thread.
+    Other,
+    /// No live process: none at all, or a zombie.
+    Gone,
+}
+
+/// The flag of a kernel thread in `/proc/<pid>/stat` (`PF_KTHREAD`), whose
+/// command line is empty for good.
+const PF_KTHREAD: u64 = 0x0020_0000;
+
+/// What holds `pid` now, for `job` (theseus-mi6a). A process in its exec has
+/// an empty command line, as a zombie has: the exec has switched to the new
+/// image, and has not set its arguments yet. A spawn returns inside that
+/// window, so a wrapper spawned a moment ago may read so. Measured
+/// 2026-10-01: a quarter of reads made at once came back empty at load 12,
+/// for about 0.1 ms, and the window lasted up to 84 ms for a child starved
+/// at nice 19, in state R, S, or D. Its state tells it from a zombie.
+pub fn holder(pid: u32, job: &str) -> Holder {
+    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok();
+    let stat = match &cmdline {
+        Some(c) if c.is_empty() => proc_stat(pid).map(|s| (s.state, s.flags)),
+        _ => None,
+    };
+    decide(cmdline.as_deref(), stat, job)
+}
+
+/// `holder`'s rule, over what `/proc` gave: the command line (`None`: no such
+/// process) and, for an empty one, the state letter and the flags.
+fn decide(cmdline: Option<&[u8]>, stat: Option<(char, u64)>, job: &str) -> Holder {
+    match (cmdline, stat) {
+        (None, _) => Holder::Gone,
+        (Some(c), _) if !c.is_empty() => {
+            if job_in_cmdline(c).as_deref() == Some(job) {
+                Holder::Wrapper
+            } else {
+                Holder::Other
+            }
+        }
+        (Some(_), None | Some(('Z' | 'X', _))) => Holder::Gone,
+        (Some(_), Some((_, flags))) if flags & PF_KTHREAD != 0 => Holder::Other,
+        (Some(_), Some(_)) => Holder::Starting,
+    }
+}
+
+/// Is `pid` the live wrapper of `job`, as far as can be told? Its command
+/// line names the job, which a zombie's (empty) does not, and no other
+/// process's can: the daemon reaps its wrappers (theseus-z4b), so a
+/// wrapper's pid may be reused once it has gone. A live process still in its
+/// exec counts as alive too (theseus-mi6a): it is the wrapper a moment after
+/// its spawn, and a reader that keeps or waits on a live wrapper decides
+/// again at its next look. A stop, which signals, waits for the exec instead
+/// (`Stopping`).
 pub fn wrapper_alive(pid: u32, job: &str) -> bool {
-    wrapper_job(pid).as_deref() == Some(job)
+    matches!(holder(pid, job), Holder::Wrapper | Holder::Starting)
 }
 
 /// How long `execution.cancel` and `/stop` give the jobs they stop, after
@@ -590,7 +642,12 @@ const STOP_POLL_MAX: Duration = Duration::from_millis(50);
 /// A group is signalled only while `pid` is still this job's wrapper, or no
 /// live process at all: while any process of the group lives, its id is not
 /// handed out again, but once the wrapper has been reaped and the group is
-/// empty, `pid` may be another process's, which is left alone.
+/// empty, `pid` may be another process's, which is left alone. A live process
+/// whose command line is still empty is in its exec (theseus-mi6a), and may
+/// be either: its group is signalled once it reads as the wrapper, at a later
+/// look, and never if it reads as another process. Before, a stop that came
+/// a moment after a job's spawn took its wrapper for another process, sent
+/// nothing, and said the job was gone while it ran on.
 pub struct Stopping {
     jobs: Vec<Stopped>,
     grace: Duration,
@@ -603,44 +660,72 @@ pub struct Stopping {
 struct Stopped {
     pid: u32,
     job: String,
+    /// Its group has been signalled: its wrapper read as the job's, or as no
+    /// live process.
+    signalled: bool,
     gone: bool,
 }
 
 impl Stopping {
-    /// SIGTERM every job's process group, now.
+    /// SIGTERM every job's process group, now; a job whose wrapper is still
+    /// in its exec, at the first look that reads it as the job's.
     pub fn start(jobs: impl IntoIterator<Item = (u32, String)>, grace: Duration) -> Self {
-        let jobs = jobs
-            .into_iter()
-            .map(|(pid, job)| {
-                // Another process holds the pid: the job is long gone.
-                let gone = pid_alive(pid) && !wrapper_alive(pid, &job);
-                if !gone {
-                    signal_group(pid, libc::SIGTERM);
-                }
-                Stopped { pid, job, gone }
-            })
-            .collect();
-        Self {
-            jobs,
+        let mut s = Self {
+            jobs: jobs
+                .into_iter()
+                .map(|(pid, job)| Stopped {
+                    pid,
+                    job,
+                    signalled: false,
+                    gone: false,
+                })
+                .collect(),
             grace,
             started: Instant::now(),
             killed: None,
             polls: 0,
+        };
+        s.signal_known();
+        s
+    }
+
+    /// Signal each job not yet signalled whose pid now reads as its wrapper
+    /// or as no live process: SIGTERM, or SIGKILL once the grace is over. A
+    /// pid another process holds means the job is long gone; one still in
+    /// its exec waits for the next look.
+    fn signal_known(&mut self) {
+        let signal = if self.killed.is_some() {
+            libc::SIGKILL
+        } else {
+            libc::SIGTERM
+        };
+        for j in self.jobs.iter_mut().filter(|j| !j.signalled && !j.gone) {
+            match holder(j.pid, &j.job) {
+                Holder::Other => j.gone = true,
+                Holder::Starting => {}
+                Holder::Wrapper | Holder::Gone => {
+                    signal_group(j.pid, signal);
+                    j.signalled = true;
+                }
+            }
         }
     }
 
     /// Look at every job not yet gone; past the grace, SIGKILL the group of
-    /// each, once. How long to wait before the next look, or `None` once the
-    /// stop has settled: every job gone, or the kill's wait over.
+    /// each signalled one, once. How long to wait before the next look, or
+    /// `None` once the stop has settled: every job gone, or the kill's wait
+    /// over. A job never signalled, its wrapper in its exec all along, is not
+    /// gone.
     pub fn poll(&mut self) -> Option<Duration> {
+        self.signal_known();
         let running: Vec<u32> = self
             .jobs
             .iter()
-            .filter(|j| !j.gone)
+            .filter(|j| j.signalled && !j.gone)
             .map(|j| j.pid)
             .collect();
         let live = live_groups(&running);
-        for j in self.jobs.iter_mut().filter(|j| !j.gone) {
+        for j in self.jobs.iter_mut().filter(|j| j.signalled && !j.gone) {
             j.gone = !live.contains(&j.pid) && !wrapper_alive(j.pid, &j.job);
         }
         if self.all_gone() {
@@ -649,7 +734,7 @@ impl Stopping {
         let now = Instant::now();
         let left = match self.killed {
             None if now >= self.started + self.grace => {
-                for j in self.jobs.iter().filter(|j| !j.gone) {
+                for j in self.jobs.iter().filter(|j| j.signalled && !j.gone) {
                     signal_group(j.pid, libc::SIGKILL);
                 }
                 self.killed = Some(now);
@@ -718,22 +803,34 @@ fn live_groups(pgids: &[u32]) -> Vec<u32> {
         let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
             continue;
         };
-        if let Some((state, pgrp)) = state_and_group(pid) {
-            if members.contains(&pgrp) && !matches!(state, 'Z' | 'X') && !live.contains(&pgrp) {
-                live.push(pgrp);
+        if let Some(s) = proc_stat(pid) {
+            if members.contains(&s.pgrp) && !matches!(s.state, 'Z' | 'X') && !live.contains(&s.pgrp)
+            {
+                live.push(s.pgrp);
             }
         }
     }
     live
 }
 
-/// A process's state letter and process group, from `/proc/<pid>/stat`.
-fn state_and_group(pid: u32) -> Option<(char, u32)> {
+/// What `/proc/<pid>/stat` says of a process.
+struct ProcStat {
+    state: char,
+    pgrp: u32,
+    flags: u64,
+}
+
+/// A process's state letter, process group, and flags, from
+/// `/proc/<pid>/stat`.
+fn proc_stat(pid: u32) -> Option<ProcStat> {
     let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let mut f = s[s.rfind(')')? + 1..].split_whitespace();
     let state = f.next()?.chars().next()?;
     f.next()?; // the parent's pid
-    Some((state, f.next()?.parse().ok()?))
+    let pgrp = f.next()?.parse().ok()?;
+    // After the session, the terminal, and its process group.
+    let flags = f.nth(3)?.parse().ok()?;
+    Some(ProcStat { state, pgrp, flags })
 }
 
 /// Evidence from the spool and the wrapper pids.
@@ -1122,7 +1219,105 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!pid_alive(pid), "unreaped, it still answers kill(pid, 0)");
+        assert_eq!(holder(pid, "act_1"), Holder::Gone);
+        assert!(!wrapper_alive(pid, "act_1"));
         child.wait().unwrap();
         assert!(pid_alive(std::process::id()));
+    }
+
+    /// What holds a wrapper's pid (theseus-mi6a), from its command line and,
+    /// when that is empty, its state. A process in its exec and a zombie both
+    /// have an empty command line; the state tells them apart, and a kernel
+    /// thread's flag tells it from a process starting. Only the wrapper and
+    /// a process still in its exec count as alive.
+    #[test]
+    fn the_holder_of_a_wrappers_pid_is_told_by_its_command_line_then_its_state() {
+        let job = "act_1";
+        let wrapper = cmdline(&[
+            "theseusd",
+            WRAPPER_MODE,
+            "--correlation-id",
+            job,
+            "--",
+            "sh",
+        ]);
+        let others = [
+            cmdline(&[
+                "theseusd",
+                WRAPPER_MODE,
+                "--correlation-id",
+                "act_2",
+                "--",
+                "sh",
+            ]),
+            cmdline(&["sleep", "30"]),
+            cmdline(&["sh", "-c", "theseusd job-wrapper --correlation-id act_1"]),
+        ];
+        // Running, sleeping, and waiting on the disk, as a starved exec was
+        // seen to be; also stopped, traced, and idle.
+        let live = ['R', 'S', 'D', 'T', 't', 'I'];
+        for state in live {
+            assert_eq!(decide(Some(&wrapper), None, job), Holder::Wrapper);
+            assert_eq!(
+                decide(Some(&[]), Some((state, 0)), job),
+                Holder::Starting,
+                "{state}"
+            );
+            assert_eq!(
+                decide(Some(&[]), Some((state, 0x40_0140)), job),
+                Holder::Starting,
+                "{state}, other flags"
+            );
+            assert_eq!(
+                decide(Some(&[]), Some((state, PF_KTHREAD | 0x8040)), job),
+                Holder::Other,
+                "a kernel thread, {state}"
+            );
+        }
+        for other in &others {
+            assert_eq!(decide(Some(other), None, job), Holder::Other, "{other:?}");
+        }
+        for zombie in ['Z', 'X'] {
+            assert_eq!(decide(Some(&[]), Some((zombie, 0)), job), Holder::Gone);
+        }
+        // No such process, or none left by the time its state was read.
+        assert_eq!(decide(None, None, job), Holder::Gone);
+        assert_eq!(decide(Some(&[]), None, job), Holder::Gone);
+    }
+
+    /// `holder` over live processes: this one is another process, and a
+    /// stand-in wrapper, once its exec is done, is the wrapper of its job and
+    /// of no other.
+    #[test]
+    fn a_live_wrapper_and_another_process_are_told_apart() {
+        let me = std::process::id();
+        assert_eq!(holder(me, "act_1"), Holder::Other);
+        assert!(!wrapper_alive(me, "act_1"));
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join(WRAPPER_MODE),
+            "while [ -d \"$PWD\" ]; do sleep 0.05; done\n",
+        )
+        .unwrap();
+        let mut w = Command::new("sh")
+            .args([WRAPPER_MODE, "--correlation-id", "act_1"])
+            .current_dir(d.path())
+            .spawn()
+            .unwrap();
+        let pid = w.id();
+        let t0 = Instant::now();
+        while holder(pid, "act_1") == Holder::Starting {
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "its exec never ended"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(holder(pid, "act_1"), Holder::Wrapper);
+        assert!(wrapper_alive(pid, "act_1"));
+        assert_eq!(holder(pid, "act_2"), Holder::Other);
+        assert!(!wrapper_alive(pid, "act_2"));
+        let _ = w.kill();
+        let _ = w.wait();
     }
 }

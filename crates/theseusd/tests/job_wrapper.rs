@@ -416,11 +416,231 @@ fn a_cancel_leaves_a_process_that_took_the_wrappers_pid_alone() {
         .spawn()
         .unwrap();
     let pid = other.id();
+    // Until its exec is done, nobody can tell whose it is (theseus-mi6a).
+    wait_for("sleep's exec", || {
+        std::fs::read(format!("/proc/{pid}/cmdline"))
+            .ok()
+            .filter(|c| c.starts_with(b"sleep\0"))
+    });
     assert!(!job::wrapper_alive(pid, "act_gone"));
     assert!(job::terminate(pid, "act_gone", Duration::from_secs(2)));
     assert!(alive(pid), "not the job's wrapper, so not signalled");
     let _ = other.kill();
     let _ = other.wait();
+}
+
+/// A child that reads as a process in its exec until it is released, then
+/// execs `argv` for real (theseus-mi6a). A real exec reads so for about 0.1
+/// ms after its spawn returns, from its switch to the new image until it sets
+/// the image's arguments; this one holds that state open. Forked from a
+/// thread of its own, it leads its own session and process group, as
+/// `spawn_detached` makes a wrapper, unmaps the pages that hold the
+/// arguments it inherited, so that its command line reads empty, and waits
+/// on a pipe. Everything it uses after the fork is made before it.
+///
+/// It unmaps from its arguments' page to the end of the main stack, the
+/// environment's pages included. A hole below a part of the stack left
+/// mapped is not empty to `/proc`: the read of a command line grows the stack
+/// down over it and reads zeros.
+struct InExec {
+    pid: u32,
+    release: std::os::fd::OwnedFd,
+}
+
+impl InExec {
+    fn start(cwd: &Path, argv: &[String]) -> Self {
+        use std::ffi::{c_void, CString};
+        use std::os::fd::FromRawFd;
+        use std::os::unix::ffi::OsStrExt;
+        let path = CString::new(argv[0].as_str()).unwrap();
+        let args: Vec<CString> = argv
+            .iter()
+            .map(|a| CString::new(a.as_str()).unwrap())
+            .collect();
+        let env = [CString::new(format!(
+            "PATH={}",
+            std::env::var("PATH").unwrap_or_default()
+        ))
+        .unwrap()];
+        let cwd = CString::new(cwd.as_os_str().as_bytes()).unwrap();
+        let null = CString::new("/dev/null").unwrap();
+        // This process's arguments start at `/proc/self/stat`'s field 48
+        // (arg_start); the mapping that holds them ends the stack.
+        let s = std::fs::read_to_string("/proc/self/stat").unwrap();
+        let arg_start: usize = s[s.rfind(')').unwrap() + 2..]
+            .split_whitespace()
+            .nth(45)
+            .and_then(|x| x.parse().ok())
+            .unwrap();
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        let lo = arg_start & !(page - 1);
+        let hi = std::fs::read_to_string("/proc/self/maps")
+            .unwrap()
+            .lines()
+            .find_map(|l| {
+                let (a, b) = l.split_whitespace().next()?.split_once('-')?;
+                let (a, b) = (
+                    usize::from_str_radix(a, 16).ok()?,
+                    usize::from_str_radix(b, 16).ok()?,
+                );
+                (a <= arg_start && arg_start < b).then_some(b)
+            })
+            .expect("the mapping that holds the arguments");
+        assert!(lo > 0 && hi > lo, "no argument area in /proc/self/stat");
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
+        let [wait_fd, release_fd] = fds;
+        // The main thread's stack holds the arguments; this thread's does not.
+        let pid = std::thread::spawn(move || {
+            let mut argp: Vec<*const libc::c_char> = args.iter().map(|a| a.as_ptr()).collect();
+            argp.push(std::ptr::null());
+            let envp = [env[0].as_ptr(), std::ptr::null()];
+            // SAFETY: after the fork the child makes system calls only, on
+            // memory made before it, and ends in `execve` or `_exit`.
+            unsafe {
+                let pid = libc::fork();
+                if pid == 0 {
+                    libc::close(release_fd);
+                    libc::setsid();
+                    libc::munmap(lo as *mut c_void, hi - lo);
+                    let mut b = 0u8;
+                    if libc::read(wait_fd, (&mut b as *mut u8).cast(), 1) == 1 {
+                        // Its own stdio, as a wrapper's is: never the test's.
+                        let n = libc::open(null.as_ptr(), libc::O_RDWR);
+                        for fd in 0..3 {
+                            libc::dup2(n, fd);
+                        }
+                        libc::chdir(cwd.as_ptr());
+                        libc::execve(path.as_ptr(), argp.as_ptr(), envp.as_ptr());
+                    }
+                    libc::_exit(127);
+                }
+                pid
+            }
+        })
+        .join()
+        .unwrap();
+        assert!(pid > 0, "fork failed");
+        unsafe { libc::close(wait_fd) };
+        Self {
+            pid: pid as u32,
+            // SAFETY: the pipe's write end, owned here alone.
+            release: unsafe { std::os::fd::OwnedFd::from_raw_fd(release_fd) },
+        }
+    }
+
+    /// Wait until `holder` reads it as a process in its exec; on a timeout,
+    /// say what `/proc` showed instead.
+    fn wait_starting(&self, job: &str) {
+        let t0 = Instant::now();
+        while job::holder(self.pid, job) != job::Holder::Starting {
+            if t0.elapsed() > Duration::from_secs(10) {
+                let cmdline = std::fs::read(format!("/proc/{}/cmdline", self.pid));
+                let stat = std::fs::read_to_string(format!("/proc/{}/stat", self.pid));
+                panic!(
+                    "the child never read as in its exec: {:?}; cmdline {cmdline:?}; stat {stat:?}",
+                    job::holder(self.pid, job)
+                );
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Let it exec.
+    fn release(&self) {
+        use std::io::Write;
+        let mut f = std::fs::File::from(self.release.try_clone().unwrap());
+        f.write_all(b"x").unwrap();
+    }
+
+    /// Reap it, killing its group first if it still runs; how it ended.
+    fn reap(&self) -> libc::c_int {
+        unsafe { libc::kill(-(self.pid as i32), libc::SIGKILL) };
+        let mut status = 0;
+        unsafe { libc::waitpid(self.pid as i32, &mut status, 0) };
+        status
+    }
+}
+
+/// A stop that comes while a job's wrapper is still in its exec
+/// (theseus-mi6a). Its command line reads empty, as a zombie's does, but it
+/// is live: the stop must not take it for another process holding the pid,
+/// skip its signal, and say the job is gone while it runs on, as it did. It
+/// signals nothing until the pid reads as the job's wrapper, then stops the
+/// wrapper and its command as it stops any job.
+#[test]
+fn a_stop_waits_for_a_wrapper_still_in_its_exec_then_stops_it() {
+    let rig = Rig::new();
+    let id = "act_starting";
+    let dir = rig.dir.path().display().to_string();
+    let argv: Vec<String> = [
+        env!("CARGO_BIN_EXE_theseusd"),
+        job::WRAPPER_MODE,
+        "--spool",
+        &rig.spool.dir().display().to_string(),
+        "--correlation-id",
+        id,
+        "--deadline-ms",
+        "60000",
+        "--",
+        "sh",
+        "-c",
+        "echo $$ > main.pid; while [ -d \"$1\" ]; do sleep 0.05; done",
+        "sh",
+        &dir,
+    ]
+    .map(String::from)
+    .into();
+    let w = InExec::start(rig.dir.path(), &argv);
+    w.wait_starting(id);
+    assert!(
+        job::wrapper_alive(w.pid, id),
+        "in its exec, it counts as alive"
+    );
+    let mut stop = job::Stopping::start([(w.pid, id.to_string())], job::STOP_GRACE);
+    assert!(!stop.all_gone(), "not taken for another process");
+    assert!(stop.poll().is_some(), "still waiting for it");
+    assert!(alive(w.pid), "nothing signalled while it cannot be told");
+    // The exec completes, and the wrapper starts the job's command.
+    w.release();
+    let main = rig.pid("main.pid");
+    assert_eq!(job::holder(w.pid, id), job::Holder::Wrapper);
+    while let Some(wait) = stop.poll() {
+        std::thread::sleep(wait);
+    }
+    assert!(stop.all_gone(), "the stop saw it end");
+    assert!(!alive(main), "the command is gone");
+    let status = w.reap();
+    assert!(
+        libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGTERM,
+        "the wrapper ended by the stop's SIGTERM: status {status:#x}"
+    );
+}
+
+/// The other side of the same window (theseus-mi6a): a process in its exec
+/// may be another program that took a reaped wrapper's pid. The stop waits
+/// to read it, finds another program, and leaves it alone.
+#[test]
+fn a_stop_leaves_alone_a_process_in_its_exec_that_becomes_another_program() {
+    let rig = Rig::new();
+    let id = "act_reused";
+    let sleep = ["/usr/bin/sleep", "/bin/sleep"]
+        .into_iter()
+        .find(|p| Path::new(p).exists())
+        .unwrap();
+    let w = InExec::start(rig.dir.path(), &[sleep.to_string(), "30".into()]);
+    w.wait_starting(id);
+    let mut stop = job::Stopping::start([(w.pid, id.to_string())], job::STOP_GRACE);
+    assert!(!stop.all_gone());
+    w.release();
+    wait_for("sleep's exec", || {
+        (job::holder(w.pid, id) == job::Holder::Other).then_some(())
+    });
+    assert_eq!(stop.poll(), None, "another program: the job is long gone");
+    assert!(stop.all_gone());
+    assert!(alive(w.pid), "not the job's wrapper, so not signalled");
+    let status = w.reap();
+    assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
 }
 
 /// An invented granted value: 26 bytes, two halves of 13.
