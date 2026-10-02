@@ -6,20 +6,19 @@
 //! Exit codes: 0 ok · 1 server/provider error · 2 usage · 3 cannot connect.
 //!
 //! `run` matches the subcommand; each one is a function in `cmd.rs`, and
-//! what it prints is `render.rs`'s (theseus-0g4, finding 11).
+//! what it prints is `render.rs`'s (theseus-0g4, finding 11). Since
+//! theseus-7yx (step 10a) the connection (`client`) and the renderers
+//! (`render`) are this package's library, which the TUI shares, and
+//! `print.rs` writes the lines they return.
 
 mod cmd;
-mod render;
+mod print;
 
 use std::path::PathBuf;
-use std::process::Stdio;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
-use serde::Serialize;
-use serde_json::Value;
-use theseus_protocol::{Id, Message, Request};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use theseus_client::Conn;
 
 const AFTER_HELP: &str = "\
 Quick start:
@@ -334,142 +333,6 @@ enum SessionsCmd {
         #[arg(long, default_value = "fresh", value_parser = ["fresh", "transcript"])]
         strategy: String,
     },
-}
-
-/// A JSON-RPC error response, kept structured so callers can read `data`.
-#[derive(Debug)]
-struct CallError {
-    code: i64,
-    message: String,
-    data: Value,
-}
-
-impl std::fmt::Display for CallError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let class = self.data.get("class").and_then(Value::as_str);
-        let transient = self.data.get("transient").and_then(Value::as_bool);
-        match (class, transient) {
-            (Some(c), Some(t)) => write!(
-                f,
-                "{} [class={c}, transient={t}, code {}]",
-                self.message, self.code
-            ),
-            // `config_unconfirmed` (theseus-2fo) names its class alone.
-            (Some(c), None) => write!(f, "{} [class={c}, code {}]", self.message, self.code),
-            _ => write!(f, "{} (code {})", self.message, self.code),
-        }
-    }
-}
-
-impl std::error::Error for CallError {}
-
-struct Conn {
-    reader: BufReader<Box<dyn AsyncRead + Unpin + Send>>,
-    writer: Box<dyn AsyncWrite + Unpin + Send>,
-    _child: Option<tokio::process::Child>,
-    next_id: u64,
-}
-
-impl Conn {
-    async fn socket(path: &str) -> Result<Self> {
-        let path = PathBuf::from(shellexpand::tilde(path).into_owned());
-        let stream = tokio::net::UnixStream::connect(&path)
-            .await
-            .with_context(|| {
-                format!(
-                    "connecting to theseusd at {} (is it running? try --spawn)",
-                    path.display()
-                )
-            })?;
-        let (r, w) = stream.into_split();
-        Ok(Self {
-            reader: BufReader::new(Box::new(r)),
-            writer: Box::new(w),
-            _child: None,
-            next_id: 1,
-        })
-    }
-
-    fn spawn(bin: &str) -> Result<Self> {
-        let mut child = tokio::process::Command::new(bin)
-            .arg("--stdio")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()
-            .with_context(|| format!("spawning {bin}"))?;
-        let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
-        Ok(Self {
-            reader: BufReader::new(Box::new(stdout)),
-            writer: Box::new(stdin),
-            _child: Some(child),
-            next_id: 1,
-        })
-    }
-
-    async fn send(&mut self, method: &str, params: Value) -> Result<Id> {
-        let id = Id::Num(self.next_id);
-        self.next_id += 1;
-        let mut line = serde_json::to_string(&Request::new(id.clone(), method, params))?;
-        line.push('\n');
-        self.writer.write_all(line.as_bytes()).await?;
-        self.writer.flush().await?;
-        Ok(id)
-    }
-
-    async fn next(&mut self) -> Result<Option<Message>> {
-        let mut line = String::new();
-        loop {
-            line.clear();
-            let n = self.reader.read_line(&mut line).await?;
-            if n == 0 {
-                return Ok(None);
-            }
-            if line.trim().is_empty() {
-                continue;
-            }
-            return Ok(Some(
-                serde_json::from_str(line.trim()).context("bad line from server")?,
-            ));
-        }
-    }
-
-    /// Send a request and wait for its response, handing notifications to `on_notify`.
-    async fn call(
-        &mut self,
-        method: &str,
-        params: Value,
-        mut on_notify: impl FnMut(&str, &Value),
-    ) -> Result<Value> {
-        let id = self.send(method, params).await?;
-        while let Some(msg) = self.next().await? {
-            match msg {
-                Message::Notification(n) => on_notify(&n.method, &n.params),
-                Message::Response(r) if r.id == id => {
-                    if let Some(e) = r.error {
-                        return Err(CallError {
-                            code: e.code,
-                            message: e.message,
-                            data: e.data,
-                        }
-                        .into());
-                    }
-                    return Ok(r.result.unwrap_or(Value::Null));
-                }
-                _ => {}
-            }
-        }
-        Err(anyhow!("connection closed before response"))
-    }
-
-    /// A request whose answer is all it waits for: its notifications, if
-    /// any, are dropped.
-    async fn request(&mut self, method: &str, params: impl Serialize) -> Result<Value> {
-        self.call(method, serde_json::to_value(params)?, |_, _| {})
-            .await
-    }
 }
 
 #[tokio::main]

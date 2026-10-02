@@ -1,11 +1,16 @@
-//! The CLI's renderers (theseus-0g4, finding 11): what a terminal shows of a
-//! session's live events (`Printer`), of its history (`print_node`), of a
-//! turn's trace (`print_span`), and every line `theseus health` and the other
-//! commands print. Each writes to the writer it is given, or returns its
-//! line, so tests read them as text. The golden tests in `tests/golden.rs`
-//! hold the bytes.
-
-use std::io::{self, Stderr, Stdout, Write};
+//! What a terminal shows of the daemon's answers and events (theseus-0g4,
+//! finding 11; a library since theseus-7yx, step 10a): a session's live
+//! events (`event`), its history (`node_lines`), its questions
+//! (`confirm_lines`), a turn's trace (`span_lines`), and every line
+//! `theseus health` and the other commands print.
+//!
+//! Nothing here prints. What a client shows comes back as [`Line`]s, each a
+//! text with a [`Tag`]: the CLI prints the text (`print.rs` in its binary),
+//! and the TUI styles it by its tag. Lines come back for a session's events,
+//! nodes, and questions, for the rows that carry an attention pill (tagged
+//! with its level), and for everything that once wrote to a writer. The
+//! parts of a line, and the one-line answers only the CLI prints, are
+//! `String`s. The golden tests in `tests/golden.rs` hold the bytes.
 
 use serde_json::Value;
 use theseus_protocol::{
@@ -13,168 +18,148 @@ use theseus_protocol::{
     ToolEnded, ToolListResult, TurnSubmitResult,
 };
 
-/// What a `Printer` shows of a session's events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    /// The reply streamed on stdout as it comes, and each event on stderr:
-    /// `ask`, and the turn `confirm` follows.
-    Text,
-    /// Each event on stderr, and none of the reply, which the command prints
-    /// once at the end: `ask --no-stream`.
-    Quiet,
-    /// `Text`, plus each turn's start and end and every context decision:
-    /// `watch`.
-    Watch,
-    /// Nothing: the command prints its result as JSON (`--json`).
-    Json,
+/// What a line is, as the CLI's marks have always told one from another. The
+/// CLI prints a line's text alone, so a tag changes nothing it prints; the
+/// TUI styles a line by it. A row that carries no other tag is `Plain`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Tag {
+    /// Anything no other tag names: a command's rows and lines, the
+    /// operator's message in a history, a span of a turn's trace, health.
+    #[default]
+    Plain,
+    /// The model's reply: its text as it streams, and a reply in a history.
+    Reply,
+    /// The model's thinking summary.
+    Thinking,
+    /// A tool call: its start (`→`) and its end (`←`), and a call and its
+    /// result in a history (`⚙`, `←`).
+    Tool,
+    /// A question that waits for you: a call to confirm (`?`), or a session
+    /// at its spend limit (`$`).
+    Ask,
+    /// An answer that approved (`✓`).
+    Ok,
+    /// What to look at that is no failure: a call that ran with a notice
+    /// (`!`), a posture's change (`🔒`), and an answer that did not approve
+    /// (`✗`: declined, superseded, or cancelled).
+    Warn,
+    /// A failure or a refusal: a turn that failed (`✗`), or a job's answer
+    /// that was refused (`🚨`).
+    Bad,
+    /// What goes with the line before it, and a turn's frame: a question's
+    /// input and how to answer it, a notice's setting and its undo, a context
+    /// decision (`⟳`), a turn's start (`──`) and its status line (`[…]`), and
+    /// a reply's usage in a history (`↳`).
+    Dim,
+    /// A row that carries an attention pill (a session, an execution, a task,
+    /// a watched view, a wait's end): the pill's level.
+    Level(Level),
 }
 
-/// Renders live session events for a terminal: the model's text on `out`
-/// (stdout), everything else (tools, confirmations, context decisions) on
-/// `err` (stderr).
-pub struct Printer<O: Write = Stdout, E: Write = Stderr> {
-    mode: Mode,
-    /// The model's thinking summaries too, on `err`, as they stream.
-    thinking: bool,
-    out: O,
-    err: E,
-    stdout_mid_line: bool,
-    thinking_open: bool,
+/// One line: its text, with no newline at its end, and its tag. A renderer
+/// that returns several splits its text at its newlines, so each is one row
+/// on a screen; one that returns a single row (`session_row`, `task_line`)
+/// keeps any newline the daemon's text holds. From `event`, a `Reply` or
+/// `Thinking` line is a piece of its stream instead (see `event`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Line {
+    pub tag: Tag,
+    pub text: String,
 }
 
-impl Printer {
-    /// A printer to the terminal.
-    pub fn new(mode: Mode, thinking: bool) -> Self {
-        Self::to(mode, thinking, io::stdout(), io::stderr())
-    }
-}
-
-impl<O: Write, E: Write> Printer<O, E> {
-    pub fn to(mode: Mode, thinking: bool, out: O, err: E) -> Self {
+impl Line {
+    pub fn new(tag: Tag, text: impl Into<String>) -> Self {
         Self {
-            mode,
-            thinking,
-            out,
-            err,
-            stdout_mid_line: false,
-            thinking_open: false,
+            tag,
+            text: text.into(),
         }
     }
+}
 
-    /// What it wrote to `out` and to `err`.
-    #[cfg(test)]
-    pub fn into_parts(self) -> (O, E) {
-        (self.out, self.err)
-    }
+/// `text` as lines with `tag`, split at its newlines, so each line is one
+/// row. Joined again by newlines, they are the text: a reason or an error
+/// that holds a newline prints as it always did.
+fn push(out: &mut Vec<Line>, tag: Tag, text: &str) {
+    out.extend(text.split('\n').map(|t| Line::new(tag, t)));
+}
 
-    /// Finish a partial stdout line or thinking run before an event line.
-    pub fn settle(&mut self) {
-        if self.thinking_open {
-            let _ = writeln!(self.err);
-            self.thinking_open = false;
+/// Which of a session's events `event` shows. `ask` shows the reply and the
+/// calls, and `watch` each turn's start and end too.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Show {
+    /// The reply as it streams (`ask --no-stream` prints it once, at the
+    /// end, instead).
+    pub reply: bool,
+    /// The model's thinking summaries.
+    pub thinking: bool,
+    /// Each turn's start and end, and every context decision rather than
+    /// only a recompile (`watch`).
+    pub turns: bool,
+}
+
+/// What one of a session's events shows, as lines: none for one it does not
+/// show. A `Reply` or `Thinking` line is a piece of its stream, as it came:
+/// it may hold several lines, or end inside one, and the next piece goes on
+/// where it stopped. A line of any other tag is whole, and a client ends a
+/// stream's open line before it.
+pub fn event(e: &Event, show: Show) -> Vec<Line> {
+    let mut out = Vec::new();
+    match e {
+        Event::ModelDelta(d) if show.reply => out.push(Line::new(Tag::Reply, d.text.as_str())),
+        Event::ModelThinking(d) if show.thinking => {
+            out.push(Line::new(Tag::Thinking, d.text.as_str()));
         }
-        if self.stdout_mid_line {
-            let _ = writeln!(self.out);
-            let _ = self.out.flush();
-            self.stdout_mid_line = false;
+        Event::ToolStarted(s) => {
+            let argv = s
+                .argv
+                .as_ref()
+                .map(|a| {
+                    format!(
+                        " [{}]{}",
+                        a.join(" "),
+                        s.pid.map(|p| format!(" pid {p}")).unwrap_or_default()
+                    )
+                })
+                .unwrap_or_default();
+            push(&mut out, Tag::Tool, &format!("  → {}{argv}", s.tool));
         }
-    }
-
-    /// One notification, as the connection hands it over.
-    pub fn on(&mut self, m: &str, p: &Value) {
-        if let Ok(Some(e)) = Event::from_notification(m, p) {
-            self.on_event(&e);
+        Event::ToolEnded(t) => push(&mut out, Tag::Tool, &tool_ended_line(t)),
+        Event::ConfirmRequested(c) if c.budget.is_some() => {
+            push(&mut out, Tag::Ask, &format!("  $ {}", c.reason));
+            budget_answers(&mut out, c);
         }
-    }
-
-    pub fn on_event(&mut self, e: &Event) {
-        let (text, verbose) = match self.mode {
-            Mode::Json => return,
-            Mode::Text => (true, false),
-            Mode::Quiet => (false, false),
-            Mode::Watch => (true, true),
-        };
-        match e {
-            Event::ModelDelta(d) if text => {
-                if self.thinking_open {
-                    let _ = writeln!(self.err);
-                    self.thinking_open = false;
-                }
-                let _ = self.out.write_all(d.text.as_bytes());
-                let _ = self.out.flush();
-                if !d.text.is_empty() {
-                    self.stdout_mid_line = !d.text.ends_with('\n');
-                }
-            }
-            Event::ModelThinking(d) if self.thinking => {
-                if !self.thinking_open {
-                    self.settle();
-                    let _ = write!(self.err, "  (thinking) ");
-                    self.thinking_open = true;
-                }
-                let _ = write!(self.err, "{}", d.text.replace('\n', "\n             "));
-            }
-            Event::ToolStarted(s) => {
-                self.settle();
-                let argv = s
-                    .argv
-                    .as_ref()
-                    .map(|a| {
-                        format!(
-                            " [{}]{}",
-                            a.join(" "),
-                            s.pid.map(|p| format!(" pid {p}")).unwrap_or_default()
-                        )
-                    })
-                    .unwrap_or_default();
-                let _ = writeln!(self.err, "  → {}{argv}", s.tool);
-            }
-            Event::ToolEnded(t) => {
-                self.settle();
-                let _ = writeln!(self.err, "{}", tool_ended_line(t));
-            }
-            Event::ConfirmRequested(c) => {
-                self.settle();
-                if c.budget.is_some() {
-                    let _ = writeln!(
-                        self.err,
-                        "  $ {}\n      reset and continue: theseus confirm {}\n      keep waiting: theseus confirm --decline {}",
-                        c.reason, c.correlation_id, c.correlation_id
-                    );
-                    return;
-                }
-                let _ = writeln!(
-                    self.err,
-                    "  ? {} needs your confirmation{}: {}\n      input: {}\n      approve: theseus confirm {}{}\n      decline: theseus confirm --decline {}",
+        Event::ConfirmRequested(c) => {
+            push(
+                &mut out,
+                Tag::Ask,
+                &format!(
+                    "  ? {} needs your confirmation{}: {}",
                     c.tool,
                     if c.floor { " (FLOOR)" } else { "" },
-                    c.reason,
-                    clip(&c.input.to_string(), 200),
-                    c.correlation_id,
-                    // It waits because its session read external text
-                    // (theseus-9bp).
-                    if c.external_text.is_some() {
-                        format!(
-                            "\n      approve, and trust the session again: theseus confirm --trust {}",
-                            c.correlation_id
-                        )
-                    } else {
-                        String::new()
-                    },
-                    c.correlation_id
-                );
-            }
-            Event::PolicyNotified(n) => {
-                self.settle();
-                let _ = writeln!(
-                    self.err,
-                    "  ! notified: {}: {}{}\n      ({}) · should have asked: theseus policy tighten {}{}",
+                    c.reason
+                ),
+            );
+            answers(&mut out, c);
+        }
+        Event::PolicyNotified(n) => {
+            push(
+                &mut out,
+                Tag::Warn,
+                &format!(
+                    "  ! notified: {}: {}{}",
                     n.tool,
                     n.summary,
                     n.granted
                         .as_deref()
                         .map(|g| format!(" · 🔑 {g}"))
-                        .unwrap_or_default(),
+                        .unwrap_or_default()
+                ),
+            );
+            push(
+                &mut out,
+                Tag::Dim,
+                &format!(
+                    "      ({}) · should have asked: theseus policy tighten {}{}",
                     n.notice.setting,
                     n.tool,
                     if n.correlation_id.is_empty() {
@@ -182,50 +167,57 @@ impl<O: Write, E: Write> Printer<O, E> {
                     } else {
                         format!(" --call {}", n.correlation_id)
                     }
-                );
-            }
-            Event::PolicyTightened(r) | Event::PolicyUntightened(r) => {
-                self.settle();
-                let tightened = matches!(e, Event::PolicyTightened(_));
-                let _ = writeln!(self.err, "  🔒 {}", tightened_line(r, tightened));
-            }
-            Event::ApprovalRefused(r) => {
-                self.settle();
-                let _ = writeln!(self.err, "  🚨 {}", job_refusal_line(r));
-            }
-            Event::ConfirmResolved(r) => {
-                self.settle();
-                let by = r.by.as_deref().unwrap_or("");
-                if r.superseded {
-                    let _ = writeln!(
-                        self.err,
+                ),
+            );
+        }
+        Event::PolicyTightened(r) | Event::PolicyUntightened(r) => {
+            let tightened = matches!(e, Event::PolicyTightened(_));
+            push(
+                &mut out,
+                Tag::Warn,
+                &format!("  🔒 {}", tightened_line(r, tightened)),
+            );
+        }
+        Event::ApprovalRefused(r) => {
+            push(&mut out, Tag::Bad, &format!("  🚨 {}", job_refusal_line(r)));
+        }
+        Event::ConfirmResolved(r) => {
+            let by = r.by.as_deref().unwrap_or("");
+            let (tag, text) = if r.superseded {
+                (
+                    Tag::Warn,
+                    format!(
                         "  ✗ superseded {} (a new message arrived before an answer)",
                         r.correlation_id
-                    );
-                } else if r.cancelled {
-                    // Its execution was cancelled before an answer (theseus-w98).
-                    let _ = writeln!(
-                        self.err,
+                    ),
+                )
+            } else if r.cancelled {
+                // Its execution was cancelled before an answer (theseus-w98).
+                (
+                    Tag::Warn,
+                    format!(
                         "  ✗ cancelled {} (its execution was cancelled by {by})",
                         r.correlation_id
-                    );
-                } else {
-                    let _ = writeln!(
-                        self.err,
-                        "  {} {} (by {by})",
-                        if r.approved {
-                            "✓ approved"
-                        } else {
-                            "✗ declined"
-                        },
-                        r.correlation_id
-                    );
-                }
-            }
-            Event::ContextCompiled(c) if c.decision == "recompile" || verbose => {
-                self.settle();
-                let _ = writeln!(
-                    self.err,
+                    ),
+                )
+            } else if r.approved {
+                (
+                    Tag::Ok,
+                    format!("  ✓ approved {} (by {by})", r.correlation_id),
+                )
+            } else {
+                (
+                    Tag::Warn,
+                    format!("  ✗ declined {} (by {by})", r.correlation_id),
+                )
+            };
+            push(&mut out, tag, &text);
+        }
+        Event::ContextCompiled(c) if c.decision == "recompile" || show.turns => {
+            push(
+                &mut out,
+                Tag::Dim,
+                &format!(
                     "  ⟳ context {}{} · {} message(s) · ~{} tokens{}",
                     c.decision,
                     c.trigger
@@ -239,12 +231,14 @@ impl<O: Write, E: Write> Printer<O, E> {
                     } else {
                         format!(" · {} repaired", c.repairs.len())
                     }
-                );
-            }
-            Event::TurnStarted(t) if verbose => {
-                self.settle();
-                let _ = writeln!(
-                    self.err,
+                ),
+            );
+        }
+        Event::TurnStarted(t) if show.turns => {
+            push(
+                &mut out,
+                Tag::Dim,
+                &format!(
                     "── turn {}{}",
                     t.turn_id,
                     if t.continuation {
@@ -252,34 +246,89 @@ impl<O: Write, E: Write> Printer<O, E> {
                     } else {
                         ""
                     }
-                );
-            }
-            Event::TurnEnded(r) if verbose => {
-                self.settle();
-                let _ = writeln!(self.err, "{}", status_line(r));
-            }
-            Event::TurnFailed(f) => {
-                self.settle();
-                // What follows it (theseus-ljr).
-                let then = match f.then.as_deref() {
-                    Some("backoff") => " [retrying with backoff]",
-                    Some("retry") => " [retrying once]",
-                    Some("park") => " [not retried: the next message retries]",
-                    _ => "",
-                };
-                let _ = writeln!(
-                    self.err,
+                ),
+            );
+        }
+        Event::TurnEnded(r) if show.turns => push(&mut out, Tag::Dim, &status_line(r)),
+        Event::TurnFailed(f) => {
+            // What follows it (theseus-ljr).
+            let then = match f.then.as_deref() {
+                Some("backoff") => " [retrying with backoff]",
+                Some("retry") => " [retrying once]",
+                Some("park") => " [not retried: the next message retries]",
+                _ => "",
+            };
+            push(
+                &mut out,
+                Tag::Bad,
+                &format!(
                     "  ✗ turn failed{}: {}{then}",
                     f.class
                         .as_deref()
                         .map(|c| format!(" ({c})"))
                         .unwrap_or_default(),
                     f.error
-                );
-            }
-            _ => {}
+                ),
+            );
         }
+        _ => {}
     }
+    out
+}
+
+/// How to answer a tool's question, after its first line: its input, then
+/// the commands that approve it, approve it and trust its session (when it
+/// waits because its session read external text, theseus-9bp), and decline
+/// it.
+fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
+    push(
+        out,
+        Tag::Dim,
+        &format!("      input: {}", clip(&c.input.to_string(), 200)),
+    );
+    push(
+        out,
+        Tag::Dim,
+        &format!("      approve: theseus confirm {}", c.correlation_id),
+    );
+    if c.external_text.is_some() {
+        push(
+            out,
+            Tag::Dim,
+            &format!(
+                "      approve, and trust the session again: theseus confirm --trust {}",
+                c.correlation_id
+            ),
+        );
+    }
+    push(
+        out,
+        Tag::Dim,
+        &format!(
+            "      decline: theseus confirm --decline {}",
+            c.correlation_id
+        ),
+    );
+}
+
+/// How to answer a budget question, after its first line.
+fn budget_answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
+    push(
+        out,
+        Tag::Dim,
+        &format!(
+            "      reset and continue: theseus confirm {}",
+            c.correlation_id
+        ),
+    );
+    push(
+        out,
+        Tag::Dim,
+        &format!(
+            "      keep waiting: theseus confirm --decline {}",
+            c.correlation_id
+        ),
+    );
 }
 
 pub fn status_line(r: &TurnSubmitResult) -> String {
@@ -342,13 +391,15 @@ impl Frame {
 
 /// Indented tree with a 24-column bar: where in the turn each span sat. The
 /// calls a `tools` span ran together are drawn on its own time, with `▓`, so
-/// their overlap shows however short the group is beside the turn.
-pub fn print_span(
-    w: &mut impl Write,
-    s: &theseus_protocol::Span,
-    depth: usize,
-    f: &Frame,
-) -> io::Result<()> {
+/// their overlap shows however short the group is beside the turn. A line a
+/// span, `Plain`.
+pub fn span_lines(s: &theseus_protocol::Span, depth: usize, f: &Frame) -> Vec<Line> {
+    let mut out = Vec::new();
+    span_into(&mut out, s, depth, f);
+    out
+}
+
+fn span_into(out: &mut Vec<Line>, s: &theseus_protocol::Span, depth: usize, f: &Frame) {
     let width = 24usize;
     let at = |us: u64| us.saturating_sub(f.from_us) as f64 / f.total_us as f64 * width as f64;
     let a = at(s.start_us).floor() as usize;
@@ -376,15 +427,18 @@ pub fn print_span(
             format!("  {t}")
         }
     };
-    writeln!(
-        w,
-        "{bar} {:>9}  {}{} [{}]{}",
-        dur,
-        "  ".repeat(depth),
-        s.name,
-        s.kind,
-        attrs
-    )?;
+    push(
+        out,
+        Tag::Plain,
+        &format!(
+            "{bar} {:>9}  {}{} [{}]{}",
+            dur,
+            "  ".repeat(depth),
+            s.name,
+            s.kind,
+            attrs
+        ),
+    );
     let own = Frame {
         from_us: s.start_us,
         total_us: s.duration_us().max(1),
@@ -392,9 +446,8 @@ pub fn print_span(
     };
     let f = if s.kind == "tools" { &own } else { f };
     for c in &s.children {
-        print_span(w, c, depth + 1, f)?;
+        span_into(out, c, depth + 1, f);
     }
-    Ok(())
 }
 
 pub fn session_header(s: &SessionInfo) -> String {
@@ -481,7 +534,12 @@ pub fn indent(s: &str, pad: &str) -> String {
         .join("\n")
 }
 
-pub fn print_node(w: &mut impl Write, n: &NodeInfo, full: bool) -> io::Result<()> {
+/// One node of a session's history, as `theseus history` prints it: the
+/// operator's message (`Plain`), a reply (`Reply`) with its thinking
+/// (`Thinking`, in full) and its usage (`Dim`), and a call and its result
+/// (`Tool`).
+pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
+    let mut out = Vec::new();
     let t = fmt_time(n.at_unix_ms);
     let d = &n.detail;
     let s = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("");
@@ -491,11 +549,12 @@ pub fn print_node(w: &mut impl Write, n: &NodeInfo, full: bool) -> io::Result<()
                 Some(a) => format!("operator ({a})"),
                 None => "operator".to_string(),
             };
-            if full {
-                writeln!(w, "[{t}] {who}:\n{}", indent(&n.text, "    "))?;
+            let text = if full {
+                format!("[{t}] {who}:\n{}", indent(&n.text, "    "))
             } else {
-                writeln!(w, "[{t}] {who}: {}", clip(&n.text, 300))?;
-            }
+                format!("[{t}] {who}: {}", clip(&n.text, 300))
+            };
+            push(&mut out, Tag::Plain, &text);
         }
         "assistant_message" => {
             let cost = d
@@ -515,30 +574,40 @@ pub fn print_node(w: &mut impl Write, n: &NodeInfo, full: bool) -> io::Result<()
             } else {
                 format!(" {}", clip(&n.text, 300))
             };
-            writeln!(
-                w,
-                "[{t}] {}:{body}{}",
-                s("model"),
-                if calls > 0 && n.text.is_empty() {
-                    format!(" ({calls} tool call(s))")
-                } else {
-                    String::new()
-                }
-            )?;
+            push(
+                &mut out,
+                Tag::Reply,
+                &format!(
+                    "[{t}] {}:{body}{}",
+                    s("model"),
+                    if calls > 0 && n.text.is_empty() {
+                        format!(" ({calls} tool call(s))")
+                    } else {
+                        String::new()
+                    }
+                ),
+            );
             if !n.thinking.is_empty() && full {
-                writeln!(w, "      (thinking) {}", clip(&n.thinking, 600))?;
+                push(
+                    &mut out,
+                    Tag::Thinking,
+                    &format!("      (thinking) {}", clip(&n.thinking, 600)),
+                );
             }
-            writeln!(
-                w,
-                "      ↳ {} · in {} out {}{cost}",
-                s("stop_reason"),
-                d.pointer("/usage/input_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0),
-                d.pointer("/usage/output_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0),
-            )?;
+            push(
+                &mut out,
+                Tag::Dim,
+                &format!(
+                    "      ↳ {} · in {} out {}{cost}",
+                    s("stop_reason"),
+                    d.pointer("/usage/input_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0),
+                    d.pointer("/usage/output_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0),
+                ),
+            );
         }
         "tool_call" => {
             let input = d.get("input").map(|v| v.to_string()).unwrap_or_default();
@@ -558,13 +627,16 @@ pub fn print_node(w: &mut impl Write, n: &NodeInfo, full: bool) -> io::Result<()
                     g => g.unwrap_or("-").to_string(),
                 },
             };
-            writeln!(
-                w,
-                "      ⚙ {} {} [{}]",
-                s("tool"),
-                if full { input } else { clip(&input, 160) },
-                gate
-            )?;
+            push(
+                &mut out,
+                Tag::Tool,
+                &format!(
+                    "      ⚙ {} {} [{}]",
+                    s("tool"),
+                    if full { input } else { clip(&input, 160) },
+                    gate
+                ),
+            );
         }
         "tool_result" => {
             let late = if d.get("late").and_then(Value::as_bool) == Some(true) {
@@ -587,66 +659,66 @@ pub fn print_node(w: &mut impl Write, n: &NodeInfo, full: bool) -> io::Result<()
                 s("status"),
                 d.pointer("/meta/stopped_by").and_then(Value::as_str),
             );
-            if full {
-                writeln!(
-                    w,
+            let text = if full {
+                format!(
                     "      ← {} {word}{late}{ms} · {}\n{}",
                     s("tool"),
                     fmt_bytes(n.bytes),
                     indent(&n.text, "        ")
-                )?;
+                )
             } else {
-                writeln!(
-                    w,
+                format!(
                     "      ← {} {word}{late}{ms} · {}: {}",
                     s("tool"),
                     fmt_bytes(n.bytes),
                     clip(&n.text, 160)
-                )?;
-            }
+                )
+            };
+            push(&mut out, Tag::Tool, &text);
         }
-        other => writeln!(w, "[{t}] {other}")?,
+        other => push(&mut out, Tag::Plain, &format!("[{t}] {other}")),
     }
-    Ok(())
+    out
 }
 
-pub fn print_confirm(w: &mut impl Write, c: &ConfirmRequest) -> io::Result<()> {
+/// A question that waits, as a list of them prints it (`confirm`, `history`,
+/// `executions explain`, `wait`): its first line (`Ask`), then how to answer
+/// it (`Dim`).
+pub fn confirm_lines(c: &ConfirmRequest) -> Vec<Line> {
+    let mut out = Vec::new();
     if c.budget.is_some() {
-        writeln!(w,
-            "  $ {} waits for you: {}\n      reset and continue: theseus confirm {}\n      keep waiting: theseus confirm --decline {}",
-            c.session_id, c.reason, c.correlation_id, c.correlation_id
-        )?;
-        return Ok(());
+        push(
+            &mut out,
+            Tag::Ask,
+            &format!("  $ {} waits for you: {}", c.session_id, c.reason),
+        );
+        budget_answers(&mut out, c);
+        return out;
     }
-    writeln!(w,
-        "  ? {} waits for you in {}: {}\n      input: {}\n      approve: theseus confirm {}{}\n      decline: theseus confirm --decline {}",
-        c.tool,
-        c.session_id,
-        c.reason,
-        clip(&c.input.to_string(), 200),
-        c.correlation_id,
-        // It waits because its session read external text (theseus-9bp).
-        if c.external_text.is_some() {
-            format!(
-                "\n      approve, and trust the session again: theseus confirm --trust {}",
-                c.correlation_id
-            )
-        } else {
-            String::new()
-        },
-        c.correlation_id
-    )?;
-    Ok(())
+    push(
+        &mut out,
+        Tag::Ask,
+        &format!(
+            "  ? {} waits for you in {}: {}",
+            c.tool, c.session_id, c.reason
+        ),
+    );
+    answers(&mut out, c);
+    out
 }
 
-pub fn print_approval(w: &mut impl Write, a: &theseus_protocol::ApprovalStatus) -> io::Result<()> {
+/// Health's `[approval]` (theseus-sgh): who may answer, and each listed
+/// channel's state, with the reason for any that is not trusted.
+pub fn approval_lines(a: &theseus_protocol::ApprovalStatus) -> Vec<Line> {
+    let mut out = Vec::new();
     if !a.configured {
-        writeln!(
-            w,
+        push(
+            &mut out,
+            Tag::Plain,
             "approval: no [approval] section, so the CLI, the web UI, and a place's listed \
-             Discord users answer"
-        )?;
-        return Ok(());
+             Discord users answer",
+        );
+        return out;
     }
     let users = if a.trusted_users.is_empty() {
         "nobody on Discord".to_string()
@@ -658,19 +730,26 @@ pub fn print_approval(w: &mut impl Write, a: &theseus_protocol::ApprovalStatus) 
         .iter()
         .map(|c| format!("{} {}", c.channel, c.state.replace('_', " ")))
         .collect();
-    writeln!(
-        w,
-        "approval: trusted users {users} · channels: {}",
-        if channels.is_empty() {
-            "none".to_string()
-        } else {
-            channels.join(", ")
-        }
-    )?;
+    push(
+        &mut out,
+        Tag::Plain,
+        &format!(
+            "approval: trusted users {users} · channels: {}",
+            if channels.is_empty() {
+                "none".to_string()
+            } else {
+                channels.join(", ")
+            }
+        ),
+    );
     for c in a.channels.iter().filter(|c| c.state != "trusted") {
-        writeln!(w, "  {} is not trusted: {}", c.channel, c.detail)?;
+        push(
+            &mut out,
+            Tag::Plain,
+            &format!("  {} is not trusted: {}", c.channel, c.detail),
+        );
     }
-    Ok(())
+    out
 }
 
 /// A binding's outbox (theseus-q4v): `discord outbox: 2 pending, the oldest
@@ -1089,6 +1168,8 @@ pub fn wake_line(w: &theseus_protocol::WakeInfo, now_ms: u64) -> String {
     )
 }
 
+/// `wakes: 2 pending · next 3f9a1c 2026-09-30 13:15:00 -07:00 (in 9m): check
+/// the build`, or nothing when none is pending.
 pub fn wakes_line(wakes: &[theseus_protocol::WakeInfo], now_ms: u64) -> Option<String> {
     let next = wakes.iter().min_by_key(|w| w.due_at_ms)?;
     let note: String = next
@@ -1110,8 +1191,9 @@ pub fn wakes_line(wakes: &[theseus_protocol::WakeInfo], now_ms: u64) -> Option<S
 
 /// One task, as `theseus tasks` lists it (DD7): its short id, its state and
 /// what it waits on, its spend of its carved limit, its age, its title, and
-/// the session that started it.
-pub fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> String {
+/// the session that started it. Tagged with its pill's level, when it has
+/// one.
+pub fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> Line {
     let age = now_ms.saturating_sub(t.created_at_ms) / 1000;
     let age = match age {
         0..=59 => format!("{age}s"),
@@ -1132,19 +1214,22 @@ pub fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> String {
     if t.wake_parent {
         asks.push_str(" · wakes its parent");
     }
-    format!(
-        "{}\t{state}\t${:.4} of ${:.2}\t{} turn{}\t{age}\t{}\tfrom {}{asks}{}",
-        t.short,
-        t.spent_usd,
-        t.limit_usd,
-        t.turns,
-        if t.turns == 1 { "" } else { "s" },
-        t.title.as_deref().unwrap_or("untitled"),
-        t.parent_session_id,
-        t.ended_reason
-            .as_deref()
-            .map(|r| format!("\t{r}"))
-            .unwrap_or_default()
+    Line::new(
+        level_tag(t.attention.as_ref()),
+        format!(
+            "{}\t{state}\t${:.4} of ${:.2}\t{} turn{}\t{age}\t{}\tfrom {}{asks}{}",
+            t.short,
+            t.spent_usd,
+            t.limit_usd,
+            t.turns,
+            if t.turns == 1 { "" } else { "s" },
+            t.title.as_deref().unwrap_or("untitled"),
+            t.parent_session_id,
+            t.ended_reason
+                .as_deref()
+                .map(|r| format!("\t{r}"))
+                .unwrap_or_default()
+        ),
     )
 }
 
@@ -1174,8 +1259,6 @@ pub fn budget_line(b: &theseus_protocol::BudgetInfo) -> String {
     s
 }
 
-/// `wakes: 2 pending · next 3f9a1c 2026-09-30 13:15:00 -07:00 (in 9m): check
-/// the build`, or nothing when none is pending.
 /// The sessions that hold external text (theseus-9bp), as health and `policy
 /// list` say them: how many, the first three with what each read and since
 /// when, and the way to trust one again.
@@ -1258,8 +1341,6 @@ pub fn trusted_line(r: &theseus_protocol::TrustResult) -> String {
     )
 }
 
-/// Health's `[approval]` (theseus-sgh): who may answer, and each listed
-/// channel's state, with the reason for any that is not trusted.
 /// `theseus policy list`: every tool's posture now and what set it, then any
 /// tightening of a tool this daemon does not register.
 pub fn policy_list(l: &ToolListResult, tightenings: &[theseus_protocol::Tightening]) -> String {
@@ -1395,17 +1476,19 @@ pub fn fmt_price(p: f64) -> String {
 }
 
 /// `theseus health`: every line, `now_ms` for the ones that say how long ago.
-pub fn print_health(
-    w: &mut impl Write,
-    h: &theseus_protocol::HealthResult,
-    now_ms: u64,
-) -> io::Result<()> {
-    writeln!(
-        w,
+/// All `Plain`.
+pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line> {
+    let mut out = Vec::new();
+    let o = &mut out;
+    push(o, Tag::Plain, &format!(
         "{} {} · protocol {} · up {}s · live profile {} ({}/{}) · providers [{}] · sessions {} · turns {} · provider errors {} · ledger rows {}",
         h.name, h.version, h.protocol, h.uptime_secs, h.profile, h.provider, h.model, h.providers.join(", "), h.sessions, h.turns, h.provider_errors, h.ledger_rows
-    )?;
-    writeln!(w, "telemetry: {}", h.telemetry.summary(now_ms))?;
+    ));
+    push(
+        o,
+        Tag::Plain,
+        &format!("telemetry: {}", h.telemetry.summary(now_ms)),
+    );
     let k = &h.kernel;
     let fmt_counts = |m: &std::collections::BTreeMap<String, u64>| {
         if m.is_empty() {
@@ -1417,8 +1500,7 @@ pub fn print_health(
                 .join(", ")
         }
     };
-    writeln!(
-        w,
+    push(o, Tag::Plain, &format!(
         "kernel: {} · turns held {}/{} · executions [{}] · actions [{}] · quarantined completions {}{}",
         if k.accepting { "accepting" } else { "starting" },
         k.turns_held,
@@ -1427,50 +1509,57 @@ pub fn print_health(
         fmt_counts(&k.actions_by_state),
         k.quarantined_completions,
         lingering_note(k.lingering_wrappers)
-    )?;
+    ));
     if let Some(line) = children_line(&h.children) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
     if let Some(line) = disk_line(&h.disk) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
     if let Some(line) = spool_line(&h.spool, now_ms) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
     if let Some(p) = &h.push {
-        writeln!(w, "{}", push_line(p))?;
+        push(o, Tag::Plain, &push_line(p));
     }
-    writeln!(w, "{}", broker_line(&h.broker))?;
-    writeln!(
-        w,
-        "tokens total: in {} out {} cache-read {} cache-write {}",
-        h.usage_total.input_tokens,
-        h.usage_total.output_tokens,
-        h.usage_total.cache_read_input_tokens,
-        h.usage_total.cache_creation_input_tokens,
-    )?;
+    push(o, Tag::Plain, &broker_line(&h.broker));
+    push(
+        o,
+        Tag::Plain,
+        &format!(
+            "tokens total: in {} out {} cache-read {} cache-write {}",
+            h.usage_total.input_tokens,
+            h.usage_total.output_tokens,
+            h.usage_total.cache_read_input_tokens,
+            h.usage_total.cache_creation_input_tokens,
+        ),
+    );
     if let Some(line) = config_line(&h.config) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
     if let Some(line) = context_line(&h.context) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
-    writeln!(w, "{}", secrets_line(&h.secrets, &h.secrets_resolved))?;
+    push(
+        o,
+        Tag::Plain,
+        &secrets_line(&h.secrets, &h.secrets_resolved),
+    );
     if let Some(line) = startup_line(&h.startup) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
     if let Some(line) = store_history_line(&h.startup) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
     for b in &h.bindings {
-        writeln!(w, "{}", binding_line(b))?;
-        if let Some(o) = &b.outbox {
-            writeln!(w, "{}", outbox_line(&b.kind, o))?;
+        push(o, Tag::Plain, &binding_line(b));
+        if let Some(outbox) = &b.outbox {
+            push(o, Tag::Plain, &outbox_line(&b.kind, outbox));
         }
     }
-    print_approval(w, &h.approval)?;
+    o.extend(approval_lines(&h.approval));
     if let Some(line) = wakes_line(&h.wakes, now_ms) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
     if !h.tightenings.is_empty() {
         let t: Vec<String> = h
@@ -1478,16 +1567,19 @@ pub fn print_health(
             .iter()
             .map(|t| format!("{} (by {}, {})", t.tool, t.by, fmt_time(t.at_ms)))
             .collect();
-        writeln!(
-            w,
-            "tightened (should have asked): {} · undo: theseus policy untighten <tool>",
-            t.join(", ")
-        )?;
+        push(
+            o,
+            Tag::Plain,
+            &format!(
+                "tightened (should have asked): {} · undo: theseus policy untighten <tool>",
+                t.join(", ")
+            ),
+        );
     }
     if let Some(line) = external_line(&h.external_text) {
-        writeln!(w, "{line}")?;
+        push(o, Tag::Plain, &line);
     }
-    Ok(())
+    out
 }
 
 /// A binding's health line: its state, its counts, and each place's session.
@@ -1557,33 +1649,40 @@ pub fn push_line(p: &theseus_protocol::PushStatus) -> String {
 
 /// One execution's view, as `theseus watch --all` prints it: its position,
 /// its session, its kind, its state (`running → waiting` for a change), its
-/// pill, and its spend.
-pub fn view_line(v: &theseus_protocol::ExecutionView) -> String {
+/// pill, and its spend. Tagged with the pill's level.
+pub fn view_line(v: &theseus_protocol::ExecutionView) -> Line {
     let state = match &v.previous {
         Some(p) if *p != v.state => format!("{p} → {}", v.state),
         _ => v.state.clone(),
     };
-    format!(
-        "{}\t{}\t{}\t{state}\t{}\t${:.4}",
-        v.position,
-        v.session_id,
-        v.kind.as_str(),
-        pill(&v.attention),
-        v.spent_usd
+    Line::new(
+        Tag::Level(v.attention.level),
+        format!(
+            "{}\t{}\t{}\t{state}\t{}\t${:.4}",
+            v.position,
+            v.session_id,
+            v.kind.as_str(),
+            pill(&v.attention),
+            v.spent_usd
+        ),
     )
 }
 
 /// What a wait reached, and the view it ended on: `blocked (already) 48213
-/// ses_… conversation waiting ● confirm proc.run: …`.
-pub fn waited_line(r: &theseus_protocol::SessionWaitResult) -> String {
+/// ses_… conversation waiting ● confirm proc.run: …`, tagged with the view's
+/// level.
+pub fn waited_line(r: &theseus_protocol::SessionWaitResult) -> Line {
     let head = if r.already {
         format!("{} (already)", r.reached)
     } else {
         r.reached.clone()
     };
     match &r.execution {
-        Some(v) => format!("{head}\t{}", view_line(v)),
-        None => head,
+        Some(v) => {
+            let view = view_line(v);
+            Line::new(view.tag, format!("{head}\t{}", view.text))
+        }
+        None => Line::new(Tag::Plain, head),
     }
 }
 
@@ -1600,31 +1699,37 @@ pub fn lost_line(l: &theseus_protocol::EventsLost) -> String {
 
 /// One execution in full, as `theseus executions explain` prints it: its
 /// pill, what it waits on, its pending wakes, its turns and calls, and its
-/// budget.
+/// budget. Its first line is tagged with the pill's level, the rest `Plain`.
 pub fn explain_lines(
     e: &theseus_protocol::ExecutionInfo,
     wakes: &[theseus_protocol::WakeInfo],
     now_ms: u64,
-) -> Vec<String> {
+) -> Vec<Line> {
     use theseus_protocol::WaitingOn;
+    let mut lines = Vec::new();
+    push(
+        &mut lines,
+        level_tag(e.attention.as_ref()),
+        &format!(
+            "{}\t{}\t{}{}",
+            e.execution_id,
+            e.kind,
+            e.state,
+            e.attention
+                .as_ref()
+                .map(|a| format!("\t{}", pill(a)))
+                .unwrap_or_default()
+        ),
+    );
+    // The rest, `Plain`.
     let mut out = vec![format!(
-        "{}\t{}\t{}{}",
-        e.execution_id,
-        e.kind,
-        e.state,
-        e.attention
-            .as_ref()
-            .map(|a| format!("\t{}", pill(a)))
-            .unwrap_or_default()
-    )];
-    out.push(format!(
         "session: {}{}",
         e.session_id,
         e.reports_to
             .as_deref()
             .map(|r| format!(" · reports to {r}"))
             .unwrap_or_default()
-    ));
+    )];
     let waits = match (e.state.as_str(), &e.waiting_on) {
         ("waiting", Some(WaitingOn::Input)) if e.outstanding > 0 => format!(
             "input, with {} call{} still running",
@@ -1663,7 +1768,10 @@ pub fn explain_lines(
     if let Some(r) = &e.ended_reason {
         out.push(format!("ended: {r}"));
     }
-    out
+    for text in &out {
+        push(&mut lines, Tag::Plain, text);
+    }
+    lines
 }
 
 /// A question's arrival or end, as `theseus watch --all` prints it.
@@ -1717,52 +1825,66 @@ pub fn pill(a: &Attention) -> String {
     format!("{} {}", glyph(a.level), a.label)
 }
 
+/// A row's tag: its pill's level, or `Plain` from a daemon that sends no
+/// pill.
+fn level_tag(a: Option<&Attention>) -> Tag {
+    a.map_or(Tag::Plain, |a| Tag::Level(a.level))
+}
+
 /// One session, as `theseus sessions` lists it: its attention where the
-/// state goes, from a daemon that sends one (theseus-in3).
-pub fn session_row(s: &SessionInfo) -> String {
-    format!(
-        "{}\t{}\tturns={}\ttools={}\t${:.4}\tin={}\tout={}\t{}\t{}\t{}",
-        s.session_id,
-        fmt_time(s.last_active_ms.max(s.created_at_unix_ms)),
-        s.turns,
-        s.tool_calls,
-        s.cost_usd,
-        s.usage.input_tokens,
-        s.usage.output_tokens,
-        match &s.attention {
-            Some(a) => pill(a),
-            None => s.execution_state.clone().unwrap_or_else(|| "-".into()),
-        },
-        s.model.as_deref().unwrap_or("-"),
-        s.label
-            .as_deref()
-            .or(s.title.as_deref())
-            .unwrap_or_default()
+/// state goes, from a daemon that sends one (theseus-in3), and tagged with
+/// its level.
+pub fn session_row(s: &SessionInfo) -> Line {
+    Line::new(
+        level_tag(s.attention.as_ref()),
+        format!(
+            "{}\t{}\tturns={}\ttools={}\t${:.4}\tin={}\tout={}\t{}\t{}\t{}",
+            s.session_id,
+            fmt_time(s.last_active_ms.max(s.created_at_unix_ms)),
+            s.turns,
+            s.tool_calls,
+            s.cost_usd,
+            s.usage.input_tokens,
+            s.usage.output_tokens,
+            match &s.attention {
+                Some(a) => pill(a),
+                None => s.execution_state.clone().unwrap_or_else(|| "-".into()),
+            },
+            s.model.as_deref().unwrap_or("-"),
+            s.label
+                .as_deref()
+                .or(s.title.as_deref())
+                .unwrap_or_default()
+        ),
     )
 }
 
 /// One execution, as `theseus executions` lists it: its attention after its
-/// state, from a daemon that sends one (theseus-in3).
-pub fn execution_row(e: &theseus_protocol::ExecutionInfo) -> String {
-    format!(
-        "{}\t{}\t{}{}\tturns={}\tinterrupted={}\toutstanding={}\tqueued={}\t{}\tsession={}{}",
-        e.execution_id,
-        e.kind,
-        e.state,
-        e.attention
-            .as_ref()
-            .map(|a| format!("\t{}", pill(a)))
-            .unwrap_or_default(),
-        e.turns,
-        e.interrupted,
-        e.outstanding,
-        e.queued_results,
-        budget_line(&e.budget),
-        e.session_id,
-        e.ended_reason
-            .as_deref()
-            .map(|r| format!("\t{r}"))
-            .unwrap_or_default()
+/// state, from a daemon that sends one (theseus-in3), and tagged with its
+/// level.
+pub fn execution_row(e: &theseus_protocol::ExecutionInfo) -> Line {
+    Line::new(
+        level_tag(e.attention.as_ref()),
+        format!(
+            "{}\t{}\t{}{}\tturns={}\tinterrupted={}\toutstanding={}\tqueued={}\t{}\tsession={}{}",
+            e.execution_id,
+            e.kind,
+            e.state,
+            e.attention
+                .as_ref()
+                .map(|a| format!("\t{}", pill(a)))
+                .unwrap_or_default(),
+            e.turns,
+            e.interrupted,
+            e.outstanding,
+            e.queued_results,
+            budget_line(&e.budget),
+            e.session_id,
+            e.ended_reason
+                .as_deref()
+                .map(|r| format!("\t{r}"))
+                .unwrap_or_default()
+        ),
     )
 }
 
@@ -1800,17 +1922,23 @@ mod tests {
             created_at_ms: 1_000,
             ..Default::default()
         };
-        assert!(task_line(&t, 61_000).starts_with("a1b2c3\twaiting on a job\t$0.0000 of $2.00"));
+        let line = task_line(&t, 61_000);
+        assert!(line
+            .text
+            .starts_with("a1b2c3\twaiting on a job\t$0.0000 of $2.00"));
+        assert_eq!(line.tag, Tag::Plain);
         t.attention = Some(Attention {
             level: Level::Working,
             label: "waiting on 1 call".into(),
             since_ms: 0,
         });
+        let line = task_line(&t, 61_000);
         assert!(
-            task_line(&t, 61_000).starts_with("a1b2c3\t◐ waiting on 1 call\t"),
+            line.text.starts_with("a1b2c3\t◐ waiting on 1 call\t"),
             "{}",
-            task_line(&t, 61_000)
+            line.text
         );
+        assert_eq!(line.tag, Tag::Level(Level::Working));
         assert_eq!(glyph(Level::NeedsYou), '●');
         assert_eq!(glyph(Level::Idle), '·');
     }
@@ -2319,55 +2447,255 @@ mod tests {
         );
     }
 
-    /// A printer's mode (theseus-0g4): `Text` streams the reply and ends its
-    /// partial line before an event line; `Quiet` prints the events and none
-    /// of the reply; `Watch` adds each turn's start; `Json` prints nothing.
+    // The lines' tags, which the TUI reads (theseus-7yx, step 10a). The
+    // goldens hold the CLI's bytes; these hold what each line is.
+
+    const ALL: Show = Show {
+        reply: true,
+        thinking: true,
+        turns: true,
+    };
+
+    fn tagged(lines: Vec<Line>) -> Vec<(Tag, String)> {
+        lines.into_iter().map(|l| (l.tag, l.text)).collect()
+    }
+
+    /// `event`'s lines for one notification.
+    fn shown(method: &str, params: Value, show: Show) -> Vec<(Tag, String)> {
+        let e = Event::from_notification(method, &params)
+            .expect("its params decode")
+            .expect("a method this build knows");
+        tagged(event(&e, show))
+    }
+
+    fn question() -> ConfirmRequest {
+        serde_json::from_value(serde_json::json!({"correlation_id": "act_q",
+            "session_id": "ses_a", "execution_id": "exe_a", "tool": "proc.run",
+            "input": {"argv": ["tide"]}, "reason": "proc.run — approve", "by": "operator",
+            "requested_at_ms": 1, "expires_at_ms": 2}))
+        .unwrap()
+    }
+
+    /// A call's start and its end are `Tool` lines, and so are a call and
+    /// its result in a history.
     #[test]
-    fn each_mode_prints_what_it_says() {
-        let delta =
-            |text: &str| serde_json::json!({"turn_id": "turn_a", "loop_index": 0, "text": text});
-        let events = [
-            (
-                notify::TURN_STARTED,
-                serde_json::json!({"session_id": "ses_a", "turn_id": "turn_a", "continuation": true}),
-            ),
-            (notify::MODEL_THINKING, delta("hm")),
-            (notify::MODEL_DELTA, delta("Half a line")),
-            (
-                notify::TOOL_STARTED,
-                serde_json::json!({"session_id": "ses_a", "turn_id": "turn_a", "tool": "fs.read",
-                    "tool_use_id": "tu_1", "correlation_id": "act_1", "backend": "inproc"}),
-            ),
-            (notify::MODEL_DELTA, delta(" and the rest\n")),
-        ];
-        let run = |mode, thinking| {
-            let mut p = Printer::to(mode, thinking, Vec::new(), Vec::new());
-            for (m, v) in &events {
-                p.on(m, v);
-            }
-            p.settle();
-            let (out, err) = p.into_parts();
-            (
-                String::from_utf8(out).unwrap(),
-                String::from_utf8(err).unwrap(),
-            )
+    fn a_calls_lines_are_tool_lines() {
+        let started = serde_json::json!({"session_id": "ses_a", "turn_id": "turn_a",
+            "tool_use_id": "tu_1", "tool": "proc.run", "correlation_id": "act_1",
+            "backend": "job", "pid": 77, "argv": ["tide", "--port", "lantern"]});
+        assert_eq!(
+            shown(notify::TOOL_STARTED, started, ALL),
+            [(
+                Tag::Tool,
+                "  → proc.run [tide --port lantern] pid 77".to_string()
+            )]
+        );
+        let ended = serde_json::json!({"tool": "proc.run", "status": "ok", "duration_ms": 40,
+            "bytes": 12, "exit_code": 0});
+        assert_eq!(
+            shown(notify::TOOL_ENDED, ended, ALL),
+            [(
+                Tag::Tool,
+                "  ← proc.run ok · exit 0 · 40 ms · 12 B".to_string()
+            )]
+        );
+        let node = |kind: &str, detail: Value| -> NodeInfo {
+            serde_json::from_value(serde_json::json!({"node_id": "nod_1", "kind": kind,
+                "session_id": "ses_a", "position": 1, "at_unix_ms": 1_000,
+                "text": "low water 14:10", "bytes": 15, "detail": detail}))
+            .unwrap()
         };
-        let reply = "Half a line\n and the rest\n".to_string();
-        assert_eq!(
-            run(Mode::Text, true),
-            (reply.clone(), "  (thinking) hm\n  → fs.read\n".to_string())
+        let call = node(
+            "tool_call",
+            serde_json::json!({"tool": "proc.run", "input": {"argv": ["tide"]},
+                "decision": {"posture": "notify", "reason": "proc.run — notify"}}),
         );
         assert_eq!(
-            run(Mode::Quiet, true),
-            (String::new(), "  (thinking) hm\n  → fs.read\n".to_string())
+            tagged(node_lines(&call, false)),
+            [(
+                Tag::Tool,
+                "      ⚙ proc.run {\"argv\":[\"tide\"]} [notify: proc.run — notify]".to_string()
+            )]
+        );
+        let result = node(
+            "tool_result",
+            serde_json::json!({"tool": "proc.run", "status": "ok", "duration_ms": 40}),
         );
         assert_eq!(
-            run(Mode::Watch, false),
-            (
-                reply,
-                "── turn turn_a (continuation)\n  → fs.read\n".to_string()
+            tagged(node_lines(&result, false)),
+            [(
+                Tag::Tool,
+                "      ← proc.run ok · 40 ms · 15 B: low water 14:10".to_string()
+            )]
+        );
+    }
+
+    /// A row that carries a pill is tagged with its level, and one from a
+    /// daemon that sends none is `Plain`.
+    #[test]
+    fn a_pill_tags_its_row_with_its_level() {
+        let mut s: SessionInfo = serde_json::from_value(serde_json::json!({"session_id": "ses_a",
+            "kind": "conversation", "label": "harbour", "created_at_unix_ms": 1_000,
+            "turns": 2}))
+        .unwrap();
+        assert_eq!(session_row(&s).tag, Tag::Plain);
+        s.attention = Some(Attention {
+            level: Level::NeedsYou,
+            label: "confirm proc.run: tide".into(),
+            since_ms: 1,
+        });
+        let row = session_row(&s);
+        assert_eq!(row.tag, Tag::Level(Level::NeedsYou));
+        assert!(
+            row.text.contains("\t● confirm proc.run: tide\t"),
+            "{}",
+            row.text
+        );
+        let view: theseus_protocol::ExecutionView =
+            serde_json::from_value(serde_json::json!({"position": 7, "at_ms": 1,
+                "execution_id": "exe_a", "session_id": "ses_a", "kind": "conversation",
+                "state": "running", "pending": [], "turns": 2, "spent_usd": 0.5,
+                "limit_usd": 100.0,
+                "attention": {"level": "working", "label": "turn 2", "since_ms": 1}}))
+            .unwrap();
+        assert_eq!(
+            view_line(&view),
+            Line::new(
+                Tag::Level(Level::Working),
+                "7\tses_a\tconversation\trunning\t◐ turn 2\t$0.5000"
             )
         );
-        assert_eq!(run(Mode::Json, true), (String::new(), String::new()));
+        let waited: theseus_protocol::SessionWaitResult =
+            serde_json::from_value(serde_json::json!({"reached": "settled", "already": true,
+                "execution": view, "confirms": []}))
+            .unwrap();
+        let line = waited_line(&waited);
+        assert_eq!(line.tag, Tag::Level(Level::Working));
+        assert!(
+            line.text.starts_with("settled (already)\t7\tses_a\t"),
+            "{}",
+            line.text
+        );
+    }
+
+    /// A question's first line is `Ask` and how to answer it `Dim`, as it
+    /// arrives and in a list, and a budget question's too. A reason with a
+    /// newline is two rows, and the same text.
+    #[test]
+    fn a_question_is_ask_then_how_to_answer_it() {
+        let q = question();
+        assert_eq!(
+            tagged(event(&Event::ConfirmRequested(q.clone()), Show::default())),
+            [
+                (
+                    Tag::Ask,
+                    "  ? proc.run needs your confirmation: proc.run — approve".to_string()
+                ),
+                (Tag::Dim, "      input: {\"argv\":[\"tide\"]}".to_string()),
+                (Tag::Dim, "      approve: theseus confirm act_q".to_string()),
+                (
+                    Tag::Dim,
+                    "      decline: theseus confirm --decline act_q".to_string()
+                ),
+            ]
+        );
+        let tags = |lines: &[Line]| lines.iter().map(|l| l.tag).collect::<Vec<_>>();
+        assert_eq!(
+            tags(&confirm_lines(&q)),
+            [Tag::Ask, Tag::Dim, Tag::Dim, Tag::Dim]
+        );
+        let mut budget = q.clone();
+        budget.budget = Some(
+            serde_json::from_value(serde_json::json!({"spent_usd": 1.0, "limit_usd": 1.0,
+                "needed_usd": 0.02, "lifetime_usd": 3.5}))
+            .unwrap(),
+        );
+        assert_eq!(
+            tags(&confirm_lines(&budget)),
+            [Tag::Ask, Tag::Dim, Tag::Dim]
+        );
+        let mut two = q;
+        two.reason = "the harbour's table\nand the river's".into();
+        let lines = confirm_lines(&two);
+        assert_eq!(tags(&lines[..2]), [Tag::Ask, Tag::Ask]);
+        assert_eq!(lines[1].text, "and the river's");
+        let joined: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(
+            joined.join("\n"),
+            "  ? proc.run waits for you in ses_a: the harbour's table\nand the river's\n      \
+             input: {\"argv\":[\"tide\"]}\n      approve: theseus confirm act_q\n      decline: \
+             theseus confirm --decline act_q"
+        );
+    }
+
+    /// A failed turn and a refused answer are `Bad`; an answer that approved
+    /// is `Ok`, and one that did not is `Warn`.
+    #[test]
+    fn an_error_is_bad_and_an_answer_ok_or_warn() {
+        assert_eq!(
+            shown(
+                notify::TURN_FAILED,
+                serde_json::json!({"session_id": "ses_a", "class": "auth",
+                    "error": "the key was refused"}),
+                ALL
+            ),
+            [(
+                Tag::Bad,
+                "  ✗ turn failed (auth): the key was refused".to_string()
+            )]
+        );
+        let refused = serde_json::json!({"act": "action.confirm", "tool": "proc.run",
+            "who": "sock#9", "via": "cli", "why": "from a Theseus job's process",
+            "by": "the CLI", "from_job": true});
+        assert_eq!(shown(notify::APPROVAL_REFUSED, refused, ALL)[0].0, Tag::Bad);
+        let answered = |approved: bool, superseded: bool| {
+            let v = serde_json::json!({"session_id": "ses_a", "correlation_id": "act_q",
+                "approved": approved, "superseded": superseded, "by": "the CLI"});
+            shown(notify::CONFIRM_RESOLVED, v, ALL)
+        };
+        assert_eq!(
+            answered(true, false),
+            [(Tag::Ok, "  ✓ approved act_q (by the CLI)".to_string())]
+        );
+        assert_eq!(answered(false, false)[0].0, Tag::Warn);
+        assert_eq!(answered(false, true)[0].0, Tag::Warn);
+    }
+
+    /// The reply and the thinking are pieces of their streams, as they came:
+    /// never split, and none when `Show` leaves them out. A turn's start is
+    /// `Dim`, and only under `turns`.
+    #[test]
+    fn the_reply_and_the_thinking_are_pieces_of_their_streams() {
+        let delta =
+            serde_json::json!({"turn_id": "turn_a", "loop_index": 0, "text": "Low water\nat 14:"});
+        assert_eq!(
+            shown(notify::MODEL_DELTA, delta.clone(), ALL),
+            [(Tag::Reply, "Low water\nat 14:".to_string())]
+        );
+        let no_reply = Show {
+            reply: false,
+            ..ALL
+        };
+        assert!(shown(notify::MODEL_DELTA, delta.clone(), no_reply).is_empty());
+        assert_eq!(
+            shown(notify::MODEL_THINKING, delta.clone(), ALL),
+            [(Tag::Thinking, "Low water\nat 14:".to_string())]
+        );
+        let no_thinking = Show {
+            thinking: false,
+            ..ALL
+        };
+        assert!(shown(notify::MODEL_THINKING, delta, no_thinking).is_empty());
+        let started =
+            serde_json::json!({"session_id": "ses_a", "turn_id": "turn_a", "continuation": false});
+        assert_eq!(
+            shown(notify::TURN_STARTED, started.clone(), ALL),
+            [(Tag::Dim, "── turn turn_a".to_string())]
+        );
+        let no_turns = Show {
+            turns: false,
+            ..ALL
+        };
+        assert!(shown(notify::TURN_STARTED, started, no_turns).is_empty());
     }
 }

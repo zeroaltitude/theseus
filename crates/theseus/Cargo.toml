@@ -1,11 +1,19 @@
 [package]
 name = "theseus"
-description = "The Theseus CLI: a thin protocol client for shells and pipelines. Links the protocol crate only."
+description = "The Theseus CLI: a thin protocol client for shells and pipelines, and its library (client, render), which the TUI shares. Links the protocol crate only."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+
+# What the CLI and the TUI share (theseus-7yx, step 10a): the connection
+# (`client`) and the renderers (`render`), used as `theseus_client::…`. A
+# library named `theseus`, like the binary, collides with it in `cargo doc
+# --bins` (cargo#6313).
+[lib]
+name = "theseus_client"
+path = "src/lib.rs"
 
 [[bin]]
 name = "theseus"

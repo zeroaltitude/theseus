@@ -1,13 +1,16 @@
 //! One function per `theseus` subcommand (theseus-0g4, finding 11). Each
 //! makes its requests and prints the answer: as the daemon sent it under
 //! `--json`, and as lines otherwise (`output`). `run` in `main.rs` only
-//! matches; what the lines say is `render.rs`'s.
+//! matches; what the lines say is the library's `render`, and `print.rs`
+//! writes them.
 
 use std::io::{self, Write};
 
 use anyhow::{anyhow, Context, Result};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use theseus_client::render::{self, Frame};
+use theseus_client::{CallError, Conn};
 use theseus_protocol::{
     method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
     Event, HealthResult, LedgerTailParams, LedgerTailResult, Message, ProfileListResult,
@@ -16,10 +19,8 @@ use theseus_protocol::{
     TurnSubmitResult,
 };
 
-use crate::render::{self, Frame, Mode, Printer};
-use crate::{
-    AskArgs, CallError, ConfirmArgs, Conn, ExecutionsCmd, PolicyCmd, ProfileCmd, SessionsCmd,
-};
+use crate::print::{self, Mode, Printer};
+use crate::{AskArgs, ConfirmArgs, ExecutionsCmd, PolicyCmd, ProfileCmd, SessionsCmd};
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it
 /// decoded.
@@ -96,7 +97,10 @@ pub async fn ask(conn: &mut Conn, json: bool, no_stream: bool, a: AskArgs) -> Re
     if a.trace && !json {
         if let Some(t) = &r.trace {
             eprintln!("--- trace ({} total)", render::fmt_us(t.duration_us()));
-            render::print_span(&mut io::stderr(), t, 0, &Frame::turn(t))?;
+            print::lines(
+                &mut io::stderr(),
+                &render::span_lines(t, 0, &Frame::turn(t)),
+            )?;
         }
     }
     Ok(())
@@ -114,7 +118,10 @@ fn failure_trace(err: &anyhow::Error) {
             "--- trace up to the failure ({} total)",
             render::fmt_us(t.duration_us())
         );
-        let _ = render::print_span(&mut io::stderr(), &t, 0, &Frame::turn(&t));
+        let _ = print::lines(
+            &mut io::stderr(),
+            &render::span_lines(&t, 0, &Frame::turn(&t)),
+        );
     }
 }
 
@@ -137,10 +144,10 @@ pub async fn history(
         let mut out = io::stdout().lock();
         writeln!(out, "{}", render::session_header(&h.session))?;
         for node in &h.nodes {
-            render::print_node(&mut out, node, full)?;
+            print::lines(&mut out, &render::node_lines(node, full))?;
         }
         for c in &h.pending_confirms {
-            render::print_confirm(&mut out, c)?;
+            print::lines(&mut out, &render::confirm_lines(c))?;
         }
         Ok(())
     })
@@ -211,7 +218,7 @@ pub async fn watch_all(conn: &mut Conn, json: bool) -> Result<()> {
                     let last = seen.entry(view.execution_id.clone()).or_default();
                     if view.position > *last {
                         *last = view.position;
-                        println!("{}", render::view_line(&view));
+                        println!("{}", render::view_line(&view).text);
                     }
                 }
                 Some(e) => {
@@ -240,7 +247,7 @@ pub async fn watch_all(conn: &mut Conn, json: bool) -> Result<()> {
         if view.position > *last {
             *last = view.position;
             if !json {
-                println!("{}", render::view_line(view));
+                println!("{}", render::view_line(view).text);
             }
         }
     }
@@ -273,7 +280,7 @@ pub async fn watch_all(conn: &mut Conn, json: bool) -> Result<()> {
                 let last = seen.entry(view.execution_id.clone()).or_default();
                 if view.position > *last {
                     *last = view.position;
-                    println!("{}", render::view_line(view));
+                    println!("{}", render::view_line(view).text);
                 }
             }
         }
@@ -348,7 +355,7 @@ async fn confirm_list(conn: &mut Conn, json: bool) -> Result<()> {
     } else {
         let mut out = io::stdout().lock();
         for c in &waiting {
-            render::print_confirm(&mut out, c)?;
+            print::lines(&mut out, &render::confirm_lines(c))?;
         }
     }
     Ok(())
@@ -570,10 +577,9 @@ pub async fn catalog(conn: &mut Conn, json: bool) -> Result<()> {
 pub async fn health(conn: &mut Conn, json: bool) -> Result<()> {
     let v = conn.request(method::HEALTH, Value::Null).await?;
     output(json, v, |h: HealthResult| {
-        render::print_health(
+        print::lines(
             &mut io::stdout().lock(),
-            &h,
-            theseus_protocol::now_unix_ms(),
+            &render::health_lines(&h, theseus_protocol::now_unix_ms()),
         )?;
         Ok(())
     })
@@ -586,7 +592,7 @@ pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<(
             let v = conn.request(method::SESSION_LIST, Value::Null).await?;
             output(json, v, |l: SessionListResult| {
                 for s in l.sessions {
-                    println!("{}", render::session_row(&s));
+                    println!("{}", render::session_row(&s).text);
                 }
                 Ok(())
             })
@@ -634,7 +640,7 @@ pub async fn executions(conn: &mut Conn, json: bool, cmd: ExecutionsCmd) -> Resu
                     println!("no executions");
                 }
                 for e in l.executions {
-                    println!("{}", render::execution_row(&e));
+                    println!("{}", render::execution_row(&e).text);
                 }
                 Ok(())
             })
@@ -710,15 +716,13 @@ async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
     }
     let now = theseus_protocol::now_unix_ms();
     let mut out = io::stdout().lock();
-    for line in render::explain_lines(&e, &wakes.wakes, now) {
-        writeln!(out, "{line}")?;
-    }
+    print::lines(&mut out, &render::explain_lines(&e, &wakes.wakes, now))?;
     if asks.is_empty() {
         writeln!(out, "questions: none")?;
     } else {
         writeln!(out, "questions:")?;
         for c in &asks {
-            render::print_confirm(&mut out, c)?;
+            print::lines(&mut out, &render::confirm_lines(c))?;
         }
     }
     writeln!(out, "last rows of its session:")?;
@@ -794,10 +798,10 @@ pub async fn wait(
     if json {
         println!("{v}");
     } else {
-        println!("{}", render::waited_line(&r));
+        println!("{}", render::waited_line(&r).text);
         let mut out = io::stdout().lock();
         for c in &r.confirms {
-            render::print_confirm(&mut out, c)?;
+            print::lines(&mut out, &render::confirm_lines(c))?;
         }
     }
     if r.reached == "timeout" {
@@ -864,7 +868,7 @@ pub async fn tasks(conn: &mut Conn, json: bool, session: Option<String>) -> Resu
         }
         let now = theseus_protocol::now_unix_ms();
         for t in l.tasks {
-            println!("{}", render::task_line(&t, now));
+            println!("{}", render::task_line(&t, now).text);
         }
         Ok(())
     })
@@ -1198,7 +1202,7 @@ fn read_stdin_prompt() -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::*;
+    use theseus_client::render::*;
 
     /// `theseus stop SESSION` (W1): the session named by its id or its end,
     /// its conversation's execution, and what the line says.

@@ -1,0 +1,273 @@
+//! A connection to `theseusd` (theseus-7yx, step 10a): over its Unix socket,
+//! or over the pipes of a `theseusd --stdio` it spawns. It sends requests,
+//! hands back their answers, and reads the notifications that come between.
+//! It prints nothing and knows no command line, so the CLI and the TUI share
+//! it.
+
+use std::path::PathBuf;
+use std::process::Stdio;
+
+use anyhow::{anyhow, Context, Result};
+use serde::Serialize;
+use serde_json::Value;
+use theseus_protocol::{Id, Message, Request};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+
+/// A JSON-RPC error response, kept structured so callers can read `data`.
+#[derive(Debug)]
+pub struct CallError {
+    pub code: i64,
+    pub message: String,
+    pub data: Value,
+}
+
+impl std::fmt::Display for CallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let class = self.data.get("class").and_then(Value::as_str);
+        let transient = self.data.get("transient").and_then(Value::as_bool);
+        match (class, transient) {
+            (Some(c), Some(t)) => write!(
+                f,
+                "{} [class={c}, transient={t}, code {}]",
+                self.message, self.code
+            ),
+            // `config_unconfirmed` (theseus-2fo) names its class alone.
+            (Some(c), None) => write!(f, "{} [class={c}, code {}]", self.message, self.code),
+            _ => write!(f, "{} (code {})", self.message, self.code),
+        }
+    }
+}
+
+impl std::error::Error for CallError {}
+
+/// One connection to a daemon: newline-delimited JSON-RPC, its requests
+/// numbered from 1.
+pub struct Conn {
+    reader: BufReader<Box<dyn AsyncRead + Unpin + Send>>,
+    writer: Box<dyn AsyncWrite + Unpin + Send>,
+    /// What `next` has read of the line it is reading. It is kept here, not
+    /// in `next`, so a `next` dropped mid-line (a `select!` another branch
+    /// won) loses nothing: the next call goes on where it stopped.
+    line: Vec<u8>,
+    _child: Option<tokio::process::Child>,
+    next_id: u64,
+}
+
+impl Conn {
+    /// Connect to a daemon's socket; a leading `~` is the home directory.
+    pub async fn socket(path: &str) -> Result<Self> {
+        let path = PathBuf::from(shellexpand::tilde(path).into_owned());
+        let stream = tokio::net::UnixStream::connect(&path)
+            .await
+            .with_context(|| {
+                format!(
+                    "connecting to theseusd at {} (is it running? try --spawn)",
+                    path.display()
+                )
+            })?;
+        let (r, w) = stream.into_split();
+        Ok(Self::over(r, w))
+    }
+
+    /// Spawn `BIN --stdio` and talk over its pipes. Its stderr is this
+    /// process's, and it is killed when the connection is dropped.
+    pub fn spawn(bin: &str) -> Result<Self> {
+        let mut child = tokio::process::Command::new(bin)
+            .arg("--stdio")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()
+            .with_context(|| format!("spawning {bin}"))?;
+        let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
+        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+        let mut conn = Self::over(stdout, stdin);
+        conn._child = Some(child);
+        Ok(conn)
+    }
+
+    /// A connection over any pair of streams: a test's scripted daemon over
+    /// `tokio::io::duplex`, for one.
+    pub fn over(
+        reader: impl AsyncRead + Unpin + Send + 'static,
+        writer: impl AsyncWrite + Unpin + Send + 'static,
+    ) -> Self {
+        Self {
+            reader: BufReader::new(Box::new(reader)),
+            writer: Box::new(writer),
+            line: Vec::new(),
+            _child: None,
+            next_id: 1,
+        }
+    }
+
+    /// Send a request and return its id at once: its answer comes from
+    /// `next`, with the same id.
+    pub async fn send(&mut self, method: &str, params: Value) -> Result<Id> {
+        let id = Id::Num(self.next_id);
+        self.next_id += 1;
+        let mut line = serde_json::to_string(&Request::new(id.clone(), method, params))?;
+        line.push('\n');
+        self.writer.write_all(line.as_bytes()).await?;
+        self.writer.flush().await?;
+        Ok(id)
+    }
+
+    /// The next message, an answer or a notification; `None` once the daemon
+    /// closes the connection. It is cancel-safe: a call dropped before it
+    /// returns keeps the part of a line it read for the next call.
+    pub async fn next(&mut self) -> Result<Option<Message>> {
+        loop {
+            let n = self.reader.read_until(b'\n', &mut self.line).await?;
+            if n == 0 && self.line.is_empty() {
+                return Ok(None);
+            }
+            let bytes = std::mem::take(&mut self.line);
+            // What `read_line` said of a line that is not UTF-8.
+            let line = String::from_utf8(bytes).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "stream did not contain valid UTF-8",
+                )
+            })?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            return Ok(Some(
+                serde_json::from_str(line.trim()).context("bad line from server")?,
+            ));
+        }
+    }
+
+    /// Send a request and wait for its answer, handing the notifications
+    /// that come first to `on_notify`.
+    pub async fn call(
+        &mut self,
+        method: &str,
+        params: Value,
+        mut on_notify: impl FnMut(&str, &Value),
+    ) -> Result<Value> {
+        let id = self.send(method, params).await?;
+        while let Some(msg) = self.next().await? {
+            match msg {
+                Message::Notification(n) => on_notify(&n.method, &n.params),
+                Message::Response(r) if r.id == id => {
+                    if let Some(e) = r.error {
+                        return Err(CallError {
+                            code: e.code,
+                            message: e.message,
+                            data: e.data,
+                        }
+                        .into());
+                    }
+                    return Ok(r.result.unwrap_or(Value::Null));
+                }
+                _ => {}
+            }
+        }
+        Err(anyhow!("connection closed before response"))
+    }
+
+    /// A request whose answer is all it waits for: its notifications, if
+    /// any, are dropped.
+    pub async fn request(&mut self, method: &str, params: impl Serialize) -> Result<Value> {
+        self.call(method, serde_json::to_value(params)?, |_, _| {})
+            .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// A connection to a scripted daemon: its other end.
+    fn pair() -> (Conn, tokio::io::DuplexStream) {
+        let (ours, theirs) = tokio::io::duplex(4096);
+        let (r, w) = tokio::io::split(ours);
+        (Conn::over(r, w), theirs)
+    }
+
+    /// `next` is cancel-safe (theseus-7yx): a call dropped mid-line keeps what
+    /// it read, so a `select!` that races it with a key press loses nothing.
+    /// `read_line`, which it used before, lost the part it had read.
+    #[tokio::test]
+    async fn a_next_dropped_mid_line_loses_nothing() {
+        let (mut conn, mut daemon) = pair();
+        daemon
+            .write_all(br#"{"jsonrpc":"2.0","method":"model.delta","#)
+            .await
+            .unwrap();
+        let cut = tokio::time::timeout(Duration::from_millis(50), conn.next()).await;
+        assert!(cut.is_err(), "half a line is no message: {cut:?}");
+        daemon
+            .write_all(b"\"params\":{\"turn_id\":\"turn_a\",\"loop_index\":0,\"text\":\"tide\"}}\n")
+            .await
+            .unwrap();
+        match conn.next().await.unwrap() {
+            Some(Message::Notification(n)) => {
+                assert_eq!(n.method, "model.delta");
+                assert_eq!(n.params["text"], "tide");
+            }
+            other => panic!("{other:?}"),
+        }
+        drop(daemon);
+        assert!(conn.next().await.unwrap().is_none(), "the daemon closed it");
+    }
+
+    /// `call` hands the notifications that come before its answer to its
+    /// callback, skips blank lines, and returns the answer. An error answer
+    /// is a `CallError` that names its class.
+    #[tokio::test]
+    async fn a_call_hands_over_its_notifications_and_returns_its_answer() {
+        let (mut conn, daemon) = pair();
+        let (dr, mut dw) = tokio::io::split(daemon);
+        let script = tokio::spawn(async move {
+            let mut lines = BufReader::new(dr).lines();
+            let line = lines.next_line().await.unwrap().unwrap();
+            let first: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                (first["method"].as_str(), first["id"].as_u64()),
+                (Some("health"), Some(1))
+            );
+            dw.write_all(
+                b"{\"jsonrpc\":\"2.0\",\"method\":\"narrative.line\",\"params\":{\"seq\":1}}\n\n\
+                  {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"name\":\"theseusd\"}}\n",
+            )
+            .await
+            .unwrap();
+            let line = lines.next_line().await.unwrap().unwrap();
+            let second: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(second["params"]["input"], "low water?");
+            dw.write_all(
+                b"{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32003,\"message\":\"the \
+                  provider is overloaded\",\"data\":{\"class\":\"overloaded\",\"transient\":true}}}\n",
+            )
+            .await
+            .unwrap();
+        });
+        let mut seen = Vec::new();
+        let health = conn
+            .call(theseus_protocol::method::HEALTH, Value::Null, |m, _| {
+                seen.push(m.to_string())
+            })
+            .await
+            .unwrap();
+        assert_eq!(health["name"], "theseusd");
+        assert_eq!(seen, ["narrative.line"]);
+        let err = conn
+            .request("turn.submit", serde_json::json!({"input": "low water?"}))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<CallError>().map(|c| c.code),
+            Some(-32003)
+        );
+        assert_eq!(
+            err.to_string(),
+            "the provider is overloaded [class=overloaded, transient=true, code -32003]"
+        );
+        script.await.unwrap();
+    }
+}
