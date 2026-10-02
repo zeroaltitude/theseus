@@ -33,5 +33,5 @@ pub mod wal;
 
 pub use index::{Engine, Location, MovedAside, Sums};
 pub use record::{kinds, NewRecord, Record, RecordKind};
-pub use store::{Projection, Store, StoreStats, VerifiedSlot, WalStore};
+pub use store::{blocking, Projection, Store, StoreStats, VerifiedSlot, WalStore};
 pub use wal::{History, HistoryCheck, Verified, Wal, WalConfig, WalError};

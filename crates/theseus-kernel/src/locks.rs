@@ -25,6 +25,9 @@
 //! first, in the same order, and they take none of their own. A lock is never taken twice on one thread: a transition
 //! that calls another which locks the same execution would wait on itself, so
 //! that panics instead.
+//!
+//! A wait for a lock another thread holds (across its fsync) holds no
+//! runtime worker (`theseus_store::blocking`, theseus-vni9).
 
 use std::collections::HashMap;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
@@ -99,10 +102,11 @@ impl ExecLocks {
                     }
                     Some(_) => {
                         held.waiting += 1;
-                        held = self
-                            .freed
-                            .wait(held)
-                            .unwrap_or_else(PoisonError::into_inner);
+                        held = theseus_store::blocking(|| {
+                            self.freed
+                                .wait(held)
+                                .unwrap_or_else(PoisonError::into_inner)
+                        });
                         held.waiting -= 1;
                     }
                 }

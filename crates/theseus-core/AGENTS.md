@@ -80,6 +80,10 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   `tests_failures.rs`, `tests_tasks.rs`, `tests_wakes.rs`, `tests_external.rs`, `tests_overflow.rs`,
   `tests_push.rs`, `tests_config.rs`, and `rpc/tests.rs`.
 - `tests_registry.rs` is the reader rule's test. The gate runs it alone, before the suite.
+- `tests_schemas.rs` holds the store's version rule (P5b; Review 2's R8): each record kind's type, filled through
+  its own `Deserialize` (every field, every variant), has its shape recorded under its schema number in
+  `tests/golden/record_schemas.txt`. A changed shape fails until the kind's number moves. A new record type, or an
+  internally tagged enum in one, gets its sample there.
 - `tests_output.rs` is the output golden (theseus-j6qn): scripted scenarios through whole cores, and every frame,
   notification, and narrative line they produce, against `tests/golden/core_output.txt`. A refactor of a channel
   leaves it byte-identical; `THESEUS_GOLDEN=write` rewrites it, for a change you mean, and the diff is the review.

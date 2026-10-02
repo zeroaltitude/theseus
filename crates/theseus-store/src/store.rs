@@ -10,18 +10,24 @@
 //! record is ever on disk under a manifest that hides it. A format-2 store
 //! (every record schema 1) stays format 2 until this build writes a newer
 //! record into it, so an older binary still opens a store this one only read.
+//!
+//! **One writer** (theseus-vni9). A `WalStore` owns a thread, `store-writer`,
+//! which owns every append: a caller hands it a frame and waits for its
+//! answer, and the writer writes every frame queued, syncs once for all of
+//! them, indexes them in one transaction, and answers each. The wait holds no
+//! runtime worker (`blocking`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{mpsc, Arc, RwLock};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{Aside, Engine, IndexEntry, MovedAside, Projected, RedbIndex, Sums};
 use crate::record::{kinds, NewRecord, Record, RecordKind};
-use crate::wal::{History, Recovery, Verified, Wal, WalConfig};
+use crate::wal::{History, RecordLocation, Recovery, Verified, Wal, WalConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreStats {
@@ -163,13 +169,25 @@ impl Projection {
     }
 }
 
+/// The store: a handle on what its writer thread shares with it, and the
+/// writer's queue (theseus-vni9). Every append goes through the queue; every
+/// read reads the shared WAL and index.
 pub struct WalStore {
+    inner: Arc<Inner>,
+    /// The writer's queue. Closed when the store drops, which ends the
+    /// writer once it has answered what it holds.
+    queue: Option<mpsc::Sender<Job>>,
+    writer: Option<std::thread::JoinHandle<()>>,
+}
+
+/// What the store's handle and its writer share.
+struct Inner {
     wal: Wal,
     index: RedbIndex,
     dir: PathBuf,
     replayed: AtomicU64,
     /// Checkpoint every N appended records (0 = manual only).
-    checkpoint_every: u64,
+    checkpoint_every: AtomicU64,
     since_checkpoint: AtomicU64,
     /// The position the index's last checkpoint claims: a checkpoint with
     /// nothing written since costs nothing (theseus-pfv).
@@ -182,9 +200,11 @@ pub struct WalStore {
     marks: RwLock<BTreeMap<RecordKind, u16>>,
     /// Whether the manifest's rewrite is synced (the WAL's `fsync`).
     fsync: bool,
-    /// Held shared by each append from its WAL write to its index write, and
-    /// alone by a checkpoint: the position a checkpoint claims is then synced
-    /// and indexed, which a tail-only open relies on (theseus-8ni).
+    /// Held shared by the writer from a batch's first WAL write to its index
+    /// write, and alone by a checkpoint and a manifest's rewrite: the
+    /// position a checkpoint claims is then synced and indexed, which a
+    /// tail-only open relies on (theseus-8ni), and no frame is written while
+    /// the manifest moves (Review 2's R8).
     appending: RwLock<()>,
     /// How long open waited for another process to release the store.
     lock_wait_us: u64,
@@ -202,6 +222,40 @@ pub struct WalStore {
     /// A newer mark, handed over by the check that made it: the next
     /// checkpoint writes it.
     pending_verified: VerifiedSlot,
+    /// Appends handed to the writer and not yet answered (a test's way to
+    /// see them queued): counted once sent, so it may dip below zero while
+    /// the writer answers one before its sender counts it.
+    queued: std::sync::atomic::AtomicI64,
+    /// A test's way to make a checkpoint slow, as a disk under writeback is.
+    #[cfg(test)]
+    checkpoint_delay: std::sync::Mutex<std::time::Duration>,
+}
+
+/// One append, as the writer takes it: its records, each one's terms and
+/// numbers in the store's projection (worked out by the caller, so the
+/// writer only writes), and where its answer goes.
+struct Job {
+    records: Vec<NewRecord>,
+    projected: Vec<(Option<Vec<String>>, Option<Sums>)>,
+    answer: mpsc::SyncSender<Result<Vec<u64>>>,
+}
+
+/// Run `f`, which waits (for the disk, or for a lock held across it),
+/// without holding a runtime worker (theseus-vni9). On a worker of a
+/// multi-thread tokio runtime, `block_in_place` first hands the worker's
+/// role (its queue of tasks, its timers) to another thread, so every worker
+/// keeps serving while this thread waits; the thread that waits is the one
+/// that called, so what it holds by thread (an execution's or a session's
+/// lock) stays its own. Anywhere else (a plain thread, the blocking pool, a
+/// current-thread runtime, where `block_in_place` would panic) it simply
+/// runs `f`.
+pub fn blocking<R>(f: impl FnOnce() -> R) -> R {
+    match tokio::runtime::Handle::try_current() {
+        Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(f)
+        }
+        _ => f(),
+    }
 }
 
 /// Where a history check hands over the mark it made (theseus-0dq), apart
@@ -474,16 +528,16 @@ impl WalStore {
         // When the try under way began: zero for the first.
         let mut began = std::time::Duration::ZERO;
         loop {
-            match Self::open_once(dir, wal_cfg.clone(), projection) {
-                Ok(mut store) => {
-                    store.lock_wait_us = began.as_micros() as u64;
+            match Inner::open_once(dir, wal_cfg.clone(), projection) {
+                Ok(mut inner) => {
+                    inner.lock_wait_us = began.as_micros() as u64;
                     if !began.is_zero() {
                         tracing::info!(
                             waited_ms = began.as_millis() as u64,
                             "store: waited for the previous process to release it"
                         );
                     }
-                    return Ok(store);
+                    return Self::start(inner);
                 }
                 Err(e) if RedbIndex::held_elsewhere(&e) && t0.elapsed() < wait => {
                     std::thread::sleep(LOCK_POLL);
@@ -502,6 +556,158 @@ impl WalStore {
         }
     }
 
+    /// The opened store, with its writer.
+    fn start(inner: Inner) -> Result<Self> {
+        let inner = Arc::new(inner);
+        let (queue, jobs) = mpsc::channel();
+        let shared = inner.clone();
+        let writer = std::thread::Builder::new()
+            .name("store-writer".into())
+            .spawn(move || shared.write_loop(&jobs))
+            .context("starting the store's writer thread")?;
+        Ok(Self {
+            inner,
+            queue: Some(queue),
+            writer: Some(writer),
+        })
+    }
+
+    pub fn with_checkpoint_every(self, n: u64) -> Self {
+        self.inner.checkpoint_every.store(n, Ordering::Relaxed);
+        self
+    }
+
+    /// Whether the index's terms are whole: readers by term use them.
+    pub fn terms_whole(&self) -> bool {
+        self.inner.terms_whole()
+    }
+
+    /// Build the projection's terms again, `n` keys from `cursor`, after
+    /// serving (theseus-lv2): an open that found them not whole at the
+    /// index's checkpoint (a store an older build, or an open with no
+    /// projection, wrote last) leaves them to this, and readers by term read
+    /// every record until they are whole. Each key's terms are put only
+    /// while its latest record is the one read (`put_terms_if_latest`): an
+    /// append since then put its own. Returns the cursor to go on from, or
+    /// `None` once every key of every kind is done; the terms are whole from
+    /// then on, and the next checkpoint marks them.
+    pub fn build_terms(
+        &self,
+        cursor: Option<(RecordKind, String)>,
+        n: usize,
+    ) -> Result<Option<(RecordKind, String)>> {
+        let s = &self.inner;
+        let Some(p) = s.projection else {
+            return Ok(None);
+        };
+        if s.terms_whole() {
+            return Ok(None);
+        }
+        let start = cursor
+            .as_ref()
+            .and_then(|(k, _)| p.kinds.iter().position(|x| x == k))
+            .unwrap_or(0);
+        for (i, &kind) in p.kinds.iter().enumerate().skip(start) {
+            let after = cursor
+                .as_ref()
+                .filter(|(k, _)| i == start && *k == kind)
+                .map(|(_, key)| key.as_str());
+            let keys = s.index.keys_of_kind_after(kind, after, n.max(1))?;
+            let Some((last, _)) = keys.last().cloned() else {
+                continue;
+            };
+            let positions: Vec<u64> = keys.iter().map(|(_, pos)| *pos).collect();
+            let rows: Vec<Projected> = s
+                .read_many(&positions)?
+                .into_iter()
+                .filter_map(|r| {
+                    let key = r.key.clone()?;
+                    let terms = (p.terms)(kind, &r.payload);
+                    let sums = (p.sums)(kind, &r.payload);
+                    Some((kind, key, r.position, terms, sums))
+                })
+                .collect();
+            s.index.put_terms_if_latest(&rows)?;
+            return Ok(Some((kind, last)));
+        }
+        s.terms_whole.store(true, Ordering::Release);
+        Ok(None)
+    }
+
+    pub fn recovery(&self) -> &Recovery {
+        self.inner.wal.recovery()
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.inner.dir
+    }
+
+    /// The newest schema written for each kind, as the manifest records it.
+    pub fn schema_marks(&self) -> BTreeMap<RecordKind, u16> {
+        self.inner.marks.read().unwrap().clone()
+    }
+
+    /// The full check the open leaves out (theseus-8ni): every frame before
+    /// where open began checking, read-only. `pace` is called after each
+    /// stretch with the time it took, for a tender that keeps to its share
+    /// of a core. A corrupt frame is returned, and reads from it are refused
+    /// from then on.
+    pub fn verify_history(
+        &self,
+        pace: impl FnMut(std::time::Duration),
+    ) -> std::result::Result<History, crate::wal::WalError> {
+        self.inner.wal.verify_history(pace)
+    }
+
+    /// The same check, apart from the store: a thread that runs it keeps
+    /// neither the store nor its index open, so a stopping daemon's store
+    /// still closes cleanly.
+    pub fn history_check(&self) -> crate::wal::HistoryCheck {
+        self.inner.wal.history_check()
+    }
+
+    /// How far the last history check proved the WAL, as the index kept it
+    /// at this open (theseus-0dq): a check may start there
+    /// (`HistoryCheck::from_mark`).
+    pub fn verified(&self) -> Option<Verified> {
+        self.inner.verified
+    }
+
+    /// Where a check hands over its mark; the next checkpoint writes it.
+    pub fn verified_slot(&self) -> VerifiedSlot {
+        self.inner.pending_verified.clone()
+    }
+
+    /// The checkpoint of a stop (theseus-02k): the index's checkpoint, its
+    /// terms' mark, and a history check's mark, in one commit with no sync of
+    /// its own. redb's close, which follows as the store drops, is a durable
+    /// commit, and makes this one durable with it: a stop then pays one
+    /// commit's syncs, not two. A kill between the two only makes the next
+    /// open replay from the checkpoint before.
+    pub fn checkpoint_for_close(&self) -> Result<u64> {
+        blocking(|| self.inner.checkpoint_as(false))
+    }
+
+    /// Appends handed to the writer and not yet answered.
+    #[cfg(test)]
+    fn queued(&self) -> i64 {
+        self.inner.queued.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for WalStore {
+    /// Closing the queue ends the writer once it has answered what it holds.
+    /// Nothing else is queued: an appender holds the store until its answer.
+    /// The index closes after, as the last handle on it drops.
+    fn drop(&mut self) {
+        drop(self.queue.take());
+        if let Some(w) = self.writer.take() {
+            let _ = w.join();
+        }
+    }
+}
+
+impl Inner {
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn open_once(
         dir: &Path,
@@ -594,7 +800,7 @@ impl WalStore {
             index,
             dir: dir.to_path_buf(),
             replayed: AtomicU64::new(replayed),
-            checkpoint_every: 1000,
+            checkpoint_every: AtomicU64::new(1000),
             since_checkpoint: AtomicU64::new(0),
             checkpointed: AtomicU64::new(cp),
             durable_to: AtomicU64::new(cp),
@@ -607,6 +813,9 @@ impl WalStore {
             terms_whole: std::sync::atomic::AtomicBool::new(terms_whole),
             verified: None,
             pending_verified: VerifiedSlot::default(),
+            queued: std::sync::atomic::AtomicI64::new(0),
+            #[cfg(test)]
+            checkpoint_delay: std::sync::Mutex::default(),
         };
         store.verified = match store.index.meta(&VERIFIED_KEYS)?[..] {
             [Some(segment), Some(offset), Some(first), Some(position), Some(full_at)] => {
@@ -640,89 +849,21 @@ impl WalStore {
                 last,
                 "store: index rebuilt from WAL"
             );
-            store.checkpoint()?;
+            store.checkpoint_as(true)?;
         }
         Ok(store)
     }
 
-    pub fn with_checkpoint_every(mut self, n: u64) -> Self {
-        self.checkpoint_every = n;
-        self
-    }
-
-    /// Whether the index's terms are whole: readers by term use them.
-    pub fn terms_whole(&self) -> bool {
+    fn terms_whole(&self) -> bool {
         self.terms_whole.load(Ordering::Acquire)
-    }
-
-    /// Build the projection's terms again, `n` keys from `cursor`, after
-    /// serving (theseus-lv2): an open that found them not whole at the
-    /// index's checkpoint (a store an older build, or an open with no
-    /// projection, wrote last) leaves them to this, and readers by term read
-    /// every record until they are whole. Each key's terms are put only
-    /// while its latest record is the one read (`put_terms_if_latest`): an
-    /// append since then put its own. Returns the cursor to go on from, or
-    /// `None` once every key of every kind is done; the terms are whole from
-    /// then on, and the next checkpoint marks them.
-    pub fn build_terms(
-        &self,
-        cursor: Option<(RecordKind, String)>,
-        n: usize,
-    ) -> Result<Option<(RecordKind, String)>> {
-        let Some(p) = self.projection else {
-            return Ok(None);
-        };
-        if self.terms_whole() {
-            return Ok(None);
-        }
-        let start = cursor
-            .as_ref()
-            .and_then(|(k, _)| p.kinds.iter().position(|x| x == k))
-            .unwrap_or(0);
-        for (i, &kind) in p.kinds.iter().enumerate().skip(start) {
-            let after = cursor
-                .as_ref()
-                .filter(|(k, _)| i == start && *k == kind)
-                .map(|(_, key)| key.as_str());
-            let keys = self.index.keys_of_kind_after(kind, after, n.max(1))?;
-            let Some((last, _)) = keys.last().cloned() else {
-                continue;
-            };
-            let positions: Vec<u64> = keys.iter().map(|(_, pos)| *pos).collect();
-            let rows: Vec<Projected> = self
-                .read_many(&positions)?
-                .into_iter()
-                .filter_map(|r| {
-                    let key = r.key.clone()?;
-                    let terms = (p.terms)(kind, &r.payload);
-                    let sums = (p.sums)(kind, &r.payload);
-                    Some((kind, key, r.position, terms, sums))
-                })
-                .collect();
-            self.index.put_terms_if_latest(&rows)?;
-            return Ok(Some((kind, last)));
-        }
-        self.terms_whole.store(true, Ordering::Release);
-        Ok(None)
-    }
-
-    pub fn recovery(&self) -> &Recovery {
-        self.wal.recovery()
-    }
-
-    pub fn dir(&self) -> &Path {
-        &self.dir
-    }
-
-    /// The newest schema written for each kind, as the manifest records it.
-    pub fn schema_marks(&self) -> BTreeMap<RecordKind, u16> {
-        self.marks.read().unwrap().clone()
     }
 
     /// Before records of these (kind, schema) go to the WAL: if any is newer
     /// than the manifest's mark, rewrite the manifest first, durably, with
     /// every kind this build writes at its schema (one rewrite per upgrade),
     /// so an older build refuses the store before it can read the record.
+    /// It takes `appending` alone (Review 2's R8), so no frame is written
+    /// while the manifest moves; never call it holding that lock.
     fn mark(&self, recs: &[(RecordKind, u16)]) -> Result<()> {
         let newer = |m: &BTreeMap<RecordKind, u16>| {
             recs.iter()
@@ -731,6 +872,7 @@ impl WalStore {
         if !newer(&self.marks.read().unwrap()) {
             return Ok(());
         }
+        let _alone = self.appending.write().unwrap();
         let mut marks = self.marks.write().unwrap();
         if !newer(&marks) {
             return Ok(());
@@ -750,51 +892,12 @@ impl WalStore {
         Ok(())
     }
 
-    /// The full check the open leaves out (theseus-8ni): every frame before
-    /// where open began checking, read-only. `pace` is called after each
-    /// stretch with the time it took, for a tender that keeps to its share
-    /// of a core. A corrupt frame is returned, and reads from it are refused
-    /// from then on.
-    pub fn verify_history(
-        &self,
-        pace: impl FnMut(std::time::Duration),
-    ) -> std::result::Result<History, crate::wal::WalError> {
-        self.wal.verify_history(pace)
-    }
-
-    /// The same check, apart from the store: a thread that runs it keeps
-    /// neither the store nor its index open, so a stopping daemon's store
-    /// still closes cleanly.
-    pub fn history_check(&self) -> crate::wal::HistoryCheck {
-        self.wal.history_check()
-    }
-
-    /// How far the last history check proved the WAL, as the index kept it
-    /// at this open (theseus-0dq): a check may start there
-    /// (`HistoryCheck::from_mark`).
-    pub fn verified(&self) -> Option<Verified> {
-        self.verified
-    }
-
-    /// Where a check hands over its mark; the next checkpoint writes it.
-    pub fn verified_slot(&self) -> VerifiedSlot {
-        self.pending_verified.clone()
-    }
-
-    /// The checkpoint of a stop (theseus-02k): the index's checkpoint, its
-    /// terms' mark, and a history check's mark, in one commit with no sync of
-    /// its own. redb's close, which follows as the store drops, is a durable
-    /// commit, and makes this one durable with it: a stop then pays one
-    /// commit's syncs, not two. A kill between the two only makes the next
-    /// open replay from the checkpoint before.
-    pub fn checkpoint_for_close(&self) -> Result<u64> {
-        self.checkpoint_as(false)
-    }
-
     fn checkpoint_as(&self, durable: bool) -> Result<u64> {
-        // No append between its WAL write and its index write: every frame
-        // up to `last` is synced and indexed.
+        // No batch between its WAL write and its index write: every frame up
+        // to `last` is synced and indexed.
         let _alone = self.appending.write().unwrap();
+        #[cfg(test)]
+        std::thread::sleep(*self.checkpoint_delay.lock().unwrap());
         let last = self.wal.last_position();
         let verified = self.pending_verified.take();
         // Nothing written since the last checkpoint: the index has `last`
@@ -826,6 +929,84 @@ impl WalStore {
         }
         self.since_checkpoint.store(0, Ordering::Relaxed);
         Ok(last)
+    }
+
+    /// The writer (theseus-vni9): it takes every append queued, writes their
+    /// frames back to back, syncs once for all of them, indexes them in one
+    /// transaction, and answers each. So one fdatasync commits whatever
+    /// queued while the last one ran: group commit across turns, by
+    /// construction. The answer comes once the frame is indexed, so a
+    /// caller's lock still spans its read to its frame indexed (K1).
+    fn write_loop(&self, jobs: &mpsc::Receiver<Job>) {
+        while let Ok(first) = jobs.recv() {
+            // A checkpoint, which takes this alone, never claims a frame
+            // written and not yet synced and indexed. What queues while the
+            // writer waits for it joins this batch.
+            let _appending = self.appending.read().unwrap();
+            let mut batch = vec![first];
+            batch.extend(jobs.try_iter());
+            self.commit(batch);
+        }
+    }
+
+    /// Write, sync, index, and answer one batch.
+    fn commit(&self, batch: Vec<Job>) {
+        // Each frame, unsynced: a frame the log refuses fails alone.
+        let written: Vec<Result<Vec<(u64, RecordLocation)>>> = batch
+            .iter()
+            .map(|j| self.wal.write(&j.records).map_err(anyhow::Error::from))
+            .collect();
+        let wrote = written
+            .iter()
+            .any(|w| w.as_ref().is_ok_and(|p| !p.is_empty()));
+        // One sync for every frame of the batch.
+        let synced = if wrote && self.fsync {
+            self.wal.sync().map_err(anyhow::Error::from)
+        } else {
+            Ok(())
+        };
+        // Then the index, in one transaction: a reader never sees a frame
+        // the disk may yet lose.
+        let mut records = 0u64;
+        let indexed = synced.and_then(|()| {
+            let mut entries = Vec::new();
+            for (job, placed) in batch.iter().zip(&written) {
+                let Ok(placed) = placed else { continue };
+                records += placed.len() as u64;
+                for (((pos, loc), r), (terms, sums)) in
+                    placed.iter().zip(&job.records).zip(&job.projected)
+                {
+                    entries.push(IndexEntry {
+                        position: *pos,
+                        kind: r.kind,
+                        key: r.key.clone(),
+                        scope: r.scope.clone(),
+                        loc: *loc,
+                        terms: terms.clone(),
+                        sums: *sums,
+                    });
+                }
+            }
+            if entries.is_empty() {
+                Ok(())
+            } else {
+                self.index.apply(&entries, false)
+            }
+        });
+        if indexed.is_ok() {
+            self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
+        }
+        for (job, placed) in batch.into_iter().zip(written) {
+            let answer = match (placed, &indexed) {
+                (Err(e), _) => Err(e),
+                (Ok(placed), Ok(())) => Ok(placed.into_iter().map(|(p, _)| p).collect()),
+                // A sync or an index write that failed fails every frame it
+                // covered, as a failed group sync failed each one it led.
+                (Ok(_), Err(e)) => Err(anyhow::anyhow!("{e:#}")),
+            };
+            self.queued.fetch_sub(1, Ordering::SeqCst);
+            let _ = job.answer.send(answer);
+        }
     }
 
     fn read(&self, position: u64) -> Result<Option<Record>> {
@@ -863,62 +1044,73 @@ fn checked(position: u64, r: Record) -> Result<Record> {
 }
 
 impl Store for WalStore {
+    /// Hand the frame to the writer and wait for its answer: durable and
+    /// indexed when it returns. The wait holds no runtime worker
+    /// (`blocking`), and the caller's thread keeps what it holds by thread.
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>> {
-        let newer = {
-            let m = self.marks.read().unwrap();
-            batch
-                .iter()
-                .any(|r| m.get(&r.kind).copied().unwrap_or(0) < r.schema)
-        };
-        if newer {
-            let schemas: Vec<(RecordKind, u16)> =
-                batch.iter().map(|r| (r.kind, r.schema)).collect();
-            self.mark(&schemas)?;
+        if batch.is_empty() {
+            return Ok(Vec::new());
         }
-        let placed = {
-            let _appending = self.appending.read().unwrap();
-            let placed = self.wal.append(batch)?;
-            let entries: Vec<IndexEntry> = placed
+        blocking(|| {
+            let s = &self.inner;
+            let newer = {
+                let m = s.marks.read().unwrap();
+                batch
+                    .iter()
+                    .any(|r| m.get(&r.kind).copied().unwrap_or(0) < r.schema)
+            };
+            if newer {
+                let schemas: Vec<(RecordKind, u16)> =
+                    batch.iter().map(|r| (r.kind, r.schema)).collect();
+                s.mark(&schemas)?;
+            }
+            let projected = batch
                 .iter()
-                .zip(batch)
-                .map(|((pos, loc), r)| IndexEntry {
-                    position: *pos,
-                    kind: r.kind,
-                    key: r.key.clone(),
-                    scope: r.scope.clone(),
-                    loc: *loc,
-                    terms: self
-                        .projection
-                        .and_then(|p| p.of(r.kind, r.key.as_deref(), &r.payload)),
-                    sums: self
-                        .projection
-                        .and_then(|p| p.sums_of(r.kind, r.key.as_deref(), &r.payload)),
+                .map(|r| {
+                    let key = r.key.as_deref();
+                    (
+                        s.projection.and_then(|p| p.of(r.kind, key, &r.payload)),
+                        s.projection
+                            .and_then(|p| p.sums_of(r.kind, key, &r.payload)),
+                    )
                 })
                 .collect();
-            self.index.apply(&entries, false)?;
-            placed
-        };
-        let n = self
-            .since_checkpoint
-            .fetch_add(batch.len() as u64, Ordering::Relaxed)
-            + batch.len() as u64;
-        if self.checkpoint_every > 0 && n >= self.checkpoint_every {
-            self.checkpoint()?;
-        }
-        Ok(placed.into_iter().map(|(p, _)| p).collect())
+            let (answer, answered) = mpsc::sync_channel(1);
+            let queue = self
+                .queue
+                .as_ref()
+                .expect("a store's queue lives as long as it");
+            let job = Job {
+                records: batch.to_vec(),
+                projected,
+                answer,
+            };
+            if queue.send(job).is_err() {
+                anyhow::bail!("the store's writer has stopped");
+            }
+            s.queued.fetch_add(1, Ordering::SeqCst);
+            let placed = answered
+                .recv()
+                .map_err(|_| anyhow::anyhow!("the store's writer stopped before it answered"))??;
+            let every = s.checkpoint_every.load(Ordering::Relaxed);
+            if every > 0 && s.since_checkpoint.load(Ordering::Relaxed) >= every {
+                s.checkpoint_as(true)?;
+            }
+            Ok(placed)
+        })
     }
 
     fn get(&self, position: u64) -> Result<Option<Record>> {
-        self.read(position)
+        self.inner.read(position)
     }
 
     fn scan(&self, from: u64, to: Option<u64>, limit: usize) -> Result<Vec<Record>> {
-        let last = self.wal.last_position();
+        let last = self.inner.wal.last_position();
         let to = to.unwrap_or(last).min(last);
         let mut out = Vec::new();
         let mut p = from.max(1);
         while p <= to && out.len() < limit {
-            if let Some(r) = self.read(p)? {
+            if let Some(r) = self.inner.read(p)? {
                 out.push(r);
             }
             p += 1;
@@ -927,108 +1119,114 @@ impl Store for WalStore {
     }
 
     fn latest_by_key(&self, kind: RecordKind, key: &str) -> Result<Option<Record>> {
-        match self.index.latest_position(kind, key)? {
-            Some(p) => self.read(p),
+        match self.inner.index.latest_position(kind, key)? {
+            Some(p) => self.inner.read(p),
             None => Ok(None),
         }
     }
 
     fn latest_of_kind(&self, kind: RecordKind) -> Result<Vec<Record>> {
         let positions: Vec<u64> = self
+            .inner
             .index
             .keys_of_kind(kind)?
             .into_iter()
             .map(|(_, p)| p)
             .collect();
-        self.read_many(&positions)
+        self.inner.read_many(&positions)
     }
 
     fn tail_of_kind(&self, kind: RecordKind, n: usize) -> Result<Vec<Record>> {
-        let mut positions = self.index.positions_of_kind_rev(kind, n)?;
+        let mut positions = self.inner.index.positions_of_kind_rev(kind, n)?;
         positions.reverse();
-        self.read_many(&positions)
+        self.inner.read_many(&positions)
     }
 
     fn count_of_kind(&self, kind: RecordKind) -> Result<u64> {
-        self.index.count_of_kind(kind)
+        self.inner.index.count_of_kind(kind)
     }
 
     fn scan_scope(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<Record>> {
-        let positions = self.index.positions_in_scope(scope, after, limit)?;
-        self.read_many(&positions)
+        let positions = self.inner.index.positions_in_scope(scope, after, limit)?;
+        self.inner.read_many(&positions)
     }
 
     fn count_in_scope(&self, scope: &str) -> Result<u64> {
-        self.index.count_in_scope(scope)
+        self.inner.index.count_in_scope(scope)
     }
 
     fn last_position(&self) -> u64 {
-        self.wal.last_position()
+        self.inner.wal.last_position()
     }
 
     fn checkpoint(&self) -> Result<u64> {
-        self.checkpoint_as(true)
+        blocking(|| self.inner.checkpoint_as(true))
     }
 
     fn stats(&self) -> Result<StoreStats> {
-        let r = self.wal.recovery();
+        let s = &self.inner;
+        let r = s.wal.recovery();
         Ok(StoreStats {
-            last_position: self.wal.last_position(),
-            checkpoint: self.index.checkpoint()?,
-            wal_bytes: self.wal.total_bytes(),
-            wal_segments: self.wal.segment_count(),
+            last_position: s.wal.last_position(),
+            checkpoint: s.index.checkpoint()?,
+            wal_bytes: s.wal.total_bytes(),
+            wal_segments: s.wal.segment_count(),
             recovered_records: r.records,
             truncated_bytes: r.truncated_bytes,
-            replayed_into_index: self.replayed.load(Ordering::Relaxed),
-            frames_appended: self.wal.frames_appended(),
-            syncs: self.wal.syncs(),
+            replayed_into_index: s.replayed.load(Ordering::Relaxed),
+            frames_appended: s.wal.frames_appended(),
+            syncs: s.wal.syncs(),
             history_bytes: r.history_bytes,
-            index_repaired: self.index.repaired(),
-            lock_wait_us: self.lock_wait_us,
-            index_moved_aside: self.moved_aside.clone(),
-            terms_pending: !self.terms_whole(),
+            index_repaired: s.index.repaired(),
+            lock_wait_us: s.lock_wait_us,
+            index_moved_aside: s.moved_aside.clone(),
+            terms_pending: !s.terms_whole(),
         })
     }
 
     fn latest_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Option<Vec<Record>>> {
-        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) || !self.terms_whole() {
+        let s = &self.inner;
+        if !s.projection.is_some_and(|p| p.kinds.contains(&kind)) || !s.terms_whole() {
             return Ok(None);
         }
-        let positions: Vec<u64> = self
+        let positions: Vec<u64> = s
             .index
             .keys_by_terms(kind, lo, hi)?
             .into_iter()
             .map(|(_, p)| p)
             .collect();
-        Ok(Some(self.read_many(&positions)?))
+        Ok(Some(s.read_many(&positions)?))
     }
 
     fn count_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Option<u64>> {
-        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) || !self.terms_whole() {
+        let s = &self.inner;
+        if !s.projection.is_some_and(|p| p.kinds.contains(&kind)) || !s.terms_whole() {
             return Ok(None);
         }
-        Ok(Some(self.index.count_by_terms(kind, lo, hi)?))
+        Ok(Some(s.index.count_by_terms(kind, lo, hi)?))
     }
 
     fn latest_with_prefix(&self, kind: RecordKind, prefix: &str) -> Result<Vec<Record>> {
         let positions: Vec<u64> = self
+            .inner
             .index
             .keys_with_prefix(kind, prefix)?
             .into_iter()
             .map(|(_, p)| p)
             .collect();
-        self.read_many(&positions)
+        self.inner.read_many(&positions)
     }
 
     fn count_keys(&self, kind: RecordKind) -> Result<u64> {
-        self.index.count_keys(kind)
+        self.inner.index.count_keys(kind)
     }
 
     fn totals(&self, kind: RecordKind) -> Result<Option<Sums>> {
-        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) || !self.terms_whole() {
+        let s = &self.inner;
+        if !s.projection.is_some_and(|p| p.kinds.contains(&kind)) || !s.terms_whole() {
             return Ok(None);
         }
-        Ok(Some(self.index.totals(kind)?))
+        Ok(Some(s.index.totals(kind)?))
     }
 }
 
@@ -1041,6 +1239,147 @@ mod tests {
         WalStore::open(dir, WalConfig::default())
             .unwrap()
             .with_checkpoint_every(0)
+    }
+
+    /// Wait until `n` appends are queued for the writer.
+    fn until_queued(s: &WalStore, n: i64) {
+        let t0 = std::time::Instant::now();
+        while s.queued() < n {
+            assert!(
+                t0.elapsed() < std::time::Duration::from_secs(20),
+                "{} of {n} appends queued",
+                s.queued()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    /// Group commit by construction (theseus-vni9): the appends that queue
+    /// while the writer is busy are written back to back and made durable by
+    /// one fdatasync, each answered once its frame is synced and indexed. The
+    /// writer is held here as a checkpoint holds it, by `appending`.
+    #[test]
+    fn the_writer_commits_every_queued_frame_with_one_sync() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Arc::new(open(dir.path()));
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &"first").unwrap()])
+            .unwrap();
+        let before = s.stats().unwrap();
+        let held = s.inner.appending.write().unwrap();
+        let appenders: Vec<_> = (0..12)
+            .map(|i| {
+                let s = s.clone();
+                std::thread::spawn(move || {
+                    let key = format!("k{i}");
+                    s.append(&[
+                        NewRecord::json(kinds::META, Some(&key), &i).unwrap(),
+                        NewRecord::json(kinds::LEDGER, None, &i).unwrap(),
+                    ])
+                    .unwrap()
+                })
+            })
+            .collect();
+        until_queued(&s, 12);
+        drop(held);
+        let mut positions: Vec<u64> = appenders
+            .into_iter()
+            .flat_map(|a| a.join().unwrap())
+            .collect();
+        let after = s.stats().unwrap();
+        assert_eq!(after.frames_appended - before.frames_appended, 12);
+        assert_eq!(
+            after.syncs - before.syncs,
+            1,
+            "twelve frames queued together are made durable by one fdatasync"
+        );
+        positions.sort_unstable();
+        assert_eq!(positions, (2..=25).collect::<Vec<u64>>());
+        for i in 0..12 {
+            let r = s.latest_by_key(kinds::META, &format!("k{i}")).unwrap();
+            assert_eq!(
+                r.unwrap().decode::<i32>().unwrap(),
+                i,
+                "indexed when answered"
+            );
+        }
+        drop(s);
+        let s = open(dir.path());
+        assert_eq!(s.last_position(), 25, "every one durable");
+    }
+
+    /// The wait for the writer holds no runtime worker (theseus-vni9): with
+    /// the writer held, as a long fdatasync holds it, appends from every
+    /// worker of a two-worker runtime still leave a third task served.
+    #[test]
+    fn an_append_that_waits_for_the_disk_holds_no_runtime_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Arc::new(open(dir.path()));
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let held = s.inner.appending.write().unwrap();
+        let appends: Vec<_> = (0..4)
+            .map(|i| {
+                let s = s.clone();
+                rt.spawn(async move {
+                    s.append(&[NewRecord::json(kinds::LEDGER, None, &i).unwrap()])
+                        .unwrap()
+                })
+            })
+            .collect();
+        until_queued(&s, 4);
+        let served = rt.block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                tokio::spawn(async { "served" }),
+            )
+            .await
+        });
+        drop(held);
+        assert!(
+            matches!(served, Ok(Ok("served"))),
+            "a task waited for a worker while the appends waited for the disk"
+        );
+        for a in appends {
+            rt.block_on(a).unwrap();
+        }
+    }
+
+    /// The manifest moves under `appending` alone (Review 2's R8): a newer
+    /// record's mark waits while a batch is being written, and no frame is
+    /// written while it moves.
+    #[test]
+    fn a_manifests_mark_waits_for_the_batch_being_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(dir.path());
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &"a").unwrap()])
+            .unwrap();
+        drop(s);
+        std::fs::write(
+            dir.path().join("MANIFEST.json"),
+            r#"{"format": 2, "engine": "redb"}"#,
+        )
+        .unwrap();
+        let s = Arc::new(open(dir.path()));
+        let batch = s.inner.appending.read().unwrap();
+        let newer = {
+            let s = s.clone();
+            std::thread::spawn(move || {
+                s.append(&[NewRecord::json(kinds::SESSION, Some("s1"), &"v").unwrap()])
+                    .unwrap()
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(
+            manifest(dir.path())["format"],
+            2,
+            "the manifest moved while a batch was being written"
+        );
+        drop(batch);
+        newer.join().unwrap();
+        assert_eq!(manifest(dir.path())["format"], 3);
     }
 
     /// A start at once after a stop (theseus-qa0 F4b): the stopping process
@@ -1837,7 +2176,7 @@ mod tests {
         s.verified_slot().set(mark);
         assert_eq!(s.checkpoint_for_close().unwrap(), 6);
         // A durable checkpoint after it is not free: nothing synced 6 yet.
-        assert_eq!(s.durable_to.load(Ordering::Relaxed), 5);
+        assert_eq!(s.inner.durable_to.load(Ordering::Relaxed), 5);
         assert_eq!(s.checkpoint_for_close().unwrap(), 6, "and a second is free");
         drop(s);
         let s = open(dir.path());
@@ -1900,7 +2239,7 @@ mod tests {
         }
         assert_eq!(s.checkpoint().unwrap(), 5);
         assert_eq!(s.checkpoint().unwrap(), 5, "nothing new");
-        assert_eq!(s.index.checkpoint().unwrap(), Some(5));
+        assert_eq!(s.inner.index.checkpoint().unwrap(), Some(5));
         drop(s);
         let s = open(dir.path());
         assert_eq!(s.stats().unwrap().replayed_into_index, 0);
@@ -1908,7 +2247,7 @@ mod tests {
         s.append(&[NewRecord::json(kinds::LEDGER, None, &9u32).unwrap()])
             .unwrap();
         assert_eq!(s.checkpoint().unwrap(), 6);
-        assert_eq!(s.index.checkpoint().unwrap(), Some(6));
+        assert_eq!(s.inner.index.checkpoint().unwrap(), Some(6));
         drop(s);
         let s = open(dir.path());
         assert_eq!(s.stats().unwrap().replayed_into_index, 0);

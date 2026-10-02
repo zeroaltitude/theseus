@@ -69,6 +69,10 @@ enum Cmd {
         /// Checkpoint every N records (0 = never), to exercise index rebuild.
         #[arg(long, default_value_t = 200)]
         checkpoint_every: u64,
+        /// Threads appending at once: more than one makes the store's writer
+        /// commit their frames together, with one sync (theseus-vni9).
+        #[arg(long, default_value_t = 1)]
+        writers: usize,
     },
     /// Kill -9 at random points; verify recovery. The M1 exit test.
     CrashTest {
@@ -87,6 +91,9 @@ enum Cmd {
         /// Path to this binary (defaults to current_exe).
         #[arg(long)]
         worker_bin: Option<PathBuf>,
+        /// Threads appending at once in each worker (`worker --writers`).
+        #[arg(long, default_value_t = 1)]
+        writers: usize,
     },
     /// The deterministic kernel simulator (M2 exit test). Reproducible from --seed.
     KernelSim {
@@ -410,14 +417,16 @@ fn main() -> Result<()> {
             dir,
             seed,
             checkpoint_every,
-        } => worker(&dir, seed, checkpoint_every),
+            writers,
+        } => worker(&dir, seed, checkpoint_every, writers),
         Cmd::CrashTest {
             iterations,
             seed,
             restarts,
             tear,
             worker_bin,
-        } => crash_test(iterations, seed, restarts, tear, worker_bin),
+            writers,
+        } => crash_test(iterations, seed, restarts, tear, worker_bin, writers),
         Cmd::KernelSim {
             seed,
             seeds,
@@ -559,27 +568,51 @@ fn random_batch(rng: &mut StdRng) -> Vec<NewRecord> {
         .collect()
 }
 
-fn worker(dir: &Path, seed: u64, checkpoint_every: u64) -> Result<()> {
+fn worker(dir: &Path, seed: u64, checkpoint_every: u64, writers: usize) -> Result<()> {
     let store = WalStore::open(dir, WalConfig::default())?.with_checkpoint_every(checkpoint_every);
-    let mut rng = StdRng::seed_from_u64(seed ^ store.last_position());
-    let out = std::io::stdout();
-    let mut out = out.lock();
-    writeln!(
-        out,
-        "R {} {} {}",
-        store.last_position(),
-        store.recovery().truncated_bytes,
-        store.stats()?.wal_bytes
-    )?;
-    out.flush()?;
+    let base = seed ^ store.last_position();
+    {
+        let mut out = std::io::stdout().lock();
+        writeln!(
+            out,
+            "R {} {} {}",
+            store.last_position(),
+            store.recovery().truncated_bytes,
+            store.stats()?.wal_bytes
+        )?;
+        out.flush()?;
+    }
+    // Each writer appends on its own thread, so their frames queue together
+    // at the store's writer; the first is this thread.
+    let store = std::sync::Arc::new(store);
+    for w in 1..writers.max(1) {
+        let store = store.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = append_until_killed(&store, base ^ ((w as u64) << 32)) {
+                eprintln!("worker writer {w}: {e:#}");
+                std::process::exit(1);
+            }
+        });
+    }
+    append_until_killed(&store, base)
+}
+
+/// Append random frames, and report each one's records once its append has
+/// returned, which is when they are durable.
+fn append_until_killed(store: &WalStore, seed: u64) -> Result<()> {
+    let mut rng = StdRng::seed_from_u64(seed);
     loop {
         let batch = random_batch(&mut rng);
         let crcs: Vec<u32> = batch.iter().map(|r| crc32fast::hash(&r.payload)).collect();
         let kinds_: Vec<u16> = batch.iter().map(|r| r.kind).collect();
         let positions = store.append(&batch)?; // durable when this returns
-                                               // The WAL's durable length, before the records it covers: a report of
-                                               // a record is never ahead of the report of its bytes.
-        writeln!(out, "D {}", store.stats()?.wal_bytes)?;
+                                               // The WAL's length, before the records it covers: a report of a
+                                               // record is never ahead of the report of its bytes. With several
+                                               // writers it may count another's frame not yet synced, which only
+                                               // keeps a tear further back.
+        let wal_bytes = store.stats()?.wal_bytes;
+        let mut out = std::io::stdout().lock();
+        writeln!(out, "D {wal_bytes}")?;
         for ((p, crc), k) in positions.iter().zip(crcs).zip(kinds_) {
             writeln!(out, "C {p} {crc} {k}")?;
         }
@@ -609,6 +642,7 @@ fn run_and_kill(
     dir: &Path,
     seed: u64,
     live_ms: u64,
+    writers: usize,
     committed: &mut Committed,
 ) -> Result<()> {
     // A worker killed inside its own open (a recovery after the last kill)
@@ -623,6 +657,8 @@ fn run_and_kill(
             &dir.to_string_lossy(),
             "--seed",
             &seed.to_string(),
+            "--writers",
+            &writers.to_string(),
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -783,6 +819,7 @@ fn crash_test(
     restarts: u32,
     tear: bool,
     worker_bin: Option<PathBuf>,
+    writers: usize,
 ) -> Result<()> {
     let bin = worker_bin.unwrap_or(std::env::current_exe()?);
     let mut rng = StdRng::seed_from_u64(seed);
@@ -803,6 +840,7 @@ fn crash_test(
                 &dir,
                 seed + it as u64 * 1000 + r as u64,
                 live_ms,
+                writers,
                 &mut committed,
             )?;
             if let Some(start) = committed.reported_start {
@@ -843,7 +881,7 @@ fn crash_test(
         }
     }
     println!(
-        "CRASH TEST OK: {iterations} iterations × {restarts} restarts, seed {seed}, tear {tear}, {:.1}s; torn bytes removed {total_torn}; durable-but-unreported records {unreported} (allowed); indexes moved aside after a kill in the first open {moved_aside}; zero committed records lost",
+        "CRASH TEST OK: {iterations} iterations × {restarts} restarts, {writers} writer(s), seed {seed}, tear {tear}, {:.1}s; torn bytes removed {total_torn}; durable-but-unreported records {unreported} (allowed); indexes moved aside after a kill in the first open {moved_aside}; zero committed records lost",
         started.elapsed().as_secs_f64()
     );
     Ok(())

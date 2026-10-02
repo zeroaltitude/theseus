@@ -7,11 +7,11 @@
 //! record: position u64 | kind u16 | schema u16 | at_unix_ms u64 | key_len u16 | scope_len u16 | payload_len u32 | key | scope | payload
 //! ```
 //!
-//! A frame is written with one `write_all`; durability is one `fdatasync`
-//! that may cover several frames (**group commit**): concurrent appenders
-//! write their frames back to back under a short lock, then one of them syncs
-//! the file once for everyone whose bytes are already written. A single
-//! writer sees exactly the old behaviour, one sync per frame. On recovery,
+//! A frame is written with one `write_all` (`write`), and made durable by an
+//! `fdatasync` that may cover several frames (`sync`): the store's writer
+//! thread writes every frame queued, back to back, then syncs once for all of
+//! them (**group commit**, theseus-vni9). `append` is one frame and its sync,
+//! for a caller that writes alone (a restore). On recovery,
 //! the first frame that fails (short, bad magic, bad crc) ends the log, and if
 //! it is in the last segment it is truncated as a torn write. A bad frame
 //! followed by good bytes in an earlier segment is corruption, not a torn
@@ -31,7 +31,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::record::{now_unix_ms, NewRecord, Record};
@@ -70,9 +70,6 @@ pub struct WalConfig {
     pub max_total_bytes: Option<u64>,
     /// fdatasync every frame. Off only for benchmarks that measure the cost.
     pub fsync: bool,
-    /// Let one fdatasync cover every frame written since the last one
-    /// (concurrent appenders share the sync). Off: every append syncs itself.
-    pub group_commit: bool,
 }
 
 impl Default for WalConfig {
@@ -81,7 +78,6 @@ impl Default for WalConfig {
             segment_bytes: 64 * 1024 * 1024,
             max_total_bytes: None,
             fsync: true,
-            group_commit: true,
         }
     }
 }
@@ -163,21 +159,17 @@ struct Writer {
     segment_len: u64,
     total_len: u64,
     next_position: u64,
-}
-
-/// Group-commit state: how many bytes (across all segments) have been written
-/// and how many are known durable; whether a sync is in flight.
-#[derive(Default)]
-struct SyncState {
-    written: u64,
-    synced: u64,
-    syncing: bool,
+    /// Why the log takes no more frames: a write cut short that could not be
+    /// cut back off, so the next frame would land after part of one.
+    broken: Option<String>,
+    /// A test's way to cut the next write short after this many bytes, as a
+    /// full disk would.
+    #[cfg(test)]
+    short_write: Option<usize>,
 }
 
 pub struct Wal {
     w: Mutex<Writer>,
-    sync: Mutex<SyncState>,
-    sync_cv: Condvar,
     dir: PathBuf,
     recovery: Recovery,
     /// Counters for visibility: frames appended, fdatasync calls made.
@@ -194,6 +186,18 @@ pub struct Wal {
     /// its records are refused. `to` is the segment's end when the frame's
     /// header cannot say where it ends.
     bad: Arc<OnceLock<(u32, u64, u64)>>,
+}
+
+impl Writer {
+    /// One frame's bytes, at the end of the segment.
+    fn write_frame(&mut self, frame: &[u8]) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(n) = self.short_write.take() {
+            self.file.write_all(&frame[..n.min(frame.len())])?;
+            return Err(io::Error::other("a write cut short (a test's)"));
+        }
+        self.file.write_all(frame)
+    }
 }
 
 /// Segment `n`'s file in the log's directory.
@@ -413,13 +417,10 @@ impl Wal {
                 segment_len,
                 total_len,
                 next_position: expected_pos,
+                broken: None,
+                #[cfg(test)]
+                short_write: None,
             }),
-            sync: Mutex::new(SyncState {
-                written: total_len,
-                synced: total_len,
-                syncing: false,
-            }),
-            sync_cv: Condvar::new(),
             dir: dir.to_path_buf(),
             recovery,
             frames: std::sync::atomic::AtomicU64::new(0),
@@ -443,13 +444,37 @@ impl Wal {
         &self.dir
     }
 
-    /// Append records as one atomic frame. Returns (position, location) per
-    /// record, in order. Durable when this returns (if `fsync` is on).
+    /// Append records as one atomic frame (`write`, then `sync`). Returns
+    /// (position, location) per record, in order. Durable when this returns
+    /// (if `fsync` is on).
     pub fn append(&self, batch: &[NewRecord]) -> Result<Vec<(u64, RecordLocation)>, WalError> {
+        let placed = self.write(batch)?;
+        if !placed.is_empty() && self.fsync() {
+            self.sync()?;
+        }
+        Ok(placed)
+    }
+
+    /// Whether frames are synced (`WalConfig::fsync`).
+    pub fn fsync(&self) -> bool {
+        self.w.lock().unwrap().cfg.fsync
+    }
+
+    /// Write records as one atomic frame, with no sync: it is durable once a
+    /// `sync` that follows returns. Returns (position, location) per record,
+    /// in order. A frame the log refuses (too large, past its cap, or a write
+    /// cut short) leaves the log as it was: a write cut short is cut back
+    /// off, so the next frame starts where this one did.
+    pub fn write(&self, batch: &[NewRecord]) -> Result<Vec<(u64, RecordLocation)>, WalError> {
         if batch.is_empty() {
             return Ok(Vec::new());
         }
         let mut w = self.w.lock().unwrap();
+        if let Some(why) = &w.broken {
+            return Err(WalError::Io(io::Error::other(format!(
+                "the log takes no more frames: {why}; a restart's open cuts the torn tail"
+            ))));
+        }
         let at = now_unix_ms();
         let first = w.next_position;
 
@@ -478,15 +503,10 @@ impl Wal {
             }
         }
 
-        // Roll segment if needed (never split a frame).
+        // Roll segment if needed (never split a frame). Everything in the old
+        // segment is durable before the first frame of the next is written.
         if w.segment_len > 0 && w.segment_len + frame.len() as u64 > w.cfg.segment_bytes {
             w.file.sync_all()?;
-            {
-                // Everything in the old segment is now durable.
-                let mut st = self.sync.lock().unwrap();
-                st.synced = st.synced.max(w.total_len);
-                st.written = st.written.max(w.total_len);
-            }
             let next = w.segment + 1;
             let path = segment_path(&w.dir, next);
             w.file = OpenOptions::new()
@@ -499,32 +519,25 @@ impl Wal {
         }
 
         let frame_offset = w.segment_len;
-        w.file.write_all(&frame)?;
+        if let Err(e) = w.write_frame(&frame) {
+            // Part of the frame may be on disk, where the next one would go:
+            // the log must stay a run of whole frames, or the next open
+            // would end it here, and drop every frame written after.
+            if let Err(cut) = w.file.set_len(frame_offset) {
+                w.broken = Some(format!(
+                    "a write cut short at segment {} offset {frame_offset} ({e}) could not be cut \
+                     back off ({cut})",
+                    w.segment
+                ));
+            }
+            return Err(e.into());
+        }
         w.segment_len += frame.len() as u64;
         w.total_len += frame.len() as u64;
         w.next_position = first + batch.len() as u64;
         let seg = w.segment;
-        let written_upto = w.total_len;
-        let fsync = w.cfg.fsync;
-        let group = w.cfg.group_commit;
         self.frames
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if fsync && !group {
-            w.file.sync_data()?;
-            self.syncs
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-        // Clone the handle so the sync can run without the writer lock; other
-        // appenders keep writing behind us while we (or a leader) sync.
-        let file = if fsync && group {
-            Some(w.file.try_clone()?)
-        } else {
-            None
-        };
-        drop(w);
-        if let Some(file) = file {
-            self.group_sync(&file, written_upto)?;
-        }
         Ok(rel
             .into_iter()
             .map(|(pos, body_off, len)| {
@@ -540,43 +553,21 @@ impl Wal {
             .collect())
     }
 
-    /// Group commit. `upto` is the total byte count this appender needs
-    /// durable. If a sync that covers it already finished, return. If one is
-    /// in flight, wait for it and re-check (it may not have covered us). Else
-    /// become the leader: sync once for every byte written so far.
-    fn group_sync(&self, file: &File, upto: u64) -> Result<(), WalError> {
-        let mut st = self.sync.lock().unwrap();
-        st.written = st.written.max(upto);
-        loop {
-            if st.synced >= upto {
-                return Ok(());
-            }
-            if st.syncing {
-                st = self.sync_cv.wait(st).unwrap();
-                continue;
-            }
-            st.syncing = true;
-            let target = st.written;
-            drop(st);
-            let r = file.sync_data();
-            self.syncs
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            st = self.sync.lock().unwrap();
-            st.syncing = false;
-            match r {
-                Ok(()) => {
-                    st.synced = st.synced.max(target);
-                    self.sync_cv.notify_all();
-                    if st.synced >= upto {
-                        return Ok(());
-                    }
-                }
-                Err(e) => {
-                    self.sync_cv.notify_all();
-                    return Err(e.into());
-                }
-            }
-        }
+    /// Make every frame written so far durable: one fdatasync of the segment
+    /// written last (a roll synced the one before it). The handle is cloned,
+    /// so the sync holds no lock a reader of the last position waits on.
+    pub fn sync(&self) -> Result<(), WalError> {
+        let file = self.w.lock().unwrap().file.try_clone()?;
+        file.sync_data()?;
+        self.syncs
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Cut the next write short after `bytes`, as a full disk would.
+    #[cfg(test)]
+    pub(crate) fn cut_next_write(&self, bytes: usize) {
+        self.w.lock().unwrap().short_write = Some(bytes);
     }
 
     /// Frames appended since open.
@@ -1274,8 +1265,36 @@ mod tests {
         assert_eq!(wal.recovery().records, 1);
     }
 
+    /// A write cut short (a full disk) is cut back off: the next frame starts
+    /// where it did, and an open finds every frame written before and after,
+    /// where it used to end the log at the torn bytes and drop the rest.
     #[test]
-    fn scope_roundtrips_and_group_commit_syncs_less_than_it_writes() {
+    fn a_write_cut_short_is_cut_back_off_and_the_log_goes_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let wal = Wal::open(dir.path(), WalConfig::default()).unwrap();
+        wal.append(&[rec(kinds::LEDGER, None, b"before")]).unwrap();
+        let len = fs::metadata(segment_path(dir.path(), 1)).unwrap().len();
+        wal.cut_next_write(20);
+        let err = wal
+            .append(&[rec(kinds::LEDGER, None, &[9u8; 64])])
+            .unwrap_err();
+        assert!(err.to_string().contains("cut short"), "{err}");
+        assert_eq!(
+            fs::metadata(segment_path(dir.path(), 1)).unwrap().len(),
+            len,
+            "the torn bytes are gone"
+        );
+        let after = wal.append(&[rec(kinds::LEDGER, None, b"after")]).unwrap();
+        assert_eq!(after[0].0, 2, "the refused frame took no position");
+        assert_eq!(wal.read_at(after[0].1).unwrap().payload, b"after");
+        drop(wal);
+        let wal = Wal::open(dir.path(), WalConfig::default()).unwrap();
+        assert_eq!(wal.recovery().records, 2);
+        assert_eq!(wal.recovery().truncated_bytes, 0);
+    }
+
+    #[test]
+    fn scope_roundtrips_and_concurrent_appends_are_each_durable() {
         let dir = tempfile::tempdir().unwrap();
         let wal = std::sync::Arc::new(Wal::open(dir.path(), WalConfig::default()).unwrap());
         let locs = wal
@@ -1285,8 +1304,8 @@ mod tests {
             wal.read_at(locs[0].1).unwrap().scope.as_deref(),
             Some("ses_1")
         );
-        // 8 threads x 50 appends: every append durable when it returns, and
-        // the number of fdatasync calls is at most the number of frames.
+        // 8 threads x 50 appends: every append durable when it returns. The
+        // log alone syncs each; the store's writer is what batches them.
         let mut hs = Vec::new();
         for t in 0..8u8 {
             let w = wal.clone();

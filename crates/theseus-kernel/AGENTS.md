@@ -36,6 +36,8 @@ theseusd, and theseus-sim.
   this thread holds: it panics ("locked twice on one thread"), and inside a transaction, so does one of an
   execution it did not name. Compose in a transaction instead, as `mark_unknown` does. Several executions:
   `Kernel::lock`, in id order; a task and its parent: `lock_family`. Readers that write nothing take no lock.
+  A transition's commit waits for the store's writer on the thread that holds its locks, and a wait for a lock
+  another thread holds runs in `theseus_store::blocking`: neither holds a runtime worker (theseus-vni9).
 - **Lock order** is always the session, then the execution, and no kernel transition takes a session's lock.
 - **Time is injected** (`Clock`: `RealClock`, `VirtualClock`). The kernel never reads the wall clock.
 - **Every child goes through `children::spawn`.** A child spawned another way, and waited for, can be reaped by the

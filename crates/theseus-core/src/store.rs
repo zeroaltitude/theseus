@@ -180,10 +180,13 @@ impl SessionLocks {
                 }
                 Some(_) => {
                     self.waiting.fetch_add(1, SeqCst);
-                    held = self
-                        .freed
-                        .wait(held)
-                        .unwrap_or_else(PoisonError::into_inner);
+                    // Its holder may be in an fsync: the wait holds no
+                    // runtime worker (theseus-vni9).
+                    held = theseus_store::blocking(|| {
+                        self.freed
+                            .wait(held)
+                            .unwrap_or_else(PoisonError::into_inner)
+                    });
                     self.waiting.fetch_sub(1, SeqCst);
                 }
             }

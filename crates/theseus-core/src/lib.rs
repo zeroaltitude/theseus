@@ -89,6 +89,8 @@ mod tests_reach;
 #[cfg(test)]
 mod tests_registry;
 #[cfg(test)]
+mod tests_schemas;
+#[cfg(test)]
 mod tests_tasks;
 #[cfg(test)]
 mod tests_tender;

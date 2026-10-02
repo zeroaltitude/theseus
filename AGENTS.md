@@ -157,7 +157,8 @@ Each traces to the Part III item that taught it.
 - **A live check on a scratch daemon** of the step's build, for every step that changes behaviour (every item
   since A3), on a fresh state dir or a copy of the store, never the operator's own.
 - **Never block a runtime worker** on a sleep or a blocking wait: use tokio's timer. Compute goes to the CPU pool,
-  and network waits to async tools (F3; Items 5 and 25). The fsync on a worker is still open (theseus-vni9).
+  and network waits to async tools (F3; Items 5 and 25). A wait for the disk, or for a lock held across it, goes
+  through `theseus_store::blocking`, which hands the worker's role to another thread first (theseus-vni9).
 - **One observer, not a publish at every site** (`Kernel::observe`, Item 33).
 - **A wait owned by the daemon** (`session.wait`), not a client's poll (Item 33).
 - **Invented names in fixtures, tests, and commits.** The repository is public (Item 16).

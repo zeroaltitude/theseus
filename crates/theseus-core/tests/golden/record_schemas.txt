@@ -1,0 +1,416 @@
+# The shape of each record kind, by schema number (P5b; Review 2's R8), as
+# crates/theseus-core/src/tests_schemas.rs fills and writes it. A shape is
+# recorded once per number: a changed shape takes a new number.
+
+== action @ 2
+.args_digest: string
+.authorized_at_ms: int
+.cancel: string
+.completions_seen: int
+.confirm.bound_digest: string
+.confirm.by: string
+.confirm.confirm_id: string
+.confirm.expires_at_ms: int
+.correlation_id: string
+.deadline_at_ms: int
+.detail: any
+.dispatched_at_ms: int
+.execution_id: string
+.external_op_id: string
+.planned_at_ms: int
+.proposal.args: any
+.proposal.policy_context: any
+.proposal.resource: string
+.proposal.tool: string
+.reservation_id: string
+.reserved_micros: int
+.resolution: string
+.resource: string
+.result_ref: string
+.retry_class{class=idempotent_with_key}.key: string
+.schema: int
+.session_id: string
+.settled_at_ms: int
+.state: string
+.tool: string
+enum ActionState: planned|authorized|dispatched|succeeded|failed|outcome_unknown|cancelled
+enum CancelState: requested|acknowledged|termination_verified|unsupported|outcome_uncertain
+enum RetryClass: safe_to_repeat|non_repeatable|idempotent_with_key
+
+== compilation @ 3
+.as_of: int
+.created_at_ms: int
+.derived_from: string
+.id: string
+.includes[]: string
+.manifest.cache.blocks[].block: string
+.manifest.cache.blocks[].marked: bool
+.manifest.cache.blocks[].prefix_bytes: int
+.manifest.cache.caches: bool
+.manifest.cache.min_tokens: int
+.manifest.catalog_version: string
+.manifest.compiler_version: int
+.manifest.context_files[].bytes: int
+.manifest.context_files[].cut: bool
+.manifest.context_files[].digest: string
+.manifest.context_files[].missing: string
+.manifest.context_files[].path: string
+.manifest.context_files[].persona: string
+.manifest.context_window: int
+.manifest.model: string
+.manifest.profile: string
+.manifest.provider: string
+.manifest.renderer_version: int
+.manifest.strip_thinking: bool
+.manifest.system_digest: string
+.manifest.tools[]: string
+.manifest.tools_digest: string
+.schema: int
+.session_id: string
+.strategy: string
+.trigger: string
+
+== completion @ 2
+.correlation_id: string
+.cost_micros: int
+.detail: any
+.external_op_id: string
+.finished_at_ms: int
+.outcome: string
+.producer: string
+.result_ref: string
+.signature: string
+.started_at_ms: int
+enum Outcome: succeeded|failed|unknown
+
+== execution @ 2
+.authority.ceilings.{}: string
+.authority.delegated_by: string
+.authority.principal: string
+.budget.held_unknown_micros: int
+.budget.limit_micros: int
+.budget.pinned: bool
+.budget.question: string
+.budget.question_needs_micros: int
+.budget.reservations.{}: int
+.budget.reserved_micros: int
+.budget.resets: int
+.budget.spent_micros: int
+.budget.units_before.control_reserve: int
+.budget.units_before.held_unknown: int
+.budget.units_before.limit: int
+.budget.units_before.reservations.{}: int
+.budget.units_before.reserved: int
+.budget.units_before.spent: int
+.cancel: string
+.created_at_ms: int
+.ended_reason: string
+.id: string
+.interrupted: int
+.kind: string
+.outstanding[]: string
+.parent: string
+.queued_results[]: string
+.report_wakes[]: string
+.reports[]: string
+.reports_to: string
+.resume_pending: bool
+.schema: int
+.session_id: string
+.state: string
+.stopped.at_ms: int
+.stopped.by: string
+.stopped.turn: int
+.turns: int
+.updated_at_ms: int
+.wake_parent: bool
+.wakes[].by: string
+.wakes[].due_at_ms: int
+.wakes[].id: string
+.wakes[].note: string
+.wakes[].set_at_ms: int
+.wakes[].target: string
+.wake{on=actions}.correlation_ids[]: string
+.wake{on=budget}.correlation_id: string
+.wake{on=confirm}.confirm_id: string
+.wake{on=due_at}.at_ms: int
+.wake{on=execution}.execution_id: string
+enum CancelState: requested|acknowledged|termination_verified|unsupported|outcome_uncertain
+enum ExecState: queued|running|waiting|blocked|cancelled|failed|budget_exhausted|complete
+enum SessionKind: conversation|task
+enum Wake: due_at|actions|execution|confirm|input|budget
+
+== ledger @ 1
+.at_unix_ms: int
+.data: any
+.kind: string
+.session_id: string
+.turn_id: string
+
+== node @ 2
+.author: string
+.body{kind=assistant_message}.blocks[]: any
+.body{kind=assistant_message}.catalog_version: string
+.body{kind=assistant_message}.compilation_id: string
+.body{kind=assistant_message}.correlation_id: string
+.body{kind=assistant_message}.cost_usd: float
+.body{kind=assistant_message}.model: string
+.body{kind=assistant_message}.provider: string
+.body{kind=assistant_message}.request_digest: string
+.body{kind=assistant_message}.request_id: string
+.body{kind=assistant_message}.stop_reason: string
+.body{kind=assistant_message}.usage.cache_creation_1h_input_tokens: int
+.body{kind=assistant_message}.usage.cache_creation_input_tokens: int
+.body{kind=assistant_message}.usage.cache_read_input_tokens: int
+.body{kind=assistant_message}.usage.input_tokens: int
+.body{kind=assistant_message}.usage.output_tokens: int
+.body{kind=tool_call}.assistant_node: string
+.body{kind=tool_call}.correlation_id: string
+.body{kind=tool_call}.gate.decision.external.from_session: string
+.body{kind=tool_call}.gate.decision.external.node_id: string
+.body{kind=tool_call}.gate.decision.external.query: string
+.body{kind=tool_call}.gate.decision.external.since_ms: int
+.body{kind=tool_call}.gate.decision.external.tool: string
+.body{kind=tool_call}.gate.decision.external.url: string
+.body{kind=tool_call}.gate.decision.external.via: string
+.body{kind=tool_call}.gate.decision.floor: bool
+.body{kind=tool_call}.gate.decision.granted: string
+.body{kind=tool_call}.gate.decision.mode: string
+.body{kind=tool_call}.gate.decision.notify.kind: string
+.body{kind=tool_call}.gate.decision.notify.rule: string
+.body{kind=tool_call}.gate.decision.notify.setting: string
+.body{kind=tool_call}.gate.decision.posture: string
+.body{kind=tool_call}.gate.decision.reason: string
+.body{kind=tool_call}.gate.plan.argv[]: string
+.body{kind=tool_call}.gate.plan.resources[].access: string
+.body{kind=tool_call}.gate.plan.resources[].path: string
+.body{kind=tool_call}.gate.plan.summary: string
+.body{kind=tool_call}.gate.plan.url: string
+.body{kind=tool_call}.gate.proposal.args: any
+.body{kind=tool_call}.gate.proposal.policy_context: any
+.body{kind=tool_call}.gate.proposal.resource: string
+.body{kind=tool_call}.gate.proposal.tool: string
+.body{kind=tool_call}.gate.result.by: string
+.body{kind=tool_call}.gate.result.gate: string
+.body{kind=tool_call}.gate.result.reason: string
+.body{kind=tool_call}.gate.validated: bool
+.body{kind=tool_call}.input: any
+.body{kind=tool_call}.tool: string
+.body{kind=tool_call}.tool_use_id: string
+.body{kind=tool_call}.wire_name: string
+.body{kind=tool_result}.bytes_total: int
+.body{kind=tool_result}.content: string
+.body{kind=tool_result}.correlation_id: string
+.body{kind=tool_result}.duration_ms: int
+.body{kind=tool_result}.external.url: string
+.body{kind=tool_result}.full_ref: string
+.body{kind=tool_result}.image.content{kind=image}.digest: string
+.body{kind=tool_result}.image.content{kind=image}.height: int
+.body{kind=tool_result}.image.content{kind=image}.width: int
+.body{kind=tool_result}.image.media_type: string
+.body{kind=tool_result}.image.name: string
+.body{kind=tool_result}.image.size: int
+.body{kind=tool_result}.is_error: bool
+.body{kind=tool_result}.late: bool
+.body{kind=tool_result}.meta: any
+.body{kind=tool_result}.status: string
+.body{kind=tool_result}.tool: string
+.body{kind=tool_result}.tool_use_id: string
+.body{kind=tool_result}.truncated: bool
+.body{kind=user_message}.attachments[].content{kind=not_read}.reason: string
+.body{kind=user_message}.attachments[].content{kind=text}.cut: bool
+.body{kind=user_message}.attachments[].content{kind=text}.text: string
+.body{kind=user_message}.attachments[].media_type: string
+.body{kind=user_message}.attachments[].name: string
+.body{kind=user_message}.attachments[].size: int
+.body{kind=user_message}.text: string
+.created_at_ms: int
+.id: string
+.loop_index: int
+.origin: string
+.schema: int
+.session_id: string
+.turn_id: string
+enum Access: read|write|exec
+enum AttachmentContent: text|image|not_read
+enum Body: user_message|assistant_message|tool_call|tool_result
+enum Origin: operator|agent|tool|harness
+enum ResultStatus: ok|error|declined|denied|background|unknown|cancelled
+
+== node @ 3
+.author: string
+.body{kind=assistant_message}.blocks[]: any
+.body{kind=assistant_message}.catalog_version: string
+.body{kind=assistant_message}.compilation_id: string
+.body{kind=assistant_message}.correlation_id: string
+.body{kind=assistant_message}.cost_usd: float
+.body{kind=assistant_message}.model: string
+.body{kind=assistant_message}.provider: string
+.body{kind=assistant_message}.request_digest: string
+.body{kind=assistant_message}.request_id: string
+.body{kind=assistant_message}.stop_reason: string
+.body{kind=assistant_message}.usage.cache_creation_1h_input_tokens: int
+.body{kind=assistant_message}.usage.cache_creation_input_tokens: int
+.body{kind=assistant_message}.usage.cache_read_input_tokens: int
+.body{kind=assistant_message}.usage.input_tokens: int
+.body{kind=assistant_message}.usage.output_tokens: int
+.body{kind=tool_call}.assistant_node: string
+.body{kind=tool_call}.correlation_id: string
+.body{kind=tool_call}.gate.decision.external.from_session: string
+.body{kind=tool_call}.gate.decision.external.node_id: string
+.body{kind=tool_call}.gate.decision.external.query: string
+.body{kind=tool_call}.gate.decision.external.since_ms: int
+.body{kind=tool_call}.gate.decision.external.tool: string
+.body{kind=tool_call}.gate.decision.external.url: string
+.body{kind=tool_call}.gate.decision.external.via: string
+.body{kind=tool_call}.gate.decision.floor: bool
+.body{kind=tool_call}.gate.decision.granted: string
+.body{kind=tool_call}.gate.decision.mode: string
+.body{kind=tool_call}.gate.decision.notify.kind: string
+.body{kind=tool_call}.gate.decision.notify.rule: string
+.body{kind=tool_call}.gate.decision.notify.setting: string
+.body{kind=tool_call}.gate.decision.posture: string
+.body{kind=tool_call}.gate.decision.reason: string
+.body{kind=tool_call}.gate.plan.argv[]: string
+.body{kind=tool_call}.gate.plan.aws.account: string
+.body{kind=tool_call}.gate.plan.aws.cost_bearing: bool
+.body{kind=tool_call}.gate.plan.aws.operation: string
+.body{kind=tool_call}.gate.plan.aws.region: string
+.body{kind=tool_call}.gate.plan.aws.resources[]: string
+.body{kind=tool_call}.gate.plan.aws.service: string
+.body{kind=tool_call}.gate.plan.class: string
+.body{kind=tool_call}.gate.plan.resources[].access: string
+.body{kind=tool_call}.gate.plan.resources[].path: string
+.body{kind=tool_call}.gate.plan.summary: string
+.body{kind=tool_call}.gate.plan.url: string
+.body{kind=tool_call}.gate.proposal.args: any
+.body{kind=tool_call}.gate.proposal.policy_context: any
+.body{kind=tool_call}.gate.proposal.resource: string
+.body{kind=tool_call}.gate.proposal.tool: string
+.body{kind=tool_call}.gate.result.by: string
+.body{kind=tool_call}.gate.result.gate: string
+.body{kind=tool_call}.gate.result.reason: string
+.body{kind=tool_call}.gate.validated: bool
+.body{kind=tool_call}.input: any
+.body{kind=tool_call}.tool: string
+.body{kind=tool_call}.tool_use_id: string
+.body{kind=tool_call}.wire_name: string
+.body{kind=tool_result}.bytes_total: int
+.body{kind=tool_result}.content: string
+.body{kind=tool_result}.correlation_id: string
+.body{kind=tool_result}.duration_ms: int
+.body{kind=tool_result}.external.url: string
+.body{kind=tool_result}.full_ref: string
+.body{kind=tool_result}.image.content{kind=image}.digest: string
+.body{kind=tool_result}.image.content{kind=image}.height: int
+.body{kind=tool_result}.image.content{kind=image}.width: int
+.body{kind=tool_result}.image.media_type: string
+.body{kind=tool_result}.image.name: string
+.body{kind=tool_result}.image.size: int
+.body{kind=tool_result}.is_error: bool
+.body{kind=tool_result}.late: bool
+.body{kind=tool_result}.meta: any
+.body{kind=tool_result}.status: string
+.body{kind=tool_result}.tool: string
+.body{kind=tool_result}.tool_use_id: string
+.body{kind=tool_result}.truncated: bool
+.body{kind=user_message}.attachments[].content{kind=not_read}.reason: string
+.body{kind=user_message}.attachments[].content{kind=text}.cut: bool
+.body{kind=user_message}.attachments[].content{kind=text}.text: string
+.body{kind=user_message}.attachments[].media_type: string
+.body{kind=user_message}.attachments[].name: string
+.body{kind=user_message}.attachments[].size: int
+.body{kind=user_message}.text: string
+.created_at_ms: int
+.id: string
+.loop_index: int
+.origin: string
+.schema: int
+.session_id: string
+.turn_id: string
+enum Access: read|write|exec
+enum AttachmentContent: text|image|not_read
+enum Body: user_message|assistant_message|tool_call|tool_result
+enum Origin: operator|agent|tool|harness
+enum ResultStatus: ok|error|declined|denied|background|unknown|cancelled
+enum ToolClass: read|write|run
+
+== outbox @ 1
+.args_digest: string
+.authorized_at_ms: int
+.cancel: string
+.completions_seen: int
+.confirm.bound_digest: string
+.confirm.by: string
+.confirm.confirm_id: string
+.confirm.expires_at_ms: int
+.correlation_id: string
+.deadline_at_ms: int
+.detail: any
+.dispatched_at_ms: int
+.execution_id: string
+.external_op_id: string
+.planned_at_ms: int
+.proposal.args: any
+.proposal.policy_context: any
+.proposal.resource: string
+.proposal.tool: string
+.reservation_id: string
+.reserved_micros: int
+.resolution: string
+.resource: string
+.result_ref: string
+.retry_class{class=idempotent_with_key}.key: string
+.schema: int
+.session_id: string
+.settled_at_ms: int
+.state: string
+.tool: string
+enum ActionState: planned|authorized|dispatched|succeeded|failed|outcome_unknown|cancelled
+enum CancelState: requested|acknowledged|termination_verified|unsupported|outcome_uncertain
+enum RetryClass: safe_to_repeat|non_repeatable|idempotent_with_key
+
+== session @ 6
+.compilation_id: string
+.cost_usd: float
+.created_at_unix_ms: int
+.execution_id: string
+.external.from_session: string
+.external.node_id: string
+.external.query: string
+.external.since_ms: int
+.external.tool: string
+.external.url: string
+.external.via: string
+.failing.class: string
+.failing.lasting: int
+.failing.noticed: bool
+.failing.parked: bool
+.failing.since_ms: int
+.failing.turns: int
+.kind: string
+.label: string
+.last_active_ms: int
+.last_target.model: string
+.last_target.profile: string
+.last_target.provider: string
+.last_turn_id: string
+.not_shown[].at_ms: int
+.not_shown[].digest: string
+.not_shown[].why: string
+.pending_recompile: string
+.session_id: string
+.task.by: string
+.task.parent_execution: string
+.task.parent_session: string
+.task.target: string
+.title: string
+.tool_calls: int
+.turns: int
+.usage.cache_creation_1h_input_tokens: int
+.usage.cache_creation_input_tokens: int
+.usage.cache_read_input_tokens: int
+.usage.input_tokens: int
+.usage.output_tokens: int
+enum Recompile: transcript|fresh
+enum SessionKind: conversation|task
