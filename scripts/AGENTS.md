@@ -86,8 +86,11 @@ give the gate's command a timeout of 30 minutes or more (a `proc.run` call can a
   so does an entry for a file that is gone. The list can only shrink, or be raised on purpose, with the reason in the commit.
 - **Tightening, and a rebase.** Lower a threshold in `clippy.toml`, run `cargo clippy --workspace --all-targets
   --message-format=json -q | python3 scripts/shape-expect.py` to mark the new offenders, and commit both. The script is
-  idempotent. It also regenerates the marks after a rebase conflict in them: take the other side of the conflict, and run it
-  again, instead of resolving the attributes by hand.
+  idempotent. It also deletes its own marks that clippy reports as unfulfilled (a function that another change shortened),
+  and regenerates the marks after a rebase conflict in them: take the other side of the conflict, and run it again,
+  instead of resolving the attributes by hand. A merge with main needs exactly this: the spine's C2 (4eb6db2) merged
+  with no conflict, shortened two marked functions in `turn.rs`, and added one test function over 100 lines, and one run
+  of the script marked the one and removed the two.
 
 ### The daily deny job
 
