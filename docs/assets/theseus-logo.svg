@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Theseus</title>
+  <desc id="desc">A Greek ship on an old coin, sailing at night. Most of its planks are worn ivory; a few are new gold ones, put in as the old ones wore out. It is still the same ship.</desc>
+  <defs>
+    <clipPath id="field"><circle cx="256" cy="256" r="225"/></clipPath>
+    <clipPath id="hull">
+      <path d="M150 286 Q277 300 404 284 C410 300 414 316 420 326 L436 332 L416 338 C380 350 220 352 168 342 C148 336 140 312 150 286 Z"/>
+    </clipPath>
+    <clipPath id="strake-top"><path d="M100 150 L460 150 L460 300 Q280 320 100 304 Z"/></clipPath>
+    <clipPath id="strake-mid"><path d="M100 304 Q280 320 460 300 L460 316 Q280 336 100 320 Z"/></clipPath>
+    <clipPath id="strake-low"><path d="M100 320 Q280 336 460 316 L460 420 L100 420 Z"/></clipPath>
+  </defs>
+
+  <!-- the coin -->
+  <circle cx="256" cy="256" r="252" fill="#13314d"/>
+  <circle cx="256" cy="256" r="241" fill="none" stroke="#d6a548" stroke-width="6"/>
+  <circle cx="256" cy="256" r="230" fill="none" stroke="#d6a548" stroke-width="4" stroke-dasharray="0.1 9.6" stroke-linecap="round"/>
+
+  <g clip-path="url(#field)">
+    <!-- the night: a few stars, and the sea -->
+    <g fill="#e9c97f">
+      <circle cx="150" cy="122" r="2.6"/>
+      <circle cx="362" cy="104" r="2.1"/>
+      <circle cx="404" cy="172" r="1.7"/>
+      <circle cx="116" cy="190" r="1.9"/>
+      <circle cx="212" cy="92" r="1.5"/>
+      <circle cx="318" cy="70" r="1.5"/>
+      <circle cx="430" cy="236" r="1.4"/>
+    </g>
+    <rect x="0" y="346" width="512" height="166" fill="#173c5f"/>
+
+    <!-- thirty oars, give or take -->
+    <g stroke="#efe3c8" stroke-width="3.6" stroke-linecap="round">
+      <line x1="180" y1="345" x2="162" y2="383"/>
+      <line x1="200" y1="347" x2="182" y2="385"/>
+      <line x1="220" y1="348" x2="202" y2="386"/>
+      <line x1="240" y1="348" x2="222" y2="386"/>
+      <line x1="260" y1="348" x2="242" y2="386"/>
+      <line x1="280" y1="348" x2="262" y2="386"/>
+      <line x1="300" y1="348" x2="282" y2="386"/>
+      <line x1="320" y1="347" x2="302" y2="385"/>
+      <line x1="340" y1="346" x2="322" y2="384"/>
+      <line x1="360" y1="345" x2="342" y2="383"/>
+      <line x1="380" y1="343" x2="362" y2="381"/>
+    </g>
+
+    <!-- the hull, plank by plank: three strakes, the butt joints staggered like brickwork -->
+    <path d="M150 286 Q277 300 404 284 C410 300 414 316 420 326 L436 332 L416 338 C380 350 220 352 168 342 C148 336 140 312 150 286 Z" fill="#efe3c8"/>
+    <g clip-path="url(#hull)">
+      <g clip-path="url(#strake-top)">
+        <rect x="245" y="250" width="55" height="80" fill="#e2ae4f"/>
+        <g stroke="#13314d" stroke-opacity="0.55" stroke-width="2.2">
+          <line x1="190" y1="250" x2="190" y2="330"/>
+          <line x1="245" y1="250" x2="245" y2="330"/>
+          <line x1="300" y1="250" x2="300" y2="330"/>
+          <line x1="355" y1="250" x2="355" y2="330"/>
+        </g>
+      </g>
+      <g clip-path="url(#strake-mid)">
+        <rect x="165" y="280" width="55" height="70" fill="#e2ae4f"/>
+        <rect x="330" y="280" width="55" height="70" fill="#e2ae4f"/>
+        <g stroke="#13314d" stroke-opacity="0.55" stroke-width="2.2">
+          <line x1="165" y1="280" x2="165" y2="350"/>
+          <line x1="220" y1="280" x2="220" y2="350"/>
+          <line x1="275" y1="280" x2="275" y2="350"/>
+          <line x1="330" y1="280" x2="330" y2="350"/>
+          <line x1="385" y1="280" x2="385" y2="350"/>
+        </g>
+      </g>
+      <g clip-path="url(#strake-low)">
+        <rect x="200" y="300" width="55" height="80" fill="#e2ae4f"/>
+        <rect x="365" y="300" width="90" height="80" fill="#e2ae4f"/>
+        <g stroke="#13314d" stroke-opacity="0.55" stroke-width="2.2">
+          <line x1="200" y1="300" x2="200" y2="380"/>
+          <line x1="255" y1="300" x2="255" y2="380"/>
+          <line x1="310" y1="300" x2="310" y2="380"/>
+          <line x1="365" y1="300" x2="365" y2="380"/>
+        </g>
+      </g>
+      <g fill="none" stroke="#13314d" stroke-opacity="0.55" stroke-width="2.2">
+        <path d="M100 304 Q280 320 460 300"/>
+        <path d="M100 320 Q280 336 460 316"/>
+      </g>
+    </g>
+
+    <!-- the eye at the bow, and the curl of the stern -->
+    <path d="M386 314 Q397 305 408 314 Q397 323 386 314 Z" fill="#13314d"/>
+    <circle cx="397" cy="314" r="3.2" fill="#e2ae4f"/>
+    <path d="M152 290 C132 276 116 254 120 232 C123 215 139 208 147 218" fill="none" stroke="#efe3c8" stroke-width="9" stroke-linecap="round"/>
+
+    <!-- mast, yard, rigging, and the sail with its theta -->
+    <g stroke="#efe3c8" stroke-linecap="round">
+      <line x1="262" y1="294" x2="262" y2="136" stroke-width="7"/>
+      <line x1="192" y1="156" x2="332" y2="156" stroke-width="6"/>
+      <line x1="194" y1="158" x2="153" y2="286" stroke-width="2" stroke-opacity="0.7"/>
+      <line x1="330" y1="158" x2="401" y2="284" stroke-width="2" stroke-opacity="0.7"/>
+    </g>
+    <path d="M200 159 L324 159 L319 264 Q262 279 205 264 Z" fill="#efe3c8"/>
+    <g stroke="#13314d" stroke-width="8" stroke-linecap="round" fill="none">
+      <ellipse cx="262" cy="211" rx="26" ry="31"/>
+      <line x1="250" y1="211" x2="274" y2="211"/>
+    </g>
+
+    <!-- the waves -->
+    <g fill="none" stroke-linecap="round">
+      <path d="M0 356 q16 -9 32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0" stroke="#5aa0b4" stroke-width="4.5"/>
+      <path d="M-16 392 q16 -9 32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0" stroke="#4a8ea3" stroke-width="4" stroke-opacity="0.8"/>
+      <path d="M0 426 q16 -9 32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0" stroke="#3d7d93" stroke-width="3.5" stroke-opacity="0.6"/>
+      <path d="M-16 458 q16 -9 32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0" stroke="#336f84" stroke-width="3" stroke-opacity="0.45"/>
+    </g>
+  </g>
+</svg>

@@ -183,6 +183,13 @@ you installed in the meantime. Only `restart` swaps the binary.
 **What a stop does to jobs.** `KillMode=process`: a stop signals the daemon alone, so jobs that are running finish,
 and the next daemon reads their results from the spool. A crash recovers the same way.
 
+**Why a restart never waits on a job.** The first L1 job gives jobs cgroups of their own, which switches the job
+limits on in the daemon's cgroup. While they are on, the kernel refuses to start the next daemon there if a job of
+the old one is still running. So the unit runs `theseusd cgroup-release` after every stop and crash
+(`ExecStopPost=`), which switches them off. A job that is still running keeps going without its limits, and the
+next daemon's first L1 job switches them on again. The daemon gives jobs cgroups only under a unit that has this
+line; without it, health's `sandbox:` line says why, and L1 jobs run without a memory limit.
+
 **Changing the unit.** Don't edit `theseusd.service`: a later `--apply` rewrites it. Put your own settings in a
 drop-in (`systemctl --user edit theseusd`), which is never touched. To change what the plan writes (the config
 reference, the state directory, the socket, the token file, or `PATH`), run `scripts/user-service.sh install`
@@ -247,6 +254,7 @@ Type=exec
 ExecStart=/home/ada/.local/bin/theseusd --config op://<vault>/<item>/notesPlain --op-token-file /home/ada/.config/theseus/op-token
 Environment="PATH=/home/ada/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="LANG=C.UTF-8"
+ExecStopPost=-/home/ada/.local/bin/theseusd cgroup-release
 Delegate=yes
 KillSignal=SIGINT
 KillMode=process
@@ -257,7 +265,8 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-`Delegate=yes` is the delegated cgroup; `KillSignal=SIGINT` is the daemon's clean stop; `KillMode=process` leaves
+`Delegate=yes` is the delegated cgroup; `ExecStopPost` switches the job limits off after a stop or a crash, so a
+restart never waits for a running job; `KillSignal=SIGINT` is the daemon's clean stop; `KillMode=process` leaves
 running jobs alone on a stop; `Restart=on-failure` brings it back after a crash. `ExecStart` is the binary you ran
 the install with, so install a reviewed build into `~/.local/bin` and run the script from there, not a build in a
 `target/` directory (`check` warns about one). `--state-dir` and `--socket` appear there only when your shell had

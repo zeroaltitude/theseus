@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 16" width="960" height="16" role="img" aria-label="A row of planks: most worn ivory, a few new gold ones">
+  <title>A row of planks: most worn ivory, a few new gold ones</title>
+  <g stroke="#13314d" stroke-width="1.2">
+    <rect x="1" y="2" width="68" height="12" rx="2" fill="#efe3c8"/>
+    <rect x="73" y="2" width="52" height="12" rx="2" fill="#e8dbbd"/>
+    <rect x="129" y="2" width="81" height="12" rx="2" fill="#efe3c8"/>
+    <rect x="214" y="2" width="44" height="12" rx="2" fill="#e2ae4f" stroke="#9c6f23"/>
+    <rect x="262" y="2" width="73" height="12" rx="2" fill="#e8dbbd"/>
+    <rect x="339" y="2" width="58" height="12" rx="2" fill="#efe3c8"/>
+    <rect x="401" y="2" width="90" height="12" rx="2" fill="#e8dbbd"/>
+    <rect x="495" y="2" width="49" height="12" rx="2" fill="#efe3c8"/>
+    <rect x="548" y="2" width="66" height="12" rx="2" fill="#e2ae4f" stroke="#9c6f23"/>
+    <rect x="618" y="2" width="77" height="12" rx="2" fill="#efe3c8"/>
+    <rect x="699" y="2" width="55" height="12" rx="2" fill="#e8dbbd"/>
+    <rect x="758" y="2" width="84" height="12" rx="2" fill="#efe3c8"/>
+    <rect x="846" y="2" width="38" height="12" rx="2" fill="#e2ae4f" stroke="#9c6f23"/>
+    <rect x="888" y="2" width="71" height="12" rx="2" fill="#e8dbbd"/>
+  </g>
+</svg>
