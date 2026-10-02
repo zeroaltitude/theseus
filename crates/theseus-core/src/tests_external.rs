@@ -189,6 +189,21 @@ fn ledgered(core: &Core, kind: &str) -> Vec<Value> {
         .collect()
 }
 
+/// A frame's record, for a test to read: a ledger row by its kind, any other
+/// record by its kind's name.
+fn described(r: &theseus_store::NewRecord) -> String {
+    use theseus_store::kinds;
+    match r.kind {
+        kinds::LEDGER => serde_json::from_slice::<crate::ledger::LedgerRow>(&r.payload)
+            .map(|row| row.kind)
+            .unwrap_or_default(),
+        kinds::ACTION => "action".into(),
+        kinds::EXECUTION => "execution".into(),
+        kinds::SESSION => "session".into(),
+        k => format!("kind {k}"),
+    }
+}
+
 fn hold(core: &Core, sid: &str) -> Option<ExternalText> {
     core.store
         .get_session::<SessionRecord>(sid)
@@ -542,10 +557,36 @@ async fn an_approval_with_trust_runs_the_call_and_trusts_the_session() {
         .confirm_action_with(&corr, false, None, "test", true)
         .unwrap_err();
     assert!(e.to_string().contains("trust goes with an approval"), "{e}");
+    // The answer is one frame (theseus-jj9f): the bind, the trust (its row
+    // and the session's record), the answer's row, and the wake.
+    let frames: Arc<std::sync::Mutex<Vec<Vec<String>>>> = Arc::default();
+    let into = frames.clone();
+    assert!(r
+        .core
+        .kernel
+        .observe(Arc::new(move |c: theseus_kernel::Committed<'_>| {
+            into.lock()
+                .unwrap()
+                .push(c.records.iter().map(described).collect());
+        })));
+    let before = r.core.store.stats().unwrap().frames_appended;
     let ok = r
         .core
         .confirm_action_with(&corr, true, None, "test", true)
         .unwrap();
+    assert_eq!(r.core.store.stats().unwrap().frames_appended - before, 1);
+    assert_eq!(
+        frames.lock().unwrap().clone(),
+        vec![vec![
+            "action",
+            "action.confirmed",
+            "session.trusted",
+            "session",
+            "action.confirm_answered",
+            "execution",
+            "execution.queued"
+        ]]
+    );
     assert!(ok.approved);
     assert!(hold(&r.core, &sid).is_none());
     let trusted = ledgered(&r.core, "session.trusted");

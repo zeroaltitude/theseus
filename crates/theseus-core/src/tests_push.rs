@@ -435,9 +435,8 @@ async fn session_wait_returns_on_blocked_settled_and_terminal() {
     assert!(parked_at >= blocked_at);
     // The answer queues it (no driver runs here, so it stays queued: working);
     // a wait for settled after that view parks, and the continuation's end
-    // wakes it. (A wait parked before the answer wakes at the answer's first
-    // frame: the execution still waits on the confirm with none pending, the
-    // design's rule 11, needs you, which is settled.)
+    // wakes it. (A wait parked before the answer does too: the answer is one
+    // frame, theseus-jj9f, in the test after this one.)
     let exec = asked.execution_id.clone().unwrap();
     r.core.confirm_action(&corr, false, None, "test").unwrap();
     until("the board saw the answer queue it", || {
@@ -544,6 +543,115 @@ async fn session_wait_returns_on_blocked_settled_and_terminal() {
         .unwrap();
     assert_eq!(e.code, error_code::INVALID_PARAMS);
     assert_eq!(r.core.push.status(0).waiting, 0);
+}
+
+/// An answer is one frame (theseus-jj9f): the bind or the decline, the
+/// answer's row, and the wake. So a settled wait parked before an answer, a
+/// decline or an approval, stays parked through it and returns when the
+/// continuation ends; and the answer's view is the execution queued, never
+/// waiting on the question it no longer has (`● waiting on you`, which is
+/// settled).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_settled_wait_parked_before_an_answer_returns_after_its_continuation() {
+    let r = rig_full(
+        vec![
+            Scripted::tools(
+                "",
+                &[("t1", "fs_write", json!({"path": "a.txt", "content": "a"}))],
+            ),
+            Scripted::text("Not written, then."),
+            Scripted::tools(
+                "",
+                &[("t2", "fs_write", json!({"path": "b.txt", "content": "b"}))],
+            ),
+            Scripted::text("Written."),
+        ],
+        true,
+        false,
+    );
+    let seen = watcher(&r.core).await;
+    let mut c = Raw::connect(&r.core, "waiter", 1 << 20);
+    let mut session: Option<String> = None;
+    for (id, approve) in [(10u64, false), (20, true)] {
+        let asked = turn_result(&r.core, session.as_deref()).await;
+        let sid = asked.session_id.clone();
+        session = Some(sid.clone());
+        let corr = asked.awaiting_confirm.clone().unwrap();
+        let exec = asked.execution_id.clone().unwrap();
+        until("the board saw the question", || {
+            r.core
+                .push
+                .view_of_session(&sid)
+                .is_some_and(|v| v.state == "waiting" && !v.pending.is_empty())
+        })
+        .await;
+        let parked_at = r.core.push.view_of_session(&sid).unwrap().position;
+        c.send(
+            id,
+            method::SESSION_WAIT,
+            json!({"session_id": sid, "until": "settled", "after_position": parked_at, "timeout_ms": 20_000}),
+        )
+        .await;
+        until("the wait parked", || r.core.push.status(0).waiting == 1).await;
+        let before = r.core.store.stats().unwrap().frames_appended;
+        r.core.confirm_action(&corr, approve, None, "test").unwrap();
+        assert_eq!(
+            r.core.store.stats().unwrap().frames_appended - before,
+            1,
+            "the answer (approve: {approve}) is one frame"
+        );
+        until("the board saw the answer queue it", || {
+            r.core
+                .push
+                .view_of_session(&sid)
+                .is_some_and(|v| v.state == "queued")
+        })
+        .await;
+        assert_eq!(
+            r.core.push.status(0).waiting,
+            1,
+            "the answer (approve: {approve}) woke the settled wait parked before it"
+        );
+        r.core.continue_execution(&exec).await.unwrap();
+        let s = c.answer(id).await.result.unwrap();
+        assert_eq!(
+            (s["reached"].as_str(), s["already"].as_bool()),
+            (Some("settled"), Some(false)),
+            "approve: {approve}"
+        );
+        assert_eq!(s["execution"]["attention"]["label"], "ready");
+        let end = s["execution"]["position"].as_u64().unwrap();
+        until("the watcher saw the continuation end", || {
+            applied(&seen.lock().unwrap())
+                .get(&exec)
+                .is_some_and(|v| v.position >= end)
+        })
+        .await;
+        let views: Vec<ExecutionView> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|m| match m {
+                Message::Notification(n) if n.method == notify::EXECUTION_CHANGED => {
+                    serde_json::from_value::<ExecutionView>(n.params.clone()).ok()
+                }
+                _ => None,
+            })
+            .filter(|v| v.execution_id == exec && v.position > parked_at && v.position < end)
+            .collect();
+        let answer = views.first().expect("the answer's view");
+        assert_eq!(
+            (answer.state.as_str(), answer.attention.level.as_str()),
+            ("queued", "working"),
+            "the answer's view (approve: {approve}): {answer:?}"
+        );
+        assert!(
+            views
+                .iter()
+                .all(|v| v.attention.level.as_str() != "needs_you"),
+            "a view between the answer and its continuation's end needs you: {views:?}"
+        );
+    }
 }
 
 /// A connection holds at most 64 waits, and a closed connection ends its

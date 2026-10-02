@@ -64,55 +64,82 @@ impl Core {
         correlation_id: Option<&str>,
         asker: &Traced,
     ) -> Result<Option<TrustResult>> {
-        let mut out = None;
-        self.store.with_session(session_id, |mut rec| {
-            let Some(held) = rec.external.take() else {
-                return Ok(());
-            };
-            let at_ms = theseus_protocol::now_unix_ms();
-            let r = TrustResult {
-                session_id: session_id.into(),
-                by: who.label.clone(),
-                who: who.who(),
-                via: who.via(),
-                how: how.into(),
-                correlation_id: correlation_id.map(str::to_string),
-                at_ms,
-                since_local: crate::external::since_local(&held, at_ms),
-                held,
-            };
-            let mut data = serde_json::to_value(&r)?;
-            if *asker != Traced::NoProcess {
-                data["asker"] = asker.json();
-            }
-            let row = LedgerRow::new("session.trusted", Some(session_id), None, data);
-            self.store.append(&[
-                NewRecord::json(kinds::LEDGER, None, &row)?,
-                NewRecord::json(kinds::SESSION, Some(session_id), &rec)?,
-            ])?;
-            out = Some(r);
-            Ok(())
-        })?;
+        let out = self
+            .store
+            .with_session(session_id, |rec| {
+                let Some((r, frame)) = trusted(rec, session_id, who, how, correlation_id, asker)?
+                else {
+                    return Ok(None);
+                };
+                self.store.append(&frame)?;
+                Ok(Some(r))
+            })?
+            .flatten();
         if let Some(r) = &out {
-            narrate!(
-                self.narrator,
-                Approval,
-                Some(session_id),
-                None,
-                "Trusted again by {}: this session no longer holds external text ({}), so its \
-                 calls that act are back at their postures.",
-                r.by,
-                crate::external::source(&r.held)
-            );
-            self.bus.publish(
-                session_id,
-                &Message::from(Event::SessionTrusted(r.clone())),
-                None,
-            );
+            self.announce_trust(session_id, r);
         }
         Ok(out)
     }
 
+    /// A trust written: narrated, and published to the session's watchers.
+    pub(super) fn announce_trust(&self, session_id: &str, r: &TrustResult) {
+        narrate!(
+            self.narrator,
+            Approval,
+            Some(session_id),
+            None,
+            "Trusted again by {}: this session no longer holds external text ({}), so its \
+             calls that act are back at their postures.",
+            r.by,
+            crate::external::source(&r.held)
+        );
+        self.bus.publish(
+            session_id,
+            &Message::from(Event::SessionTrusted(r.clone())),
+            None,
+        );
+    }
+}
+
+/// The frame that clears `rec`'s hold (`clear_hold`, and an approval's trust
+/// in the answer's own frame): the `session.trusted` row, then the record.
+/// None when it holds none.
+pub(super) fn trusted(
+    mut rec: SessionRecord,
+    session_id: &str,
+    who: &Answerer,
+    how: &str,
+    correlation_id: Option<&str>,
+    asker: &Traced,
+) -> Result<Option<(TrustResult, Vec<NewRecord>)>> {
+    let Some(held) = rec.external.take() else {
+        return Ok(None);
+    };
+    let at_ms = theseus_protocol::now_unix_ms();
+    let r = TrustResult {
+        session_id: session_id.into(),
+        by: who.label.clone(),
+        who: who.who(),
+        via: who.via(),
+        how: how.into(),
+        correlation_id: correlation_id.map(str::to_string),
+        at_ms,
+        since_local: crate::external::since_local(&held, at_ms),
+        held,
+    };
+    let mut data = serde_json::to_value(&r)?;
+    if *asker != Traced::NoProcess {
+        data["asker"] = asker.json();
+    }
+    let row = LedgerRow::new("session.trusted", Some(session_id), None, data);
+    let frame = vec![
+        NewRecord::json(kinds::LEDGER, None, &row)?,
+        NewRecord::json(kinds::SESSION, Some(session_id), &rec)?,
+    ];
+    Ok(Some((r, frame)))
+}
+
+impl Core {
     pub(super) fn policy_trust(
         &self,
         p: PolicyTrustParams,

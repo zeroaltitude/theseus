@@ -19,7 +19,7 @@ use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::{Action, LimitFollowed, BUDGET_TOOL};
-use theseus_store::Store as _;
+use theseus_store::{kinds, NewRecord, Store as _};
 
 impl Core {
     /// A waiting action as the question the operator sees: the one place a
@@ -293,33 +293,78 @@ impl Core {
         if a.tool == BUDGET_TOOL {
             return self.answer_budget(&a, approve, note, by, &via, &asker);
         }
-        if approve {
-            let proposal = crate::toolrun::confirm_proposal(&self.store, &a, None)?;
-            self.kernel
-                .bind_confirm(correlation_id, OPERATOR, &proposal)?;
-            if trust {
-                self.clear_hold(
-                    &a.session_id,
-                    &who,
-                    theseus_protocol::method::ACTION_CONFIRM,
-                    Some(correlation_id),
-                    &asker,
-                )?;
-            }
-        } else {
-            self.kernel.decline_action(
-                correlation_id,
-                OPERATOR,
-                note.unwrap_or("the operator declined"),
-            )?;
-        }
-        self.store.append_ledger(&LedgerRow::new(
-            "action.confirm_answered",
-            Some(&a.session_id),
+        // The answer is one frame, a kernel transaction (theseus-jj9f): the
+        // bind or the decline, an approval's trust, the answer's row, and the
+        // wake. So no surface sees the execution waiting on a question it no
+        // longer has, and the hold is cleared in the frame that wakes it. A
+        // trust takes the session's lock first: the session, then the
+        // execution.
+        let answered = NewRecord::json(
+            kinds::LEDGER,
             None,
-            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via,
-                   "asker": asker.json(), "trust": trust}),
-        ))?;
+            &LedgerRow::new(
+                "action.confirm_answered",
+                Some(&a.session_id),
+                None,
+                json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via,
+                       "asker": asker.json(), "trust": trust}),
+            ),
+        )?;
+        let proposal = match approve {
+            true => Some(crate::toolrun::confirm_proposal(&self.store, &a, None)?),
+            false => None,
+        };
+        let answer = |hold: Option<SessionRecord>| {
+            self.kernel.frame(&[&a.execution_id], |k| {
+                match &proposal {
+                    Some(p) => {
+                        k.bind_confirm(correlation_id, OPERATOR, p)?;
+                    }
+                    None => {
+                        k.decline_action(
+                            correlation_id,
+                            OPERATOR,
+                            note.unwrap_or("the operator declined"),
+                        )?;
+                    }
+                }
+                let trusted = match hold {
+                    Some(rec) => super::trust::trusted(
+                        rec,
+                        &a.session_id,
+                        &who,
+                        theseus_protocol::method::ACTION_CONFIRM,
+                        Some(correlation_id),
+                        &asker,
+                    )?,
+                    None => None,
+                };
+                if let Some((_, frame)) = &trusted {
+                    k.stage(frame)?;
+                }
+                k.stage(std::slice::from_ref(&answered))?;
+                // The wake is its own part: one that cannot happen (the
+                // execution ended) takes back nothing else.
+                let why = if approve { "confirmed" } else { "declined" };
+                let woke = k
+                    .frame(&[&a.execution_id], |k| k.wake(&a.execution_id, why))
+                    .is_ok();
+                Ok((woke, trusted.map(|(r, _)| r)))
+            })
+        };
+        let (woke, trusted) = match trust {
+            true => match self
+                .store
+                .with_session(&a.session_id, |rec| answer(Some(rec)))?
+            {
+                Some(done) => done,
+                None => answer(None)?,
+            },
+            false => answer(None)?,
+        };
+        if let Some(r) = &trusted {
+            self.announce_trust(&a.session_id, r);
+        }
         narrate!(
             self.narrator,
             Approval,
@@ -334,14 +379,7 @@ impl Core {
                 ""
             }
         );
-        if self
-            .kernel
-            .wake(
-                &a.execution_id,
-                if approve { "confirmed" } else { "declined" },
-            )
-            .is_ok()
-        {
+        if woke {
             narrate!(
                 self.narrator,
                 Session,
@@ -600,9 +638,36 @@ impl Core {
         asker: &Traced,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let correlation_id = q.correlation_id.as_str();
-        if approve {
-            let (e, before) = self.kernel.reset_budget(correlation_id, by)?;
-            narrate!(
+        // The answer and its row in one frame, a kernel transaction, as a
+        // tool call's answer is (theseus-jj9f).
+        let answered = NewRecord::json(
+            kinds::LEDGER,
+            None,
+            &LedgerRow::new(
+                "action.confirm_answered",
+                Some(&q.session_id),
+                None,
+                json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via, "tool": q.tool,
+                       "asker": asker.json()}),
+            ),
+        )?;
+        let reset = self.kernel.frame(&[&q.execution_id], |k| {
+            let reset = match approve {
+                true => Some(k.reset_budget(correlation_id, by)?),
+                false => {
+                    k.decline_action(
+                        correlation_id,
+                        by,
+                        note.unwrap_or("the operator declined the reset"),
+                    )?;
+                    None
+                }
+            };
+            k.stage(std::slice::from_ref(&answered))?;
+            Ok(reset)
+        })?;
+        match reset {
+            Some((e, before)) => narrate!(
                 self.narrator,
                 Approval,
                 Some(&q.session_id),
@@ -610,29 +675,16 @@ impl Core {
                 "Spend reset to $0 by {by} (it was {} of the {} limit); continuing.",
                 crate::narrative::dollars(before),
                 crate::narrative::dollars(e.budget.limit_micros)
-            );
-        } else {
-            self.kernel.decline_action(
-                correlation_id,
-                by,
-                note.unwrap_or("the operator declined the reset"),
-            )?;
-            narrate!(
+            ),
+            None => narrate!(
                 self.narrator,
                 Approval,
                 Some(&q.session_id),
                 None,
                 "The budget reset was declined by {by}; the session keeps waiting, and a new \
                  message asks again."
-            );
+            ),
         }
-        self.store.append_ledger(&LedgerRow::new(
-            "action.confirm_answered",
-            Some(&q.session_id),
-            None,
-            json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via, "tool": q.tool,
-                   "asker": asker.json()}),
-        ))?;
         self.bus.publish(
             &q.session_id,
             &Message::from(Event::ConfirmResolved(ConfirmResolved {
