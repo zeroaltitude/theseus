@@ -6,6 +6,7 @@
 
 mod app;
 mod board;
+mod detail;
 mod run;
 mod ui;
 

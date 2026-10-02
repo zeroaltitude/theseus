@@ -1,17 +1,17 @@
 //! Drawing (design `stage2` §2.9's layout): the header, the sidebar with its
-//! trees, the detail pane, and the footer, into a ratatui buffer. Nothing
-//! here changes the app: the same app draws the same buffer, so tests
-//! snapshot it.
+//! trees, the detail pane, and the footer with the input line, into a ratatui
+//! buffer. Nothing here changes the app: the same app draws the same buffer,
+//! so tests snapshot it.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use theseus_client::render::{glyph, Tag};
+use theseus_client::render::{glyph, pill, Tag};
 use theseus_protocol::Level;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{App, Link, Mode};
-use crate::board::{Only, Row};
+use crate::board::{short, Only, Row};
 
 /// The done-until-seen mark (design §2.9): teal, between needs you and
 /// working.
@@ -33,17 +33,20 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
     }
     header(app, Rect::new(0, 0, area.width, 1), buf);
     let body = Rect::new(0, 1, area.width, area.height - 2);
-    let rows = app.rows();
     if app.wide() {
         let side = sidebar_width(area.width);
-        sidebar(app, &rows, Rect::new(0, body.y, side, body.height), buf);
+        sidebar(app, Rect::new(0, body.y, side, body.height), buf);
         for y in body.y..body.y + body.height {
             buf.set_string(side, y, "│", dim());
         }
         let right = Rect::new(side + 1, body.y, area.width - side - 1, body.height);
-        empty_detail(right, buf);
+        detail(app, right, buf);
+    } else if app.shown().is_some() {
+        // Below 100 columns the session in focus takes the screen; esc goes
+        // back to the list.
+        detail(app, body, buf);
     } else {
-        sidebar(app, &rows, body, buf);
+        sidebar(app, body, buf);
     }
     let cursor = footer(app, Rect::new(0, area.height - 1, area.width, 1), buf);
     if app.mode == Mode::Help {
@@ -100,7 +103,8 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
     buf.set_stringn(x, area.y, &right, right.width(), link_style);
 }
 
-fn sidebar(app: &App, rows: &[Row], area: Rect, buf: &mut Buffer) {
+fn sidebar(app: &App, area: Rect, buf: &mut Buffer) {
+    let rows = &app.rows();
     if rows.is_empty() {
         let text = match (&app.link, app.only, app.filter.is_empty()) {
             (Link::Connecting, ..) => " connecting to theseusd…",
@@ -178,26 +182,147 @@ fn draw_row(row: &Row, area: Rect, buf: &mut Buffer, selected: bool) {
     buf.set_stringn(cx, area.y, &cost, cost.width(), base.patch(dim()));
 }
 
-fn empty_detail(area: Rect, buf: &mut Buffer) {
+/// The focused session's pane: a header line (its id, name, model, and
+/// pill), then its history and events, the newest at the foot.
+fn detail(app: &App, area: Rect, buf: &mut Buffer) {
+    let width = area.width.saturating_sub(1) as usize;
+    let x = area.x + 1;
+    let Some(d) = &app.detail else {
+        buf.set_stringn(
+            x,
+            area.y,
+            "no session open: enter opens the one under the cursor",
+            width,
+            dim(),
+        );
+        return;
+    };
     buf.set_stringn(
-        area.x + 1,
+        x,
         area.y,
-        "no session open",
-        area.width.saturating_sub(1) as usize,
-        dim(),
+        detail_header(app, &d.session_id),
+        width,
+        Style::default().add_modifier(Modifier::BOLD),
     );
+    let height = area.height.saturating_sub(1) as usize;
+    if !d.loaded && d.lines().is_empty() {
+        buf.set_stringn(x, area.y + 1, "reading the history…", width, dim());
+        return;
+    }
+    // The newest rows that fit, after the scroll: wrap from the end only as
+    // far as the pane needs.
+    let want = height + d.scroll;
+    let mut rows: Vec<(Tag, String)> = Vec::new();
+    for (tag, text) in d.lines().iter().rev() {
+        let mut wrapped = wrap(text, width);
+        while let Some(r) = wrapped.pop() {
+            rows.push((*tag, r));
+        }
+        if rows.len() >= want {
+            break;
+        }
+    }
+    // A scroll past the start stops at the start.
+    let scroll = d.scroll.min(rows.len().saturating_sub(height));
+    let shown: Vec<&(Tag, String)> = rows.iter().skip(scroll).take(height).collect();
+    for (i, (tag, text)) in shown.into_iter().rev().enumerate() {
+        buf.set_stringn(x, area.y + 1 + i as u16, text, width, tag_style(*tag));
+    }
+    if scroll > 0 {
+        let more = format!(" ↓ {scroll} more ");
+        let mx = area.x + area.width.saturating_sub(more.width() as u16);
+        buf.set_stringn(
+            mx,
+            area.y + area.height - 1,
+            &more,
+            more.width(),
+            dim().add_modifier(Modifier::REVERSED),
+        );
+    }
+}
+
+/// `ses …a1b2c3 · DM · glm-5.3-flash · ◐ turn 4`.
+fn detail_header(app: &App, sid: &str) -> String {
+    let mut parts = vec![format!("ses …{}", short(sid)), app.board.name(sid)];
+    if let Some(m) = app.board.info(sid).and_then(|s| s.model.clone()) {
+        parts.push(m);
+    }
+    if let Some(v) = app.board.view(sid) {
+        parts.push(pill(&v.attention));
+    }
+    parts.join(" · ")
+}
+
+/// `text` cut into rows of at most `width` columns: after the last space
+/// that fits, else at the width itself. An empty text is one empty row.
+pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut rows = Vec::new();
+    let mut row = String::new();
+    let mut row_w = 0usize;
+    // The row's last space: where it ends, in bytes and in columns.
+    let mut space: Option<(usize, usize)> = None;
+    for ch in text.chars() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        // A space that does not fit ends the row where it is.
+        if ch == ' ' && row_w + w > width {
+            rows.push(std::mem::take(&mut row));
+            row_w = 0;
+            space = None;
+            continue;
+        }
+        if row_w + w > width && !row.is_empty() {
+            match space {
+                // Break after the space: the word that did not fit moves on.
+                Some((at, cols)) => {
+                    let rest = row.split_off(at);
+                    rows.push(row.trim_end().to_string());
+                    row = rest;
+                    row_w -= cols;
+                }
+                None => {
+                    rows.push(std::mem::take(&mut row));
+                    row_w = 0;
+                }
+            }
+            space = None;
+        }
+        row.push(ch);
+        row_w += w;
+        if ch == ' ' {
+            space = Some((row.len(), row_w));
+        }
+    }
+    rows.push(row);
+    rows
 }
 
 fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
     let keys = "[?] help  [q] quit ";
-    match app.mode {
-        Mode::Filter => {
-            let text = format!(" /{}", app.filter);
-            buf.set_stringn(area.x, area.y, &text, area.width as usize, Style::default());
-            let x = (text.width() as u16).min(area.width.saturating_sub(1));
-            return Some((area.x + x, area.y));
-        }
-        Mode::Normal | Mode::Help => {}
+    let typed = match &app.mode {
+        Mode::Filter => Some(("/", app.filter.as_str())),
+        Mode::Input => Some(("> ", app.input.as_str())),
+        _ => None,
+    };
+    if let Some((prompt, text)) = typed {
+        // The end of what is typed, when it is longer than the line.
+        let room = (area.width as usize).saturating_sub(prompt.width() + 3);
+        let line = format!(" {prompt}{}", tail_fit(text, room));
+        buf.set_stringn(area.x, area.y, &line, area.width as usize, Style::default());
+        let x = (line.width() as u16).min(area.width.saturating_sub(1));
+        return Some((area.x + x, area.y));
+    }
+    if let Some(words) = app.armed_words() {
+        buf.set_stringn(
+            area.x + 1,
+            area.y,
+            &words,
+            area.width.saturating_sub(1) as usize,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+        return None;
     }
     let room = (area.width as usize).saturating_sub(keys.width() + 1);
     if let Some((tag, text)) = &app.flash {
@@ -208,14 +333,39 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
     None
 }
 
+/// The end of `text` that fits in `room` columns, with `…` before it when
+/// it was cut.
+fn tail_fit(text: &str, room: usize) -> String {
+    if text.width() <= room {
+        return text.to_string();
+    }
+    let mut kept: Vec<char> = Vec::new();
+    let mut used = 1;
+    for c in text.chars().rev() {
+        let w = UnicodeWidthChar::width(c).unwrap_or(0);
+        if used + w > room {
+            break;
+        }
+        used += w;
+        kept.push(c);
+    }
+    kept.push('…');
+    kept.into_iter().rev().collect()
+}
+
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 9] = [
+    const KEYS: [&str; 14] = [
         " keys",
-        " ↑ ↓  j k   move",
+        " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
+        " enter      open the session under the cursor",
+        " esc        back to the list (narrow screens); clear the filters",
+        " i          type to the open session: enter sends, esc leaves",
+        " s          stop the open conversation (s twice)",
+        " c          cancel the open task (c twice)",
+        " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",
         " b w r d a  only needs you, working, ready, done; all",
-        " esc        clear the filters",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
         "",

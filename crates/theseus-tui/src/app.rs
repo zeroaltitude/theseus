@@ -1,20 +1,30 @@
 //! The TUI's state and what changes it (design `stage2` §2.9): the board, the
-//! cursor, the filters, the connection's state. It does no I/O. The loop
-//! (`run.rs`) hands it the daemon's messages and the terminal's events, and
-//! carries out the effects it returns: requests to send, and quitting.
+//! cursor, the filters, the session in focus and its pane, what is being
+//! typed, the connection's state. It does no I/O. The loop (`run.rs`) hands it
+//! the daemon's messages and the terminal's events, and carries out the
+//! effects it returns: requests to send, and quitting.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use serde_json::{json, Value};
-use theseus_client::render::Tag;
+use theseus_client::render::{self, Tag};
 use theseus_protocol::{
-    method, ConfirmListResult, Event, EventsLost, ExecutionView, ExecutionsWatchResult, RpcError,
-    SessionListResult,
+    error_code, method, ConfirmListResult, Event, EventsLost, ExecutionStopResult, ExecutionView,
+    ExecutionsWatchResult, RpcError, SessionHistoryResult, SessionKind, SessionListResult,
+    TaskCancelResult,
 };
 
-use crate::board::{Board, Only, Row};
+use crate::board::{short, Board, Only, Row};
+use crate::detail::Detail;
+
+/// What the TUI's requests carry as their author: the ledger names it, and
+/// `[approval]` counts its answers as the CLI's (the `cli` channel).
+pub const AUTHOR: &str = "the TUI";
 
 /// Below this width, the detail pane gives way to a full-width list.
 pub const WIDE: u16 = 100;
+
+/// How many of a session's newest nodes its pane reads.
+pub const HISTORY_NODES: usize = 200;
 
 /// A request the loop sends, and what its answer is for.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +43,18 @@ pub enum Purpose {
     Titles,
     /// `confirm.list`: questions a view lists that the board lacks whole.
     Questions,
+    /// `session.history`: the focused session's pane.
+    History(String),
+    /// `session.history`'s newest nodes, for one an other surface wrote.
+    Node { session: String, node: String },
+    /// `session.watch` and `session.unwatch`.
+    Watch,
+    /// `turn.submit` from the input line.
+    Submit(String),
+    /// `execution.stop`.
+    Stop(String),
+    /// `task.cancel`.
+    Cancel(String),
 }
 
 /// What the loop does for the app.
@@ -54,6 +76,13 @@ pub enum Link {
     },
 }
 
+/// What a second key would do: `s` and `c` each ask for one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arm {
+    Stop,
+    Cancel,
+}
+
 /// What the keys type into, when not into the list.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -61,17 +90,34 @@ pub enum Mode {
     Normal,
     /// `/`: a text that filters the sidebar.
     Filter,
+    /// `i`: the input line.
+    Input,
+    /// `s` or `c` was pressed once, for this session: the same key again acts.
+    Armed(Arm, String),
     /// `?`: the keys.
     Help,
+}
+
+/// Which pane a narrow screen shows: the list, or the session in focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Pane {
+    #[default]
+    List,
+    Session,
 }
 
 pub struct App {
     pub board: Board,
     /// The session under the cursor.
     pub selected: Option<String>,
+    /// The session in focus: its history and its events, in the detail pane.
+    pub detail: Option<Detail>,
+    pub pane: Pane,
     pub mode: Mode,
     pub only: Only,
     pub filter: String,
+    /// The input line's text.
+    pub input: String,
     pub link: Link,
     /// A line for the operator in the footer: an error, a refusal, a result.
     pub flash: Option<(Tag, String)>,
@@ -91,9 +137,12 @@ impl App {
         Self {
             board: Board::default(),
             selected: None,
+            detail: None,
+            pane: Pane::List,
             mode: Mode::Normal,
             only: Only::All,
             filter: String::new(),
+            input: String::new(),
             link: Link::Connecting,
             flash: None,
             now_ms: 0,
@@ -114,16 +163,28 @@ impl App {
             .rows(self.only, &self.filter, &|_: &ExecutionView| false)
     }
 
+    /// The session whose pane is on screen: the focused one, beside the list
+    /// on a wide screen, or instead of it on a narrow one.
+    pub fn shown(&self) -> Option<&str> {
+        let d = self.detail.as_ref()?;
+        (self.wide() || self.pane == Pane::Session).then_some(d.session_id.as_str())
+    }
+
     // ------------------------------------------------------------ the link
 
-    /// Connected (again): read the board. Its first snapshot is the truth: a
-    /// restarted daemon may serve another store.
+    /// Connected (again): read the board, and the focused session's pane.
+    /// The board's first snapshot is the truth: a restarted daemon may serve
+    /// another store.
     pub fn connected(&mut self) -> Vec<Effect> {
         self.link = Link::Up;
         self.asking_questions = false;
         self.board.ask_again();
         self.board.reconnected();
-        vec![snapshot()]
+        let mut out = vec![snapshot()];
+        if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
+            out.extend(read_session(&sid));
+        }
+        out
     }
 
     /// The connection closed, or a connect failed: the loop tries again.
@@ -141,74 +202,159 @@ impl App {
             // A newer daemon's notification, or one that does not decode.
             Ok(None) | Err(_) => return Vec::new(),
         };
+        let mut out = Vec::new();
+        if let Some(d) = self.detail.as_mut() {
+            d.event(&event);
+            if let Event::NodeWritten(n) = &event {
+                if n.kind == "user_message" && n.session_id == d.session_id && d.others_message() {
+                    out.push(Effect::Call(Call {
+                        method: method::SESSION_HISTORY,
+                        params: json!({ "session_id": n.session_id, "n": 5 }),
+                        purpose: Purpose::Node {
+                            session: n.session_id.clone(),
+                            node: n.node_id.clone(),
+                        },
+                    }));
+                }
+            }
+        }
         match event {
             Event::ExecutionChanged(view) => {
                 self.board.apply(view);
-                self.follow_up()
+                out.extend(self.follow_up());
             }
-            Event::ConfirmRequested(c) => {
-                self.board.confirm_requested(c);
-                Vec::new()
-            }
-            Event::ConfirmResolved(r) => {
-                self.board.confirm_resolved(&r);
-                Vec::new()
-            }
-            Event::EventsLost(lost) => self.lost(&lost),
-            _ => Vec::new(),
+            Event::ConfirmRequested(c) => self.board.confirm_requested(c),
+            Event::ConfirmResolved(r) => self.board.confirm_resolved(&r),
+            Event::EventsLost(lost) => out.extend(self.lost(&lost)),
+            _ => {}
         }
+        out
     }
 
     /// The connection fell behind and the daemon dropped notifications
     /// (design §2.5): read each stream again.
     fn lost(&mut self, lost: &EventsLost) -> Vec<Effect> {
-        self.flash = Some((Tag::Warn, theseus_client::render::lost_line(lost)));
+        self.flash = Some((Tag::Warn, render::lost_line(lost)));
         let mut out = Vec::new();
-        if lost.streams.iter().any(|s| s == "executions") || lost.streams.is_empty() {
+        let all = lost.streams.is_empty();
+        if all || lost.streams.iter().any(|s| s == "executions") {
             out.push(snapshot());
+        }
+        if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
+            let stream = format!("session:{sid}");
+            if all || lost.streams.contains(&stream) {
+                out.extend(read_session(&sid));
+            }
         }
         out
     }
 
     /// An answer to one of the TUI's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
-        match (purpose, result) {
-            (Purpose::Snapshot, Ok(v)) => {
-                match serde_json::from_value::<ExecutionsWatchResult>(v) {
-                    Ok(snap) => {
-                        self.board.snapshot(snap);
-                        self.follow_up()
-                    }
-                    Err(e) => {
-                        self.flash = Some((Tag::Bad, format!("the board did not decode: {e}")));
-                        Vec::new()
-                    }
-                }
+        let v = match result {
+            Ok(v) => v,
+            Err(e) => {
+                self.failed(&purpose, &e);
+                return Vec::new();
             }
-            (Purpose::Titles, Ok(v)) => {
+        };
+        match purpose {
+            Purpose::Snapshot => match serde_json::from_value::<ExecutionsWatchResult>(v) {
+                Ok(snap) => {
+                    self.board.snapshot(snap);
+                    return self.follow_up();
+                }
+                Err(e) => self.flash = Some((Tag::Bad, format!("the board did not decode: {e}"))),
+            },
+            Purpose::Titles => {
                 if let Ok(list) = serde_json::from_value::<SessionListResult>(v) {
                     self.board.titles(list.sessions);
                 }
-                Vec::new()
             }
-            (Purpose::Questions, Ok(v)) => {
+            Purpose::Questions => {
                 self.asking_questions = false;
                 if let Ok(list) = serde_json::from_value::<ConfirmListResult>(v) {
                     for c in list.confirms {
                         self.board.confirm_requested(c);
                     }
                 }
-                Vec::new()
             }
-            (Purpose::Questions, Err(e)) => {
+            Purpose::History(sid) => {
+                if let Ok(h) = serde_json::from_value::<SessionHistoryResult>(v) {
+                    self.board.titles(vec![h.session.clone()]);
+                    if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
+                        d.history(&h);
+                    }
+                }
+            }
+            Purpose::Node { session, node } => {
+                if let Ok(h) = serde_json::from_value::<SessionHistoryResult>(v) {
+                    let found = h.nodes.iter().find(|n| n.node_id == node);
+                    if let (Some(n), Some(d)) = (
+                        found,
+                        self.detail.as_mut().filter(|d| d.session_id == session),
+                    ) {
+                        d.node(n);
+                    }
+                }
+            }
+            Purpose::Stop(sid) => {
+                if let Ok(r) = serde_json::from_value::<ExecutionStopResult>(v) {
+                    let line = render::stop_line(&r);
+                    self.note(&sid, Tag::Warn, &line);
+                    self.flash = Some((Tag::Warn, line));
+                }
+            }
+            Purpose::Cancel(sid) => {
+                if let Ok(r) = serde_json::from_value::<TaskCancelResult>(v) {
+                    let line = format!(
+                        "cancelled task {}{}",
+                        r.task.short,
+                        match r.cancelled_actions.len() {
+                            0 => String::new(),
+                            n => format!(" and {n} call{}", if n == 1 { "" } else { "s" }),
+                        }
+                    );
+                    self.note(&sid, Tag::Warn, &line);
+                    self.flash = Some((Tag::Warn, line));
+                }
+            }
+            // A turn's answer comes at its end; its events said the rest.
+            Purpose::Submit(_) | Purpose::Watch => {}
+        }
+        Vec::new()
+    }
+
+    /// A request that failed: say so where the operator looks.
+    fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
+        let what = match purpose {
+            Purpose::Snapshot => method::EXECUTIONS_WATCH,
+            Purpose::Titles => method::SESSION_LIST,
+            Purpose::Questions => {
                 self.asking_questions = false;
-                self.flash = Some((Tag::Bad, format!("confirm.list: {}", e.message)));
-                Vec::new()
+                method::CONFIRM_LIST
             }
-            (p, Err(e)) => {
-                self.flash = Some((Tag::Bad, format!("{}: {}", purpose_word(&p), e.message)));
-                Vec::new()
-            }
+            Purpose::History(_) | Purpose::Node { .. } => method::SESSION_HISTORY,
+            Purpose::Watch => method::SESSION_WATCH,
+            Purpose::Submit(_) => method::TURN_SUBMIT,
+            Purpose::Stop(_) => method::EXECUTION_STOP,
+            Purpose::Cancel(_) => method::TASK_CANCEL,
+        };
+        let text = if e.code == error_code::CONFIG_UNCONFIRMED {
+            format!("{what}: {} (the daemon waits for its vault)", e.message)
+        } else {
+            format!("{what}: {}", e.message)
+        };
+        if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
+            self.note(sid, Tag::Bad, &format!("✗ {text}"));
+        }
+        self.flash = Some((Tag::Bad, text));
+    }
+
+    /// A line of the TUI's own in a session's pane, if it is in focus.
+    fn note(&mut self, sid: &str, tag: Tag, text: &str) {
+        if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
+            d.note(tag, text);
         }
     }
 
@@ -218,20 +364,39 @@ impl App {
         let mut out = Vec::new();
         let ids = self.board.untitled();
         if !ids.is_empty() {
-            out.push(Effect::Call(Call {
-                method: method::SESSION_LIST,
-                params: json!({ "ids": ids }),
-                purpose: Purpose::Titles,
-            }));
+            out.push(call(
+                method::SESSION_LIST,
+                json!({ "ids": ids }),
+                Purpose::Titles,
+            ));
         }
         if !self.asking_questions && self.board.missing_questions() {
             self.asking_questions = true;
-            out.push(Effect::Call(Call {
-                method: method::CONFIRM_LIST,
-                params: Value::Null,
-                purpose: Purpose::Questions,
-            }));
+            out.push(call(method::CONFIRM_LIST, Value::Null, Purpose::Questions));
         }
+        out
+    }
+
+    // ------------------------------------------------------------ focus
+
+    /// Focus a session: its history, then its events. The session before it
+    /// is unwatched.
+    pub fn focus(&mut self, sid: &str) -> Vec<Effect> {
+        self.selected = Some(sid.to_string());
+        self.pane = Pane::Session;
+        if self.detail.as_ref().is_some_and(|d| d.session_id == sid) {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        if let Some(old) = self.detail.take() {
+            out.push(call(
+                method::SESSION_UNWATCH,
+                json!({ "session_id": old.session_id }),
+                Purpose::Watch,
+            ));
+        }
+        self.detail = Some(Detail::new(sid));
+        out.extend(read_session(sid));
         out
     }
 
@@ -250,7 +415,7 @@ impl App {
         if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
             return vec![Effect::Quit];
         }
-        match self.mode {
+        match self.mode.clone() {
             Mode::Help => {
                 self.mode = Mode::Normal;
                 Vec::new()
@@ -259,17 +424,35 @@ impl App {
                 self.filter_key(k);
                 Vec::new()
             }
+            Mode::Input => self.input_key(k),
+            Mode::Armed(arm, sid) => self.armed_key(k, arm, &sid),
             Mode::Normal => self.normal_key(k),
         }
     }
 
     fn normal_key(&mut self, k: KeyEvent) -> Vec<Effect> {
         self.flash = None;
+        // A narrow screen showing a session: the arrows scroll it, and enter
+        // has no row to open.
+        if !self.wide() && self.shown().is_some() {
+            match k.code {
+                KeyCode::Up | KeyCode::Char('k') => return self.scroll_by(1),
+                KeyCode::Down | KeyCode::Char('j') => return self.scroll_by(-1),
+                KeyCode::Enter => return Vec::new(),
+                _ => {}
+            }
+        }
         match k.code {
             KeyCode::Char('q') => return vec![Effect::Quit],
             KeyCode::Char('?') => self.mode = Mode::Help,
             KeyCode::Down | KeyCode::Char('j') => self.step(1),
             KeyCode::Up | KeyCode::Char('k') => self.step(-1),
+            KeyCode::Enter => {
+                if let Some(sid) = self.selected.clone() {
+                    return self.focus(&sid);
+                }
+                self.step(1);
+            }
             KeyCode::Char('/') => self.mode = Mode::Filter,
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
@@ -280,8 +463,131 @@ impl App {
                 self.filter.clear();
             }
             KeyCode::Esc => {
-                self.only = Only::All;
-                self.filter.clear();
+                if !self.wide() && self.pane == Pane::Session {
+                    self.pane = Pane::List;
+                } else {
+                    self.only = Only::All;
+                    self.filter.clear();
+                }
+            }
+            KeyCode::Char('i') => {
+                if self.on_screen().is_some() {
+                    self.mode = Mode::Input;
+                }
+            }
+            KeyCode::Char('s') => self.arm(Arm::Stop),
+            KeyCode::Char('c') => self.arm(Arm::Cancel),
+            KeyCode::PageUp => self.scroll(true),
+            KeyCode::PageDown => self.scroll(false),
+            KeyCode::End => {
+                if let Some(d) = self.detail.as_mut() {
+                    d.scroll = 0;
+                }
+            }
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    /// The session the keys act on: the one in focus, if its pane is on
+    /// screen; else the footer says how to open one.
+    fn on_screen(&mut self) -> Option<String> {
+        match self.shown() {
+            Some(sid) => Some(sid.to_string()),
+            None => {
+                self.flash = Some((Tag::Dim, "open a session first: enter".to_string()));
+                None
+            }
+        }
+    }
+
+    /// `s` or `c`, once: the footer asks for the same key again.
+    fn arm(&mut self, arm: Arm) {
+        let Some(sid) = self.on_screen() else {
+            return;
+        };
+        let kind = self.board.view(&sid).map(|v| v.kind);
+        let refusal = match (arm, kind) {
+            (Arm::Stop, Some(SessionKind::Task)) => {
+                Some("a task is not stopped but cancelled: c, then c again")
+            }
+            (Arm::Cancel, Some(SessionKind::Conversation)) => {
+                Some("only a task is cancelled; a conversation is stopped: s, then s again")
+            }
+            (_, None) => Some("the board does not hold this session yet"),
+            _ => None,
+        };
+        match refusal {
+            Some(why) => self.flash = Some((Tag::Warn, why.to_string())),
+            None => self.mode = Mode::Armed(arm, sid),
+        }
+    }
+
+    fn armed_key(&mut self, k: KeyEvent, arm: Arm, sid: &str) -> Vec<Effect> {
+        self.mode = Mode::Normal;
+        let again = matches!(
+            (arm, k.code),
+            (Arm::Stop, KeyCode::Char('s')) | (Arm::Cancel, KeyCode::Char('c'))
+        );
+        if !again {
+            self.flash = Some((
+                Tag::Dim,
+                match arm {
+                    Arm::Stop => "not stopped",
+                    Arm::Cancel => "not cancelled",
+                }
+                .to_string(),
+            ));
+            return Vec::new();
+        }
+        match arm {
+            Arm::Stop => {
+                let Some(exe) = self.board.view(sid).map(|v| v.execution_id.clone()) else {
+                    return Vec::new();
+                };
+                vec![call(
+                    method::EXECUTION_STOP,
+                    json!({ "execution_id": exe, "author": AUTHOR }),
+                    Purpose::Stop(sid.to_string()),
+                )]
+            }
+            Arm::Cancel => vec![call(
+                method::TASK_CANCEL,
+                json!({ "task": sid, "author": AUTHOR }),
+                Purpose::Cancel(sid.to_string()),
+            )],
+        }
+    }
+
+    /// The input line: `enter` sends it to the focused session as
+    /// `turn.submit`, and `esc` leaves it (keeping what was typed).
+    fn input_key(&mut self, k: KeyEvent) -> Vec<Effect> {
+        match k.code {
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Backspace => {
+                self.input.pop();
+            }
+            KeyCode::Char(c) => self.input.push(c),
+            KeyCode::Enter => {
+                let text = self.input.trim().to_string();
+                let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) else {
+                    self.mode = Mode::Normal;
+                    return Vec::new();
+                };
+                if text.is_empty() {
+                    return Vec::new();
+                }
+                self.input.clear();
+                self.mode = Mode::Normal;
+                if let Some(d) = self.detail.as_mut() {
+                    d.sent(&text);
+                    d.scroll = 0;
+                }
+                return vec![call(
+                    method::TURN_SUBMIT,
+                    json!({ "session_id": sid, "input": text, "author": AUTHOR }),
+                    Purpose::Submit(sid),
+                )];
             }
             _ => {}
         }
@@ -301,6 +607,24 @@ impl App {
             KeyCode::Char(c) => self.filter.push(c),
             _ => {}
         }
+    }
+
+    /// Scroll the focused session's pane by most of a screen.
+    fn scroll(&mut self, up: bool) {
+        let page = i64::from(self.height.saturating_sub(6)).max(1);
+        self.scroll_by(if up { page } else { -page });
+    }
+
+    /// Scroll the focused session's pane by `rows`, up for a positive count.
+    fn scroll_by(&mut self, rows: i64) -> Vec<Effect> {
+        if let Some(d) = self.detail.as_mut() {
+            d.scroll = if rows > 0 {
+                d.scroll.saturating_add(rows as usize)
+            } else {
+                d.scroll.saturating_sub(rows.unsigned_abs() as usize)
+            };
+        }
+        Vec::new()
     }
 
     /// Move the cursor by `by` rows, from the selected session (which keeps
@@ -326,21 +650,54 @@ impl App {
         let s = self.selected.as_ref()?;
         rows.iter().position(|r| &r.session_id == s)
     }
+
+    /// What the footer says while `s` or `c` waits for its second key.
+    pub fn armed_words(&self) -> Option<String> {
+        let Mode::Armed(arm, sid) = &self.mode else {
+            return None;
+        };
+        let name = self.board.name(sid);
+        Some(match arm {
+            Arm::Stop => format!(
+                "stop {name} (…{})? s again to stop; any other key: no",
+                short(sid)
+            ),
+            Arm::Cancel => {
+                format!(
+                    "cancel task {name} (…{})? c again to cancel; any other key: no",
+                    short(sid)
+                )
+            }
+        })
+    }
+}
+
+fn call(method: &'static str, params: Value, purpose: Purpose) -> Effect {
+    Effect::Call(Call {
+        method,
+        params,
+        purpose,
+    })
 }
 
 /// `executions.watch`: the board's snapshot, then its events.
 fn snapshot() -> Effect {
-    Effect::Call(Call {
-        method: method::EXECUTIONS_WATCH,
-        params: json!({}),
-        purpose: Purpose::Snapshot,
-    })
+    call(method::EXECUTIONS_WATCH, json!({}), Purpose::Snapshot)
 }
 
-fn purpose_word(p: &Purpose) -> &'static str {
-    match p {
-        Purpose::Snapshot => method::EXECUTIONS_WATCH,
-        Purpose::Titles => method::SESSION_LIST,
-        Purpose::Questions => method::CONFIRM_LIST,
-    }
+/// A session's pane: its newest nodes, then its events (design §2.9: the
+/// focused session only gets `session.history`, then `session.watch`).
+fn read_session(sid: &str) -> Vec<Effect> {
+    vec![
+        call(
+            method::SESSION_HISTORY,
+            json!({ "session_id": sid, "n": HISTORY_NODES }),
+            Purpose::History(sid.to_string()),
+        ),
+        call(
+            method::SESSION_WATCH,
+            json!({ "session_id": sid }),
+            Purpose::Watch,
+        ),
+    ]
 }

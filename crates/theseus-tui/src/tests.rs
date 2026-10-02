@@ -14,8 +14,8 @@ use ratatui::Terminal;
 use serde_json::{json, Value};
 use theseus_client::Conn;
 use theseus_protocol::{
-    attention, utc_hm, Attention, ConfirmRequest, ExecutionView, Level, PendingConfirm,
-    SessionInfo, SessionKind, WaitingOn,
+    attention, utc_hm, Attention, ConfirmRequest, ExecutionStopResult, ExecutionView, Level,
+    PendingConfirm, SessionInfo, SessionKind, TurnSubmitResult, WaitingOn,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -128,29 +128,56 @@ pub fn daemon(script: Script) -> (Conn, Daemon) {
     (Conn::over(r, w), Daemon { requests, push })
 }
 
-/// A daemon that knows a board: `executions.watch` answers `board`, and
-/// `session.list` the titles in `titles`; every other request answers `{}`.
-pub fn script(board: Arc<Mutex<Value>>, titles: Arc<Mutex<HashMap<String, Value>>>) -> Script {
-    Arc::new(move |m, p| match m {
-        "executions.watch" => Ok(board.lock().unwrap().clone()),
-        "session.list" => {
-            let titles = titles.lock().unwrap();
-            let ids: Vec<String> = p["ids"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let sessions: Vec<Value> = ids
-                .iter()
-                .filter_map(|id| titles.get(id).cloned())
-                .collect();
-            Ok(json!({ "sessions": sessions }))
+/// What a scripted daemon knows, and how it answers.
+#[derive(Default)]
+pub struct World {
+    /// `executions.watch`'s answer.
+    pub board: Value,
+    /// `session.list`'s rows, by session.
+    pub titles: HashMap<String, Value>,
+    /// `session.history`'s answers, by session.
+    pub histories: HashMap<String, Value>,
+    /// A method's answer, in place of `{}`.
+    pub answers: HashMap<String, Answer>,
+}
+
+/// A daemon that answers from `world`: `executions.watch` its board,
+/// `session.list` and `session.history` what it holds for the sessions asked,
+/// and any other method its canned answer, else `{}`.
+pub fn script(world: Arc<Mutex<World>>) -> Script {
+    Arc::new(move |m, p| {
+        let w = world.lock().unwrap();
+        if let Some(a) = w.answers.get(m) {
+            return a.clone();
         }
-        "confirm.list" => Ok(json!({ "confirms": [] })),
-        _ => Ok(json!({})),
+        match m {
+            "executions.watch" => Ok(w.board.clone()),
+            "session.list" => {
+                let ids: Vec<&str> = p["ids"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                let sessions: Vec<Value> = ids
+                    .iter()
+                    .filter_map(|id| w.titles.get(*id).cloned())
+                    .collect();
+                Ok(json!({ "sessions": sessions }))
+            }
+            "session.history" => {
+                let sid = p["session_id"].as_str().unwrap_or_default();
+                Ok(w.histories.get(sid).cloned().unwrap_or_else(|| {
+                    json!({
+                        "session": w.titles.get(sid).cloned().unwrap_or(json!({
+                            "session_id": sid, "kind": "conversation", "label": null,
+                            "created_at_unix_ms": T0, "turns": 0,
+                        })),
+                        "nodes": [],
+                    })
+                }))
+            }
+            "confirm.list" => Ok(json!({ "confirms": [] })),
+            _ => Ok(json!({})),
+        }
     })
 }
 
@@ -473,17 +500,93 @@ pub fn harbour() -> (Value, HashMap<String, Value>) {
     (board, titles)
 }
 
-pub fn harbour_rig(width: u16, height: u16) -> Rig {
+/// The harbour's world: its board, its titles, and the DM's history.
+pub fn harbour_world() -> Arc<Mutex<World>> {
     let (board, titles) = harbour();
-    Rig::new(
-        width,
-        height,
-        script(Arc::new(Mutex::new(board)), Arc::new(Mutex::new(titles))),
-    )
+    let mut histories = HashMap::new();
+    histories.insert("ses_dm0001".to_string(), dm_history());
+    Arc::new(Mutex::new(World {
+        board,
+        titles,
+        histories,
+        answers: HashMap::new(),
+    }))
+}
+
+pub fn harbour_rig(width: u16, height: u16) -> Rig {
+    Rig::new(width, height, script(harbour_world()))
+}
+
+/// The DM's recorded history: the operator's question from Discord, a call to
+/// read the tide table and its result, and the answer.
+pub fn dm_history() -> Value {
+    let node = |id: &str, kind: &str, pos: u64, author: Option<&str>, text: &str, detail: Value| {
+        json!({
+            "node_id": id, "kind": kind, "session_id": "ses_dm0001", "position": pos,
+            "at_unix_ms": T0 + pos * 1000, "author": author, "text": text, "detail": detail,
+            "bytes": text.len(),
+        })
+    };
+    let mut session = info("ses_dm0001", SessionKind::Conversation, Some("DM"), None);
+    session.model = Some("glm-5.3-flash".to_string());
+    json!({
+        "session": session,
+        "nodes": [
+            node("nod_a1", "user_message", 10, Some("discord:eddie"), "when is low water?", json!({})),
+            node("nod_a2", "assistant_message", 11, None, "", json!({
+                "model": "glm-5.3-flash", "stop_reason": "tool_use",
+                "usage": {"input_tokens": 1200, "output_tokens": 40}, "cost_usd": 0.0004,
+                "tool_calls": [{"name": "fs_read"}],
+            })),
+            node("nod_a3", "tool_call", 11, None, "", json!({
+                "tool": "fs.read", "input": {"path": "tides.txt"},
+                "decision": {"posture": "open", "reason": "a read"},
+            })),
+            node("nod_a4", "tool_result", 12, None, "low 14:10, high 20:30", json!({
+                "tool": "fs.read", "status": "ok", "duration_ms": 3,
+            })),
+            node("nod_a5", "assistant_message", 14, None, "Low water is at 14:10.", json!({
+                "model": "glm-5.3-flash", "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1300, "output_tokens": 12}, "cost_usd": 0.0003,
+            })),
+        ],
+        "pending_confirms": [],
+    })
 }
 
 fn changed(v: &ExecutionView) -> Value {
     serde_json::to_value(v).unwrap()
+}
+
+/// Put `v` in a board's snapshot, in place of its session's row.
+pub fn replace_view(board: &mut Value, v: &ExecutionView) {
+    let execs = board["executions"].as_array_mut().unwrap();
+    match execs
+        .iter_mut()
+        .find(|e| e["session_id"] == v.session_id.as_str())
+    {
+        Some(e) => *e = changed(v),
+        None => execs.push(changed(v)),
+    }
+}
+
+/// The detail pane's rows on a wide screen: each from the column after the
+/// separator.
+pub fn pane(screen: &[String], width: u16) -> Vec<String> {
+    let side = ui::sidebar_width(width) as usize;
+    screen
+        .iter()
+        .map(|l| l.chars().skip(side + 1).collect::<String>())
+        .collect()
+}
+
+/// Focus the DM: down to its row (the second), then enter.
+pub async fn open_dm(rig: &mut Rig) {
+    // The titles are in: the DM's row has its name and its folded task.
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Char('j'), KeyCode::Char('j'), KeyCode::Enter])
+        .await;
+    rig.shows("Low water is at 14:10.").await;
 }
 
 /// A sidebar row on an 80-column screen: its text, and its cost at the right
@@ -633,11 +736,10 @@ async fn a_closed_connection_is_tried_again_and_the_board_read_again() {
 /// another store has lower positions, and sessions it does not hold go.
 #[tokio::test(start_paused = true)]
 async fn a_reconnect_takes_the_new_daemons_board_whole() {
-    let (board, titles) = harbour();
-    let board = Arc::new(Mutex::new(board));
-    let mut rig = Rig::new(80, 24, script(board.clone(), Arc::new(Mutex::new(titles))));
+    let world = harbour_world();
+    let mut rig = Rig::new(80, 24, script(world.clone()));
     rig.shows("spec review").await;
-    *board.lock().unwrap() = json!({
+    world.lock().unwrap().board = json!({
         "position": 7,
         "executions": [conv(7, "ses_new001", "waiting", input(), 0.0)],
         "confirms": [],
@@ -659,22 +761,18 @@ async fn a_reconnect_takes_the_new_daemons_board_whole() {
 /// position rule keeps what it already had.
 #[tokio::test]
 async fn events_lost_reads_the_board_again() {
-    let (board, titles) = harbour();
-    let board = Arc::new(Mutex::new(board));
-    let mut rig = Rig::new(80, 24, script(board.clone(), Arc::new(Mutex::new(titles))));
+    let world = harbour_world();
+    let mut rig = Rig::new(80, 24, script(world.clone()));
     rig.shows("spec review").await;
     // While the TUI was behind, the spec review's question was answered.
     {
-        let mut b = board.lock().unwrap();
-        let spec = conv(130, "ses_spec01", "running", None, 1.30);
-        let execs = b["executions"].as_array_mut().unwrap();
-        for e in execs.iter_mut() {
-            if e["session_id"] == "ses_spec01" {
-                *e = changed(&spec);
-            }
-        }
-        b["confirms"] = json!([]);
-        b["position"] = json!(130);
+        let mut w = world.lock().unwrap();
+        replace_view(
+            &mut w.board,
+            &conv(130, "ses_spec01", "running", None, 1.30),
+        );
+        w.board["confirms"] = json!([]);
+        w.board["position"] = json!(130);
     }
     rig.daemon().notify(
         "events.lost",
@@ -852,5 +950,232 @@ fn a_question_follows_its_sessions_view() {
     assert!(
         b.confirm_ids("ses_a").is_empty(),
         "a late copy of a closed question stays closed"
+    );
+}
+
+// ---------------------------------------------------------------- 10c
+
+/// §3.2's test for 10c: the detail pane from a recorded history, then the
+/// session's events as they come; the reply streams into its line.
+#[tokio::test]
+async fn the_detail_pane_shows_a_recorded_history_then_its_events() {
+    let mut rig = harbour_rig(120, 20);
+    open_dm(&mut rig).await;
+    let d = rig.daemon();
+    assert_eq!(
+        d.asked("session.history")[0],
+        json!({"session_id": "ses_dm0001", "n": 200})
+    );
+    assert_eq!(
+        d.asked("session.watch")[0],
+        json!({"session_id": "ses_dm0001"})
+    );
+    d.notify(
+        "turn.started",
+        json!({"session_id": "ses_dm0001", "turn_id": "turn_b2", "execution_id": "exe_ses_dm0001"}),
+    );
+    for piece in [
+        "High water",
+        " is at 20:30.\nThe tide turns",
+        " at dusk.",
+        "",
+    ] {
+        d.notify(
+            "model.delta",
+            json!({"turn_id": "turn_b2", "loop_index": 0, "text": piece}),
+        );
+    }
+    d.notify(
+        "tool.started",
+        json!({"session_id": "ses_dm0001", "turn_id": "turn_b2", "tool_use_id": "tu_1",
+               "tool": "fs.list", "correlation_id": "cor_l1", "backend": "in_process"}),
+    );
+    d.notify(
+        "tool.ended",
+        json!({"session_id": "ses_dm0001", "turn_id": "turn_b2", "tool_use_id": "tu_1",
+               "tool": "fs.list", "status": "ok", "duration_ms": 2, "bytes": 80}),
+    );
+    let ended = TurnSubmitResult {
+        session_id: "ses_dm0001".into(),
+        turn_id: "turn_b2".into(),
+        loops: 2,
+        stop_reason: "end_turn".into(),
+        model: "glm-5.3-flash".into(),
+        provider: "zai".into(),
+        profile: "glm".into(),
+        elapsed_ms: 1840,
+        tool_calls: 1,
+        ..Default::default()
+    };
+    d.notify("turn.ended", serde_json::to_value(&ended).unwrap());
+    rig.shows("1840 ms").await;
+    let rows = pane(&rig.screen(), 120);
+    assert_eq!(
+        rows[1..16],
+        [
+            " ses …dm0001 · DM · glm-5.3-flash · ○ ready",
+            " [14:13:30.000Z] operator (discord:eddie): when is low water?",
+            " [14:13:31.000Z] glm-5.3-flash: (1 tool call(s))",
+            "       ↳ tool_use · in 1200 out 40 · $0.0004",
+            "       ⚙ fs.read {\"path\":\"tides.txt\"} [open: a read]",
+            "       ← fs.read ok · 3 ms · 21 B: low 14:10, high 20:30",
+            " [14:13:34.000Z] glm-5.3-flash: Low water is at 14:10.",
+            "       ↳ end_turn · in 1300 out 12 · $0.0003",
+            " ── turn turn_b2",
+            // The reply streamed in three pieces, one with a newline.
+            " High water is at 20:30.",
+            " The tide turns at dusk.",
+            "   → fs.list",
+            "   ← fs.list ok · 2 ms · 80 B",
+            // The status line, wrapped at a space to the pane's width.
+            " [glm → zai/glm-5.3-flash · 2 loop(s) · 1 tool call(s) · end_turn · tokens in 0 out",
+            " 0 · 1840 ms · session ses_dm0001]",
+        ]
+    );
+    // Another session's turn, which this connection still hears (it asked for
+    // it before the focus moved), stays out of the pane.
+    d.notify(
+        "turn.started",
+        json!({"session_id": "ses_spec01", "turn_id": "turn_x9"}),
+    );
+    d.notify(
+        "model.delta",
+        json!({"turn_id": "turn_x9", "loop_index": 0, "text": "not for this pane"}),
+    );
+    rig.settle().await;
+    assert!(
+        !rig.screen().iter().any(|l| l.contains("not for this pane")),
+        "{:?}",
+        rig.screen()
+    );
+}
+
+#[test]
+fn a_long_line_wraps_at_its_last_space_that_fits() {
+    assert_eq!(ui::wrap("low water at 14:10", 9), ["low water", "at 14:10"]);
+    assert_eq!(ui::wrap("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+    assert_eq!(ui::wrap("", 4), [""]);
+}
+
+/// The input line sends `turn.submit` to the focused session, as the TUI;
+/// below 100 columns the session's pane takes the screen, and `esc` goes
+/// back to the list.
+#[tokio::test]
+async fn the_input_line_sends_a_turn_to_the_focused_session() {
+    let mut rig = harbour_rig(80, 24);
+    rig.shows("check the tide tables").await;
+    rig.press(&[KeyCode::Char('i')]).await;
+    assert!(
+        rig.screen()[23].contains("open a session first"),
+        "{:?}",
+        rig.screen()
+    );
+    open_dm(&mut rig).await;
+    assert!(
+        !rig.screen().iter().any(|l| l.contains("spec review")),
+        "the pane takes a narrow screen: {:?}",
+        rig.screen()
+    );
+    rig.press(&[KeyCode::Char('i')]).await;
+    rig.type_text("and tomorrow?").await;
+    assert_eq!(rig.screen()[23], " > and tomorrow?");
+    rig.press(&[KeyCode::Enter]).await;
+    rig.asked("turn.submit", 1).await;
+    let d = rig.daemon();
+    assert_eq!(
+        d.asked("turn.submit")[0],
+        json!({"session_id": "ses_dm0001", "input": "and tomorrow?", "author": "the TUI"})
+    );
+    assert!(
+        rig.screen()
+            .iter()
+            .any(|l| l.trim() == "you: and tomorrow?"),
+        "{:?}",
+        rig.screen()
+    );
+    // Its own message is not read again; another surface's is.
+    d.notify(
+        "node.written",
+        json!({"session_id": "ses_dm0001", "node_id": "nod_b1", "kind": "user_message"}),
+    );
+    rig.settle().await;
+    assert_eq!(
+        d.asked("session.history").len(),
+        1,
+        "its own message is not read again"
+    );
+    d.notify(
+        "node.written",
+        json!({"session_id": "ses_dm0001", "node_id": "nod_a1", "kind": "user_message"}),
+    );
+    rig.asked("session.history", 2).await;
+    rig.press(&[KeyCode::Esc]).await;
+    rig.shows("spec review").await;
+}
+
+/// `s` stops a conversation and `c` cancels a task; each asks for a second
+/// key, and any other key says no.
+#[tokio::test]
+async fn stop_and_cancel_each_ask_for_a_second_key() {
+    let world = harbour_world();
+    let stopped = ExecutionStopResult {
+        execution: serde_json::from_value(json!({
+            "execution_id": "exe_ses_dm0001", "session_id": "ses_dm0001", "kind": "conversation",
+            "state": "waiting", "turns": 3, "interrupted": 0, "outstanding": 0, "queued_results": 0,
+            "budget": {"limit_usd": 25.0, "spent_usd": 0.42, "reserved_usd": 0.0,
+                       "held_unknown_usd": 0.0, "available_usd": 24.58},
+            "created_at_ms": T0, "updated_at_ms": T0,
+        }))
+        .unwrap(),
+        stopped: true,
+        stopped_actions: vec!["cor_job1".into()],
+        declined: vec![],
+        turn_running: true,
+        tasks_running: 1,
+        wakes_pending: 0,
+    };
+    world.lock().unwrap().answers.insert(
+        "execution.stop".into(),
+        Ok(serde_json::to_value(&stopped).unwrap()),
+    );
+    let mut rig = Rig::new(120, 24, script(world));
+    open_dm(&mut rig).await;
+    rig.press(&[KeyCode::Char('c')]).await;
+    assert!(
+        rig.screen()[23].contains("only a task is cancelled"),
+        "{:?}",
+        rig.screen()
+    );
+    rig.press(&[KeyCode::Char('s')]).await;
+    assert!(
+        rig.screen()[23].contains("stop DM (…dm0001)? s again"),
+        "{:?}",
+        rig.screen()
+    );
+    rig.press(&[KeyCode::Char('x')]).await;
+    assert!(rig.screen()[23].contains("not stopped"));
+    rig.press(&[KeyCode::Char('s'), KeyCode::Char('s')]).await;
+    rig.asked("execution.stop", 1).await;
+    let d = rig.daemon();
+    assert_eq!(
+        d.asked("execution.stop"),
+        [json!({"execution_id": "exe_ses_dm0001", "author": "the TUI"})]
+    );
+    rig.shows("stopped session ses_dm0001's work").await;
+    // A task: `s` says how it ends; `c c` cancels it.
+    rig.press(&[KeyCode::Char('j'), KeyCode::Enter]).await;
+    rig.shows("ses …tide01").await;
+    rig.press(&[KeyCode::Char('s')]).await;
+    assert!(rig.screen()[23].contains("a task is not stopped but cancelled"));
+    rig.press(&[KeyCode::Char('c'), KeyCode::Char('c')]).await;
+    rig.asked("task.cancel", 1).await;
+    assert_eq!(
+        d.asked("task.cancel"),
+        [json!({"task": "ses_tide01", "author": "the TUI"})]
+    );
+    assert_eq!(
+        d.asked("session.unwatch"),
+        [json!({"session_id": "ses_dm0001"})],
+        "the focus moved: the DM is unwatched"
     );
 }

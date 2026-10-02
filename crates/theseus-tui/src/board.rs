@@ -232,6 +232,16 @@ impl Board {
         self.views.len()
     }
 
+    /// A session's latest view.
+    pub fn view(&self, sid: &str) -> Option<&ExecutionView> {
+        self.views.get(sid)
+    }
+
+    /// A session's title, kind, and model, as `session.list` said.
+    pub fn info(&self, sid: &str) -> Option<&SessionInfo> {
+        self.sessions.get(sid)
+    }
+
     /// The questions the board holds whole for a session, by correlation id.
     #[cfg(test)]
     pub fn confirm_ids(&self, sid: &str) -> Vec<String> {
