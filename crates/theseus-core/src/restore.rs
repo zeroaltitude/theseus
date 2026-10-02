@@ -38,6 +38,11 @@ pub struct RestoreReport {
     pub ledger_rows: u64,
     /// Image blobs copied from beside the WAL (theseus-9g2).
     pub blobs: u32,
+    /// Each phase's time, in ms, in order (theseus-byu): the copy (every
+    /// segment and blob, each synced), the open (every frame checked, the
+    /// index built), the counts, the record (`store.restored` and its
+    /// checkpoint), and the swap (the renames and their syncs).
+    pub phases_ms: Vec<(String, f64)>,
 }
 
 /// What a restore makes durable, and how (theseus-ez3). The restore's syncs
@@ -107,6 +112,13 @@ fn restore_with(
 
     let ts = theseus_protocol::now_unix_ms();
     let staging = state_dir.join(format!("store.restoring-{ts}"));
+    // Each phase's time (theseus-byu).
+    let mut phases_ms: Vec<(String, f64)> = Vec::new();
+    let mut t = std::time::Instant::now();
+    let mut phase = |name: &str, t: &mut std::time::Instant| {
+        phases_ms.push((name.into(), t.elapsed().as_secs_f64() * 1000.0));
+        *t = std::time::Instant::now();
+    };
     std::fs::create_dir_all(staging.join("wal"))?;
     for s in &segments {
         let name = s.file_name().context("segment without a name")?;
@@ -133,6 +145,7 @@ fn restore_with(
         sync.dir(&staging.join("blobs"))
             .context("syncing the restored blobs' directory")?;
     }
+    phase("copy", &mut t);
 
     let mut report = RestoreReport {
         from: wal_src.display().to_string(),
@@ -147,10 +160,12 @@ fn restore_with(
         nodes: 0,
         ledger_rows: 0,
         blobs,
+        phases_ms: Vec::new(),
     };
     {
         let store = Store::open(&staging)
             .with_context(|| format!("opening the restored WAL in {}", staging.display()))?;
+        phase("open", &mut t);
         let rec = store.inner().recovery().clone();
         let st = store.stats()?;
         report.frames = rec.frames;
@@ -160,6 +175,7 @@ fn restore_with(
         report.sessions = store.session_count()?;
         report.nodes = store.node_count()?;
         report.ledger_rows = store.ledger_len()?;
+        phase("counts", &mut t);
         store.append_ledger(&LedgerRow::new(
             LedgerKind::StoreRestored,
             None,
@@ -171,6 +187,7 @@ fn restore_with(
         ))?;
         store.checkpoint()?;
     }
+    phase("record", &mut t);
     // The staging store's entries: `wal/`, `blobs/`, and what the open wrote
     // beside them (the manifest and the index).
     sync.dir(&staging)
@@ -188,6 +205,8 @@ fn restore_with(
         .with_context(|| format!("moving the restored store into {}", target.display()))?;
     sync.dir(state_dir)
         .context("syncing the state dir after the restore's rename")?;
+    phase("swap", &mut t);
+    report.phases_ms = phases_ms;
     Ok(report)
 }
 

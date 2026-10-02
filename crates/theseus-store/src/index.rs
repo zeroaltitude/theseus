@@ -282,38 +282,149 @@ impl RedbIndex {
         Ok(())
     }
 
+    /// `apply`, for a replay of many records at once (theseus-byu: a
+    /// restore, an open with no checkpoint): each table's rows sorted by key
+    /// and inserted in order, a table at a time, in one non-durable
+    /// transaction. A B-tree fed in key order fills its pages one after
+    /// another, where the replay's position order scatters `bykey`,
+    /// `byscope`, and `terms` across the tree. The rows are `apply`'s: a key
+    /// that several entries name keeps the last one's.
+    pub fn apply_bulk(&self, entries: &[IndexEntry]) -> Result<()> {
+        let mut txn = self.db.begin_write()?;
+        txn.set_durability(Durability::None)?;
+        {
+            // A replay's positions only grow: `loc` is in key order, and so
+            // is each kind's stretch of `bykind`.
+            let mut loc = txn.open_table(LOC)?;
+            for e in entries {
+                loc.insert(e.position, loc_bytes(e.loc).as_slice())?;
+            }
+            let mut by_kind: Vec<[u8; 10]> =
+                entries.iter().map(|e| bykind(e.kind, e.position)).collect();
+            by_kind.sort_unstable();
+            let mut bkd = txn.open_table(BYKIND)?;
+            for k in &by_kind {
+                bkd.insert(k.as_slice(), ())?;
+            }
+            // Each key's latest position: its last entry's.
+            let mut keys: Vec<(Vec<u8>, u64)> = entries
+                .iter()
+                .filter_map(|e| Some((bykey(e.kind, e.key.as_deref()?), e.position)))
+                .collect();
+            keys.sort_unstable();
+            keys.dedup_by(|later, earlier| {
+                if later.0 == earlier.0 {
+                    earlier.1 = later.1;
+                    true
+                } else {
+                    false
+                }
+            });
+            let mut byk = txn.open_table(BYKEY)?;
+            for (k, p) in &keys {
+                byk.insert(k.as_slice(), *p)?;
+            }
+            let mut scopes: Vec<Vec<u8>> = entries
+                .iter()
+                .filter_map(|e| Some(byscope(e.scope.as_deref()?, e.position)))
+                .collect();
+            scopes.sort_unstable();
+            let mut bsc = txn.open_table(BYSCOPE)?;
+            for k in &scopes {
+                bsc.insert(k.as_slice(), ())?;
+            }
+        }
+        // Each key's last terms, in key order.
+        let mut termed: Vec<&IndexEntry> = entries
+            .iter()
+            .filter(|e| e.key.is_some() && e.terms.is_some())
+            .collect();
+        termed.sort_by(|a, b| (a.kind, &a.key, a.position).cmp(&(b.kind, &b.key, b.position)));
+        termed.dedup_by(|later, earlier| {
+            let same = (later.kind, &later.key) == (earlier.kind, &earlier.key);
+            if same {
+                std::mem::swap(later, earlier);
+            }
+            same
+        });
+        if !termed.is_empty() {
+            let mut terms = txn.open_table(TERMS)?;
+            let mut termsof = txn.open_table(TERMSOF)?;
+            for e in termed {
+                if let (Some(k), Some(t)) = (&e.key, &e.terms) {
+                    put_terms(&mut terms, &mut termsof, e.kind, k, t, e.position)?;
+                }
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     /// The checkpoint a projection's terms were whole at (`set_checkpoint`
-    /// and `rebuild_terms` set it), if any.
+    /// sets it), if any.
     pub fn terms_mark(&self, name: &str) -> Result<Option<u64>> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(META)?;
         Ok(t.get(name)?.map(|v| v.value()))
     }
 
-    /// Replace every key's terms with `keys`' (kind, key, position, terms),
-    /// and mark them whole at checkpoint `mark` under `name`, in one
-    /// transaction, non-durable: a crash before the next checkpoint only
-    /// makes the next open build them again.
-    pub fn rebuild_terms(
+    /// (key, latest position) of up to `limit` keys of `kind` after `after`
+    /// (`None`: from the first), in key order: one stretch of a walk over a
+    /// kind's keys.
+    pub fn keys_of_kind_after(
         &self,
-        name: &str,
-        keys: &[(RecordKind, String, u64, Vec<String>)],
-        mark: u64,
-    ) -> Result<()> {
+        kind: RecordKind,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(String, u64)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(BYKEY)?;
+        let lo = match after {
+            // The smallest key after `after`'s.
+            Some(k) => {
+                let mut v = bykey(kind, k);
+                v.push(0);
+                v
+            }
+            None => kind.to_be_bytes().to_vec(),
+        };
+        let hi = (kind + 1).to_be_bytes().to_vec();
+        let mut out = Vec::new();
+        for row in t.range(lo.as_slice()..hi.as_slice())?.take(limit) {
+            let (k, v) = row?;
+            out.push((
+                String::from_utf8_lossy(&k.value()[2..]).into_owned(),
+                v.value(),
+            ));
+        }
+        Ok(out)
+    }
+
+    /// Put each row's (kind, key, position, terms) whose key's latest
+    /// position is still `position`, in one non-durable transaction: an
+    /// append since the row was read put its own (theseus-lv2). Returns how
+    /// many it put.
+    pub fn put_terms_if_latest(
+        &self,
+        rows: &[(RecordKind, String, u64, Vec<String>)],
+    ) -> Result<u64> {
         let mut txn = self.db.begin_write()?;
         txn.set_durability(Durability::None)?;
-        txn.delete_table(TERMS)?;
-        txn.delete_table(TERMSOF)?;
+        let mut put = 0;
         {
+            let byk = txn.open_table(BYKEY)?;
             let mut terms = txn.open_table(TERMS)?;
             let mut termsof = txn.open_table(TERMSOF)?;
-            for (kind, key, position, t) in keys {
-                put_terms(&mut terms, &mut termsof, *kind, key, t, *position)?;
+            for (kind, key, position, t) in rows {
+                let latest = byk.get(bykey(*kind, key).as_slice())?.map(|v| v.value());
+                if latest == Some(*position) {
+                    put_terms(&mut terms, &mut termsof, *kind, key, t, *position)?;
+                    put += 1;
+                }
             }
-            txn.open_table(META)?.insert(name, mark)?;
         }
         txn.commit()?;
-        Ok(())
+        Ok(put)
     }
 
     /// (key, latest position) of every key of `kind` with a term in
@@ -779,15 +890,27 @@ mod tests {
         idx.set_checkpoint(7, None).unwrap();
         assert_eq!(idx.terms_mark("terms.test.1").unwrap(), Some(6));
         assert_eq!(idx.terms_mark("terms.test.2").unwrap(), None);
-        // A rebuild replaces every key's terms.
-        idx.rebuild_terms(
-            "terms.test.2",
-            &[(4, "z".into(), 9, vec!["s:blocked".into()])],
-            7,
-        )
-        .unwrap();
-        assert_eq!(keys("s:", "s;"), ["z"]);
-        assert!(idx.terms_of(4, "b").unwrap().is_empty());
-        assert_eq!(idx.terms_mark("terms.test.2").unwrap(), Some(7));
+        // A build after serving walks the keys a stretch at a time, and puts
+        // a key's terms only while its latest record is the one it read.
+        let all = idx.keys_of_kind_after(4, None, 10).unwrap();
+        assert_eq!(all, [("a".into(), 4), ("b".into(), 6), ("c".into(), 5)]);
+        assert_eq!(
+            idx.keys_of_kind_after(4, Some("a"), 1).unwrap(),
+            [("b".to_string(), 6)]
+        );
+        assert!(idx.keys_of_kind_after(4, Some("c"), 10).unwrap().is_empty());
+        let put = idx
+            .put_terms_if_latest(&[
+                (4, "b".into(), 6, vec!["s:blocked".into()]),
+                // Read at 5, and "c" is still at 5: put.
+                (4, "c".into(), 5, vec!["s:waiting".into()]),
+                // Read at 1: "a" has moved on to 4, which put its own.
+                (4, "a".into(), 1, vec!["s:waiting".into()]),
+            ])
+            .unwrap();
+        assert_eq!(put, 2);
+        assert_eq!(keys("s:blocked", "s:blocked\u{1}"), ["b"]);
+        assert_eq!(keys("s:waiting", "s:waiting\u{1}"), ["c"]);
+        assert_eq!(idx.terms_of(4, "a").unwrap(), ["s:queued"]);
     }
 }

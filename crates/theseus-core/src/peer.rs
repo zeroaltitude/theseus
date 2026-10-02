@@ -485,31 +485,33 @@ pub enum ClientUid {
 }
 
 /// The owner of the client's end of the connection from `client` to
-/// `server`, both as the server's socket names them.
+/// `server`, both as the server's socket names them: asked of the kernel by
+/// the four-tuple (`sock_diag`, theseus-u6xg), or, where the kernel will not
+/// say, read from `/proc/net/tcp` and `tcp6`.
 pub fn client_uid(server: SocketAddr, client: SocketAddr) -> ClientUid {
     if !cfg!(target_os = "linux") {
         return ClientUid::NoTable;
     }
-    client_uid_in(
-        |t| std::fs::read_to_string(t).map_err(|e| format!("{t}: {e}")),
-        server,
-        client,
-    )
+    match client_uid_by(sock_diag, server, client) {
+        Ok(found) => found,
+        Err(why) => {
+            tracing::debug!(why = %why, "sock_diag would not say; reading /proc/net/tcp");
+            client_uid_in(
+                |t| std::fs::read_to_string(t).map_err(|e| format!("{t}: {e}")),
+                server,
+                client,
+            )
+        }
+    }
 }
 
-/// `client_uid` over the tables `read` gives (tests pass fixtures). The row
-/// is looked for in each form the pair can take, the accepted form first:
-/// an IPv4 pair in `tcp`, and also as IPv4-mapped IPv6 in `tcp6` (a client
-/// on an IPv6 socket that connected to the mapped address); an IPv6 pair in
+/// The forms the pair can take, the accepted form first, each with the table
+/// `/proc` keeps it in, and the client's socket's (local, remote): an IPv4
+/// pair in `tcp`, and also as IPv4-mapped IPv6 in `tcp6` (a client on an
+/// IPv6 socket that connected to the mapped address); an IPv6 pair in
 /// `tcp6`, and a mapped one also in `tcp` (a client on an IPv4 socket, which
-/// a dual-stack listener accepts as mapped). A live row wins over a closed
-/// one. A table read while sockets come and go can skip a row, so a miss is
-/// read once more before it counts.
-fn client_uid_in(
-    read: impl Fn(&str) -> Result<String, String>,
-    server: SocketAddr,
-    client: SocketAddr,
-) -> ClientUid {
+/// a dual-stack listener accepts as mapped).
+fn forms(server: SocketAddr, client: SocketAddr) -> Vec<(&'static str, SocketAddr, SocketAddr)> {
     use std::net::IpAddr;
     let v4 = |a: SocketAddr| match a.ip() {
         IpAddr::V4(_) => Some(a),
@@ -521,8 +523,7 @@ fn client_uid_in(
         IpAddr::V4(ip) => SocketAddr::new(ip.to_ipv6_mapped().into(), a.port()),
         IpAddr::V6(_) => a,
     };
-    let as_v6 = ("/proc/net/tcp6", v6(client), v6(server));
-    let mut forms = vec![as_v6];
+    let mut forms = vec![("/proc/net/tcp6", v6(client), v6(server))];
     if let (Some(c), Some(s)) = (v4(client), v4(server)) {
         let as_v4 = ("/proc/net/tcp", c, s);
         if client.is_ipv4() {
@@ -531,6 +532,170 @@ fn client_uid_in(
             forms.push(as_v4);
         }
     }
+    forms
+}
+
+/// `client_uid` by a lookup of each form's socket (`find`: the kernel's,
+/// or a test's), which answers (inode, uid): a live socket wins over a
+/// closed one, and no socket is unknown. `Err` when the lookup could not
+/// answer, and the caller reads the tables instead.
+fn client_uid_by(
+    find: impl Fn(SocketAddr, SocketAddr) -> Result<Option<(u64, u32)>, String>,
+    server: SocketAddr,
+    client: SocketAddr,
+) -> Result<ClientUid, String> {
+    let mut closed = false;
+    for (_, local, remote) in forms(server, client) {
+        match find(local, remote)? {
+            Some((inode, uid)) if inode != 0 => return Ok(ClientUid::Uid(uid)),
+            Some(_) => closed = true,
+            None => {}
+        }
+    }
+    if closed {
+        return Ok(ClientUid::Closed);
+    }
+    Ok(ClientUid::Unknown(format!(
+        "no socket on this machine is the client end of the connection from {client}"
+    )))
+}
+
+/// The socket whose local end is `local` and whose remote end is `remote`,
+/// asked of the kernel by its four-tuple (theseus-u6xg): one netlink
+/// `SOCK_DIAG_BY_FAMILY` request with no dump flag, which the kernel answers
+/// from its hash of connections, where a read of `/proc/net/tcp` walks every
+/// bucket of it (about 2 ms here). `Ok(Some((inode, uid)))`: found, its inode
+/// 0 once it has closed (TIME_WAIT); `Ok(None)`: no such socket; `Err`: the
+/// kernel would not say (no sock_diag), and the caller reads the tables.
+fn sock_diag(local: SocketAddr, remote: SocketAddr) -> Result<Option<(u64, u32)>, String> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    const NETLINK_SOCK_DIAG: libc::c_int = 4;
+    const SOCK_DIAG_BY_FAMILY: u16 = 20;
+    const NLM_F_REQUEST: u16 = 1;
+    const NLMSG_ERROR: u16 = 2;
+    const NLMSG_DONE: u16 = 3;
+    const HEADER: usize = 16;
+    const REQUEST: usize = 56;
+    // inet_diag_msg: family, state, timer, retrans (4); the socket's id
+    // (48); expires, rqueue, wqueue (12); uid; inode.
+    const UID_AT: usize = HEADER + 4 + 48 + 12;
+    if local.is_ipv4() != remote.is_ipv4() {
+        return Ok(None);
+    }
+    let family = if local.is_ipv4() {
+        libc::AF_INET
+    } else {
+        libc::AF_INET6
+    };
+    // An address as the kernel keeps it: in network order.
+    let words = |a: SocketAddr| -> [u8; 16] {
+        let mut w = [0u8; 16];
+        match a.ip() {
+            std::net::IpAddr::V4(ip) => w[..4].copy_from_slice(&ip.octets()),
+            std::net::IpAddr::V6(ip) => w.copy_from_slice(&ip.octets()),
+        }
+        w
+    };
+    let mut req = Vec::with_capacity(HEADER + REQUEST);
+    req.extend_from_slice(&((HEADER + REQUEST) as u32).to_ne_bytes());
+    req.extend_from_slice(&SOCK_DIAG_BY_FAMILY.to_ne_bytes());
+    req.extend_from_slice(&NLM_F_REQUEST.to_ne_bytes());
+    req.extend_from_slice(&1u32.to_ne_bytes()); // seq
+    req.extend_from_slice(&0u32.to_ne_bytes()); // pid: the kernel's
+    req.push(family as u8);
+    req.push(libc::IPPROTO_TCP as u8);
+    req.push(0); // no extensions
+    req.push(0);
+    req.extend_from_slice(&u32::MAX.to_ne_bytes()); // every state
+    req.extend_from_slice(&local.port().to_be_bytes());
+    req.extend_from_slice(&remote.port().to_be_bytes());
+    req.extend_from_slice(&words(local));
+    req.extend_from_slice(&words(remote));
+    req.extend_from_slice(&0u32.to_ne_bytes()); // any interface
+    req.extend_from_slice(&u32::MAX.to_ne_bytes()); // no cookie
+    req.extend_from_slice(&u32::MAX.to_ne_bytes());
+
+    // SAFETY: socket(2) takes no pointers; a negative result is an error.
+    let fd = unsafe {
+        libc::socket(
+            libc::AF_NETLINK,
+            libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
+            NETLINK_SOCK_DIAG,
+        )
+    };
+    if fd < 0 {
+        return Err(format!("sock_diag: {}", std::io::Error::last_os_error()));
+    }
+    // SAFETY: `fd` is the socket just opened, owned from here on.
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    let timeout = libc::timeval {
+        tv_sec: 1,
+        tv_usec: 0,
+    };
+    // SAFETY: the value is a timeval that outlives the call, of the size given.
+    unsafe {
+        libc::setsockopt(
+            fd.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVTIMEO,
+            (&raw const timeout).cast(),
+            std::mem::size_of::<libc::timeval>() as libc::socklen_t,
+        )
+    };
+    // SAFETY: all zeroes is a valid sockaddr_nl: the kernel, no groups.
+    let mut kernel: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
+    kernel.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+    // SAFETY: the buffer and the address are valid for their lengths for the
+    // call's duration.
+    let sent = unsafe {
+        libc::sendto(
+            fd.as_raw_fd(),
+            req.as_ptr().cast(),
+            req.len(),
+            0,
+            (&raw const kernel).cast(),
+            std::mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+        )
+    };
+    if sent < 0 {
+        return Err(format!("sock_diag: {}", std::io::Error::last_os_error()));
+    }
+    let mut buf = [0u8; 8192];
+    // SAFETY: the buffer is valid for its length for the call's duration.
+    let n = unsafe { libc::recv(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
+    if n < 0 {
+        return Err(format!("sock_diag: {}", std::io::Error::last_os_error()));
+    }
+    let b = &buf[..n as usize];
+    if b.len() < HEADER {
+        return Err("sock_diag: a short answer".into());
+    }
+    let u32_at = |i: usize| u32::from_ne_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+    match u16::from_ne_bytes([b[4], b[5]]) {
+        SOCK_DIAG_BY_FAMILY if b.len() >= UID_AT + 8 => {
+            Ok(Some((u64::from(u32_at(UID_AT + 4)), u32_at(UID_AT))))
+        }
+        NLMSG_ERROR if b.len() >= HEADER + 4 => match -(u32_at(HEADER) as i32) {
+            libc::ENOENT => Ok(None),
+            errno => Err(format!(
+                "sock_diag: {}",
+                std::io::Error::from_raw_os_error(errno)
+            )),
+        },
+        NLMSG_DONE => Ok(None),
+        t => Err(format!("sock_diag: an answer of type {t}")),
+    }
+}
+
+/// `client_uid` over the tables `read` gives (tests pass fixtures): each
+/// form's table, a live row over a closed one. A table read while sockets
+/// come and go can skip a row, so a miss is read once more before it counts.
+fn client_uid_in(
+    read: impl Fn(&str) -> Result<String, String>,
+    server: SocketAddr,
+    client: SocketAddr,
+) -> ClientUid {
+    let forms = forms(server, client);
     let mut why = String::new();
     for _ in 0..2 {
         let (mut read_one, mut unread, mut closed) = (false, None, false);
@@ -1157,5 +1322,81 @@ mod tests {
         );
         stream.write_all(b"done\n").unwrap();
         child.wait().unwrap();
+    }
+
+    /// theseus-u6xg: the kernel answers a live loopback connection's client
+    /// end by its four-tuple, with this process's uid, and a tuple no socket
+    /// has with nothing; `client_uid` takes its answer. Both ways are timed
+    /// here for the report (`--no-capture`).
+    #[test]
+    fn sock_diag_finds_a_live_connection_by_its_four_tuple() {
+        use std::net::{TcpListener, TcpStream};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = listener.local_addr().unwrap();
+        let _client = TcpStream::connect(server).unwrap();
+        let (_conn, client) = listener.accept().unwrap();
+        match sock_diag(client, server) {
+            Ok(Some((inode, uid))) => {
+                assert_ne!(inode, 0, "a live socket has an inode");
+                assert_eq!(uid, own_uid());
+            }
+            // A kernel without sock_diag: the tables answer instead.
+            Err(e) => eprintln!("sock_diag is not here ({e}); the tables answer"),
+            Ok(None) => panic!("the kernel did not find a live connection"),
+        }
+        assert_eq!(client_uid(server, client), ClientUid::Uid(own_uid()));
+        // No socket has this tuple: nothing, never an error.
+        let nowhere = |p: u16| SocketAddr::from(([127, 0, 0, 1], p));
+        if let Ok(found) = sock_diag(nowhere(1), nowhere(2)) {
+            assert_eq!(found, None);
+        }
+        let time = |f: &dyn Fn()| {
+            let t = Instant::now();
+            for _ in 0..200 {
+                f();
+            }
+            t.elapsed().as_secs_f64() * 1e6 / 200.0
+        };
+        let diag_us = time(&|| {
+            let _ = sock_diag(client, server);
+        });
+        let tables_us = time(&|| {
+            let _ = client_uid_in(
+                |t| std::fs::read_to_string(t).map_err(|e| format!("{t}: {e}")),
+                server,
+                client,
+            );
+        });
+        eprintln!("client_uid: sock_diag {diag_us:.1} µs, /proc/net/tcp {tables_us:.1} µs, each");
+    }
+
+    /// The lookup's verdicts: a live socket over a closed one, nothing found
+    /// is unknown, and a lookup that fails is an error the caller turns into
+    /// a read of the tables. A mapped form is asked too.
+    #[test]
+    fn client_uid_by_takes_the_live_socket_and_says_what_it_did_not_find() {
+        let a = |p: u16| SocketAddr::from(([127, 0, 0, 1], p));
+        let (server, client) = (a(7433), a(51000));
+        let live = |_: SocketAddr, _: SocketAddr| Ok(Some((42, 1000)));
+        assert_eq!(
+            client_uid_by(live, server, client),
+            Ok(ClientUid::Uid(1000))
+        );
+        let closed = |_: SocketAddr, _: SocketAddr| Ok(Some((0, 0)));
+        assert_eq!(client_uid_by(closed, server, client), Ok(ClientUid::Closed));
+        // Closed as IPv4, live as IPv4-mapped IPv6: live.
+        let mapped =
+            |l: SocketAddr, _: SocketAddr| Ok(Some(if l.is_ipv4() { (0, 0) } else { (7, 1000) }));
+        assert_eq!(
+            client_uid_by(mapped, server, client),
+            Ok(ClientUid::Uid(1000))
+        );
+        let none = |_: SocketAddr, _: SocketAddr| Ok(None);
+        assert!(matches!(
+            client_uid_by(none, server, client),
+            Ok(ClientUid::Unknown(_))
+        ));
+        let fails = |_: SocketAddr, _: SocketAddr| Err("no sock_diag".to_string());
+        assert!(client_uid_by(fails, server, client).is_err());
     }
 }

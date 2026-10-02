@@ -50,11 +50,12 @@ pub struct StoreStats {
     /// before the index was built again from the WAL (theseus-0b8).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index_moved_aside: Option<MovedAside>,
-    /// The keys whose terms open built again (theseus-lv2): the index's
-    /// terms were not whole at its checkpoint (a store an older build wrote
-    /// last, or a new projection). `None` when it built none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terms_rebuilt: Option<u64>,
+    /// The index's terms were not whole at its checkpoint (a store an older
+    /// build wrote last, or a new projection), and are built again after
+    /// serving (`WalStore::build_terms`); until then the readers by state
+    /// read every record (theseus-lv2).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub terms_pending: bool,
 }
 
 /// What the kernel writes through. Every method is durable when it returns.
@@ -175,9 +176,10 @@ pub struct WalStore {
     moved_aside: Option<MovedAside>,
     /// The terms the index keeps with every append (theseus-lv2).
     projection: Option<&'static Projection>,
-    /// The keys whose terms the open built again, when it had to: the
-    /// index's terms were not whole at its checkpoint.
-    terms_rebuilt: Option<u64>,
+    /// Whether the index's terms are whole: readers by term may use them,
+    /// and a checkpoint marks them. False from an open that found them not
+    /// whole until `build_terms` has walked every key.
+    terms_whole: std::sync::atomic::AtomicBool,
     /// How far the last history check proved the WAL, as the index kept it
     /// (theseus-0dq), read at open.
     verified: Option<Verified>,
@@ -239,6 +241,10 @@ pub const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// How often a held store is tried again.
 const LOCK_POLL: std::time::Duration = std::time::Duration::from_micros(500);
+
+/// A replay of at least this many records builds the index in key order
+/// (`RedbIndex::apply_bulk`, theseus-byu).
+const BULK: usize = 4096;
 
 /// Bumped when the WAL record layout or the manifest changes. 2 = scope
 /// field (M2). 3 = the newest schema written for each kind (F4a).
@@ -548,7 +554,13 @@ impl WalStore {
                     terms: projection.and_then(|p| p.of(r.kind, r.key.as_deref(), &r.payload)),
                 })
                 .collect();
-            index.apply(&entries, false)?;
+            // A long replay (a restore, a store with no checkpoint) is built
+            // in key order, a table at a time (theseus-byu).
+            if entries.len() >= BULK {
+                index.apply_bulk(&entries)?;
+            } else {
+                index.apply(&entries, false)?;
+            }
         }
         let last = wal.last_position();
         if cp > last {
@@ -574,7 +586,7 @@ impl WalStore {
             lock_wait_us: 0,
             moved_aside,
             projection,
-            terms_rebuilt: None,
+            terms_whole: std::sync::atomic::AtomicBool::new(terms_whole),
             verified: None,
             pending_verified: VerifiedSlot::default(),
         };
@@ -590,8 +602,14 @@ impl WalStore {
             }
             _ => None,
         };
-        if let (Some(p), false) = (projection, terms_whole) {
-            store.terms_rebuilt = Some(store.rebuild_terms(p, cp)?);
+        if !terms_whole {
+            // Built after serving (`build_terms`): a start writes nothing,
+            // and reads nothing that grows with history, for them.
+            tracing::info!(
+                checkpoint = cp,
+                "store: the index's terms are not whole at its checkpoint (an older build wrote \
+                 last); they are built again after serving"
+            );
         }
         // A manifest that lags its WAL's tail catches up now.
         let tail: Vec<(RecordKind, u16)> =
@@ -614,35 +632,58 @@ impl WalStore {
         self
     }
 
-    /// Build `p`'s terms again from every key's latest record, and mark them
-    /// whole at `cp`, the index's checkpoint (theseus-lv2): the open does so
-    /// when they were not whole there, once, after the tail's replay, so the
-    /// latest records include it. Returns how many keys it read. The cost is
-    /// one read of every record of the kinds `p` projects; every later open
-    /// reads none.
-    fn rebuild_terms(&self, p: &Projection, cp: u64) -> Result<u64> {
-        let t0 = std::time::Instant::now();
-        let mut keys = Vec::new();
-        for &kind in p.kinds {
-            let positions: Vec<u64> = self
-                .index
-                .keys_of_kind(kind)?
-                .into_iter()
-                .map(|(_, pos)| pos)
-                .collect();
-            for r in self.read_many(&positions)? {
-                let Some(key) = r.key.clone() else { continue };
-                keys.push((kind, key, r.position, (p.terms)(kind, &r.payload)));
-            }
+    /// Whether the index's terms are whole: readers by term use them.
+    pub fn terms_whole(&self) -> bool {
+        self.terms_whole.load(Ordering::Acquire)
+    }
+
+    /// Build the projection's terms again, `n` keys from `cursor`, after
+    /// serving (theseus-lv2): an open that found them not whole at the
+    /// index's checkpoint (a store an older build, or an open with no
+    /// projection, wrote last) leaves them to this, and readers by term read
+    /// every record until they are whole. Each key's terms are put only
+    /// while its latest record is the one read (`put_terms_if_latest`): an
+    /// append since then put its own. Returns the cursor to go on from, or
+    /// `None` once every key of every kind is done; the terms are whole from
+    /// then on, and the next checkpoint marks them.
+    pub fn build_terms(
+        &self,
+        cursor: Option<(RecordKind, String)>,
+        n: usize,
+    ) -> Result<Option<(RecordKind, String)>> {
+        let Some(p) = self.projection else {
+            return Ok(None);
+        };
+        if self.terms_whole() {
+            return Ok(None);
         }
-        self.index.rebuild_terms(p.name, &keys, cp)?;
-        tracing::info!(
-            projection = p.name,
-            keys = keys.len(),
-            ms = t0.elapsed().as_secs_f64() * 1000.0,
-            "store: the index's terms were built again from the WAL"
-        );
-        Ok(keys.len() as u64)
+        let start = cursor
+            .as_ref()
+            .and_then(|(k, _)| p.kinds.iter().position(|x| x == k))
+            .unwrap_or(0);
+        for (i, &kind) in p.kinds.iter().enumerate().skip(start) {
+            let after = cursor
+                .as_ref()
+                .filter(|(k, _)| i == start && *k == kind)
+                .map(|(_, key)| key.as_str());
+            let keys = self.index.keys_of_kind_after(kind, after, n.max(1))?;
+            let Some((last, _)) = keys.last().cloned() else {
+                continue;
+            };
+            let positions: Vec<u64> = keys.iter().map(|(_, pos)| *pos).collect();
+            let rows: Vec<(RecordKind, String, u64, Vec<String>)> = self
+                .read_many(&positions)?
+                .into_iter()
+                .filter_map(|r| {
+                    let key = r.key.clone()?;
+                    Some((kind, key, r.position, (p.terms)(kind, &r.payload)))
+                })
+                .collect();
+            self.index.put_terms_if_latest(&rows)?;
+            return Ok(Some((kind, last)));
+        }
+        self.terms_whole.store(true, Ordering::Release);
+        Ok(None)
     }
 
     pub fn recovery(&self) -> &Recovery {
@@ -750,9 +791,12 @@ impl WalStore {
             return Ok(last);
         }
         let meta = verified.as_ref().map(verified_meta);
+        // The terms are marked whole only while they are (theseus-lv2).
         self.index.set_checkpoint_with(
             last,
-            self.projection.map(|p| p.name),
+            self.projection
+                .filter(|_| self.terms_whole())
+                .map(|p| p.name),
             meta.as_ref().map_or(&[][..], |m| &m[..]),
             durable,
         )?;
@@ -919,12 +963,12 @@ impl Store for WalStore {
             index_repaired: self.index.repaired(),
             lock_wait_us: self.lock_wait_us,
             index_moved_aside: self.moved_aside.clone(),
-            terms_rebuilt: self.terms_rebuilt,
+            terms_pending: !self.terms_whole(),
         })
     }
 
     fn latest_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Option<Vec<Record>>> {
-        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) {
+        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) || !self.terms_whole() {
             return Ok(None);
         }
         let positions: Vec<u64> = self
@@ -937,7 +981,7 @@ impl Store for WalStore {
     }
 
     fn count_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<Option<u64>> {
-        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) {
+        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) || !self.terms_whole() {
             return Ok(None);
         }
         Ok(Some(self.index.count_by_terms(kind, lo, hi)?))
@@ -1122,8 +1166,9 @@ mod tests {
 
     /// The terms follow every append and every replay, and survive a reopen
     /// (theseus-lv2). A writer that kept none (an open with no projection, as
-    /// an older build is) leaves them stale at a newer checkpoint, so the
-    /// next projected open builds them again, once.
+    /// an older build is) leaves them stale at a newer checkpoint: the next
+    /// projected open reads every record for them until they are built again
+    /// after serving, a stretch of keys at a time, beside appends.
     #[test]
     fn the_terms_follow_the_wal_through_reopens_and_a_writer_that_kept_none() {
         let dir = tempfile::tempdir().unwrap();
@@ -1135,9 +1180,8 @@ mod tests {
                 .with_checkpoint_every(0)
         };
         let s = projected();
-        assert_eq!(
-            s.stats().unwrap().terms_rebuilt,
-            None,
+        assert!(
+            !s.stats().unwrap().terms_pending,
             "a new store has none to build"
         );
         s.append(&[ex("e1", "waiting"), ex("e2", "running")])
@@ -1161,7 +1205,7 @@ mod tests {
         drop(s);
         let s = projected();
         let st = s.stats().unwrap();
-        assert_eq!((st.replayed_into_index, st.terms_rebuilt), (1, None));
+        assert_eq!((st.replayed_into_index, st.terms_pending), (1, false));
         assert_eq!(by_term(&s, "waiting"), ["e2", "e3"]);
         assert!(by_term(&s, "running").is_empty());
         drop(s);
@@ -1174,20 +1218,121 @@ mod tests {
         plain.append(&[ex("e3", "complete")]).unwrap();
         plain.checkpoint().unwrap();
         drop(plain);
+        // Not whole: no terms are answered, and a checkpoint marks none.
         let s = projected();
-        assert_eq!(s.stats().unwrap().terms_rebuilt, Some(3), "every key, once");
-        assert_eq!(by_term(&s, "waiting"), ["e2"]);
-        assert_eq!(by_term(&s, "complete"), ["e3"]);
-        s.append(&[ex("e4", "waiting")]).unwrap();
+        assert!(s.stats().unwrap().terms_pending);
+        assert!(s
+            .latest_by_terms(kinds::EXECUTION, "a", "z")
+            .unwrap()
+            .is_none());
+        s.checkpoint_for_close().unwrap();
+        drop(s);
+        let s = projected();
+        assert!(s.stats().unwrap().terms_pending, "still not whole");
+        // The build after serving, two keys a stretch, with an append between
+        // its stretches: e1 moves on after the build read it.
+        let at = s.build_terms(None, 2).unwrap();
+        assert_eq!(at, Some((kinds::EXECUTION, "e2".to_string())));
+        s.append(&[ex("e1", "complete"), ex("e4", "waiting")])
+            .unwrap();
+        assert!(s.build_terms(at, 2).unwrap().is_some(), "e3 and e4");
+        assert!(!s.terms_whole());
+        let mut at = Some((kinds::EXECUTION, "e4".to_string()));
+        while let Some(next) = s.build_terms(at, 2).unwrap() {
+            at = Some(next);
+        }
+        assert!(s.terms_whole() && !s.stats().unwrap().terms_pending);
+        assert_eq!(by_term(&s, "waiting"), ["e2", "e4"]);
+        assert_eq!(by_term(&s, "complete"), ["e1", "e3"]);
+        assert!(
+            by_term(&s, "queued").is_empty(),
+            "e1's own append replaced it"
+        );
         s.checkpoint().unwrap();
         drop(s);
         let s = projected();
-        assert_eq!(
-            s.stats().unwrap().terms_rebuilt,
-            None,
-            "whole at its checkpoint"
-        );
+        assert!(!s.stats().unwrap().terms_pending, "whole at its checkpoint");
         assert_eq!(by_term(&s, "waiting"), ["e2", "e4"]);
+    }
+
+    /// theseus-byu: a long replay builds the index in key order, a table at a
+    /// time, and answers every read as the index built record by record does:
+    /// the same WAL, opened with no index.
+    #[test]
+    fn an_index_built_in_bulk_answers_as_one_built_record_by_record() {
+        let one_by_one = tempfile::tempdir().unwrap();
+        // 1,700 frames: unsynced, which changes nothing a read answers.
+        let unsynced = WalConfig {
+            fsync: false,
+            ..WalConfig::default()
+        };
+        let s = WalStore::open_projected(one_by_one.path(), unsynced, &TOY)
+            .unwrap()
+            .with_checkpoint_every(0);
+        let states = ["waiting", "running", "queued", "complete"];
+        let mut n = 0usize;
+        for i in 0..1700u32 {
+            let k = format!("e{:04}", (i * 7919) % 900);
+            s.append(&[
+                NewRecord::json(kinds::EXECUTION, Some(&k), &states[i as usize % 4])
+                    .unwrap()
+                    .scoped(&format!("ses_{}", i % 37)),
+                NewRecord::json(kinds::LEDGER, None, &i)
+                    .unwrap()
+                    .scoped(&format!("ses_{}", i % 37)),
+                NewRecord::json(kinds::SESSION, Some(&format!("s{}", i % 300)), &i).unwrap(),
+            ])
+            .unwrap();
+            n += 3;
+        }
+        assert!(n >= BULK, "a replay long enough for the bulk path");
+        s.checkpoint().unwrap();
+        drop(s);
+        // The same WAL, and no index: the open replays every record.
+        let bulk = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(bulk.path().join("wal")).unwrap();
+        for seg in crate::wal::list_segments(&one_by_one.path().join("wal")).unwrap() {
+            let name = format!("{seg:09}.seg");
+            std::fs::copy(
+                one_by_one.path().join("wal").join(&name),
+                bulk.path().join("wal").join(&name),
+            )
+            .unwrap();
+        }
+        let a = WalStore::open_projected(one_by_one.path(), WalConfig::default(), &TOY).unwrap();
+        let b = WalStore::open_projected(bulk.path(), WalConfig::default(), &TOY).unwrap();
+        assert_eq!(b.stats().unwrap().replayed_into_index, n as u64);
+        let keyed = |s: &WalStore, kind| -> Vec<(Option<String>, u64)> {
+            s.latest_of_kind(kind)
+                .unwrap()
+                .into_iter()
+                .map(|r| (r.key, r.position))
+                .collect()
+        };
+        for kind in [kinds::EXECUTION, kinds::SESSION, kinds::LEDGER] {
+            assert_eq!(keyed(&a, kind), keyed(&b, kind), "kind {kind}");
+            assert_eq!(
+                a.count_of_kind(kind).unwrap(),
+                b.count_of_kind(kind).unwrap()
+            );
+        }
+        for scope in ["ses_0", "ses_5", "ses_36"] {
+            let at = |s: &WalStore| -> Vec<u64> {
+                s.scan_scope(scope, 0, usize::MAX)
+                    .unwrap()
+                    .iter()
+                    .map(|r| r.position)
+                    .collect()
+            };
+            assert_eq!(at(&a), at(&b), "{scope}");
+        }
+        for state in states {
+            assert_eq!(by_term(&a, state), by_term(&b, state), "{state}");
+        }
+        assert_eq!(
+            a.tail_of_kind(kinds::LEDGER, 5).unwrap(),
+            b.tail_of_kind(kinds::LEDGER, 5).unwrap()
+        );
     }
 
     /// Keys by prefix and the count of keys come from the key table alone.

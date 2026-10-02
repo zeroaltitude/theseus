@@ -537,7 +537,7 @@ mod tests {
         assert_eq!(
             line,
             "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
-             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,,true"
+             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,,true"
         );
         let cols = split(&header()).unwrap();
         assert_eq!(cols.len(), 3 + 3 * PHASES.len() + 1);
@@ -608,7 +608,8 @@ mod tests {
         assert_eq!(h.rows.len(), 2);
         assert_eq!(h.rows[0].phases.len(), 1);
         assert_eq!(h.rows[0].phases[0].p95, 56.7);
-        assert_eq!(h.rows[1].phases.len(), PHASES.len());
+        // Every phase the row measured: all but `inflight` (theseus-ndw).
+        assert_eq!(h.rows[1].phases.len(), PHASES.len() - 1);
     }
 
     #[test]

@@ -364,11 +364,11 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     if let Some(m) = &st.index_moved_aside {
         detail["index_moved_aside"] = json!(m.path);
     }
-    // The index's terms built again from the WAL (theseus-lv2): the first
-    // start after an older build wrote last reads every execution and
-    // action once.
-    if let Some(n) = st.terms_rebuilt {
-        detail["terms_rebuilt"] = json!(n);
+    // The index's terms are not whole (an older build wrote last): they are
+    // built after serving, and until then the kernel reads every record
+    // (theseus-lv2).
+    if st.terms_pending {
+        detail["terms_pending"] = json!(true);
     }
     startup.record("store", false, t, detail);
     tracing::info!(
@@ -759,6 +759,9 @@ async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<P
     // What the store's open left unchecked, the WAL's history, is checked
     // now, in the background (theseus-8ni).
     core.check_store_history();
+    // The index's terms, when an older build wrote last: built now, in the
+    // background, never before serving (theseus-lv2).
+    core.build_store_terms();
     // Raw job output no result will absorb goes, now and every hour
     // (theseus-2ij).
     core.sweep_spool_after_serving();
@@ -946,6 +949,13 @@ async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -
     if let Some(a) = &r.moved_aside {
         text.push_str(&format!("the store that was there is kept at {a}\n"));
     }
+    // Where its time went (theseus-byu).
+    let phases: Vec<String> = r
+        .phases_ms
+        .iter()
+        .map(|(name, ms)| format!("{name} {ms:.1}"))
+        .collect();
+    text.push_str(&format!("phases, ms: {}\n", phases.join(" · ")));
     text.push_str("start theseusd to serve it; the ledger's last row is store.restored\n");
     out(&text)
 }

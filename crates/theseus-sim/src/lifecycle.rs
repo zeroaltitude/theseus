@@ -10,6 +10,9 @@
 //! - `shutdown`: the `shutdown` request to process exit, with executions
 //!   waiting and a job running (a real `proc.run`, started by a real turn
 //!   against a stand-in for the Messages API, `fake_model`);
+//! - `inflight`: the same, with a turn's reply post in flight to a stand-in
+//!   Discord that holds its answer, so the stop waits out its grace
+//!   (theseus-ndw);
 //! - `kill`: SIGKILL, then a new process to its first `health` answer;
 //! - `swap`: a binary upgrade under the same load (F4b). The `shutdown`
 //!   request, its answer, and at once the other build on the same store, to
@@ -37,8 +40,8 @@ use serde_json::{json, Value};
 
 use crate::fake_model::FakeModel;
 
-pub const PHASES: [&str; 7] = [
-    "cold", "vault", "shutdown", "kill", "swap", "restore", "seed",
+pub const PHASES: [&str; 8] = [
+    "cold", "vault", "shutdown", "inflight", "kill", "swap", "restore", "seed",
 ];
 
 /// The bench's vault note: the fake `op` answers it with the bench config.
@@ -858,6 +861,26 @@ pub struct RestoreRow {
     pub served_ms: f64,
     /// The restored store served every session the restore counted.
     pub serves: bool,
+    /// Each of the restore's own phases, p50 over the runs, in ms, as
+    /// `theseusd restore` reports them (theseus-byu); none from a build
+    /// before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phases: Vec<(String, f64)>,
+}
+
+/// The phases `theseusd restore` reports: "phases, ms: copy 12.3 · open 210.0 · …".
+fn restore_phases(said: &str) -> Vec<(String, f64)> {
+    said.lines()
+        .find_map(|l| l.strip_prefix("phases, ms: "))
+        .map(|rest| {
+            rest.split(" · ")
+                .filter_map(|p| {
+                    let (name, ms) = p.rsplit_once(' ')?;
+                    Some((name.to_string(), ms.parse().ok()?))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn run(o: &Opts) -> Result<Report> {
@@ -1104,6 +1127,9 @@ pub fn run(o: &Opts) -> Result<Report> {
         rig.stop_anyhow(&mut child);
         measured?;
     }
+    if want("inflight") {
+        inflight_phase(o, &work, &mut samples)?;
+    }
     let restore = if want("restore") {
         Some(restore_phase(&rig, &work, o.runs, &mut samples)?)
     } else {
@@ -1213,6 +1239,102 @@ pub fn run(o: &Opts) -> Result<Report> {
     })
 }
 
+/// The reply post the `inflight` phase holds at the fake Discord: its footer,
+/// which only the post writes (the stream's text never has it).
+const FOOTER: &str = "\n-# ";
+
+/// The `inflight` phase's bindings: one DM, with invented ids the binding
+/// takes as Discord's (15 to 21 digits), so its place binds at the fake.
+const INFLIGHT_BINDINGS: &str =
+    "guild_id = \"100000000000000001\"\n[[dm]]\nuser = \"100000000000000002\"\nname = \"bench\"\n";
+
+/// The `inflight` phase (theseus-ndw): a clean stop with a reply's post in
+/// flight. The shutdown phase never has one: its Discord REST is a port
+/// nothing answers, so its binding never posts. Here a rig of its own binds a
+/// DM to the in-process fake Discord, a turn's reply is posted, and the fake
+/// holds the post's answer (`hold_writes_containing`) while the daemon
+/// stops, as a slow Discord would: the stop waits for it up to its grace
+/// (`[server] stop_grace_ms`, 50 ms), and §9's clean-shutdown row holds the
+/// grace inside its 100 ms. The fake op answers at once, so the binding has
+/// its token at the start, and the turn's job is `true`, so the reply comes
+/// in the same turn. Each start first lets the last stop's held post go out
+/// again (it stayed dispatched), so every stop has exactly one in flight.
+fn inflight_phase(o: &Opts, work: &Path, samples: &mut BTreeMap<String, Vec<f64>>) -> Result<()> {
+    let dir = work.join("inflight");
+    let _ = std::fs::remove_dir_all(&dir);
+    let (state, projects, bin) = (dir.join("state"), dir.join("projects"), dir.join("bin"));
+    for d in [&state, &projects, &bin] {
+        std::fs::create_dir_all(d)?;
+    }
+    let sock = dir.join("sock");
+    let model = FakeModel::start(vec!["true".into()])?;
+    let fake = theseus_sim::fake_discord::FakeDiscord::start();
+    let mut t: toml::Table = bench_config(&model.base(), &state, &sock, &projects)?.parse()?;
+    if let Some(d) = t.get_mut("discord").and_then(toml::Value::as_table_mut) {
+        d.insert("rest_proxy".into(), fake.addr.clone().into());
+    }
+    let config = dir.join("config.toml");
+    std::fs::write(&config, toml::to_string(&t)?)?;
+    std::fs::write(state.join("bindings.toml"), INFLIGHT_BINDINGS)?;
+    let op = bin.join("op");
+    std::fs::write(&op, fake_op(0, &config))?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755))?;
+    }
+    let rig = Rig {
+        theseusd: o.theseusd.clone(),
+        config,
+        state,
+        sock,
+        vault: Vault::Fake(bin),
+        log: dir.join("theseusd.log"),
+    };
+    let until = |what: &str, f: &mut dyn FnMut() -> Result<bool>| -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !f()? {
+            if Instant::now() > deadline {
+                bail!(
+                    "inflight: no {what} within 30 s; the daemon's log ends:\n{}",
+                    tail(&rig.log)
+                );
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(())
+    };
+    let held = || fake.seen().iter().filter(|s| s.outcome == "held").count();
+    // One run unmeasured: the store is new, and the bind notice goes first.
+    for run in 0..=o.runs {
+        let (mut child, _) = rig.start()?;
+        let mut session = String::new();
+        until("bound DM place, its outbox idle", &mut || {
+            let h = rig.call("health", Value::Null)?;
+            let b = &h["bindings"][0];
+            session = b["places"][0]["session_id"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            Ok(!session.is_empty()
+                && b["outbox"]["pending"] == 0
+                && b["outbox"]["sent"].as_u64() >= Some(1))
+        })?;
+        let before = held();
+        fake.hold_writes_containing(Some(FOOTER));
+        rig.call(
+            "turn.submit",
+            json!({"session_id": session, "input": "post it", "author": "bench", "attachments": []}),
+        )?;
+        until("held post", &mut || Ok(held() > before))?;
+        let ms = rig.stop(&mut child)?;
+        fake.hold_writes_containing(None);
+        if run > 0 {
+            samples.entry("inflight".into()).or_default().push(ms);
+        }
+    }
+    Ok(())
+}
+
 /// The restore phase (F4b), with the daemon stopped: `runs` restores of a
 /// copy of the store's WAL (as a backup holds it), each into a fresh state
 /// dir, with the source's pages dropped from the cache first, so each reads
@@ -1237,6 +1359,8 @@ fn restore_phase(
     let (wal_bytes, read_ms) = read_cold(&wal)?;
     let nsegs = segments(&wal)?.len();
     let mut last: Option<(PathBuf, String)> = None;
+    // Each of the restore's own phases, over the runs (theseus-byu).
+    let mut by_phase: Vec<(String, Vec<f64>)> = Vec::new();
     for i in 0..runs {
         let into = work.join(format!("restored-{i}"));
         let _ = std::fs::remove_dir_all(&into);
@@ -1260,6 +1384,12 @@ fn restore_phase(
         }
         samples.entry("restore".into()).or_default().push(ms);
         let said = String::from_utf8_lossy(&out.stdout).into_owned();
+        for (name, ms) in restore_phases(&said) {
+            match by_phase.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, v)) => v.push(ms),
+                None => by_phase.push((name, vec![ms])),
+            }
+        }
         if let Some((prev, _)) = last.replace((into, said)) {
             let _ = std::fs::remove_dir_all(prev);
         }
@@ -1288,10 +1418,14 @@ fn restore_phase(
         sessions_served,
         served_ms: start.ms,
         serves: sessions_served == sessions_restored,
+        phases: by_phase
+            .into_iter()
+            .filter_map(|(name, v)| Some((name, Summary::of(&v)?.p50)))
+            .collect(),
     })
 }
 
-const TITLES: [(&str, &str); 7] = [
+const TITLES: [(&str, &str); 8] = [
     ("cold", "cold start to the first health answer"),
     (
         "vault",
@@ -1300,6 +1434,10 @@ const TITLES: [(&str, &str); 7] = [
     (
         "shutdown",
         "clean shutdown, executions waiting and a job running",
+    ),
+    (
+        "inflight",
+        "clean shutdown, a reply's post in flight to Discord",
     ),
     ("kill", "SIGKILL, then restart to the first health answer"),
     (
@@ -1402,6 +1540,14 @@ pub fn print(r: &Report) {
             x.sessions_restored,
             if x.serves { "" } else { ": SESSIONS MISSING" }
         );
+        if !x.phases.is_empty() {
+            let phases: Vec<String> = x
+                .phases
+                .iter()
+                .map(|(name, ms)| format!("{name} {ms:.1}"))
+                .collect();
+            println!("  restore's own phases, p50 ms: {}", phases.join(" · "));
+        }
     }
     let answers: Vec<String> = r
         .secrets_at_first_answer

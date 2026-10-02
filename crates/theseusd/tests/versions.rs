@@ -147,12 +147,17 @@ impl Rig {
 
     /// Health's `store.verify` phase, once it has ended.
     fn verified(&self) -> Value {
-        self.wait("the history check's end", || {
+        self.phase_end("store.verify")
+    }
+
+    /// A background startup phase's detail, once it has ended.
+    fn phase_end(&self, name: &str) -> Value {
+        self.wait(&format!("{name}'s end"), || {
             let h = self.call("health", Value::Null).ok()?;
             h["startup"]
                 .as_array()?
                 .iter()
-                .find(|p| p["name"] == "store.verify" && !p["end_us"].is_null())
+                .find(|p| p["name"] == name && !p["end_us"].is_null())
                 .map(|p| p["detail"].clone())
         })
     }
@@ -270,6 +275,16 @@ fn an_older_binarys_store_serves_at_once_and_is_marked_at_its_first_newer_record
     let v = rig.verified();
     assert_eq!(v["outcome"], "ok", "{v}");
     assert_eq!(v["records"], LAST, "{v}");
+
+    // The older binary kept no terms in its index (theseus-lv2): the start
+    // left them to after serving, and the kernel counted by a full read
+    // until they were whole; its counts are the same after.
+    assert_eq!(store["detail"]["terms_pending"], true, "{store}");
+    let terms = rig.phase_end("store.terms");
+    assert_eq!(terms["outcome"], "whole", "{terms}");
+    let h = rig.call("health", Value::Null).unwrap();
+    let by_state = &h["kernel"]["executions_by_state"];
+    assert_eq!(by_state, &json!({"waiting": 3, "cancelled": 1}), "{h}");
 
     // The start wrote only what the older binary writes too: the manifest
     // is still format 2, and a rollback would still open the store.

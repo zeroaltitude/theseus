@@ -143,6 +143,10 @@ const META_LIVE_PROFILE: &str = "live_profile";
 /// (theseus-0dq): a day, for what rots where nothing writes.
 pub const HISTORY_WHOLE_EVERY_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// Keys a stretch of the index's terms build reads and writes at once
+/// (theseus-lv2): a few milliseconds of work, so a stop waits for little.
+const TERMS_STRETCH: usize = 512;
+
 /// A moment for the answers to the requests that waited at the gate to reach
 /// their clients before a restart closes their connections.
 const RESTART_GRACE: std::time::Duration = std::time::Duration::from_millis(100);
@@ -707,6 +711,50 @@ impl Core {
                 None
             }
         }
+    }
+
+    /// The index's terms, built again after serving when the store's open
+    /// found them not whole: a store an older build wrote last
+    /// (theseus-lv2). A stretch of `TERMS_STRETCH` keys at a time on the
+    /// blocking pool, so a stop waits for one stretch at most; until the
+    /// last, the kernel's readers by state read every record, as before. The
+    /// background startup phase `store.terms` says how many stretches, and
+    /// how long. Nothing when they are whole.
+    pub fn build_store_terms(self: &Arc<Self>) {
+        if self.store.inner().terms_whole() {
+            return;
+        }
+        let phase = self.startup_log.begin("store.terms", true, Instant::now());
+        let log = self.startup_log.clone();
+        let core = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let t0 = Instant::now();
+            let (mut at, mut stretches) = (None, 0u64);
+            let outcome = loop {
+                let Some(store) = core.upgrade().map(|c| c.store.inner().clone()) else {
+                    break json!({"outcome": "stopped", "stretches": stretches});
+                };
+                let from = at.take();
+                match tokio::task::spawn_blocking(move || store.build_terms(from, TERMS_STRETCH))
+                    .await
+                {
+                    Ok(Ok(Some(next))) => {
+                        at = Some(next);
+                        stretches += 1;
+                    }
+                    Ok(Ok(None)) => {
+                        break json!({"outcome": "whole", "stretches": stretches,
+                                     "ms": (t0.elapsed().as_secs_f64() * 1000.0).round()});
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(error = %format!("{e:#}"), "store: building the index's terms failed; the kernel reads every record");
+                        break json!({"outcome": "failed", "error": format!("{e:#}")});
+                    }
+                    Err(e) => break json!({"outcome": "failed", "error": e.to_string()}),
+                }
+            };
+            log.end(phase, outcome);
+        });
     }
 
     /// Sweep the spool's raw job output (theseus-2ij), then say so: a
