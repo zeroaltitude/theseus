@@ -4,7 +4,9 @@
 //! `tv-<name>-7f3a9c`, so a scan for the marker finds any of them.
 //! - `gh api user`, run by its own argv, gets `GH_TOKEN`, and nothing else
 //!   of the vault: no other value, and no AWS key;
-//! - `sh -c 'gh api user'` gets nothing, and its result says why;
+//! - `sh -c 'gh api user'` gets nothing, and its result says why, and so do
+//!   `gh leak` (an alias or an extension) and a call that sets its own
+//!   environment (review 2's H7);
 //! - a secret whose posture is `approve` makes its call wait, and the call
 //!   gets it once approved;
 //! - a secret that did not resolve is withheld, and the result says so;
@@ -343,6 +345,33 @@ fn a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does() {
         "{out}"
     );
 
+    // A word that is none of gh's own commands (an alias's or an
+    // extension's), and a call that sets its own environment: nothing, and
+    // the result says why (review 2's H7).
+    for (prompt, input, says) in [
+        (
+            "alias",
+            json!({"argv": ["gh", "leak"], "timeout_secs": 30}),
+            "gh got no GH_TOKEN: `gh leak` is not one of gh's own commands",
+        ),
+        (
+            "env",
+            json!({"argv": ["gh", "api", "user"], "env": {"GH_REPO": "invented/x"},
+                "timeout_secs": 30}),
+            "gh got no GH_TOKEN: the call sets GH_REPO",
+        ),
+    ] {
+        let call = vec![("proc_run", input)];
+        r.script.lock().unwrap().push((prompt.into(), call));
+        let t = r.turn(prompt);
+        let out = r.results(&t["session_id"]);
+        assert!(
+            !out.contains("GH_TOKEN set") && out.contains("values in env: 0"),
+            "{out}"
+        );
+        assert!(out.contains(says), "{out}");
+    }
+
     // A secret that did not resolve: withheld, and said so.
     r.asks("broken", &["ghb"]);
     let broken = r.turn("broken");
@@ -478,7 +507,9 @@ fn a_program_that_prints_its_granted_secret_leaves_it_nowhere() {
     );
     // This rig's `gh`, the program granted GH_TOKEN, prints it now.
     std::fs::write(r.path("bin/gh"), stub).unwrap();
-    r.asks("print it", &["gh"]);
+    // One of gh's own commands: `gh` alone runs none, so it would get
+    // nothing (review 2's H7).
+    r.asks("print it", &["gh", "api", "user"]);
     let turn = std::thread::spawn({
         let sock = r.path("sock");
         move || {

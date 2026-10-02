@@ -421,7 +421,16 @@ impl ToolRuntime {
             .pointer("/env/PATH")
             .and_then(Value::as_str)
             .or_else(|| self.proc_path());
-        let grants = self.broker.at_gate(tool, plan.argv.as_deref(), cwd, path);
+        // The variables the call sets: a granted program gets nothing from a
+        // call that sets any (review 2's H7).
+        let env: Vec<&str> = input
+            .get("env")
+            .and_then(Value::as_object)
+            .map(|m| m.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        let grants = self
+            .broker
+            .at_gate(tool, plan.argv.as_deref(), &env, cwd, path);
         let (Some(granted), Some((need, setting))) =
             (crate::broker::got(&grants), self.broker.need(&grants))
         else {
@@ -1461,15 +1470,17 @@ impl ToolRuntime {
             env.push((k.clone(), v.clone()));
         }
         // The broker's variables, from the board (theseus-dcy): a program run
-        // by its own argv gets its grant, and nothing stands in for a secret
-        // it does not get.
+        // by its own argv, by a call that sets no variable of its own (review
+        // 2's H7), gets its grant, and nothing stands in for a secret it does
+        // not get.
         let path = env
             .iter()
             .find(|(k, _)| k == "PATH")
             .map(|(_, v)| v.clone());
+        let set: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
         let brokered = self
             .broker
-            .for_job(&spec.argv, &spec.cwd, path.as_deref(), ran_at)
+            .for_job(&spec.argv, &set, &spec.cwd, path.as_deref(), ran_at)
             .await;
         for (k, v) in &brokered.env {
             env.retain(|(ek, _)| ek != k);

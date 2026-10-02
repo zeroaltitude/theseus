@@ -132,8 +132,13 @@ brave_api_key = "op://Eddie-Tabitha/vbihk5lczjkgyxwqe5ib7fko2m/notesPlain#value"
 # as argv[0], found as exec finds it on the daemon's PATH), never through
 # `sh -c "gh ..."`: a shell would hand the variable to every program it runs,
 # and the tool result says so.
-# A granted program still passes its variable to whatever it runs itself (gh's
-# extensions and shell aliases, or a hook), so the secret's posture is your control.
+# Nor does a program the call could make run another: a call that sets its own
+# environment gets no grant; gh gets it only for its own commands (api, pr,
+# repo, ...), never an alias, an extension, or --web's browser; and git only for
+# clone, fetch, ls-remote, pull, push, and remote, never an alias, -c, or a
+# program an option or a URL names. What a granted program runs on its own
+# account (a repository's hooks, a helper its config names) still gets the
+# variable, so the secret's posture is your control.
 # web.search is granted its key ([tools.web] search_key_secret) the same way,
 # so each search runs at no looser a posture than that secret's.
 # [broker.programs.gh]

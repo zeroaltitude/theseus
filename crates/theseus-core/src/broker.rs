@@ -10,6 +10,14 @@
 //!   file the program's name resolves to on the daemon's PATH. A shell or an
 //!   interpreter that runs it gets nothing, since it would hand the variable
 //!   to every program it runs, and the tool result says so.
+//! - **Nor does a program the call could make run another** (review 2's H7,
+//!   `launches`): a call that sets its own environment (`PATH`, `GIT_*`,
+//!   `LD_AUDIT`, …) gets no grant; gh gets one only for its own commands,
+//!   never an alias, an extension, or `--web`'s browser; and git only for its
+//!   commands that reach a remote, never an alias, `-c`, or a program that
+//!   an option or a URL names. What a granted program runs on its own
+//!   account still gets the variable: its repository's hooks, and the
+//!   helpers its config names.
 //! - **A native toollet** gets a secret through `secret_for_tool`, once the
 //!   wiring has granted it one (`grant_tool`): DD5's `web.search`, its key.
 //! - **Each secret has a posture** (`[broker.secrets.<name>] posture`, notify
@@ -219,16 +227,18 @@ impl Broker {
     }
 
     /// What a call would be given, for the gate: a job's program by its argv
-    /// (`argv`, run in `cwd` with the job's `PATH`), and the tool's own grants.
+    /// (`argv`, with the names of the variables the call sets, `env`, run in
+    /// `cwd` with the job's `PATH`), and the tool's own grants.
     pub fn at_gate(
         &self,
         tool: &str,
         argv: Option<&[String]>,
+        env: &[&str],
         cwd: &Path,
         job_path: Option<&str>,
     ) -> Vec<Grant> {
         let mut grants: Vec<Grant> = argv
-            .and_then(|a| self.program_for(a, cwd, job_path).ok())
+            .and_then(|a| self.program_for(a, env, cwd, job_path).ok())
             .map(|(program, vars)| {
                 vars.iter()
                     .map(|(v, s)| Grant {
@@ -248,12 +258,14 @@ impl Broker {
     }
 
     /// The program `argv` runs by its own argv, and its grant: `argv[0]` is
-    /// the file its name resolves to on the daemon's PATH. Otherwise, the
-    /// note for a granted program the call names without running it so, or
-    /// None when it names none.
+    /// the file its name resolves to on the daemon's PATH, and the call,
+    /// setting the variables `env` names, cannot make it run another program
+    /// (`launches`). Otherwise, the note for a granted program the call names
+    /// without running it so, or None when it names none.
     fn program_for(
         &self,
         argv: &[String],
+        env: &[&str],
         cwd: &Path,
         job_path: Option<&str>,
     ) -> Result<(&str, &Vars), Option<String>> {
@@ -269,14 +281,17 @@ impl Broker {
         if let Some((program, grant)) = self.programs.get_key_value(name) {
             let ran = resolve(first, job_path, cwd, false);
             let named = resolve(program, self.path.as_deref(), cwd, true);
-            if ran.is_some() && ran == named {
-                return Ok((program.as_str(), grant.as_slice()));
+            if ran.is_none() || ran != named {
+                return Err(Some(format!(
+                    "{program} got no {}: `{first}` is not the {program} on the daemon's PATH{}",
+                    vars(grant),
+                    named.map_or_else(String::new, |n| format!(" ({})", n.display()))
+                )));
             }
-            return Err(Some(format!(
-                "{program} got no {}: `{first}` is not the {program} on the daemon's PATH{}",
-                vars(grant),
-                named.map_or_else(String::new, |n| format!(" ({})", n.display()))
-            )));
+            if let Some(why) = launches(program, &argv[1..], env) {
+                return Err(Some(format!("{program} got no {}: {why}", vars(grant))));
+            }
+            return Ok((program.as_str(), grant.as_slice()));
         }
         // A granted program named in another's arguments: a shell's script,
         // an interpreter's, or `env`, `xargs`, and `timeout` running it.
@@ -305,12 +320,13 @@ impl Broker {
     pub async fn for_job(
         &self,
         argv: &[String],
+        env: &[&str],
         cwd: &Path,
         job_path: Option<&str>,
         ran_at: Posture,
     ) -> ForJob {
         let mut out = ForJob::default();
-        let (program, vars) = match self.program_for(argv, cwd, job_path) {
+        let (program, vars) = match self.program_for(argv, env, cwd, job_path) {
             Ok(p) => p,
             Err(note) => {
                 out.indirect = note;
@@ -475,6 +491,203 @@ impl theseus_tools::Secrets for Bound {
     }
 }
 
+/// Why `program`, run by its own argv with `args` and the variables `env`
+/// names, could hand its grant to another program that the call chose, or
+/// None (review 2's H7). A grant reaches the program a call names, and what
+/// that program runs on its own account (its repository's hooks, the helpers
+/// its config names), but never a program the call itself names to it:
+/// - by the environment: a variable can make a program run another (`PATH`
+///   for the programs gh and git run, `GIT_CONFIG_*`, `GIT_EXEC_PATH`,
+///   `HOME`, `LD_AUDIT`, …), so a call that sets any gets no grant;
+/// - by gh: an alias, an extension, or `--web`'s browser (`gh_launches`);
+/// - by git: an alias, `-c`, or a program that an option or a URL names
+///   (`git_launches`).
+fn launches(program: &str, args: &[String], env: &[&str]) -> Option<String> {
+    if !env.is_empty() {
+        return Some(format!(
+            "the call sets {}, and a variable can make {program} run another program, which \
+             would get it too. Run {program} without `env` to get it",
+            and(env)
+        ));
+    }
+    match program {
+        "gh" => gh_launches(args),
+        "git" => git_launches(args),
+        _ => None,
+    }
+}
+
+/// gh's own commands that can use its token and run no program the call
+/// chooses. gh runs a word as an alias, or else as an extension, only when it
+/// is none of its own commands. Not here: `extension` (`ext`) runs
+/// extensions, `codespace` (`cs`) ssh and editors, `browse` a browser, and
+/// `help <word>` an extension's help; `alias`, `config`, and `completion` need
+/// no token.
+const GH_COMMANDS: &[&str] = &[
+    "api",
+    "attestation",
+    "auth",
+    "cache",
+    "gist",
+    "gpg-key",
+    "issue",
+    "label",
+    "org",
+    "pr",
+    "project",
+    "release",
+    "repo",
+    "rs",
+    "ruleset",
+    "run",
+    "search",
+    "secret",
+    "ssh-key",
+    "status",
+    "variable",
+    "workflow",
+];
+
+fn gh_launches(args: &[String]) -> Option<String> {
+    let Some(command) = args.first() else {
+        return Some("the call runs none of gh's commands".into());
+    };
+    if !GH_COMMANDS.contains(&command.as_str()) {
+        return Some(format!(
+            "`gh {command}` is not one of gh's own commands that use a token, and gh runs an \
+             alias or an extension by such a word, which would get it too"
+        ));
+    }
+    // `--web`, or `-w` alone or among other one-letter flags.
+    let web = |a: &String| {
+        let cluster = a.len() > 1
+            && a.starts_with('-')
+            && !a.starts_with("--")
+            && a[1..].bytes().all(|c| c.is_ascii_alphabetic());
+        a == "--web" || a.starts_with("--web=") || (cluster && a.contains('w'))
+    };
+    if args.iter().any(web) {
+        return Some("`--web` opens a browser, which would get it too".into());
+    }
+    // What follows `--` goes to `git clone` (`gh repo clone`, `gh repo fork`).
+    let rest = args
+        .iter()
+        .position(|a| a == "--")
+        .map_or(&[][..], |k| &args[k + 1..]);
+    git_args_launch("clone", rest)
+}
+
+/// git's commands that reach a remote, and so may need its credentials. The
+/// rest need none, and several run a program they are given (`bisect run`,
+/// `rebase --exec`, `submodule foreach`, `difftool`).
+const GIT_COMMANDS: &[&str] = &["clone", "fetch", "ls-remote", "pull", "push", "remote"];
+
+/// git's long options that name a program for it to run, or settings for the
+/// repository it makes. git takes any unambiguous prefix of a long option, so
+/// a prefix counts too.
+const GIT_PROGRAM_OPTIONS: &[&str] = &[
+    "--upload-pack",
+    "--receive-pack",
+    "--exec",
+    "--template",
+    "--config",
+];
+
+fn git_launches(args: &[String]) -> Option<String> {
+    // Before the command, only the options that name no program and no
+    // setting.
+    let mut i = 0;
+    let command = loop {
+        let Some(a) = args.get(i) else {
+            return Some("the call runs none of git's commands that reach a remote".into());
+        };
+        match a.as_str() {
+            "-C" | "--git-dir" | "--work-tree" => i += 2,
+            "-P"
+            | "--no-pager"
+            | "--bare"
+            | "--no-replace-objects"
+            | "--literal-pathspecs"
+            | "--no-optional-locks" => i += 1,
+            a if a.starts_with("--git-dir=") || a.starts_with("--work-tree=") => i += 1,
+            a if a.starts_with('-') => {
+                return Some(format!(
+                    "`{a}` before git's command can name a program or a setting for git to run \
+                     (as `-c alias.x=!…` does), which would get it too"
+                ));
+            }
+            a => break a,
+        }
+    };
+    if !GIT_COMMANDS.contains(&command) {
+        return Some(format!(
+            "`git {command}` is not one of git's commands that reach a remote ({}), and git runs \
+             an alias or a `git-{command}` program by such a word, which would get it too",
+            GIT_COMMANDS.join(", ")
+        ));
+    }
+    git_args_launch(command, &args[i + 1..])
+}
+
+/// Why the arguments of git's `command` could make it run a program they
+/// name, or None: an option that names one (`--upload-pack`, `clone -c`, …),
+/// or a URL that git hands to a helper program.
+fn git_args_launch(command: &str, args: &[String]) -> Option<String> {
+    // `-u` is the upload-pack program for clone and ls-remote (push's is
+    // --set-upstream), and `-c` a setting for the repository clone makes.
+    let letters = match command {
+        "clone" => "uc",
+        "ls-remote" => "u",
+        _ => "",
+    };
+    for a in args {
+        let (name, value) = match a.split_once('=') {
+            Some((n, v)) if n.starts_with("--") => (n, Some(v)),
+            _ => (a.as_str(), None),
+        };
+        let long = name.len() > 2
+            && name.starts_with("--")
+            && GIT_PROGRAM_OPTIONS.iter().any(|o| o.starts_with(name));
+        let short = a.len() > 1
+            && a.starts_with('-')
+            && !a.starts_with("--")
+            && a[1..].contains(|c: char| letters.contains(c));
+        if long || short {
+            return Some(format!(
+                "`{a}` names a program for git to run, or a setting for the repository it makes, \
+                 which would get it too"
+            ));
+        }
+        if let Some(t) = helper_transport(value.unwrap_or(a)) {
+            return Some(format!(
+                "`{a}` names the transport `{t}`, which git hands to a program \
+                 (`git-remote-{t}`), which would get it too"
+            ));
+        }
+    }
+    None
+}
+
+/// The transport that git hands a URL to a helper program for: `<name>::…`,
+/// or a `<scheme>://…` it does not speak itself.
+fn helper_transport(a: &str) -> Option<&str> {
+    let word = |s: &str| {
+        s.starts_with(|c: char| c.is_ascii_alphanumeric())
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+    };
+    if let Some((t, _)) = a.split_once("::") {
+        if word(t) {
+            return Some(t);
+        }
+    }
+    const NATIVE: &[&str] = &[
+        "file", "ftp", "ftps", "git", "git+ssh", "http", "https", "ssh", "ssh+git",
+    ];
+    let (scheme, _) = a.split_once("://")?;
+    (word(scheme) && !NATIVE.contains(&scheme.to_ascii_lowercase().as_str())).then_some(scheme)
+}
+
 /// Where `exec` finds `program` for a job run in `cwd` with `path`: a name
 /// with a `/` is the file it names, relative to `cwd`; a bare name is the
 /// first executable file of that name on `path`, where an empty or relative
@@ -569,7 +782,9 @@ mod tests {
         let cwd = other.path();
         let gh = b.path().join("gh").display().to_string();
         for direct in [argv(&["gh", "api", "user"]), argv(&[&gh, "api"])] {
-            let j = br.for_job(&direct, cwd, Some(&path), Posture::Notify).await;
+            let j = br
+                .for_job(&direct, &[], cwd, Some(&path), Posture::Notify)
+                .await;
             assert_eq!(j.env.len(), 1, "{direct:?}");
             assert_eq!(
                 (j.env[0].0.as_str(), j.env[0].1.expose()),
@@ -594,7 +809,7 @@ mod tests {
             ),
         ] {
             let j = br
-                .for_job(&indirect, cwd, Some(&path), Posture::Notify)
+                .for_job(&indirect, &[], cwd, Some(&path), Posture::Notify)
                 .await;
             assert!(j.env.is_empty(), "{indirect:?}");
             let note = j.note().unwrap();
@@ -604,12 +819,24 @@ mod tests {
         // A PATH the model set, with its own gh first, is not the daemon's.
         let evil = format!("{}:{path}", other.path().display());
         let j = br
-            .for_job(&argv(&["gh"]), cwd, Some(&evil), Posture::Notify)
+            .for_job(
+                &argv(&["gh", "api"]),
+                &[],
+                cwd,
+                Some(&evil),
+                Posture::Notify,
+            )
             .await;
         assert!(j.env.is_empty());
         // A program the broker does not know, naming none, gets no note.
         let j = br
-            .for_job(&argv(&["ls", "-la"]), cwd, Some(&path), Posture::Notify)
+            .for_job(
+                &argv(&["ls", "-la"]),
+                &[],
+                cwd,
+                Some(&path),
+                Posture::Notify,
+            )
             .await;
         assert!(j.env.is_empty() && j.note().is_none());
     }
@@ -625,7 +852,13 @@ mod tests {
         let br = broker(b.path(), board.clone(), &[]);
         let t0 = Instant::now();
         let j = br
-            .for_job(&argv(&["gh"]), b.path(), Some(&path), Posture::Notify)
+            .for_job(
+                &argv(&["gh", "api"]),
+                &[],
+                b.path(),
+                Some(&path),
+                Posture::Notify,
+            )
             .await;
         assert!(t0.elapsed() >= Duration::from_millis(200), "it waited");
         assert!(j.env.is_empty());
@@ -646,7 +879,13 @@ mod tests {
             );
         });
         let j = br
-            .for_job(&argv(&["gh"]), b.path(), Some(&path), Posture::Notify)
+            .for_job(
+                &argv(&["gh", "api"]),
+                &[],
+                b.path(),
+                Some(&path),
+                Posture::Notify,
+            )
             .await;
         assert_eq!(j.env.len(), 1, "given once it resolved");
         let failed = SecretBoard::new(["github_token".to_string()], Instant::now());
@@ -656,7 +895,13 @@ mod tests {
         );
         let br = broker(b.path(), failed, &[]);
         let j = br
-            .for_job(&argv(&["gh"]), b.path(), Some(&path), Posture::Notify)
+            .for_job(
+                &argv(&["gh", "api"]),
+                &[],
+                b.path(),
+                Some(&path),
+                Posture::Notify,
+            )
             .await;
         assert!(j
             .note()
@@ -676,7 +921,13 @@ mod tests {
             ready(&[("github_token", "tok")]),
             &[("github_token", Posture::Approve)],
         );
-        let grants = br.at_gate("proc.run", Some(&argv(&["gh"])), b.path(), Some(&path));
+        let grants = br.at_gate(
+            "proc.run",
+            Some(&argv(&["gh", "api"])),
+            &[],
+            b.path(),
+            Some(&path),
+        );
         assert_eq!(gets(&grants).as_deref(), Some("gh gets GH_TOKEN"));
         assert_eq!(
             br.need(&grants),
@@ -686,7 +937,13 @@ mod tests {
             ))
         );
         let j = br
-            .for_job(&argv(&["gh"]), b.path(), Some(&path), Posture::Notify)
+            .for_job(
+                &argv(&["gh", "api"]),
+                &[],
+                b.path(),
+                Some(&path),
+                Posture::Notify,
+            )
             .await;
         assert!(j.env.is_empty());
         assert!(j
@@ -694,7 +951,13 @@ mod tests {
             .unwrap()
             .contains("github_token's posture is approve, and this call ran at notify"));
         let j = br
-            .for_job(&argv(&["gh"]), b.path(), Some(&path), Posture::Approve)
+            .for_job(
+                &argv(&["gh", "api"]),
+                &[],
+                b.path(),
+                Some(&path),
+                Posture::Approve,
+            )
             .await;
         assert_eq!(j.env.len(), 1);
         let (p, setting) = broker(b.path(), ready(&[]), &[]).posture_of("github_token");
@@ -743,5 +1006,163 @@ mod tests {
             ),
             (Some("GH_TOKEN"), "github_token", "notify")
         );
+    }
+
+    /// Review 2's H7: a launcher's grant reaches only the program the call
+    /// names. gh gets it for its own commands, never an alias, an extension,
+    /// `--web`'s browser, or a program in git's flags after `--`; git for its
+    /// commands that reach a remote, never an alias, `-c`, or a program that
+    /// an option or a URL names; and no program gets it from a call that
+    /// sets its own environment. The gate's view agrees with the spawn's.
+    #[tokio::test]
+    async fn a_launchers_grant_reaches_only_the_program_the_call_names() {
+        let b = bin(&["gh", "git"]);
+        let mut cfg = BrokerConfig::default();
+        for program in ["gh", "git"] {
+            cfg.programs.insert(
+                program.into(),
+                ProgramGrant {
+                    env: [("GH_TOKEN".to_string(), "github_token".to_string())].into(),
+                },
+            );
+        }
+        let path = format!("{}:/usr/bin:/bin", b.path().display());
+        let br = Broker::new(
+            &cfg,
+            ready(&[("github_token", "tok-123456")]),
+            Some(path.clone()),
+        );
+        let given: [&[&str]; 9] = [
+            &["gh", "pr", "list"],
+            &["gh", "api", "user", "--jq", ".login"],
+            &["gh", "repo", "clone", "invented/x", "--", "--depth=1"],
+            &["git", "push", "-u", "origin", "main"],
+            &["git", "-C", "sub", "--no-pager", "fetch", "--prune"],
+            &["git", "--git-dir=x/.git", "pull", "--rebase"],
+            &["git", "clone", "--depth", "1", "ssh://git.invented/x.git"],
+            &["git", "clone", "git@git.invented:x.git"],
+            &["git", "ls-remote", "origin"],
+        ];
+        for a in given {
+            let j = br
+                .for_job(&argv(a), &[], b.path(), Some(&path), Posture::Notify)
+                .await;
+            assert_eq!((j.env.len(), j.note()), (1, None), "{a:?}");
+            let at_gate = br.at_gate("proc.run", Some(&argv(a)), &[], b.path(), Some(&path));
+            assert_eq!(at_gate.len(), 1, "{a:?}");
+        }
+        let withheld: [(&[&str], &[&str], &str); 25] = [
+            (
+                &["gh", "leak"],
+                &[],
+                "`gh leak` is not one of gh's own commands",
+            ),
+            (
+                &["gh", "extension", "exec", "leak"],
+                &[],
+                "`gh extension` is not",
+            ),
+            (&["gh", "ext", "exec", "leak"], &[], "`gh ext` is not"),
+            (&["gh", "help", "leak"], &[], "`gh help` is not"),
+            (&["gh", "browse"], &[], "`gh browse` is not"),
+            (&["gh", "codespace", "ssh"], &[], "`gh codespace` is not"),
+            (&["gh"], &[], "the call runs none of gh's commands"),
+            (
+                &["gh", "pr", "view", "--web"],
+                &[],
+                "`--web` opens a browser",
+            ),
+            (
+                &["gh", "issue", "list", "-w"],
+                &[],
+                "`--web` opens a browser",
+            ),
+            (&["gh", "pr", "view", "-cw"], &[], "`--web` opens a browser"),
+            (
+                &["gh", "repo", "clone", "invented/x", "--", "-u", "leak"],
+                &[],
+                "`-u` names a program for git to run",
+            ),
+            (
+                &["gh", "api", "user"],
+                &["GH_REPO"],
+                "the call sets GH_REPO, and a variable",
+            ),
+            (
+                &["git", "push"],
+                &["PATH", "GIT_EXEC_PATH"],
+                "the call sets PATH and GIT_EXEC_PATH",
+            ),
+            (
+                &["git", "leak"],
+                &[],
+                "`git leak` is not one of git's commands that reach",
+            ),
+            (&["git", "status"], &[], "`git status` is not one of"),
+            (
+                &["git", "-c", "alias.x=!leak", "x"],
+                &[],
+                "`-c` before git's command",
+            ),
+            (
+                &["git", "--exec-path=/tmp", "push"],
+                &[],
+                "`--exec-path=/tmp` before",
+            ),
+            (
+                &["git", "fetch", "--upload-pack=leak", "."],
+                &[],
+                "names a program",
+            ),
+            (
+                &["git", "fetch", "--upload=leak", "."],
+                &[],
+                "names a program",
+            ),
+            (
+                &["git", "push", "--receive-pack", "leak", "origin"],
+                &[],
+                "names a program",
+            ),
+            (
+                &["git", "clone", "-u", "leak", "src"],
+                &[],
+                "names a program",
+            ),
+            (
+                &["git", "clone", "-c", "core.fsmonitor=leak", "src"],
+                &[],
+                "names a program",
+            ),
+            (
+                &["git", "clone", "--template=t", "src"],
+                &[],
+                "names a program",
+            ),
+            (
+                &["git", "fetch", "leak::x"],
+                &[],
+                "names the transport `leak`",
+            ),
+            (
+                &["git", "push", "--repo=leak://x"],
+                &[],
+                "names the transport `leak`",
+            ),
+        ];
+        for (a, env, says) in withheld {
+            let j = br
+                .for_job(&argv(a), env, b.path(), Some(&path), Posture::Notify)
+                .await;
+            assert!(j.env.is_empty(), "{a:?}");
+            let note = j.note().unwrap_or_default();
+            assert!(
+                note.starts_with(&format!("[{} got no GH_TOKEN: ", a[0])),
+                "{note}"
+            );
+            assert!(note.contains(says), "{a:?}: {note}");
+            let at_gate = br.at_gate("proc.run", Some(&argv(a)), env, b.path(), Some(&path));
+            assert!(at_gate.is_empty(), "{a:?}");
+        }
     }
 }

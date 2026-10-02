@@ -55,7 +55,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   keys, and `example_template_uncommented_still_parses` un-comments every line and parses it.
 - **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output: each board
   value verbatim, in base64, and percent-encoded, and the shapes of secrets never resolved here (token prefixes,
-  AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to.
+  AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its
+  own argv, and never to one the call could make it run (`broker::launches`: the call's own environment, gh's
+  aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name).
 - **One fact, recorded once.** A new ledger row, notification, or narrative sentence is a fact's projection in
   `fact/`, not a hand-written channel at its site. Recording writes no frame: its row rides in the turn's next frame
   (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest
