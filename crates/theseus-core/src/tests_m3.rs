@@ -1064,6 +1064,16 @@ async fn the_sweep_removes_raw_output_no_result_will_absorb_and_keeps_the_rest()
         .spawn()
         .unwrap();
     r.core.spool.write_pid(&running_on, wrapper.id()).unwrap();
+    // A process just spawned may still be in its exec, with an empty command
+    // line, for a moment, and on a loaded machine for milliseconds (a quarter
+    // of reads made at once came back empty at load 14): look until it reads
+    // as the wrapper.
+    let started = std::time::Instant::now();
+    while !theseus_kernel::job::wrapper_alive(wrapper.id(), &running_on)
+        && started.elapsed() < Duration::from_secs(5)
+    {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
     assert!(theseus_kernel::job::wrapper_alive(
         wrapper.id(),
         &running_on
