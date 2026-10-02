@@ -19,6 +19,11 @@ use super::*;
 const OPERATOR: &str = "ada";
 const SOURCE: &str = "op://Example/theseus-config/notesPlain";
 const STAMP: &str = "20261001T120000Z";
+/// The `--user` rig's token file, and its unit.
+const TOKEN: &str = "/home/ada/.config/theseus/op-token";
+const UNIT: &str = "/home/ada/.config/systemd/user/theseusd.service";
+/// What a test's token file holds: no output may carry it.
+const SENTINEL: &[u8] = b"SENTINEL-not-a-token-DO-NOT-PRINT\n";
 
 /// A temp dir: `root/` is the machine, `build/theseusd` the binary,
 /// `old/` an old daemon's state dir, and `ada/` the operator's files.
@@ -27,6 +32,8 @@ struct Rig {
     host: Fake,
     env: Env,
     g: Globals,
+    /// What the last run printed, kept when it failed too.
+    printed: String,
 }
 
 fn vars(kv: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
@@ -58,6 +65,7 @@ impl Rig {
             host: Fake::new(OPERATOR, 1000),
             env,
             g,
+            printed: String::new(),
         }
     }
 
@@ -67,6 +75,7 @@ impl Rig {
             |t| Env {
                 root: t.join("root"),
                 exe: t.join("build/theseusd"),
+                argv: vec!["install".into(), "--separate".into()],
                 cwd: "/home/ada".into(),
                 euid: 0,
                 ruid: 0,
@@ -91,12 +100,14 @@ impl Rig {
         r
     }
 
-    /// `theseusd install --user`, by ada, from her shell.
+    /// `theseusd install --user`, by ada, from her shell, with a token file
+    /// of hers that is right (mode 0600; a stand-in text, never a token).
     fn user() -> Self {
-        Self::new(
+        let mut r = Self::new(
             |t| Env {
                 root: t.join("root"),
                 exe: "/opt/theseus/bin/theseusd".into(),
+                argv: vec!["install".into(), "--user".into()],
                 cwd: "/home/ada".into(),
                 euid: 1000,
                 ruid: 1000,
@@ -112,14 +123,27 @@ impl Rig {
                 op_token_file: Some("~/.config/theseus/op-token".into()),
                 ..Default::default()
             },
-        )
+        );
+        r.token(TOKEN, 0o600);
+        r
+    }
+
+    /// A token file at `p`, ada's, with this mode; its text is a sentinel the
+    /// plan must never print.
+    fn token(&mut self, p: &str, mode: u32) {
+        let at = self.at(p);
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(&at, SENTINEL).unwrap();
+        std::fs::set_permissions(&at, std::fs::Permissions::from_mode(mode)).unwrap();
+        self.host.chown(&at, 1000, 1000).unwrap();
     }
 
     /// The exit status and the output, the temp dir shown as `$TMP`.
     fn run(&mut self, a: &InstallArgs) -> Result<(i32, String)> {
         let mut out = vec![];
-        let code = run_with(a, &self.g, &self.env, &mut self.host, &mut out)?;
-        Ok((code, self.clean(&String::from_utf8_lossy(&out))))
+        let code = run_with(a, &self.g, &self.env, &mut self.host, &mut out);
+        self.printed = self.clean(&String::from_utf8_lossy(&out));
+        Ok((code?, self.printed.clone()))
     }
 
     fn ok(&mut self, a: &InstallArgs) -> String {
@@ -216,7 +240,9 @@ fn tree(top: &Path) -> Vec<(String, u32, Option<Vec<u8>>)> {
                 stack.push(e.path());
                 all.push((rel, mode, None));
             } else if m.is_file() {
-                all.push((rel, mode, Some(std::fs::read(e.path()).unwrap())));
+                // A token file with no read bit is still part of the tree.
+                let bytes = std::fs::read(e.path()).unwrap_or_else(|_| b"<unreadable>".to_vec());
+                all.push((rel, mode, Some(bytes)));
             } else {
                 all.push((rel, mode, None));
             }
@@ -267,9 +293,10 @@ fn install_with_no_mode_lists_the_modes_and_what_each_needs() {
 #[test]
 fn the_user_plan_is_golden_and_changes_nothing() {
     let mut r = Rig::user();
+    let before = tree(&r.env.root);
     let out = r.ok(&args(|a| a.user = true));
     same("user.plan", &out, include_str!("golden/user.plan"));
-    assert_eq!(tree(&r.env.root), vec![], "a plan wrote");
+    assert_eq!(tree(&r.env.root), before, "a plan wrote");
 }
 
 #[test]
@@ -954,10 +981,242 @@ fn a_user_unit_without_a_token_file_says_how_to_give_it_one() {
     assert!(out.contains("ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain --state-dir /home/ada/scratch/state\n"), "{out}");
     assert!(
         out.contains(
-            "re-run with --op-token-file <file> (mode 0600). A unit never holds the token itself."
+            "then re-run: /opt/theseus/bin/theseusd install --user --op-token-file <file>. A unit \
+             never holds the token itself."
         ),
         "{out}"
     );
+    assert!(
+        !out.contains("token  "),
+        "no token file, no token item:\n{out}"
+    );
+}
+
+/// The hint is the command as it was typed, with the flag added after it
+/// (theseus-w1nf): a flag the operator gave is not lost on the re-run, and a
+/// word with a space in it is quoted so the line pastes back whole.
+#[test]
+fn the_hint_repeats_the_command_as_it_was_typed() {
+    let mut r = Rig::user();
+    r.g.op_token_file = None;
+    r.env.argv = [
+        "--state-dir",
+        "/home/ada/my state",
+        "install",
+        "--user",
+        "--apply",
+    ]
+    .map(String::from)
+    .into();
+    let out = r.ok(&args(|a| {
+        a.user = true;
+        a.apply = true;
+    }));
+    assert!(
+        out.contains(
+            "then re-run: /opt/theseus/bin/theseusd --state-dir '/home/ada/my state' install \
+             --user --apply --op-token-file <file>."
+        ),
+        "{out}"
+    );
+    assert_eq!(shell_word("a'b"), r"'a'\''b'");
+    assert_eq!(shell_word(""), "''");
+    assert_eq!(shell_word("/p/a-b_c.d:e@f"), "/p/a-b_c.d:e@f");
+}
+
+/// A faulty token file, as a plan says it: (the setup, what the refusal says).
+type Fault<'a> = (&'a str, fn(&mut Rig), &'a str);
+
+/// What `--user`'s plan says of each way a token file can be wrong, and that
+/// it never says what the file holds (theseus-w1nf). The plan only prints, so
+/// the files stay as they are, and a file that no one may read (mode 0200) is
+/// still judged: the plan never opens it.
+#[test]
+fn the_user_plan_names_each_fault_in_the_token_file_and_how_to_fix_it() {
+    let faults: [Fault; 11] = [
+        (
+            "missing",
+            |r| std::fs::remove_file(r.at(TOKEN)).unwrap(),
+            "refused: it does not exist. Fix: make it with mode 0600, holding the 1Password \
+             service-account token (docs/user-service.md shows how)",
+        ),
+        (
+            "a directory",
+            |r| {
+                std::fs::remove_file(r.at(TOKEN)).unwrap();
+                std::fs::create_dir(r.at(TOKEN)).unwrap();
+            },
+            "refused: it is not a regular file (a symlink, a directory, or a device). Fix: name \
+             the file itself",
+        ),
+        (
+            "a symlink to a good file",
+            |r| {
+                let real = r.at("/home/ada/.config/theseus/real-token");
+                std::fs::rename(r.at(TOKEN), &real).unwrap();
+                std::os::unix::fs::symlink(&real, r.at(TOKEN)).unwrap();
+            },
+            "refused: it is not a regular file (a symlink, a directory, or a device). Fix: name \
+             the file itself",
+        ),
+        (
+            "mode 0644",
+            |r| std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(0o644)).unwrap(),
+            "refused: mode 0644 is looser than 0600. Fix: chmod 600 /home/ada/.config/theseus/op-token",
+        ),
+        (
+            "mode 0640",
+            |r| std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(0o640)).unwrap(),
+            "refused: mode 0640 is looser than 0600. Fix: chmod 600 /home/ada/.config/theseus/op-token",
+        ),
+        (
+            "mode 0700, an executable token",
+            |r| std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(0o700)).unwrap(),
+            "refused: mode 0700 is looser than 0600. Fix: chmod 600 /home/ada/.config/theseus/op-token",
+        ),
+        (
+            "mode 0200, which its owner cannot read",
+            |r| std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(0o200)).unwrap(),
+            "refused: mode 0200 does not let you read it. Fix: chmod 600 \
+             /home/ada/.config/theseus/op-token",
+        ),
+        (
+            "another user's",
+            |r| r.host.chown(&r.at(TOKEN), 0, 0).unwrap(),
+            "refused: it is owned by root (uid 0), not by you (ada). Fix: sudo chown ada \
+             /home/ada/.config/theseus/op-token",
+        ),
+        (
+            "empty",
+            |r| std::fs::write(r.at(TOKEN), b"").unwrap(),
+            "refused: it is empty. Fix: put the 1Password service-account token in it",
+        ),
+        (
+            "an owner's uid nobody has",
+            |r| r.host.chown(&r.at(TOKEN), 4242, 4242).unwrap(),
+            "refused: it is owned by uid 4242, not by you (ada). Fix: sudo chown ada \
+             /home/ada/.config/theseus/op-token",
+        ),
+        (
+            "three faults at once",
+            |r| {
+                std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(0o666)).unwrap();
+                std::fs::write(r.at(TOKEN), b"").unwrap();
+                r.host.chown(&r.at(TOKEN), 0, 0).unwrap();
+            },
+            "refused: it is owned by root (uid 0), not by you (ada); mode 0666 is looser than \
+             0600; it is empty. Fix: sudo chown ada /home/ada/.config/theseus/op-token; chmod 600 \
+             /home/ada/.config/theseus/op-token; put the 1Password service-account token in it",
+        ),
+    ];
+    for (what, setup, says) in faults {
+        let mut r = Rig::user();
+        setup(&mut r);
+        let before = tree(&r.env.root);
+        let (code, out) = r.run(&args(|a| a.user = true)).unwrap();
+        assert_eq!(code, 1, "{what}: a refusal is exit 1:\n{out}");
+        assert!(out.contains(says), "{what}: want `{says}` in:\n{out}");
+        assert!(
+            out.contains("  REFUSE  token  /home/ada/.config/theseus/op-token (yours alone"),
+            "{what}:\n{out}"
+        );
+        assert!(
+            out.contains("1 refused: --apply changes nothing until each is resolved."),
+            "{what}:\n{out}"
+        );
+        assert!(
+            !out.contains("SENTINEL"),
+            "{what}: the plan printed the token"
+        );
+        assert_eq!(tree(&r.env.root), before, "{what}: a plan wrote");
+    }
+}
+
+/// The right token files: the operator's, regular, not empty, mode 0600 or
+/// stricter. A plan shows `ok`, and the exit is 0.
+#[test]
+fn the_user_plan_accepts_a_token_file_that_is_0600_or_stricter() {
+    for mode in [0o600, 0o400] {
+        let mut r = Rig::user();
+        std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(mode)).unwrap();
+        let (code, out) = r.run(&args(|a| a.user = true)).unwrap();
+        assert_eq!(code, 0, "mode {mode:04o}:\n{out}");
+        assert!(
+            out.contains("  ok      token  /home/ada/.config/theseus/op-token (yours alone"),
+            "mode {mode:04o}:\n{out}"
+        );
+        assert!(!out.contains("refused"), "mode {mode:04o}:\n{out}");
+        assert!(
+            !out.contains("SENTINEL"),
+            "mode {mode:04o}: the plan printed the token"
+        );
+    }
+}
+
+/// `--apply` writes nothing while the token file is wrong, says which, and
+/// does its work once the file is right (theseus-w1nf).
+#[test]
+fn a_user_apply_refuses_until_the_token_file_is_right() {
+    let mut r = Rig::user();
+    std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(0o644)).unwrap();
+    let before = tree(&r.env.root);
+    let e = r.err(&args(|a| {
+        a.user = true;
+        a.apply = true;
+    }));
+    assert!(e.contains("nothing was changed: 1 refused (above)"), "{e}");
+    assert!(
+        r.printed
+            .contains("mode 0644 is looser than 0600. Fix: chmod 600"),
+        "{}",
+        r.printed
+    );
+    assert!(!r.printed.contains("SENTINEL"), "{}", r.printed);
+    assert_eq!(tree(&r.env.root), before, "a refused --apply wrote");
+    assert!(!r.at(UNIT).exists());
+
+    // Mended: the same command now does it.
+    std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(0o600)).unwrap();
+    let log = r.ok(&args(|a| {
+        a.user = true;
+        a.apply = true;
+    }));
+    assert!(log.contains(&format!("wrote {UNIT}")), "{log}");
+    assert!(r.at(UNIT).exists());
+    // The unit names the token file; the token is not in it.
+    let text = std::fs::read_to_string(r.at(UNIT)).unwrap();
+    assert!(
+        text.contains(" --op-token-file /home/ada/.config/theseus/op-token"),
+        "{text}"
+    );
+    assert!(!text.contains("SENTINEL"), "{text}");
+}
+
+/// After an install, `--check` names a token file that has gone wrong since,
+/// and `--remove` does not care about it (theseus-w1nf).
+#[test]
+fn a_user_check_finds_a_token_file_gone_wrong_and_remove_ignores_it() {
+    let mut r = Rig::user();
+    r.ok(&args(|a| {
+        a.user = true;
+        a.apply = true;
+    }));
+    std::fs::set_permissions(r.at(TOKEN), std::fs::Permissions::from_mode(0o666)).unwrap();
+    let (code, out) = r
+        .run(&args(|a| {
+            a.user = true;
+            a.check = true;
+        }))
+        .unwrap();
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("1 difference(s) from the layout"), "{out}");
+    assert!(out.contains("mode 0666 is looser than 0600"), "{out}");
+    let log = r.ok(&args(|a| {
+        a.user = true;
+        a.remove = true;
+        a.apply = true;
+    }));
+    assert!(log.contains(&format!("removed {UNIT}")), "{log}");
 }
 
 #[test]

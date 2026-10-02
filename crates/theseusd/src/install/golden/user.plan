@@ -5,6 +5,8 @@ theseusd install --user: the plan. Nothing is changed: --apply performs it.
   state dir: the config's [server] state_dir (default ~/.theseus), as today
   PATH:      this shell's, so the daemon finds `op` and your jobs their tools
 
+  ok      token  /home/ada/.config/theseus/op-token (yours alone: mode 0600 or stricter, not empty)
+                 the 1Password token the daemon reads when it starts: its owner, mode, and size are checked, and it is never opened
   write   file   /home/ada/.config/systemd/user/theseusd.service ada:ada 0644
                  the daemon as your systemd user service: Delegate=yes gives L1 jobs cgroup limits (M4 2.2)
                  | # Written by `theseusd install --user`. A later --apply rewrites it:
@@ -32,7 +34,7 @@ theseusd install --user: the plan. Nothing is changed: --apply performs it.
                  | [Install]
                  | WantedBy=default.target
 
-1 to do, 0 already done.
+1 to do, 1 already done.
 
 Then, by hand:
   - systemctl --user daemon-reload

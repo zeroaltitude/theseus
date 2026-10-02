@@ -146,18 +146,9 @@ pub(crate) fn user(env: &Env, g: &Globals, remove: bool, host: &dyn Host) -> Res
         exec.extend(["--socket".into(), env.absolute(s).display().to_string()]);
     }
     let mut notes = vec![];
-    match &g.op_token_file {
-        Some(t) => exec.extend([
-            "--op-token-file".into(),
-            env.absolute(Path::new(t)).display().to_string(),
-        ]),
-        None => notes.push(
-            "the unit names no token file, and the daemon will not start without its 1Password \
-             token: re-run with --op-token-file <file> (mode 0600). A unit never holds the token \
-             itself."
-                .into(),
-        ),
-    }
+    let mut entries: Vec<Entry> = token_file(env, g, &op, &mut exec, &mut notes)
+        .into_iter()
+        .collect();
     let vars: Vec<(String, String)> = USER_ENV
         .iter()
         .filter_map(|k| env.var(k).map(|v| (k.to_string(), v.to_string())))
@@ -180,22 +171,56 @@ pub(crate) fn user(env: &Env, g: &Globals, remove: bool, host: &dyn Host) -> Res
         ),
         "journalctl --user -u theseusd: its log".into(),
     ]);
+    entries.push(Entry {
+        item: Item::File {
+            path: unit,
+            owner: owner.clone(),
+            mode: 0o644,
+            body: Body::Text(user_unit(&exec, &vars)?),
+        },
+        why: "the daemon as your systemd user service: Delegate=yes gives L1 jobs cgroup \
+              limits (M4 2.2)"
+            .into(),
+    });
     Ok(Layout {
         command: "theseusd install --user".into(),
         context,
-        entries: vec![Entry {
-            item: Item::File {
-                path: unit,
-                owner: owner.clone(),
-                mode: 0o644,
-                body: Body::Text(user_unit(&exec, &vars)?),
-            },
-            why: "the daemon as your systemd user service: Delegate=yes gives L1 jobs cgroup \
-                  limits (M4 2.2)"
-                .into(),
-        }],
+        entries,
         parents: owner,
         notes,
+    })
+}
+
+/// The token file the unit names, as an item the plan checks and `--apply`
+/// refuses on until it is right (theseus-w1nf); or, when none is named, the
+/// note that gives the exact command to run again with one.
+fn token_file(
+    env: &Env,
+    g: &Globals,
+    op: &User,
+    exec: &mut Vec<String>,
+    notes: &mut Vec<String>,
+) -> Option<Entry> {
+    let Some(named) = &g.op_token_file else {
+        notes.push(format!(
+            "the unit names no token file, and the daemon will not start without its 1Password \
+             token. Put the token in a file only you can read (mode 0600), then re-run: {}. A \
+             unit never holds the token itself.",
+            env.rerun_with("--op-token-file <file>")
+        ));
+        return None;
+    };
+    let path = env.absolute(Path::new(named));
+    exec.extend(["--op-token-file".into(), path.display().to_string()]);
+    Some(Entry {
+        item: Item::Token {
+            path,
+            uid: op.uid,
+            name: op.name.clone(),
+        },
+        why: "the 1Password token the daemon reads when it starts: its owner, mode, and size are \
+              checked, and it is never opened"
+            .into(),
     })
 }
 

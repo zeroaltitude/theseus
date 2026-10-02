@@ -68,7 +68,10 @@ struct Cli {
     config: String,
 
     /// File holding the 1Password service-account token (used when OP_SERVICE_ACCOUNT_TOKEN is unset).
-    #[arg(long, env = "THESEUS_OP_TOKEN_FILE")]
+    // Global, so `theseusd install --user --op-token-file F` works as well as
+    // `theseusd --op-token-file F install --user` (theseus-w1nf): the install plan's hint
+    // names the first.
+    #[arg(long, env = "THESEUS_OP_TOKEN_FILE", global = true)]
     op_token_file: Option<String>,
 
     /// Speak the protocol on stdin/stdout instead of a socket (spawned by a client).
@@ -1137,6 +1140,25 @@ mod tests {
         let env = Cli::try_parse_from(["theseusd"]).unwrap();
         std::env::remove_var("THESEUS_OP_TOKEN_FILE");
         assert_eq!(env.op_token_file.as_deref(), Some("/x/env"));
+    }
+
+    /// `install --user`'s plan names the flag for a re-run: it must parse after the
+    /// subcommand as well as before it (theseus-w1nf), and mean the same either way.
+    #[test]
+    fn the_token_file_flag_works_before_or_after_the_subcommand() {
+        for argv in [
+            ["theseusd", "--op-token-file", "/x/tok", "install", "--user"],
+            ["theseusd", "install", "--user", "--op-token-file", "/x/tok"],
+            ["theseusd", "install", "--op-token-file", "/x/tok", "--user"],
+        ] {
+            let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+            assert_eq!(cli.op_token_file.as_deref(), Some("/x/tok"), "{argv:?}");
+            assert!(
+                matches!(&cli.cmd, Some(Cmd::Install(a)) if a.user),
+                "{argv:?}: {:?}",
+                cli.cmd
+            );
+        }
     }
 
     /// The core knows a serving daemon by its command line (theseus-6uo), so

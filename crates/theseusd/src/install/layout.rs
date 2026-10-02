@@ -132,6 +132,13 @@ pub(crate) enum Item {
         body: Body,
     },
     State(Migrate),
+    /// The token file a `--user` unit names: looked at, never opened, and
+    /// refused until it is the operator's `uid` alone (`token.rs`).
+    Token {
+        path: PathBuf,
+        uid: u32,
+        name: String,
+    },
     /// A socket no daemon may be answering on.
     Stopped(PathBuf),
     NoFile {
@@ -436,6 +443,9 @@ impl Item {
                 })
             }
             Item::State(mig) => mig.inspect(root),
+            Item::Token { path, uid, name } => {
+                super::token::inspect(root, host, path, (*uid, name))
+            }
             Item::Stopped(sock) => {
                 let at = real(root, sock);
                 Ok(match present(&at)? {
@@ -767,6 +777,13 @@ impl Item {
                 },
             ),
             Item::State(mig) => ("state", mig.describe()),
+            Item::Token { path, .. } => (
+                "token",
+                format!(
+                    "{} (yours alone: mode 0600 or stricter, not empty)",
+                    path.display()
+                ),
+            ),
             Item::Stopped(sock) => (
                 "socket",
                 format!("{} (no daemon may answer)", sock.display()),

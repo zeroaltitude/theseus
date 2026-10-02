@@ -6,7 +6,9 @@
 //! `--check` compares the machine with it. Every mode is idempotent, and
 //! `--apply` logs each thing it does. `--remove` is each mode's inverse.
 //! Nothing here enables or starts a unit, and nothing runs on the daemon's
-//! start path: `main` dispatches it before any runtime exists.
+//! start path: `main` dispatches it before any runtime exists. A `--user`
+//! unit's token file is checked, never read (`token.rs`), and `--apply`
+//! refuses until it is right.
 
 mod host;
 mod layout;
@@ -14,6 +16,7 @@ mod migrate;
 mod modes;
 #[cfg(test)]
 mod tests;
+mod token;
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -89,6 +92,8 @@ pub(crate) struct Env {
     pub root: PathBuf,
     /// This binary: what `--user`'s unit runs, and what `--separate` installs.
     pub exe: PathBuf,
+    /// This command line, less the program: what a re-run repeats.
+    pub argv: Vec<String>,
     pub cwd: PathBuf,
     pub euid: u32,
     pub ruid: u32,
@@ -128,6 +133,10 @@ impl Env {
         Ok(Self {
             root: PathBuf::from("/"),
             exe,
+            argv: std::env::args_os()
+                .skip(1)
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect(),
             cwd: std::env::current_dir().context("reading the working directory")?,
             euid: host::euid()?,
             ruid: host::ruid()?,
@@ -138,6 +147,17 @@ impl Env {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The command that ran this, run again with `more` after it: a hint that
+    /// keeps every flag the operator gave. `more` is written as given, so a
+    /// placeholder such as `<file>` is not quoted.
+    pub fn rerun_with(&self, more: &str) -> String {
+        std::iter::once(shell_word(&self.exe.to_string_lossy()))
+            .chain(self.argv.iter().map(|a| shell_word(a)))
+            .chain(std::iter::once(more.to_string()))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     pub fn var(&self, k: &str) -> Option<&str> {
@@ -175,6 +195,19 @@ impl Env {
                 std::fs::metadata(p)
                     .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
             })
+    }
+}
+
+/// A word as a shell reads it back: plain characters as they are, anything
+/// else in single quotes.
+pub(crate) fn shell_word(s: &str) -> String {
+    if !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-:@+=,%".contains(c))
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
     }
 }
 
