@@ -792,6 +792,10 @@ fn install_walks_the_steps_in_order_and_ends_with_the_cheat_sheet() {
         unit.contains("\nDelegate=yes\n") && unit.contains("\nKillSignal=SIGINT\n"),
         "{unit}"
     );
+    assert!(
+        unit.contains("\nExecStopPost=-") && unit.contains(" cgroup-release\n"),
+        "{unit}"
+    );
     for want in [
         "== check: is this machine ready?",
         "== the plan: what theseusd would write (nothing is changed yet)",

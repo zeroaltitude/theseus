@@ -39,6 +39,9 @@ theseusd install --separate: the plan. Nothing is changed: --apply performs it, 
                  | SupplementaryGroups=theseus-ops
                  | ExecStart=/usr/local/lib/theseus/theseusd --config /etc/theseus/theseus.toml --state-dir /var/lib/theseus --socket /run/theseus/theseus.sock --op-token-file /etc/theseus/op-token
                  | UMask=0077
+                 | # After every stop and crash: turn off the L1 jobs' limits, so the next
+                 | # start can join this cgroup while a job of the old daemon still runs.
+                 | ExecStopPost=-/usr/local/lib/theseus/theseusd cgroup-release
                  | # Delegated, so the daemon can give each L1 job a cgroup of its own, with
                  | # memory and pids limits (M4 2.2).
                  | Delegate=yes
@@ -63,6 +66,9 @@ theseusd install --separate: the plan. Nothing is changed: --apply performs it, 
                  | [Service]
                  | Type=exec
                  | ExecStart=/usr/local/lib/theseus/theseusd job-host
+                 | # After every stop and crash: turn off the L1 jobs' limits, so the next
+                 | # start can join this cgroup while a job of the old daemon still runs.
+                 | ExecStopPost=-/usr/local/lib/theseus/theseusd cgroup-release
                  | # Delegated, so the job host can give each L1 job a cgroup of its own.
                  | Delegate=yes
                  | # A stop signals the host alone: its jobs finish, and their results

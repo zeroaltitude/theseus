@@ -58,6 +58,43 @@ pub fn delegate(dir: &Path) -> io::Result<PathBuf> {
     Ok(jobs)
 }
 
+/// Undoes [`delegate`] at a stop: every controller `dir/jobs` and `dir`
+/// enable for their children is turned off, `jobs` first. A unit that keeps
+/// its jobs across a stop (`KillMode=process`) needs it: systemd starts the
+/// next daemon in `dir` itself, and cgroup v2 puts no process in a cgroup
+/// whose children have controllers, so without it a restart while a job runs
+/// fails (`status=219/CGROUP`, EBUSY) until the job ends. A job still
+/// running keeps its cgroup but loses its limits; the next daemon's first L1
+/// job readies `dir` again. What it turned off, in order.
+pub fn release(dir: &Path) -> io::Result<Vec<String>> {
+    let mut off = Vec::new();
+    for d in [dir.join("jobs"), dir.to_path_buf()] {
+        let file = d.join("cgroup.subtree_control");
+        let on = match fs::read_to_string(&file) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            r => r?,
+        };
+        for c in on.split_whitespace() {
+            fs::write(&file, format!("-{c}"))?;
+            off.push(format!("{} -{c}", d.display()));
+        }
+    }
+    Ok(off)
+}
+
+/// The unit whose stop hook this process is, from its own cgroup: systemd
+/// runs a delegated unit's `ExecStopPost=` in `<unit>/.control`. Only a
+/// service that a daemon readied (`daemon` or `jobs` in it), so a run by
+/// hand anywhere else never touches a cgroup it does not own.
+pub fn stop_hook_unit(own: &Path) -> Option<PathBuf> {
+    if own.file_name()? != ".control" {
+        return None;
+    }
+    let unit = own.parent()?;
+    let readied = unit.join("jobs").is_dir() || unit.join("daemon").is_dir();
+    (unit.file_name()?.to_str()?.ends_with(".service") && readied).then(|| unit.to_path_buf())
+}
+
 fn make(p: &Path) -> io::Result<()> {
     match fs::create_dir(p) {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
@@ -120,5 +157,53 @@ impl JobCgroup {
     /// Removes it; it must be empty.
     pub fn remove(self) -> io::Result<()> {
         fs::remove_dir(&self.path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The stop hook acts only from a readied service's `.control`.
+    #[test]
+    fn the_stop_hook_finds_only_a_readied_services_cgroup() {
+        let d = tempfile::tempdir().unwrap();
+        let unit = d.path().join("theseusd.service");
+        let control = unit.join(".control");
+        fs::create_dir_all(&control).unwrap();
+        assert_eq!(stop_hook_unit(&control), None, "never readied");
+        fs::create_dir(unit.join("jobs")).unwrap();
+        assert_eq!(stop_hook_unit(&control), Some(unit.clone()));
+        assert_eq!(stop_hook_unit(&unit.join("daemon")), None);
+        let scope = d.path().join("session-2.scope").join(".control");
+        fs::create_dir_all(scope.parent().unwrap().join("jobs")).unwrap();
+        assert_eq!(stop_hook_unit(&scope), None, "not a service");
+    }
+
+    /// `jobs` lets go before the service, or the kernel refuses the
+    /// service's own (a child still has the controller).
+    #[test]
+    fn release_turns_off_jobs_first() {
+        let d = tempfile::tempdir().unwrap();
+        let jobs = d.path().join("jobs");
+        fs::create_dir(&jobs).unwrap();
+        for p in [&jobs, &d.path().to_path_buf()] {
+            fs::write(p.join("cgroup.subtree_control"), "memory pids\n").unwrap();
+        }
+        let off = release(d.path()).unwrap();
+        let want: Vec<String> = [(&jobs, "memory"), (&jobs, "pids")]
+            .into_iter()
+            .chain([
+                (&d.path().to_path_buf(), "memory"),
+                (&d.path().to_path_buf(), "pids"),
+            ])
+            .map(|(p, c)| format!("{} -{c}", p.display()))
+            .collect();
+        assert_eq!(off, want);
+        let bare = tempfile::tempdir().unwrap();
+        assert!(
+            release(bare.path()).unwrap().is_empty(),
+            "nothing to turn off"
+        );
     }
 }

@@ -20,7 +20,8 @@ operator's overlay on his machine.
 - The L1 roles (M4 17b): `job-sandbox`, an L1 job's init, dispatched first in `main`, before the umask, clap, and
   tracing; and the hidden `sandbox-probe`, which `theseus_core::sandbox::probe_after_serving` runs 3 s after
   serving. `tests/sandbox.rs` runs real L1 jobs, its state dir and socket inside the workspace so the view's
-  hiding is what keeps them out.
+  hiding is what keeps them out. The hidden `cgroup-release` is every installed unit's `ExecStopPost=`: it turns
+  off the job limits in the unit's cgroup, or a restart while a job runs fails (`status=219/CGROUP`).
 - `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
   refuses a wrong `Host` or `Origin` and any uid but the daemon's own.
 - `src/install/`: `theseusd install`, the daemon as a systemd service (`--user`, or `--separate` as root). It prints

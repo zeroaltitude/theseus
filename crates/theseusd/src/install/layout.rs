@@ -944,6 +944,19 @@ Restart=on-failure
 RestartSec=5
 ";
 
+/// The stop hook of every unit the installer writes (17b's join): after a
+/// stop or a crash, the limits the daemon's L1 jobs enabled in the unit's
+/// cgroup are turned off, or systemd could not start the next daemon there
+/// while a job of the old one runs (`KillMode=process` keeps them). `-`: it
+/// never fails the stop. The daemon delegates only under a unit that has it.
+fn stop_hook(binary: &str) -> String {
+    format!(
+        "# After every stop and crash: turn off the L1 jobs' limits, so the next\n\
+         # start can join this cgroup while a job of the old daemon still runs.\n\
+         ExecStopPost=-{binary} cgroup-release\n"
+    )
+}
+
 /// `--user`'s unit.
 pub(crate) fn user_unit(exec: &[String], env: &[(String, String)]) -> Result<String> {
     let mut s = format!(
@@ -964,6 +977,9 @@ pub(crate) fn user_unit(exec: &[String], env: &[(String, String)]) -> Result<Str
         s.push_str(&unit_env(k, v)?);
         s.push('\n');
     }
+    if let Some(binary) = exec.first() {
+        s.push_str(&stop_hook(&unit_arg(binary)?));
+    }
     s.push_str(SERVICE_COMMON);
     s.push_str("\n[Install]\nWantedBy=default.target\n");
     Ok(s)
@@ -971,6 +987,10 @@ pub(crate) fn user_unit(exec: &[String], env: &[(String, String)]) -> Result<Str
 
 /// `--separate`'s system unit: the daemon as `theseus`.
 pub(crate) fn system_unit(exec: &[String]) -> Result<String> {
+    let hook = match exec.first() {
+        Some(binary) => stop_hook(&unit_arg(binary)?),
+        None => String::new(),
+    };
     Ok(format!(
         "{HEADER} --separate`. A later --apply rewrites it:\n\
          # put your own changes in a drop-in (`sudo systemctl edit theseusd`).\n\
@@ -987,6 +1007,7 @@ pub(crate) fn system_unit(exec: &[String]) -> Result<String> {
          SupplementaryGroups={OPS_GROUP}\n\
          ExecStart={}\n\
          UMask=0077\n\
+         {hook}\
          {SERVICE_COMMON}\n\
          [Install]\n\
          WantedBy=multi-user.target\n",
@@ -1000,6 +1021,7 @@ pub(crate) fn system_unit(exec: &[String]) -> Result<String> {
 /// The job host's user unit: disabled until step 22b gives `theseusd` its
 /// `job-host` role, and its own stop.
 pub(crate) fn job_host_unit() -> String {
+    let hook = stop_hook(BINARY);
     format!(
         "{HEADER} --separate`. Leave it disabled until step 22b\n\
          # gives theseusd its job-host role: until then its start fails.\n\
@@ -1009,6 +1031,7 @@ pub(crate) fn job_host_unit() -> String {
          [Service]\n\
          Type=exec\n\
          ExecStart={BINARY} job-host\n\
+         {hook}\
          # Delegated, so the job host can give each L1 job a cgroup of its own.\n\
          Delegate=yes\n\
          # A stop signals the host alone: its jobs finish, and their results\n\

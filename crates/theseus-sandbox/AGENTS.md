@@ -28,7 +28,10 @@ lane 17a; read by the job wrapper's L1 path (`theseus-kernel`'s `job_l1.rs`, ste
 - **Call `spawn` from the thread that lives as long as the job**: the init's `PR_SET_PDEATHSIG` fires when the
   spawning thread exits, not the process.
 - **`cgroup::delegate` only on a cgroup that is the daemon's own and delegated**: it moves every process in it.
-  The core asks systemd (`Delegate=yes`, and the unit's main process is the daemon) before it calls it.
+  The core asks systemd (`Delegate=yes`, and the unit's main process is the daemon) before it calls it, and, for a
+  unit that keeps its jobs across a stop (`KillMode=process`), that the unit's `ExecStopPost=` runs `theseusd
+  cgroup-release` (`cgroup::release`). systemd starts the next daemon in the unit's own cgroup, which the kernel
+  refuses while its children have controllers on and a job of the old daemon still runs.
 - **The view shows nothing it was not given.** A path a `Spec` names must be absolute; a hidden path the view does
   not hold is skipped.
 

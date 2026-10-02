@@ -354,6 +354,11 @@ enum Cgroup {
     None(String),
 }
 
+/// Credential files an `ro_paths` entry could bind (`~/.cargo` holds
+/// crates.io's token after `cargo login`): covered in every view, as the
+/// floor is, since an L1 job reads at notify what L0 would ask for.
+const CREDENTIALS: [&str; 2] = ["~/.cargo/credentials", "~/.cargo/credentials.toml"];
+
 /// L1's state in a daemon: its settings, the view a job gets, the probe's
 /// last answer, the cgroup, and the jobs by class.
 pub struct Sandbox {
@@ -386,6 +391,8 @@ impl Sandbox {
                 .iter()
                 .chain(approve)
                 .filter_map(|p| std::path::absolute(p).ok())
+                .chain(CREDENTIALS.iter().map(|p| crate::config::expand(p)))
+                .filter(|p| p.is_absolute())
                 .collect(),
             limits: theseus_sandbox_limits(cfg),
             memory_mb: cfg.memory_mb,
@@ -666,7 +673,8 @@ async fn find_cgroup() -> Cgroup {
     }
 }
 
-/// `systemctl [--user] show <unit> --property=Delegate --property=MainPID`.
+/// `systemctl [--user] show <unit>`: `Delegate`, `MainPID`, `KillMode`, and
+/// `ExecStopPost`.
 async fn systemctl_show(unit: &str, user: bool) -> Result<String, String> {
     use std::process::Stdio;
     use theseus_kernel::children::{self, Kind};
@@ -674,11 +682,18 @@ async fn systemctl_show(unit: &str, user: bool) -> Result<String, String> {
     if user {
         cmd.arg("--user");
     }
-    cmd.args(["show", unit, "--property=Delegate", "--property=MainPID"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
+    cmd.args([
+        "show",
+        unit,
+        "--property=Delegate",
+        "--property=MainPID",
+        "--property=KillMode",
+        "--property=ExecStopPost",
+    ])
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .kill_on_drop(true);
     let child = children::spawn(Kind::Owned, || cmd.spawn(), tokio::process::Child::id)
         .map_err(|e| e.to_string())?;
     let out = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
@@ -692,7 +707,9 @@ async fn systemctl_show(unit: &str, user: bool) -> Result<String, String> {
 }
 
 /// systemd's answer for `unit`, judged: delegated, its main process this
-/// daemon, and its cgroup's files writable by it. Why not, otherwise.
+/// daemon, a stop hook that releases the jobs' limits when the unit keeps
+/// its jobs across a stop, and its cgroup's files writable by it. Why not,
+/// otherwise.
 fn judge(unit: &str, show: &str, pid: u32, dir: &Path) -> Result<(), String> {
     let prop = |k: &str| {
         show.lines()
@@ -702,6 +719,20 @@ fn judge(unit: &str, show: &str, pid: u32, dir: &Path) -> Result<(), String> {
     if prop("Delegate") != Some("yes") {
         return Err(format!(
             "{unit} is not delegated: its unit needs Delegate=yes, as `theseusd install` writes"
+        ));
+    }
+    // A unit that keeps its jobs across a stop starts the next daemon in a
+    // cgroup the readied one left with controllers on: the kernel refuses
+    // it while a job runs, unless the stop hook turned them off.
+    let keeps = matches!(prop("KillMode"), Some("process" | "none"));
+    let hook = show
+        .lines()
+        .any(|l| l.starts_with("ExecStopPost=") && l.contains("cgroup-release"));
+    if keeps && !hook {
+        return Err(format!(
+            "{unit} keeps its jobs across a stop, and has no `ExecStopPost=-theseusd \
+             cgroup-release`: with job limits on, a restart while a job ran could not start \
+             (rerun `theseusd install --user` to add it)"
         ));
     }
     let main: Option<u32> = prop("MainPID").and_then(|p| p.parse().ok());
@@ -806,6 +837,38 @@ mod tests {
             &dir.path().join("x"),
         );
         assert!(gone.unwrap_err().contains("not writable"));
+        // A unit that keeps its jobs across a stop needs the stop hook, or a
+        // restart while a job runs fails (status=219/CGROUP).
+        let kept = "Delegate=yes\nMainPID=42\nKillMode=process\n";
+        let no_hook = judge("t.service", kept, 42, dir.path()).unwrap_err();
+        assert!(no_hook.contains("cgroup-release"), "{no_hook}");
+        let hooked = format!(
+            "{kept}ExecStopPost={{ path=/b/theseusd ; argv[]=/b/theseusd cgroup-release ; \
+             ignore_errors=yes ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; \
+             status=0/0 }}\n"
+        );
+        assert_eq!(judge("t.service", &hooked, 42, dir.path()), Ok(()));
+    }
+
+    /// cargo's token never shows in a view, whatever `ro_paths` binds.
+    #[test]
+    fn cargos_credentials_are_hidden_in_every_view() {
+        let cfg = SandboxConfig {
+            ro_paths: vec!["~/.cargo".into()],
+            ..Default::default()
+        };
+        let hidden = Sandbox::new(&cfg, &[], &[], &[])
+            .view
+            .lock()
+            .unwrap()
+            .hidden
+            .clone();
+        for f in CREDENTIALS {
+            assert!(
+                hidden.contains(&crate::config::expand(f)),
+                "{f}: {hidden:?}"
+            );
+        }
     }
 
     #[test]

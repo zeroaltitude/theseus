@@ -939,6 +939,12 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
         text.contains("\nDelegate=yes\n") && text.contains("\nKillSignal=SIGINT\n"),
         "{text}"
     );
+    // The stop hook, without which a restart while a job runs fails once an
+    // L1 job has turned on the job limits (17b's join).
+    assert!(
+        text.contains("\nExecStopPost=-/opt/theseus/bin/theseusd cgroup-release\n"),
+        "{text}"
+    );
     assert_eq!(
         r.ok(&args(|a| {
             a.user = true;
