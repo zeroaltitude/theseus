@@ -31,7 +31,9 @@ It runs, in order:
    against §9's per-turn overhead restated as frames (5; the floor is 2). A count needs no quiet machine, so it runs
    in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the join it runs ten runs and a
    burst of 30 turns and records the row (about 11 s). A miss reruns once.
-6. `cargo deny check`: licences, advisories, bans, and sources.
+6. `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database as
+   its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was yanked
+   between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh` refreshes it.
 7. The web apps' lint and build, each when its `node_modules` exists, and then a check that the Observatory's
    committed build is current.
 
@@ -67,6 +69,41 @@ give the gate's command a timeout of 30 minutes or more (a `proc.run` call can a
 - **A gate that sits at 0% CPU** is waiting on a lock: this one (held by another gate, or by an orphan that
   inherited it: scan `/proc/*/fd` for it, since `/proc/locks` hides a dead owner), or cargo's package cache. Find the
   holder before waiting longer, and never kill another agent's process.
+
+### The daily deny job
+
+`deny-daily.sh` is what keeps the commit gate's offline `cargo deny` honest (theseus-goa8; review 2's SC2). It fetches the
+advisory database and the registry index, runs the whole `cargo deny check` against them, and, when that fails, files one
+Beads issue (owner `main`, waiting for an available agent, labels `security` and `deny-daily`) unless one is already open.
+A failed fetch is an outage, not a finding: it checks what is cached and files nothing. Exit status: 0 all clear; 1 the check
+failed; 2 the fetch failed and the check was clean on what is cached. It reads the repository and never builds or changes it
+(`--locked`), so it runs in the chain's tree. Its log is `~/.cache/theseus/deny-daily.log`.
+
+It is not installed. To schedule it as the operator's user, once:
+
+```ini
+# ~/.config/systemd/user/theseus-deny.service
+[Unit]
+Description=Theseus: the daily cargo deny check (theseus-goa8)
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=%h/projects/theseus/scripts/deny-daily.sh
+
+# ~/.config/systemd/user/theseus-deny.timer
+[Unit]
+Description=Theseus: the daily cargo deny check
+[Timer]
+OnCalendar=*-*-* 05:15:00
+Persistent=true
+RandomizedDelaySec=15m
+[Install]
+WantedBy=timers.target
+```
+
+then `systemctl --user daemon-reload && systemctl --user enable --now theseus-deny.timer`. A unit that shows as failed
+(`systemctl --user --failed`) means the check failed, or the fetch did and the outage is lasting.
 
 ### The flaky list
 

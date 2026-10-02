@@ -210,6 +210,29 @@ turn_step() {
   }
 }
 
+# The supply-chain check, offline (theseus-goa8; review 2's SC2). Licences, bans, and
+# sources need no network, and advisories are read from the database as its last fetch
+# left it, so an outage of GitHub or crates.io can no longer fail a commit: 27e1237
+# met a crate yanked between two gates and had to bump Cargo.lock mid-step.
+# `scripts/deny-daily.sh` keeps the database fresh and files an issue for a finding
+# (and is the only thing that fetches); the gate says when the database is old. A
+# machine that has never fetched has no database: the gate then checks the rest and
+# says that advisories were not, since a gate that fetched here would fail on an outage.
+deny_check() {
+  local db age
+  db="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/advisory-dbs/advisory-db-*/ 2>/dev/null | head -1 || true)"
+  if [ -z "$db" ]; then
+    echo "deny: no advisory database in ${CARGO_HOME:-~/.cargo}/advisory-dbs: advisories NOT checked (scripts/deny-daily.sh fetches one)"
+    cargo deny --offline --log-level error check bans licenses sources
+    return
+  fi
+  if [ -f "${db}.git/FETCH_HEAD" ]; then
+    age=$((($(date +%s) - $(stat -c %Y "${db}.git/FETCH_HEAD")) / 86400))
+    [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; scripts/deny-daily.sh refreshes it"
+  fi
+  cargo deny --offline --log-level error check
+}
+
 web_apps() {
   if [ -d web/node_modules ]; then (cd web && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
 }
@@ -230,7 +253,7 @@ phase "protocol types" protocol_types
 phase build cargo build -q -p theseusd -p theseus-sim
 phase lifecycle lifecycle_bench
 phase turn turn_step
-phase deny cargo deny --log-level error check
+phase deny deny_check
 phase web web_apps
 phase cockpit cockpit
 phase "web dist" web_dist

@@ -21,3 +21,9 @@ leak-timeout = "500ms"
 [[profile.default.overrides]]
 filter = 'package(theseus-core) & test(=tests_m3::parallel::five_reads_and_two_greps_take_the_slowest_call_not_the_sum)'
 retries = 2
+#
+# theseus-a2ec: it asserts that a start from the config copy answers in under 500 ms, the fake
+# vault's delay, so a start slowed by a loaded machine (508 ms at load 25 to 34) fails it.
+[[profile.default.overrides]]
+filter = 'package(theseusd) & test(=the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_place)'
+retries = 2
