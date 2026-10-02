@@ -1150,14 +1150,17 @@ mod tests {
     /// NODE schema 3 (theseus-ppsd): this build reads a schema-2 tool-call
     /// node through the store with neither `plan.class` nor `plan.aws`, and
     /// its bytes encode again unchanged; an AWS call's node, which carries
-    /// both, is written at schema 3 and reads back whole.
+    /// both, is written at this build's schema and reads back whole.
     #[test]
     fn a_tool_call_node_written_before_its_class_and_aws_reads() {
         use crate::node::Body;
         use theseus_protocol::{AwsPlan, ToolClass};
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
-        assert_eq!(store.inner.schema_marks()[&kinds::NODE], 3);
+        assert_eq!(
+            store.inner.schema_marks()[&kinds::NODE],
+            kinds::schema(kinds::NODE)
+        );
         let old = NewRecord {
             schema: 2,
             ..NewRecord::bytes(
@@ -1201,7 +1204,7 @@ mod tests {
             ..Default::default()
         });
         let r = aws.record().unwrap();
-        assert_eq!(r.schema, 3);
+        assert_eq!(r.schema, kinds::schema(kinds::NODE));
         let text = String::from_utf8_lossy(&r.payload).into_owned();
         assert!(
             text.contains(r#""class":"read""#)
@@ -1216,5 +1219,65 @@ mod tests {
             .map(|(_, n)| n)
             .collect();
         assert_eq!(nodes, vec![read, aws]);
+    }
+
+    /// NODE schema 4 (theseus-7ve.1): an L1 call's gate decision names its
+    /// class. A schema-3 node (a proc.run call whose plan names its class, as
+    /// theseus-ppsd writes it) reads with no class in its decision, and its
+    /// bytes encode again unchanged; an L1 call's node is written at schema 4
+    /// and reads back whole.
+    #[test]
+    fn a_tool_call_node_written_before_its_l1_class_reads() {
+        use crate::node::Body;
+        use theseus_protocol::ToolClass;
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        assert_eq!(kinds::schema(kinds::NODE), 4);
+        let mut run: Node = serde_json::from_str(NODE_SCHEMA_2).unwrap();
+        run.id = "tcl_00000000000000000000000000000031".into();
+        let Body::ToolCall { tool, gate, .. } = &mut run.body else {
+            unreachable!()
+        };
+        *tool = "proc.run".into();
+        gate.as_mut().unwrap().plan.as_mut().unwrap().class = Some(ToolClass::Run);
+        let schema_3 = serde_json::to_string(&run).unwrap();
+        let old = NewRecord {
+            schema: 3,
+            ..NewRecord::bytes(kinds::NODE, Some(&run.id), schema_3.as_bytes().to_vec())
+        }
+        .scoped("ses_lighthouse");
+        store.append(&[old]).unwrap();
+
+        let stored = store.scope_after("ses_lighthouse", 0).unwrap();
+        assert_eq!(stored[0].schema, 3, "it keeps the schema it was written at");
+        let read = store.session_nodes("ses_lighthouse").unwrap()[0].1.clone();
+        let Body::ToolCall { gate: Some(g), .. } = &read.body else {
+            panic!("a tool call with its gate: {read:?}");
+        };
+        assert_eq!(g.decision.as_ref().unwrap().class, None);
+        assert_eq!(
+            serde_json::to_string(&read).unwrap(),
+            schema_3,
+            "a node with no class keeps its bytes"
+        );
+
+        let mut l1 = read.clone();
+        l1.id = "tcl_00000000000000000000000000000032".into();
+        let Body::ToolCall { gate, .. } = &mut l1.body else {
+            unreachable!()
+        };
+        gate.as_mut().unwrap().decision.as_mut().unwrap().class = Some("l1".into());
+        let r = l1.record().unwrap();
+        assert_eq!(r.schema, 4);
+        let text = String::from_utf8_lossy(&r.payload).into_owned();
+        assert!(text.contains(r#""class":"l1""#), "{text}");
+        store.append(&[r]).unwrap();
+        let nodes: Vec<Node> = store
+            .session_nodes("ses_lighthouse")
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect();
+        assert_eq!(nodes, vec![read, l1]);
     }
 }

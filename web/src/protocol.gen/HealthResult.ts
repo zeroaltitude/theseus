@@ -150,7 +150,8 @@ store: StoreStatus,
  * The newest crash a start found (Review 2's consideration 1): what
  * panicked when the daemon last died. Absent when it never has.
  */
-crash?: CrashStatus, };
+crash?: CrashStatus, 
+/**
  * L1 (M4 17b): the class choice's settings, the limits, the probe after
  * serving, the cgroup, and the jobs by class. Absent without tools.
  */

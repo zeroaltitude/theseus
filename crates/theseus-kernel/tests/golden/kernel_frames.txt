@@ -12,7 +12,7 @@ LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000007,"kind":"execution.r
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":0,"reserved_micros":2000,"held_unknown_micros":0,"reservations":{"rsv_#2":2000},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"turns":1,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1000014}
 ACTION key=act_#3 scope=ses_golden schema=2 {"correlation_id":"act_#3","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"provider.messages","args_digest":"e62eacda06e32bbc94f17720361d1241310aac6b990f65d4ec57a098ce1d423c","retry_class":{"class":"safe_to_repeat"},"state":"planned","deadline_at_ms":1060014,"planned_at_ms":1000014,"reservation_id":"rsv_#2","reserved_micros":2000,"completions_seen":0}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000014,"kind":"action.planned","session_id":"ses_golden","data":{"args_digest":"e62eacda06e32bbc94f17720361d1241310aac6b990f65d4ec57a098ce1d423c","correlation_id":"act_#3","deadline_at_ms":1060014,"execution_id":"exe_#1","reserved_usd":0.002,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
-NODE key=call-act_#3 scope=- schema=3 {"node":"call-act_#3"}
+NODE key=call-act_#3 scope=- schema=4 {"node":"call-act_#3"}
 ACTION key=act_#3 scope=ses_golden schema=2 {"correlation_id":"act_#3","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"provider.messages","args_digest":"e62eacda06e32bbc94f17720361d1241310aac6b990f65d4ec57a098ce1d423c","retry_class":{"class":"safe_to_repeat"},"state":"authorized","deadline_at_ms":1060014,"planned_at_ms":1000014,"authorized_at_ms":1000014,"reservation_id":"rsv_#2","reserved_micros":2000,"completions_seen":0}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000014,"kind":"action.authorized","session_id":"ses_golden","data":{"confirmed":false,"correlation_id":"act_#3"}}
 ACTION key=act_#3 scope=ses_golden schema=2 {"correlation_id":"act_#3","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"provider.messages","args_digest":"e62eacda06e32bbc94f17720361d1241310aac6b990f65d4ec57a098ce1d423c","retry_class":{"class":"safe_to_repeat"},"state":"dispatched","deadline_at_ms":1060014,"planned_at_ms":1000014,"authorized_at_ms":1000014,"dispatched_at_ms":1000014,"reservation_id":"rsv_#2","reserved_micros":2000,"completions_seen":0}
@@ -24,13 +24,13 @@ COMPLETION key=act_#3 scope=ses_golden schema=2 {"correlation_id":"act_#3","outc
 ACTION key=act_#3 scope=ses_golden schema=2 {"correlation_id":"act_#3","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"provider.messages","args_digest":"e62eacda06e32bbc94f17720361d1241310aac6b990f65d4ec57a098ce1d423c","retry_class":{"class":"safe_to_repeat"},"state":"succeeded","deadline_at_ms":1060014,"planned_at_ms":1000014,"authorized_at_ms":1000014,"dispatched_at_ms":1000014,"settled_at_ms":1000021,"result_ref":"node_x","reservation_id":"rsv_#2","reserved_micros":2000,"completions_seen":1}
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":1500,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"turns":1,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1000021}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000021,"kind":"action.succeeded","session_id":"ses_golden","data":{"correlation_id":"act_#3","cost_usd":0.0015,"duration_ms":1,"execution_id":"exe_#1","execution_state":"running","outcome":"succeeded","producer":"test"}}
-NODE key=answer scope=- schema=3 {"node":"answer"}
+NODE key=answer scope=- schema=4 {"node":"answer"}
 -- accept_completion_with (the turn's own): ok Settled { correlation_id: "act_#3", execution_id: "exe_#1", execution_state: Running }
 == frame: 4 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":1500,"reserved_micros":500,"held_unknown_micros":0,"reservations":{"rsv_#4":500},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"turns":1,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1000028}
 ACTION key=act_#5 scope=ses_golden schema=2 {"correlation_id":"act_#5","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"fs.read","args_digest":"d1068e0f15c8dec66ec85b6a92d671dc7d6366b5f0e3015c80ecc530a36fab01","retry_class":{"class":"safe_to_repeat"},"state":"planned","deadline_at_ms":1600028,"planned_at_ms":1000028,"reservation_id":"rsv_#4","reserved_micros":500,"completions_seen":0}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000028,"kind":"action.planned","session_id":"ses_golden","data":{"args_digest":"d1068e0f15c8dec66ec85b6a92d671dc7d6366b5f0e3015c80ecc530a36fab01","correlation_id":"act_#5","deadline_at_ms":1600028,"execution_id":"exe_#1","reserved_usd":0.0005,"retry_class":{"class":"safe_to_repeat"},"tool":"fs.read"}}
-NODE key=toolcall-act_#5 scope=- schema=3 {"node":"toolcall-act_#5"}
+NODE key=toolcall-act_#5 scope=- schema=4 {"node":"toolcall-act_#5"}
 -- plan_action_with: ok act_#5 fs.read planned
 == frame: 2 records
 ACTION key=act_#5 scope=ses_golden schema=2 {"correlation_id":"act_#5","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"fs.read","args_digest":"d1068e0f15c8dec66ec85b6a92d671dc7d6366b5f0e3015c80ecc530a36fab01","retry_class":{"class":"safe_to_repeat"},"state":"authorized","deadline_at_ms":1600028,"planned_at_ms":1000028,"authorized_at_ms":1000028,"reservation_id":"rsv_#4","reserved_micros":500,"completions_seen":0}
@@ -50,18 +50,18 @@ LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000035,"kind":"action.fail
 == frame: 3 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":1900,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"turns":1,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1000035}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000035,"kind":"execution.results_consumed","session_id":"ses_golden","data":{"count":1,"execution_id":"exe_#1"}}
-NODE key=results-1 scope=- schema=3 {"node":"results-1"}
+NODE key=results-1 scope=- schema=4 {"node":"results-1"}
 -- take_results_with: ok act_#5 fs.read failed
 -- take_results_with (none queued): ok 0
 == frame: 3 records
 ACTION key=act_#6 scope=ses_golden schema=2 {"correlation_id":"act_#6","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","proposal":{"tool":"proc.run","args":{"a":1},"policy_context":{"binding":1}},"retry_class":{"class":"non_repeatable"},"state":"planned","deadline_at_ms":1060042,"planned_at_ms":1000042,"reserved_micros":0,"completions_seen":0}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000042,"kind":"action.planned","session_id":"ses_golden","data":{"args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","correlation_id":"act_#6","deadline_at_ms":1060042,"execution_id":"exe_#1","reserved_usd":0.0,"retry_class":{"class":"non_repeatable"},"tool":"proc.run"}}
-NODE key=question-act_#6 scope=- schema=3 {"node":"question-act_#6"}
+NODE key=question-act_#6 scope=- schema=4 {"node":"question-act_#6"}
 -- plan_confirm_with: ok act_#6 proc.run planned
 == frame: 3 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"waiting","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":1900,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"wake":{"on":"confirm","confirm_id":"act_#6"},"outstanding":[],"queued_results":[],"turns":1,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1000042}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000042,"kind":"execution.waiting","session_id":"ses_golden","data":{"execution_id":"exe_#1","reason":null,"turn":1,"turn_ms":35,"wake":{"confirm_id":"act_#6","on":"confirm"}}}
-NODE key=end-1 scope=- schema=3 {"node":"end-1"}
+NODE key=end-1 scope=- schema=4 {"node":"end-1"}
 -- end_turn_with (wait on the question): ok exe_#1 waiting
 == frame: 2 records
 ACTION key=act_#6 scope=ses_golden schema=2 {"correlation_id":"act_#6","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","proposal":{"tool":"proc.run","args":{"a":1},"policy_context":{"binding":1}},"retry_class":{"class":"non_repeatable"},"state":"planned","deadline_at_ms":1060042,"planned_at_ms":1000042,"confirm":{"confirm_id":"cfm_#7","by":"operator","bound_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","expires_at_ms":1900049},"reserved_micros":0,"completions_seen":0}
@@ -105,7 +105,7 @@ COMPLETION key=act_#6 scope=ses_golden schema=2 {"correlation_id":"act_#6","outc
 ACTION key=act_#6 scope=ses_golden schema=2 {"correlation_id":"act_#6","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","proposal":{"tool":"proc.run","args":{"a":1},"policy_context":{"binding":1}},"retry_class":{"class":"non_repeatable"},"state":"succeeded","deadline_at_ms":1060042,"planned_at_ms":1000042,"authorized_at_ms":1000056,"dispatched_at_ms":1000056,"settled_at_ms":1000077,"external_op_id":"job-1","result_ref":"node_x","confirm":{"confirm_id":"cfm_#7","by":"operator","bound_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","expires_at_ms":1900049},"reserved_micros":0,"completions_seen":1}
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"queued","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":1900,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"outstanding":[],"queued_results":["act_#6"],"turns":2,"interrupted":0,"resume_pending":true,"created_at_ms":1000000,"updated_at_ms":1000077}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000077,"kind":"action.succeeded","session_id":"ses_golden","data":{"correlation_id":"act_#6","cost_usd":null,"duration_ms":1,"execution_id":"exe_#1","execution_state":"queued","outcome":"succeeded","producer":"test"}}
-NODE key=job-result scope=- schema=3 {"node":"job-result"}
+NODE key=job-result scope=- schema=4 {"node":"job-result"}
 -- accept_completion_with (the job, outside the turn): ok Settled { correlation_id: "act_#6", execution_id: "exe_#1", execution_state: Queued }
 == frame: 2 records
 ACTION key=act_#6 scope=ses_golden schema=2 {"correlation_id":"act_#6","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","proposal":{"tool":"proc.run","args":{"a":1},"policy_context":{"binding":1}},"retry_class":{"class":"non_repeatable"},"state":"succeeded","deadline_at_ms":1060042,"planned_at_ms":1000042,"authorized_at_ms":1000056,"dispatched_at_ms":1000056,"settled_at_ms":1000077,"external_op_id":"job-1","result_ref":"node_x","confirm":{"confirm_id":"cfm_#7","by":"operator","bound_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","expires_at_ms":1900049},"reserved_micros":0,"completions_seen":2}
@@ -122,7 +122,7 @@ LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000084,"kind":"execution.r
 == frame: 3 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":1900,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"turns":3,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1000084}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000084,"kind":"execution.results_consumed","session_id":"ses_golden","data":{"count":1,"execution_id":"exe_#1"}}
-NODE key=results-1 scope=- schema=3 {"node":"results-1"}
+NODE key=results-1 scope=- schema=4 {"node":"results-1"}
 -- take_results_with (two): ok 1
 == frame: 4 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":1900,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"question":"act_#10","question_needs_micros":250000,"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"turns":3,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1000084}
@@ -165,7 +165,7 @@ LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1000098,"kind":"action.disp
 == frame: 3 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"queued","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":0,"reserved_micros":300,"held_unknown_micros":0,"reservations":{"rsv_#12":300},"resets":1,"pinned":true},"outstanding":["act_#13"],"queued_results":[],"wakes":[{"id":"wak_#11","due_at_ms":1001098,"note":"check the build","set_at_ms":1000098,"by":"act_#11"}],"turns":4,"interrupted":0,"resume_pending":true,"created_at_ms":1000000,"updated_at_ms":1001098}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001098,"kind":"execution.queued","session_id":"ses_golden","data":{"execution_id":"exe_#1","reason":null,"turn":4,"turn_ms":1000,"wake":null,"why":"wake"}}
-NODE key=end-4 scope=- schema=3 {"node":"end-4"}
+NODE key=end-4 scope=- schema=4 {"node":"end-4"}
 -- end_turn_with (wait on input, a wake due): ok exe_#1 queued
 == frame: 2 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":0,"reserved_micros":300,"held_unknown_micros":0,"reservations":{"rsv_#12":300},"resets":1,"pinned":true},"outstanding":["act_#13"],"queued_results":[],"wakes":[{"id":"wak_#11","due_at_ms":1001098,"note":"check the build","set_at_ms":1000098,"by":"act_#11"}],"turns":5,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1001105}
@@ -173,14 +173,14 @@ LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001105,"kind":"execution.r
 -- admit (the wake's turn): ok 5
 == frame: 3 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":0,"reserved_micros":300,"held_unknown_micros":0,"reservations":{"rsv_#12":300},"resets":1,"pinned":true},"outstanding":["act_#13"],"queued_results":[],"turns":5,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1001105}
-NODE key=wakes-1 scope=- schema=3 {"node":"wakes-1"}
+NODE key=wakes-1 scope=- schema=4 {"node":"wakes-1"}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001105,"kind":"wake.fired","session_id":"ses_golden","data":{"due_at_ms":1001098,"execution_id":"exe_#1","late_ms":7,"set_at_ms":1000098,"turn":5,"wake_id":"wak_#11","while_down":false}}
 -- take_wakes: ok 1
 -- take_reports (none): ok TakenReports { ids: [], woke: [] }
 == frame: 6 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":0,"reserved_micros":20300,"held_unknown_micros":0,"reservations":{"rsv_#12":300,"task:exe_#14":20000},"resets":1,"pinned":true},"outstanding":["act_#13"],"queued_results":[],"turns":5,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1001105}
 EXECUTION key=exe_#14 scope=ses_#14 schema=2 {"id":"exe_#14","schema":2,"session_id":"ses_#14","kind":"task","state":"queued","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":20000,"spent_micros":0,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"parent":"exe_#1","reports_to":"discord:dm:golden","wake_parent":true,"turns":0,"interrupted":0,"resume_pending":true,"created_at_ms":1001105,"updated_at_ms":1001105}
-NODE key=brief-exe_#14 scope=- schema=3 {"node":"brief-exe_#14"}
+NODE key=brief-exe_#14 scope=- schema=4 {"node":"brief-exe_#14"}
 LEDGER key=- scope=ses_#14 schema=1 {"at_unix_ms":1001105,"kind":"execution.opened","session_id":"ses_#14","data":{"by":"act_#14","execution_id":"exe_#14","kind":"task","limit_usd":0.02,"parent":"exe_#1","reports_to":"discord:dm:golden","wake_parent":true}}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001105,"kind":"budget.carved","session_id":"ses_golden","data":{"asked_usd":0.02,"available_after_usd":0.0797,"available_before_usd":0.0997,"carved_usd":0.02,"execution_id":"exe_#1","task":"exe_#14"}}
 LEDGER key=- scope=ses_#14 schema=1 {"at_unix_ms":1001105,"kind":"execution.queued","session_id":"ses_#14","data":{"execution_id":"exe_#14","why":"task"}}
@@ -209,7 +209,7 @@ ACTION key=act_#16 scope=ses_#14 schema=2 {"correlation_id":"act_#16","schema":2
 EXECUTION key=exe_#14 scope=ses_#14 schema=2 {"id":"exe_#14","schema":2,"session_id":"ses_#14","kind":"task","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":20000,"spent_micros":2500,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"parent":"exe_#1","reports_to":"discord:dm:golden","wake_parent":true,"turns":1,"interrupted":0,"resume_pending":false,"created_at_ms":1001105,"updated_at_ms":1001112}
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"waiting","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":2500,"reserved_micros":17800,"held_unknown_micros":0,"reservations":{"rsv_#12":300,"task:exe_#14":17500},"resets":1,"pinned":true},"wake":{"on":"input"},"outstanding":["act_#13"],"queued_results":[],"turns":5,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1001112}
 LEDGER key=- scope=ses_#14 schema=1 {"at_unix_ms":1001112,"kind":"action.succeeded","session_id":"ses_#14","data":{"correlation_id":"act_#16","cost_usd":0.0025,"duration_ms":1,"execution_id":"exe_#14","execution_state":"running","outcome":"succeeded","producer":"test"}}
-NODE key=task-answer scope=- schema=3 {"node":"task-answer"}
+NODE key=task-answer scope=- schema=4 {"node":"task-answer"}
 -- accept_completion_with (the task's own, carried to the parent): ok Settled { correlation_id: "act_#16", execution_id: "exe_#14", execution_state: Running }
 == frame: 7 records
 EXECUTION key=exe_#14 scope=ses_#14 schema=2 {"id":"exe_#14","schema":2,"session_id":"ses_#14","kind":"task","state":"complete","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":20000,"spent_micros":2500,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"parent":"exe_#1","reports_to":"discord:dm:golden","wake_parent":true,"turns":1,"interrupted":0,"resume_pending":false,"ended_reason":"done","created_at_ms":1001105,"updated_at_ms":1001119}
@@ -218,7 +218,7 @@ EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"sessio
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001119,"kind":"task.ended","session_id":"ses_golden","data":{"execution_id":"exe_#1","limit_usd":0.02,"reason":"done","released_usd":0.0175,"spent_usd":0.0025,"state":"complete","still_reserved_usd":0.0,"task":"exe_#14"}}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001119,"kind":"task.report_wake","session_id":"ses_golden","data":{"execution_id":"exe_#1","parent_state":"waiting","queued":true,"state":"complete","task":"exe_#14","task_session":"ses_#14"}}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001119,"kind":"execution.queued","session_id":"ses_golden","data":{"execution_id":"exe_#1","tasks":["exe_#14"],"why":"report"}}
-NODE key=report-exe_#14 scope=- schema=3 {"node":"report-exe_#14"}
+NODE key=report-exe_#14 scope=- schema=4 {"node":"report-exe_#14"}
 -- end_turn_with (the task completes, reporting): ok exe_#14 complete
 == frame: 2 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":2500,"reserved_micros":300,"held_unknown_micros":0,"reservations":{"rsv_#12":300},"resets":1,"pinned":true},"outstanding":["act_#13"],"queued_results":[],"reports":["exe_#14"],"report_wakes":["exe_#14"],"turns":6,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1001126}
@@ -226,7 +226,7 @@ LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001126,"kind":"execution.r
 -- admit (the report's turn): ok 6
 == frame: 3 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"running","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":2500,"reserved_micros":300,"held_unknown_micros":0,"reservations":{"rsv_#12":300},"resets":1,"pinned":true},"outstanding":["act_#13"],"queued_results":[],"turns":6,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1001126}
-NODE key=reports-1 scope=- schema=3 {"node":"reports-1"}
+NODE key=reports-1 scope=- schema=4 {"node":"reports-1"}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001126,"kind":"task.reports_read","session_id":"ses_golden","data":{"execution_id":"exe_#1","tasks":["exe_#14"],"turn":6,"woke":["exe_#14"]}}
 -- take_reports: ok TakenReports { ids: ["exe_#14"], woke: ["exe_#14"] }
 == frame: 2 records
@@ -249,7 +249,7 @@ LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001126,"kind":"execution.s
 == frame: 3 records
 EXECUTION key=exe_#1 scope=ses_golden schema=2 {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"waiting","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":2500,"reserved_micros":300,"held_unknown_micros":0,"reservations":{"rsv_#12":300},"resets":1,"pinned":true},"wake":{"on":"input"},"outstanding":["act_#13"],"queued_results":[],"wakes":[{"id":"wak_#17","due_at_ms":1061126,"note":"later","set_at_ms":1001126,"by":"act_#17"}],"turns":6,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1001126}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001126,"kind":"execution.waiting","session_id":"ses_golden","data":{"by":"the operator","execution_id":"exe_#1","turn":6,"turn_ms":0,"wake":{"on":"input"},"why":"stopped"}}
-NODE key=stopped-end scope=- schema=3 {"node":"stopped-end"}
+NODE key=stopped-end scope=- schema=4 {"node":"stopped-end"}
 -- end_turn_with (after the stop): ok exe_#1 waiting
 == frame: 2 records
 ACTION key=act_#13 scope=ses_golden schema=2 {"correlation_id":"act_#13","schema":2,"execution_id":"exe_#1","session_id":"ses_golden","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","retry_class":{"class":"non_repeatable"},"state":"dispatched","deadline_at_ms":1600098,"planned_at_ms":1000098,"authorized_at_ms":1000098,"dispatched_at_ms":1000098,"cancel":"acknowledged","reservation_id":"rsv_#12","reserved_micros":300,"resolution":"stopped by the operator","completions_seen":0}
@@ -295,7 +295,7 @@ ACTION key=act_#21 scope=ses_golden schema=2 {"correlation_id":"act_#21","schema
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001140,"kind":"action.cancelled","session_id":"ses_golden","data":{"by":"the operator","correlation_id":"act_#21","tool":"proc.run","why":"the execution was cancelled by the operator"}}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001140,"kind":"wake.cancelled","session_id":"ses_golden","data":{"by":"the operator","due_at_ms":1061126,"execution_id":"exe_#1","wake_id":"wak_#17","why":"the execution was cancelled"}}
 LEDGER key=- scope=ses_golden schema=1 {"at_unix_ms":1001140,"kind":"execution.cancelled","session_id":"ses_golden","data":{"by":"the operator","execution_id":"exe_#1","not_run":["act_#21"],"outstanding":[]}}
-NODE key=cancelled-exe_#1-1-false scope=- schema=3 {"node":"cancelled-exe_#1-1-false"}
+NODE key=cancelled-exe_#1-1-false scope=- schema=4 {"node":"cancelled-exe_#1-1-false"}
 -- cancel_execution_with: ok to_kill 0 not_run 1
 -- cancel_execution_with (again): ok to_kill 0 not_run 0
 == frame: 4 records
@@ -330,7 +330,7 @@ EXECUTION key=exe_#22 scope=ses_golden_two schema=2 {"id":"exe_#22","schema":2,"
 LEDGER key=- scope=ses_golden_two schema=1 {"at_unix_ms":1001147,"kind":"execution.complete","session_id":"ses_golden_two","data":{"execution_id":"exe_#22","reason":"finished","turn":1,"turn_ms":0,"wake":null}}
 ACTION key=act_#23 scope=ses_golden_two schema=2 {"correlation_id":"act_#23","schema":2,"execution_id":"exe_#22","session_id":"ses_golden_two","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","retry_class":{"class":"non_repeatable"},"state":"dispatched","deadline_at_ms":1601147,"planned_at_ms":1001147,"authorized_at_ms":1001147,"dispatched_at_ms":1001147,"cancel":"requested","reserved_micros":0,"completions_seen":0}
 LEDGER key=- scope=ses_golden_two schema=1 {"at_unix_ms":1001147,"kind":"action.cancel","session_id":"ses_golden_two","data":{"cancel":"requested","correlation_id":"act_#23","settled":false,"why":"execution ended"}}
-NODE key=end-complete scope=- schema=3 {"node":"end-complete"}
+NODE key=end-complete scope=- schema=4 {"node":"end-complete"}
 -- end_turn_with (complete, a job out): ok exe_#22 complete
 -- admit_input (ended): err execution exe_#22 is complete, not runnable
 == a second world: the admission ceiling

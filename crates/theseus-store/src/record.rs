@@ -62,7 +62,10 @@ pub mod kinds {
     /// Node schema 3 adds a tool call's own class and its AWS call to its
     /// gate record's plan (`plan.class`, `plan.aws`, theseus-ppsd), read from
     /// 2 as neither (theseus-core's
-    /// `a_tool_call_node_written_before_its_class_and_aws_reads`).
+    /// `a_tool_call_node_written_before_its_class_and_aws_reads`). Node
+    /// schema 4 adds an L1 call's class to its gate record's decision
+    /// (`decision.class`, theseus-7ve.1), read from 3 as none (theseus-core's
+    /// `a_tool_call_node_written_before_its_l1_class_reads`).
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
         (SESSION, 6),
@@ -71,7 +74,7 @@ pub mod kinds {
         (EXECUTION, 2),
         (ACTION, 2),
         (COMPLETION, 2),
-        (NODE, 3),
+        (NODE, 4),
         (EDGE, 1),
         (COMPILATION, 3),
         (OUTBOX, 1),
