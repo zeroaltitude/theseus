@@ -253,7 +253,7 @@ phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
 phase "reader rule" registry
 phase suite suite
 phase "protocol types" protocol_types
-phase build cargo build -q -p theseusd -p theseus-sim
+phase build cargo build -q -p theseusd -p theseus-sim -p theseus-index
 phase lifecycle lifecycle_bench
 phase turn turn_step
 phase deny deny_check

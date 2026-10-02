@@ -193,6 +193,21 @@ enum Event {
     Stop,
 }
 
+/// The exit of tender `pid` (its status, when the reaper had one), or None at
+/// the stop. An exit of an older tender is history.
+async fn exit_of(
+    inbox: &mut mpsc::UnboundedReceiver<Event>,
+    pid: u32,
+) -> Option<Option<ExitStatus>> {
+    loop {
+        match inbox.recv().await {
+            None | Some(Event::Stop) => return None,
+            Some(Event::Exited { pid: p, status }) if p == pid => return Some(status),
+            Some(Event::Exited { .. }) => {}
+        }
+    }
+}
+
 /// The tender as supervised: what health's `children` and `index` show.
 struct Board {
     state: &'static str,
@@ -357,67 +372,23 @@ impl IndexTender {
             }
             return;
         }
-        let program = match self.program.clone() {
-            Some(p) => p,
-            None => match beside_this_binary() {
-                Ok(p) if p.is_file() => p,
-                looked => {
-                    let at = looked.map_or_else(|e| format!("({e})"), |p| p.display().to_string());
-                    let why = format!(
-                        "no {BINARY} beside theseusd, at {at}: install it there, as the install \
-                         recipe does, and restart the daemon"
-                    );
-                    tracing::warn!(why = %why, "index: no tender");
-                    let mut b = self.board();
-                    b.state = "absent";
-                    b.why = Some(why);
-                    return;
-                }
-            },
+        let Some(program) = self.program() else {
+            return;
         };
-        let _ = self.binary.set(program.clone());
         let mut kept = self.os.running();
-        if kept.is_none() && !self.start_after.is_zero() {
-            // A fresh start waits for the daemon's own start to settle.
-            {
-                let mut b = self.board();
-                b.next_start_ms =
-                    Some(theseus_protocol::now_unix_ms() + self.start_after.as_millis() as u64);
-                b.why = Some(format!(
-                    "it starts {:.0} s after the daemon serves",
-                    self.start_after.as_secs_f64()
-                ));
-            }
-            if !self.wait(&mut inbox, self.start_after).await {
-                return;
-            }
+        if kept.is_none() && !self.start_after.is_zero() && !self.first_wait(&mut inbox).await {
+            return;
         }
         loop {
             let pid = match kept.take() {
-                Some(pid) => {
-                    self.adopted(pid);
-                    // A restart onto a note that changed `[index]` (its
-                    // model's files, its threads, its unload): the tender
-                    // the last image started has the old settings, so it
-                    // goes, and the next starts with the new ones.
-                    if self.os.args_of(pid).is_some_and(|a| a != self.args()) {
-                        tracing::info!(pid, "index: [index] changed; restarting the tender");
-                        self.record(&TenderSettingsChanged { pid });
-                        self.os.terminate(pid);
-                    }
-                    pid
-                }
+                Some(pid) => self.take_over(pid),
                 None => match self.start(&program) {
                     Ok(pid) => pid,
                     Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                        let why = format!(
+                        self.absent(format!(
                             "{} is gone ({e}): install it beside theseusd, and restart the daemon",
                             program.display()
-                        );
-                        tracing::warn!(why = %why, "index: no tender");
-                        let mut b = self.board();
-                        b.state = "absent";
-                        b.why = Some(why);
+                        ));
                         return;
                     }
                     Err(e) => {
@@ -429,19 +400,72 @@ impl IndexTender {
                     }
                 },
             };
-            // Its exit, or the stop. An exit of an older tender is history.
-            let status = loop {
-                match inbox.recv().await {
-                    None | Some(Event::Stop) => return,
-                    Some(Event::Exited { pid: p, status }) if p == pid => break status,
-                    Some(Event::Exited { .. }) => {}
-                }
+            let Some(status) = exit_of(&mut inbox, pid).await else {
+                return;
             };
             let wait = self.ended(pid, status);
             if !self.wait(&mut inbox, wait).await {
                 return;
             }
         }
+    }
+
+    /// The tender's binary: `program`, or the `theseus-index` beside this
+    /// daemon's. None, and the board says `absent`, when it is not there.
+    fn program(&self) -> Option<PathBuf> {
+        let program = match self.program.clone() {
+            Some(p) => p,
+            None => match beside_this_binary() {
+                Ok(p) if p.is_file() => p,
+                looked => {
+                    let at = looked.map_or_else(|e| format!("({e})"), |p| p.display().to_string());
+                    self.absent(format!(
+                        "no {BINARY} beside theseusd, at {at}: install it there, as the install \
+                         recipe does, and restart the daemon"
+                    ));
+                    return None;
+                }
+            },
+        };
+        let _ = self.binary.set(program.clone());
+        Some(program)
+    }
+
+    /// No tender can run: its binary is not installed (`why`).
+    fn absent(&self, why: String) {
+        tracing::warn!(why = %why, "index: no tender");
+        let mut b = self.board();
+        b.state = "absent";
+        b.why = Some(why);
+    }
+
+    /// A fresh start waits for the daemon's own start to settle
+    /// (`START_AFTER`). False when the daemon stops first.
+    async fn first_wait(&self, inbox: &mut mpsc::UnboundedReceiver<Event>) -> bool {
+        {
+            let mut b = self.board();
+            b.next_start_ms =
+                Some(theseus_protocol::now_unix_ms() + self.start_after.as_millis() as u64);
+            b.why = Some(format!(
+                "it starts {:.0} s after the daemon serves",
+                self.start_after.as_secs_f64()
+            ));
+        }
+        self.wait(inbox, self.start_after).await
+    }
+
+    /// Take over the tender an exec kept. A restart onto a note that changed
+    /// `[index]` (its model's files, its threads, its unload): the tender the
+    /// last image started has the old settings, so it goes, and the next
+    /// starts with the new ones.
+    fn take_over(&self, pid: u32) -> u32 {
+        self.adopted(pid);
+        if self.os.args_of(pid).is_some_and(|a| a != self.args()) {
+            tracing::info!(pid, "index: [index] changed; restarting the tender");
+            self.record(&TenderSettingsChanged { pid });
+            self.os.terminate(pid);
+        }
+        pid
     }
 
     /// Sleep `wait` on the runtime's timer, unless the daemon stops first:

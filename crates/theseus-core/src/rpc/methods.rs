@@ -168,6 +168,18 @@ impl Core {
         self.index.stop(self.restart_requested().is_some());
     }
 
+    /// `index.query` (roadmap row 51): forwarded to the tender as it came,
+    /// bounded. An error it answers is the client's, with its code.
+    pub async fn index_query(
+        &self,
+        p: theseus_protocol::index::IndexQueryParams,
+    ) -> Result<theseus_protocol::index::IndexQueryResult, RpcFailure> {
+        self.index
+            .query(&p)
+            .await
+            .map_err(|(code, message)| RpcFailure::new(code, message))
+    }
+
     /// The web UI refused a request that was not from its own page or
     /// address (theseus-70f): counted for health, and ledgered as
     /// `web.refused` at most once a minute per kind. Not narrated.

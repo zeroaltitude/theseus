@@ -278,18 +278,15 @@ fn a_stop_does_not_wait_for_the_tender() {
     }
 }
 
-/// A restart in place onto the vault's changed note (theseus-2fo) keeps the
-/// daemon's pid and children: the new image takes the running tender over,
-/// and no second starts. The fake vault answers the note only once the
-/// tender runs, so the old image has started it.
-#[test]
-fn a_restart_in_place_takes_the_running_tender_over() {
-    tender_bin();
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let dir = tempfile::tempdir().unwrap();
-    let path = |p: &str| dir.path().join(p);
+/// The config note the restart test's daemon reads from its fake vault.
+const NOTE_REF: &str = "op://Test/theseus-config/notesPlain";
+
+/// A stand-in `op` in `dir/bin`: `read` answers `dir/note.toml` once
+/// `dir/go` exists, and `inject` fills each reference with a test value.
+fn fake_vault(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let path = |p: &str| dir.join(p);
     std::fs::create_dir_all(path("bin")).unwrap();
-    std::fs::create_dir_all(path("projects")).unwrap();
     let op = path("bin/op");
     std::fs::write(
         &op,
@@ -301,31 +298,21 @@ fn a_restart_in_place_takes_the_running_tender_over() {
              \x20 *) exit 1 ;;\n\
              esac\n",
             go = path("go").display(),
-            dir = dir.path().display(),
+            dir = dir.display(),
             note = path("note.toml").display()
         ),
     )
     .unwrap();
-    use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let note = |spend: f64| {
-        let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), spend)
-            .parse()
-            .unwrap();
-        index_on(&mut t);
-        toml::to_string(&t).unwrap()
-    };
-    const NOTE_REF: &str = "op://Test/theseus-config/notesPlain";
-    std::fs::write(path("note.toml"), note(42.5)).unwrap();
-    config_copy::write(
-        &config_copy::path(Some(&path("state"))),
-        NOTE_REF,
-        &note(100.0),
-    )
-    .unwrap();
+}
+
+/// `theseusd` on `NOTE_REF`, through the fake vault in `dir/bin`, with its
+/// state, socket, and log in `dir`, and none of this environment's settings.
+fn on_the_vault(theseusd: &Path, dir: &Path) -> Daemon {
+    let path = |p: &str| dir.join(p);
     let log = std::fs::File::create(path("theseusd.log")).unwrap();
-    let mut daemon = Daemon::spawn(
-        Command::new(&theseusd)
+    Daemon::spawn(
+        Command::new(theseusd)
             .args(["--config", NOTE_REF, "--state-dir"])
             .arg(path("state"))
             .arg("--socket")
@@ -349,28 +336,81 @@ fn a_restart_in_place_takes_the_running_tender_over() {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(log),
-    );
+    )
+}
+
+/// One call on the socket at `sock`, and its result.
+fn call_on(sock: &Path, method: &str) -> Result<Value, String> {
+    let s = UnixStream::connect(sock).map_err(|e| e.to_string())?;
+    s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": {"n": 1000}});
+    (&s).write_all(format!("{req}\n").as_bytes())
+        .map_err(|e| e.to_string())?;
+    for line in BufReader::new(&s).lines() {
+        let v: Value =
+            serde_json::from_str(&line.map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        if v["id"] == 1 {
+            return Ok(v["result"].clone());
+        }
+    }
+    Err("the connection closed".into())
+}
+
+/// The events of the `index.tender` rows, once there are `n`, or as many as
+/// there are after 5 s. Each row is written off the runtime's workers, a
+/// moment after its fact.
+fn tender_events(sock: &Path, n: usize) -> Vec<Value> {
+    let t0 = Instant::now();
+    loop {
+        let rows = call_on(sock, "ledger.tail").unwrap();
+        let events: Vec<Value> = rows["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["kind"] == "index.tender")
+            .map(|r| r["data"]["event"].clone())
+            .collect();
+        if events.len() >= n || t0.elapsed() > Duration::from_secs(5) {
+            return events;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// A restart in place onto the vault's changed note (theseus-2fo) keeps the
+/// daemon's pid and children: the new image takes the running tender over,
+/// and no second starts. The fake vault answers the note only once the
+/// tender runs, so the old image has started it.
+#[test]
+fn a_restart_in_place_takes_the_running_tender_over() {
+    tender_bin();
+    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
+    let dir = tempfile::tempdir().unwrap();
+    let path = |p: &str| dir.path().join(p);
+    std::fs::create_dir_all(path("projects")).unwrap();
+    fake_vault(dir.path());
+    let note = |spend: f64| {
+        let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), spend)
+            .parse()
+            .unwrap();
+        index_on(&mut t);
+        toml::to_string(&t).unwrap()
+    };
+    std::fs::write(path("note.toml"), note(42.5)).unwrap();
+    config_copy::write(
+        &config_copy::path(Some(&path("state"))),
+        NOTE_REF,
+        &note(100.0),
+    )
+    .unwrap();
+    let mut daemon = on_the_vault(&theseusd, dir.path());
     let daemon_pid = daemon.id();
     let logs = || std::fs::read_to_string(path("theseusd.log")).unwrap_or_default();
-    let call = |method: &str| -> Result<Value, String> {
-        let s = UnixStream::connect(path("sock")).map_err(|e| e.to_string())?;
-        s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": {"n": 1000}});
-        (&s).write_all(format!("{req}\n").as_bytes())
-            .map_err(|e| e.to_string())?;
-        for line in BufReader::new(&s).lines() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
-            if v["id"] == 1 {
-                return Ok(v["result"].clone());
-            }
-        }
-        Err("the connection closed".into())
-    };
+    let sock = path("sock");
     let wait = |what: &str, daemon: &mut Daemon, ok: &dyn Fn(&Value) -> bool| -> Value {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
-            if let Ok(h) = call("health") {
+            if let Ok(h) = call_on(&sock, "health") {
                 if ok(&h) {
                     return h;
                 }
@@ -399,25 +439,10 @@ fn a_restart_in_place_takes_the_running_tender_over() {
     assert_eq!(tender(&h)["restarts"], 0);
     assert_eq!(tenders_of(daemon_pid), [pid], "one tender");
     assert!(logs().contains("took over the tender"), "{}", logs());
-    // Its rows: the old image started it, the new one took it over. Each row
-    // is written off the runtime's workers, a moment after.
-    let t1 = Instant::now();
-    let events = loop {
-        let rows = call("ledger.tail").unwrap();
-        let events: Vec<Value> = rows["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|r| r["kind"] == "index.tender")
-            .map(|r| r["data"]["event"].clone())
-            .collect();
-        if events.len() >= 2 || t1.elapsed() > Duration::from_secs(5) {
-            break events;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    // Its rows: the old image started it, the new one took it over.
+    let events = tender_events(&sock, 2);
     assert_eq!(events, ["started", "adopted"], "{}", logs());
-    let _ = call("shutdown");
+    let _ = call_on(&sock, "shutdown");
     let t0 = Instant::now();
     while !ended(pid) {
         assert!(
