@@ -14,6 +14,7 @@
 //! model runs only if it has something new to read.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -106,7 +107,70 @@ pub struct TurnRunner {
     /// What must reach a channel: a turn's reply, its cards, a failure
     /// (theseus-q4v).
     pub outbox: Arc<crate::outbox::Outbox>,
+    /// What a `/stop` tells the model call a turn waits on (theseus-yey).
+    pub stops: StopSignals,
 }
+
+/// What a `/stop` tells the turn that holds its execution while the model's
+/// call is in flight (theseus-yey): one `Notify` per execution that has a call
+/// out, armed by `call_model` and dropped when the call ends. It only wakes the
+/// call: the turn reads the kernel's record of the stop to decide, and a stop
+/// with no call in flight finds none, so the turn reads that record at its
+/// next step, as it always has.
+#[derive(Default)]
+pub struct StopSignals {
+    calls: std::sync::Mutex<BTreeMap<String, Arc<tokio::sync::Notify>>>,
+}
+
+impl StopSignals {
+    /// Arm the signal for `execution_id`'s call, until the guard drops.
+    fn arm(&self, execution_id: &str) -> Armed<'_> {
+        let notify = Arc::new(tokio::sync::Notify::new());
+        self.calls
+            .lock()
+            .unwrap()
+            .insert(execution_id.to_string(), notify.clone());
+        Armed {
+            signals: self,
+            execution_id: execution_id.to_string(),
+            notify,
+        }
+    }
+
+    /// Wake the call in flight for `execution_id`, if there is one.
+    pub fn signal(&self, execution_id: &str) -> bool {
+        match self.calls.lock().unwrap().get(execution_id) {
+            Some(n) => {
+                n.notify_waiters();
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// A call's armed signal; the entry goes when the call ends, however it ends.
+struct Armed<'a> {
+    signals: &'a StopSignals,
+    execution_id: String,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+impl Drop for Armed<'_> {
+    fn drop(&mut self) {
+        self.signals
+            .calls
+            .lock()
+            .unwrap()
+            .remove(&self.execution_id);
+    }
+}
+
+/// How many characters of streamed text the estimate of a cut call's output
+/// counts as one token (theseus-yey): English prose runs about four, code and
+/// other languages fewer, and the budget is a gate, so the estimate leans to
+/// more tokens.
+const CHARS_PER_TOKEN: u64 = 3;
 
 /// The longest a turn waits for its secrets (theseus-qa0). A round takes
 /// about a second, and each `op` gives up after 10 s, so the bound is
@@ -285,10 +349,24 @@ enum Called {
         spent: Micros,
         limit: Micros,
     },
-    /// A `/stop` landed (W1): the kernel planned no call, and the turn ends.
+    /// A `/stop` landed (W1): the kernel planned no call, or the call's stream
+    /// was cut (theseus-yey), and the turn ends.
     Stopped {
         by: String,
     },
+}
+
+/// A model call a `/stop` cut (theseus-yey): who stopped it, whether its
+/// request was sent, and what is known of its use.
+struct Cut {
+    by: String,
+    /// The stream was polled, so the request went out; a stop before that cut
+    /// a call that used nothing.
+    sent: bool,
+    /// The characters streamed before the cut.
+    out_chars: u64,
+    /// The input estimate the call's reservation used.
+    est_input: u64,
 }
 
 /// Who stopped the turn `tc` runs, if a `/stop` landed during it (W1): the
@@ -1949,17 +2027,27 @@ impl TurnRunner {
         let started_ms = theseus_protocol::now_unix_ms();
 
         let (sink, tid) = (t.tc.sink.clone(), t.tc.turn_id.to_string());
+        // The characters streamed so far, thinking included (it is billed as
+        // output): what a call a stop cuts is estimated from (theseus-yey).
+        let streamed = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counted = streamed.clone();
         let mut on_delta = move |d: Delta<'_>| match d {
-            Delta::Text(text) => To::Sink(&sink).tell(&fact::turn::ModelDelta {
-                turn_id: &tid,
-                loop_index: i,
-                text,
-            }),
-            Delta::Thinking(text) => To::Sink(&sink).tell(&fact::turn::ModelThinking {
-                turn_id: &tid,
-                loop_index: i,
-                text,
-            }),
+            Delta::Text(text) => {
+                counted.fetch_add(text.chars().count() as u64, Ordering::Relaxed);
+                To::Sink(&sink).tell(&fact::turn::ModelDelta {
+                    turn_id: &tid,
+                    loop_index: i,
+                    text,
+                })
+            }
+            Delta::Thinking(text) => {
+                counted.fetch_add(text.chars().count() as u64, Ordering::Relaxed);
+                To::Sink(&sink).tell(&fact::turn::ModelThinking {
+                    turn_id: &tid,
+                    loop_index: i,
+                    text,
+                })
+            }
             Delta::ToolUseStart { .. } => {}
         };
         let call_started = Instant::now();
@@ -1974,11 +2062,47 @@ impl TurnRunner {
             o0,
         });
         let call_t0 = t.trace.now_us();
-        match provider
-            .stream_message(&compiled.request, &mut on_delta)
-            .await
-        {
-            Ok(resp) => {
+        // A `/stop` that lands while the call is in flight cuts its stream
+        // (theseus-yey): the stop's signal wakes this, and the kernel's record
+        // of it decides, so a signal that is not for this turn changes
+        // nothing. A stop recorded before the call began, or in the moment
+        // between its plan and here, cuts it before anything was sent.
+        let armed = self.stops.arm(t.tc.execution_id);
+        let outcome = {
+            let mut stream =
+                std::pin::pin!(provider.stream_message(&compiled.request, &mut on_delta));
+            let mut sent = false;
+            loop {
+                let woken = armed.notify.notified();
+                tokio::pin!(woken);
+                woken.as_mut().enable();
+                if let Some(by) = stopped_by(&t.tc)? {
+                    break Err(Cut {
+                        by,
+                        sent,
+                        out_chars: streamed.load(Ordering::Relaxed),
+                        est_input: compiled.est_tokens,
+                    });
+                }
+                tokio::select! {
+                    r = &mut stream => break Ok(r),
+                    _ = &mut woken => {}
+                }
+                sent = true;
+            }
+        };
+        drop(armed);
+        match outcome {
+            Err(cut) => Ok(Self::settle_cut(
+                t,
+                &action,
+                price,
+                cut,
+                started_ms,
+                call_started,
+                i,
+            )),
+            Ok(Ok(resp)) => {
                 t.record(&fact::turn::ModelAnswered {
                     resp: &resp,
                     call_t0,
@@ -1986,7 +2110,7 @@ impl TurnRunner {
                 let node = self.settle_call(t, &action, compiled, &resp, started_ms, i)?;
                 Ok(Called::Answered(Box::new((resp, node))))
             }
-            Err(e) => Ok(Called::Failed(Self::settle_failed(
+            Ok(Err(e)) => Ok(Called::Failed(Self::settle_failed(
                 t,
                 &action,
                 started_ms,
@@ -2434,6 +2558,76 @@ impl TurnRunner {
             reason: format!("provider:{class}"),
             source: e,
         }
+    }
+
+    /// A `/stop` cut the model's call (theseus-yey): the stream is dropped, the
+    /// turn acts on nothing it said, and no answer node is written. The call
+    /// is settled as failed at an estimate of what it used, its reservation
+    /// released and nothing held unknown: the input estimate its reservation
+    /// used, and its output from the characters streamed (`CHARS_PER_TOKEN`
+    /// to a token), at the model's prices, never more than it reserved. A stop
+    /// before anything was sent used nothing. The `provider.cut` row says it is
+    /// an estimate; the provider's own usage events, which a dropped stream
+    /// loses, would make it exact.
+    fn settle_cut(
+        t: &mut Turn<'_>,
+        action: &Action,
+        price: &crate::catalog::CatalogEntry,
+        cut: Cut,
+        started_ms: u64,
+        call_started: Instant,
+        i: u32,
+    ) -> Called {
+        let target = t.target;
+        let usage = if cut.sent {
+            Usage {
+                input_tokens: cut.est_input,
+                output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN),
+                ..Usage::default()
+            }
+        } else {
+            Usage::default()
+        };
+        let cost = price.cost_micros(&usage).min(action.reserved_micros);
+        t.record(&fact::turn::ModelCallFailed {
+            class: "stopped",
+            message: format!("cut by a stop from {}", cut.by),
+        });
+        let s0 = t.trace.now_us();
+        let settled = t.tc.kernel.accept_completion(&Completion {
+            correlation_id: action.correlation_id.clone(),
+            outcome: ActionOutcome::Failed,
+            result_ref: None,
+            external_op_id: None,
+            started_at_ms: started_ms,
+            finished_at_ms: theseus_protocol::now_unix_ms(),
+            producer: format!("provider:{}", target.provider),
+            signature: None,
+            cost_micros: Some(cost),
+            detail: Some(json!({"class": "stopped", "by": cut.by, "estimated": true,
+                "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
+                "output_chars": cut.out_chars})),
+        });
+        t.cost = t.cost.map(|c| c + micros_to_usd(cost));
+        add_usage(&mut t.usage, &usage);
+        t.record(&fact::turn::ModelCut {
+            loop_index: i,
+            target,
+            correlation_id: &action.correlation_id,
+            by: &cut.by,
+            sent: cut.sent,
+            usage: &usage,
+            output_chars: cut.out_chars,
+            cost,
+            reserved_micros: action.reserved_micros,
+            elapsed_ms: call_started.elapsed().as_millis() as u64,
+            settled: settled
+                .as_ref()
+                .map(|a| format!("{a:?}"))
+                .unwrap_or_else(|e| e.to_string()),
+            s0,
+        });
+        Called::Stopped { by: cut.by }
     }
 
     /// Gate the model's tool calls in order, until one waits on a confirm,

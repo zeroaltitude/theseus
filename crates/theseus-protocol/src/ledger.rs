@@ -115,6 +115,7 @@ ledger_kinds! {
     PolicyUntightened = "policy.untightened",
     ProfileChanged = "profile.changed",
     ProviderCall = "provider.call",
+    ProviderCut = "provider.cut",
     ProviderError = "provider.error",
     ProviderRefusal = "provider.refusal",
     Reconcile = "reconcile",

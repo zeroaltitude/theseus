@@ -1347,6 +1347,85 @@ impl Fact for ProviderError<'_> {
     }
 }
 
+/// A `/stop` cut the model's call while its stream ran (theseus-yey): the call
+/// settled as failed at an estimate of what it used (`provider.cut`). The
+/// estimate is the input the call's reservation assumed and the output
+/// counted from the characters streamed; a stop before anything was sent used
+/// nothing.
+pub struct ModelCut<'a> {
+    pub loop_index: u32,
+    pub target: &'a Target,
+    pub correlation_id: &'a str,
+    pub by: &'a str,
+    /// The request had gone out.
+    pub sent: bool,
+    /// The estimated usage, which the settle booked.
+    pub usage: &'a theseus_protocol::Usage,
+    pub output_chars: u64,
+    /// What the settle booked, and what the call reserved.
+    pub cost: Micros,
+    pub reserved_micros: Micros,
+    pub elapsed_ms: u64,
+    /// What the kernel's settle returned, as the span says it.
+    pub settled: String,
+    /// When its settle began, on the trace's clock.
+    pub s0: u64,
+}
+
+impl Fact for ModelCut<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderCut);
+
+    fn row(&self) -> Value {
+        json!({
+            "loop": self.loop_index,
+            "provider": self.target.provider,
+            "model": self.target.model,
+            "by": self.by,
+            "estimated": true,
+            "sent": self.sent,
+            "input_tokens": self.usage.input_tokens,
+            "output_tokens": self.usage.output_tokens,
+            "output_chars": self.output_chars,
+            "cost_usd": micros_to_usd(self.cost),
+            "reserved_usd": micros_to_usd(self.reserved_micros),
+            "elapsed_ms": self.elapsed_ms,
+        })
+    }
+
+    fn span(&self, trace: &mut Trace) {
+        trace.record(
+            "action.settle",
+            "store",
+            self.s0,
+            trace.now_us(),
+            json!({"correlation_id": self.correlation_id, "outcome": "failed", "result": self.settled}),
+        );
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Model,
+            format!(
+                "{} was cut by a stop from {} after {}: {}, booked as an estimate of {}, and its \
+                 reservation of {} released.",
+                self.target.model,
+                self.by,
+                narrative::duration(self.elapsed_ms),
+                if self.sent {
+                    format!(
+                        "{} streamed",
+                        narrative::count(self.output_chars, "character", "characters")
+                    )
+                } else {
+                    "nothing had been sent".to_string()
+                },
+                narrative::dollars(self.cost),
+                narrative::dollars(self.reserved_micros)
+            ),
+        );
+    }
+}
+
 // ---------------------------------------------------------------- the turn's end
 
 /// A node the turn wrote, told to the session's clients (`node.written`),

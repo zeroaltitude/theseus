@@ -128,5 +128,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **The take frame keeps what its retry needs.** A turn that takes a wake or a report keeps where its reply goes in a
   META record written in the taking frame (`wake.target.<session>`); a retry frames its reply from the unanswered
   wake and report nodes. No in-memory field carries it.
+- **A `/stop` cuts the model's stream** (theseus-yey): `Core::stop_execution` signals `TurnRunner::stops`, which only
+  wakes `call_model`; the kernel's record of the stop decides. The cut call settles as failed at an estimate (the
+  input its reservation assumed, the output from the characters streamed), never held unknown, and a `provider.cut`
+  row says it is an estimate. A stop that lands after the stream ended keeps the answer and runs none of its calls.
 - `cargo test -p theseus-core` builds a second copy of every dependency. Use
   `cargo nextest run --workspace -E 'package(theseus-core)'`.

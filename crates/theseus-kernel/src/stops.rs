@@ -12,9 +12,11 @@
 //! - **What goes on.** The execution stays open, and with it the session, its
 //!   history, its budget and spend, its pending wakes, and its tasks, which
 //!   only their own cancel stops. The model call a running turn waits on is
-//!   left to finish, so its real cost is booked; the turn acts on nothing it
-//!   says. A job's result, once it is stopped, reaches the next turn as a
-//!   late result that says it was cancelled.
+//!   not an action to terminate here: the core, which holds its stream, cuts
+//!   it (theseus-yey) and settles it at an estimate of what it used; a call
+//!   that has already answered is kept, and the turn acts on nothing it says.
+//!   A job's result, once it is stopped, reaches the next turn as a late
+//!   result that says it was cancelled.
 //! - **Once.** A stop of an execution that has ended writes nothing; a second
 //!   stop finds nothing more to stop, and writes its row only.
 //! - **Not a task.** A stopped task would wait for input no one sends, so a
@@ -58,9 +60,9 @@ impl Kernel {
         }
         let now = self.now_ms();
         let mut frame = Vec::new();
-        // Running jobs and calls are told to stop. The model call is left to
-        // finish: nothing can take back what the provider already does, and
-        // its settle books what it cost.
+        // Running jobs and calls are told to stop. The model call is not one
+        // of them: its stream is the core's to cut (theseus-yey), which then
+        // settles it itself.
         let mut to_kill = Vec::new();
         for c in &e.outstanding {
             if let Some(mut a) = self.action(c)? {

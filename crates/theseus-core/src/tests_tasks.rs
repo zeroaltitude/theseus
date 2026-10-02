@@ -836,9 +836,12 @@ async fn a_cancelled_task_with_wake_parent_wakes_nothing() {
 
 // ---------------------------------------------------------------- `/stop` keeps the conversation (W1)
 
-/// `/stop` while the model answers: the turn keeps the answer, runs none of
-/// its calls, posts no reply, and parks the same execution on input. The
-/// next message continues the same session, and its history is compiled.
+/// A stop recorded after the model's stream has ended, here one that never
+/// signalled the call (the kernel's stop alone), so the call finishes: the turn
+/// keeps the answer, runs none of its calls, posts no reply, and parks the same
+/// execution on input. The next message continues the same session, and its
+/// history is compiled. (A stop while the stream runs cuts it: see
+/// `a_stop_cuts_the_models_call_and_books_an_estimate`.)
 #[tokio::test]
 async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
     let mut r = rig(
@@ -859,9 +862,14 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
     let first = tokio::spawn(async move { turn(&core, &s, "FIRST write a file").await });
     r.entered.recv().await.unwrap();
     let eid = parent_exec(&r.core, &sid).id;
-    let stop = r.core.stop_execution(&eid, "discord:eddie").await.unwrap();
-    assert!(stop.stopped && stop.turn_running, "{stop:?}");
-    assert!(stop.stopped_actions.is_empty(), "the model call finishes");
+    let stop = r
+        .core
+        .kernel
+        .stop_execution(&eid, "discord:eddie")
+        .unwrap()
+        .unwrap();
+    assert!(stop.turn_running, "{stop:?}");
+    assert!(stop.to_kill.is_empty(), "the model call finishes");
     r.model.gate.add_permits(1);
     let res = first.await.unwrap();
     assert_eq!(res.stop_reason, "stopped");
@@ -917,6 +925,193 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
     assert!(seen.contains("I will write it."), "{seen}");
     assert!(seen.contains("/stop, by discord:eddie"), "{seen}");
     assert_eq!(posts(&r.core, "reply").len(), 1);
+}
+
+/// theseus-yey: `/stop` while the model's call streams cuts the stream. The
+/// stop returns and the turn ends at once, without the gate's permit: no answer
+/// node, no call planned, nothing posted. The call settles as failed at an
+/// estimate of what it used (the input its reservation assumed; the rig's held
+/// call streamed nothing), its reservation released and nothing held unknown; a
+/// `provider.cut` row says it is an estimate, and the session's cost agrees
+/// with the budget's spend. The next message continues without the cut answer.
+#[tokio::test]
+async fn a_stop_cuts_the_models_call_and_books_an_estimate() {
+    let mut r = rig(
+        |req| {
+            // The cut turn left the operator's first message unanswered, so
+            // the compiler joins it with the second into one user message.
+            if last_user(req).contains("SECOND") {
+                return Scripted::text("Nothing was written.");
+            }
+            Scripted::tools(
+                "I will write it.",
+                &[("w1", "fs_write", json!({"path": "a.txt", "content": "x\n"}))],
+            )
+        },
+        |_| {},
+    );
+    *r.model.hold.lock().unwrap() = Some("FIRST".into());
+    let sid = parent_session(&r.core);
+    let (core, s) = (r.core.clone(), sid.clone());
+    let first = tokio::spawn(async move { turn(&core, &s, "FIRST write a file").await });
+    r.entered.recv().await.unwrap();
+    let eid = parent_exec(&r.core, &sid).id;
+    let stop = r.core.stop_execution(&eid, "discord:eddie").await.unwrap();
+    assert!(stop.stopped && stop.turn_running, "{stop:?}");
+    // The turn ends with no permit from the gate: the call was cut.
+    let res = tokio::time::timeout(Duration::from_secs(10), first)
+        .await
+        .expect("the stop cut the model's call")
+        .unwrap();
+    assert_eq!(res.stop_reason, "stopped");
+    // It kept no answer and planned no call.
+    let kinds: Vec<&str> = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .iter()
+        .map(|(_, n)| n.kind_str())
+        .collect();
+    assert_eq!(kinds, ["user_message"], "only the operator's message");
+    assert!(
+        posts(&r.core, "reply").is_empty(),
+        "a stopped turn posts no reply"
+    );
+    assert!(posts(&r.core, "failed").is_empty(), "nor a failure");
+    // Its call, settled at an estimate: failed, released, nothing held.
+    let call = r
+        .core
+        .kernel
+        .actions()
+        .unwrap()
+        .into_iter()
+        .find(|a| a.session_id == sid && a.tool == theseus_kernel::PROVIDER_TOOL)
+        .unwrap();
+    assert_eq!(call.state, theseus_kernel::ActionState::Failed);
+    let e = parent_exec(&r.core, &sid);
+    assert_eq!(
+        (e.budget.reserved_micros, e.budget.held_unknown_micros),
+        (0, 0)
+    );
+    assert!(
+        e.budget.spent_micros > 0 && e.budget.spent_micros < call.reserved_micros,
+        "{} of {} reserved",
+        e.budget.spent_micros,
+        call.reserved_micros
+    );
+    let cut = rows(&r.core, "provider.cut");
+    assert_eq!(cut.len(), 1, "{cut:?}");
+    assert_eq!(
+        (
+            &cut[0]["by"],
+            &cut[0]["estimated"],
+            &cut[0]["sent"],
+            &cut[0]["output_chars"]
+        ),
+        (
+            &json!("discord:eddie"),
+            &json!(true),
+            &json!(true),
+            &json!(0)
+        )
+    );
+    let spent_usd = theseus_kernel::micros_to_usd(e.budget.spent_micros);
+    assert_eq!(cut[0]["cost_usd"], json!(spent_usd));
+    let info = r
+        .core
+        .session_list()
+        .unwrap()
+        .into_iter()
+        .find(|s| s.session_id == sid)
+        .unwrap();
+    assert!(
+        (info.cost_usd - spent_usd).abs() < 1e-9,
+        "the session's cost is the budget's spend: {} vs {spent_usd}",
+        info.cost_usd
+    );
+    let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
+    assert!(!root.join("a.txt").exists(), "nothing was written");
+    // The next message continues the session, without the cut answer.
+    *r.model.hold.lock().unwrap() = None;
+    let second = turn(&r.core, &sid, "SECOND what happened?").await;
+    assert_eq!(second.output, "Nothing was written.");
+    let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
+    let seen = serde_json::to_string(&req.messages).unwrap();
+    assert!(seen.contains("FIRST write a file"), "{seen}");
+    assert!(
+        !seen.contains("I will write it."),
+        "the cut answer is not kept: {seen}"
+    );
+}
+
+/// A provider that streams a little text, then waits for ever: a stop cuts it.
+struct Streams {
+    entered: tokio::sync::mpsc::UnboundedSender<()>,
+}
+
+impl Provider for Streams {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        _req: &'a ProviderRequest,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        Box::pin(async move {
+            on_delta(crate::provider::Delta::Text("twelve chars"));
+            let _ = self.entered.send(());
+            std::future::pending().await
+        })
+    }
+}
+
+/// theseus-yey: what the cut stream had said is counted: its twelve
+/// characters are four output tokens at three characters a token, booked with
+/// the input estimate at the model's prices.
+#[tokio::test]
+async fn a_cut_stream_books_its_output_from_the_characters_it_streamed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let cfg = config(&root.canonicalize().unwrap(), dir.path());
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let (entered, mut waiting) = tokio::sync::mpsc::unbounded_channel();
+    let core = Core::build(crate::rpc::Parts::for_tests(
+        cfg,
+        Arc::new(Streams { entered }),
+        store,
+    ))
+    .unwrap();
+    let sid = parent_session(&core);
+    let (c, s) = (core.clone(), sid.clone());
+    let first = tokio::spawn(async move { turn(&c, &s, "go").await });
+    waiting.recv().await.unwrap();
+    let eid = parent_exec(&core, &sid).id;
+    core.stop_execution(&eid, "operator").await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), first)
+        .await
+        .expect("the stop cut the stream")
+        .unwrap();
+    let cut = rows(&core, "provider.cut");
+    assert_eq!(cut.len(), 1, "{cut:?}");
+    assert_eq!(
+        (&cut[0]["output_chars"], &cut[0]["output_tokens"]),
+        (&json!(12), &json!(4))
+    );
+    let usage = theseus_protocol::Usage {
+        input_tokens: cut[0]["input_tokens"].as_u64().unwrap(),
+        output_tokens: 4,
+        ..Default::default()
+    };
+    let price = core.catalog.get(cut[0]["model"].as_str().unwrap()).unwrap();
+    let e = parent_exec(&core, &sid);
+    assert_eq!(e.budget.spent_micros, price.cost_micros(&usage));
+    assert_eq!(
+        (e.budget.reserved_micros, e.budget.held_unknown_micros),
+        (0, 0)
+    );
 }
 
 /// `/stop` between turns declines an approval that waits: its card settles

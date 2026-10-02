@@ -338,6 +338,12 @@ impl Core {
                 wakes_pending: 0,
             });
         };
+        // The model call the running turn waits on is cut now, and not left to
+        // finish (theseus-yey): the kernel's record of the stop is written, so
+        // the turn finds it when this wakes it.
+        if stop.turn_running {
+            self.runner.stops.signal(id);
+        }
         for a in &stop.declined {
             if let Err(e) = self.outbox.closed(
                 &a.correlation_id,
