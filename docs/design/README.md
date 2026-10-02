@@ -6,6 +6,7 @@ stays the source of truth, and its Part III records what was built. Each documen
 was public (it has been private since 2026-09-30); the line under its title names the kinds of detail replaced.
 
 - [roadmap-v2.md](roadmap-v2.md): the v1 roadmap re-cut into one spine on `main` and parallel lanes, with a timeline estimate and the conflicts found across the six designs. It orders every step below, from Stage 1's remainder (steps 4b to 8) to step 45.
+- [roadmap-v1.1.md](roadmap-v1.1.md): the week after v1. The `post-v1` backlog, Review 2's deferred items, the designs' open questions, and Part III's open gaps, cut into seven themes, 12 spine steps, and 12 lanes, with what each theme proves, and what waits past v1.1 and why.
 - [stage2-operator-surfaces.md](stage2-operator-surfaces.md): Stage 2, the operator's surfaces: the protocol push, the TUI, herdr, the first edges, telemetry, and caching. Roadmap steps 9 to 13.
 - [aws-toolset.md](aws-toolset.md): the AWS toolset for an owner-Theseus: the dynamic client, the guardrails, credentials, stacks, durability, and hands. Roadmap steps 14 to 16 and 40, and AWS credentials in L1.
 - [m4-boundaries.md](m4-boundaries.md): M4, boundaries apart from AWS: the L1 sandbox, verified cancellation, egress and credential brokering, labels, the ontology's first slice, and control-plane separation. Roadmap steps 17 to 22.
@@ -20,4 +21,4 @@ And one review:
   web UI, the spool, the git tools, the secret broker). Its accepted findings became the roadmap's fix batches and
   lanes. The spec's Part III records each one's fix. Checked in on 2026-10-01.
 
-_Index written by Tabitha/Claude, 2026-09-30; Review 2 added 2026-10-01._
+_Index written by Tabitha/Claude, 2026-09-30; Review 2 added 2026-10-01, and the v1.1 roadmap 2026-10-02._
