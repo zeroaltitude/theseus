@@ -11,9 +11,10 @@
 # its own path shows), then builds it with scripts/build.sh into a fresh target
 # directory, with no compile cache: a cached object would make two builds the same
 # by copying, and prove nothing. So this is two full builds of the whole workspace,
-# from scratch: about an hour, and `THESEUS_REPRO_BUILD_ARGS=--shipped` builds only the
-# four shipped binaries, in half that (they are the same binaries but for a few
-# dependency features: scripts/build.sh says which). Run it niced, and detached. It prints each binary's sha256, then
+# from scratch: 23 minutes for release-thin beside other work, a little more for release, and
+# `THESEUS_REPRO_BUILD_ARGS=--shipped` builds only the four shipped binaries, in about 40 %
+# less (they are the same binaries but for a few dependency features: scripts/build.sh
+# says which). Run it niced, and detached. It prints each binary's sha256, then
 # `cmp`s the two, and exits 1 when any differs, with how many bytes. With `--bench`, a
 # reproducible result is followed by `theseus-sim bench size`, `turn`, and `idle` on the
 # first build's binaries, recorded in the bench history (`$THESEUS_BENCH_HISTORY`, labelled

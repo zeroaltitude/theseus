@@ -184,11 +184,30 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
     install is rebuilt after every reviewed step: so the chain installs `release-thin`, and a tagged release keeps
     `release`. If a bench ever blames the profile, tell by interleaving the two builds' `kernel-sim` runs and comparing
     the least user time.
+- **glibc or static musl.** An install is the host's glibc build. Static musl is the portable build, which CI builds on every
+  push and `build.sh --target x86_64-unknown-linux-musl` builds anywhere (§3.18 says "static musl"; the recipe had always built
+  glibc, and nothing had measured the difference). Measured on 2026-10-02: one commit, `release-thin`, the whole workspace, one
+  driver for both daemons, interleaved on a busy machine.
+  - musl is **lighter and quicker to start and stop**: 14.4 against 17.2 MB resident after the start and 17.5 against 23.3 MB
+    after a burst (steady over three rounds), 20.8 against 47.9 MB with 10,000 parked sessions; a clean shutdown in 44 ms against
+    63, a SIGKILL restart in 38 against 64, a binary swap in 58 against 72 (medians; a static binary has no dynamic loader to run).
+  - musl is **slower on allocation-heavy work**, its allocator taking one global lock: `kernel-sim` takes 36 to 38 % more user time
+    and 3 to 5 times the system time (eight interleaved runs), a burst of turns 85 ms a turn against 75, and a daemon with 10,000
+    parked sessions, which never goes quiet (review 2's S1), spends 7.5 % of a core against 4.5 %.
+  - Sizes are equal (musl is 0.5 to 4.6 % bigger). The glibc binaries need glibc 2.34 or newer (Ubuntu 22.04, Debian 12, RHEL 9);
+    musl's are static-pie. musl's libc and start files come with the toolchain and glibc's from the host's libc6-dev, so the musl
+    build is the more hermetic across machines (both still compile ring's C with the host's gcc).
+  - **So the install is glibc.** The gate, the review's live check, and the benches all run glibc builds, so what is installed is
+    what was tested, and musl's CPU cost would land on the paths that grow (candle and tantivy, once the index tender is wired in).
+    **What would flip it:** a musl build with a better global allocator that closes the CPU gap in this comparison (build both with
+    `build.sh`, run `theseus-sim bench turn` and `idle` against each `theseusd` with one driver, interleaved, and compare
+    `kernel-sim` user and system time), and a musl run in the gate or a nightly job, so that what ships is tested.
 - **`repro.sh [--rev REV] [--profile P] [--keep] [--bench]`** extracts the commit twice with `git archive`, into two
   directories whose names differ in length, builds each with `build.sh` into a fresh target and with no compile cache (a
   cached object would copy, and prove nothing), and `cmp`s `theseusd`, `theseus`, `theseus-tui`, and `theseus-sim`. Two
-  full builds of the workspace from scratch: about an hour beside other work (`THESEUS_REPRO_BUILD_ARGS=--shipped` halves it),
-  so run it niced and detached. It exits 1 when a binary differs, and keeps the trees. With `--bench`, a reproducible
+  full builds of the workspace from scratch: 23 minutes for `release-thin` beside other work (9 min 53 s and 13 min 11 s, 1,850
+  CPU-seconds a build), a little more for `release` (`THESEUS_REPRO_BUILD_ARGS=--shipped` is about 40 % shorter), so run it
+  niced and detached. It exits 1 when a binary differs, and keeps the trees. With `--bench`, a reproducible
   result is followed by `bench size`, `turn`, and `idle` on the first build's binaries, recorded in the bench history
   under the profile and the commit: the numbers that mean something only on an optimized build, which the gate never
   makes. Run it after a toolchain bump, a dependency change that adds a build script, and before a release; a nightly

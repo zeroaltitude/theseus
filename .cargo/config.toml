@@ -1,5 +1,7 @@
 # Static musl target. ring (via rustls) compiles a little C; musl-gcc from
-# musl-tools is the right compiler for it. CI installs musl-tools too.
+# musl-tools is the right compiler for it. CI installs musl-tools too, and builds
+# it on every push as the portable artifact; an install is the host's glibc build
+# (scripts/AGENTS.md, "glibc or static musl").
 [target.x86_64-unknown-linux-musl]
 linker = "rust-lld"
 

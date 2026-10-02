@@ -127,8 +127,6 @@ Each is a requirement, with its spec section.
 - **A typed protocol** (§1, "Wire protocol"; §3.18; Item 30). Every client, the CLI, Discord, and the web apps
   included, reaches the core only through the protocol. Each wire shape has one Rust definition, and the TypeScript is
   generated from it.
-- **Shape** (C1). A function over 100 lines or complexity 25, or a file over 2,500 lines, fails the gate:
-  split it, or mark it (`scripts/AGENTS.md`).
 - **Opinionated** (§2, OPINIONATED and NATIVE FIRST). One blessed path and few knobs: no plugin architecture, and no
   hooks (deleted in A3b). A new capability is a native toollet unless a written reason says it can't be. "Ruthlessly
   remove complexity" (Eddie, A3b).
