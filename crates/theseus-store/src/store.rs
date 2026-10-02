@@ -227,9 +227,11 @@ struct Inner {
     /// see them queued): counted once sent, so it may dip below zero while
     /// the writer answers one before its sender counts it.
     queued: std::sync::atomic::AtomicI64,
-    /// A test's way to make a checkpoint slow, as a disk under writeback is.
+    /// A test's way to hold a checkpoint, as a disk under writeback holds
+    /// one: the next checkpoint waits until this channel's sender sends or
+    /// drops.
     #[cfg(test)]
-    checkpoint_delay: std::sync::Mutex<std::time::Duration>,
+    checkpoint_hold: std::sync::Mutex<Option<mpsc::Receiver<()>>>,
 }
 
 /// One append, as the writer takes it: its records, each one's terms and
@@ -816,7 +818,7 @@ impl Inner {
             pending_verified: VerifiedSlot::default(),
             queued: std::sync::atomic::AtomicI64::new(0),
             #[cfg(test)]
-            checkpoint_delay: std::sync::Mutex::default(),
+            checkpoint_hold: std::sync::Mutex::default(),
         };
         store.verified = match store.index.meta(&VERIFIED_KEYS)?[..] {
             [Some(segment), Some(offset), Some(first), Some(position), Some(full_at)] => {
@@ -898,7 +900,12 @@ impl Inner {
         // to `last` is synced and indexed.
         let _alone = self.appending.write().unwrap();
         #[cfg(test)]
-        std::thread::sleep(*self.checkpoint_delay.lock().unwrap());
+        {
+            let hold = self.checkpoint_hold.lock().unwrap().take();
+            if let Some(hold) = hold {
+                let _ = hold.recv();
+            }
+        }
         let last = self.wal.last_position();
         let verified = self.pending_verified.take();
         // Nothing written since the last checkpoint: the index has `last`

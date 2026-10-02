@@ -75,21 +75,26 @@ fn the_writer_commits_every_queued_frame_with_one_sync() {
 
 /// The periodic checkpoint (theseus-avvb) runs on the writer after it has
 /// answered the append that crossed the mark: no append's call pays it.
-/// A checkpoint made slow, as a disk under writeback is, shows it: the
-/// 1,000th record's append returns while the checkpoint still runs.
+/// A checkpoint held, as a disk under writeback holds one, shows it: the
+/// 1,000th record's append returns while the checkpoint is still held, and
+/// the checkpoint lands once it is let go. No timing decides it (it was a
+/// bound of 500 ms, which a loaded machine's stall could pass): an append
+/// that paid the checkpoint would wait on the hold, and fail after 20 s.
 #[test]
 fn the_append_that_crosses_the_checkpoint_mark_does_not_wait_for_it() {
     let dir = tempfile::tempdir().unwrap();
-    let s = WalStore::open(
-        dir.path(),
-        WalConfig {
-            fsync: false,
-            ..WalConfig::default()
-        },
-    )
-    .unwrap();
-    let slow = std::time::Duration::from_millis(1500);
-    *s.inner.checkpoint_delay.lock().unwrap() = slow;
+    let s = std::sync::Arc::new(
+        WalStore::open(
+            dir.path(),
+            WalConfig {
+                fsync: false,
+                ..WalConfig::default()
+            },
+        )
+        .unwrap(),
+    );
+    let (release, hold) = std::sync::mpsc::channel::<()>();
+    *s.inner.checkpoint_hold.lock().unwrap() = Some(hold);
     let row = |i: u32| NewRecord::json(kinds::LEDGER, None, &i).unwrap();
     for i in 0..999 {
         s.append(&[row(i)]).unwrap();
@@ -99,13 +104,21 @@ fn the_append_that_crosses_the_checkpoint_mark_does_not_wait_for_it() {
         None,
         "no checkpoint before the mark"
     );
-    let t = std::time::Instant::now();
-    s.append(&[row(999)]).unwrap();
-    let took = t.elapsed();
-    assert!(
-        took < slow / 3,
-        "the 1,000th record's append took {took:?}: it waited for the checkpoint"
+    let (done, appended) = std::sync::mpsc::channel();
+    let (store, last) = (s.clone(), row(999));
+    std::thread::spawn(move || done.send(store.append(&[last]).map(|_| ())));
+    if let Ok(answer) = appended.recv_timeout(std::time::Duration::from_secs(20)) {
+        answer.unwrap();
+    } else {
+        drop(release);
+        panic!("the 1,000th record's append waited for the checkpoint: not back in 20 s");
+    }
+    assert_eq!(
+        s.stats().unwrap().checkpoint,
+        None,
+        "the checkpoint is still held when the append returns"
     );
+    drop(release);
     // The checkpoint follows, on the writer.
     let t0 = std::time::Instant::now();
     while s.stats().unwrap().checkpoint != Some(1000) {
