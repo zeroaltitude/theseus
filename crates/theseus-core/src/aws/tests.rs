@@ -960,6 +960,7 @@ fn find<'a>(s: &'a Span, pred: &dyn Fn(&Span) -> bool) -> Option<&'a Span> {
 /// the call's own in the turn's trace, and health counts it. A write in the
 /// next turn is invalid input: a `tool.invalid_input` row, and nothing sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn an_aws_call_through_the_core_is_a_row_a_span_and_a_result() {
     use crate::provider::Scripted;
     let fake = Fake::start(aws_answers(ACCOUNT));

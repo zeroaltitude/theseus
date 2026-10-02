@@ -1712,6 +1712,7 @@ mod tests {
     /// value: un-comment them all and the result must still parse under
     /// deny_unknown_fields. This is what stops the template from lying.
     #[test]
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     fn example_template_uncommented_still_parses() {
         let mut out = String::new();
         for line in Config::EXAMPLE_TOML.lines() {
