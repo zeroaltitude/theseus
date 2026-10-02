@@ -2725,4 +2725,57 @@ mod tests {
             }
         }
     }
+
+    /// A fence line of any length, up to three times the limit, with no space
+    /// or newline in it (a fence whose language is minified JSON or base64),
+    /// then a body with no newline, of ASCII and multibyte characters: the
+    /// cases Review 2's R5 named. A fence's word is `j`s and a body never
+    /// holds one, so each body character can be counted across the parts.
+    fn adversarial() -> impl proptest::strategy::Strategy<Value = (String, String, usize)> {
+        use proptest::prelude::*;
+        let limit = prop_oneof![1usize..64, 64usize..600, Just(PART_LIMIT)];
+        limit.prop_flat_map(|limit| {
+            let fence = (0..=3 * limit).prop_map(|n| format!("```{}", "j".repeat(n)));
+            // No backquote: a body line that began a fence would be carried
+            // too, and its characters counted twice.
+            let body = proptest::collection::vec(
+                proptest::sample::select(vec!["x", "中", "é", "😀"]),
+                0..2 * limit.min(800),
+            )
+            .prop_map(|v| v.concat());
+            (fence, body, Just(limit))
+        })
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config {
+            cases: 400,
+            failure_persistence: None,
+            ..proptest::test_runner::Config::default()
+        })]
+
+        /// Long fences, a fence longer than the limit, and no newlines: the
+        /// split returns, every part is whole and fits a real limit, and every
+        /// body character is in some part, once (R5, theseus-xonq).
+        #[test]
+        fn a_long_fence_with_no_newline_still_splits_and_keeps_every_character(
+            (fence, body, limit) in adversarial(),
+        ) {
+            let text = format!("{fence}\n{body}");
+            let split = within(5, move || split_text(&text, limit));
+            proptest::prop_assert!(split.is_some(), "split_text did not return (limit {})", limit);
+            let parts = split.unwrap();
+            proptest::prop_assert!(parts.iter().all(|p| !p.is_empty()));
+            if limit >= 64 {
+                for p in &parts {
+                    proptest::prop_assert!(p.len() <= limit, "a part of {} bytes, over {}", p.len(), limit);
+                }
+            }
+            for c in ['x', '中', 'é', '😀'] {
+                let want = body.matches(c).count();
+                let got: usize = parts.iter().map(|p| p.matches(c).count()).sum();
+                proptest::prop_assert_eq!(got, want, "{:?} kept once each", c);
+            }
+        }
+    }
 }
