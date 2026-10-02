@@ -63,7 +63,7 @@ pub fn sidebar_width(width: u16) -> u16 {
 }
 
 fn header(app: &App, area: Rect, buf: &mut Buffer) {
-    let (need, done) = app.board.counts(&|_| false);
+    let (need, done) = app.board.counts(&|v| app.is_done(v));
     let mut left = String::from(" theseus");
     if need > 0 {
         left.push_str(&format!(
@@ -389,7 +389,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
-        " tab ⇧tab   the next / previous session that needs you",
+        " tab ⇧tab   the next / previous that needs you, then done (◆)",
         " y t n      approve / approve + trust / decline (with a note)",
         " esc        back to the list (narrow screens); clear the filters",
         " i          type to the open session: enter sends, esc leaves",

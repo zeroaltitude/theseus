@@ -22,7 +22,9 @@ use tokio::sync::mpsc;
 
 use crate::app::App;
 use crate::board::{short_label, Board, Only};
+use crate::notice::{Delivery, Kind, Notices};
 use crate::run::{Connector, Runner};
+use crate::seen::Seen;
 use crate::ui;
 
 /// 2026-09-21 14:13:20 UTC, the tests' epoch.
@@ -368,6 +370,21 @@ pub fn conv(
     )
 }
 
+/// A conversation just opened: waiting on its first input, no turn taken.
+pub fn opened(position: u64, sid: &str) -> ExecutionView {
+    view(
+        position,
+        sid,
+        SessionKind::Conversation,
+        None,
+        "waiting",
+        input(),
+        vec![],
+        0,
+        0.0,
+    )
+}
+
 pub fn task(position: u64, sid: &str, parent: &str, state: &str, spent: f64) -> ExecutionView {
     view(
         position,
@@ -647,10 +664,7 @@ async fn a_snapshot_and_three_events_draw_the_sidebar_and_its_tree() {
         serde_json::to_value(question("ses_tide01", "cor_tide01", "push the branch", 102)).unwrap(),
     );
     // Three: a session the board has not seen; its title is asked for.
-    d.notify(
-        "execution.changed",
-        changed(&conv(103, "ses_new001", "waiting", input(), 0.0)),
-    );
+    d.notify("execution.changed", changed(&opened(103, "ses_new001")));
     rig.shows("fresh start").await;
     rig.shows("turn 4").await;
     rig.shows("2 need you").await;
@@ -741,7 +755,7 @@ async fn a_reconnect_takes_the_new_daemons_board_whole() {
     rig.shows("spec review").await;
     world.lock().unwrap().board = json!({
         "position": 7,
-        "executions": [conv(7, "ses_new001", "waiting", input(), 0.0)],
+        "executions": [opened(7, "ses_new001")],
         "confirms": [],
         "total": 1,
     });
@@ -852,16 +866,19 @@ async fn the_list_keys_move_and_filter() {
 #[test]
 fn the_position_rule_applies_only_a_newer_view() {
     let mut b = Board::default();
-    assert!(b.apply(conv(10, "ses_a", "running", None, 0.0)));
+    let first = b.apply(conv(10, "ses_a", "running", None, 0.0));
+    assert_eq!(first.map(|m| m.before), Some(None), "a session first seen");
     assert!(
-        !b.apply(conv(10, "ses_a", "waiting", input(), 0.0)),
+        b.apply(conv(10, "ses_a", "waiting", input(), 0.0))
+            .is_none(),
         "the same position"
     );
     assert!(
-        !b.apply(conv(9, "ses_a", "waiting", input(), 0.0)),
+        b.apply(conv(9, "ses_a", "waiting", input(), 0.0)).is_none(),
         "an older one"
     );
-    assert!(b.apply(conv(11, "ses_a", "waiting", input(), 0.0)));
+    let moved = b.apply(conv(11, "ses_a", "waiting", input(), 0.0));
+    assert_eq!(moved.map(|m| m.before), Some(Some(Level::Working)));
     let rows = b.rows(Only::All, "", &|_| false);
     assert_eq!(
         (rows[0].level, rows[0].label.as_str()),
@@ -1427,4 +1444,238 @@ async fn a_budget_question_says_what_approving_does() {
         .screen()
         .iter()
         .any(|l| l.contains("[y] reset and continue  [n] keep waiting")));
+}
+
+// ---------------------------------------------------------------- 10e
+
+/// A notice waits out its second and is checked against the latest view: a
+/// session that finished and went back to work within the second gives
+/// none; one that stays finished gives one, once.
+#[test]
+fn a_notice_is_debounced_and_checked_again_before_it_fires() {
+    let mut n = Notices::default();
+    let ready = conv(11, "ses_a", "waiting", input(), 0.0);
+    let again = conv(12, "ses_a", "running", None, 0.0);
+    n.moved("ses_a", Some(Level::Working), &ready, 1_000);
+    assert_eq!(n.next_due(), Some(2_000));
+    // Back to work at 1.5 s: at 2 s the latest view no longer holds it.
+    n.moved("ses_a", Some(Level::Ready), &again, 1_500);
+    let latest = again.clone();
+    assert!(n
+        .take_due(2_000, &|_| Some(latest.clone()), &|_| false)
+        .is_empty());
+    // Finished again, and it stays: one notice, once.
+    n.moved("ses_a", Some(Level::Working), &ready, 3_000);
+    let latest = ready.clone();
+    assert!(
+        n.take_due(3_999, &|_| Some(latest.clone()), &|_| false)
+            .is_empty(),
+        "not before its second"
+    );
+    assert_eq!(
+        n.take_due(4_000, &|_| Some(latest.clone()), &|_| false),
+        [("ses_a".to_string(), Kind::Finished)]
+    );
+    assert!(
+        n.take_due(9_000, &|_| Some(latest.clone()), &|_| false)
+            .is_empty(),
+        "once"
+    );
+}
+
+/// No notice for the session in focus while the terminal has focus; one when
+/// the terminal lost it.
+#[test]
+fn the_focused_session_gets_no_notice_while_the_terminal_has_focus() {
+    let mut n = Notices::default();
+    let ready = conv(11, "ses_a", "waiting", input(), 0.0);
+    n.moved("ses_a", Some(Level::Working), &ready, 0);
+    let latest = ready.clone();
+    assert!(n
+        .take_due(1_000, &|_| Some(latest.clone()), &|_| true)
+        .is_empty());
+    n.moved("ses_a", Some(Level::Working), &ready, 2_000);
+    assert_eq!(
+        n.take_due(3_000, &|_| Some(latest.clone()), &|_| false)
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn a_notice_reaches_the_terminal_as_its_delivery_says() {
+    assert_eq!(Delivery::Bell.bytes("DM finished"), b"\x07");
+    assert_eq!(
+        Delivery::Osc9.bytes("DM finished"),
+        b"\x1b]9;theseus: DM finished\x07"
+    );
+    assert_eq!(
+        Delivery::Osc777.bytes("DM\x1b finished"),
+        b"\x1b]777;notify;theseus;DM finished\x07",
+        "no control character reaches the sequence"
+    );
+    assert!(Delivery::Off.bytes("DM finished").is_empty());
+    assert_eq!(Delivery::parse("osc777"), Some(Delivery::Osc777));
+    assert_eq!(Delivery::parse("loud"), None);
+}
+
+/// A writer the tests read back: the terminal's own sequences (the bell, a
+/// notice, the title).
+#[derive(Clone, Default)]
+pub struct Captured(pub Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Captured {
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+    }
+}
+
+/// §3.2's live check for 10e, in a test: a background task finishes; its row
+/// says ◆ done, the header counts it, the title carries the count, and the
+/// notice waits out its second, then rings once.
+#[tokio::test]
+async fn a_finished_task_is_done_counted_and_rung_once() {
+    let mut rig = harbour_rig(80, 24);
+    let out = Captured::default();
+    rig.runner.out = Box::new(out.clone());
+    rig.shows("ready  DM +1").await;
+    assert!(
+        out.text().contains("\x1b]0;theseus (1)\x07"),
+        "{:?}",
+        out.text()
+    );
+    let mut tide = task(140, "ses_tide01", "ses_dm0001", "complete", 0.12);
+    tide.previous = Some("running".into());
+    rig.daemon().notify("execution.changed", changed(&tide));
+    rig.shows("◆ done  check the tide tables").await;
+    assert!(
+        rig.screen()[0].contains("1 needs you · 1 done"),
+        "{:?}",
+        rig.screen()
+    );
+    let title = "\x1b]0;theseus (2)\x07".to_string();
+    rig.until("the title's count", |_| out.text().contains(&title))
+        .await;
+    // Each title ends in a BEL too: a bell is a BEL that ends no title.
+    let bells =
+        |o: &Captured| o.text().matches('\x07').count() - o.text().matches("\x1b]0;").count();
+    assert_eq!(bells(&out), 0, "not before its second");
+    NOW.with(|n| n.set(T0 + 1_000));
+    rig.until("the bell", |_| bells(&out) == 1).await;
+    assert!(
+        rig.screen()[23].contains("check the tide tables finished"),
+        "{:?}",
+        rig.screen()
+    );
+    NOW.with(|n| n.set(T0 + 5_000));
+    rig.settle().await;
+    assert_eq!(bells(&out), 1, "once");
+}
+
+/// A rig whose seen file is `path`.
+pub fn harbour_rig_seen(
+    width: u16,
+    height: u16,
+    world: Arc<Mutex<World>>,
+    path: &std::path::Path,
+) -> Rig {
+    let mut rig = Rig::new(width, height, script(world));
+    rig.runner.app.seen = Seen::open(Some(path.to_path_buf()));
+    rig
+}
+
+/// §3.2's test for 10e: a background task finishes, and its row says done
+/// (◆) until the operator focuses it; the seen file keeps that across a
+/// restart of the TUI, both before and after it is seen.
+#[tokio::test]
+async fn done_until_seen_survives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("theseus").join("tui-seen.json");
+    let world = harbour_world();
+    // Run 1: a first start sees the board as it is, then the tide task ends.
+    let mut rig = harbour_rig_seen(80, 24, world.clone(), &path);
+    rig.shows("check the tide tables").await;
+    let mut tide = task(140, "ses_tide01", "ses_dm0001", "complete", 0.12);
+    tide.previous = Some("running".into());
+    rig.daemon().notify("execution.changed", changed(&tide));
+    rig.shows("◆ done  check the tide tables").await;
+    assert!(rig.screen()[0].contains("1 done"), "{:?}", rig.screen());
+    rig.press(&[KeyCode::Char('q')]).await;
+    assert!(path.exists(), "the seen file is written on exit");
+    // Run 2: the daemon's board now holds the ended task; it is still done.
+    {
+        let mut w = world.lock().unwrap();
+        replace_view(&mut w.board, &tide);
+    }
+    let mut rig = harbour_rig_seen(80, 24, world.clone(), &path);
+    rig.shows("◆ done  check the tide tables").await;
+    // Focus it: seen.
+    let row = rig
+        .screen()
+        .iter()
+        .position(|l| l.contains("check the tide tables"))
+        .unwrap();
+    for _ in 1..row {
+        rig.press(&[KeyCode::Char('j')]).await;
+    }
+    rig.press(&[KeyCode::Char('j'), KeyCode::Enter]).await;
+    rig.press(&[KeyCode::Esc]).await;
+    rig.settle().await;
+    assert!(
+        !rig.screen().iter().any(|l| l.contains('◆')),
+        "{:?}",
+        rig.screen()
+    );
+    rig.press(&[KeyCode::Char('q')]).await;
+    // Run 3: seen stays seen.
+    let mut rig = harbour_rig_seen(80, 24, world, &path);
+    rig.shows("socket ok").await;
+    rig.settle().await;
+    assert!(
+        !rig.screen().iter().any(|l| l.contains('◆')),
+        "{:?}",
+        rig.screen()
+    );
+}
+
+/// The seen rule (design §2.2): done means it finished after it was last
+/// displayed. A first start's board is seen as it is; a session the TUI never
+/// knew counts as done once it has worked, unless it was cancelled; looking
+/// at it clears it.
+#[test]
+fn the_seen_rule_marks_what_finished_unseen() {
+    let mut s = Seen::open(None);
+    let old = conv(10, "ses_old", "waiting", input(), 0.0);
+    s.applied(&old, false);
+    s.first_board_read();
+    assert!(!s.done(&old), "a first start's board is seen as it is");
+    let worked = conv(20, "ses_new", "waiting", input(), 0.0);
+    s.applied(&worked, false);
+    assert!(s.done(&worked), "new, and it worked: done");
+    let idle = opened(21, "ses_idle");
+    s.applied(&idle, false);
+    assert!(!s.done(&idle), "new, and it never worked");
+    let gone = conv(22, "ses_gone", "cancelled", None, 0.0);
+    s.applied(&gone, false);
+    assert!(!s.done(&gone), "whoever cancelled it was there");
+    s.display(&worked);
+    assert!(!s.done(&worked), "displayed: seen");
+    let again = conv(30, "ses_new", "running", None, 0.0);
+    s.applied(&again, false);
+    let back = conv(31, "ses_new", "waiting", input(), 0.0);
+    s.applied(&back, true);
+    assert!(
+        !s.done(&back),
+        "it finished while the operator looked at it"
+    );
 }

@@ -5,6 +5,7 @@
 //! and carries out the effects it returns: requests to send, and quitting.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use serde_json::{json, Value};
@@ -15,8 +16,10 @@ use theseus_protocol::{
     SessionKind, SessionListResult, TaskCancelResult,
 };
 
-use crate::board::{short, Board, Only, Question, Row};
+use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
+use crate::notice::{Kind, Notices};
+use crate::seen::Seen;
 
 /// What the TUI's requests carry as their author: the ledger names it, and
 /// `[approval]` counts its answers as the CLI's (the `cli` channel).
@@ -66,6 +69,12 @@ pub enum Purpose {
 pub enum Effect {
     Call(Call),
     Quit,
+    /// Tell the operator, as `--notify` says: the bell, OSC 9, or OSC 777.
+    Notice(String),
+    /// The terminal's title: `theseus (2)`.
+    Title(String),
+    /// Write the seen file: its path and its text.
+    Save(PathBuf, String),
 }
 
 /// The connection, as the header says it.
@@ -141,7 +150,22 @@ pub struct App {
     pub hm: fn(u64) -> String,
     /// A `confirm.list` is in flight: one at a time.
     asking_questions: bool,
+    /// What the operator has seen (done until seen), kept in the seen file.
+    pub seen: Seen,
+    pub notices: Notices,
+    /// The terminal has focus (crossterm's focus events; assumed until one
+    /// says otherwise). While it has, the session in focus is seen, and gets
+    /// no notice.
+    pub term_focus: bool,
+    /// The title last set.
+    title: String,
+    /// When the seen file is due to be written: a change of focus waits a
+    /// second, so a walk through the queue writes once.
+    save_at: Option<u64>,
 }
+
+/// How long after a change of focus the seen file is written.
+const SAVE_AFTER_MS: u64 = 1_000;
 
 impl App {
     pub fn new(hm: fn(u64) -> String) -> Self {
@@ -163,6 +187,11 @@ impl App {
             height: 24,
             hm,
             asking_questions: false,
+            seen: Seen::default(),
+            notices: Notices::default(),
+            term_focus: true,
+            title: String::new(),
+            save_at: None,
         }
     }
 
@@ -170,10 +199,49 @@ impl App {
         self.width >= WIDE
     }
 
+    /// Done until seen (design §2.2): the client's rule, from the seen state.
+    pub fn is_done(&self, v: &ExecutionView) -> bool {
+        self.seen.done(v)
+    }
+
     /// The sidebar's rows, as the filters choose them.
     pub fn rows(&self) -> Vec<Row> {
         self.board
-            .rows(self.only, &self.filter, &|_: &ExecutionView| false)
+            .rows(self.only, &self.filter, &|v| self.is_done(v))
+    }
+
+    /// The session the operator sees now: in focus, on screen, on a terminal
+    /// that has focus.
+    fn watching(&self, sid: &str) -> bool {
+        self.term_focus && self.shown() == Some(sid)
+    }
+
+    /// A view the board took: the seen state, and a notice if it moved live.
+    fn took(&mut self, v: &ExecutionView, moved: Option<Moved>) {
+        let watching = self.watching(&v.session_id);
+        self.seen.applied(v, watching);
+        if let Some(m) = moved {
+            if !watching {
+                self.notices.moved(&v.session_id, m.before, v, self.now_ms);
+            }
+        }
+    }
+
+    /// What is on screen now is seen: the session in focus, if the terminal
+    /// has focus.
+    fn mark_shown(&mut self) {
+        if !self.term_focus {
+            return;
+        }
+        if let Some(v) = self.shown().and_then(|sid| self.board.view(sid)).cloned() {
+            self.seen.display(&v);
+        }
+    }
+
+    /// The terminal gained or lost focus.
+    pub fn term_focused(&mut self, focused: bool) {
+        self.term_focus = focused;
+        self.mark_shown();
     }
 
     /// The session whose pane is on screen: the focused one, beside the list
@@ -191,16 +259,77 @@ impl App {
         questions.into_iter().next().map(|q| (q, behind))
     }
 
-    /// When the app needs the loop next, if ever: the card's countdown ticks
-    /// once a second while it is on screen (design §2.9, quiet).
+    /// When the app needs the loop next, if ever (design §2.9, quiet): a
+    /// notice's second, the seen file's write, and the card's countdown,
+    /// which ticks once a second while it is on screen.
     pub fn deadline(&self) -> Option<u64> {
-        let (q, _) = self.card()?;
-        let left = q
-            .expires_at_ms()
-            .checked_sub(self.now_ms)
-            .filter(|l| *l > 0)?;
-        // The moment the countdown's seconds change.
-        Some(self.now_ms + if left % 1000 == 0 { 1000 } else { left % 1000 })
+        let countdown = self.card().and_then(|(q, _)| {
+            let left = q
+                .expires_at_ms()
+                .checked_sub(self.now_ms)
+                .filter(|l| *l > 0)?;
+            // The moment the countdown's seconds change.
+            Some(self.now_ms + if left % 1000 == 0 { 1000 } else { left % 1000 })
+        });
+        [countdown, self.notices.next_due(), self.save_at]
+            .into_iter()
+            .flatten()
+            .min()
+    }
+
+    /// A deadline came: the notices that still hold fire, and the seen file
+    /// is written if it is due.
+    pub fn tick(&mut self) -> Vec<Effect> {
+        let mut out = Vec::new();
+        let fired = {
+            let board = &self.board;
+            let (focus, shown) = (self.term_focus, self.shown().map(String::from));
+            self.notices
+                .take_due(self.now_ms, &|sid| board.view(sid).cloned(), &|sid| {
+                    focus && shown.as_deref() == Some(sid)
+                })
+        };
+        for (sid, kind) in fired {
+            let text = format!("{} {}", self.board.name(&sid), kind.words());
+            let mark = match kind {
+                Kind::NeedsYou => render::glyph(theseus_protocol::Level::NeedsYou),
+                Kind::Finished => crate::ui::DONE,
+            };
+            self.flash = Some((Tag::Ok, format!("{mark} {text}")));
+            out.push(Effect::Notice(text));
+        }
+        if self.save_at.is_some_and(|at| at <= self.now_ms) {
+            out.extend(self.save());
+        }
+        out
+    }
+
+    /// The seen file's write, if there is a file and something changed; only
+    /// the executions the board holds are kept, so it does not grow forever.
+    pub fn save(&mut self) -> Option<Effect> {
+        self.save_at = None;
+        if !self.seen.dirty {
+            return None;
+        }
+        let path = self.seen.path()?.clone();
+        self.seen.dirty = false;
+        let ids = self.board.execution_ids();
+        Some(Effect::Save(path, self.seen.text(&|id| ids.contains(id))))
+    }
+
+    /// The terminal's title, when it changed: `theseus (2)`, the queue's
+    /// length (needs you, and done until seen).
+    pub fn title(&mut self) -> Option<Effect> {
+        let (need, done) = self.board.counts(&|v| self.is_done(v));
+        let t = match need + done {
+            0 => "theseus".to_string(),
+            n => format!("theseus ({n})"),
+        };
+        if t == self.title {
+            return None;
+        }
+        self.title.clone_from(&t);
+        Some(Effect::Title(t))
     }
 
     // ------------------------------------------------------------ the link
@@ -253,7 +382,9 @@ impl App {
         }
         match event {
             Event::ExecutionChanged(view) => {
-                self.board.apply(view);
+                if let Some(moved) = self.board.apply(view.clone()) {
+                    self.took(&view, Some(moved));
+                }
                 out.extend(self.follow_up());
             }
             Event::ConfirmRequested(c) => self.board.confirm_requested(c),
@@ -307,7 +438,14 @@ impl App {
         match purpose {
             Purpose::Snapshot => match serde_json::from_value::<ExecutionsWatchResult>(v) {
                 Ok(snap) => {
-                    self.board.snapshot(snap);
+                    // A snapshot's views go into the seen state, without
+                    // notices: a notice is for a transition seen as it
+                    // happens. The first board of a first start counts as
+                    // seen (`Seen`).
+                    for v in self.board.snapshot(snap) {
+                        self.took(&v, None);
+                    }
+                    self.seen.first_board_read();
                     return self.follow_up();
                 }
                 Err(e) => self.flash = Some((Tag::Bad, format!("the board did not decode: {e}"))),
@@ -452,6 +590,8 @@ impl App {
         self.selected = Some(sid.to_string());
         self.pane = Pane::Session;
         if self.detail.as_ref().is_some_and(|d| d.session_id == sid) {
+            // Back to its pane (a narrow screen): seen again.
+            self.mark_shown();
             return Vec::new();
         }
         let mut out = Vec::new();
@@ -463,6 +603,10 @@ impl App {
             ));
         }
         self.detail = Some(Detail::new(sid));
+        // What finished in it is seen now; the seen file follows a second
+        // later, so a walk through the queue writes it once.
+        self.mark_shown();
+        self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
         out.extend(read_session(sid));
         out
     }
@@ -651,7 +795,7 @@ impl App {
     /// `tab` / `shift-tab`: the next or previous session that needs attention
     /// (design §2.2's queue), focused with its pane open. Both wrap.
     fn jump(&mut self, forward: bool) -> Vec<Effect> {
-        let queue = self.board.queue(&|_| false);
+        let queue = self.board.queue(&|v| self.is_done(v));
         if queue.is_empty() {
             self.flash = Some((Tag::Dim, "nothing needs you".to_string()));
             return Vec::new();

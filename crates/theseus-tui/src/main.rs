@@ -1,15 +1,19 @@
 //! `theseus-tui` (design `stage2` §2.9, theseus-7yx): every session's state
 //! in one sidebar, with its task trees, kept current by the daemon's push;
 //! the session in focus, with its input line; and the queue of what needs
-//! you, answered inline. A client of `theseusd` like the CLI, over the same
-//! socket: it links the protocol crate and the CLI's library
-//! (`theseus_client`), never the core. `theseus tui` will exec it (step 10f).
+//! you, answered inline, and of what finished since you looked (done until
+//! seen), with a notice and the count in the terminal's title. A client of
+//! `theseusd` like the CLI, over the same socket: it links the protocol crate
+//! and the CLI's library (`theseus_client`), never the core. `theseus tui`
+//! will exec it (step 10f).
 
 mod app;
 mod board;
 mod card;
 mod detail;
+mod notice;
 mod run;
+mod seen;
 mod ui;
 
 #[cfg(test)]
@@ -21,21 +25,27 @@ use anyhow::{bail, Result};
 use theseus_client::Conn;
 
 use crate::app::App;
+use crate::notice::Delivery;
 use crate::run::{Connector, Runner};
+use crate::seen::Seen;
 
 const USAGE: &str = "theseus-tui: every session of a running theseusd, in one terminal
 
-usage: theseus-tui [--socket PATH]
+usage: theseus-tui [--socket PATH] [--notify HOW]
 
   --socket PATH   the daemon's Unix socket (default: $THESEUS_SOCKET, else ~/.theseus/theseus.sock)
+  --notify HOW    how a notice (needs you, finished) reaches you: bell (the default), osc9,
+                  osc777, or off; the terminal's title carries the count either way
   -h, --help      this help
   -V, --version   the version
 
-Keys: ? in the TUI.";
+What you have seen is kept in $XDG_STATE_HOME/theseus/tui-seen.json
+(~/.local/state/theseus/tui-seen.json), on this machine only. Keys: ? in the TUI.";
 
 /// What the command line says.
 struct Args {
     socket: String,
+    notify: Delivery,
 }
 
 impl Args {
@@ -44,6 +54,12 @@ impl Args {
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "~/.theseus/theseus.sock".to_string());
+        let mut notify = Delivery::default();
+        let how = |v: Option<&str>| {
+            v.and_then(Delivery::parse).ok_or_else(|| {
+                anyhow::anyhow!("--notify takes bell, osc9, osc777, or off\n\n{USAGE}")
+            })
+        };
         while let Some(a) = args.next() {
             match a.as_str() {
                 "-h" | "--help" => {
@@ -58,13 +74,19 @@ impl Args {
                     Some(p) => socket = p,
                     None => bail!("--socket needs a path\n\n{USAGE}"),
                 },
-                other => match other.strip_prefix("--socket=") {
-                    Some(p) => socket = p.to_string(),
-                    None => bail!("unknown argument `{other}`\n\n{USAGE}"),
-                },
+                "--notify" => notify = how(args.next().as_deref())?,
+                other => {
+                    if let Some(p) = other.strip_prefix("--socket=") {
+                        socket = p.to_string();
+                    } else if let Some(v) = other.strip_prefix("--notify=") {
+                        notify = how(Some(v))?;
+                    } else {
+                        bail!("unknown argument `{other}`\n\n{USAGE}");
+                    }
+                }
             }
         }
-        Ok(Some(Self { socket }))
+        Ok(Some(Self { socket, notify }))
     }
 }
 
@@ -94,10 +116,18 @@ async fn tui(args: Args) -> Result<()> {
             }
         }
     });
+    let mut app = App::new(local_hm);
+    app.seen = Seen::open(Seen::default_path());
     // Raw mode and the alternate screen, put back on exit and on a panic.
+    // Focus events: the session in focus gets no notice while the terminal
+    // has focus (design §2.9).
     let term = ratatui::try_init()?;
-    let mut runner = Runner::new(App::new(local_hm), term, connect, rx, now_ms);
+    crossterm::execute!(std::io::stdout(), crossterm::event::EnableFocusChange)?;
+    let mut runner = Runner::new(app, term, connect, rx, now_ms);
+    runner.out = Box::new(std::io::stdout());
+    runner.delivery = args.notify;
     let ran = runner.run().await;
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableFocusChange);
     ratatui::try_restore()?;
     ran
 }

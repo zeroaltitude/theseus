@@ -115,23 +115,28 @@ impl Question<'_> {
     }
 }
 
+/// What an applied view moved: its session's level before it, if the board
+/// held the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Moved {
+    pub before: Option<Level>,
+}
+
 impl Board {
     /// Apply a view by the position rule (design §2.4): only if its position
     /// is greater than the last one applied for its session's execution.
-    /// True if it was applied.
-    pub fn apply(&mut self, v: ExecutionView) -> bool {
-        if self
-            .views
-            .get(&v.session_id)
-            .is_some_and(|old| v.position <= old.position)
-        {
-            return false;
-        }
+    /// What it moved, if it was applied.
+    pub fn apply(&mut self, v: ExecutionView) -> Option<Moved> {
+        let before = match self.views.get(&v.session_id) {
+            Some(old) if v.position <= old.position => return None,
+            Some(old) => Some(old.attention.level),
+            None => None,
+        };
         if let Some(touched) = self.reconnected.as_mut() {
             touched.insert(v.session_id.clone());
         }
         self.put(v);
-        true
+        Some(Moved { before })
     }
 
     fn put(&mut self, v: ExecutionView) {
@@ -157,16 +162,19 @@ impl Board {
     /// Take `executions.watch`'s answer: its questions, then its views by the
     /// position rule. The first after a connect is the truth instead: the
     /// views and questions it lacks go, unless an event on the new connection
-    /// brought them.
-    pub fn snapshot(&mut self, snap: ExecutionsWatchResult) {
+    /// brought them. Returns the views it took.
+    pub fn snapshot(&mut self, snap: ExecutionsWatchResult) -> Vec<ExecutionView> {
+        let mut took = Vec::new();
         let Some(touched) = self.reconnected.take() else {
             for c in snap.confirms {
                 self.confirm_requested(c);
             }
             for v in snap.executions {
-                self.apply(v);
+                if self.apply(v.clone()).is_some() {
+                    took.push(v);
+                }
             }
-            return;
+            return took;
         };
         let listed: HashSet<String> = snap
             .executions
@@ -186,12 +194,22 @@ impl Board {
             self.confirm_requested(c);
         }
         for v in snap.executions {
-            if touched.contains(&v.session_id) {
-                self.apply(v);
-            } else {
-                self.put(v);
+            if !touched.contains(&v.session_id) {
+                self.put(v.clone());
+                took.push(v);
+            } else if self.apply(v.clone()).is_some() {
+                took.push(v);
             }
         }
+        took
+    }
+
+    /// The executions the board holds, by id.
+    pub fn execution_ids(&self) -> HashSet<&str> {
+        self.views
+            .values()
+            .map(|v| v.execution_id.as_str())
+            .collect()
     }
 
     pub fn confirm_requested(&mut self, c: ConfirmRequest) {

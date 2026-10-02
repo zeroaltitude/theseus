@@ -3,10 +3,13 @@
 //! by construction. It redraws on events, at most 30 frames a second, and
 //! runs no timer but the deadlines the app asks for. A closed connection is
 //! tried again with backoff (500 ms, doubling to 10 s, as the web UI's
-//! `ProtocolClient` does), and the board is read again.
+//! `ProtocolClient` does), and the board is read again. It writes the
+//! terminal's own sequences (the bell, a notice, the title) and the seen file.
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::io::Write;
+use std::path::Path;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -20,6 +23,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::Instant;
 
 use crate::app::{App, Effect, Purpose};
+use crate::notice::Delivery;
 
 /// How the loop gets a connection: a socket in the binary, a scripted daemon
 /// in tests.
@@ -54,6 +58,11 @@ pub struct Runner<B: Backend> {
     quit: bool,
     /// The wall clock, in ms since the epoch.
     clock: fn() -> u64,
+    /// Where the terminal's own sequences go (the bell, a notice, the title):
+    /// stdout in the binary, a buffer in tests.
+    pub out: Box<dyn Write + Send>,
+    /// How a notice reaches the operator (`--notify`).
+    pub delivery: Delivery,
     /// How many terminal events the loop has handled: a test waits on it.
     #[cfg(test)]
     pub terminal_events: u64,
@@ -90,6 +99,8 @@ impl<B: Backend> Runner<B> {
             dirty: true,
             quit: false,
             clock,
+            out: Box::new(std::io::sink()),
+            delivery: Delivery::default(),
             #[cfg(test)]
             terminal_events: 0,
         }
@@ -138,15 +149,21 @@ impl<B: Backend> Runner<B> {
             Woke::Daemon(Err(_)) => self.lost_connection(),
             Woke::Terminal(Some(e)) => self.terminal(e).await,
             // The terminal's reader ended: nothing more can be typed.
-            Woke::Terminal(None) => self.quit = true,
+            Woke::Terminal(None) => self.apply(vec![Effect::Quit]).await,
             Woke::Deadline => self.deadlines().await,
+        }
+        // The title carries the queue's count (design §2.9): set when it
+        // changes.
+        if let Some(t) = self.app.title() {
+            self.apply(vec![t]).await;
         }
         self.maybe_draw()?;
         Ok(())
     }
 
     /// The soonest of: the retry's backoff, the next frame, and what the app
-    /// asks for (the card's countdown), on the wall clock.
+    /// asks for (a notice's second, the seen file's write, the card's
+    /// countdown), on the wall clock.
     fn deadline(&self) -> Option<Instant> {
         let now_ms = (self.clock)();
         let app = self
@@ -168,7 +185,9 @@ impl<B: Backend> Runner<B> {
         if self.draw_at.is_some_and(|at| at <= now) {
             self.draw_at = None;
         }
-        // The countdown moved: draw it.
+        let effects = self.app.tick();
+        self.apply(effects).await;
+        // The countdown moved, or a notice fired: draw it.
         self.dirty = true;
     }
 
@@ -232,6 +251,14 @@ impl<B: Backend> Runner<B> {
                 self.app.resized(w, h);
                 Vec::new()
             }
+            TermEvent::FocusGained => {
+                self.app.term_focused(true);
+                Vec::new()
+            }
+            TermEvent::FocusLost => {
+                self.app.term_focused(false);
+                Vec::new()
+            }
             _ => Vec::new(),
         };
         self.apply(effects).await;
@@ -243,7 +270,19 @@ impl<B: Backend> Runner<B> {
     async fn apply(&mut self, effects: Vec<Effect>) {
         for e in effects {
             match e {
-                Effect::Quit => self.quit = true,
+                // On the way out, what was seen is written (design §2.9).
+                Effect::Quit => {
+                    self.quit = true;
+                    if let Some(Effect::Save(path, text)) = self.app.save() {
+                        self.save(&path, &text);
+                    }
+                }
+                Effect::Notice(text) => {
+                    let bytes = self.delivery.bytes(&text);
+                    self.write(&bytes);
+                }
+                Effect::Title(t) => self.write(format!("\x1b]0;{t}\x07").as_bytes()),
+                Effect::Save(path, text) => self.save(&path, &text),
                 Effect::Call(call) => {
                     let Some(conn) = self.conn.as_mut() else {
                         continue;
@@ -256,6 +295,33 @@ impl<B: Backend> Runner<B> {
                     }
                 }
             }
+        }
+    }
+
+    /// The terminal's own sequence: a failed write costs a notice, never the
+    /// loop.
+    fn write(&mut self, bytes: &[u8]) {
+        if !bytes.is_empty() {
+            let _ = self.out.write_all(bytes).and_then(|()| self.out.flush());
+        }
+    }
+
+    /// Write the seen file whole: a temporary file beside it, then a rename,
+    /// so a crash never leaves half a file. A failure says so in the footer.
+    fn save(&mut self, path: &Path, text: &str) {
+        let written = (|| {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            let tmp = path.with_extension("json.tmp");
+            std::fs::write(&tmp, text)?;
+            std::fs::rename(&tmp, path)
+        })();
+        if let Err(e) = written {
+            self.app.flash = Some((
+                theseus_client::render::Tag::Bad,
+                format!("the seen file {}: {e}", path.display()),
+            ));
         }
     }
 
