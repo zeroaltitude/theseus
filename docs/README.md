@@ -26,6 +26,8 @@
   - the phase designs: Stage 2 (the operator's surfaces), the AWS toolset, M4 boundaries, M5 judgment, M6 memory,
     and M7 surface;
   - Review 2, a read-only review of complexity, speed, and hardening, whose findings became fix batches.
+- **[user-service.md](user-service.md)**: running the daemon as a systemd user service. It covers why, the one
+  command (`scripts/user-service.sh install`), what each step does, daily use, undoing it, and the WSL notes.
 - **[research/](research/)**: what Theseus was measured against. Its [README](research/README.md) indexes it:
   - "Theseus among the harnesses": how Theseus compares with the provider-made and independent agent harnesses,
     as of October 2026;

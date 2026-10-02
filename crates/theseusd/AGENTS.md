@@ -16,7 +16,11 @@ subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindin
 - `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
   refuses a wrong `Host` or `Origin` and any uid but the daemon's own.
 - `src/install/`: `theseusd install`, the daemon as a systemd service (`--user`, or `--separate` as root). It prints
-  a plan and changes nothing; `--apply` performs it, `--check` compares, and `--remove` is the inverse.
+  a plan and changes nothing; `--apply` performs it, `--check` compares, and `--remove` is the inverse. A `--user` unit's
+  token file is checked by `stat` alone and never opened (`token.rs`): a regular file, the operator's, mode 0600 or
+  stricter, not empty, else the plan refuses and says the fix, and so does `--apply`, before it writes anything.
+  `--op-token-file` is a global flag, so it works before the subcommand and after it; the plan's hint is the command as
+  typed with it added. `scripts/user-service.sh` wraps all of this (`docs/user-service.md`).
 - `web/dist/`: the Observatory's committed build. `cockpit/dist/`: the cockpit's build, ignored.
 
 ## Invariants
@@ -51,6 +55,8 @@ subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindin
   dropped: use it for every spawned daemon (an explicit stop alone once leaked one for 45 minutes).
 - `tests/common/model.rs` is a stand-in Messages API: tool calls per prompt, and `FakeModel::requests()` keeps
   every request, so a test reads which model each turn asked for.
+- `tests/user_service_script.rs` runs `scripts/user-service.sh` and the real `theseusd install --user` against stand-in
+  `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` in a scratch `HOME`. It touches no real unit or daemon.
 - The rigs that need a job's real environment (`job_approval.rs`, `reaping.rs`, `broker.rs`) use a fake `op` and a
   file config, never real secrets.
 

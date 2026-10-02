@@ -3,6 +3,8 @@
 - `gate.sh`: the commit gate. Every check must pass, and the first failure stops it.
 - `smoke.sh`: an end-to-end check of a built daemon, with real secrets and real model calls.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
+- `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
+  `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
 
 `gate.sh` is a shared file: it changes only at a join, one change at a time.
 
@@ -278,6 +280,24 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
 - **The cockpit** (`cockpit/dist`) is not committed, so a binary built with it depends on an npm build. `repro.sh` builds
   from the committed tree, with the page that says the cockpit is missing. Whether `npm run build` is itself reproducible is
   not checked.
+
+## user-service.sh
+
+(theseus-w1nf.) The operator's script for running `theseusd` under systemd: it checks the machine, runs `theseusd install
+--user` (which writes the unit), and wraps `systemctl --user` and `journalctl --user`. What to keep true when you change it:
+
+- **It never opens the token file.** The file is checked with `stat` and nothing else; the same rules as the install plan's
+  (`crates/theseusd/src/install/token.rs`): a regular file, the operator's, mode 0600 or stricter, not empty.
+- **`--dry-run` prints every command and runs none.** Every command goes through `run` (changes something) or `probe` (reads),
+  which print it in a dry run; a command outside them breaks that.
+- **A daemon is found by its socket answering `theseus health`**, within a bound, never by matching process names. Every wait
+  is bounded.
+- **The token flag goes before the subcommand** (`theseusd --op-token-file F install --user`): the order every installed
+  build reads, including those from before it became a global flag.
+- **Its tests** are `crates/theseusd/tests/user_service_script.rs`. They run the real script and the real `theseusd install
+  --user` in a scratch `HOME`, with `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` replaced by one stand-in that
+  logs each call and keeps its state in files. A command the script starts to run needs a case in that stand-in, and a line
+  in the dry-run test.
 
 ## smoke.sh
 
