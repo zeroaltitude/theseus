@@ -81,14 +81,23 @@ settle() {
   fi
   return 0
 }
-sync
-settle
-lifecycle || {
-  echo "lifecycle: a budget was missed; running the bench once more"
+# A lane's gate skips the bench (THESEUS_GATE_NO_BENCH=1, set by the lane
+# recipe): the gate that joins the lane to main runs it, on main's tree, and
+# its settle step held the shared gate lock for minutes while every other
+# agent's gate queued behind it. A lane whose work touches the start path
+# runs `theseus-sim bench lifecycle` alone once before its join.
+if [ -n "${THESEUS_GATE_NO_BENCH:-}" ]; then
+  echo "lifecycle: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
+else
   sync
   settle
-  lifecycle
-}
+  lifecycle || {
+    echo "lifecycle: a budget was missed; running the bench once more"
+    sync
+    settle
+    lifecycle
+  }
+fi
 cargo deny --log-level error check
 if [ -d web/node_modules ]; then (cd web && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
 # The cockpit (theseus-45n5): lint, type-check, and build. Its build is not committed (several MB, new with each

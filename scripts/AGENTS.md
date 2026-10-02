@@ -24,7 +24,8 @@ It runs, in order:
 5. The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
    first flushes dirty pages and waits, up to 5 minutes, until IO and CPU pressure are low and the load is under the
    core count. A miss reruns once, and only a second miss fails. Every run goes to the bench history
-   (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`).
+   (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With `THESEUS_GATE_NO_BENCH=1` (a
+   lane's gate, which the lane recipe sets), this step is skipped: the gate that joins the lane to `main` runs it.
 6. `cargo deny check`: licences, advisories, bans, and sources.
 7. The web apps' lint and build, each when its `node_modules` exists, and then a check that the Observatory's
    committed build is current.
@@ -49,6 +50,10 @@ give the gate's command a timeout of 30 minutes or more (a `proc.run` call can a
   `NEXTEST_TEST_THREADS=4` exported (one or the other, never also nextest's `--test-threads`, which it then refuses
   as given twice): `nice -n 19 ionice -c3 flock -o ~/.cache/theseus-gate.lock scripts/gate.sh`. The bench runs
   `target/debug/theseus-sim` by a relative path, so a worktree needs a `target` symlink to its target dir.
+- **A lane's gate skips the bench** (`THESEUS_GATE_NO_BENCH=1`). The bench's settle step waits for a quiet machine
+  while holding the shared lock, so every other agent's gate queued behind it; the join's gate on `main` benches
+  instead. A lane whose work touches the start path runs `target/debug/theseus-sim bench lifecycle --runs 10
+  --check` alone, at normal priority, once before its join, and quotes it.
 - **A niced gate whose only miss is the bench**, beside busier neighbours, counts as green when the bench rerun alone
   at normal priority passes. Quote both runs.
 - **A gate that sits at 0% CPU** is waiting on a lock: this one (held by another gate, or by an orphan that
