@@ -162,7 +162,9 @@ impl Rig {
     }
 }
 
-/// Where the scripted write goes: outside the workspace's roots.
+/// Where the scripted write goes: outside the workspace's roots, under a
+/// path on the approve list, so it waits (a write outside the roots alone
+/// takes its tool's posture, theseus-ewi).
 fn outside(dir: &Path) -> PathBuf {
     dir.join("outside").join("proof.txt")
 }
@@ -176,6 +178,9 @@ fn core_at(dir: &Path, fake: &FakeDiscord, script: Vec<Scripted>) -> Arc<Core> {
     std::fs::create_dir_all(dir.join("outside")).unwrap();
     cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
+    cfg.tools
+        .approve_paths
+        .push(dir.join("outside").to_string_lossy().into_owned());
     cfg.policy.enforcement = Posture::Notify;
     cfg.discord.rest_proxy = Some(fake.addr.clone());
     cfg.discord.gateway_proxy = fake.gateway().map(|g| g.url());
@@ -205,7 +210,7 @@ fn core_at(dir: &Path, fake: &FakeDiscord, script: Vec<Scripted>) -> Arc<Core> {
     .unwrap()
 }
 
-/// The write outside the roots that waits for its approval, then the reply
+/// The write on the approve list that waits for its approval, then the reply
 /// once it ran.
 fn write_script(dir: &Path) -> Vec<Scripted> {
     vec![
@@ -264,7 +269,7 @@ async fn a_typed_message_is_a_turn_and_its_reply_answers_it_in_the_channel() {
     );
 }
 
-/// theseus-6g62 and theseus-ck0k: a write outside the roots waits, and its
+/// theseus-6g62 and theseus-ck0k: a write on the approve list waits, and its
 /// card stays in `#lab`, a channel `[approval]` lists that the viewer check
 /// trusts (only ana and ben can view it), naming its one answerer. Pressed
 /// by ben, who is trusted but not one of `#lab`'s users, it is refused and

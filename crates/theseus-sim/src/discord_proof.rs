@@ -12,7 +12,7 @@
 //! `#lab` and ana's DM; the viewer check trusts `#lab`, which only ana and
 //! ben can view (theseus-ck0k); ana types a message in `#lab` and its reply
 //! answers it; ben, whom `#lab` doesn't list, is ignored; ana asks for a
-//! write outside the workspace's roots, and the call waits with its card in
+//! write to a path on the approve list, and the call waits with its card in
 //! `#lab`, naming ana; ben's press of Approve is refused, and the call keeps
 //! waiting; ana's press is acknowledged, the call runs, the card says so and
 //! loses its buttons, and the reply comes; the daemon stops cleanly, with no
@@ -332,6 +332,22 @@ fn config(theseusd: &Path, ends: &Ends<'_>, projects: &Path) -> Result<String> {
     discord.insert("edit_interval_ms".into(), 250.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
+    // A write outside the roots takes its tool's posture (theseus-ewi), so
+    // the approve list is what makes the proof's write wait for its card.
+    let tools = table(&mut t, "tools");
+    let mut approve: Vec<toml::Value> = tools
+        .get("approve_paths")
+        .and_then(toml::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    approve.push(
+        projects
+            .with_file_name("outside")
+            .display()
+            .to_string()
+            .into(),
+    );
+    tools.insert("approve_paths".into(), approve.into());
     table(&mut t, "policy").insert("enforcement".into(), "notify".into());
     let approval = table(&mut t, "approval");
     approval.insert(
@@ -576,7 +592,7 @@ fn steps(r: &mut Rig, theseusd: &Path) -> Option<()> {
     r.step("ben, whom #lab doesn't list, is ignored", ignored)
         .then_some(())?;
     r.step(
-        "a write outside the roots waits, its card in #lab naming ana",
+        "a write on the approve list waits, its card in #lab naming ana",
         card,
     )
     .then_some(())?;

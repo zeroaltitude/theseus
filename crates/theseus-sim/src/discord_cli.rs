@@ -19,8 +19,8 @@ use theseus_sim::discord_proof;
 
 #[derive(Subcommand)]
 pub enum Cmd {
-    /// The kl8m proof: a typed message and its reply, a write outside the
-    /// roots and its card, a refused press and an Approve press, the call
+    /// The kl8m proof: a typed message and its reply, a write on the approve
+    /// list and its card, a refused press and an Approve press, the call
     /// run and the card updated, against a real daemon and stand-ins for
     /// Discord and the model. Exits 1 when a step fails.
     Proof {
