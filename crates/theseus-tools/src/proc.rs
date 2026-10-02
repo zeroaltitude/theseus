@@ -22,6 +22,11 @@ struct RunArgs {
     timeout_secs: Option<u64>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    /// L1 (M4 17b): the core reads it from the input when it chooses the
+    /// call's class; here it is only allowed.
+    #[serde(default)]
+    #[expect(dead_code, reason = "read by the core, from the call's input")]
+    sandbox: Option<bool>,
 }
 
 impl Tool for Run {
@@ -38,7 +43,8 @@ impl Tool for Run {
                 "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Program and arguments, e.g. [\"cargo\", \"test\", \"-p\", \"core\"]. Pass [\"bash\", \"-c\", \"...\"] only when a shell is truly needed."},
                 "cwd": {"type": "string", "description": "Working directory. Default: the working directory."},
                 "timeout_secs": {"type": "integer", "minimum": 1, "description": "Kill the program after this many seconds."},
-                "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables (no secrets; token/key names are refused)."}
+                "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables (no secrets; token/key names are refused)."},
+                "sandbox": {"type": "boolean", "description": "Run it in the sandbox (L1): no network, no credentials, an empty HOME, and its writes discarded afterwards. It never waits for approval. For untrusted code, builds, and tests that need nothing from outside."}
             },
             "required": ["argv"],
             "additionalProperties": false

@@ -165,6 +165,11 @@ pub struct GateDecision {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub external: Option<ExternalText>,
+    /// A job's class (M4 17b): `l1` when it runs in the sandbox, and then the
+    /// proposal a confirm binds names it too. Absent: L0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub class: Option<String>,
 }
 
 /// What the gate did with the call.

@@ -38,6 +38,7 @@ use crate::narrative::{self, Narrator};
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::{Decision, Posture, ToolPolicy};
 use crate::provider::ToolUse;
+use crate::sandbox::{self, Class, Sandbox};
 use crate::scrub::Scrubber;
 use crate::store::Store;
 
@@ -245,6 +246,8 @@ pub struct ToolRuntime {
     /// (theseus-830): the driver reads the questions only once it has come.
     /// 0 until the driver has read them once; each question asked lowers it.
     pub question_due: std::sync::atomic::AtomicU64,
+    /// L1 (M4 17b): `[sandbox]`, the class, an L1 job's view, the probe.
+    pub sandbox: Arc<Sandbox>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -407,6 +410,7 @@ impl ToolRuntime {
             disk: Arc::new(crate::disk::Disk::new(tmp, 0, 0)),
             aws: None,
             question_due: Default::default(),
+            sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
         }
     }
 
@@ -421,7 +425,7 @@ impl ToolRuntime {
     /// The gate's decision with what the broker would give the call
     /// (theseus-dcy): it names the grant, and holds the call to no looser a
     /// posture than each secret's.
-    fn brokered(&self, tool: &str, plan: &Plan, input: &Value, d: Decision) -> Decision {
+    pub(crate) fn brokered(&self, tool: &str, plan: &Plan, input: &Value, d: Decision) -> Decision {
         let cwd = plan
             .resources
             .iter()
@@ -860,7 +864,8 @@ impl ToolRuntime {
         if g.decision.posture == Posture::Approve {
             return self.ask(tc, a, call, tool.name(), g);
         }
-        self.execute(tc, &a.correlation_id, tool, call, g.decision.posture)
+        let (posture, class) = (g.decision.posture, g.class);
+        self.execute(tc, &a.correlation_id, tool, call, posture, class)
             .await
     }
 
@@ -938,8 +943,7 @@ impl ToolRuntime {
         let tightened = self.tightened.get(tool.name());
         let planned = tool.plan(&call.input, &self.ctx).map(|plan| {
             let t = tightened.as_ref().map(crate::tighten::as_tightened);
-            let decision = self.policy.decide_with(tool, &plan, t);
-            let decision = self.brokered(tool.name(), &plan, &call.input, decision);
+            let (decision, job_class) = sandbox::decide(self, tool, &plan, &call.input, t);
             // After the whole order (theseus-9bp): a call that acts in a
             // session that read external text waits. A read and `wake.at`
             // keep their postures (T1b), and cost no record read.
@@ -957,7 +961,7 @@ impl ToolRuntime {
                 tool.name(),
                 &plan.summary,
             );
-            (plan, decision)
+            (plan, decision, job_class)
         });
         let result = match &planned {
             Err(e) => GateResult {
@@ -965,7 +969,7 @@ impl ToolRuntime {
                 reason: Some(format!("validation: {e}")),
                 by: None,
             },
-            Ok((_, d)) if d.posture == Posture::Approve => GateResult {
+            Ok((_, d, _)) if d.posture == Posture::Approve => GateResult {
                 gate: "needs_confirm".into(),
                 reason: None,
                 by: Some(self.policy.confirmer.clone()),
@@ -975,14 +979,15 @@ impl ToolRuntime {
                 ..Default::default()
             },
         };
-        if let Ok((plan, _)) = &planned {
+        if let Ok((plan, _, class)) = &planned {
             proposal.resource = plan.resources.first().map(|r| r.path.display().to_string());
+            sandbox::bind_class(&mut proposal, *class);
         }
         let record = GateRecord {
             result,
             validated: planned.is_ok(),
-            decision: planned.as_ref().ok().map(|(_, d)| d.record()),
-            plan: planned.as_ref().ok().map(|(p, _)| p.clone()),
+            decision: planned.as_ref().ok().map(sandbox::record),
+            plan: planned.as_ref().ok().map(|(p, _, _)| p.clone()),
             proposal: proposal.clone(),
         };
         tc.record(&fact::tool::ToolProposed {
@@ -993,11 +998,12 @@ impl ToolRuntime {
             record: &record,
         });
         match planned {
-            Ok((plan, decision)) => Ok(Gated {
+            Ok((plan, decision, class)) => Ok(Gated {
                 plan,
                 decision,
                 proposal,
                 record,
+                class,
             }),
             Err(error) => Err(Invalid {
                 record: Box::new(record),
@@ -1180,6 +1186,7 @@ impl ToolRuntime {
         tool: Arc<dyn Tool>,
         call: &ToolUse,
         ran_at: Posture,
+        class: Class,
     ) -> Result<CallOutcome> {
         match tool.backend() {
             Backend::Inproc | Backend::Async => {
@@ -1187,7 +1194,7 @@ impl ToolRuntime {
                     .await
             }
             Backend::Job => {
-                self.run_job(tc, correlation_id, tool.as_ref(), call, ran_at)
+                self.run_job(tc, correlation_id, tool.as_ref(), call, ran_at, class)
                     .await
             }
             Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call),
@@ -1477,6 +1484,7 @@ impl ToolRuntime {
         tool: &dyn Tool,
         call: &ToolUse,
         ran_at: Posture,
+        class: Class,
     ) -> Result<CallOutcome> {
         let spec: JobSpec = match tool.job(&call.input, &self.ctx) {
             Ok(s) => s,
@@ -1525,10 +1533,8 @@ impl ToolRuntime {
             .find(|(k, _)| k == "PATH")
             .map(|(_, v)| v.clone());
         let set: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
-        let brokered = self
-            .broker
-            .for_job(&spec.argv, &set, &spec.cwd, path.as_deref(), ran_at)
-            .await;
+        let (brokered, sandbox) =
+            sandbox::for_job(self, class, &spec, &set, path.as_deref(), ran_at).await;
         for (k, v) in &brokered.env {
             env.retain(|(ek, _)| ek != k);
             env.push((k.clone(), v.expose().to_string()));
@@ -1554,6 +1560,7 @@ impl ToolRuntime {
                 .filter(|(var, _)| brokered.env.iter().any(|(k, _)| k == var))
                 .collect(),
             output_max_bytes: self.output_max_bytes,
+            sandbox,
         };
         // The values go with the spawn, as its environment, or nowhere; the
         // copies here are wiped either way.
@@ -1595,6 +1602,7 @@ impl ToolRuntime {
         let note = brokered.note();
         let t0 = Instant::now();
         let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
+        sandbox::started(self, tc, correlation_id, tool.name(), &spec, &args);
         tc.record(&fact::tool::JobStarted {
             session_id: tc.session_id,
             turn_id: tc.turn_id,
@@ -1609,6 +1617,7 @@ impl ToolRuntime {
             withheld: &withheld,
             bound_ms: bound.as_millis() as u64,
             scrubber: &self.scrubber,
+            class,
         });
         for g in &brokered.granted {
             tc.record(&fact::tool::SecretGranted {
@@ -1941,6 +1950,7 @@ impl ToolRuntime {
                 size(total - n)
             ),
         };
+        let header = format!("{}{header}", sandbox::result_lines(&detail));
         let raw = if out.is_empty() {
             format!("{header}(no output)")
         } else {
@@ -2247,8 +2257,11 @@ impl ToolRuntime {
         // Authorized and dispatched in one frame (theseus-l6y). A confirm
         // that no longer holds writes nothing, and is declined below; a
         // cancel or a stop that landed first is the error.
+        // It runs in the class its proposal names, as the confirm bound it.
+        let mut class = Class::L0;
         let authorized = match confirm_proposal(tc.store, a, node) {
             Ok(p) => {
+                class = sandbox::class_in(&p);
                 tc.kernel
                     .authorize_and_dispatch(corr, &p, Some(&self.policy.confirmer), None)?
             }
@@ -2258,7 +2271,8 @@ impl ToolRuntime {
             Ok(_) => {
                 // `action.confirm` announced the answer; this only acts on it.
                 tc.record(&fact::tool::ApprovedRunning { tool: &name });
-                match self.execute(tc, corr, tool, u, Posture::Approve).await? {
+                let ran = self.execute(tc, corr, tool, u, Posture::Approve, class);
+                match ran.await? {
                     CallOutcome::Background { correlation_id } => Ok(Some(correlation_id)),
                     CallOutcome::AwaitingConfirm { .. } => {
                         unreachable!("an authorized action does not ask again")
@@ -2304,10 +2318,13 @@ impl ToolRuntime {
             return Ok(None);
         };
         tc.record(&fact::tool::AuthorizedResumed { tool: &name });
+        // One with no proposal to read predates L1 (theseus-0g4): L0.
+        let class =
+            confirm_proposal(tc.store, a, None).map_or(Class::L0, |p| sandbox::class_in(&p));
         tc.kernel.dispatch(&a.correlation_id, None)?;
         Ok(
             match self
-                .execute(tc, &a.correlation_id, tool, u, Posture::Approve)
+                .execute(tc, &a.correlation_id, tool, u, Posture::Approve, class)
                 .await?
             {
                 CallOutcome::Background { correlation_id } => Some(correlation_id),
@@ -2908,6 +2925,7 @@ pub(crate) struct Gated {
     pub(crate) decision: Decision,
     pub(crate) proposal: Proposal,
     pub(crate) record: GateRecord,
+    pub(crate) class: Class,
 }
 
 /// A call whose input the toollet refused; its gate record is still stored.
@@ -3019,6 +3037,8 @@ pub fn build_runtime(
         floor_paths.push(canon_path(f.clone()));
     }
     let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
+    // No L1 view shows the floor or the approve list's paths (M4 17b).
+    let sandbox = Arc::new(Sandbox::new(&cfg.sandbox, &roots, &floor_paths, &approve));
     let cpu = crate::cpu::CpuPool::for_host();
     // AWS (row 29, C1): its tools when the config binds an account. Nothing
     // runs until a call, or the daemon's check after serving.
@@ -3104,6 +3124,7 @@ pub fn build_runtime(
         )),
         aws,
         question_due: Default::default(),
+        sandbox,
     })
 }
 

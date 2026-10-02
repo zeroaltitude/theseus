@@ -51,6 +51,7 @@ theseus-core = { path = "crates/theseus-core" }
 theseus-store = { path = "crates/theseus-store" }
 theseus-kernel = { path = "crates/theseus-kernel" }
 theseus-tools = { path = "crates/theseus-tools" }
+theseus-sandbox = { path = "crates/theseus-sandbox" }
 theseus-discord = { path = "crates/theseus-discord" }
 
 anyhow = "1"

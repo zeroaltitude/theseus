@@ -33,4 +33,9 @@ granted?: string,
  * The call waits (or is notified) because its session read external
  * text (theseus-9bp): what it read.
  */
-external?: ExternalText, };
+external?: ExternalText, 
+/**
+ * A job's class (M4 17b): `l1` when it runs in the sandbox, and then the
+ * proposal a confirm binds names it too. Absent: L0.
+ */
+class?: string, };

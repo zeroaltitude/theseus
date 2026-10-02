@@ -17,6 +17,10 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
   serving (its calls fail closed until STS names the account), and `aws.call`, `aws.describe`, `aws.whoami`, and
   `aws.s3.list` (reads only until 14b; a write is invalid input).
+- **L1** (M4 17b): `sandbox.rs`: `[sandbox]`, a job's class (toward L1 alone: the default, `l1_argv`, the model's
+  `sandbox: true`), L1's posture (notify), the view an L1 job gets, the probe after serving (`PROBE_AFTER`), the
+  delegated cgroup (systemd's own answer), and health's block. Its facts are `fact/sandbox.rs`; its tests
+  `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs.
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection).
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
@@ -64,6 +68,10 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **The gate never refuses** and never parses what a command does. The order is the floor, the approve lists, the
   allow list, then the posture; a granted secret's posture and the external-text hold apply after it, and the
   stricter wins.
+- **An L1 call runs at notify** (Eddie's decision, 2026-10-02): none of the L0 order applies, since the view hides
+  the floor, the approve list's paths, and the socket, and no secret is granted to it; the external-text hold
+  still does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
+  proposal names. Nothing falls back from L1 to L0.
 - **Results tell the truth.** `toolrun::cap` cuts on line edges and says what it left out, with the tool's own way
   to get the rest (`Tool::rest`). A listing names its scope.
 - **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking.

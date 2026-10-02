@@ -83,6 +83,9 @@ pub struct Config {
     /// `[index]`: the index tender (roadmap row 51).
     #[serde(default)]
     pub index: IndexConfig,
+    /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
+    #[serde(default)]
+    pub sandbox: crate::sandbox::SandboxConfig,
     /// Who may answer a waiting call, and through which channels. Absent (as
     /// in a config from before theseus-sgh): no rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1287,6 +1290,7 @@ impl Config {
                 self.tools.job_output_max_bytes
             );
         }
+        self.sandbox.validate()?;
         let providers = self.all_providers();
         for (name, prof) in &self.profiles {
             if !providers.contains_key(&prof.provider) {
@@ -1854,6 +1858,11 @@ mod tests {
         // The broker's example grant and posture are real (theseus-dcy).
         assert_eq!(cfg.broker.programs["gh"].env["GH_TOKEN"], "github_token");
         assert_eq!(cfg.broker.secrets["github_token"].posture, Posture::Notify);
+        // [sandbox] (M4 17b): L0 by default, the commented l1_argv real.
+        assert_eq!(cfg.sandbox.default, crate::sandbox::Class::L0);
+        assert_eq!(cfg.sandbox.l1_argv[0], ["npm", "install"]);
+        assert_eq!(cfg.sandbox.ro_paths, ["~/.cargo", "~/.rustup"]);
+        assert_eq!((cfg.sandbox.memory_mb, cfg.sandbox.pids), (2048, 512));
     }
 
     /// theseus-8d1b: the template and the default config name no one's

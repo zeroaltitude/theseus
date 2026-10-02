@@ -14,6 +14,7 @@ mod health;
 pub mod index;
 mod ledger;
 mod push;
+pub mod sandbox;
 #[cfg(test)]
 mod ts;
 
@@ -446,6 +447,11 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub crash: Option<CrashStatus>,
+    /// L1 (M4 17b): the class choice's settings, the limits, the probe after
+    /// serving, the cgroup, and the jobs by class. Absent without tools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub sandbox: Option<sandbox::SandboxHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

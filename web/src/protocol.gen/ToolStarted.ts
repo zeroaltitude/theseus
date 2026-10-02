@@ -21,4 +21,8 @@ granted?: string | null,
 /**
  * What a job was not given (`git got no GIT_TOKEN`).
  */
-withheld?: Array<string>, };
+withheld?: Array<string>, 
+/**
+ * A job's class (M4 17b): `l1` when it runs in the sandbox. Absent: L0.
+ */
+class?: string, };

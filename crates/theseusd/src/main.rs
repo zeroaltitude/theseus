@@ -136,6 +136,10 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Internal: the L1 probe (17b), spawned by the daemon after serving: one
+    /// `/bin/true` in L1 over the view on stdin, its answer on stdout.
+    #[command(hide = true)]
+    SandboxProbe,
 }
 
 /// In the environment of a start that must read the vault before serving,
@@ -152,6 +156,15 @@ enum Exit {
 }
 
 fn main() -> Result<()> {
+    // An L1 job's init (17b): pid 1 of the job, started by its wrapper with
+    // its spec on fd 3. First, before anything else: it stays one thread,
+    // its stderr is the job's, and it keeps the umask its wrapper gave it.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|a| a == theseus_sandbox::INIT_ROLE)
+    {
+        theseus_sandbox::init_main();
+    }
     // The start of every startup phase's clock (theseus-qa0).
     let origin = Instant::now();
     // Before anything is created (theseus-wz2): the store, the spool and raw
@@ -184,6 +197,13 @@ fn main() -> Result<()> {
         // (theseus-l0d).
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
         return theseus_kernel::job::run_wrapper_process(&wa);
+    }
+    if let Some(Cmd::SandboxProbe) = cli.cmd {
+        // No config, no runtime: one clone, from this process's one thread.
+        let mut view = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut view)?;
+        let l1 = serde_json::from_str(&view).context("the probe's view")?;
+        return out(&format!("{}\n", theseus_kernel::job::probe(&l1)));
     }
     if let Some(Cmd::Install(args)) = &cli.cmd {
         // No config, no secrets, no runtime: never on the start path.
@@ -433,6 +453,8 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     let core = match Core::new(cfg, secrets, store, startup.clone(), gate) {
         Ok(core) => {
             let _ = CORE.set(Arc::downgrade(&core));
+            // No L1 job's view shows this daemon's socket (M4 17b).
+            core.tools.sandbox.hide(socket_path.clone());
             core
         }
         // A store with unit budgets is migrated only under the vault's own
@@ -913,6 +935,14 @@ async fn after_serving(
     // for nothing the config gate guards.
     if bindings.is_some() {
         tokio::spawn(core.index.clone().run());
+    }
+    // The L1 probe (M4 17b): `/bin/true` in the sandbox, once per image, so
+    // again after a restart in place, `PROBE_AFTER` the start. The socket
+    // daemon's alone, and only when there are tools to run jobs.
+    if bindings.is_some() && core.tools.enabled() {
+        tokio::spawn(theseus_core::sandbox::probe_after_serving(Arc::downgrade(
+            &core,
+        )));
     }
     if !core.config_gate.opened().await {
         return;

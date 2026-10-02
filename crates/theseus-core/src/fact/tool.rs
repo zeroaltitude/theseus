@@ -226,6 +226,14 @@ pub struct JobStarted<'a> {
     pub bound_ms: u64,
     /// For the narrative's subject, which may name a secret's value.
     pub scrubber: &'a Scrubber,
+    /// Its class (M4 17b): an L1 job's row and notification say so.
+    pub class: crate::sandbox::Class,
+}
+
+impl JobStarted<'_> {
+    fn l1(&self) -> bool {
+        self.class == crate::sandbox::Class::L1
+    }
 }
 
 impl Fact for JobStarted<'_> {
@@ -233,7 +241,11 @@ impl Fact for JobStarted<'_> {
     const METHOD: Option<&'static str> = Some(notify::TOOL_STARTED);
 
     fn row(&self) -> Value {
-        json!({"correlation_id": self.correlation_id, "pid": self.pid, "argv": self.argv, "cwd": self.cwd, "timeout_secs": self.timeout_secs})
+        let mut row = json!({"correlation_id": self.correlation_id, "pid": self.pid, "argv": self.argv, "cwd": self.cwd, "timeout_secs": self.timeout_secs});
+        if self.l1() {
+            row["class"] = json!("l1");
+        }
+        row
     }
 
     fn event(&self) -> Option<Event> {
@@ -249,6 +261,7 @@ impl Fact for JobStarted<'_> {
             cwd: Some(self.cwd.to_path_buf()),
             granted: Some(self.granted.map(str::to_string)),
             withheld: Some(self.withheld.to_vec()),
+            class: self.l1().then(|| "l1".into()),
         }))
     }
 
@@ -256,7 +269,7 @@ impl Fact for JobStarted<'_> {
         say.line(
             Tool,
             format!(
-                "{} started as job {} (pid {}){}; the turn waits up to {} for it.",
+                "{} started as job {} (pid {}{}){}; the turn waits up to {} for it.",
                 self.scrubber
                     .scrub(&narrative::subject(
                         self.tool,
@@ -267,6 +280,7 @@ impl Fact for JobStarted<'_> {
                     .0,
                 narrative::short(self.correlation_id),
                 self.pid,
+                if self.l1() { ", in L1" } else { "" },
                 self.granted.map_or_else(String::new, |g| format!("; {g}")),
                 narrative::duration(self.bound_ms)
             ),
@@ -516,6 +530,10 @@ impl Fact for ToolEnded<'_> {
                 .and_then(Value::as_str)
                 .map(str::to_string),
             preview: content.chars().take(2000).collect(),
+            scratch: meta
+                .pointer("/detail/scratch/summary")
+                .and_then(Value::as_str)
+                .map(str::to_string),
         }))
     }
 

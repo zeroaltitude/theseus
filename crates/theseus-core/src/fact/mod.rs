@@ -43,6 +43,7 @@ use crate::trace::Trace;
 pub mod answer;
 pub mod driver;
 pub mod index;
+pub mod sandbox;
 pub mod start;
 pub mod tool;
 pub mod turn;
@@ -309,6 +310,8 @@ facts![
     index::TenderSettingsChanged,
     index::TenderExited<'static>,
     index::TenderStartFailed<'static>,
+    sandbox::SandboxStarted<'static>,
+    sandbox::SandboxProbed<'static>,
     start::CrashFound<'static>,
 ];
 

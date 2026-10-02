@@ -190,6 +190,10 @@ pub struct ToolStarted {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub withheld: Option<Vec<String>>,
+    /// A job's class (M4 17b): `l1` when it runs in the sandbox. Absent: L0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub class: Option<String>,
 }
 
 /// A field that is absent, `null`, or a value: `None`, `Some(None)`, and
@@ -237,6 +241,11 @@ pub struct ToolEnded {
     pub stopped_by: Option<String>,
     /// The result's first 2,000 characters.
     pub preview: String,
+    /// An L1 job's scratch (M4 17b): what it wrote there, which was
+    /// discarded (`wrote 3 files, 41 KB, to scratch: target/…; discarded`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub scratch: Option<String>,
 }
 
 /// `confirm.resolved`: a question waiting for the operator closed.

@@ -40,3 +40,10 @@ retries = 2
 [[profile.default.overrides]]
 filter = 'package(theseus-core) & test(=tests_output::the_cores_output_matches_its_golden)'
 retries = 2
+#
+# theseus-56r7: three dev-page uses must land in one 300 ms span of the wall clock, so a
+# scheduler stall under load (load 4, nice 19; spine 17b's gate, 2026-10-02 12:39) makes a
+# second web.dev_origin row.
+[[profile.default.overrides]]
+filter = 'package(theseus-core) & test(=webui::tests::the_dev_origins_uses_are_counted_and_ledgered_at_most_once_a_span)'
+retries = 2

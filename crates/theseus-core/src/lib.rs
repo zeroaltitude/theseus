@@ -41,6 +41,7 @@ pub mod push;
 pub mod reach;
 pub mod restore;
 pub mod rpc;
+pub mod sandbox;
 pub mod scrub;
 pub mod secrets;
 pub mod session;
@@ -94,6 +95,8 @@ mod tests_reach;
 mod tests_refused;
 #[cfg(test)]
 mod tests_registry;
+#[cfg(test)]
+mod tests_sandbox;
 #[cfg(test)]
 mod tests_schemas;
 #[cfg(test)]

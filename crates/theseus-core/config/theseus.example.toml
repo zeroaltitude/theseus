@@ -498,6 +498,29 @@ weights_dir = "~/.cache/theseus/models"   # the embedding model's files; nothing
 threads = 1                               # the embedding model's threads
 idle_unload_mins = 10.0                   # the model unloads after this long unused (about 500 MB), and loads again on the next use
 
+# ---------------------------------------------------------------- sandbox
+# L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own
+# uid with no capabilities, over a view built from an empty root: the system's
+# directories and ro_paths read-only; the workspace read-only, with what the
+# job writes there kept apart in scratch and discarded afterwards (its result
+# lists it); an empty HOME and /tmp; no network; and never Theseus's own
+# state, socket, or token, nor the approve_paths. A job runs in L1 when the
+# model asks for it (sandbox: true), when l1_argv names its program, or when
+# default is "l1", and nothing turns L1 back to L0. An L1 job runs with a
+# notice and never waits for approval, since what the floor and the approve
+# lists guard is not in its view; a session that has read web text still
+# holds it, as it holds any call that acts. No secret reaches an L1 job yet.
+# When L1 cannot run here, the call fails and says why: it never runs at L0
+# instead. Health's sandbox line says what the probe after serving found.
+[sandbox]
+default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)
+# l1_argv = [["npm", "install"], ["cargo", "build"], ["cargo", "test"]]   # programs that always run in L1, matched as allow_argv matches (default none)
+ro_paths = ["~/.cargo", "~/.rustup"]    # more read-only paths, each at its own path: here Rust's toolchain and its offline registry (default none: the system's alone); one that does not exist is skipped
+memory_mb = 2048                        # an L1 job's memory, where the daemon's cgroup is delegated (a systemd user service: theseusd install --user)
+pids = 512                              # an L1 job's processes
+scratch_mb = 1024                       # what an L1 job may write to scratch, and to each of its /tmp and HOME
+output_mb = 64                          # the largest file an L1 job may write; what it prints is capped by [tools] job_output_max_bytes
+
 # ---------------------------------------------------------------- approval
 # Who may answer a call that waits for approval, or a budget question, and
 # where (spec §3.9 "Approval"). Without this section only you answer: the CLI,

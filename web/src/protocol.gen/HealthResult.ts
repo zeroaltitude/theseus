@@ -13,6 +13,7 @@ import type { GrantStatus } from "./GrantStatus";
 import type { IndexHealth } from "./IndexHealth";
 import type { KernelStatus } from "./KernelStatus";
 import type { PushStatus } from "./PushStatus";
+import type { SandboxHealth } from "./SandboxHealth";
 import type { SecretsStatus } from "./SecretsStatus";
 import type { SpoolStatus } from "./SpoolStatus";
 import type { StartupPhase } from "./StartupPhase";
@@ -150,3 +151,7 @@ store: StoreStatus,
  * panicked when the daemon last died. Absent when it never has.
  */
 crash?: CrashStatus, };
+ * L1 (M4 17b): the class choice's settings, the limits, the probe after
+ * serving, the cgroup, and the jobs by class. Absent without tools.
+ */
+sandbox?: SandboxHealth, };

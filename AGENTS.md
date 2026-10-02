@@ -33,7 +33,8 @@ serves. AI agents build it in small, reviewed steps.
 | `theseus-core` | The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools. | `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `aws/` | theseusd, discord, sim |
 | `theseus-aws-catalog`, `theseus-aws` | Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1). | `classify.rs`, `describe.rs`; `client.rs`, `error.rs` | core (`aws/`) |
 | `theseus-discord` | The Discord binding, in-process; it acts through the protocol. | `runtime.rs`, `courier.rs`, `render.rs` | theseusd |
-| `theseusd` | The daemon: serving, `job-wrapper`, `check`, `restore`, `install`, the web server. | `main.rs`, `web.rs`, `install/` | (a binary) |
+| `theseus-sandbox` | L1: a job in its own namespaces, seccomp, and cgroup; the egress proxy (wired at 18c) | `spawn.rs`, `init.rs`, `view.rs` | the kernel's `job_l1.rs` |
+| `theseusd` | The daemon: serving, `job-wrapper`, `job-sandbox`, `check`, `restore`, `install`, the web server. | `main.rs`, `web.rs`, `install/` | (a binary) |
 | `theseus` | The CLI, and its library `theseus_client` (client, render), which the terminal UI shares. | `main.rs`, `cmd.rs`, `render.rs`, `client.rs` | (a binary) |
 | `theseus-tui` | The terminal UI: every session in a sidebar, what needs you answered inline, a session's history and input line. A protocol client. | `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs` | `theseus tui`, which execs it |
 | `theseus-index` | The index tender (M6): a child of the daemon that follows the WAL read-only into BM25, exact entities, and vectors, and answers on `<state>/index/sock`. An installed binary of its own, beside `theseusd`. | `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs` | `theseusd`, which runs it after serving (row 51; the core's `tender.rs`) |
@@ -45,7 +46,6 @@ The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each
 
 | Crate | What it is | Wired in at |
 |---|---|---|
-| `theseus-sandbox` | L1: a job in its own namespaces, seccomp, and cgroup; the egress proxy | row 17 (17b) |
 | `theseus-ontology` | The fungible ontology's first slice (§4.1a) | row 26 (21b) |
 | `theseus-aws-guard` | The AWS guardrails: the gate's check, and the generated guards and SCPs | row 30 (C2, 14b) |
 | `theseus-judge` | Jev: the typed client, bands, batching, the breaker, the question packs | row 37 (23a) |
@@ -98,6 +98,8 @@ Directory guides: each crate in the first table, `web`, `cockpit`, and `scripts`
   `crates/theseus-discord/src/courier.rs`.
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
   (`theseusd example-config` prints it).
+- **L1**: `crates/theseus-core/src/sandbox.rs` (`[sandbox]`, the class, the probe), and the wrapper's L1 path in
+  `crates/theseus-kernel/src/job_l1.rs`.
 - **The index tender**: the binary in `crates/theseus-index`, its supervisor in `crates/theseus-core/src/tender.rs`
   (started 2 s after serving, restarted with backoff, SIGTERM at a stop), and its child kind in
   `crates/theseus-kernel/src/children.rs`.

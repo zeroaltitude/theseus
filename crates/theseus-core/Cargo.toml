@@ -12,6 +12,7 @@ theseus-protocol.workspace = true
 theseus-store.workspace = true
 theseus-kernel.workspace = true
 theseus-tools.workspace = true
+theseus-sandbox.workspace = true
 # AWS (row 29, C1 = 14a): one caller for every operation, and its catalog.
 theseus-aws = { path = "../theseus-aws" }
 anyhow.workspace = true

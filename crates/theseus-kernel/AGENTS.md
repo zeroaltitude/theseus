@@ -12,6 +12,9 @@ theseusd, and theseus-sim.
 - `locks.rs`: one writer at a time per execution (theseus-id9).
 - `tx.rs`: the kernel transaction (`Kernel::frame`, theseus-0owd): several transitions staged, then one frame.
 - `job.rs`: the job wrapper (detached, durable, cancellable), `job::Stopping`, `holder`, and `wrapper_alive`.
+  `job_l1.rs` (M4 17b): the wrapper's L1 path, when `WrapperArgs.sandbox` is set: the command below
+  `theseus_sandbox`'s init, its cgroup, its scratch summary, and the probe's run (`job::probe`). It never falls back
+  to L0.
 - `children.rs`: the daemon's children: what it spawned, what it adopted, and who reaps each. Job wrappers and
   tenders (the index tender, row 51) are reaped by their pids, a tender's exit reported to its supervisor; an
   `op` is left to tokio; anything else is an orphan.

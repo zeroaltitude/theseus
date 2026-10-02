@@ -24,6 +24,12 @@ pub struct Spec {
     pub ro_paths: Vec<PathBuf>,
     /// The operator's HOME, an empty tmpfs at the same path.
     pub home: Option<PathBuf>,
+    /// Paths covered in the view whatever binds them (17b: Theseus's floor,
+    /// its store, spool, bindings, token, and socket): a directory by an
+    /// empty read-only tmpfs, a file or socket by `/dev/null`. One the view
+    /// does not hold is skipped.
+    #[serde(default)]
+    pub hidden: Vec<PathBuf>,
     pub hostname: String,
     pub limits: Limits,
     /// A cgroup directory made for this job, with its limits already
@@ -78,6 +84,7 @@ impl Spec {
             workspace: Vec::new(),
             ro_paths: Vec::new(),
             home: None,
+            hidden: Vec::new(),
             hostname: HOSTNAME.into(),
             limits: Limits::default(),
             cgroup: None,
@@ -104,6 +111,9 @@ impl Spec {
             if let Some(why) = bad_view_path(p) {
                 return Some(format!("{what}, {}, {why}", p.display()));
             }
+        }
+        if let Some(p) = self.hidden.iter().find(|p| !p.is_absolute()) {
+            return Some(format!("a hidden path, {}, is not absolute", p.display()));
         }
         if self.hostname.is_empty() || self.hostname.len() > 64 {
             return Some("the hostname must be 1 to 64 bytes".into());

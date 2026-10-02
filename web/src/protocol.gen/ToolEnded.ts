@@ -28,4 +28,9 @@ stopped_by: string | null,
 /**
  * The result's first 2,000 characters.
  */
-preview: string, };
+preview: string, 
+/**
+ * An L1 job's scratch (M4 17b): what it wrote there, which was
+ * discarded (`wrote 3 files, 41 KB, to scratch: target/…; discarded`).
+ */
+scratch?: string, };

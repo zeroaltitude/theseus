@@ -55,6 +55,33 @@ pub struct WrapperArgs {
     /// reads on and counts what it drops; the command is never stopped for
     /// printing.
     pub output_max_bytes: u64,
+    /// An L1 job's view and limits (M4 17b): the command runs below the
+    /// sandbox's init, never at L0. `None`: an L0 job.
+    pub sandbox: Option<L1>,
+}
+
+/// An L1 job's view and limits (M4 17b; design §2.2): what the wrapper
+/// hands `theseus_sandbox::spawn`. Paths and numbers only, so it rides on
+/// the wrapper's command line (`--sandbox <json>`): the job's environment is
+/// the wrapper's own, and a granted secret is never in it (18d brings them).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct L1 {
+    /// The workspace roots: read-only, under overlays whose writes go to
+    /// scratch and are discarded.
+    pub workspace: Vec<PathBuf>,
+    /// `[sandbox] ro_paths`: more read-only binds. One that does not exist is
+    /// skipped, and the completion says so.
+    pub ro_paths: Vec<PathBuf>,
+    /// Covered in the view whatever binds them: Theseus's floor (its store,
+    /// spool, bindings, the 1Password token and credentials) and its socket.
+    pub hidden: Vec<PathBuf>,
+    pub limits: theseus_sandbox::Limits,
+    /// `[sandbox] memory_mb`: the job's cgroup's `memory.max`.
+    pub memory_mb: u64,
+    /// The delegated cgroup's `jobs` directory: the wrapper makes the job's
+    /// own cgroup there, with its limits, and removes it after. `None`: the
+    /// daemon's cgroup is not delegated, so no memory limit.
+    pub cgroup: Option<PathBuf>,
 }
 
 /// A job's output file keeps this much unless the config says otherwise
@@ -75,6 +102,7 @@ impl std::fmt::Debug for WrapperArgs {
             .field("umask", &self.umask.map(crate::umask::format))
             .field("redact", &self.redact)
             .field("output_max_bytes", &self.output_max_bytes)
+            .field("sandbox", &self.sandbox)
             .finish()
     }
 }
@@ -111,6 +139,10 @@ pub fn spawn_detached(
     }
     cmd.arg("--output-max-bytes")
         .arg(args.output_max_bytes.to_string());
+    if let Some(l1) = &args.sandbox {
+        cmd.arg("--sandbox")
+            .arg(serde_json::to_string(l1).context("encoding the L1 view")?);
+    }
     cmd.arg("--").args(&args.argv);
     cmd.env_clear();
     cmd.envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
@@ -151,6 +183,14 @@ pub fn spawn_detached(
 /// The mode word that puts a binary into wrapper mode. A wrapper's command
 /// line is `<binary> job-wrapper --spool … --correlation-id <id> … -- <argv>`.
 pub const WRAPPER_MODE: &str = "job-wrapper";
+
+/// The role word of the L1 probe's process (17b): `theseusd sandbox-probe`
+/// reads an `L1` on stdin, and prints `probe`'s answer.
+pub const PROBE_MODE: &str = "sandbox-probe";
+
+pub use crate::job_l1::probe;
+/// An L1 job's limits, as `L1` carries them.
+pub use theseus_sandbox::Limits as SandboxLimits;
 
 /// The wrapper's body as its own process (`theseusd job-wrapper`).
 ///
@@ -204,7 +244,7 @@ fn granted(args: &WrapperArgs, reap: Reap) -> Vec<(String, Vec<u8>)> {
 
 /// What a wrapper waits for while its command runs.
 #[derive(Clone, Copy)]
-enum Reap {
+pub(crate) enum Reap {
     /// The command alone.
     Command,
     /// Every child: the command, and each descendant reparented here.
@@ -215,7 +255,6 @@ enum Reap {
 /// wrapper could not become a subreaper, recorded in the completion. Also
 /// the copy of the command's output, which may outlive the report while a
 /// descendant holds the output open.
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn run(
     args: &WrapperArgs,
     reap: Reap,
@@ -249,81 +288,14 @@ fn run(
     let (read, write) = std::io::pipe()?;
     let err = write.try_clone()?;
     let mut copier = crate::redact::Copier::spawn(read, out_file, redactor, args.output_max_bytes)?;
-    let (stdout, stderr) = (Stdio::from(write), Stdio::from(err));
-    let mut command = Command::new(&args.argv[0]);
-    command
-        .args(&args.argv[1..])
-        .stdin(Stdio::null())
-        .stdout(stdout)
-        .stderr(stderr);
-    if let Some(c) = &args.cwd {
-        command.current_dir(c);
-    }
-    if let Some(u) = args.umask {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: umask is async-signal-safe and touches only the child.
-        unsafe {
-            command.pre_exec(move || {
-                libc::umask(u);
-                Ok(())
-            });
-        }
-    }
-    // A wrapper process has the job's environment as its own, as
-    // `spawn_detached` set it. In process, the command gets it here.
-    if matches!(reap, Reap::Command) {
-        command
-            .env_clear()
-            .envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
-    }
-    let mut child = command.spawn();
-    drop(command);
     let mut detail = serde_json::json!({});
     if let Some(e) = subreaper_error {
         detail["subreaper_error"] = serde_json::Value::String(e);
     }
-    let (outcome, note) = match &mut child {
-        Err(e) => {
-            detail["spawn_error"] = serde_json::Value::String(e.to_string());
-            (Outcome::Failed, format!("spawn: {e}"))
-        }
-        Ok(child) => {
-            let deadline = Duration::from_millis(args.deadline_ms);
-            loop {
-                let exited = match reap {
-                    Reap::Command => child.try_wait(),
-                    Reap::Descendants => reap_children(child.id()),
-                };
-                match exited {
-                    Ok(Some(status)) => {
-                        detail["exit_code"] = serde_json::json!(status.code());
-                        #[cfg(unix)]
-                        {
-                            use std::os::unix::process::ExitStatusExt;
-                            detail["signal"] = serde_json::json!(status.signal());
-                        }
-                        break if status.success() {
-                            (Outcome::Succeeded, format!("exit {status}"))
-                        } else {
-                            (Outcome::Failed, format!("exit {status}"))
-                        };
-                    }
-                    Ok(None) => {
-                        if t0.elapsed() >= deadline {
-                            let _ = child.kill();
-                            let _ = child.wait();
-                            detail["timed_out"] = serde_json::Value::Bool(true);
-                            break (
-                                Outcome::Failed,
-                                format!("deadline {} ms exceeded; killed", args.deadline_ms),
-                            );
-                        }
-                        std::thread::sleep(Duration::from_millis(20));
-                    }
-                    Err(e) => break (Outcome::Unknown, format!("wait: {e}")),
-                }
-            }
-        }
+    // An L1 job runs below the sandbox's init, and never at L0 instead (17b).
+    let (outcome, note) = match &args.sandbox {
+        Some(l1) => crate::job_l1::run(args, l1, reap, write.into(), err.into(), &mut detail),
+        None => run_l0(args, reap, (write, err), t0, &mut detail),
     };
     // The copy ends once the command and every descendant sharing its output
     // have closed it (theseus-l0d). One that keeps it open does not hold the
@@ -393,6 +365,88 @@ fn run(
         notify(sock, &args.correlation_id);
     }
     Ok((spool, copier))
+}
+
+/// An L0 job: the command as the wrapper's own child, its output into the
+/// copy's pipe, until it exits or its deadline kills it. Its outcome, and
+/// the completion's note.
+fn run_l0(
+    args: &WrapperArgs,
+    reap: Reap,
+    (write, err): (std::io::PipeWriter, std::io::PipeWriter),
+    t0: Instant,
+    detail: &mut serde_json::Value,
+) -> (Outcome, String) {
+    let mut command = Command::new(&args.argv[0]);
+    command
+        .args(&args.argv[1..])
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(write))
+        .stderr(Stdio::from(err));
+    if let Some(c) = &args.cwd {
+        command.current_dir(c);
+    }
+    if let Some(u) = args.umask {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: umask is async-signal-safe and touches only the child.
+        unsafe {
+            command.pre_exec(move || {
+                libc::umask(u);
+                Ok(())
+            });
+        }
+    }
+    // A wrapper process has the job's environment as its own, as
+    // `spawn_detached` set it. In process, the command gets it here.
+    if matches!(reap, Reap::Command) {
+        command
+            .env_clear()
+            .envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    }
+    let child = command.spawn();
+    drop(command);
+    let mut child = match child {
+        Err(e) => {
+            detail["spawn_error"] = serde_json::Value::String(e.to_string());
+            return (Outcome::Failed, format!("spawn: {e}"));
+        }
+        Ok(child) => child,
+    };
+    let deadline = Duration::from_millis(args.deadline_ms);
+    loop {
+        let exited = match reap {
+            Reap::Command => child.try_wait(),
+            Reap::Descendants => reap_children(child.id()),
+        };
+        match exited {
+            Ok(Some(status)) => {
+                detail["exit_code"] = serde_json::json!(status.code());
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+                    detail["signal"] = serde_json::json!(status.signal());
+                }
+                return if status.success() {
+                    (Outcome::Succeeded, format!("exit {status}"))
+                } else {
+                    (Outcome::Failed, format!("exit {status}"))
+                };
+            }
+            Ok(None) => {
+                if t0.elapsed() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    detail["timed_out"] = serde_json::Value::Bool(true);
+                    return (
+                        Outcome::Failed,
+                        format!("deadline {} ms exceeded; killed", args.deadline_ms),
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return (Outcome::Unknown, format!("wait: {e}")),
+        }
+    }
 }
 
 /// Reap every child that has exited, orphans reparented here among them.
@@ -880,9 +934,15 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
     let mut umask = None;
     let mut redact = Vec::new();
     let mut output_max_bytes = DEFAULT_OUTPUT_MAX_BYTES;
+    let mut sandbox = None;
     let mut argv = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--sandbox" => {
+                let v = it.next().unwrap_or_default();
+                sandbox =
+                    Some(serde_json::from_str(&v).with_context(|| format!("bad --sandbox {v:?}"))?);
+            }
             "--output-max-bytes" => {
                 let v = it.next().unwrap_or_default();
                 output_max_bytes = v
@@ -932,6 +992,7 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
         umask,
         redact,
         output_max_bytes,
+        sandbox,
     })
 }
 
@@ -968,6 +1029,7 @@ mod tests {
             umask: None,
             redact: vec![],
             output_max_bytes: DEFAULT_OUTPUT_MAX_BYTES,
+            sandbox: None,
         };
         run_wrapper(&args).unwrap();
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "out\n");
@@ -1035,6 +1097,7 @@ mod tests {
             umask: None,
             redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
             output_max_bytes: DEFAULT_OUTPUT_MAX_BYTES,
+            sandbox: None,
         };
         run_wrapper(&args).unwrap();
         let out = std::fs::read(spool.result_path("act_grant")).unwrap();
@@ -1100,6 +1163,7 @@ mod tests {
             umask: None,
             redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
             output_max_bytes: 4096,
+            sandbox: None,
         };
         run_wrapper(&args).unwrap();
         assert!(after.exists(), "the job ran to its end");

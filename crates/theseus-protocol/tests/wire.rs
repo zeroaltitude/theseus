@@ -912,6 +912,7 @@ fn typed_tool_started_ended_and_written() {
                 cwd: Some("/w/notes".into()),
                 granted: Some(granted.map(Into::into)),
                 withheld: Some(withheld),
+                class: None,
             }),
         );
     }
@@ -943,6 +944,7 @@ fn typed_tool_started_ended_and_written() {
                 exit_code,
                 stopped_by: stopped_by.map(Into::into),
                 preview: "a.md\nb.md\n".repeat(300).chars().take(2000).collect(),
+                scratch: None,
             }),
         );
     }

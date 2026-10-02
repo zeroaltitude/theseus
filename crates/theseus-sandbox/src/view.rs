@@ -124,6 +124,10 @@ pub(crate) fn build(spec: &Spec) -> Result<View, Failure> {
                 .stage(format!("mounting the workspace {}", path.display()))?,
         }
     }
+    // What the operator's part must never show, whatever binds it (17b).
+    for p in &spec.hidden {
+        mask(p).stage(format!("hiding {}", p.display()))?;
+    }
 
     // The host's root goes, and scratch is hidden: the init keeps it open.
     sys::umount2(c"/.oldroot", libc::MNT_DETACH).stage("detaching the old root")?;

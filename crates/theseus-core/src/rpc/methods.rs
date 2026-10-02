@@ -96,6 +96,7 @@ impl Core {
             index: None,
             store: self.store_status(),
             crash: self.crash_status(),
+            sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
         }
     }
 

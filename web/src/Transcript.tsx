@@ -238,7 +238,7 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now, tighte
   const [open, setOpen] = useState(false)
   const d = (call?.detail ?? {}) as Record<string, unknown>
   const tool = str(d.tool) || (results[0] ? str((results[0].detail ?? {}).tool) : wireToName(use.name))
-  const decision = d.decision as { mode?: string; posture?: string; reason?: string; granted?: string; notify?: { kind: string; setting: string; rule: string } } | null | undefined
+  const decision = d.decision as { mode?: string; posture?: string; reason?: string; granted?: string; notify?: { kind: string; setting: string; rule: string }; class?: string } | null | undefined
   const gate = decision?.posture ?? decision?.mode ?? (d.result as { gate?: string } | undefined)?.gate
   const notice = decision?.notify
   const input = call ? d.input : use.input
@@ -251,6 +251,7 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now, tighte
         {gate && <span className={`pill ${GATE_CLASS[gate] ?? ''}`} title={decision?.reason ?? ''}>{gate}</span>}
         {notice && gate !== 'notify' && <span className="pill warn" title={`${notice.setting}\n${notice.rule}`}>notified</span>}
         {decision?.granted && <span className="pill" title="the secret broker (names only)">🔑 {decision.granted}</span>}
+        {decision?.class === 'l1' && <span className="pill ok" title="L1, the sandbox: no network, no secret, an empty HOME; what it writes goes to scratch, and is discarded">🛡️ L1</span>}
         {notice && <ShouldHaveAsked tool={tool} corr={str(d.correlation_id)} tightened={tightened[tool]} onTighten={onTighten} />}
         {running && results.length === 0 && <span className="accent small">running {Math.max(0, Math.round((now - running.startedAt) / 1000))} s…</span>}
       </div>

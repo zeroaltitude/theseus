@@ -120,6 +120,8 @@ ledger_kinds! {
     ProviderError = "provider.error",
     ProviderRefusal = "provider.refusal",
     Reconcile = "reconcile",
+    SandboxProbe = "sandbox.probe",
+    SandboxStarted = "sandbox.started",
     SecretGranted = "secret.granted",
     SecretWithheld = "secret.withheld",
     SecretsFailed = "secrets.failed",

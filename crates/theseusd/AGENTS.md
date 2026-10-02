@@ -17,6 +17,10 @@ operator's overlay on his machine.
   socket answers, the socket daemon only, and the supervisor starts a tender 2 s later (one an exec kept is taken
   over at once); the reaper hands it each tender's exit; a stop sends the tender SIGTERM and never waits. It runs
   the `theseus-index` beside this binary, never one on PATH.
+- The L1 roles (M4 17b): `job-sandbox`, an L1 job's init, dispatched first in `main`, before the umask, clap, and
+  tracing; and the hidden `sandbox-probe`, which `theseus_core::sandbox::probe_after_serving` runs 3 s after
+  serving. `tests/sandbox.rs` runs real L1 jobs, its state dir and socket inside the workspace so the view's
+  hiding is what keeps them out.
 - `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
   refuses a wrong `Host` or `Origin` and any uid but the daemon's own.
 - `src/install/`: `theseusd install`, the daemon as a systemd service (`--user`, or `--separate` as root). It prints

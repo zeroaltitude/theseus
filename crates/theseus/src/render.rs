@@ -19,8 +19,10 @@ use theseus_protocol::{
 };
 
 mod index;
+mod sandbox;
 mod store;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
+pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
 
 /// What a line is, as the CLI's marks have always told one from another. The
@@ -127,7 +129,13 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                     )
                 })
                 .unwrap_or_default();
-            push(&mut out, Tag::Tool, &format!("  → {}{argv}", s.tool));
+            // An L1 job says so (M4 17b).
+            let l1 = if s.class.as_deref() == Some("l1") {
+                " 🛡️ L1"
+            } else {
+                ""
+            };
+            push(&mut out, Tag::Tool, &format!("  → {}{argv}{l1}", s.tool));
         }
         Event::ToolEnded(t) => push(&mut out, Tag::Tool, &tool_ended_line(t)),
         // An AWS call's line (row 29, C1): its operation, region, and
@@ -1742,6 +1750,9 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     }
     if let Some(i) = &h.index {
         push(o, Tag::Plain, &index_line(i));
+    }
+    if let Some(s) = &h.sandbox {
+        push(o, Tag::Plain, &sandbox_line(s));
     }
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);

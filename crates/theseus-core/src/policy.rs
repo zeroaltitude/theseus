@@ -149,6 +149,8 @@ impl Decision {
             floor: self.floor,
             granted: self.granted.clone(),
             external: self.external.clone(),
+            // The gate names an L1 call's class (M4 17b).
+            class: None,
         }
     }
 
@@ -273,12 +275,12 @@ fn path_args(argv: &[String], cwd: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
+pub(crate) fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
     !prefix.is_empty() && argv.len() >= prefix.len() && argv.iter().zip(prefix).all(|(a, p)| a == p)
 }
 
 /// The program name without its directory: `/usr/bin/sudo` matches `sudo`.
-fn normalized_argv(argv: &[String]) -> Vec<String> {
+pub(crate) fn normalized_argv(argv: &[String]) -> Vec<String> {
     let mut v = argv.to_vec();
     if let Some(first) = v.first_mut() {
         if let Some(base) = Path::new(first.as_str()).file_name() {

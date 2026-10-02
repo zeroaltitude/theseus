@@ -169,6 +169,8 @@ struct ToolLine {
     /// (theseus-dcy). The gate says it first, and the job's start says what
     /// it actually got.
     granted: Option<String>,
+    /// It runs in L1 (M4 17b); its summary gains what it wrote to scratch.
+    l1: bool,
 }
 
 #[derive(Debug, Default)]
@@ -296,6 +298,7 @@ impl Renderer {
                         .and_then(|d| d.notify.as_ref())
                         .map(|n| n.setting.clone()),
                     granted: decision.and_then(|d| d.granted.clone()),
+                    l1: decision.and_then(|d| d.class.as_deref()) == Some("l1"),
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
@@ -315,8 +318,10 @@ impl Renderer {
                         .join("; ")
                 });
                 let corr = (!s.correlation_id.is_empty()).then(|| s.correlation_id.clone());
+                let l1 = s.class.as_deref() == Some("l1");
                 self.update_tool(turn_id, &s.tool_use_id, |l| {
                     l.state = ToolState::Running;
+                    l.l1 |= l1;
                     if corr.is_some() {
                         l.correlation_id = corr.clone();
                     }
@@ -348,7 +353,9 @@ impl Renderer {
                         card: card.clone(),
                     });
                 }
+                let scratch = t.scratch.clone();
                 self.update_tool(turn_id, use_id, |l| {
+                    l.summary.extend(scratch.iter().map(|s| format!(" · {s}")));
                     l.state = match (status, &stopped) {
                         (_, Some(by)) => ToolState::Stopped { by: by.clone() },
                         // A stop that declined it while it waited said so
@@ -1088,7 +1095,12 @@ fn tool_lines(tools: &[ToolLine], reserve: usize) -> String {
                 .granted
                 .as_deref()
                 .map_or_else(String::new, |g| format!(" · 🔑 {g}"));
-            let head = format!("`{}` {}{key}{mark}", l.tool, l.summary);
+            let l1 = if l.l1 {
+                "🛡️ L1 · no network · "
+            } else {
+                ""
+            };
+            let head = format!("`{}` {l1}{}{key}{mark}", l.tool, l.summary);
             match &l.state {
                 ToolState::Proposed => format!("▫️ {head}"),
                 ToolState::Running => format!("⏳ {head}"),

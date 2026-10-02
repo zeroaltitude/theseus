@@ -38,6 +38,7 @@ use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
 mod discord_cli;
 mod fake_model;
 mod history;
+mod jobs;
 mod kernel_sim;
 mod lifecycle;
 mod perf;
@@ -259,6 +260,9 @@ enum BenchCmd {
     Idle(perf::IdleArgs),
     /// The release binaries' sizes, against §9's 60 MB (theseus-goa8).
     Size(perf::SizeArgs),
+    /// What a job's start costs, by class (M4 17b): `/bin/true` through the
+    /// real job wrapper, at L0 and in L1; an L1 start's p95 against 25 ms.
+    Jobs(jobs::JobsArgs),
     /// The lifecycle bench's history: each phase's last runs, with the
     /// headroom left under its limit.
     History {
@@ -400,6 +404,9 @@ fn main() -> Result<()> {
         Cmd::Bench {
             bench: BenchCmd::Size(args),
         } => perf::size_cmd(args),
+        Cmd::Bench {
+            bench: BenchCmd::Jobs(args),
+        } => jobs::jobs_cmd(args),
         Cmd::Bench {
             bench: BenchCmd::History { last, file },
         } => {
