@@ -296,7 +296,7 @@ fn config(theseusd: &Path, ends: &Ends<'_>, projects: &Path) -> Result<String> {
     let model = format!("http://{}", ends.model);
     let model = model.as_str();
     let out = Command::new(theseusd)
-        .arg("example-config")
+        .args(["example-config", "--plain"])
         .output()
         .with_context(|| format!("running {} example-config", theseusd.display()))?;
     let mut t: toml::Table = String::from_utf8(out.stdout)?.parse()?;

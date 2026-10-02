@@ -2,8 +2,10 @@
 
 The daemon binary: the kernel behind the protocol, on a Unix socket (the default) or `--stdio`. Also its
 subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindings`, `restore`, and `install`.
-`example-config --overlay FILE` prints the template with an operator's private values in place
-(`theseus_core::config_overlay`, theseus-dxgb); without the flag it prints the template byte for byte.
+`example-config` prints the template with an operator's private overlay in place when
+`~/.config/theseus/template-overlay.toml` exists or `--overlay FILE` names one (`theseus_core::config_overlay`,
+theseus-dxgb). **A test or tool that builds on the template runs `example-config --plain`**, or it reads the
+operator's overlay on his machine.
 
 ## What's here
 

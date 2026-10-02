@@ -65,7 +65,7 @@ impl Drop for Daemon {
 /// tender's own tests turn it on, with a stand-in.
 pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> String {
     let out = Command::new(theseusd)
-        .arg("example-config")
+        .args(["example-config", "--plain"])
         .output()
         .unwrap();
     let mut t: toml::Table = String::from_utf8(out.stdout).unwrap().parse().unwrap();

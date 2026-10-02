@@ -94,10 +94,11 @@ fn the_default_config_is_a_local_file_and_a_missing_one_says_where_one_comes_fro
     );
 }
 
-/// `example-config --overlay` (theseus-dxgb): the template with an operator's
-/// own values in place, `~` in the path read as home, ready to copy whole;
-/// without the flag, the template as it is; and an overlay that names a key
-/// no config has fails with the key named, printing nothing.
+/// `example-config` with an overlay (theseus-dxgb): the template with an
+/// operator's own values in place, ready to copy whole, from `--overlay`
+/// (`~` read as home) or from `~/.config/theseus/template-overlay.toml` with
+/// no flag; with neither, or `--plain`, the template as it is; and an overlay
+/// that names a key no config has fails with the key named, printing nothing.
 #[test]
 fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place() {
     let home = tempfile::tempdir().unwrap();
@@ -132,13 +133,48 @@ fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place()
         text.contains("\n[approval]\ntrusted_users = [\"discord:314159265358979323\"]"),
         "{text}"
     );
-    assert_eq!(
-        text.lines().count(),
-        plain.lines().count(),
-        "only lines in place change"
+    // One line more than the template, the first, which names the overlay;
+    // the rest only in place.
+    assert!(
+        text.starts_with(
+            "# theseusd example-config, with the overlay ~/overlay.toml in place (--plain prints the template alone).\n"
+        ),
+        "{text}"
     );
+    assert_eq!(text.lines().count(), plain.lines().count() + 1);
     let toml: toml::Table = text.parse().unwrap();
     assert!(toml.contains_key("approval"));
+
+    // At the default path, the overlay needs no flag, and --plain prints the
+    // template alone, as a missing overlay does.
+    let default = home.path().join(".config/theseus/template-overlay.toml");
+    std::fs::create_dir_all(default.parent().unwrap()).unwrap();
+    std::fs::copy(&overlay, &default).unwrap();
+    let auto = command(home.path()).arg("example-config").output().unwrap();
+    assert!(
+        auto.status.success(),
+        "{}",
+        String::from_utf8_lossy(&auto.stderr)
+    );
+    let auto = String::from_utf8(auto.stdout).unwrap();
+    assert!(
+        auto.starts_with("# theseusd example-config, with the overlay ~/.config/theseus/template-overlay.toml in place"),
+        "{auto}"
+    );
+    assert_eq!(
+        auto.lines().skip(1).collect::<Vec<_>>(),
+        text.lines().skip(1).collect::<Vec<_>>()
+    );
+    let bare = command(home.path())
+        .args(["example-config", "--plain"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(bare.stdout).unwrap(), plain);
+    let both = command(home.path())
+        .args(["example-config", "--plain", "--overlay", "~/overlay.toml"])
+        .output()
+        .unwrap();
+    assert!(!both.status.success(), "--plain and --overlay conflict");
 
     std::fs::write(&overlay, "[approval]\ntrusted_user = [\"discord:1\"]\n").unwrap();
     let bad = command(home.path())

@@ -70,7 +70,10 @@ impl Drop for Daemon {
 /// a reference to the vault `Test` (the fake `op` answers), the model
 /// endpoints on a port nothing answers, and `projects` as the workspace.
 fn safe_config(bin: &Path, projects: &Path) -> String {
-    let out = Command::new(bin).arg("example-config").output().unwrap();
+    let out = Command::new(bin)
+        .args(["example-config", "--plain"])
+        .output()
+        .unwrap();
     let mut t: toml::Table = String::from_utf8(out.stdout).unwrap().parse().unwrap();
     fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
         t.entry(key)

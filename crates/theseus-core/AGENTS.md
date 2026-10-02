@@ -31,8 +31,8 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   (`restore`, and `repair`: a corrupt frame taken whole from a copy, theseus-15g), `sweep.rs`, `disk.rs`,
   `binary.rs` (whether jobs can write the daemon's own binary, read when health asks), and `crash.rs` (the panic
   hook's crash file beside the store, which the next start takes and health reports). The config template is
-  `config/theseus.example.toml`; `config_overlay.rs` prints it with an operator's private values in place
-  (`example-config --overlay`, theseus-dxgb), so the public template never carries them.
+  `config/theseus.example.toml`; `config_overlay.rs` prints it with an operator's private overlay in place
+  (`example-config`, theseus-dxgb), so the public template never carries the deployment's own values.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

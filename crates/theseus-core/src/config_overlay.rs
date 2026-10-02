@@ -4,8 +4,9 @@
 //! prints) is public, so it carries placeholders where a deployment's own
 //! values go: its vault's references and its people's ids (theseus-8d1b). An
 //! operator who keeps a deployment as a copy of the template keeps those
-//! values in an overlay, a private TOML document of only what differs, and
-//! prints the template with it: `theseusd example-config --overlay <file>`.
+//! values in an overlay, a private TOML document of only what differs, at
+//! `~/.config/theseus/template-overlay.toml` (or any file `--overlay` names),
+//! and `theseusd example-config` prints the template with it in place.
 //!
 //! Every line of the template is kept as it was but those the overlay sets.
 //! For each key the overlay sets, in its table:
@@ -25,6 +26,11 @@ use std::collections::BTreeMap;
 use anyhow::{bail, Context, Result};
 
 use crate::Config;
+
+/// Where `theseusd example-config` finds the operator's overlay when no
+/// `--overlay` names one: with a file here it prints the template with it in
+/// place, and without one, the template alone (`--plain` forces that).
+pub const DEFAULT_PATH: &str = "~/.config/theseus/template-overlay.toml";
 
 /// A table's path (`["policy", "aws"]`) and the values the overlay sets in it.
 type Wanted = BTreeMap<Vec<String>, BTreeMap<String, toml::Value>>;

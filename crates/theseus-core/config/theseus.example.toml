@@ -13,9 +13,10 @@
 #   export THESEUS_CONFIG='op://<your vault>/<config note>/notesPlain'
 # A deployment kept as a copy of this template keeps its own values (its
 # vault's references, its people's ids, the sections it switches on) in a
-# private overlay file, and prints the template with them in place, ready to
-# copy whole into its note:
-#   theseusd example-config --overlay ~/.config/theseus/template-overlay.toml
+# private overlay, ~/.config/theseus/template-overlay.toml; then
+# `theseusd example-config` prints the template with them in place, ready to
+# copy whole into its note (`--overlay FILE` names another overlay, and
+# `--plain` prints the template alone).
 # Precedence for the few things that also have flags (socket, state dir):
 #   command-line flag > environment variable > this file > built-in default.
 #

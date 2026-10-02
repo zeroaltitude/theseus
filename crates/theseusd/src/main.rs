@@ -14,7 +14,7 @@
 //! note restarts the daemon onto the vault's version. A start with no copy
 //! reads the vault first, and keeps the copy after serving.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -97,9 +97,14 @@ enum Cmd {
     ExampleConfig {
         /// A private TOML file of your deployment's own values (its vault's references, its people's
         /// ids, the sections it turns on): the template is printed with them in place, its comments kept,
-        /// and checked to load, so it can be copied whole into your config (theseus-dxgb).
-        #[arg(long, value_name = "FILE")]
+        /// and checked to load, so it can be copied whole into your config (theseus-dxgb). Default:
+        /// ~/.config/theseus/template-overlay.toml, when that file exists.
+        #[arg(long, value_name = "FILE", conflicts_with = "plain")]
         overlay: Option<PathBuf>,
+        /// Print the template alone, without any overlay (what tests and tools that build on the
+        /// template want).
+        #[arg(long)]
+        plain: bool,
     },
     /// Load config, resolve every secret, report, and exit without serving.
     Check,
@@ -165,19 +170,8 @@ fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    if let Some(Cmd::ExampleConfig { overlay }) = &cli.cmd {
-        return match overlay {
-            None => out(Config::EXAMPLE_TOML),
-            Some(file) => {
-                let path = theseus_core::config::expand(&file.to_string_lossy());
-                let text = std::fs::read_to_string(&path)
-                    .with_context(|| format!("reading the overlay {}", path.display()))?;
-                out(&theseus_core::config_overlay::render(
-                    Config::EXAMPLE_TOML,
-                    &text,
-                )?)
-            }
-        };
+    if let Some(Cmd::ExampleConfig { overlay, plain }) = &cli.cmd {
+        return example_config(overlay.as_deref(), *plain);
     }
     if let Some(Cmd::ExampleBindings) = cli.cmd {
         return out(theseus_discord::EXAMPLE_BINDINGS);
@@ -543,6 +537,36 @@ async fn flush_telemetry(core: &Core) {
 /// head`) ends it quietly, as a closed pipe ends `cat`, instead of panicking
 /// (theseus-gi7). The signal stays ignored: the daemon must never die of a
 /// client that disconnects mid-write.
+/// `example-config` (theseus-dxgb): the template, with the operator's overlay
+/// in place when `--overlay` names one or one sits at the default path, so the
+/// output is the deployment, whole; `--plain`, or no overlay, the template
+/// alone, byte for byte. The first line says which overlay it used.
+fn example_config(overlay: Option<&Path>, plain: bool) -> Result<()> {
+    use theseus_core::config_overlay::{render, DEFAULT_PATH};
+    let (named, path) = match overlay {
+        _ if plain => return out(Config::EXAMPLE_TOML),
+        Some(file) => {
+            let named = file.to_string_lossy().into_owned();
+            let path = theseus_core::config::expand(&named);
+            (named, path)
+        }
+        None => {
+            let path = theseus_core::config::expand(DEFAULT_PATH);
+            if !path.exists() {
+                return out(Config::EXAMPLE_TOML);
+            }
+            (DEFAULT_PATH.to_string(), path)
+        }
+    };
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("reading the overlay {}", path.display()))?;
+    let rendered = render(Config::EXAMPLE_TOML, &text)
+        .with_context(|| format!("the overlay {named} (--plain prints the template alone)"))?;
+    out(&format!(
+        "# theseusd example-config, with the overlay {named} in place (--plain prints the template alone).\n{rendered}"
+    ))
+}
+
 fn out(text: &str) -> Result<()> {
     use std::io::Write;
     let mut stdout = std::io::stdout().lock();
