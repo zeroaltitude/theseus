@@ -24,8 +24,8 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Licence | Open source, **dual-licensed MIT OR Apache-2.0** in the Rust convention (decided 2026-09-25): Apache's patent grant and contribution clause for those who want them, MIT's brevity for those who do not. Permissive-only dependencies enforced by `cargo deny` from the first commit. No AGPL (rules out linking Vestige). _As built (Review 2's consideration 5, 2026-10-01; Part III Item 44): MPL-2.0 is off `deny.toml`'s general list, and `shellexpand`, which brought it in through `option-ext`, is replaced by a few lines that expand `~` and `$NAME`. The seven MPL-2.0 crates that the voice engine's songbird brings (symphonia's four, hpke-rs's three) are allowed by name, pending Eddie's decision (theseus-yl5w)._ |
 | Comms | Discord only, text and voice. One Discord application invited to many guilds. |
 | Model path | Direct Anthropic Messages API. Bedrock is a possible later provider, not the default. |
-| Hands | AWS tool surface is deep and default. Shells are graded: local host, local native sandbox, and AWS classes, chosen per job by Jev within policy. **L0 (native host shell) is the default** for BigHat's deployment; agent-authored code and package installs go to L1; the open-source distribution ships L1 as default with L0 as documented opt-in. Committed 2026-09-24, to be revisited on evidence. |
-| Home AWS account | **Theseus owns it** (Eddie, 2026-09-30). Theseus is the complete, virtual owner of its home AWS account, not a limited user. It may mint IAM roles and session policies to narrow its own hands, as it sees fit, and every call is attributed to its execution. The operator's only hard limits are the budget (so experiments can't run up the bill) and a SOC2 security stance: no public-IP ingress, everything as infrastructure as code, and BigHat's AWS standards. Where those limits are enforced, so that the account's owner can't remove them, is open (theseus-mgw). The budget (Eddie, 2026-10-01) is **$50 a month, $5 a day, and $1 an hour**, a cascade of tripwires:
+| Hands | AWS tool surface is deep and default. Shells are graded: local host, local native sandbox, and AWS classes, chosen per job by Jev within policy. **L0 (native host shell) is the default** for the operator's work deployment; agent-authored code and package installs go to L1; the open-source distribution ships L1 as default with L0 as documented opt-in. Committed 2026-09-24, to be revisited on evidence. |
+| Home AWS account | **Theseus owns it** (Eddie, 2026-09-30). Theseus is the complete, virtual owner of its home AWS account, not a limited user. It may mint IAM roles and session policies to narrow its own hands, as it sees fit, and every call is attributed to its execution. The operator's only hard limits are the budget (so experiments can't run up the bill) and a SOC2 security stance: no public-IP ingress, everything as infrastructure as code, and the operator's company's AWS standards. Where those limits are enforced, so that the account's owner can't remove them, is open (theseus-mgw). The budget (Eddie, 2026-10-01) is **$50 a month, $5 a day, and $1 an hour**, a cascade of tripwires:
 
 - the month is an AWS Budget whose stop at 100 % attaches `theseus-deny-spend`;
 - the day is an AWS Budget that alerts;
@@ -500,7 +500,7 @@ The **learning channel** is a Discord channel per guild (bound `listen_only` for
 
 ### 3.11 Voice
 
-Voice is a Discord voice channel via `songbird`, receive and transmit. STT and TTS are `Speech` plugins; Deepgram and Cartesia first, since ariadne carries the integration knowledge. Push-to-talk versus voice activity detection is a human Discord preference, not an agent concern. The agent joins a voice channel only when invited. Core behaviours lifted from ariadne: barge-in cancels TTS mid-sentence, proactive speech when background work reports back, deferred reports queued for the next pause, short verbal acknowledgements when a turn will take more than a couple of seconds. A voice channel is a channel; its conversation is shared with the paired text channel under the same binding; its transcript is text in the same graph. TTS voice is a persona attribute that roles may modulate.
+Voice is a Discord voice channel via `songbird`, receive and transmit. STT and TTS are `Speech` plugins; Deepgram and Cartesia first, since the operator's earlier voice project carries the integration knowledge. Push-to-talk versus voice activity detection is a human Discord preference, not an agent concern. The agent joins a voice channel only when invited. Core behaviours lifted from that project: barge-in cancels TTS mid-sentence, proactive speech when background work reports back, deferred reports queued for the next pause, short verbal acknowledgements when a turn will take more than a couple of seconds. A voice channel is a channel; its conversation is shared with the paired text channel under the same binding; its transcript is text in the same graph. TTS voice is a persona attribute that roles may modulate.
 
 ### 3.12 Plugins
 
@@ -989,7 +989,7 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
 - **Mechanism.** The first version shells out to the `op` CLI (`op read op://…`) under the service-account token, because 1Password publishes no first-party Rust SDK; the community FFI wrappers around its C core exist and are the candidate for removing the `op` dependency later, once they are shown to build statically. The config note is read with one `op read`, beside the secrets' one `op inject`. The service account is read-only, so the config item is created by a human once; Theseus never writes to the vault.
 - **Configuration is documented by its template, and the template is tested.** `theseusd example-config` prints a hand-written annotated TOML in which every parameter the code reads appears exactly once, set to its default or commented out with its default shown, with a line saying what it does. Three tests keep it honest: it parses and validates; a copy with every comment un-commented also parses under `deny_unknown_fields`, so no stale or not-yet-honored key can survive in it; and every key the loader can read appears in it, so no field can be added without documenting it. The consequence is a rule: config keys are not defined before code honors them; work not yet built is recorded in Part III, never as inert config. `theseusd config` prints the config actually loaded and its source, references only.
 - **Token hygiene.** At startup Theseus checks the GitHub token against the API, logs its login, expiry, and days remaining, and warns when fewer than a configurable number of days remain (default 30). Never fatal.
-- **Starting set** (vault `Eddie-Tabitha`, item names as they exist): `anthropic openclaw key`, `TypeSafe Jev key`, `zeroaltitude github PAT` (a fine-grained token with push on the owner's repositories, expiring 2027-02-18; chosen over the all-scopes classic token until Theseus is on rails), `z.ai key` (line `api key value`), and `strata-jam-aws-key`, a `label: value` note whose `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines are referenced separately (verified 2026-09-25 against STS: IAM user `stratajam`, account 560512680793). Discord and any others are added as their milestones arrive. The same posture applies to them all: GitHub and AWS credentials are read from 1Password too, never from `~/.aws` or `~/.config/gh`, and a secret that cannot be resolved never lets its consumer run without it, and the daemon says which one failed and why; the process itself serves meanwhile. _(Fail closed per consumer since theseus-qa0, 2026-09-29; until then the process refused to start.)_
+- **Starting set**, each an item in the operator's vault, named as `op://<vault>/<item>/<field>`: an Anthropic key; a Jev key; a GitHub token (a fine-grained token with push on the owner's repositories, expiring 2027-02-18; chosen over the all-scopes classic token until Theseus is on rails); a Z.ai key, one line of a note; and an AWS key pair, a `label: value` note whose `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines are referenced separately (verified 2026-09-25 against STS: an IAM user, in account `<account id>`). Discord and any others are added as their milestones arrive. The same posture applies to them all: GitHub and AWS credentials are read from 1Password too, never from `~/.aws` or `~/.config/gh`, and a secret that cannot be resolved never lets its consumer run without it, and the daemon says which one failed and why; the process itself serves meanwhile. _(Fail closed per consumer since theseus-qa0, 2026-09-29; until then the process refused to start.)_
 
 ### 3.20 Telemetry
 
@@ -1821,7 +1821,7 @@ _Tabitha, 2026-09-27 (theseus-s3m). Eddie paused development to ask what Theseus
 
 **Side findings, decided the same night.**
 - The hook sites are to be fixed as proposed (§3.17 amended; theseus-0dp). _(Superseded 2026-09-28: the hook system was deleted instead, and theseus-0dp is moot; §3.17, Part III A3b.)_
-- Three OpenClaw bugs that cost this research its replies went to Tank: the 8 MiB stream cap (openclaw-v1et), a rebuilt `dist/` under a running gateway (openclaw-lzca), and a watchdog false positive (openclaw-jygw).
+- Three OpenClaw bugs that cost this research its replies went to another of the operator's agents: the 8 MiB stream cap (openclaw-v1et), a rebuilt `dist/` under a running gateway (openclaw-lzca), and a watchdog false positive (openclaw-jygw).
 
 **Not adopted:**
 - multi-harness orchestration (§1 stands);
@@ -1845,7 +1845,7 @@ The question is only about the **default**: which class a coding-role shell comm
 
 **The middle path the spec could take.** Make the default depend on what the job needs, not on a global switch: L1 for anything Jev classifies as running code the agent wrote or installing packages (already the mapping); L0 for read-only exploration of known repos; and require an explicit, per-binding grant for L0 with write or credentials, defaulting the coding role's *writes* to L1-with-promotion. That keeps the fast path fast for reading and thinking, and puts the sandbox exactly where arbitrary code runs.
 
-**Decision (Eddie, 2026-09-24): L0 is the default; commit and see how it goes. Tabitha's recommendation, adopted:** For BigHat, where the operator is the owner and the node is already trusted with these credentials, L0-default with the middle path's two exceptions (agent-authored code and package installs in L1, which is already the mapping) is the honest choice: it matches how we actually work and the spec now says plainly where the boundary is. For the open-source distribution, ship L1 as the default and make L0 the documented opt-in, because a stranger's default should be the safe one. The binding config already supports both; this is a defaults question, not an architecture question.
+**Decision (Eddie, 2026-09-24): L0 is the default; commit and see how it goes. Tabitha's recommendation, adopted:** For the operator's work deployment, where the operator is the owner and the node is already trusted with these credentials, L0-default with the middle path's two exceptions (agent-authored code and package installs in L1, which is already the mapping) is the honest choice: it matches how we actually work and the spec now says plainly where the boundary is. For the open-source distribution, ship L1 as the default and make L0 the documented opt-in, because a stranger's default should be the safe one. The binding config already supports both; this is a defaults question, not an architecture question.
 
 # Part II — Build Plan
 
@@ -1904,7 +1904,7 @@ The very first version, specified by Eddie: a vertical slice through every layer
 **Build.**
 - Toolchain pinned: `rust-toolchain.toml` at stable (1.98.1 on 2026-09-25), target `x86_64-unknown-linux-musl`, static release profile, `cargo deny` with the permissive allowlist, `cargo nextest`, CI building the static binary on every push.
 - Workspace crates: `theseus-protocol` (types only), `theseus-core` (kernel library), `theseus` (the binary: `serve`, `chat`, `--tender`).
-- **Config and secrets (§3.19):** TOML config, `op://` references, resolution through the `op` CLI under the service-account token, zeroizing in-memory secrets, fail-closed startup. Starting set: Anthropic, Jev, GitHub, AWS (`strata-jam-aws-key`).
+- **Config and secrets (§3.19):** TOML config, `op://` references, resolution through the `op` CLI under the service-account token, zeroizing in-memory secrets, fail-closed startup. Starting set: Anthropic, Jev, GitHub, AWS.
 - **Hooks (§3.17):** every hook event defined as a typed enum with its kind (Gate, Transform, Claim, Observe), a registry that accepts handlers over the protocol (`hooks.register`) and in code, the run-hooks path wired at each event site, and zero handlers installed. The turn runs through every hook site and nothing fires.
 - **Turn runner (§3.3a):** session with a turn lock; a toolchain manager that compiles the context (the user prompt, nothing else), offers the tool list (empty), sends one provider request to the Anthropic Messages API with streaming, and returns the response.
 - **Advancer:** the trait, with `stop_after_one_loop` as the only policy, ledgering its decision.
@@ -2210,7 +2210,7 @@ Workspace crates:
 
 **Transports.** Unix socket at `~/.theseus/theseus.sock` (mode 0600, stale-socket detection, refuses to steal a live one); stdio; WebSocket at `127.0.0.1:7433/ws` bridged through an in-memory duplex so the browser is an ordinary client.
 
-**Configuration and secrets.** TOML, read by default from the 1Password item `op://Eddie-Tabitha/theseus-config/notesPlain`, or from a file via `--config`/`THESEUS_CONFIG`. Only the service-account token enters the process outside 1Password (env or a mode-0600 file). Every `[secrets]` reference resolves concurrently at startup through the `op` CLI or the process refuses to start, naming the failing references. References accept a `#label` suffix selecting one `label: value` line of a multi-line note. Values live in zeroizing memory; `Debug` never prints them. The GitHub token is checked at startup (login, expiry, days left; warn under 30).
+**Configuration and secrets.** TOML, read by default from a 1Password item, `op://<vault>/<item>/notesPlain`, or from a file via `--config`/`THESEUS_CONFIG`. Only the service-account token enters the process outside 1Password (env or a mode-0600 file). Every `[secrets]` reference resolves concurrently at startup through the `op` CLI or the process refuses to start, naming the failing references. References accept a `#label` suffix selecting one `label: value` line of a multi-line note. Values live in zeroizing memory; `Debug` never prints them. The GitHub token is checked at startup (login, expiry, days left; warn under 30).
 
 **Providers.** `[providers.<name>]` entries speaking the Anthropic Messages API, the implicit `anthropic` from `[model]`, `zai` at `https://api.z.ai/api/anthropic` in the example config. Streaming client with typed content blocks and stream events, tool input assembled at block stop, rate-limit headers, request id, first-byte/first-token/total timing, four timeouts (connect 10 s, first byte 60 s, stream idle 60 s, total 600 s), classified `ProviderError` with `transient` and `usage_unknown`, no automatic retry.
 
@@ -2245,7 +2245,7 @@ Workspace crates:
 
 **Reversal, 2026-09-26: WASM out.** Earlier drafts named WASM components (wasmtime) as the hot-loadable plugin form and even scheduled a "WASM plugin ABI" for M7. Eddie asked why; the honest answer was that it bought microsecond starts and fine-grained capability grants we have not shown we need, at the cost of a very large dependency and toolchain churn, while the L1 sandbox plus MCP, both already specified, give the same isolation and hot loading for free. The single runtime extension path is now an MCP server in an L1 sandbox; WASM returns only if measured per-tool process cost demands it. Recorded here so the reasoning survives.
 
-**Finding, same day: the vault's `z.ai key` item is not the key OpenClaw uses.** Fingerprints differ; the vault key returns 429 code 1113 (insufficient balance) and the OpenClaw key (`models.providers.zai.apiKey`, shared by every agent including Tank) returns 200 with a GLM reply. Eddie to update the vault item; Theseus reads only from the vault by design, so no GLM reply has been observed through Theseus yet.
+**Finding, same day: the vault's GLM key item is not the key OpenClaw uses.** Fingerprints differ; the vault key returns 429 code 1113 (insufficient balance) and the OpenClaw key (`models.providers.zai.apiKey`, which the operator's other agents share) returns 200 with a GLM reply. Eddie to update the vault item; Theseus reads only from the vault by design, so no GLM reply has been observed through Theseus yet.
 
 **Known gaps carried forward.** Continuing a session sends the new prompt only. ~~Remote hook handlers can observe but not gate or transform.~~ (The hooks went in the complexity cuts, theseus-hco, A3b.) ~~Cost in dollars is not computed (tokens only; a pricing table per model is a later addition).~~ (A3's model catalog prices every call, theseus-5xn.) The web UI has no model selector yet (the CLI has `-p`/`-m`). ~~The Z.ai account has no balance, so no GLM reply has been observed end to end.~~ (GLM turns have run end to end since, in most live checks of Items 33 to 43.) The three struck were found by the v1.1 roadmap (Item 45).
 
@@ -5005,7 +5005,7 @@ unbound guild channel acted on his DM, and an unbound daemon answered every inte
   declined; the wake fired at 16:30:40, and its turn's `proc.run echo woke` waited with the same reason;
   `theseus policy trust` cleared the live hold (`session.trusted`, by the CLI).
 - On real Discord, a scratch daemon on a fresh state dir bound only `#theseus-test`: the log registered
-  7 commands, and the bind notice naming `/trust` posted there (Discord message 1554999148170715180).
+  7 commands, and the bind notice naming `/trust` posted there.
   Eddie's daemon was not running. A bot cannot press, so the presses wait for Eddie.
 - Eddie's unchanged note loads under the new binary.
 
@@ -6338,7 +6338,7 @@ Each was gated again on `main` after its rebase (`~/reports/theseus-merge/<lane>
 | telemetry: `theseus.tool.calls` by family, tool, backend, and outcome | and the turn's four attributes; `theseus.tool` renamed `theseus.tool.name` | the ratio per model; OTel's naming rules | Keep |
 | telemetry: count a failed continuation in `theseus.turns` and `theseus.provider.errors` | in health's `provider_errors` too | "as an ordinary failed turn is": `turn.submit` counts both | Keep |
 
-**A tooling change at the join** (theseus-m2lt, 2139b49). Tank's full openclaw rotation (38 branches) started at
+**A tooling change at the join** (theseus-m2lt, 2139b49). Another agent's full openclaw rotation (38 branches) started at
 13:22 and held the kernel's IO pressure at 26 to 49 %. fsrscheck's first gate on `main` then missed the bench
 twice: a restart's p95 was 2,257 ms, on a tree that had passed at 13:13 with 41 ms. Every test passed. The gate now
 waits before each bench run until IO and CPU pressure settle (§9, "A quiet machine"). The budgets are unchanged.
@@ -7369,7 +7369,7 @@ vault-wait line (theseus-nhg4). Both P3, post-v1.
 clean, a GLM turn whose 14 ledger rows came through facts, a wait, the web UI and the cockpit, and no errors in the
 log.
 
-### Item 44. The `hardening2` lane: Review 2's security items (theseus-8dg0; R9, H9, H7, and considerations 2, 3, and 5; 2026-10-01 21:37 to 23:55, two runs (the first ended at the 22:05 usage limit); reviewed 2026-10-02 from 07:45; rebased onto 4eb6db2 as 8637134 to a704a77, and joining with a26d04c and 59a72b8)
+### Item 44. The `hardening2` lane: Review 2's security items (theseus-8dg0; R9, H9, H7, and considerations 2, 3, and 5; 2026-10-01 21:37 to 23:55, two runs (the first ended at the 22:05 usage limit); reviewed 2026-10-02 07:38 to 08:25; rebased onto 4eb6db2 as 8637134 to a704a77, with two join fixes, a26d04c and 59a72b8; joined 08:25 at 59a72b8; not yet installed)
 
 **Why.** Six of the Review 2 items Eddie accepted on 2026-10-01 at 19:54:
 - R9: an `fs.read` of a FIFO waited forever for a writer, holding a pool core and a thread for the daemon's life;
@@ -7431,18 +7431,20 @@ also read the process's environment, and L1 is the boundary. theseus-txvt (grant
 (no end-to-end test of a card that stays in a trusted guild channel), theseus-5b9m (R9 ends a FIFO-based harness
 for cancel races), and theseus-od13 (the web apps don't show the two new health lines), all P3.
 
-**The join.** The rebase onto C2 met two conflicts, both in the core's `AGENTS.md`, and kept both sides. The join's
-first gate then failed on C2's output golden (Item 43), which recorded a test's bare answerer as `"via":"unnamed"`.
-Consideration 2 makes that label answer as the CLI, so three `action.confirm_answered` rows (the approval, the
-decline with a note, and the budget reset) now say `"via":"cli"` (59a72b8). The next gate hadn't finished when
-v0.76 was written (08:18).
+**The join** (2026-10-02 08:25, at 59a72b8). The rebase onto C2 met two conflicts, both in the core's `AGENTS.md`,
+and kept both sides. It took three join gates. The first failed clippy (`needless_borrow`) in the rebase fix's
+first form, 346f2a3, which was made again as a26d04c. The second failed on C2's output golden (Item 43), which
+recorded a test's bare answerer as `"via":"unnamed"`. Consideration 2 makes that label answer as the CLI, so three
+`action.confirm_answered` rows (the approval, the decline with a note, and the budget reset) now say `"via":"cli"`
+(59a72b8). The third passed at 08:24:54: 1,428 of 1,428 tests, and the lifecycle bench in 6.8 s. The wait for the
+shared gate lock cost about 25 minutes across the three (theseus-rx91).
 
 **Before the install.** Without an `[approval]` section, Eddie's web UI's answers would be refused, though his
-cards would still reach his DM. So three lines go into his config first, and the install waits for them. Then
+cards would still reach his DM. So three lines go into his config first (sent to him at 07:49), and the install waits for them. Then
 health will say `binary: JOBS CAN WRITE …` of his `theseusd`, which holds until the builder runs under
 `theseusd install --separate` (theseus-2r70).
 
-### Item 45. The v1.1 roadmap (theseus-empf; the `v11` lane, docs only; 2026-10-01 23:35 to 2026-10-02 00:32; reviewed 07:48 to 07:49; 394459e, rebased as 4315d70)
+### Item 45. The v1.1 roadmap (theseus-empf; the `v11` lane, docs only; 2026-10-01 23:35 to 2026-10-02 00:32; reviewed 07:48 to 07:49; 394459e, rebased as 4315d70 and again onto hardening2's join; joined 08:25 at d7358f3)
 
 **Why.** Eddie, 2026-10-01 at 23:11: "a nice ~1week roadmap for after v1 to v1.1". The critical work he named at the
 same time, security, performance, and proof points, moved ahead of v1 into lanes. This plans the week after.

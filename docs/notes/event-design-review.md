@@ -18,7 +18,7 @@ With those three changes the design collapses into the spec's two-loop model wit
 
 **Our own logs, last three days (gateway journal on this node):**
 - 24 occurrences of `Active requester session could not be woken for subagent completion; falling back to requester-agent handoff`. A completion arrived and the thing that was supposed to receive it was not there. That is exactly the failure the proposal eliminates: the completion had no durable home independent of the waiting session.
-- Hundreds of `stalled session … reason=blocked_tool_call` diagnostics across five Tank subagent sessions, with `activeToolAge` reaching 599 s (the diagnostic's ceiling). A session sat inside a blocking tool call, unresponsive to humans, because the tool's lifetime and the session's lifetime were the same thing. Tank's two-hour wedge on 2026-09-22 was the same shape.
+- Hundreds of `stalled session … reason=blocked_tool_call` diagnostics across five subagent sessions of another of the operator's agents, with `activeToolAge` reaching 599 s (the diagnostic's ceiling). A session sat inside a blocking tool call, unresponsive to humans, because the tool's lifetime and the session's lifetime were the same thing. That agent's two-hour wedge on 2026-09-22 was the same shape.
 - The file-courier pattern we adopted in AGENTS.md ("the strong model writes a frozen artifact; the heartbeat is a courier") exists because in-memory subagent handles do not survive session rotation. It is a hand-built version of "completion as a durable record delivered by an independent path."
 - The codex process storm (fifteen to twenty `codex.js app-server` processes with no codex agent running) was orphaned child work with no completion contract at all.
 

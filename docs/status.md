@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-02 08:13 MST. Version 0.0.1; the design document is at v0.76._
+_Updated 2026-10-02 08:42 MST. Version 0.0.1; the design document is at v0.76._
 
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
@@ -57,9 +57,9 @@ starts.
 
 | Stage | What it brings | Where it is |
 |---|---|---|
-| **A. Stage 1's remainder** | Fix batches from two reviews, the dogfood pilot, the complexity cuts, the reader rule | Done. Review 2 was accepted whole on October 1: its security items are reviewed and join next, C6 and C2 have landed (stage C), and lanes carry performance, proof points, robustness, and the bench. What it deferred is in the v1.1 roadmap. |
+| **A. Stage 1's remainder** | Fix batches from two reviews, the dogfood pilot, the complexity cuts, the reader rule | Done. Review 2 was accepted whole on October 1: its security items joined on October 2 (installed once the operator's config names who may answer approvals), C6 and C2 have landed (stage C), and lanes carry the security gaps left on v1's path, robustness, and the bench (the performance and proof-point lanes joined on October 2). What it deferred is in the v1.1 roadmap. |
 | **B. The operator's surfaces** | Live updates pushed instead of polled, `session.wait`, the CLI's client library, the first graph edge, a terminal UI, herdr | Done on October 1: the push, the client library, reach, the terminal UI, and herdr. |
-| **C. M4, boundaries** | The sandbox wired into `proc.run`, egress, credentials as stand-ins, disclosure labels, integrity, the ontology, the job host | Begun. The kernel transaction (C6) and one typed fact per event (C2) have landed; the store's writer thread (S2) comes next. The sandbox, egress proxy, ontology, and installer are built as lanes. |
+| **C. M4, boundaries** | The sandbox wired into `proc.run`, egress, credentials as stand-ins, disclosure labels, integrity, the ontology, the job host | Begun. The kernel transaction (C6) and one typed fact per event (C2) have landed; the store's writer thread (S2) is under way. The sandbox, egress proxy, ontology, and installer are built as lanes. |
 | **D. AWS** | The bound account, its stacks and budget, curated tools, the durability tender, restore from S3, hands on Lambda and Fargate | The client, catalog, guardrails, and templates are built. The first wire-in, the account's reads, is in progress in a lane. |
 | **E. M5, judgment** | Jev wired in: the loop's stopping point, the gate's safety call, roles, continuation, all in shadow and then under canary | The client and packs are built. |
 | **F. M6, memory** | Recall in turns, the memory pass, retention and activation as measured arms, tiering, and books | The index, vectors, math, and the exam are built. The index's wire-in is in progress in a lane. |
@@ -76,7 +76,11 @@ two-week soak in daily use, so it lands around **October 20 or 21**, and v1.1 ar
 
 - **2026-10-02:** one typed fact for each thing that happens. Every ledger row, live event, narrative line, and
   span of a turn comes from one type, recorded once, and the ledger's kinds are a registry (Part III, Item 43).
-  The v1.1 roadmap: the week after v1, planned (Item 45).
+  Review 2's security items, joined and not yet installed: file readers refuse FIFOs and devices, the scrubber
+  also catches encoded secrets, AWS keys, private keys, and JWTs, a granted secret reaches only the program a call
+  names, approvals default to the owner's own terminal and DM, and health says when jobs can write the running
+  daemon (Item 44). The install waits for three lines in the operator's config. The v1.1 roadmap, the week after
+  v1, planned and joined (Item 45).
 - **2026-10-01:** stage B's last steps. The terminal UI, `theseus tui` (Items 39 and 41), on the CLI's client
   library (Item 36). herdr panes that show each session's state (Item 42). `theseus reach`, the first edge between
   sessions (Item 38). The kernel transaction: several state changes commit as one, and an answer is one, so a

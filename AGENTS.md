@@ -10,13 +10,14 @@ Theseus is a durable agent runtime in Rust: `theseusd`, a daemon that owns the t
 log of everything it does; `theseus`, a thin CLI over the daemon's JSON-RPC protocol; and two web apps the daemon
 serves. AI agents build it in small, reviewed steps.
 
-- **The spec, `docs/the-ship-of-theseus.md`**, is the source of truth. It is about 6,800 lines: find a section with
+- **The spec, `docs/the-ship-of-theseus.md`**, is the source of truth. It is about 7,500 lines: find a section with
   `grep -n '^##'`, and read it by ranges. Part I is the specification (§1 settled decisions, §2 principles, §9
   budgets), Part II the plan (P0 holds the standing rules), and Part III the record: one item per step, with what it
   built, how it was proven, where it diverged, and what it left open.
 - **`docs/status.md`**: what works today, what is being wired in, and the roadmap.
-- **`docs/design/`**, indexed in its README: `roadmap-v2.md` (every step, by "row"), `stage2-operator-surfaces.md`,
-  `aws-toolset.md`, `m4-boundaries.md`, `m5-judgment.md`, `m6-memory.md`, `m7-surface.md`, and `review-2.md`.
+- **`docs/design/`**, indexed in its README: `roadmap-v2.md` (every step, by "row"), `roadmap-v1.1.md` (the week
+  after v1), `stage2-operator-surfaces.md`, `aws-toolset.md`, `m4-boundaries.md`, `m5-judgment.md`, `m6-memory.md`,
+  `m7-surface.md`, and `review-2.md`.
 - **`docs/technical-overview.md`**: the core in depth, with commands to see each part work.
 
 ## The map
@@ -64,9 +65,7 @@ The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each
   `rust-toolchain.toml`, `.cargo/config.toml` (the static musl target), `.config/nextest.toml` (a hung test is
   killed at two minutes), and `.github/workflows/ci.yml`.
 
-Directory guides: `crates/theseus-protocol`, `crates/theseus-store`, `crates/theseus-kernel`, `crates/theseus-tools`,
-`crates/theseus-core`, `crates/theseus-discord`, `crates/theseusd`, `crates/theseus`, `crates/theseus-tui`,
-`crates/theseus-sim`, `web`, `cockpit`, and `scripts` each have an `AGENTS.md`.
+Directory guides: each crate in the first table, `web`, `cockpit`, and `scripts` has an `AGENTS.md`.
 
 ### Generated files: never edit them by hand
 
@@ -89,6 +88,9 @@ Directory guides: `crates/theseus-protocol`, `crates/theseus-store`, `crates/the
 - **Tool calls**: `crates/theseus-core/src/toolrun.rs`; the gate's postures in `policy.rs`, `external.rs`, and
   `broker.rs`.
 - **The RPC layer**: `crates/theseus-core/src/rpc/` (`server.rs`, `methods.rs`, `driver.rs`, `confirms.rs`).
+- **Facts**: `crates/theseus-core/src/fact/`: every ledger row, notification, narrative line, and span of the turn,
+  its tool calls, answers, and the driver, one type each, recorded once (theseus-j6qn). The ledger's kinds:
+  `crates/theseus-protocol/src/ledger.rs`.
 - **The push's board**: `crates/theseus-core/src/push.rs`, fed by `Kernel::observe`; `attention()` is in
   `crates/theseus-protocol/src/push.rs`.
 - **The outbox**: `crates/theseus-kernel/src/outbox.rs`, `crates/theseus-core/src/outbox.rs`, and
@@ -105,7 +107,8 @@ Each is a requirement, with its spec section.
   network, a model, an index rebuild, or work that grows with history. The start path writes one frame of its own,
   and any other write goes after serving. New startup work lands with its bench row.
 - **EXQUISITE VISIBILITY** (§2, P2b). Every turn, loop, call, judgment, and completion is timed and attributed as it
-  happens, in the record. A new kind of work lands with its span, attributes, and metric on the same commit.
+  happens, in the record. A new kind of work lands as facts (its row, its notification, its lines, its span in one
+  type), never as hand-written channels, with its metric on the same commit.
 - **Event-driven** (§1, "Execution model"; §2, QUIET BY CONSTRUCTION). No in-flight state lives only in memory: every
   dispatched thing is a WAL record with a correlation id, and its completion arrives as an event. No busy loops.
 - **The WAL and frames** (§6; Part III F2). The WAL is the truth, and every index a projection of it. A kernel method,
@@ -116,7 +119,8 @@ Each is a requirement, with its spec section.
   erasure (§5.6) is the one receipted exception.
 - **The reader rule** (P0, rule 3). Nothing is declared without its reader: a crate, protocol method,
   notification, edge kind, or label lands with what reads it, or with a marker naming the row that brings it.
-  `tests_registry` in theseus-core enforces it, and the gate runs it first.
+  `tests_registry` in theseus-core enforces it, and the gate runs it first. A ledger kind (`LedgerKind`) is declared
+  by being written; the same test fails a kind nothing writes.
 - **The store's version rule** (P5b; Part III F4a). A record layout change bumps its kind in `kinds::SCHEMAS`, with
   a reader for the old layout and a test that reads it. A frame or record encoding change bumps `MANIFEST_FORMAT`.
   A build refuses a store newer than it knows. Schema numbers are assigned when a step lands on `main`.

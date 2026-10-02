@@ -54,7 +54,7 @@ Only one secret may reach the process outside 1Password: the service-account tok
 ```bash
 export OP_SERVICE_ACCOUNT_TOKEN=...           # or --op-token-file / THESEUS_OP_TOKEN_FILE
 theseusd example-config > ~/.theseus/theseus.toml   # op:// references only, no values
-export THESEUS_CONFIG=~/.theseus/theseus.toml       # default is the 1Password item theseus-config
+export THESEUS_CONFIG=~/.theseus/theseus.toml       # default is a 1Password item, op://<vault>/<item>/notesPlain
 theseusd check                                      # resolves every secret, then exits
 theseusd &                                          # daemon on ~/.theseus/theseus.sock
 
