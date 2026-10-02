@@ -78,6 +78,10 @@ pub mod method {
         CATALOG_LIST = "catalog.list",
         COMPILATION_LIST = "compilation.list",
         NODE_LIST = "node.list",
+        /// Where a node went (theseus-n4m, step 12a): the contexts of its own
+        /// session that held it, then its copies in other sessions over
+        /// `derived_from`, each with theirs. A read, computed when asked.
+        NODE_REACH = "node.reach",
         TOOL_LIST = "tool.list",
         SHUTDOWN = "shutdown",
         /// The narrative (`narrative = true`): the recent tail, then every new
@@ -1948,6 +1952,88 @@ pub struct NodeListParams {
 pub struct NodeListResult {
     pub nodes: Vec<NodeInfo>,
     pub total: u64,
+}
+
+/// `node.reach` (theseus-n4m, step 12a; design stage2 §2.11).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct NodeReachParams {
+    pub node_id: String,
+    /// How many generations of copies to follow: 3 by default, at most 16.
+    /// 0 answers the node's own session only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub max_generations: Option<u32>,
+}
+
+/// A compilation whose prefix (`includes`) holds a node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ReachCompilation {
+    pub compilation_id: String,
+    /// `transcript`, `fresh`, or `ring`.
+    pub strategy: String,
+    pub created_at_ms: u64,
+}
+
+/// Where a node was seen in its own session: the compilations that hold it,
+/// and the loops whose context held it (a model call made after it was
+/// written, whose compilation holds it or left it in the tail). A context is
+/// a compilation or a loop. The first and last exposure are absent when it
+/// was never seen.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ReachExposure {
+    pub compilations: Vec<ReachCompilation>,
+    pub loops: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub first_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub last_ms: Option<u64>,
+}
+
+/// A copy of the node in another session, found by walking the edges into
+/// it: generation 1 copies the node, generation 2 a copy, and so on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ReachDescendant {
+    pub node_id: String,
+    pub session_id: String,
+    pub position: u64,
+    pub generation: u32,
+    /// The edge's kind: `derived_from`.
+    pub via: String,
+    /// The route that wrote the edge: `report` or `brief`.
+    pub route: String,
+    /// The node it copies, one generation up.
+    pub from: String,
+    #[serde(flatten)]
+    pub exposure: ReachExposure,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ReachTotals {
+    /// Every compilation and loop, the node's and its copies'.
+    pub contexts: u64,
+    /// The sessions the node and its copies are in.
+    pub sessions: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct NodeReachResult {
+    pub node_id: String,
+    pub session_id: String,
+    pub position: u64,
+    pub direct: ReachExposure,
+    pub descendants: Vec<ReachDescendant>,
+    pub totals: ReachTotals,
+    /// The walk stopped short: a node at `max_generations` has copies of
+    /// its own, or the walk reached its cap of copies.
+    pub partial: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

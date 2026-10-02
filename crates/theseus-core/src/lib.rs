@@ -33,6 +33,7 @@ pub mod peer;
 pub mod policy;
 pub mod provider;
 pub mod push;
+pub mod reach;
 pub mod restore;
 pub mod rpc;
 pub mod scrub;
@@ -77,6 +78,8 @@ mod tests_outside_text;
 mod tests_overflow;
 #[cfg(test)]
 mod tests_push;
+#[cfg(test)]
+mod tests_reach;
 #[cfg(test)]
 mod tests_registry;
 #[cfg(test)]

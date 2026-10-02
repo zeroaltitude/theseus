@@ -207,6 +207,22 @@ fn brief_text(task_session: &str, parent_session: &str, brief: &str) -> String {
     )
 }
 
+/// The parent's reply that holds the call `correlation_id` (12a): its call
+/// node, written when the call was planned, names it. The reply, not the
+/// call node, is what the parent's contexts carry. None when no call node
+/// names it.
+fn holder_of(tc: &TurnCtx<'_>, correlation_id: &str) -> Option<String> {
+    let nodes = tc.store.transcript(tc.session_id).ok()?;
+    nodes.iter().rev().find_map(|(_, n)| match &n.body {
+        Body::ToolCall {
+            correlation_id: Some(c),
+            assistant_node,
+            ..
+        } if c == correlation_id => Some(assistant_node.clone()),
+        _ => None,
+    })
+}
+
 /// Run `task.create` for the call `correlation_id` of the turn `tc` (the
 /// harness's side): open the child, and say what was opened. An error is the
 /// result the model reads.
@@ -240,6 +256,9 @@ pub fn create(
         .get_session::<SessionRecord>(tc.session_id)
         .map_err(|e| format!("Not started: {e:#}"))?
         .and_then(|r| r.external);
+    // The brief copies the call's input, which the parent's reply holds
+    // (12a): the brief is `derived_from` that reply.
+    let holder = holder_of(tc, correlation_id);
     let opened = tc.kernel.open_task(
         tc.guard,
         correlation_id,
@@ -290,6 +309,17 @@ pub fn create(
                 )?],
             };
             records.push(brief.record()?);
+            if let Some(reply) = &holder {
+                records.push(
+                    crate::graph::Edge::new(
+                        crate::graph::EdgeKind::DerivedFrom,
+                        &brief.id,
+                        reply,
+                        crate::graph::VIA_BRIEF,
+                    )
+                    .record()?,
+                );
+            }
             if let Some(t) = &target {
                 records.push(tc.outbox.task_record(&task.session_id, t)?);
             }

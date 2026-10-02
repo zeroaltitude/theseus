@@ -560,7 +560,9 @@ pub fn manifest_for(
     }
 }
 
-fn renderable(n: &Node) -> bool {
+/// Whether a node renders into a request: a call node does not, since its
+/// reply carries the call (`node.reach` counts by the same rule).
+pub(crate) fn renderable(n: &Node) -> bool {
     !matches!(n.body, Body::ToolCall { .. })
 }
 

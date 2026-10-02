@@ -860,6 +860,16 @@ impl Core {
         })
     }
 
+    /// `node.reach` (theseus-n4m, step 12a): see `reach.rs`.
+    pub(super) fn node_reach(
+        &self,
+        p: theseus_protocol::NodeReachParams,
+    ) -> Result<theseus_protocol::NodeReachResult, RpcFailure> {
+        crate::reach::reach(&self.store, &p.node_id, p.max_generations)?.ok_or_else(|| {
+            RpcFailure::new(error_code::NOT_FOUND, format!("no node {:?}", p.node_id))
+        })
+    }
+
     pub(super) fn action_confirm(
         &self,
         p: theseus_protocol::ActionConfirmParams,

@@ -265,6 +265,17 @@ impl Core {
             method::CATALOG_LIST => reply(self.catalog_list()),
             method::COMPILATION_LIST => route(params, |p| self.compilation_list(p)),
             method::NODE_LIST => route(params, |p| self.node_list(p)),
+            // A walk may read several sessions, so it runs off the serving
+            // workers. Its params are parsed first: none fails at once.
+            method::NODE_REACH => {
+                let p = parse(params)?;
+                let core = self.clone();
+                reply(
+                    tokio::task::spawn_blocking(move || core.node_reach(p))
+                        .await
+                        .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))??,
+                )
+            }
             method::ACTION_CONFIRM => route(params, |p| self.action_confirm(p, conn)),
             method::POLICY_TIGHTEN => route(params, |p| self.policy_tighten(p, conn)),
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),

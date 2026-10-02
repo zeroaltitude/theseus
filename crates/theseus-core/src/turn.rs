@@ -1765,6 +1765,21 @@ impl TurnRunner {
                         &r.node_text(),
                     );
                     records.push(n.record()?);
+                    // The first transmission edge (12a, theseus-n4m): the
+                    // relayed node copies the task's last message, so
+                    // `node.reach` follows it from there. A task that did
+                    // not finish relays no message, and has no edge.
+                    if let Some(last) = &r.node {
+                        records.push(
+                            crate::graph::Edge::new(
+                                crate::graph::EdgeKind::DerivedFrom,
+                                &n.id,
+                                last,
+                                crate::graph::VIA_REPORT,
+                            )
+                            .record()?,
+                        );
+                    }
                     if let Some(h) = &r.external {
                         if let Some(before) = rec.take() {
                             let h = crate::external::taken(

@@ -657,6 +657,20 @@ impl Store {
         self.inner.count_of_kind(kinds::NODE)
     }
 
+    /// A node by its id, with its WAL position.
+    pub fn get_node(&self, id: &str) -> Result<Option<(u64, crate::node::Node)>> {
+        match self.inner.latest_by_key(kinds::NODE, id)? {
+            Some(r) => Ok(Some((r.position, r.decode()?))),
+            None => Ok(None),
+        }
+    }
+
+    /// Every record of a scope after the position `after`, oldest first: a
+    /// session's, or the edges into a node (`in:<node>`, 12a).
+    pub fn scope_after(&self, scope: &str, after: u64) -> Result<Vec<Record>> {
+        self.inner.scan_scope(scope, after, usize::MAX)
+    }
+
     pub fn get_compilation(&self, id: &str) -> Result<Option<crate::compiler::Compilation>> {
         match self.inner.latest_by_key(kinds::COMPILATION, id)? {
             Some(r) => Ok(Some(r.decode()?)),
@@ -957,5 +971,44 @@ mod tests {
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
         assert_eq!(m["format"], 2, "reading marks nothing: {m}");
+    }
+
+    /// The first edge (12a, theseus-n4m). EDGE is at schema 1, which every
+    /// manifest marks already (a new store's lists every kind this build
+    /// writes, and a format-2 store's records are all schema 1), so its
+    /// first write rewrites no manifest. An older binary's store keeps
+    /// format 2, opens again, and reads the edge from the scope into its
+    /// target.
+    #[test]
+    fn an_edge_marks_no_manifest_and_an_older_store_still_opens() {
+        use crate::graph::{Edge, EdgeKind, VIA_REPORT};
+        let edge = Edge::new(EdgeKind::DerivedFrom, "msg_copy", "msg_first", VIA_REPORT);
+        let fresh = tempfile::tempdir().unwrap();
+        let store = Store::open(fresh.path()).unwrap();
+        let before = std::fs::read(fresh.path().join("MANIFEST.json")).unwrap();
+        store.append(&[edge.record().unwrap()]).unwrap();
+        assert_eq!(
+            std::fs::read(fresh.path().join("MANIFEST.json")).unwrap(),
+            before,
+            "the first edge marks nothing"
+        );
+        drop(store);
+
+        let d = older_store();
+        let store = Store::open(d.path()).unwrap();
+        store.append(&[edge.record().unwrap()]).unwrap();
+        drop(store);
+        let m: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            m["format"], 2,
+            "an edge keeps an older store at format 2: {m}"
+        );
+        let store = Store::open(d.path()).unwrap();
+        let into = store.scope_after("in:msg_first", 0).unwrap();
+        assert_eq!(into.len(), 1);
+        assert_eq!(into[0].decode::<Edge>().unwrap(), edge);
+        assert_eq!(store.stats().unwrap().last_position, 122);
     }
 }

@@ -273,6 +273,7 @@ fn params(m: &str) -> Value {
             json!({"session_id": "ses_none"})
         }
         method::TURN_SUBMIT => json!({"input": "hi", "attachments": []}),
+        method::NODE_REACH => json!({"node_id": "msg_none"}),
         _ => json!({}),
     }
 }
@@ -319,6 +320,7 @@ async fn a_start_from_the_copy_answers_reads_at_once_and_every_acting_method_wai
             "catalog.list",
             "compilation.list",
             "node.list",
+            "node.reach",
             "tool.list",
             "shutdown",
             "narrative.watch",
