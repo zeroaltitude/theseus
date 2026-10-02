@@ -56,7 +56,7 @@ pub struct Conn {
 impl Conn {
     /// Connect to a daemon's socket; a leading `~` is the home directory.
     pub async fn socket(path: &str) -> Result<Self> {
-        let path = PathBuf::from(shellexpand::tilde(path).into_owned());
+        let path = PathBuf::from(tilde(path, std::env::var("HOME").ok()));
         let stream = tokio::net::UnixStream::connect(&path)
             .await
             .with_context(|| {
@@ -177,10 +177,36 @@ impl Conn {
     }
 }
 
+/// `path` with a leading `~` (alone, or before `/`) as `home`, as a shell
+/// reads it, so a quoted `--socket` or `THESEUS_SOCKET` works too. Without a
+/// home, it is left as written (review 2's consideration 5: no
+/// `shellexpand`).
+fn tilde(path: &str, home: Option<String>) -> String {
+    match (path.strip_prefix('~'), home) {
+        (Some(rest), Some(h)) if !h.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+            format!("{h}{rest}")
+        }
+        _ => path.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn a_leading_tilde_is_the_home_directory() {
+        let home = || Some("/home/invented".to_string());
+        assert_eq!(
+            tilde("~/.theseus/theseus.sock", home()),
+            "/home/invented/.theseus/theseus.sock"
+        );
+        assert_eq!(tilde("~", home()), "/home/invented");
+        assert_eq!(tilde("~other/s.sock", home()), "~other/s.sock");
+        assert_eq!(tilde("/run/x.sock", home()), "/run/x.sock");
+        assert_eq!(tilde("~/x.sock", None), "~/x.sock");
+    }
 
     /// A connection to a scripted daemon: its other end.
     fn pair() -> (Conn, tokio::io::DuplexStream) {

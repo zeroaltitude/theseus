@@ -18,7 +18,6 @@ toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
-shellexpand.workspace = true
 sha2 = "0.10"
 hex = "0.4"
 twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots", "twilight-http"] }

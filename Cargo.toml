@@ -62,7 +62,6 @@ zeroize = { version = "1", features = ["derive"] }
 redb = "4"
 clap = { version = "4", features = ["derive", "env"] }
 uuid = { version = "1", features = ["v7"] }
-shellexpand = "3"
 # Property tests over the readers of outside text (theseus-s68). Tests only;
 # no forking runner, so each case runs in the test's own process.
 proptest = { version = "1.11", default-features = false, features = ["std"] }

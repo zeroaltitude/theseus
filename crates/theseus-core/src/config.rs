@@ -178,7 +178,7 @@ fn default_approval_channels() -> Vec<String> {
 
 impl DiscordConfig {
     pub fn bindings_path(&self, state_dir: &std::path::Path) -> PathBuf {
-        let p = PathBuf::from(shellexpand::tilde(&self.bindings_file).into_owned());
+        let p = expand(&self.bindings_file);
         if p.is_absolute() {
             p
         } else {
@@ -1400,14 +1400,113 @@ impl Config {
     }
 }
 
+/// A configured path with `~` and environment variables read as a shell
+/// reads them (review 2's consideration 5, in place of `shellexpand`, whose
+/// dependencies are MPL-2.0).
 pub fn expand(p: &str) -> PathBuf {
-    PathBuf::from(shellexpand::tilde(p).into_owned())
+    PathBuf::from(expand_with(p, |name| std::env::var(name).ok()))
+}
+
+/// A command's path argument with a leading `~` as `$HOME`, and nothing
+/// else, as `shellexpand::tilde` read it for the gate. The arguments reach
+/// the program unexpanded (no shell), so a `$VAR` stays as written: the
+/// relative path the program will open.
+pub fn expand_home(p: &str) -> PathBuf {
+    let (home, rest) = tilde(p, || std::env::var("HOME").ok());
+    PathBuf::from(home + rest)
+}
+
+/// `p`'s leading `~` (alone, or before `/`) as `home`, and the rest. Without
+/// a home, or before a user's name (`~user`), it is left as written.
+fn tilde(p: &str, home: impl FnOnce() -> Option<String>) -> (String, &str) {
+    if let Some(after) = p.strip_prefix('~') {
+        if after.is_empty() || after.starts_with('/') {
+            if let Some(h) = home().filter(|h| !h.is_empty()) {
+                return (h, after);
+            }
+        }
+    }
+    (String::new(), p)
+}
+
+/// `p` with a leading `~` (alone, or before `/`) as `$HOME`, and each `$NAME`
+/// or `${NAME}` as that variable's value, from `var`. What does not resolve
+/// is left as written: a variable that is not set, `~user`, a `$` before
+/// anything but a name, and `~` when `HOME` is not set.
+pub fn expand_with(p: &str, var: impl Fn(&str) -> Option<String>) -> String {
+    let (mut out, mut rest) = tilde(p, || var("HOME"));
+    let name_char = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    while let Some(at) = rest.find('$') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let (name, len) = match after.strip_prefix('{') {
+            Some(b) => match b.find('}') {
+                Some(end) => (&b[..end], end + 2),
+                None => ("", 0),
+            },
+            None => {
+                let end = after.find(|c| !name_char(c)).unwrap_or(after.len());
+                (&after[..end], end)
+            }
+        };
+        let named = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && name.chars().all(name_char);
+        match named.then(|| var(name)).flatten() {
+            Some(value) => out.push_str(&value),
+            None => out.push_str(&rest[at..at + 1 + len]),
+        }
+        rest = &after[len..];
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::policy::Posture;
+
+    /// Consideration 5 of review 2: `~` and `$VAR` without `shellexpand`. What
+    /// does not resolve is left as written.
+    #[test]
+    fn a_path_expands_home_and_variables_as_a_shell_would() {
+        let env = |name: &str| match name {
+            "HOME" => Some("/home/invented".to_string()),
+            "XDG_STATE" => Some("/var/invented".to_string()),
+            "EMPTY" => Some(String::new()),
+            _ => None,
+        };
+        for (p, want) in [
+            ("~", "/home/invented"),
+            ("~/.theseus", "/home/invented/.theseus"),
+            ("~other/x", "~other/x"),
+            ("a/~/b", "a/~/b"),
+            ("$XDG_STATE/theseus", "/var/invented/theseus"),
+            ("${XDG_STATE}x/y", "/var/inventedx/y"),
+            ("~/$XDG_STATE", "/home/invented//var/invented"),
+            ("$UNSET/x", "$UNSET/x"),
+            ("${UNSET}/x", "${UNSET}/x"),
+            ("x$EMPTY/y", "x/y"),
+            ("cost: $5 and $", "cost: $5 and $"),
+            ("${unclosed", "${unclosed"),
+            ("${}", "${}"),
+            ("$$HOME", "$/home/invented"),
+            ("/plain/path", "/plain/path"),
+            ("é$HOME/中", "é/home/invented/中"),
+        ] {
+            assert_eq!(expand_with(p, env), want, "{p}");
+        }
+        assert_eq!(
+            expand_with("~/x", |_| None),
+            "~/x",
+            "no HOME: left as written"
+        );
+        assert_eq!(
+            expand_with("~/x", |_| Some(String::new())),
+            "~/x",
+            "an empty HOME: left as written"
+        );
+    }
 
     #[test]
     fn example_template_parses_and_validates() {

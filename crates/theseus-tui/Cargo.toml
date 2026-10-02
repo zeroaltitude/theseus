@@ -24,7 +24,6 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-shellexpand.workspace = true
 # Only what the TUI draws with: the crossterm backend and the layout cache;
 # not the calendar widget, the macros, or underline colors.
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache"] }

@@ -18,7 +18,6 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "Unicode-DFS-2016",
-    "MPL-2.0",
     "CDLA-Permissive-2.0",
     "OpenSSL",
     "BSL-1.0",
@@ -26,6 +25,18 @@ allow = [
     "0BSD",
 ]
 confidence-threshold = 0.8
+# MPL-2.0 is off the list (review 2's consideration 5: `shellexpand`, which brought it in, is gone). The voice
+# engine's songbird still brings it, by these crates alone, until the licence is decided (theseus-yl5w); an
+# MPL-2.0 crate anywhere else fails the gate.
+exceptions = [
+    { allow = ["MPL-2.0"], crate = "symphonia" },
+    { allow = ["MPL-2.0"], crate = "symphonia-core" },
+    { allow = ["MPL-2.0"], crate = "symphonia-codec-pcm" },
+    { allow = ["MPL-2.0"], crate = "symphonia-metadata" },
+    { allow = ["MPL-2.0"], crate = "hpke-rs" },
+    { allow = ["MPL-2.0"], crate = "hpke-rs-crypto" },
+    { allow = ["MPL-2.0"], crate = "hpke-rs-rust-crypto" },
+]
 
 [bans]
 multiple-versions = "allow"

@@ -27,7 +27,6 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-shellexpand.workspace = true
 # SIGPIPE back to its default so `theseus history | head` ends quietly.
 libc = "0.2"
 

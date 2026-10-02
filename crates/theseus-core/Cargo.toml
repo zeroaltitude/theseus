@@ -26,7 +26,6 @@ zeroize.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 sha2 = "0.10"
 hex = "0.4"
-shellexpand.workspace = true
 # A wake's time in the daemon's time zone (`localtime_r`; DD8).
 libc = "0.2"
 

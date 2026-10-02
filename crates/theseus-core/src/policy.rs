@@ -255,7 +255,7 @@ fn path_args(argv: &[String], cwd: &Path) -> Vec<(String, PathBuf)> {
             if v.is_empty() || !looks {
                 return None;
             }
-            let expanded = PathBuf::from(shellexpand::tilde(v).into_owned());
+            let expanded = crate::config::expand_home(v);
             let full = if expanded.is_absolute() {
                 expanded
             } else {
@@ -500,6 +500,27 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
     use theseus_tools::{Resource, Retry, ToolClass, ToolCtx};
+
+    /// A command's arguments reach it unexpanded (no shell), so the gate
+    /// reads a leading `~` as a shell would have, as `shellexpand::tilde`
+    /// did, and leaves `$HOME` as written: the relative path the program
+    /// opens (review 2's consideration 5).
+    #[test]
+    fn a_path_argument_reads_its_tilde_and_not_its_variables() {
+        let Ok(home) = std::env::var("HOME") else {
+            return;
+        };
+        let cwd = Path::new("/invented/work");
+        let args = path_args(&["cat".into(), "~/x.txt".into(), "$HOME/y.txt".into()], cwd);
+        let at: Vec<&Path> = args.iter().map(|(_, p)| p.as_path()).collect();
+        assert_eq!(
+            at,
+            [
+                paths::canonical_best_effort(&Path::new(&home).join("x.txt")).as_path(),
+                paths::canonical_best_effort(&cwd.join("$HOME/y.txt")).as_path(),
+            ]
+        );
+    }
 
     /// A tool by name only: the gate looks at nothing else about it.
     struct T(&'static str);
