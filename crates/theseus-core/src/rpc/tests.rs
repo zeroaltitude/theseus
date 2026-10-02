@@ -274,6 +274,35 @@ async fn a_failed_secret_is_named_and_its_turn_refused_with_a_class() {
     panic!("no secrets.failed row");
 }
 
+/// theseus-sqpx: web refusals held in their minute are written by the clean
+/// stop's end (`finish_stop`), while the store is open, in one row with
+/// their count. Before, the span's timer was a task the runtime's end
+/// dropped: health counted them, and the ledger never had them.
+#[tokio::test]
+async fn web_refusals_held_in_their_span_are_written_at_the_stop() {
+    let core = test_core("x");
+    for port in [40001, 40002, 40003] {
+        core.web_refused(
+            crate::webui::Why::Peer,
+            json!({"client": format!("127.0.0.1:{port}"), "uid": 65534}),
+        );
+    }
+    let refused = |core: &Core| -> Vec<Value> {
+        let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(100).unwrap();
+        rows.into_iter()
+            .filter(|(_, r)| r.kind == "web.refused")
+            .map(|(_, r)| r.data)
+            .collect()
+    };
+    assert_eq!(refused(&core).len(), 1, "the first at once, the rest held");
+    core.finish_stop().await;
+    let rows = refused(&core);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[1]["count"], 2);
+    assert_eq!(rows[1]["last"]["client"], "127.0.0.1:40003");
+    assert_eq!(core.health().web.refused_peer, 3);
+}
+
 #[tokio::test]
 async fn health_and_unknown_method() {
     let core = test_core("x");

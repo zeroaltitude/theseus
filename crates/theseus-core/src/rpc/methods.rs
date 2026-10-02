@@ -196,6 +196,12 @@ impl Core {
         self.web_refusals.dev_origin(&self.store, detail);
     }
 
+    /// What the web UI's rows still hold in their span, written now: a
+    /// clean stop's (theseus-sqpx), before its last checkpoint.
+    pub(crate) fn flush_web_rows(&self) {
+        self.web_refusals.flush(&self.store);
+    }
+
     /// `[approval]` for health: each listed channel's state, judged with the
     /// Discord binding's latest checks and state.
     pub fn approval_status(&self) -> theseus_protocol::ApprovalStatus {

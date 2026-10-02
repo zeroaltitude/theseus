@@ -871,9 +871,11 @@ impl crate::Core {
     /// `[server] stop_grace_ms` after the stop began, and then the index is
     /// checkpointed after them, so the next start replays nothing. With no
     /// post in flight there is no wait, and the checkpoint costs nothing
-    /// when the stop's own is still the newest.
+    /// when the stop's own is still the newest. The web UI's held rows are
+    /// written first (theseus-sqpx), in one frame, only when some wait.
     #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     pub async fn finish_stop(&self) -> InFlight {
+        self.flush_web_rows();
         let t0 = std::time::Instant::now();
         let grace = std::time::Duration::from_millis(self.cfg.server.stop_grace_ms);
         let posts = self.outbox.settle_in_flight(grace).await;
