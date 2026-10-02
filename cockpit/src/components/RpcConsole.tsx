@@ -17,6 +17,7 @@ const READS: Record<string, string> = {
   'ledger.tail': '{"n": 50, "kind": "provider.call"}',
   'compilation.list': '{"session_id": "ses_…", "n": 5}',
   'node.list': '{"session_id": "ses_…", "n": 20}',
+  'node.reach': '{"node_id": "msg_…", "max_generations": 3}',
   'task.list': '',
   'wake.list': '',
   'tool.list': '',

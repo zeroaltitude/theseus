@@ -211,8 +211,12 @@ fn exposures(store: &Store, session: &str, nodes: &[(u64, &Node)]) -> Result<Vec
         match r.kind {
             kinds::COMPILATION => {
                 let c: Compilation = r.decode()?;
-                made.push(c.id.clone());
-                compilations.insert(c.id.clone(), (r.position, c));
+                let id = c.id.clone();
+                // A compilation written twice counts once, as its latest
+                // record.
+                if compilations.insert(id.clone(), (r.position, c)).is_none() {
+                    made.push(id);
+                }
             }
             kinds::NODE => {
                 let reply: Reply = r.decode()?;

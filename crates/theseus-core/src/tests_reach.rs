@@ -14,7 +14,7 @@ use theseus_store::{kinds, Store as _};
 
 use crate::bus::EventSink;
 use crate::compiler::Recompile;
-use crate::graph::Edge;
+use crate::graph::{Edge, EdgeKind};
 use crate::node::{Body, Node};
 use crate::provider::{
     DeltaSink, FakeProvider, Provider, ProviderFuture, ProviderRequest, Scripted,
@@ -522,4 +522,75 @@ async fn node_reach_answers_over_the_protocol() {
     let none = call(&r.core, method::NODE_REACH, Value::Null).await;
     assert_eq!(none.unwrap_err(), error_code::INVALID_PARAMS);
     assert!(t0.elapsed() < Duration::from_secs(1));
+}
+
+/// The walk past one generation, and its caps, over edges written by hand:
+/// no route writes a copy of a copy yet (M6's and M7's will). A copy of a
+/// copy is generation 2, a cycle is walked once, and `max_generations` and
+/// the 256 copies each stop the walk with `partial`.
+#[test]
+fn the_walk_follows_copies_of_copies_and_stops_at_its_caps() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_unsynced(&dir.path().join("store")).unwrap();
+    let node = |session: &str| {
+        Node::relayed(
+            session,
+            None,
+            crate::node::Origin::Harness,
+            "test",
+            "a line",
+        )
+    };
+    let edge = |from: &Node, to: &Node| {
+        Edge::new(EdgeKind::DerivedFrom, &from.id, &to.id, "test")
+            .record()
+            .unwrap()
+    };
+    let (a, b, c) = (node("ses_a"), node("ses_b"), node("ses_c"));
+    store
+        .append(&[
+            a.record().unwrap(),
+            b.record().unwrap(),
+            edge(&b, &a),
+            c.record().unwrap(),
+            edge(&c, &b),
+            // A cycle back to the source: walked once.
+            edge(&a, &c),
+        ])
+        .unwrap();
+    let got = reach(&store, &a.id, None).unwrap().unwrap();
+    let walked: Vec<(&str, u32, &str)> = got
+        .descendants
+        .iter()
+        .map(|d| (d.node_id.as_str(), d.generation, d.from.as_str()))
+        .collect();
+    assert_eq!(
+        walked,
+        [
+            (b.id.as_str(), 1, a.id.as_str()),
+            (c.id.as_str(), 2, b.id.as_str())
+        ]
+    );
+    assert_eq!(got.totals.sessions, 3);
+    assert!(!got.partial);
+    let one = reach(&store, &a.id, Some(1)).unwrap().unwrap();
+    assert_eq!(one.descendants.len(), 1);
+    assert!(one.partial, "its copy has a copy of its own");
+
+    // 300 copies of one node: the walk follows 256, and says it stopped.
+    let d = node("ses_d");
+    let mut records = vec![d.record().unwrap()];
+    for i in 0..300 {
+        let m = node(&format!("ses_m{i}"));
+        records.push(m.record().unwrap());
+        records.push(edge(&m, &d));
+    }
+    store.append(&records).unwrap();
+    let wide = reach(&store, &d.id, None).unwrap().unwrap();
+    assert_eq!(wide.descendants.len(), crate::reach::MAX_DESCENDANTS);
+    assert!(wide.partial);
+    assert_eq!(
+        wide.totals.sessions as usize,
+        1 + crate::reach::MAX_DESCENDANTS
+    );
 }
