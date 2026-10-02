@@ -44,14 +44,11 @@ pub fn lines(
                 Tag::Ask,
                 format!("⏸ confirm {}: {}", c.tool, summary(&c.input)),
             ));
-            out.push((
-                Tag::Dim,
-                format!(
-                    "  why: {}{}",
-                    c.reason,
-                    tail(c.floor, c.expires_at_ms, now_ms)
-                ),
-            ));
+            // The countdown and the floor on a line of their own, before the
+            // reason: a long reason (a path, a command) is cut at the pane's
+            // edge and would hide them.
+            out.extend(when(c.floor, c.expires_at_ms, now_ms));
+            out.push((Tag::Dim, format!("  why: {}", c.reason)));
             if let Some(t) = &c.task {
                 out.push((
                     Tag::Dim,
@@ -95,13 +92,8 @@ pub fn lines(
         }
         Question::Brief(p) => {
             out.push((Tag::Ask, format!("⏸ confirm {}: {}", p.tool, p.reason)));
-            out.push((
-                Tag::Dim,
-                format!(
-                    "  reading the whole question…{}",
-                    tail(p.floor, p.expires_at_ms, now_ms)
-                ),
-            ));
+            out.extend(when(p.floor, p.expires_at_ms, now_ms));
+            out.push((Tag::Dim, "  reading the whole question…".to_string()));
             push_refusal(&mut out, refused);
             out.push((Tag::Plain, "  [y] approve  [n] decline".to_string()));
         }
@@ -118,17 +110,16 @@ fn push_refusal(out: &mut Vec<(Tag, String)>, refused: Option<&str>) {
     }
 }
 
-/// ` · FLOOR · expires in 4:12`.
-fn tail(floor: bool, expires_at_ms: u64, now_ms: u64) -> String {
-    let mut s = String::new();
-    if floor {
-        s.push_str(" · FLOOR");
-    }
+/// `  expires in 4:12 · FLOOR`: none for a question with neither.
+fn when(floor: bool, expires_at_ms: u64, now_ms: u64) -> Option<(Tag, String)> {
+    let mut parts = Vec::new();
     if expires_at_ms > 0 {
-        s.push_str(" · ");
-        s.push_str(&countdown(expires_at_ms, now_ms));
+        parts.push(countdown(expires_at_ms, now_ms));
     }
-    s
+    if floor {
+        parts.push("FLOOR".to_string());
+    }
+    (!parts.is_empty()).then(|| (Tag::Dim, format!("  {}", parts.join(" · "))))
 }
 
 /// `expires in 4:12`, or `expired`.

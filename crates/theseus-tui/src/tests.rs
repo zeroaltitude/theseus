@@ -1281,12 +1281,15 @@ async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
     rig.shows("expires in 4:12").await;
     let rows = pane(&rig.screen(), 120);
     // The pane's foot: a rule as wide as the pane (83 columns), then the card.
+    // The countdown and the floor come before the reason, which a long path
+    // would cut at the pane's edge (the live check, 21:18).
     assert_eq!(
-        rows[15..19],
+        rows[14..19],
         [
             "─".repeat(83),
             " ⏸ confirm proc.run: scripts/gate.sh".to_string(),
-            "   why: run the gate · FLOOR · expires in 4:12".to_string(),
+            "   expires in 4:12 · FLOOR".to_string(),
+            "   why: run the gate".to_string(),
             "   [y] approve  [n] decline".to_string(),
         ]
     );
