@@ -295,6 +295,7 @@ facts![
     answer::JobActRefused<'static>,
     answer::LimitChanged<'static>,
     answer::QuestionWithdrawn<'static>,
+    answer::QuestionExpired<'static>,
     driver::HeartbeatActed<'static>,
     driver::SpooledCompletion<'static>,
     driver::QuestionCancelled<'static>,

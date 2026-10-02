@@ -889,6 +889,10 @@ pub fn settled(closed: &Closed, line: &str, budget: bool) -> String {
         "ended" => format!("⏹️ **Closed**: the session's work ended · {line}"),
         // `/stop` (W1): the question closed, and the conversation goes on.
         "stopped" => format!("⏹️ **Not run**: {by} stopped this session's work · {line}"),
+        // Nobody answered by the time the card gave (theseus-830).
+        "expired" => {
+            format!("⌛ **Expired**: nobody answered within {note}, so it did not run · {line}")
+        }
         _ if note.is_empty() => format!("⏹️ **Closed** · {line}"),
         _ => format!("⏹️ **Closed**: {} · {line}", clip(note, 200)),
     }

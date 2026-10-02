@@ -217,6 +217,15 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                         r.correlation_id
                     ),
                 )
+            } else if r.expired {
+                // Nobody answered in time (theseus-830).
+                (
+                    Tag::Warn,
+                    format!(
+                        "  ✗ expired {} (nobody answered in time; it did not run)",
+                        r.correlation_id
+                    ),
+                )
             } else if r.approved {
                 (
                     Tag::Ok,
@@ -2024,6 +2033,8 @@ pub fn question_line(e: &Event) -> Option<String> {
                 "cancelled"
             } else if r.superseded {
                 "superseded"
+            } else if r.expired {
+                "expired"
             } else if r.approved {
                 "approved"
             } else {

@@ -334,3 +334,57 @@ impl Fact for QuestionWithdrawn<'_> {
         }))
     }
 }
+
+/// Nobody answered a call's question by the time its card said it expires
+/// (theseus-830; `action.expired`, `confirm.resolved` expired): the call is
+/// declined in the same frame, its execution woken, and the model reads that
+/// it was not run. Its row rides in that frame.
+pub struct QuestionExpired<'a> {
+    pub action: &'a Action,
+    /// How long it waited: `[kernel] confirm_ttl_secs`.
+    pub waited_ms: u64,
+}
+
+impl Fact for QuestionExpired<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ActionExpired);
+    const METHOD: Option<&'static str> = Some(notify::CONFIRM_RESOLVED);
+
+    fn row(&self) -> Value {
+        let a = self.action;
+        json!({"correlation_id": a.correlation_id, "tool": a.tool, "asked_at_ms": a.planned_at_ms,
+               "waited_ms": self.waited_ms})
+    }
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::ConfirmResolved(ConfirmResolved {
+            session_id: self.action.session_id.clone(),
+            correlation_id: self.action.correlation_id.clone(),
+            expired: true,
+            ..Default::default()
+        }))
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "{} expired: nobody answered within {}, so it was not run; the driver resumes \
+                 the turn.",
+                self.action.tool,
+                within(self.waited_ms)
+            ),
+        );
+    }
+}
+
+/// A question's wait, as its expiry says it: `15 minutes`, `90 seconds`.
+pub fn within(ms: u64) -> String {
+    let plural = |n: u64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    if ms.is_multiple_of(60_000) {
+        plural(ms / 60_000, "minute")
+    } else if ms.is_multiple_of(1000) {
+        plural(ms / 1000, "second")
+    } else {
+        format!("{ms} ms")
+    }
+}

@@ -396,6 +396,75 @@ impl Core {
         }
     }
 
+    /// Expire each call's question nobody answered by `now` (theseus-830):
+    /// the time its card and `confirm.list` give, its plan's time and
+    /// `[kernel] confirm_ttl_secs`. A budget question holds until it is
+    /// answered. Then the earliest one still waiting is when the driver
+    /// reads them again. Returns how many expired.
+    pub fn expire_questions(&self, now: u64) -> usize {
+        use std::sync::atomic::Ordering::SeqCst;
+        let ttl = self.kernel.config().confirm_ttl_ms;
+        // Raised first: a question asked while these are read lowers it
+        // again, so none is missed.
+        self.tools.question_due.store(u64::MAX, SeqCst);
+        let pending = match self.kernel.pending_confirms() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "the questions could not be read for their expiry");
+                self.tools.question_due.fetch_min(now + 60_000, SeqCst);
+                return 0;
+            }
+        };
+        let mut next = u64::MAX;
+        let mut expired = 0;
+        for a in pending.iter().filter(|a| a.tool != BUDGET_TOOL) {
+            let due = a.planned_at_ms + ttl;
+            if due > now {
+                next = next.min(due);
+                continue;
+            }
+            match self.expire_question(a, ttl) {
+                Ok(()) => expired += 1,
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), correlation_id = %a.correlation_id, "a question nobody answered could not expire");
+                    next = next.min(now + 60_000);
+                }
+            }
+        }
+        self.tools.question_due.fetch_min(next, SeqCst);
+        expired
+    }
+
+    /// One question's expiry: the decline, its row, and the wake in one
+    /// frame, as an answer's are (theseus-jj9f); then its clients hear it,
+    /// and its card settles `expired`.
+    fn expire_question(&self, a: &Action, ttl_ms: u64) -> Result<()> {
+        let fact = fact::answer::QuestionExpired {
+            action: a,
+            waited_ms: ttl_ms,
+        };
+        let row = fact::row(&fact, Some(&a.session_id), None)?;
+        let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+        self.kernel.frame(&[&a.execution_id], |k| {
+            k.decline_action(&a.correlation_id, crate::toolrun::EXPIRY, &why)?;
+            k.stage(std::slice::from_ref(&row))?;
+            // The wake is its own part, as an answer's: one that cannot
+            // happen (the execution ended) takes back nothing else.
+            let _ = k.frame(&[&a.execution_id], |k| k.wake(&a.execution_id, "expired"));
+            Ok(())
+        })?;
+        self.session_rec(&a.session_id).announce(&fact);
+        self.card_closed(
+            &a.correlation_id,
+            Closed {
+                note: Some(fact::answer::within(ttl_ms)),
+                ..Closed::new("expired", None)
+            },
+        );
+        self.admission.notify_waiters();
+        Ok(())
+    }
+
     /// The one judgment of every approval-like act (theseus-sgh): an answer
     /// to a waiting call (the spend reset among them), a "should have asked"
     /// press, and its undo.

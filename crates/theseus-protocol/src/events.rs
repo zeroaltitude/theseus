@@ -269,6 +269,11 @@ pub struct ConfirmResolved {
     /// A raised spend limit withdrew a budget question (theseus-3pj).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub withdrawn: bool,
+    /// Nobody answered a call's question by the time it said it expires
+    /// (`[kernel] confirm_ttl_secs` after it was asked, theseus-830): the
+    /// call did not run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub expired: bool,
 }
 
 /// `node.written`: a turn wrote a node.

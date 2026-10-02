@@ -497,7 +497,8 @@ pub struct KernelSection {
     /// Deadline for an action whose tool declares none.
     #[serde(default = "default_deadline_secs")]
     pub default_deadline_secs: u64,
-    /// How long a confirmation stays valid.
+    /// How long a call's question waits for an answer before it expires,
+    /// not run (theseus-830), and how long an approval stays valid.
     #[serde(default = "default_confirm_ttl_secs")]
     pub confirm_ttl_secs: u64,
 }

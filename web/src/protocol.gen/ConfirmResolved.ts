@@ -29,4 +29,10 @@ stopped?: boolean,
 /**
  * A raised spend limit withdrew a budget question (theseus-3pj).
  */
-withdrawn?: boolean, };
+withdrawn?: boolean, 
+/**
+ * Nobody answered a call's question by the time it said it expires
+ * (`[kernel] confirm_ttl_secs` after it was asked, theseus-830): the
+ * call did not run.
+ */
+expired?: boolean, };

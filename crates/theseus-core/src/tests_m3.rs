@@ -1730,6 +1730,110 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
     assert_ne!(b3.stop_reason, "stopped");
 }
 
+/// theseus-830: a call's question nobody answers expires at the time its
+/// card and `confirm.list` give (its plan's time and `confirm_ttl_secs`),
+/// not a moment before: declined by `expiry` in one frame with its
+/// `action.expired` row, gone from `confirm.list`, its execution woken, and
+/// the model reads that it was not run. Before, it waited on forever while
+/// its card said it had expired.
+#[tokio::test]
+async fn a_question_nobody_answers_expires_at_the_time_its_card_gives() {
+    let r = rig(vec![
+        Scripted::tools(
+            "",
+            &[(
+                "t1",
+                "fs_write",
+                json!({"path": "note.txt", "content": "hi"}),
+            )],
+        ),
+        Scripted::text("It expired, so I stopped."),
+    ]);
+    let res = turn(&r.core, None, "write a note").await;
+    let corr = res.awaiting_confirm.clone().expect("the write waits");
+    let listed = r.core.confirm_list().unwrap();
+    assert_eq!(listed.len(), 1);
+    let due = listed[0].expires_at_ms;
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    let ttl = r.core.kernel.config().confirm_ttl_ms;
+    assert_eq!(due, a.planned_at_ms + ttl, "the time the card gives");
+    assert_eq!(r.core.expire_questions(due - 1), 0, "not a moment before");
+    assert_eq!(r.core.confirm_list().unwrap().len(), 1);
+    assert_eq!(r.core.expire_questions(due), 1);
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    assert_eq!(
+        a.resolution.as_deref(),
+        Some("declined by expiry: nobody answered within 15 minutes")
+    );
+    assert!(r.core.confirm_list().unwrap().is_empty());
+    let rows = ledgered(&r, "action.expired");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["correlation_id"], corr.as_str());
+    assert_eq!(rows[0]["waited_ms"], ttl);
+    let declined = ledgered(&r, "action.declined");
+    assert_eq!(declined.last().unwrap()["by"], "expiry");
+    // A second pass finds nothing more.
+    assert_eq!(r.core.expire_questions(due + 60_000), 0);
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .expect("the expiry woke its execution");
+    assert_eq!(cont.output, "It expired, so I stopped.");
+    assert_eq!(
+        results(&r.core, &res.session_id),
+        vec![(
+            ResultStatus::Declined,
+            "Not run: nobody answered within 15 minutes, so the request expired.".to_string()
+        )]
+    );
+    assert!(!r.root.join("note.txt").exists());
+}
+
+/// theseus-830, end to end: the driver expires a question within a tick of
+/// its time, and resumes the turn, which reads that it was not run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_driver_expires_a_question_within_a_tick_of_its_time() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "fs_write",
+                    json!({"path": "note.txt", "content": "hi"}),
+                )],
+            ),
+            Scripted::text("Nobody answered."),
+        ],
+        |cfg| cfg.kernel.confirm_ttl_secs = 1,
+    );
+    let res = turn(&r.core, None, "write a note").await;
+    let corr = res.awaiting_confirm.clone().expect("the write waits");
+    let driver = tokio::spawn(crate::harness::drive(r.core.clone()));
+    let t0 = std::time::Instant::now();
+    loop {
+        let done = results(&r.core, &res.session_id).len() == 1
+            && r.core.kernel.action(&corr).unwrap().unwrap().state
+                == theseus_kernel::ActionState::Cancelled;
+        if done {
+            break;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "it never expired");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(
+        rs[0].1,
+        "Not run: nobody answered within 1 second, so the request expired."
+    );
+    assert_eq!(ledgered(&r, "action.expired").len(), 1);
+    r.core.shutdown.notify_waiters();
+    let _ = tokio::time::timeout(Duration::from_secs(5), driver).await;
+}
+
 /// theseus-667d: a stopped job's raw output is kept while its wrapper still
 /// lives, and the sweep takes it once the wrapper has ended (theseus-ewev's
 /// guard in `remove_job_output`). The stop comes before the job's

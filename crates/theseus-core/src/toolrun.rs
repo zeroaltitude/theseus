@@ -241,6 +241,10 @@ pub struct ToolRuntime {
     /// The AWS accounts the config binds, behind the `aws.*` tools (AWS
     /// design §3.5); None when it binds none.
     pub aws: Option<Arc<crate::aws::Aws>>,
+    /// The earliest a waiting question may expire, in ms since the epoch
+    /// (theseus-830): the driver reads the questions only once it has come.
+    /// 0 until the driver has read them once; each question asked lowers it.
+    pub question_due: std::sync::atomic::AtomicU64,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -402,6 +406,7 @@ impl ToolRuntime {
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp, 0, 0)),
             aws: None,
+            question_due: Default::default(),
         }
     }
 
@@ -1137,6 +1142,12 @@ impl ToolRuntime {
             external_text: g.decision.external,
         };
         tc.record(&fact::tool::CallAsked { request: &req });
+        // It expires at its plan's time and the TTL, as `confirm.list` says
+        // (theseus-830): the driver reads the questions by then.
+        self.question_due.fetch_min(
+            a.planned_at_ms + tc.confirm_ttl_ms,
+            std::sync::atomic::Ordering::SeqCst,
+        );
         Ok(CallOutcome::AwaitingConfirm {
             correlation_id: a.correlation_id,
         })
@@ -2736,9 +2747,29 @@ fn sentence(text: &str) -> String {
         .unwrap_or_default()
 }
 
-/// What a call that never ran tells the model: who declined it, or why it
-/// was cancelled (its action's resolution).
+/// Who declines a question nobody answered in time (theseus-830), as its
+/// `action.declined` row and its resolution name it.
+pub const EXPIRY: &str = "expiry";
+
+/// The resolution an expiry writes, before its reason (`Kernel::
+/// decline_action`'s `declined by <who>: <reason>`).
+const EXPIRED: &str = "declined by expiry: ";
+
+/// What a call that never ran tells the model: who declined it, that nobody
+/// answered its question in time, or why it was cancelled (its action's
+/// resolution).
 fn not_run_answer(a: &Action) -> (ResultStatus, String) {
+    // An expired question is no one's decline (theseus-830).
+    if let Some(why) = a
+        .resolution
+        .as_deref()
+        .and_then(|r| r.strip_prefix(EXPIRED))
+    {
+        return (
+            ResultStatus::Declined,
+            format!("Not run: {why}, so the request expired."),
+        );
+    }
     // A decline records who declined; the model reads only the note.
     match a.declined_note() {
         Some(note) => (
@@ -3087,6 +3118,7 @@ pub fn build_runtime(
             cfg.server.disk_floor_mb,
         )),
         aws,
+        question_due: Default::default(),
     })
 }
 

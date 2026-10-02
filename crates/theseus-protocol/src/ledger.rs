@@ -52,6 +52,7 @@ ledger_kinds! {
     ActionConfirmed = "action.confirmed",
     ActionDeclined = "action.declined",
     ActionDispatched = "action.dispatched",
+    ActionExpired = "action.expired",
     ActionFailed = "action.failed",
     ActionOutcomeUnknown = "action.outcome_unknown",
     ActionPlanned = "action.planned",
