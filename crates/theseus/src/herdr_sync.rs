@@ -288,7 +288,7 @@ pub async fn run(
              the watches it starts connect to the daemon's socket"
         );
     };
-    let theseus_socket = shellexpand::tilde(theseus_socket).into_owned();
+    let theseus_socket = theseus_client::client::tilde(theseus_socket, std::env::var("HOME").ok());
     let exe = std::env::current_exe().context("finding this theseus binary")?;
     let socket = match herdr_socket {
         Some(p) => p,

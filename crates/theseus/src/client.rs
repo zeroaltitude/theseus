@@ -180,8 +180,8 @@ impl Conn {
 /// `path` with a leading `~` (alone, or before `/`) as `home`, as a shell
 /// reads it, so a quoted `--socket` or `THESEUS_SOCKET` works too. Without a
 /// home, it is left as written (review 2's consideration 5: no
-/// `shellexpand`).
-fn tilde(path: &str, home: Option<String>) -> String {
+/// `shellexpand`). `theseus herdr sync` reads its `--socket` with it too.
+pub fn tilde(path: &str, home: Option<String>) -> String {
     match (path.strip_prefix('~'), home) {
         (Some(rest), Some(h)) if !h.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
             format!("{h}{rest}")
