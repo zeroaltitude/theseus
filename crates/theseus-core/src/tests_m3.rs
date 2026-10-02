@@ -1458,6 +1458,247 @@ async fn a_stop_during_a_jobs_launch_stops_it_once_its_pid_is_written() {
     assert!(!text.contains("killed"), "{text}");
 }
 
+// ---------------------------------------------------------------- a job's raw output at its edges (theseus-667d, theseus-z3de)
+
+/// Writes what a job printed before a stop, as its wrapper would have
+/// (`results/<id>.out`, 0600), and starts nothing: the job's action stays
+/// dispatched until something settles it, and no pid is in the spool, as
+/// with `InlineLauncher`.
+struct PrintedOnly(&'static str);
+
+impl crate::toolrun::JobLauncher for PrintedOnly {
+    fn launch(
+        &self,
+        spool: &theseus_kernel::Spool,
+        args: &theseus_kernel::job::WrapperArgs,
+    ) -> anyhow::Result<u32> {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(spool.result_path(&args.correlation_id))?
+            .write_all(self.0.as_bytes())?;
+        Ok(std::process::id())
+    }
+}
+
+/// theseus-667d: a stopped job's raw output is kept while its wrapper still
+/// lives, and the sweep takes it once the wrapper has ended (theseus-ewev's
+/// guard in `remove_job_output`). The stop comes before the job's
+/// completion, so its action has no `result_ref`; its wrapper outlives the
+/// stop (a stand-in whose command line names the job, its pid written to the
+/// spool after the stop, so the stop reached nothing). The next message's
+/// turn writes the cancelled result as a late result, and the file stays.
+/// Once the stand-in has ended, the sweep removes it as absorbed. The
+/// overflow lane's revert proof E2 (delete even while the wrapper lives)
+/// passed every test before this one.
+#[tokio::test]
+async fn a_stopped_jobs_raw_output_stays_while_its_wrapper_lives() {
+    let r = rig_parts(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "echo printed; sleep 30"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+            Scripted::text("It was stopped."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.proc_sync_secs = 1;
+        },
+        |p| p.launcher = Arc::new(PrintedOnly("printed\n")),
+    );
+    let first = turn(&r.core, None, "start it").await;
+    assert_eq!(first.output, "Started.");
+    let job = the_job(&r.core);
+    let corr = job.correlation_id.clone();
+    let out = r.core.spool.result_path(&corr);
+    assert!(out.exists(), "what the job printed is in the spool");
+    let stop = r
+        .core
+        .stop_execution(&job.execution_id, "test")
+        .await
+        .unwrap();
+    assert_eq!(stop.stopped_actions, vec![corr.clone()], "{stop:?}");
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    assert_eq!(a.result_ref, None, "stopped before its completion");
+    // Its wrapper outlives the stop.
+    let wrapper = crate::peer::Standin::start(&corr);
+    r.core.spool.write_pid(&corr, wrapper.wrapper).unwrap();
+    assert!(theseus_kernel::job::wrapper_alive(wrapper.wrapper, &corr));
+    // The next message's turn writes the cancelled result, late, and keeps
+    // the file the wrapper still holds.
+    let second = turn(&r.core, Some(&first.session_id), "what happened?").await;
+    assert_eq!(second.output, "It was stopped.");
+    let late: Vec<String> = r
+        .core
+        .store
+        .session_nodes(&first.session_id)
+        .unwrap()
+        .into_iter()
+        .filter_map(|(_, n)| match n.body {
+            Body::ToolResult {
+                late: true,
+                content,
+                ..
+            } => Some(content),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        late,
+        vec!["[cancelled: stopped by test]\nprinted\n".to_string()],
+        "the late result reads what the job printed"
+    );
+    assert!(
+        out.exists(),
+        "a stopped job's raw output is kept while its wrapper lives"
+    );
+    // Once the wrapper has ended, the sweep takes it, as absorbed.
+    drop(wrapper);
+    let t0 = std::time::Instant::now();
+    let mut removed_by = vec![];
+    while out.exists() && t0.elapsed() < Duration::from_secs(10) {
+        let s = r.core.sweep_spool(false);
+        removed_by.extend(s.removed_by);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        !out.exists(),
+        "the sweep takes it once the wrapper has ended"
+    );
+    assert_eq!(removed_by, vec![("absorbed".to_string(), 1)]);
+}
+
+/// theseus-z3de: a job that reports while a process it started still holds
+/// its output open, past the head, says so: its report's detail has `held`
+/// (the ring's bytes, which the file takes only at the pipe's end) and
+/// `output_open`, its result has the `held` line, and once the child ends
+/// the file holds the head, the marker, and the end, the child's `late`
+/// last (theseus-gsn9). The job prints 100,000 bytes against a cap of 65,536
+/// (a head of 32,640, an end of 32,768), then leaves a child that holds the
+/// output for a second and prints `late`. It starts with a sleep, so the turn
+/// leaves it in the background and nothing removes its file before the
+/// child ends; the next turn's late result is read with the file whole.
+#[tokio::test]
+async fn a_job_whose_child_holds_its_output_says_its_end_was_held() {
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"argv": ["bash", "-c", "sleep 1.5; head -c 100000 /dev/zero | tr '\\0' x; (sleep 1; echo late) &"]}),
+                )],
+            ),
+            Scripted::text("Started."),
+            Scripted::text("Read it."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.tools.proc_sync_secs = 1;
+            cfg.tools.job_output_max_bytes = 65_536;
+        },
+    );
+    let first = turn(&r.core, None, "print a lot").await;
+    assert_eq!(first.output, "Started.");
+    let corr = the_job(&r.core).correlation_id;
+    // The report: the job's own process ended while its child holds the
+    // output, past the head.
+    let t0 = std::time::Instant::now();
+    let report = loop {
+        if let Some(c) = r.core.spool.read_completion(&corr).unwrap() {
+            break c;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(20), "no report in 20 s");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let detail = report.detail.clone().unwrap();
+    assert_eq!(detail["output_open"], true, "{detail}");
+    let held = detail["held"].as_u64().unwrap_or(0);
+    assert!(held > 0, "the ring's bytes, not yet in the file: {detail}");
+    // Once the child ends, the file holds the head, the marker, and the end.
+    let out = r.core.spool.result_path(&corr);
+    let t0 = std::time::Instant::now();
+    while !std::fs::read(&out).unwrap().ends_with(b"late\n") {
+        assert!(t0.elapsed() < Duration::from_secs(20), "the end never came");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let bytes = std::fs::read(&out).unwrap();
+    let marker = theseus_kernel::redact::marker(100_005 - 32_640 - 32_768, 32_768);
+    assert_eq!(bytes.len(), 32_640 + marker.len() + 32_768);
+    assert!(bytes[..32_640].iter().all(|&b| b == b'x'), "the head");
+    assert_eq!(
+        String::from_utf8_lossy(&bytes[32_640..32_640 + marker.len()]),
+        marker
+    );
+    let end = &bytes[32_640 + marker.len()..];
+    assert!(end[..32_763].iter().all(|&b| b == b'x'), "the end");
+    assert_eq!(&end[32_763..], b"late\n");
+    // The next turn reads the late result, which says what was held.
+    r.core.heartbeat("test");
+    let second = turn(&r.core, Some(&first.session_id), "what did it print?").await;
+    assert_eq!(second.output, "Read it.");
+    let late = r
+        .core
+        .store
+        .session_nodes(&first.session_id)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult {
+                late: true,
+                content,
+                ..
+            } => Some(content),
+            _ => None,
+        })
+        .expect("the late result");
+    let n = |v: u64| crate::narrative::count(v, "byte", "bytes");
+    let (head, dropped) = (
+        detail["head"].as_u64().unwrap_or(0),
+        detail["dropped"].as_u64().unwrap_or(0),
+    );
+    let lines: Vec<String> = late.lines().take(3).map(str::to_string).collect();
+    assert_eq!(
+        lines,
+        [
+            "[exit code 0]".to_string(),
+            format!(
+                "[truncated: it printed {}, more than its output cap of 65,536 bytes: its first {} \
+                 and its last {} are kept, and the {} between them were dropped; its output is not \
+                 kept: run it again printing less, or with its output sent to a file that fs_read \
+                 then reads in ranges]",
+                n(head + dropped + held),
+                n(head),
+                n(held),
+                n(dropped)
+            ),
+            format!(
+                "[when it reported, a process it started still held its output open, and its last \
+                 {} were not yet written]",
+                n(held)
+            ),
+        ],
+        "{detail}\n{late}"
+    );
+    assert_eq!(
+        (head, detail["tail"].as_u64()),
+        (32_640, Some(held)),
+        "the report names the two ends it had: {detail}"
+    );
+}
+
 #[tokio::test]
 async fn a_session_keeps_its_memory_across_a_restart() {
     let dir = tempfile::tempdir().unwrap();

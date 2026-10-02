@@ -2770,6 +2770,120 @@ mod tests {
         (place, rx)
     }
 
+    /// What the binding logs at info or louder (theseus-j7xi): a subscriber
+    /// for this thread alone, which a current-thread test's tasks share.
+    #[derive(Clone, Default)]
+    struct Loud(Arc<Mutex<Vec<String>>>);
+
+    impl tracing::Subscriber for Loud {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, e: &tracing::Event<'_>) {
+            let m = e.metadata();
+            if matches!(
+                *m.level(),
+                tracing::Level::ERROR | tracing::Level::WARN | tracing::Level::INFO
+            ) {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("{} {}", m.level(), m.target()));
+            }
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    /// theseus-j7xi: the binding's live progress is best-effort, so it
+    /// ignores `events.lost` and `execution.changed` (theseus-in3, 9c). The
+    /// route drops `events.lost`, which names no session, and hands
+    /// `execution.changed` to its session's place, whose renderer draws
+    /// nothing for it. The place sends its lane nothing for either, nothing
+    /// fails, and nothing is logged above debug. A turn's start, sent after
+    /// them, is still drawn: the place goes on as before.
+    #[tokio::test]
+    async fn a_place_draws_nothing_for_events_lost_or_execution_changed() {
+        let loud = Loud::default();
+        let _guard = tracing::subscriber::set_default(loud.clone());
+        let d = tempfile::tempdir().unwrap();
+        let core = core_for_tests(d.path());
+        let rec = theseus_core::session::SessionRecord::new(SessionKind::Conversation, None);
+        let sid = rec.session_id.clone();
+        core.store.put_session(&sid, &rec).unwrap();
+        let (mut place, mut mailbox) = place_for_tests(&core, &sid);
+        let (lane_tx, mut lane) = mpsc::unbounded_channel();
+        place.lane = lane_tx;
+        let (notes, rx) = mpsc::unbounded_channel();
+        tokio::spawn(route(place.shared.clone(), rx));
+        let view: theseus_protocol::ExecutionView = serde_json::from_value(json!({
+            "position": 7, "at_ms": 1, "execution_id": "exec_j7xi", "session_id": sid,
+            "kind": "conversation", "state": "waiting", "previous": "running",
+            "attention": {"level": "ready", "label": "ready", "since_ms": 1}
+        }))
+        .unwrap();
+        // What the core logged as it was built is not the binding's.
+        loud.0.lock().unwrap().clear();
+        for e in [
+            CoreEvent::EventsLost(theseus_protocol::EventsLost {
+                dropped: 865,
+                streams: vec!["executions".into(), format!("session:{sid}")],
+            }),
+            CoreEvent::ExecutionChanged(view),
+            CoreEvent::TurnStarted(theseus_protocol::TurnStarted {
+                session_id: sid.clone(),
+                turn_id: "turn_j7xi".into(),
+                ..Default::default()
+            }),
+        ] {
+            notes.send(e.notification()).unwrap();
+        }
+        // The route hands the place what names its session, in order; the
+        // turn's start comes last.
+        let mut got = vec![];
+        loop {
+            let m = tokio::time::timeout(Duration::from_secs(5), mailbox.recv())
+                .await
+                .expect("the route handed the place its events")
+                .unwrap();
+            let PlaceMsg::Event(e) = &m else {
+                continue;
+            };
+            got.push(e.method());
+            let last = matches!(**e, CoreEvent::TurnStarted(_));
+            place.handle(m).await;
+            if last {
+                break;
+            }
+        }
+        assert_eq!(
+            got,
+            ["execution.changed", "turn.started"],
+            "events.lost names no session, and the route drops it"
+        );
+        // Only the turn's start reached the lane: typing.
+        let mut sent = vec![];
+        while let Ok(m) = lane.try_recv() {
+            sent.push(match m {
+                LaneMsg::Live(crate::render::Op::Typing) => "typing".to_string(),
+                LaneMsg::Live(op) => format!("live {:?}", op.key()),
+                _ => "other".to_string(),
+            });
+        }
+        assert_eq!(sent, ["typing"]);
+        assert!(!place.saw_failure);
+        assert!(
+            loud.0.lock().unwrap().is_empty(),
+            "logged above debug: {:?}",
+            loud.0.lock().unwrap()
+        );
+    }
+
     /// `/stop` (W1) halts the session's work and keeps the place on the same
     /// session: the approval it waited on is declined, and the next message
     /// continues it. `/new` alone starts a fresh session.

@@ -746,3 +746,69 @@ async fn a_card_in_a_dm_mentions_no_one() {
     assert!(card.mentions.is_empty(), "{card:?}");
     assert!(card.allowed_mentions.get("users").is_none(), "{card:?}");
 }
+
+/// theseus-j7xi: `events.lost` and `execution.changed` reach the binding over
+/// its own connection, as the session's bus delivers them to every watcher,
+/// and the binding posts nothing for them: no message, edit, or typing at
+/// Discord. Its outbox posts still go: the next turn's reply is delivered.
+#[tokio::test]
+async fn events_lost_and_execution_changed_post_nothing_and_replies_still_go() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(
+        d.path(),
+        &fake,
+        vec![Scripted::text("First."), Scripted::text("Second.")],
+        |_| {},
+    );
+    let rpc = bind(&core, d.path(), &dm_only()).await;
+    let sid = session(&core);
+    ask(&rpc, &sid, "one").await;
+    until("the first reply", 10, || {
+        replies(&fake)
+            .iter()
+            .any(|m| m.content.starts_with("First."))
+    })
+    .await;
+    until("the outbox to drain", 10, || pending(&core) == 0).await;
+    // Quiet: no request at Discord for three edit intervals.
+    let mut seen = fake.seen().len();
+    let mut quiet_since = Instant::now();
+    while quiet_since.elapsed() < Duration::from_millis(750) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let now = fake.seen().len();
+        if now != seen {
+            (seen, quiet_since) = (now, Instant::now());
+        }
+    }
+    let view: theseus_protocol::ExecutionView = serde_json::from_value(serde_json::json!({
+        "position": 1_000_000, "at_ms": 1, "execution_id": "exec_j7xi", "session_id": sid,
+        "kind": "conversation", "state": "waiting", "previous": "running",
+        "attention": {"level": "ready", "label": "ready", "since_ms": 1}
+    }))
+    .unwrap();
+    let sink = theseus_core::bus::EventSink::new(core.bus.clone(), &sid, None);
+    sink.send(theseus_protocol::Event::EventsLost(
+        theseus_protocol::EventsLost {
+            dropped: 865,
+            streams: vec!["executions".into(), format!("session:{sid}")],
+        },
+    ));
+    sink.send(theseus_protocol::Event::ExecutionChanged(view));
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    let after = fake.seen();
+    assert_eq!(
+        after.len(),
+        seen,
+        "the binding posted for them: {:?}",
+        &after[seen.min(after.len())..]
+    );
+    // Its posts still go.
+    ask(&rpc, &sid, "two").await;
+    until("the second reply", 10, || {
+        replies(&fake)
+            .iter()
+            .any(|m| m.content.starts_with("Second."))
+    })
+    .await;
+}

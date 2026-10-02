@@ -350,7 +350,17 @@ fn run(
         }
         None => {
             detail["output_open"] = serde_json::Value::Bool(true);
-            (copier.dropped_so_far(), copier.held_so_far())
+            let (dropped, held) = (copier.dropped_so_far(), copier.held_so_far());
+            // Past the head, with bytes dropped, the report names the two ends
+            // as they stand, as a finished copy's does: the head is full (the
+            // ring takes bytes only then), and the end so far is what the ring
+            // holds. Without them the result read the head-only file as the
+            // whole of what was kept (theseus-z3de).
+            if dropped > 0 && held > 0 {
+                detail["head"] = serde_json::json!(crate::redact::split(args.output_max_bytes).0);
+                detail["tail"] = serde_json::json!(held);
+            }
+            (dropped, held)
         }
     };
     if dropped > 0 {
