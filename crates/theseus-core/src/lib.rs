@@ -19,6 +19,7 @@ pub mod compiler;
 pub mod config;
 pub mod config_copy;
 pub mod config_gate;
+pub mod config_overlay;
 pub mod context_files;
 pub mod cpu;
 pub mod crash;

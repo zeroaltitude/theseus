@@ -93,3 +93,63 @@ fn the_default_config_is_a_local_file_and_a_missing_one_says_where_one_comes_fro
         "{text}"
     );
 }
+
+/// `example-config --overlay` (theseus-dxgb): the template with an operator's
+/// own values in place, `~` in the path read as home, ready to copy whole;
+/// without the flag, the template as it is; and an overlay that names a key
+/// no config has fails with the key named, printing nothing.
+#[test]
+fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place() {
+    let home = tempfile::tempdir().unwrap();
+    let plain = command(home.path()).arg("example-config").output().unwrap();
+    assert!(plain.status.success());
+    let plain = String::from_utf8(plain.stdout).unwrap();
+    assert!(plain
+        .contains("anthropic_api_key = \"op://<your vault>/<Anthropic API key item>/notesPlain\""));
+
+    let overlay = home.path().join("overlay.toml");
+    std::fs::write(
+        &overlay,
+        "[secrets]\nanthropic_api_key = \"op://Ops Vault/anthropic key/notesPlain\"\n\n\
+         [approval]\ntrusted_users = [\"discord:314159265358979323\"]\n",
+    )
+    .unwrap();
+    let out = command(home.path())
+        .args(["example-config", "--overlay", "~/overlay.toml"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.contains("\nanthropic_api_key = \"op://Ops Vault/anthropic key/notesPlain\"\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\n[approval]\ntrusted_users = [\"discord:314159265358979323\"]"),
+        "{text}"
+    );
+    assert_eq!(
+        text.lines().count(),
+        plain.lines().count(),
+        "only lines in place change"
+    );
+    let toml: toml::Table = text.parse().unwrap();
+    assert!(toml.contains_key("approval"));
+
+    std::fs::write(&overlay, "[approval]\ntrusted_user = [\"discord:1\"]\n").unwrap();
+    let bad = command(home.path())
+        .args(["example-config", "--overlay", overlay.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+    assert!(bad.stdout.is_empty(), "nothing is printed");
+    let err = String::from_utf8_lossy(&bad.stderr);
+    assert!(
+        err.contains("trusted_user") && err.contains("does not load as a config"),
+        "{err}"
+    );
+}

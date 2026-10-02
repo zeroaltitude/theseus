@@ -94,7 +94,13 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Print the annotated config template (every parameter, set or commented with its default) and exit.
-    ExampleConfig,
+    ExampleConfig {
+        /// A private TOML file of your deployment's own values (its vault's references, its people's
+        /// ids, the sections it turns on): the template is printed with them in place, its comments kept,
+        /// and checked to load, so it can be copied whole into your config (theseus-dxgb).
+        #[arg(long, value_name = "FILE")]
+        overlay: Option<PathBuf>,
+    },
     /// Load config, resolve every secret, report, and exit without serving.
     Check,
     /// Print the loaded config (TOML, secret references only, never values) and its source.
@@ -159,8 +165,19 @@ fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    if let Some(Cmd::ExampleConfig) = cli.cmd {
-        return out(Config::EXAMPLE_TOML);
+    if let Some(Cmd::ExampleConfig { overlay }) = &cli.cmd {
+        return match overlay {
+            None => out(Config::EXAMPLE_TOML),
+            Some(file) => {
+                let path = theseus_core::config::expand(&file.to_string_lossy());
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading the overlay {}", path.display()))?;
+                out(&theseus_core::config_overlay::render(
+                    Config::EXAMPLE_TOML,
+                    &text,
+                )?)
+            }
+        };
     }
     if let Some(Cmd::ExampleBindings) = cli.cmd {
         return out(theseus_discord::EXAMPLE_BINDINGS);
