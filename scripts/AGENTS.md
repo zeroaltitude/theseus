@@ -34,8 +34,9 @@ It ends with `gate: ok`.
 ### How long it takes
 
 On a warm target, a few minutes: the suite is about 90 s and the bench about 7 s of it, plus any wait for a quiet
-machine. A fresh worktree's first gate also compiles the whole workspace, dependencies at opt-level 2 included,
-which takes far longer. Waiting for the lock behind another gate, and for a quiet machine, can each add minutes, so
+machine. A lane's niced gate on a warm target took 135 s once it had the lock (2026-10-01: the suite 105 s at 4
+threads, a 15 s wait to settle, the bench 7 s). A fresh worktree's first gate also compiles the whole workspace,
+dependencies at opt-level 2 included, which takes far longer: about 22 minutes at nice 19 beside busy neighbours. Waiting for the lock behind another gate, and for a quiet machine, can each add minutes, so
 give the gate's command a timeout of 30 minutes or more (a `proc.run` call can ask for up to its
 `proc_timeout_max_secs`).
 
