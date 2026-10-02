@@ -802,7 +802,7 @@ async fn the_copy_is_on_the_floor() {
     );
 }
 
-const EDDIE: &str = "159471966640799744";
+const EDDIE: &str = "271828182845904523";
 
 /// A copy edited to widen `[approval]` (the CLI added to its channels) never
 /// judges an approval: the CLI's answer waits at the gate, the vault's note

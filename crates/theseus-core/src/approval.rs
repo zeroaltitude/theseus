@@ -579,10 +579,10 @@ fn unchecked(discord: Option<&str>) -> String {
 mod tests {
     use super::*;
 
-    const EDDIE: &str = "159471966640799744";
+    const EDDIE: &str = "271828182845904523";
     const MALLORY: &str = "222222222222222222";
     const CHANNEL: &str = "333333333333333333";
-    const GUILD: &str = "712398310421561444";
+    const GUILD: &str = "314159265358979323";
 
     fn approval(users: &[&str], channels: &[&str]) -> Approval {
         Approval::new(Some(&ApprovalConfig {

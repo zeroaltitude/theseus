@@ -132,11 +132,11 @@ mod tests {
     use super::*;
     use twilight_model::channel::permission_overwrite::PermissionOverwriteType;
 
-    const GUILD: u64 = 712398310421561444;
-    const EDDIE: u64 = 159471966640799744;
+    const GUILD: u64 = 314159265358979323;
+    const EDDIE: u64 = 271828182845904523;
     const MALLORY: u64 = 222222222222222222;
     const OWNER: u64 = 333333333333333333;
-    const BOT: u64 = 1553557742759706625;
+    const BOT: u64 = 1618033988749894848;
     const HELPERS: u64 = 444444444444444444;
 
     fn member(id: u64, name: &str, roles: &[u64]) -> Member {

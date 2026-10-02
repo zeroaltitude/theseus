@@ -18,11 +18,11 @@ use theseus_sim::fake_discord::{FakeDiscord, Mode, Msg};
 
 use crate::rpc_client::RpcClient;
 
-const USER: u64 = 159_471_966_640_799_744;
+const USER: u64 = 271_828_182_845_904_523;
 /// The fake's DM channel with `USER`.
 const DM: u64 = USER + 1;
 const CHANNEL: u64 = 900_000_000_000_000_001;
-const GUILD: &str = "712398310421561444";
+const GUILD: &str = "314159265358979323";
 
 fn dm_only() -> String {
     format!("guild_id = \"{GUILD}\"\n[[dm]]\nuser = \"{USER}\"\nname = \"eddie\"\n")

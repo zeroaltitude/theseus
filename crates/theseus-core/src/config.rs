@@ -1,6 +1,7 @@
-//! Configuration. A TOML document, stored as a 1Password item so a deployment
-//! is reconstructible from the vault, or a local file for development. Secret
-//! fields are `op://vault/item/field` references, never values.
+//! Configuration. A TOML document: a local file, or a 1Password item, so a
+//! deployment is reconstructible from the vault, named by its `op://`
+//! reference in `--config` or `THESEUS_CONFIG`. Secret fields are
+//! `op://vault/item/field` references, never values.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -10,7 +11,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::secrets::{OpReader, SecretRef};
 
-pub const DEFAULT_CONFIG_REF: &str = "op://Eddie-Tabitha/theseus-config/notesPlain";
+/// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
+/// names it: a local file, so nothing here names anyone's vault
+/// (theseus-8d1b). A deployment kept in 1Password names its note in its
+/// environment or its service unit.
+pub const DEFAULT_CONFIG: &str = "~/.theseus/theseus.toml";
+
+/// What a start says when the default config file is missing.
+pub const NO_CONFIG: &str = "no config: set THESEUS_CONFIG (or --config) to your config's \
+     op:// reference or file, or write one at ~/.theseus/theseus.toml, the default \
+     (`theseusd example-config` prints a template)";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1926,6 +1936,36 @@ mod tests {
         }
     }
 
+    /// theseus-8d1b: the template and the default config name no one's
+    /// vault. Every `op://` reference the template holds, in a value or a
+    /// comment, names its vault and item by placeholders (`<your vault>`),
+    /// and the default config is a local file.
+    #[test]
+    fn the_template_and_the_default_name_no_ones_vault() {
+        assert!(!DEFAULT_CONFIG.contains("op://"), "{DEFAULT_CONFIG}");
+        let placeholder = |s: &str| s.starts_with('<') && s.ends_with('>');
+        let mut refs = 0;
+        for (at, _) in Config::EXAMPLE_TOML.match_indices("op://") {
+            let rest = &Config::EXAMPLE_TOML[at + "op://".len()..];
+            // Prose that names the scheme ("an op:// reference").
+            if rest.starts_with(char::is_whitespace) {
+                continue;
+            }
+            let mut parts = rest.split('/');
+            let (vault, item) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+            assert!(
+                placeholder(vault) && placeholder(item),
+                "a reference that names a vault or an item: op://{vault}/{item}/…"
+            );
+            refs += 1;
+        }
+        assert!(refs >= 8, "{refs} references");
+        for (name, r) in &Config::example().secrets {
+            let r = SecretRef::parse(r).unwrap();
+            assert_eq!(r.vault, "<your vault>", "{name}");
+        }
+    }
+
     /// The template's [policy.tools] names every tool in the registry, one
     /// line each (set or commented), and nothing else, so it cannot drift
     /// from the tools as they are added.
@@ -2505,7 +2545,7 @@ mod tests {
         );
         let has = |line: &str| Config::EXAMPLE_TOML.lines().any(|l| l.starts_with(line));
         assert!(has("# [approval]"));
-        assert!(has("# trusted_users = [\"discord:159471966640799744\"]"));
+        assert!(has("# trusted_users = [\"discord:271828182845904523\"]"));
         assert!(has("# channels = [\"cli\", \"web\", \"discord:dm\"]"));
 
         let with = |section: &str| Config::parse(&format!("{vault}\n[approval]\n{section}\n"));
@@ -2524,7 +2564,7 @@ mod tests {
             (0, vec!["cli".to_string(), "discord:dm".to_string()])
         );
         let (cfg, w) = with(
-            "trusted_users = [\"discord:159471966640799744\"]\nchannels = [\"cli\", \"web\", \"discord:dm\", \"discord:333333333333333333\"]",
+            "trusted_users = [\"discord:271828182845904523\"]\nchannels = [\"cli\", \"web\", \"discord:dm\", \"discord:333333333333333333\"]",
         )
         .unwrap();
         assert!(w.is_empty(), "{w:?}");
@@ -2535,7 +2575,7 @@ mod tests {
                 "approval.trusted_users entry \"eddie\" is not a surface-qualified id",
             ),
             (
-                "trusted_users = [\"159471966640799744\"]",
+                "trusted_users = [\"271828182845904523\"]",
                 "write \"discord:<user id>\"",
             ),
             (

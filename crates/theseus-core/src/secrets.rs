@@ -827,16 +827,16 @@ mod tests {
 
     #[test]
     fn parses_refs_with_spaces() {
-        let r = SecretRef::parse("op://Eddie-Tabitha/anthropic openclaw key/notesPlain").unwrap();
-        assert_eq!(r.vault, "Eddie-Tabitha");
-        assert_eq!(r.item, "anthropic openclaw key");
+        let r = SecretRef::parse("op://Harbor Team/model api key/notesPlain").unwrap();
+        assert_eq!(r.vault, "Harbor Team");
+        assert_eq!(r.item, "model api key");
         assert_eq!(r.path, "notesPlain");
     }
 
     #[test]
     fn line_label_selects_one_line_of_a_note() {
-        let r = SecretRef::parse("op://V/z.ai key/notesPlain#api key value").unwrap();
-        assert_eq!(r.op_ref(), "op://V/z.ai key/notesPlain");
+        let r = SecretRef::parse("op://V/second model key/notesPlain#api key value").unwrap();
+        assert_eq!(r.op_ref(), "op://V/second model key/notesPlain");
         let note = "name: zai\napi key id: abc\nApi Key Value:  id.secret \n".to_string();
         assert_eq!(r.select(note).unwrap(), "id.secret");
         let missing = SecretRef::parse("op://V/i/notesPlain#nope").unwrap();

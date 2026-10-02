@@ -2531,10 +2531,10 @@ mod tests {
 
     #[test]
     fn mention_only_channels_answer_mentions_and_replies_only() {
-        let (bot, role) = (1553557742759706625u64, 42u64);
+        let (bot, role) = (1618033988749894848u64, 42u64);
         assert!(addressed("hi", &[bot], &[], None, bot, &[role]));
         assert!(addressed(
-            "<@1553557742759706625> hi",
+            "<@1618033988749894848> hi",
             &[],
             &[],
             None,
@@ -2542,7 +2542,7 @@ mod tests {
             &[role]
         ));
         assert!(addressed(
-            "<@!1553557742759706625> hi",
+            "<@!1618033988749894848> hi",
             &[],
             &[],
             None,
@@ -2554,7 +2554,7 @@ mod tests {
         assert!(!addressed("@Tabitha hi", &[7], &[], None, bot, &[role]));
         assert!(!addressed("hi all", &[], &[9], Some(7), bot, &[role]));
         assert_eq!(
-            strip_mentions("<@1553557742759706625>  run the tests", bot, &[role]),
+            strip_mentions("<@1618033988749894848>  run the tests", bot, &[role]),
             "run the tests"
         );
         assert_eq!(strip_mentions("hey <@&42> look", bot, &[role]), "hey look");
@@ -3037,7 +3037,7 @@ mod tests {
         // `[approval]` too, a press from it that names none is refused.
         let dm = || {
             Some(DiscordOrigin {
-                user_id: "159471966640799744".into(),
+                user_id: "271828182845904523".into(),
                 channel_id: "444444444444444444".into(),
                 guild_id: None,
             })
@@ -3084,7 +3084,7 @@ mod tests {
     }
 
     /// Eddie's user id, and a user of a place whom `[approval]` does not list.
-    const EDDIE: u64 = 159_471_966_640_799_744;
+    const EDDIE: u64 = 271_828_182_845_904_523;
     const MALLORY: u64 = 222_222_222_222_222_222;
 
     /// Give `sid` a hold on web text, as a fetch leaves one (theseus-9bp);
@@ -3282,7 +3282,7 @@ mod tests {
     /// it does not list.
     #[tokio::test]
     async fn interactions_find_their_place_as_messages_do_and_leave_the_rest_alone() {
-        const GUILD: &str = "712398310421561444";
+        const GUILD: &str = "314159265358979323";
         const BOUND: u64 = 900_000_000_000_000_001;
         const UNBOUND: u64 = 900_000_000_000_000_002;
         let fake = theseus_sim::fake_discord::FakeDiscord::start();

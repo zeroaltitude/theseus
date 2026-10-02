@@ -22,7 +22,7 @@ use common::Daemon;
 use serde_json::{json, Value};
 use theseus_sim::fake_discord::{FakeDiscord, Msg};
 
-const USER: u64 = 159_471_966_640_799_744;
+const USER: u64 = 271_828_182_845_904_523;
 /// The fake's DM channel with `USER`.
 const DM: u64 = USER + 1;
 
@@ -87,7 +87,7 @@ impl Rig {
         std::fs::write(
             path("state/bindings.toml"),
             format!(
-                "guild_id = \"712398310421561444\"\n[[dm]]\nuser = \"{USER}\"\nname = \"eddie\"\n"
+                "guild_id = \"314159265358979323\"\n[[dm]]\nuser = \"{USER}\"\nname = \"eddie\"\n"
             ),
         )
         .unwrap();

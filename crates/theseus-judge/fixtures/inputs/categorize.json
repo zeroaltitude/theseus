@@ -18,7 +18,7 @@
   "candidates": [
     {"id": "theseus", "description": "Theseus, the Rust agent harness: its crates, the build chain, the daemon, judgments, and its design."},
     {"id": "openclaw", "description": "OpenClaw, the agent gateway: plugins, channels, sessions, and provenance."},
-    {"id": "bighat-reccy", "description": "BigHat's Reccy pipeline: antibody design runs, their status, and their failures."},
+    {"id": "harbor-tide", "description": "Harbor's tide pipeline: model design runs, their status, and their failures."},
     {"id": "home-garden", "description": "The garden: irrigation, planting plans, and seasonal chores."}
   ]
 }

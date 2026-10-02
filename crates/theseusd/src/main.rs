@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 use theseus_core::approval::{Client, Peer, Surface};
-use theseus_core::config::DEFAULT_CONFIG_REF;
+use theseus_core::config::{DEFAULT_CONFIG, NO_CONFIG};
 use theseus_core::config_copy::{self, Compared};
 use theseus_core::config_gate::{self, ConfigGate};
 use theseus_core::secrets::{OpReader, Secret, SecretBoard, Waited};
@@ -51,9 +51,9 @@ Running it:
   THESEUS_LOG=debug theseusd            more detail (tracing filter syntax)
   theseusd --socket /tmp/dbg.sock --state-dir /tmp/dbg   a scratch instance beside a running one
 
-Config source (--config / THESEUS_CONFIG): an op:// reference (default: the 1Password item
-theseus-config) or a local TOML file. `theseusd example-config` prints a template; it is
-not what the server runs with.";
+Config source (--config / THESEUS_CONFIG): a local TOML file (default: ~/.theseus/theseus.toml),
+or the op:// reference of a 1Password note that holds it. `theseusd example-config` prints a
+template; it is not what the server runs with.";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -63,8 +63,8 @@ not what the server runs with.";
     after_help = AFTER_HELP
 )]
 struct Cli {
-    /// Config source: an op:// reference or a file path.
-    #[arg(long, env = "THESEUS_CONFIG", default_value = DEFAULT_CONFIG_REF)]
+    /// Config source: a file path, or an op:// reference.
+    #[arg(long, env = "THESEUS_CONFIG", default_value = DEFAULT_CONFIG)]
     config: String,
 
     /// File holding the 1Password service-account token (used when OP_SERVICE_ACCOUNT_TOKEN is unset).
@@ -279,6 +279,13 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
             )
         }
         None => {
+            // The default names no one's vault (theseus-8d1b): its file
+            // missing, the start says where a config comes from.
+            let default_missing = cli.config == DEFAULT_CONFIG
+                && !theseus_core::config::expand(DEFAULT_CONFIG).exists();
+            if default_missing {
+                anyhow::bail!(NO_CONFIG);
+            }
             let (cfg, text) = Config::load_text(&cli.config, &op).await?;
             (
                 cfg,

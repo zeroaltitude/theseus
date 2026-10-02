@@ -5332,7 +5332,7 @@ async fn a_400_that_names_no_block_hides_the_new_image_and_keeps_the_answered_on
 
 // ---------------------------------------------------------------- approval (theseus-sgh)
 
-const EDDIE: &str = "159471966640799744";
+const EDDIE: &str = "271828182845904523";
 const MALLORY: &str = "222222222222222222";
 
 /// A rig whose `[approval]` trusts Eddie and lists these channels.
@@ -5467,7 +5467,7 @@ async fn with_approval_only_a_trusted_user_in_a_trusted_channel_approves() {
                 &r.core,
                 surface("discord", Discord),
                 &corr,
-                Some((EDDIE, Some("712398310421561444"))),
+                Some((EDDIE, Some("314159265358979323"))),
             )
             .await,
             "Discord channel 444444444444444444 is not a trusted channel",
@@ -5691,7 +5691,7 @@ async fn without_approval_only_the_cli_and_a_dm_answer() {
         ),
         (
             surface("discord", Discord),
-            Some((EDDIE, Some("712398310421561444"))),
+            Some((EDDIE, Some("314159265358979323"))),
             "Discord channel 444444444444444444 is not a trusted channel",
         ),
         (surface("test", Unnamed), None, "never a trusted channel"),
@@ -6038,7 +6038,7 @@ async fn only_a_trusted_answer_undoes_a_tightening() {
     tighten(surface("sock#1", Cli), None).await.unwrap();
     let again = tighten(
         surface("discord", Discord),
-        Some((MALLORY, Some("712398310421561444"))),
+        Some((MALLORY, Some("314159265358979323"))),
     )
     .await
     .unwrap();
@@ -6153,7 +6153,7 @@ async fn without_approval_any_surface_tightens_and_only_the_owners_undo() {
         (
             "discord",
             Discord,
-            Some((MALLORY, Some("712398310421561444"))),
+            Some((MALLORY, Some("314159265358979323"))),
             "the Discord binding",
             false,
         ),
