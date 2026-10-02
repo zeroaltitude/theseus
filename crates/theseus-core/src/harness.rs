@@ -117,35 +117,25 @@ pub async fn drive(core: Arc<Core>) {
             _ = core.admission.notified() => {}
             _ = core.shutdown.notified() => break,
         }
+        // A call's question nobody answered expires at the time its card
+        // gives, within a tick of it (theseus-830). The questions are read
+        // once after the start, and then only once the earliest may have
+        // come (`question_due`), never from the executions this tick reads,
+        // which leave out a parked one. An expiry wakes its execution, which
+        // the read below takes up.
+        let due = core
+            .tools
+            .question_due
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if core.kernel.now_ms() >= due {
+            core.expire_questions(core.kernel.now_ms());
+        }
         // The queued executions and those a due time may wake, by their
         // terms: a tick reads none of the parked ones (theseus-lv2).
         let Some(execs) = unlisted.runnable(&core) else {
             continue;
         };
         let now = core.kernel.now_ms();
-        // A call's question nobody answered expires at the time its card
-        // gives, within a tick of it (theseus-830). The questions are read
-        // only while one waits and the earliest may have come, and its
-        // expiry wakes its execution, which this pass takes up.
-        let asking = execs.iter().any(|e| {
-            e.state == theseus_kernel::ExecState::Waiting
-                && matches!(e.wake, Some(theseus_kernel::Wake::Confirm { .. }))
-        });
-        let execs = if asking
-            && now
-                >= core
-                    .tools
-                    .question_due
-                    .load(std::sync::atomic::Ordering::SeqCst)
-            && core.expire_questions(now) > 0
-        {
-            match core.kernel.open_executions() {
-                Ok(e) => e,
-                Err(_) => continue,
-            }
-        } else {
-            execs
-        };
         for e in execs {
             // A due time that has come, or a wake of its own that is due
             // while it is free (DD8): queue it here, so a wake runs within a
