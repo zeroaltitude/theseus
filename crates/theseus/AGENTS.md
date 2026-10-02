@@ -10,7 +10,8 @@ with the terminal UI.
   and `render` (what a terminal shows of answers and events, as lines, each a text with a style tag).
 - `src/main.rs`: the arguments, the connection, and a short `run` that matches the subcommand. A shared file: a lane
   changes it only at its join.
-- `src/cmd.rs`: one function per subcommand, and `output()`.
+- `src/cmd.rs`: one function per subcommand, and `output()`. `tui` connects nothing: it execs `theseus-tui`, found
+  beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.
 
@@ -31,6 +32,9 @@ with the terminal UI.
 - `tests/connect.rs` covers how the CLI reaches a daemon (`--spawn`, and exit 3). `main` reads exit 3 from the
   error's text, which the library writes, so these tests hold the two together.
 - `tests/refusal.rs` covers a refused answer: `theseus confirm` prints the daemon's reason and exits 1.
+- `tests/tui.rs` covers `theseus tui`: the exec (the stand-in runs in the CLI's own pid), the socket and the
+  arguments passed through, and exit 2, saying where it looked, when `theseus-tui` is found nowhere. Each test links
+  the CLI into a directory of its own, since the workspace builds the real `theseus-tui` beside `target/debug/theseus`.
 
 ## Traps
 

@@ -7,9 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
+# The reader rule (theseus-wjy): an installed binary of its own, which
+# `theseus tui` execs (row 15, 10f), and so a reader of its own.
 [package.metadata.theseus]
-reserved_for = "row 15 (10f), M3: theseus tui execs it"
+tool = "installed beside theseus, which execs it as `theseus tui`: the terminal UI"
 
 [[bin]]
 name = "theseus-tui"

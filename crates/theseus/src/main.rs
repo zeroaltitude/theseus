@@ -35,6 +35,7 @@ Quick start:
   theseus history [session]                  a session's transcript: messages, tool calls, results
   theseus watch [session]                    follow a session live (turns started anywhere)
   theseus watch --all                        every session's executions as they change, with what needs you
+  theseus tui                                every session in one terminal: what needs you, answered inline
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
   theseus wakes                              pending wakes (wake.at): session, due time, and note
@@ -129,6 +130,20 @@ enum Cmd {
         /// as it is asked and answered (executions.watch).
         #[arg(long, conflicts_with = "session")]
         all: bool,
+    },
+    /// The terminal UI: every session in one sidebar with its task trees, the queue of what
+    /// needs you, answered inline, and a session's history with its input line. It runs
+    /// `theseus-tui`, found beside this binary or else on PATH, with --socket and ARGS passed
+    /// through (`theseus tui --help` is its help).
+    #[command(disable_help_flag = true)]
+    Tui {
+        /// Passed to theseus-tui: --notify bell|osc9|osc777|off, --help.
+        #[arg(
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            value_name = "ARGS"
+        )]
+        args: Vec<String>,
     },
     /// Answer a tool call waiting for your confirmation, or a session at its spend limit
     /// (approve resets its spend to $0), then follow the turn it resumes.
@@ -373,6 +388,10 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    // `theseus tui` connects nothing itself: it becomes `theseus-tui` (10f).
+    if let Cmd::Tui { args } = &cli.cmd {
+        return cmd::tui(&cli.socket, cli.spawn.is_some(), args);
+    }
     let mut conn = match &cli.spawn {
         Some(bin) => Conn::spawn(bin)?,
         None => Conn::socket(&cli.socket).await?,
@@ -409,5 +428,6 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Ledger { n, kind, session } => cmd::ledger(c, json, n, kind, session).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
+        Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),
     }
 }

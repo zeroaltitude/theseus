@@ -33,6 +33,7 @@ serves. AI agents build it in small, reviewed steps.
 | `theseus-discord` | The Discord binding, in-process; it acts through the protocol. | `runtime.rs`, `courier.rs`, `render.rs` | theseusd |
 | `theseusd` | The daemon: serving, `job-wrapper`, `check`, `restore`, `install`, the web server. | `main.rs`, `web.rs`, `install/` | (a binary) |
 | `theseus` | The CLI, and its library `theseus_client` (client, render), which the terminal UI shares. | `main.rs`, `cmd.rs`, `render.rs`, `client.rs` | (a binary) |
+| `theseus-tui` | The terminal UI: every session in a sidebar, what needs you answered inline, a session's history and input line. A protocol client. | `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs` | `theseus tui`, which execs it |
 | `theseus-sim` | A tool beside the binaries: the crash test, `kernel-sim`, the lifecycle bench and its history, fake Discord and model servers. | `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs` | the gate, and tests |
 
 The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each says so in its own manifest:
@@ -64,8 +65,8 @@ The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each
   killed at two minutes), and `.github/workflows/ci.yml`.
 
 Directory guides: `crates/theseus-protocol`, `crates/theseus-store`, `crates/theseus-kernel`, `crates/theseus-tools`,
-`crates/theseus-core`, `crates/theseus-discord`, `crates/theseusd`, `crates/theseus`, `crates/theseus-sim`, `web`,
-`cockpit`, and `scripts` each have an `AGENTS.md`.
+`crates/theseus-core`, `crates/theseus-discord`, `crates/theseusd`, `crates/theseus`, `crates/theseus-tui`,
+`crates/theseus-sim`, `web`, `cockpit`, and `scripts` each have an `AGENTS.md`.
 
 ### Generated files: never edit them by hand
 
@@ -192,6 +193,9 @@ Each traces to the Part III item that taught it.
 - **Every step is reviewed**: a written review, the gate rerun, and a live check of the release build. Then a docs
   commit records it: the spec's Part III item, its version line, and `docs/status.md` (its "Updated" line, the
   recently landed step, the roadmap's row). Take every time you write from `date`, never a guess.
+- **Installing** a reviewed release build: copy-then-rename each of `theseus`, `theseusd`, `theseus-sim`, and
+  `theseus-tui` into `~/.local/bin` (`cp target/release/$b ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new
+  ~/.local/bin/$b`). A running daemon survives the swap.
 - **The README stays stable.** It says what Theseus is and why. What changes with each step goes in
   `docs/status.md`.
 - **Reviews are appendices.** A review of the design is answered in an appendix of the spec (Appendices A, C to F),

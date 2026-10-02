@@ -5,7 +5,7 @@
 //! seen), with a notice and the count in the terminal's title. A client of
 //! `theseusd` like the CLI, over the same socket: it links the protocol crate
 //! and the CLI's library (`theseus_client`), never the core. `theseus tui`
-//! will exec it (step 10f).
+//! execs it, with the CLI's `--socket` first (step 10f).
 
 mod app;
 mod board;

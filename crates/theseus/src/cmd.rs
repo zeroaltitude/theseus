@@ -1083,6 +1083,54 @@ pub async fn shutdown(conn: &mut Conn, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// `theseus tui` (theseus-7yx, step 10f): become `theseus-tui`, the way git
+/// runs its subcommands. It is looked for beside this binary, then on PATH,
+/// and runs with this command's `--socket` and every further argument. This
+/// returns only when the exec fails; a `theseus-tui` found nowhere exits 2,
+/// saying where it looked and how to install it.
+pub fn tui(socket: &str, spawn: bool, args: &[String]) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::process::CommandExt;
+
+    const TUI: &str = "theseus-tui";
+    if spawn {
+        eprintln!(
+            "theseus: tui shows a running theseusd's sessions over its socket: it has no --spawn"
+        );
+        std::process::exit(2);
+    }
+    let here = std::env::current_exe().map(|exe| exe.with_file_name(TUI));
+    let beside = here.as_ref().ok().filter(|p| {
+        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    });
+    // Beside this binary, by its path; else by its name, which the exec looks
+    // up on PATH.
+    let program = beside.cloned().unwrap_or_else(|| TUI.into());
+    let err = std::process::Command::new(&program)
+        .arg("--socket")
+        .arg(socket)
+        .args(args)
+        .exec();
+    if beside.is_none() && err.kind() == io::ErrorKind::NotFound {
+        let (looked, dir) = match &here {
+            Ok(p) => (
+                p.display().to_string(),
+                p.parent()
+                    .map_or_else(|| ".".into(), |d| d.display().to_string()),
+            ),
+            Err(e) => (format!("unknown: {e}"), "~/.local/bin".into()),
+        };
+        eprintln!(
+            "theseus: {TUI} is not installed: not beside this binary ({looked}), and not on PATH.\n\
+             Install it beside theseus, from a checkout of Theseus:\n  \
+             cargo build --release -p {TUI}\n  \
+             install -m 755 target/release/{TUI} {dir}/"
+        );
+        std::process::exit(2);
+    }
+    Err(err).with_context(|| format!("running {}", program.display()))
+}
+
 /// The session a command means: the one named, or the most recently active.
 async fn resolve_session(conn: &mut Conn, session: Option<String>) -> Result<String> {
     if let Some(s) = session {
