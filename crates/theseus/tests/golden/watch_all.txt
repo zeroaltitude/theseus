@@ -1,0 +1,14 @@
+$ theseus watch --all
+--- requests
+executions.watch
+--- stdout
+38	ses_q7f3k2	conversation	running	◐ turn 2	$0.0123
+12	ses_b0r1ng	conversation	waiting	○ ready	$0.0123
+39	ses_b0r1ng	conversation	waiting → queued	◐ queued	$0.0123
+44	ses_q7f3k2	conversation	running → waiting	● confirm proc.run: run the gate	$0.0123
+-	ses_q7f3k2	confirm.requested	fs.write: write outside the roots (/w)	act_k4
+-	ses_q7f3k2	confirm.resolved	approved by the CLI	act_k2
+51	ses_q7f3k2	conversation	waiting → queued	◐ queued	$0.0123
+--- stderr
+watching every session's executions: 2 of 2 at position 40, 0 question(s) waiting (Ctrl-C to stop)
+--- exit 0

@@ -104,6 +104,12 @@ pub mod method {
         WAKE_LIST = "wake.list",
         /// Cancel a pending wake: nothing fires.
         WAKE_CANCEL = "wake.cancel",
+        /// The push (theseus-in3): a snapshot of every execution that needs
+        /// someone or works, then `execution.changed`, `confirm.requested`,
+        /// and `confirm.resolved` for every session, until
+        /// `executions.unwatch`. A read.
+        EXECUTIONS_WATCH = "executions.watch",
+        EXECUTIONS_UNWATCH = "executions.unwatch",
     }
 }
 
@@ -153,6 +159,11 @@ pub mod notify {
         /// One line of the narrative, to every `narrative.watch` subscriber.
         /// Unlike the others it is not a ledger row: the narrative is never stored.
         NARRATIVE_LINE = "narrative.line",
+        /// An execution's view changed (theseus-in3): to the session's
+        /// watchers and to every `executions.watch` subscriber, once per
+        /// committed frame that changed it. Its params are an
+        /// `ExecutionView`, whose frame carries the ledger rows.
+        EXECUTION_CHANGED = "execution.changed",
     }
 }
 
@@ -378,6 +389,11 @@ pub struct HealthResult {
     /// The spool's sweeps of raw job output (theseus-2ij).
     #[serde(default)]
     pub spool: SpoolStatus,
+    /// The push (theseus-in3): its board, its watchers, and its seed. Absent
+    /// from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub push: Option<PushStatus>,
 }
 
 /// The spool's sweeps (theseus-2ij): a job's raw output, what it printed

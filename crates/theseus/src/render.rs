@@ -1437,6 +1437,9 @@ pub fn print_health(
     if let Some(line) = spool_line(&h.spool, now_ms) {
         writeln!(w, "{line}")?;
     }
+    if let Some(p) = &h.push {
+        writeln!(w, "{}", push_line(p))?;
+    }
     writeln!(w, "{}", broker_line(&h.broker))?;
     writeln!(
         w,
@@ -1520,6 +1523,82 @@ fn binding_line(b: &theseus_protocol::BindingStatus) -> String {
             format!(" · {}", places.join(", "))
         }
     )
+}
+
+/// The push (theseus-in3), as `theseus health` says it: `push: 2 watchers ·
+/// board 212 · 1 question · 340 events · seeded in 38 ms`, or that nothing
+/// has watched since the start.
+pub fn push_line(p: &theseus_protocol::PushStatus) -> String {
+    if !p.seeded {
+        return "push: not seeded: nothing has watched since the start (the first \
+                executions.watch seeds it)"
+            .into();
+    }
+    let s = |n: u64| if n == 1 { "" } else { "s" };
+    format!(
+        "push: {} watcher{} · board {} · {} question{} · {} event{} · at position {} · seeded in {}",
+        p.watchers,
+        s(p.watchers),
+        p.board,
+        p.questions,
+        s(p.questions),
+        p.events,
+        s(p.events),
+        p.position,
+        fmt_us(p.seed_us)
+    )
+}
+
+/// One execution's view, as `theseus watch --all` prints it: its position,
+/// its session, its kind, its state (`running → waiting` for a change), its
+/// pill, and its spend.
+pub fn view_line(v: &theseus_protocol::ExecutionView) -> String {
+    let state = match &v.previous {
+        Some(p) if *p != v.state => format!("{p} → {}", v.state),
+        _ => v.state.clone(),
+    };
+    format!(
+        "{}\t{}\t{}\t{state}\t{}\t${:.4}",
+        v.position,
+        v.session_id,
+        v.kind.as_str(),
+        pill(&v.attention),
+        v.spent_usd
+    )
+}
+
+/// A question's arrival or end, as `theseus watch --all` prints it.
+pub fn question_line(e: &Event) -> Option<String> {
+    match e {
+        Event::ConfirmRequested(c) => Some(format!(
+            "-\t{}\tconfirm.requested\t{}: {}\t{}",
+            c.session_id, c.tool, c.reason, c.correlation_id
+        )),
+        Event::ConfirmResolved(r) => {
+            let how = if r.withdrawn {
+                "withdrawn"
+            } else if r.stopped {
+                "stopped"
+            } else if r.cancelled {
+                "cancelled"
+            } else if r.superseded {
+                "superseded"
+            } else if r.approved {
+                "approved"
+            } else {
+                "declined"
+            };
+            Some(format!(
+                "-\t{}\tconfirm.resolved\t{how}{}\t{}",
+                r.session_id,
+                r.by.as_deref()
+                    .map(|b| format!(" by {b}"))
+                    .unwrap_or_default(),
+                r.correlation_id
+            ))
+        }
+        _ => None,
+    }
 }
 
 /// A level's mark, as every surface draws it (design `stage2` §2.9): ●

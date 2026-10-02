@@ -167,7 +167,7 @@ impl Core {
     /// (`Kernel::pending_confirms`, a budget question first). A tool call's
     /// reason and floor are the gate's, on its node, so each session with one
     /// waiting has its transcript read once; `known` is one already read.
-    pub(super) fn pending_by_execution(
+    pub(crate) fn pending_by_execution(
         &self,
         pending: &[Action],
         known: Option<(&str, &[(u64, Node)])>,

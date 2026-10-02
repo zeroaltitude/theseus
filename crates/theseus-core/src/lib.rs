@@ -73,6 +73,8 @@ mod tests_m3;
 #[cfg(test)]
 mod tests_outside_text;
 #[cfg(test)]
+mod tests_push;
+#[cfg(test)]
 mod tests_registry;
 #[cfg(test)]
 mod tests_tasks;

@@ -79,6 +79,7 @@ impl Core {
             web: self.web_refusals.status(self.cfg.web.dev_origin.as_deref()),
             disk: self.tools.disk.status(),
             spool: self.spool_status(),
+            push: Some(self.push.status(self.bus.all_watchers())),
         }
     }
 
@@ -166,6 +167,65 @@ impl Core {
                 .cmp(&a.last_active_ms.max(a.created_at_unix_ms))
         });
         Ok(recs)
+    }
+
+    /// `session.list`: every session, or only those `ids` names
+    /// (theseus-in3), read by id: a client that meets a new session in
+    /// `execution.changed` asks for its title.
+    pub(super) fn session_list_of(
+        &self,
+        p: theseus_protocol::SessionListParams,
+    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
+        let Some(ids) = p.ids else {
+            return Ok(theseus_protocol::SessionListResult {
+                sessions: self.session_list()?,
+            });
+        };
+        let mut recs = Vec::new();
+        for id in &ids {
+            if let Some(r) = self.store.get_session::<SessionRecord>(id)? {
+                recs.push(r);
+            }
+        }
+        let pending = self.pending_by_execution(
+            &self
+                .kernel
+                .pending_confirms()?
+                .into_iter()
+                .filter(|a| ids.contains(&a.session_id))
+                .collect::<Vec<_>>(),
+            None,
+        );
+        Ok(theseus_protocol::SessionListResult {
+            sessions: recs
+                .iter()
+                .map(|r| self.session_info(r, &pending))
+                .collect(),
+        })
+    }
+
+    /// `executions.watch` (theseus-in3): seed the board if nothing has yet,
+    /// subscribe this connection, then read the board, so no change falls
+    /// between the snapshot and the events.
+    pub(super) async fn executions_watch(
+        self: &std::sync::Arc<Self>,
+        p: theseus_protocol::ExecutionsWatchParams,
+        conn: Conn<'_>,
+    ) -> Result<theseus_protocol::ExecutionsWatchResult, RpcFailure> {
+        self.push.ensure(self).await?;
+        self.bus.watch_all(conn.client, conn.tx.clone());
+        let (position, executions, total) = self.push.snapshot(p.limit.unwrap_or(200) as usize);
+        Ok(theseus_protocol::ExecutionsWatchResult {
+            position,
+            executions,
+            confirms: self.confirm_list()?,
+            total,
+        })
+    }
+
+    /// `executions.unwatch`: the connection's all-session watch ends.
+    pub(super) fn executions_unwatch(&self, conn: Conn<'_>) -> Value {
+        json!({"watching": false, "was": self.bus.unwatch_all(conn.client)})
     }
 
     /// Every session, the most recently active first.

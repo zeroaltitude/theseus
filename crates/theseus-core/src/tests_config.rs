@@ -325,6 +325,8 @@ async fn a_start_from_the_copy_answers_reads_at_once_and_every_acting_method_wai
             "narrative.unwatch",
             "task.list",
             "wake.list",
+            "executions.watch",
+            "executions.unwatch",
         ]
     );
 

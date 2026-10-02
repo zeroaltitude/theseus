@@ -10,9 +10,9 @@ use serde_json::Value;
 
 use crate::gate::{GateRecord, Notice};
 use crate::{
-    notify, ConfirmRequest, LoopEnded, LoopStarted, Message, ModelDelta, NarrativeLine,
-    Notification, ProfileChanged, TightenResult, TrustResult, TurnFailed, TurnStarted,
-    TurnSubmitResult,
+    notify, ConfirmRequest, ExecutionView, LoopEnded, LoopStarted, Message, ModelDelta,
+    NarrativeLine, Notification, ProfileChanged, TightenResult, TrustResult, TurnFailed,
+    TurnStarted, TurnSubmitResult,
 };
 
 /// `tool.proposed`: the model asked for a call, and what the gate made of it.
@@ -451,6 +451,8 @@ events! {
     SessionTrusted(TrustResult) = notify::SESSION_TRUSTED,
     ApprovalRefused(ApprovalRefused) = notify::APPROVAL_REFUSED,
     NarrativeLine(NarrativeLine) = notify::NARRATIVE_LINE,
+    /// An execution's view, after a frame changed it (theseus-in3).
+    ExecutionChanged(ExecutionView) = notify::EXECUTION_CHANGED,
 }
 
 impl Event {
@@ -471,6 +473,7 @@ impl Event {
             Event::SessionTrusted(e) => Some(&e.session_id),
             Event::ApprovalRefused(e) => e.session_id.as_deref(),
             Event::NarrativeLine(e) => e.session_id.as_deref(),
+            Event::ExecutionChanged(e) => Some(&e.session_id),
             Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
@@ -503,7 +506,8 @@ impl Event {
             | Event::PolicyTightened(_)
             | Event::PolicyUntightened(_)
             | Event::SessionTrusted(_)
-            | Event::ApprovalRefused(_) => None,
+            | Event::ApprovalRefused(_)
+            | Event::ExecutionChanged(_) => None,
         }
     }
 }

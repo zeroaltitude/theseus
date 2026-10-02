@@ -357,6 +357,19 @@ pub struct KernelStats {
 /// execution stored with a unit budget had spent in dollars (theseus-0sg).
 pub type LegacySpend = Arc<dyn Fn(&str) -> Micros + Send + Sync>;
 
+/// A frame the kernel committed, as its observer sees it (theseus-in3): the
+/// records, with the WAL position of each, once the append has returned, so
+/// nothing observed is a state the WAL does not hold.
+pub struct Committed<'a> {
+    pub records: &'a [NewRecord],
+    pub positions: &'a [u64],
+}
+
+/// Sees every frame the kernel commits (theseus-in3, the push). It runs on
+/// the committing thread, under the execution's lock, so it must only hand
+/// the frame on: a filter and a send, never a wait.
+pub type Observer = Arc<dyn Fn(Committed<'_>) + Send + Sync>;
+
 pub struct Kernel {
     store: Arc<dyn Store>,
     clock: Arc<dyn Clock>,
@@ -372,6 +385,10 @@ pub struct Kernel {
     pub(crate) started_at_ms: Arc<AtomicU64>,
     /// A turn's view: the results it reads itself (`turn_of`).
     own: Option<Arc<OwnResults>>,
+    /// The push's observer, once something watches (theseus-in3). Shared
+    /// with every view, so the turns already running see it when the first
+    /// watcher installs it; until then the commit path pays one load.
+    observer: Arc<std::sync::OnceLock<Observer>>,
 }
 
 /// A turn's own results (theseus-l6y): what a turn's view settles for the
@@ -400,6 +417,7 @@ impl Kernel {
             legacy_spend: None,
             started_at_ms: Arc::default(),
             own: None,
+            observer: Arc::default(),
         }
     }
 
@@ -419,6 +437,7 @@ impl Kernel {
             legacy_spend: self.legacy_spend.clone(),
             started_at_ms: self.started_at_ms.clone(),
             own: None,
+            observer: self.observer.clone(),
         }
     }
 
@@ -641,8 +660,54 @@ impl Kernel {
         })
     }
 
+    /// Append a frame, then hand it to the observer, if one is installed
+    /// (theseus-in3). Every EXECUTION and ACTION record is written here.
     pub(crate) fn commit(&self, frame: &[NewRecord]) -> Result<Vec<u64>> {
-        self.store.append(frame).context("kernel frame")
+        let positions = self.store.append(frame).context("kernel frame")?;
+        if let Some(observe) = self.observer.get() {
+            observe(Committed {
+                records: frame,
+                positions: &positions,
+            });
+        }
+        Ok(positions)
+    }
+
+    /// Install the push's observer (theseus-in3): every frame committed from
+    /// now on, by this kernel or any view of it, is handed to it. Once only:
+    /// false if one was installed already.
+    pub fn observe(&self, observer: Observer) -> bool {
+        self.observer.set(observer).is_ok()
+    }
+
+    /// Whether an observer is installed: false until something watches.
+    pub fn observed(&self) -> bool {
+        self.observer.get().is_some()
+    }
+
+    /// Every execution with the WAL position of its record (theseus-in3):
+    /// the push's seed reads these first, then the actions.
+    pub fn executions_at(&self) -> Result<Vec<(u64, Execution)>> {
+        self.store
+            .latest_of_kind(kinds::EXECUTION)?
+            .iter()
+            .map(|r| Ok((r.position, self.read_execution(r)?)))
+            .collect()
+    }
+
+    /// Every action with the WAL position of its record (theseus-in3).
+    pub fn actions_at(&self) -> Result<Vec<(u64, Action)>> {
+        self.store
+            .latest_of_kind(kinds::ACTION)?
+            .iter()
+            .map(|r| Ok((r.position, r.decode()?)))
+            .collect()
+    }
+
+    /// An execution as stored, decoded as `executions` decodes it (a unit
+    /// budget read in dollars): what the push's observer hands on.
+    pub fn decode_execution(&self, payload: &[u8]) -> Result<Execution> {
+        Execution::from_stored(payload, self.cfg.spend_limit_micros)
     }
 
     /// The per-execution locks, which the outbox also takes by its own keys.

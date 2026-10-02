@@ -179,6 +179,17 @@ impl Telemetry {
         }
     }
 
+    /// The push (theseus-in3): `n` `execution.changed` notifications made
+    /// from one frame, `delay` after its commit.
+    pub fn record_push(&self, n: u64, delay: Duration) {
+        let Some(s) = self.shared() else { return };
+        s.metrics.lock().unwrap_or_else(|e| e.into_inner()).push(
+            theseus_protocol::notify::EXECUTION_CHANGED,
+            n,
+            delay.as_secs_f64() * 1000.0,
+        );
+    }
+
     /// Send what waits, and the metrics, now: true once done (or nothing to
     /// do), false when `within` passed first. The daemon's clean shutdown
     /// waits here, bounded.

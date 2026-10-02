@@ -500,6 +500,7 @@ mod tests {
             ("kill", summary(42.4, 49.9)),
             ("swap", summary(58.2, 71.0)),
             ("restore", summary(115.9, 125.2)),
+            ("seed", summary(1.2, 1.9)),
         ]
         .into_iter()
         .map(|(n, s)| (n.to_string(), s))
@@ -527,15 +528,16 @@ mod tests {
                 Some(104.0),
                 Some(175.0),
                 Some(202.0),
+                None,
                 None
             ],
-            "each limit is the budget plus the margin; restore has none"
+            "each limit is the budget plus the margin; restore and the seed have none"
         );
         let line = r.to_csv();
         assert_eq!(
             line,
             "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
-             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,42.4,49.9,175,58.2,71,202,115.9,125.2,,true"
+             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,,true"
         );
         let cols = split(&header()).unwrap();
         assert_eq!(cols.len(), 3 + 3 * PHASES.len() + 1);

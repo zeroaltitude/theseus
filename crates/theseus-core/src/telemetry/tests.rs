@@ -1054,6 +1054,40 @@ fn point<'a>(metrics: &'a [Value], name: &str, with: (&str, &str)) -> &'a Value 
 
 /// Two turns, two export intervals: the first export counts one turn, a
 /// later one both, from the same start; cumulative, never reset.
+/// The push's metrics (theseus-in3): `theseus.push.events` by method, and
+/// the delay from a frame's commit to its notifications being queued.
+#[tokio::test]
+async fn the_push_counts_its_events_and_times_their_delay() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(
+        &rx.endpoint(),
+        None,
+        Tuning {
+            interval: Duration::from_millis(250),
+            ..tuning()
+        },
+    );
+    tel.record_push(3, Duration::from_micros(1500));
+    tel.record_push(1, Duration::from_micros(500));
+    let got = rx
+        .until("the push's metrics", |g| {
+            last_metrics(g)
+                .iter()
+                .any(|m| m["name"] == "theseus.push.delay_ms")
+        })
+        .await;
+    let m = last_metrics(&got);
+    let method = ("theseus.push.method", "execution.changed");
+    assert_eq!(point(&m, "theseus.push.events", method)["asInt"], "4");
+    let delay = m
+        .iter()
+        .find(|x| x["name"] == "theseus.push.delay_ms")
+        .unwrap();
+    let p = &delay["histogram"]["dataPoints"][0];
+    assert_eq!(p["count"], "2", "{delay}");
+    assert_eq!(p["sum"], 2.0);
+}
+
 #[tokio::test]
 async fn metrics_are_cumulative_over_two_intervals() {
     let rx = Receiver::start(vec![]).await;

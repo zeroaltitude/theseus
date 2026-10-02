@@ -863,6 +863,95 @@ fn health_prints_every_line() {
     );
 }
 
+/// A daemon with the push (theseus-in3): health's `push:` line, seeded and
+/// not.
+#[test]
+fn health_says_where_the_push_stands() {
+    let mut h = health();
+    h["push"] = json!({"seeded": true, "seed_us": 38_400, "board": 212, "questions": 1,
+                       "watchers": 2, "events": 340, "position": 48213});
+    golden(
+        "health_push",
+        &run(&["health"], vec![step("health", h.clone())]),
+    );
+    h["push"] = json!({"seeded": false});
+    let out = run(&["health"], vec![step("health", h)]);
+    assert!(
+        out.contains("push: not seeded: nothing has watched since the start"),
+        "{out}"
+    );
+}
+
+/// `theseus watch --all` (theseus-in3): the snapshot, then each change and
+/// each question. An event that came before the answer prints once, at its
+/// greater position, and one the snapshot already holds is dropped.
+#[test]
+fn watch_all_prints_the_snapshot_then_each_change_once() {
+    let view = |pos: u64, sid: &str, state: &str, prev: Option<&str>, level: &str, label: &str| {
+        let mut v = json!({"position": pos, "at_ms": 1_759_300_000_000u64,
+            "execution_id": format!("exe_{}", &sid[4..]), "session_id": sid,
+            "kind": "conversation", "state": state, "pending": [], "turns": 2,
+            "spent_usd": 0.0123, "limit_usd": 100.0,
+            "attention": {"level": level, "label": label, "since_ms": 1}});
+        if let Some(p) = prev {
+            v["previous"] = json!(p);
+        }
+        v
+    };
+    let snapshot = json!({"position": 40, "total": 2, "confirms": [], "executions": [
+        view(38, S, "running", None, "working", "turn 2"),
+        view(12, "ses_b0r1ng", "waiting", None, "ready", "ready")]});
+    let early = note(
+        "execution.changed",
+        view(
+            39,
+            "ses_b0r1ng",
+            "queued",
+            Some("waiting"),
+            "working",
+            "queued",
+        ),
+    );
+    let stale = note(
+        "execution.changed",
+        view(38, S, "running", Some("queued"), "working", "turn 2"),
+    );
+    let after = vec![
+        note(
+            "execution.changed",
+            view(
+                44,
+                S,
+                "waiting",
+                Some("running"),
+                "needs_you",
+                "confirm proc.run: run the gate",
+            ),
+        ),
+        note("confirm.requested", confirm_tool()),
+        note(
+            "confirm.resolved",
+            json!({"session_id": S, "correlation_id": "act_k2", "approved": true, "by": "the CLI"}),
+        ),
+        note(
+            "execution.changed",
+            view(51, S, "queued", Some("waiting"), "working", "queued"),
+        ),
+    ];
+    golden(
+        "watch_all",
+        &run(
+            &["watch", "--all"],
+            vec![Step {
+                method: "executions.watch",
+                before: vec![early, stale],
+                answer: Ok(snapshot),
+                after,
+            }],
+        ),
+    );
+}
+
 #[test]
 fn tools_lists_postures_and_calls() {
     golden("tools", &run(&["tools"], vec![step("tool.list", tools())]));

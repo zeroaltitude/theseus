@@ -100,6 +100,8 @@ pub struct Core {
     web_refusals: Arc<crate::webui::Refusals>,
     /// The spool's last sweep since the daemon started (theseus-2ij).
     last_sweep: std::sync::Mutex<Option<theseus_protocol::SpoolSweep>>,
+    /// The push (theseus-in3): one view per execution, seeded on first need.
+    pub push: crate::push::Push,
 }
 
 /// A store's completion spool, the directory beside it: `store` → `spool`,
@@ -542,6 +544,7 @@ impl Core {
             restart: tokio::sync::watch::Sender::new(None),
             web_refusals: Arc::default(),
             last_sweep: Default::default(),
+            push: crate::push::Push::default(),
         });
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).

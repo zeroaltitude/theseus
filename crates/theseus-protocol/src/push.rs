@@ -11,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::SessionKind;
+use crate::{ConfirmRequest, SessionKind};
 
 /// How much an execution needs people, the most first: a question or a
 /// failure (`needs_you`), work under way (`working`), a conversation between
@@ -163,6 +163,76 @@ pub struct ExecutionView {
     #[cfg_attr(test, ts(optional))]
     pub wake_at_ms: Option<u64>,
     pub attention: Attention,
+}
+
+/// `executions.watch`: its snapshot's size. It replaces any earlier watch on
+/// the same connection.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExecutionsWatchParams {
+    /// How many of the executions that need no one and do nothing (ready or
+    /// idle) the snapshot carries, the most recently active first: 200 by
+    /// default. Every execution that needs you or works is always there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub limit: Option<u32>,
+}
+
+/// `executions.watch`'s answer: the board as it stood when the watch began.
+/// The subscription comes first, so no change falls between the two: apply a
+/// snapshot row, as an event, only if its `position` is greater than the
+/// last one applied for its execution.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExecutionsWatchResult {
+    /// The board's position when the snapshot was taken: the last frame it
+    /// applied.
+    pub position: u64,
+    /// Every execution that needs you or works, then the `limit` most
+    /// recently active of the rest.
+    pub executions: Vec<ExecutionView>,
+    /// Every question waiting for the operator, as `confirm.list` gives them.
+    pub confirms: Vec<ConfirmRequest>,
+    /// How many executions the board holds.
+    pub total: u64,
+}
+
+/// `session.list`: every session, or only these (theseus-in3): a client that
+/// meets a new session in `execution.changed` asks for its title.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SessionListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub ids: Option<Vec<String>>,
+}
+
+/// The push for health (theseus-in3): `push: 3 watchers · board 212 · 1
+/// question · seeded in 38 ms`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct PushStatus {
+    /// The board was seeded: something watched since the daemon started. A
+    /// daemon nothing watches never pays for it.
+    pub seeded: bool,
+    /// How long the seed took, in microseconds.
+    #[serde(default)]
+    pub seed_us: u64,
+    /// The executions the board holds.
+    #[serde(default)]
+    pub board: u64,
+    /// The questions waiting for the operator, as the board holds them.
+    #[serde(default)]
+    pub questions: u64,
+    /// Connections with an `executions.watch`.
+    #[serde(default)]
+    pub watchers: u64,
+    /// `execution.changed` notifications made since the daemon started.
+    #[serde(default)]
+    pub events: u64,
+    /// The board's position: the last frame it applied.
+    #[serde(default)]
+    pub position: u64,
 }
 
 /// The longest reason a label carries before it is cut with `…`.

@@ -99,7 +99,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         ConfirmResolved,
         NodeWritten, PolicyNotified, Asker, ApprovalRefused, Access, Resource, Plan, Proposal,
         Notice, GateDecision, GateResult, GateRecord, Level, Attention, WaitingOn, PendingConfirm,
-        ExecutionView,
+        ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, SessionListParams, PushStatus,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

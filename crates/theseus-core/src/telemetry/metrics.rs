@@ -84,8 +84,21 @@ const TOOL_DURATION: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const PUSH_EVENTS: Instrument = Instrument {
+    name: "theseus.push.events",
+    description: "Notifications the push made (theseus-in3), by method",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const PUSH_DELAY: Instrument = Instrument {
+    name: "theseus.push.delay_ms",
+    description: "From a frame's commit to its execution.changed being queued",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 9] = [
+const INSTRUMENTS: [&Instrument; 11] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -95,6 +108,8 @@ const INSTRUMENTS: [&Instrument; 9] = [
     &COST,
     &TOOL_CALLS,
     &TOOL_DURATION,
+    &PUSH_EVENTS,
+    &PUSH_DELAY,
 ];
 
 /// A tool call's attributes (§3.23). `theseus.tool.name` was `theseus.tool`
@@ -265,6 +280,17 @@ impl Metrics {
         if let Some(t) = f.trace {
             self.provider_calls(t);
         }
+    }
+
+    /// The push (theseus-in3): `n` notifications of `method`, from a frame
+    /// committed `delay_ms` before they were queued.
+    pub(super) fn push(&mut self, method: &str, n: u64, delay_ms: f64) {
+        self.add(
+            &PUSH_EVENTS,
+            vec![("theseus.push.method", Attr::S(method.to_string()))],
+            n,
+        );
+        self.record(&PUSH_DELAY, Vec::new(), delay_ms);
     }
 
     fn tokens(&mut self, u: &Usage, base: &Attrs) {

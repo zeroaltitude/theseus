@@ -176,6 +176,73 @@ pub async fn watch(
     Ok(())
 }
 
+/// `theseus watch --all` (theseus-in3): the board's snapshot, then each
+/// change. A view is printed only if its position is greater than the last
+/// one printed for its execution, so an event that came before the snapshot,
+/// or one the snapshot already holds, prints once.
+pub async fn watch_all(conn: &mut Conn, json: bool) -> Result<()> {
+    let mut early: Vec<(String, Value)> = Vec::new();
+    let v = conn
+        .call(method::EXECUTIONS_WATCH, serde_json::json!({}), |m, p| {
+            early.push((m.to_string(), p.clone()))
+        })
+        .await?;
+    let mut seen: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let show =
+        |m: &str, p: &Value, seen: &mut std::collections::HashMap<String, u64>| -> Result<()> {
+            if json {
+                println!("{}", serde_json::json!({"method": m, "params": p}));
+                return Ok(());
+            }
+            match theseus_protocol::Event::from_notification(m, p)? {
+                Some(theseus_protocol::Event::ExecutionChanged(view)) => {
+                    let last = seen.entry(view.execution_id.clone()).or_default();
+                    if view.position > *last {
+                        *last = view.position;
+                        println!("{}", render::view_line(&view));
+                    }
+                }
+                Some(e) => {
+                    if let Some(line) = render::question_line(&e) {
+                        println!("{line}");
+                    }
+                }
+                None => {}
+            }
+            Ok(())
+        };
+    let snap: theseus_protocol::ExecutionsWatchResult = serde_json::from_value(v.clone())?;
+    if json {
+        println!("{}", serde_json::json!({"result": v}));
+    } else {
+        eprintln!(
+            "watching every session's executions: {} of {} at position {}, {} question(s) waiting (Ctrl-C to stop)",
+            snap.executions.len(),
+            snap.total,
+            snap.position,
+            snap.confirms.len()
+        );
+    }
+    for view in &snap.executions {
+        let last = seen.entry(view.execution_id.clone()).or_default();
+        if view.position > *last {
+            *last = view.position;
+            if !json {
+                println!("{}", render::view_line(view));
+            }
+        }
+    }
+    for (m, p) in early {
+        show(&m, &p, &mut seen)?;
+    }
+    while let Some(msg) = conn.next().await? {
+        if let Message::Notification(n) = msg {
+            show(&n.method, &n.params, &mut seen)?;
+        }
+    }
+    Ok(())
+}
+
 /// `theseus confirm`: everything waiting, or an answer, then the turn it
 /// resumes.
 pub async fn confirm(conn: &mut Conn, json: bool, a: ConfirmArgs) -> Result<()> {

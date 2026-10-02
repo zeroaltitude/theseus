@@ -8,6 +8,7 @@ import type { DiskStatus } from "./DiskStatus";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
 import type { KernelStatus } from "./KernelStatus";
+import type { PushStatus } from "./PushStatus";
 import type { SecretsStatus } from "./SecretsStatus";
 import type { SpoolStatus } from "./SpoolStatus";
 import type { StartupPhase } from "./StartupPhase";
@@ -113,4 +114,9 @@ disk: DiskStatus,
 /**
  * The spool's sweeps of raw job output (theseus-2ij).
  */
-spool: SpoolStatus, };
+spool: SpoolStatus, 
+/**
+ * The push (theseus-in3): its board, its watchers, and its seed. Absent
+ * from a daemon before it.
+ */
+push?: PushStatus, };

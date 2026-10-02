@@ -2359,3 +2359,57 @@ fn writers_of_different_executions_never_wait_for_each_other() {
     );
     assert_eq!(w.kernel.exec_locks().held(), 0);
 }
+
+/// The push's observer (theseus-in3): nothing is observed until one is
+/// installed, and then every frame the kernel or any view of it commits,
+/// each record with its WAL position, after the append. Once only.
+#[test]
+fn the_observer_sees_each_committed_frame_with_its_positions() {
+    let w = world();
+    let (_, e, _guard) = running(&w);
+    assert!(!w.kernel.observed(), "nothing watches yet");
+    type Seen = Vec<(Vec<u16>, Vec<u64>)>;
+    let seen: Arc<std::sync::Mutex<Seen>> = Arc::default();
+    let into = seen.clone();
+    assert!(w.kernel.observe(Arc::new(move |c: Committed<'_>| {
+        let kinds = c.records.iter().map(|r| r.kind).collect();
+        into.lock().unwrap().push((kinds, c.positions.to_vec()));
+    })));
+    assert!(w.kernel.observed());
+    assert!(!w.kernel.observe(Arc::new(|_| {})), "one observer");
+    // A view made before or after the install shares it.
+    let view = w.kernel.view(w.kernel.store().clone());
+    let other = view
+        .open_execution(
+            &new_id("ses"),
+            SessionKind::Conversation,
+            auth(),
+            None,
+            None,
+        )
+        .unwrap();
+    w.kernel.cancel_execution(&e.id, "operator").unwrap();
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2, "two frames: {seen:?}");
+    for (id, (kinds, positions)) in [&other.id, &e.id].into_iter().zip(&seen) {
+        assert_eq!(kinds.len(), positions.len());
+        let at = kinds.iter().position(|k| *k == kinds::EXECUTION).unwrap();
+        let stored = w
+            .kernel
+            .store()
+            .latest_by_key(kinds::EXECUTION, id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.position, positions[at], "the record's own position");
+        assert!(positions.windows(2).all(|p| p[0] < p[1]));
+    }
+    // The seed's reads: every record with its position.
+    let at: BTreeMap<String, u64> = w
+        .kernel
+        .executions_at()
+        .unwrap()
+        .into_iter()
+        .map(|(p, e)| (e.id, p))
+        .collect();
+    assert_eq!(at[&other.id], seen[0].1[0]);
+}

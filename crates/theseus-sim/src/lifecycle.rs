@@ -37,7 +37,9 @@ use serde_json::{json, Value};
 
 use crate::fake_model::FakeModel;
 
-pub const PHASES: [&str; 6] = ["cold", "vault", "shutdown", "kill", "swap", "restore"];
+pub const PHASES: [&str; 7] = [
+    "cold", "vault", "shutdown", "kill", "swap", "restore", "seed",
+];
 
 /// The bench's vault note: the fake `op` answers it with the bench config.
 pub const VAULT_REF: &str = "op://Bench/theseus-config/notesPlain";
@@ -966,6 +968,17 @@ pub fn run(o: &Opts) -> Result<Report> {
             if s.driver_ms.is_none() {
                 s.driver_ms = rig.driver_started()?;
             }
+            // The push's seed (theseus-in3): the first `executions.watch`
+            // reads every execution and action into the board, after serving.
+            // Measured, with no budget yet; `--sessions 10000` is its row.
+            if want("seed") {
+                let t = Instant::now();
+                rig.call("executions.watch", json!({}))?;
+                samples
+                    .entry("seed".into())
+                    .or_default()
+                    .push(t.elapsed().as_secs_f64() * 1000.0);
+            }
             starts.push(s);
             rig.stop(&mut child)?;
         }
@@ -1278,7 +1291,7 @@ fn restore_phase(
     })
 }
 
-const TITLES: [(&str, &str); 6] = [
+const TITLES: [(&str, &str); 7] = [
     ("cold", "cold start to the first health answer"),
     (
         "vault",
@@ -1294,6 +1307,7 @@ const TITLES: [(&str, &str); 6] = [
         "binary swap, stop's request to the new build's answer",
     ),
     ("restore", "theseusd restore from a local WAL, cold"),
+    ("seed", "the push's seed: the first executions.watch"),
 ];
 
 pub fn print(r: &Report) {

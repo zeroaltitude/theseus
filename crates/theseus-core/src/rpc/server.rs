@@ -232,9 +232,11 @@ impl Core {
         match req.method.as_str() {
             method::HEALTH => reply(self.health()),
             method::SESSION_OPEN => route(params, |p| self.session_open(p)),
-            method::SESSION_LIST => reply(theseus_protocol::SessionListResult {
-                sessions: self.session_list()?,
-            }),
+            method::SESSION_LIST => {
+                // Its filter is optional: no params lists every session.
+                let params = if params.is_null() { json!({}) } else { params };
+                route(params, |p| self.session_list_of(p))
+            }
             method::TURN_SUBMIT => reply(self.turn_submit(parse(params)?, conn).await?),
             method::PROFILE_LIST => reply(self.profile_list()),
             method::PROFILE_USE => route(params, |p| self.profile_use(p, conn)),
@@ -281,6 +283,12 @@ impl Core {
             }
             method::NARRATIVE_WATCH => reply(self.narrative_watch(conn)),
             method::NARRATIVE_UNWATCH => reply(self.narrative_unwatch(conn)),
+            method::EXECUTIONS_WATCH => {
+                // Its limit is optional: no params takes the default.
+                let params = if params.is_null() { json!({}) } else { params };
+                reply(self.executions_watch(parse(params)?, conn).await?)
+            }
+            method::EXECUTIONS_UNWATCH => reply(self.executions_unwatch(conn)),
             // The loops wake once the answer is written (`serve_connection`).
             method::SHUTDOWN => reply(self.stopping()),
             other => Err(RpcFailure::new(

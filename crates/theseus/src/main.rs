@@ -35,6 +35,7 @@ Quick start:
   theseus ask --attach notes.txt \"...\"      send a file with the prompt, as a Discord attachment is sent
   theseus history [session]                  a session's transcript: messages, tool calls, results
   theseus watch [session]                    follow a session live (turns started anywhere)
+  theseus watch --all                        every session's executions as they change, with what needs you
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
   theseus wakes                              pending wakes (wake.at): session, due time, and note
@@ -110,6 +111,11 @@ enum Cmd {
         /// Show thinking summaries too.
         #[arg(long)]
         thinking: bool,
+        /// Every session's executions instead of one session's turns: a snapshot of what needs
+        /// you or works, then each change as it happens, with its WAL position, and each question
+        /// as it is asked and answered (executions.watch).
+        #[arg(long, conflicts_with = "session")]
+        all: bool,
     },
     /// Answer a tool call waiting for your confirmation, or a session at its spend limit
     /// (approve resets its spend to $0), then follow the turn it resumes.
@@ -475,7 +481,10 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a).await,
         Cmd::History { session, n, full } => cmd::history(c, json, session, n, full).await,
-        Cmd::Watch { session, thinking } => cmd::watch(c, json, session, thinking).await,
+        Cmd::Watch { all: true, .. } => cmd::watch_all(c, json).await,
+        Cmd::Watch {
+            session, thinking, ..
+        } => cmd::watch(c, json, session, thinking).await,
         Cmd::Confirm(a) => cmd::confirm(c, json, a).await,
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
