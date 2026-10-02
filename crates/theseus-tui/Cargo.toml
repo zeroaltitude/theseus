@@ -1,0 +1,41 @@
+[package]
+name = "theseus-tui"
+description = "The Theseus terminal UI (design stage2 §2.9): every session's state in one sidebar, the attention queue, inline answers, a session's history and its input line. A protocol client: it links the protocol crate and the CLI's client library, never the core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
+[package.metadata.theseus]
+reserved_for = "row 15 (10f), M3: theseus tui execs it"
+
+[[bin]]
+name = "theseus-tui"
+path = "src/main.rs"
+
+[dependencies]
+theseus-protocol.workspace = true
+# The CLI's library, `theseus_client`: the connection and the renderers.
+theseus = { path = "../theseus" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+shellexpand.workspace = true
+# Only what the TUI draws with: the crossterm backend and the layout cache;
+# not the calendar widget, the macros, or underline colors.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache"] }
+# The same 0.29 that ratatui's backend uses: its events and its terminal modes.
+crossterm = "0.29"
+unicode-width = "0.2"
+# The header's time of day on this machine's clock (`15:42`), as the daemon's
+# labels write theirs.
+jiff = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
