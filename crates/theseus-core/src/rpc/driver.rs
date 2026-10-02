@@ -3,19 +3,16 @@
 
 use std::sync::Arc;
 use std::time::Instant;
-use theseus_protocol::LedgerKind;
 
 use anyhow::Result;
-use serde_json::Value;
 
 use super::Core;
 use crate::bus::EventSink;
-use crate::narrative::narrate;
+use crate::fact;
 use crate::session::SessionRecord;
 use crate::turn::TurnRequest;
 use theseus_kernel::job::WrapperEvidence;
 use theseus_kernel::Execution;
-use theseus_protocol::{ConfirmResolved, Event};
 
 impl Core {
     /// Heartbeat: drain the spool, reconcile against the wrapper evidence.
@@ -52,18 +49,13 @@ impl Core {
                         rep.settled_from_evidence.len() as u64,
                         rep.marked_unknown.len() as u64,
                     );
-                    if self.narrator.on() && due + evidence + unknown > 0 {
-                        narrate!(
-                            self.narrator,
-                            Job,
-                            None,
-                            None,
-                            "Heartbeat ({why}): {} woke because a wait came due, {} \
-                             settled from a job wrapper's evidence, {} marked unknown.",
-                            crate::narrative::count(due, "execution", "executions"),
-                            crate::narrative::count(evidence, "action", "actions"),
-                            unknown
-                        );
+                    if due + evidence + unknown > 0 {
+                        self.rec(None).record(&fact::driver::HeartbeatActed {
+                            why,
+                            due,
+                            evidence,
+                            unknown,
+                        });
                     }
                     self.admission.notify_waiters();
                 } else {
@@ -87,33 +79,17 @@ impl Core {
         }
     }
 
-    /// The narrative's line for a job's completion that came from the spool.
+    /// The narrative's line for a job's completion that came from the spool:
+    /// its action is read only when the narrative is on.
     fn narrate_spooled(&self, c: &theseus_kernel::Completion) {
         let Ok(Some(a)) = self.kernel.action(&c.correlation_id) else {
             return;
         };
-        let outcome = match c.outcome {
-            theseus_kernel::Outcome::Succeeded => "succeeded",
-            theseus_kernel::Outcome::Failed => "failed",
-            theseus_kernel::Outcome::Unknown => "an unknown outcome",
-        };
-        let exit = c
-            .detail
-            .as_ref()
-            .and_then(|d| d.get("exit_code"))
-            .and_then(Value::as_i64)
-            .map(|x| format!(", exit code {x}"))
-            .unwrap_or_default();
-        narrate!(
-            self.narrator,
-            Job,
-            Some(&a.session_id),
-            None,
-            "Job {} ({}) finished: {outcome}{exit}; its completion came \
-             from the spool.",
-            crate::narrative::short(&c.correlation_id),
-            a.tool
-        );
+        self.session_rec(&a.session_id)
+            .record(&fact::driver::SpooledCompletion {
+                completion: c,
+                action: &a,
+            });
     }
 
     /// Accept every spooled completion, removing each file after its frame.
@@ -188,15 +164,8 @@ impl Core {
             // A question the operator was asked: a tool call waiting for an
             // answer, or the budget question. Each keeps its proposal.
             if a.proposal.is_some() && a.confirm.is_none() {
-                EventSink::new(self.bus.clone(), &a.session_id, None).send(Event::ConfirmResolved(
-                    ConfirmResolved {
-                        session_id: a.session_id.clone(),
-                        correlation_id: a.correlation_id.clone(),
-                        by: Some(by.into()),
-                        cancelled: true,
-                        ..Default::default()
-                    },
-                ));
+                self.session_rec(&a.session_id)
+                    .record(&fact::driver::QuestionCancelled { question: a, by });
             }
         }
         let to_kill = cancel.to_kill;
@@ -206,16 +175,12 @@ impl Core {
             .kernel
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
-        narrate!(
-            self.narrator,
-            Session,
-            Some(&e.session_id),
-            None,
-            "Execution {} cancelled by {by}: {} stopped; it is {} now.",
-            crate::narrative::short(id),
-            crate::narrative::count(to_kill.len() as u64, "action", "actions"),
-            e.state.as_str()
-        );
+        self.session_rec(&e.session_id)
+            .record(&fact::driver::ExecutionCancelled {
+                execution: &e,
+                by,
+                stopped: to_kill.len(),
+            });
         Ok((e, to_kill))
     }
 
@@ -285,7 +250,6 @@ impl Core {
                 wakes_pending: 0,
             });
         };
-        let sink = EventSink::new(self.bus.clone(), &stop.execution.session_id, None);
         for a in &stop.declined {
             if let Err(e) = self.outbox.closed(
                 &a.correlation_id,
@@ -293,13 +257,8 @@ impl Core {
             ) {
                 tracing::warn!(error = %format!("{e:#}"), "a stopped question's settle was not written");
             }
-            sink.send(Event::ConfirmResolved(ConfirmResolved {
-                session_id: a.session_id.clone(),
-                correlation_id: a.correlation_id.clone(),
-                by: Some(by.into()),
-                stopped: true,
-                ..Default::default()
-            }));
+            self.session_rec(&stop.execution.session_id)
+                .record(&fact::driver::QuestionStopped { question: a, by });
         }
         self.terminate_all(&stop.to_kill).await;
         self.admission.notify_waiters();
@@ -313,29 +272,15 @@ impl Core {
             .iter()
             .filter(|t| !t.state.is_terminal())
             .count() as u32;
-        narrate!(
-            self.narrator,
-            Session,
-            Some(&e.session_id),
-            None,
-            "Stopped by {by}: {} told to stop, {} declined{}; the session goes on, waiting on its \
-             next input{}.",
-            crate::narrative::count(stop.to_kill.len() as u64, "action", "actions"),
-            crate::narrative::count(stop.declined.len() as u64, "question", "questions"),
-            if stop.turn_running {
-                ", and the running turn ends at its next step"
-            } else {
-                ""
-            },
-            match (tasks_running, e.wakes.len()) {
-                (0, 0) => String::new(),
-                (t, w) => format!(
-                    " ({} and {} go on)",
-                    crate::narrative::count(t as u64, "task", "tasks"),
-                    crate::narrative::count(w as u64, "wake", "wakes")
-                ),
-            }
-        );
+        self.session_rec(&e.session_id)
+            .record(&fact::driver::ExecutionStopped {
+                execution: &e,
+                by,
+                to_kill: stop.to_kill.len(),
+                declined: stop.declined.len(),
+                turn_running: stop.turn_running,
+                tasks_running,
+            });
         Ok(theseus_protocol::ExecutionStopResult {
             execution: Self::execution_info(&e),
             stopped: true,
@@ -371,26 +316,12 @@ impl Core {
             return false;
         }
         tracing::warn!(pid, job, signal, tool = %a.tool, "a job's wrapper was killed before it reported; its outcome is unknown");
-        let row = crate::ledger::LedgerRow::new(
-            LedgerKind::JobWrapperLost,
-            Some(&a.session_id),
-            None,
-            serde_json::json!({"correlation_id": job, "pid": pid, "signal": signal,
-                "tool": a.tool, "execution_id": a.execution_id}),
-        );
-        if let Err(e) = self.store.append_ledger(&row) {
-            tracing::warn!(error = %e, "ledger append failed");
-        }
-        narrate!(
-            self.narrator,
-            Job,
-            Some(&a.session_id),
-            None,
-            "Job {} ({}) lost its wrapper (pid {pid}, killed by signal {signal}) before it \
-             reported: the job, or something beside it, killed it. Its outcome is unknown.",
-            crate::narrative::short(job),
-            a.tool
-        );
+        self.session_rec(&a.session_id)
+            .record(&fact::driver::WrapperLost {
+                action: &a,
+                pid,
+                signal,
+            });
         self.admission.notify_waiters();
         true
     }
@@ -407,22 +338,8 @@ impl Core {
         let Some(session) = self.store.get_session::<SessionRecord>(&e.session_id)? else {
             return Ok(None);
         };
-        narrate!(
-            self.narrator,
-            Session,
-            Some(&session.session_id),
-            None,
-            "The driver resumes execution {}: {}.",
-            crate::narrative::short(&e.id),
-            match e.queued_results.len() {
-                0 if e.resume_pending => "it was woken".to_string(),
-                0 => "it is queued".to_string(),
-                n => format!(
-                    "{} arrived",
-                    crate::narrative::count(n as u64, "result", "results")
-                ),
-            }
-        );
+        self.session_rec(&session.session_id)
+            .record(&fact::driver::DriverResumes { execution: &e });
         let (live, _) = self.live_profile();
         let target = self.runner.target_for_session(&session, &live)?;
         let ran_on = (

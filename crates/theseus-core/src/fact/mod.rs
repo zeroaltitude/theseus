@@ -27,7 +27,8 @@
 //! spans the facts recorded, where the result lands, once a turn.
 //!
 //! Every fact is listed in [`FACTS`] with its kind and its method, so a test
-//! can list them all.
+//! can list them all. A kind is a `theseus_protocol::LedgerKind`, the
+//! registry every row writer in the workspace names.
 
 use serde_json::Value;
 use theseus_protocol::{Event, LedgerKind, Message, NarrativePart};
@@ -40,6 +41,7 @@ use crate::store::Store;
 use crate::trace::Trace;
 
 pub mod answer;
+pub mod driver;
 pub mod tool;
 pub mod turn;
 
@@ -287,6 +289,14 @@ facts![
     answer::JobActRefused<'static>,
     answer::LimitChanged<'static>,
     answer::QuestionWithdrawn<'static>,
+    driver::HeartbeatActed<'static>,
+    driver::SpooledCompletion<'static>,
+    driver::QuestionCancelled<'static>,
+    driver::ExecutionCancelled<'static>,
+    driver::QuestionStopped<'static>,
+    driver::ExecutionStopped<'static>,
+    driver::WrapperLost<'static>,
+    driver::DriverResumes<'static>,
 ];
 
 #[cfg(test)]
