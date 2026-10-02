@@ -1,0 +1,48 @@
+# theseus-discord
+
+The Discord binding (spec P5, M3): one guild's text channels and direct messages, in the daemon's process. Read by
+theseusd.
+
+## What's here
+
+- `src/runtime.rs`: the gateway loop and the places (a text channel or a DM, each backed by one session), with the
+  slash commands and the confirm buttons. `Routes::resolve` finds a message's or an interaction's place.
+- `src/courier.rs`: durable delivery, the binding's side: one lane per place, and one for the operator's notices.
+- `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out.
+- `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments),
+  `src/viewers.rs` (who can view a channel), and `src/rpc_client.rs` (the in-process protocol connection).
+
+## Invariants
+
+- **What a person does goes through the protocol** (a message is `turn.submit`, a press `action.confirm`, `/stop`
+  `execution.stop`, `/trust` `policy.trust`), so the core judges Discord as it judges the CLI and the web UI. What
+  the binding delivers and reports, it reads and writes in the core directly: the outbox, the cards' questions, its
+  ledger rows (Item 30).
+- **What must be seen is an outbox post**, written by the core when it happens: a reply, a card, a card's settle, a
+  failed turn. Live progress (streamed text, tool lines, typing) is best effort and never replayed (Item 6).
+- **One lane per place is the only writer of its messages**: posts first, in order, then live progress. A create
+  carries a nonce from its message's key, with `enforce_nonce`, so a retry after a crash returns the first message.
+- **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
+  daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
+  mentions exactly its answerers, and nothing else mentions anyone (Item 15).
+- **Slash commands are bare names** (`/new`, `/stop`, `/trust`, …), and each control has one effect (Item 9).
+
+## Tests
+
+- `src/tests_outbox.rs` drives the binding against `theseus_sim::fake_discord` (REST only: it honours a nonce as
+  Discord does, and can be down, hang creates, or fail). Point a daemon at it with `[discord] rest_proxy` and
+  `gateway_proxy`.
+- The gateway can't be faked, so tests drive a place directly (`place_for_tests`) and interactions through
+  `on_interaction`. A bot can neither type nor press, so a live press waits for the operator.
+- `split_text` (`src/render.rs`) has property tests: a message split past Discord's 2,000-character limit must
+  never loop or panic.
+
+## Traps
+
+- **Never bind the operator's places from a second daemon.** A scratch daemon on Discord binds only a test channel,
+  runs on a fresh state dir (never a copy of the operator's store, theseus-c3e), and carries no copy of the
+  operator's bindings file.
+- Registering commands is global to the bot: a scratch daemon's command list replaces the installed one's until the
+  operator's daemon next starts.
+- A test that reads the channel waits for every message it reads: the outbox draining doesn't mean the live tool
+  line has landed.

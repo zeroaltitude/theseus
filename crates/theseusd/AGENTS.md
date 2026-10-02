@@ -1,0 +1,52 @@
+# theseusd
+
+The daemon binary: the kernel behind the protocol, on a Unix socket (the default) or `--stdio`. Also its
+subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindings`, `restore`, and `install`.
+
+## What's here
+
+- `src/main.rs`: the start, in the order serve-first requires: the token, the config, secrets resolving in the
+  background, the store, the kernel's startup, then serving. The network, and every fsync but the kernel's one, go
+  in `after_serving`, as do the actors (the harness loop, the driver, telemetry, the web UI, Discord), which start
+  only once the config may act. Also the signal arms (SIGINT and SIGTERM are one clean stop) and the reaper.
+- `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
+  refuses a wrong `Host` or `Origin` and any uid but the daemon's own.
+- `src/install/`: `theseusd install`, the daemon as a systemd service (`--user`, or `--separate` as root). It prints
+  a plan and changes nothing; `--apply` performs it, `--check` compares, and `--remove` is the inverse.
+- `web/dist/`: the Observatory's committed build. `cockpit/dist/`: the cockpit's build, ignored.
+
+## Invariants
+
+- **Serve first.** Nothing on the start path waits for a secret, the network, or a model, and no new work joins it
+  without its bench row (`theseus-sim bench lifecycle`).
+- **A config in the vault** starts from its last-known-good copy. Until the vault confirms it, the daemon answers
+  only what reads (`config_unconfirmed` for acting methods). A changed note restarts the daemon in place: an exec of
+  `/proc/self/exe`, with the same pid.
+- **Every clean stop is one path**: the `shutdown` method, SIGINT, SIGTERM, and a restart onto a changed note. Each
+  writes `server.stopping` and checkpoints, so the next start replays nothing. The stop's answer is written before
+  the daemon stops.
+- **A serving daemon is a child subreaper** (`children::adopt`), and nothing that answers an approval may descend
+  from a serving `theseusd`. `job::DAEMON_VALUE_FLAGS` must match clap's options; a test here holds them together.
+- **Files are the operator's alone**: umask 077 before anything is created, and the state dir, store, and spool
+  0700. A job's command gets the operator's own umask back.
+- **Code that runs as root** (`install --separate`): every deletion is one planned file, an empty directory, or a
+  socket, never recursive; ownership changes use `lchown`; account tools run by absolute path; `userdel` never
+  takes the state dir.
+
+## Tests
+
+- `tests/*.rs` run the real binary. `tests/common/mod.rs` has `Daemon`, which kills and reaps its process when
+  dropped: use it for every spawned daemon (an explicit stop alone once leaked one for 45 minutes).
+- `tests/common/model.rs` is a stand-in Messages API: tool calls per prompt, and `FakeModel::requests()` keeps
+  every request, so a test reads which model each turn asked for.
+- The rigs that need a job's real environment (`job_approval.rs`, `reaping.rs`, `broker.rs`) use a fake `op` and a
+  file config, never real secrets.
+
+## Traps
+
+- A test script's wait loop must end when its temp dir is gone, or a failing test leaves it looping on a deleted
+  file.
+- A daemon test's live peer is traced through `/proc`: run inside a job, an approval it sends is refused. Such tests
+  skip that part inside a job, and say so on stderr.
+- A start right after a stop waits up to 3 s for the store's lock. A check that reads the store's files waits for
+  the old process to exit first.
