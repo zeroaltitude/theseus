@@ -12,6 +12,8 @@
 //! `print.rs` writes the lines they return.
 
 mod cmd;
+mod herdr;
+mod interactive;
 mod print;
 
 use std::path::PathBuf;
@@ -130,6 +132,14 @@ enum Cmd {
         /// as it is asked and answered (executions.watch).
         #[arg(long, conflicts_with = "session")]
         all: bool,
+        /// Answer from here: a question waiting asks `approve? [y/N/t/note]`, and any other line
+        /// is sent to the session as a message. Line mode, so it works in any terminal or pane.
+        #[arg(long, conflicts_with = "all")]
+        interactive: bool,
+        /// Inside a herdr pane (HERDR_ENV=1, HERDR_PANE_ID, HERDR_SOCKET_PATH) the watch reports
+        /// the session's state to the pane; this turns that off.
+        #[arg(long)]
+        no_herdr: bool,
     },
     /// The terminal UI: every session in one sidebar with its task trees, the queue of what
     /// needs you, answered inline, and a session's history with its input line. It runs
@@ -403,8 +413,12 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Watch { all: true, .. } => cmd::watch_all(c, json).await,
         Cmd::Watch {
-            session, thinking, ..
-        } => cmd::watch(c, json, session, thinking).await,
+            session,
+            thinking,
+            interactive,
+            no_herdr,
+            ..
+        } => interactive::watch(c, json, session, thinking, interactive, no_herdr).await,
         Cmd::Confirm(a) => cmd::confirm(c, json, a).await,
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,

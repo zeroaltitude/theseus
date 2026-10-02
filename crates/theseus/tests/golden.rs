@@ -86,11 +86,16 @@ fn run(args: &[&str], steps: Vec<Step>) -> String {
         }
         seen
     });
+    // Hermetic: a gate run inside a herdr pane would turn the watch's
+    // reporter on (theseus-l1l).
     let out = Command::new(THESEUS)
         .arg("--socket")
         .arg(&sock)
         .args(args)
         .env_remove("THESEUS_SOCKET")
+        .env_remove("HERDR_ENV")
+        .env_remove("HERDR_PANE_ID")
+        .env_remove("HERDR_SOCKET_PATH")
         .output()
         .unwrap();
     let seen = daemon.join().unwrap();
