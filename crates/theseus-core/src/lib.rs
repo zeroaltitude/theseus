@@ -67,6 +67,8 @@ pub fn new_id(prefix: &str) -> String {
 }
 
 #[cfg(test)]
+mod tests_books;
+#[cfg(test)]
 mod tests_config;
 #[cfg(test)]
 mod tests_continuations;

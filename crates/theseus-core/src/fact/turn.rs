@@ -1402,7 +1402,18 @@ impl Fact for TurnFailed<'_> {
 
     fn narrate(&self, say: &mut Say<'_>) {
         let finished = self.loops.saturating_sub(1) as u64;
-        if finished == 0 {
+        if self.loops == 0 {
+            // A fault before the turn's first loop (R1).
+            say.line(
+                Turn,
+                format!(
+                    "Turn {} failed ({}) before its first loop; it spent {}.",
+                    narrative::short(self.turn_id),
+                    self.class,
+                    narrative::money(self.cost_usd)
+                ),
+            );
+        } else if finished == 0 {
             say.line(
                 Turn,
                 format!(

@@ -240,6 +240,37 @@ struct Turn<'a> {
     /// one's task and line, which the reply's post shows above it, as a
     /// wake's.
     woke_by: Vec<Value>,
+    /// How far the turn's end got with its books (R1), so that a fault part
+    /// way through the end closes the rest and counts nothing twice: the
+    /// session's copy has them, its write waits for the turn's last frame,
+    /// and the `turn.ended` row is recorded.
+    booked: bool,
+    deferred: bool,
+    ended: bool,
+}
+
+/// The class of a turn that faulted (R1): an error the turn did not report
+/// itself, such as a frame the store would not write. It closes its books as
+/// a failure does.
+pub const FAULT_CLASS: &str = "internal";
+
+/// Where a turn's body left it: to end as it planned, with the recompile it
+/// took and did not apply, or to fail as it reports.
+enum Next {
+    Finish(Option<Recompile>),
+    Fail(Failure),
+}
+
+/// What a turn's body takes from its request, beside what its `Turn` holds.
+struct Asked {
+    /// `None`: a continuation.
+    input: Option<String>,
+    attachments: Vec<theseus_protocol::Attachment>,
+    author: String,
+    recompile: Option<Recompile>,
+    /// The session's target, when the turn runs elsewhere than its last
+    /// turn did: the input's frame writes it.
+    moved: Option<TargetRef>,
 }
 
 /// What became of a loop's provider call.
@@ -309,6 +340,9 @@ impl<'a> Turn<'a> {
             wakes: Vec::new(),
             wake_target: None,
             woke_by: Vec::new(),
+            booked: false,
+            deferred: false,
+            ended: false,
         }
     }
 
@@ -346,10 +380,14 @@ impl<'a> Turn<'a> {
         self.tc.rec().announce(f);
     }
 
-    /// Count the turn in its session. The success path and both failure
-    /// exits call it, so a turn that fails in a later loop keeps what its
-    /// earlier loops spent.
-    fn close_books(&self, session: &mut SessionRecord) {
+    /// Count the turn in its session. The end and the one failure exit
+    /// (`fail`, which a fault reaches too) call it, so a turn that fails in a
+    /// later loop keeps what its earlier loops spent; a second call, from a
+    /// fault after the end booked it, counts nothing again (R1).
+    fn close_books(&mut self, session: &mut SessionRecord) {
+        if std::mem::replace(&mut self.booked, true) {
+            return;
+        }
         session.turns += 1;
         session.last_turn_id = Some(self.tc.turn_id.to_string());
         session.last_active_ms = theseus_protocol::now_unix_ms();
@@ -1016,8 +1054,9 @@ impl TurnRunner {
             let te = e.downcast_ref::<TurnError>();
             if let Some(by) = &stopped {
                 rec.record(&fact::turn::StoppedAtStep { by });
-            } else if te.is_none() {
-                // A fault, not a failure the turn reports itself (`fail`).
+            } else if te.is_none_or(|t| t.class == FAULT_CLASS) {
+                // A fault, not a failure the turn reports itself: one before
+                // the turn began, or one its books closed on (`fault`, R1).
                 rec.record(&fact::turn::TurnFaulted);
             }
             let failed = theseus_protocol::TurnFailed {
@@ -1134,8 +1173,6 @@ impl TurnRunner {
     /// One turn under the lock (§3.3): catch up on what happened while no
     /// turn ran, write the input, run loops while the model has something new
     /// to read, then book the turn and decide where the execution waits.
-    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn run_inner(
         &self,
         guard: &TurnGuard,
@@ -1211,9 +1248,51 @@ impl TurnRunner {
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
         t.reply_to = reply_to;
         t.announce(input.as_deref(), attachments.len(), &author, &waits);
+        let asked = Asked {
+            input,
+            attachments,
+            author,
+            recompile,
+            moved: moved.then_some(runs_on),
+        };
+        // Every exit from here closes the turn's books (R1): a failure the
+        // turn reports (`fail`), and any other error, a fault, which `fault`
+        // books the same way before it is returned. The body's `?`s all
+        // land here, so no step after a paid loop can skip its spend.
+        match self
+            .turn_body(&mut t, &mut session, provider.as_ref(), asked)
+            .await
+        {
+            Ok(Next::Finish(force)) => self.finish(t, &mut session, force),
+            Ok(Next::Fail(f)) => Err(Self::fail(t, &mut session, f)),
+            Err(e) => Err(Self::fault(t, &mut session, e)),
+        }
+    }
+
+    /// The turn's body (§3.3): catch up on what happened while no turn ran,
+    /// write the input, and run loops while the model has something new to
+    /// read. An error is a fault, which the caller books (R1). The shape
+    /// budget's marks came with its code, from `run_inner`.
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    async fn turn_body(
+        &self,
+        t: &mut Turn<'_>,
+        session: &mut SessionRecord,
+        provider: &dyn Provider,
+        asked: Asked,
+    ) -> Result<Next> {
+        let Asked {
+            input,
+            attachments,
+            author,
+            recompile,
+            moved,
+        } = asked;
+        let (sid, turn_id, target) = (t.tc.session_id, t.tc.turn_id, t.target);
 
         // 1. What happened while no turn was running.
-        let caught_up = self.catch_up(&mut t, input.is_some()).await?;
+        let caught_up = self.catch_up(t, input.is_some()).await?;
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(text) = &input {
@@ -1223,7 +1302,7 @@ impl TurnRunner {
                 self.store.blobs(),
             );
             let first_file = files.first().map(|a| a.name.clone());
-            let node = Node::user_with(&sid, Some(&turn_id), &author, text, files);
+            let node = Node::user_with(sid, Some(turn_id), &author, text, files);
             if session.title.is_none() {
                 let title = title_from(text);
                 session.title = Some(match first_file {
@@ -1233,13 +1312,12 @@ impl TurnRunner {
             }
             // A new target rides in the input's frame, under the record's
             // lock; the same one writes nothing more.
-            let written = if moved {
-                t.tc.store.update_session(&sid, |r| {
+            let written = match &moved {
+                Some(runs_on) => t.tc.store.update_session(sid, |r| {
                     r.last_target = Some(runs_on.clone());
                     Ok(vec![node.record()?])
-                })?
-            } else {
-                None
+                })?,
+                None => None,
             };
             if written.is_none() {
                 t.tc.store.append(&[node.record()?])?;
@@ -1248,10 +1326,10 @@ impl TurnRunner {
         }
 
         // 3. The loops, while the model has something new to read.
-        let mut run_model = Self::has_news(&mut t, input.is_some() || caught_up > 0)?;
+        let mut run_model = Self::has_news(t, input.is_some() || caught_up > 0)?;
         // The spec is fixed for the turn: a context file edited during it
         // recompiles the next turn, never between a tool call and its result.
-        let (spec, unreadable) = self.request_spec(&target, session.kind);
+        let (spec, unreadable) = self.request_spec(target, session.kind);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
@@ -1267,7 +1345,7 @@ impl TurnRunner {
         // none pending writes nothing for it.
         let asked = if session.pending_recompile.is_some() {
             let mut taken = None;
-            t.tc.store.update_session(&sid, |r| {
+            t.tc.store.update_session(sid, |r| {
                 taken = r.pending_recompile.take();
                 Ok(vec![])
             })?;
@@ -1292,7 +1370,7 @@ impl TurnRunner {
         while run_model {
             // A `/stop` that landed (W1): the turn plans nothing more.
             if let Some(by) = stopped_by(&t.tc)? {
-                Self::stopped(&mut t, &by);
+                Self::stopped(t, &by);
                 break;
             }
             let i = t.loops;
@@ -1302,8 +1380,8 @@ impl TurnRunner {
                 max_loops: t.target.max_loops,
             });
             let compiled = self.compile_step(
-                &mut t,
-                &mut session,
+                t,
+                session,
                 &spec,
                 force.take(),
                 strip.take(),
@@ -1314,22 +1392,16 @@ impl TurnRunner {
                 // The ring dropped nothing, so the same request would pass the
                 // window again: the turn fails without the call.
                 if compiled.digest == o.digest {
-                    let f = Self::window_failure(&mut t, &o, false);
-                    return Err(Self::fail(t, &mut session, f));
+                    return Ok(Next::Fail(Self::window_failure(t, &o, false)));
                 }
                 retrying = Some(o);
             }
             let said_before = (t.output.len(), t.said.len());
-            let (resp, node) = match self
-                .call_model(&mut t, provider.as_ref(), &compiled, i)
-                .await?
-            {
+            let (resp, node) = match self.call_model(t, provider, &compiled, i).await? {
                 Called::Answered(called) => *called,
                 Called::Failed(failure) => {
                     if !image_retried {
-                        if let Some(edited) =
-                            Self::hide_refused(&mut t, &mut session, &compiled, &failure)?
-                        {
+                        if let Some(edited) = Self::hide_refused(t, session, &compiled, &failure)? {
                             image_retried = true;
                             strip = edited.then_some("image_not_shown");
                             t.record(&fact::turn::LoopCut {
@@ -1344,7 +1416,7 @@ impl TurnRunner {
                         .and_then(ProviderError::overflow);
                     if let Some(o) = refused {
                         let o = Overflowing::refused(&compiled, o, window);
-                        match Self::overflowed(&mut t, o, retrying.take(), i) {
+                        match Self::overflowed(t, o, retrying.take(), i) {
                             Ok(next) => {
                                 overflow = Some(next);
                                 t.record(&fact::turn::LoopCut {
@@ -1352,10 +1424,10 @@ impl TurnRunner {
                                 });
                                 continue;
                             }
-                            Err(f) => return Err(Self::fail(t, &mut session, f)),
+                            Err(f) => return Ok(Next::Fail(f)),
                         }
                     }
-                    return Err(Self::fail(t, &mut session, failure));
+                    return Ok(Next::Fail(failure));
                 }
                 Called::OverBudget {
                     needed,
@@ -1367,10 +1439,9 @@ impl TurnRunner {
                         t.record(&fact::turn::LoopCut {
                             decision: "over_limit",
                         });
-                        let f = Self::over_limit(&mut t, needed, limit);
-                        return Err(Self::fail(t, &mut session, f));
+                        return Ok(Next::Fail(Self::over_limit(t, needed, limit)));
                     }
-                    self.ask_budget(&mut t, &session, needed, available, spent, limit)?;
+                    self.ask_budget(t, session, needed, available, spent, limit)?;
                     t.record(&fact::turn::LoopCut { decision: "budget" });
                     break;
                 }
@@ -1378,7 +1449,7 @@ impl TurnRunner {
                     t.record(&fact::turn::LoopCut {
                         decision: "stopped",
                     });
-                    Self::stopped(&mut t, &by);
+                    Self::stopped(t, &by);
                     break;
                 }
             };
@@ -1402,10 +1473,10 @@ impl TurnRunner {
                     decision: "stopped",
                 });
                 t.last = Some(resp);
-                Self::stopped(&mut t, &by);
+                Self::stopped(t, &by);
                 break;
             }
-            let answered = self.run_tools(&mut t, &resp, &uses, &node, i).await?;
+            let answered = self.run_tools(t, &resp, &uses, &node, i).await?;
             // An answer cut at the window (theseus-9p88): none of its calls
             // ran, and the call is made once more on a ring, which leaves the
             // cut answer out; so does the reply. A retry cut too fails the turn.
@@ -1413,7 +1484,7 @@ impl TurnRunner {
             let mut window_failed = None;
             if resp.stop_reason.as_deref() == Some(WINDOW_EXCEEDED) {
                 let o = Overflowing::cut(&compiled, &resp, &node, window);
-                match Self::overflowed(&mut t, o, retrying.take(), i) {
+                match Self::overflowed(t, o, retrying.take(), i) {
                     Ok(next) => {
                         overflow = Some(next);
                         window_retry = true;
@@ -1426,17 +1497,17 @@ impl TurnRunner {
                 // The retry answered: a later overflow in the turn is its own.
                 retrying = None;
             }
-            run_model = Self::advance(&mut t, &resp, uses.len(), answered, i, window_retry);
+            run_model = Self::advance(t, &resp, uses.len(), answered, i, window_retry);
             t.last = Some(resp);
             if let Some(f) = window_failed {
-                return Err(Self::fail(t, &mut session, f));
+                return Ok(Next::Fail(f));
             }
         }
 
-        // 4. Results that settled while this turn ran, the books, the park.
-        // A recompile this turn took and never applied (the model was not
-        // called) goes back for the next.
-        self.finish(t, &mut session, force)
+        // 4. The caller's: results that settled while this turn ran, the
+        // books, the park. A recompile this turn took and never applied (the
+        // model was not called) goes back for the next.
+        Ok(Next::Finish(force))
     }
 
     /// What happened while no turn was running: results that settled become
@@ -2044,6 +2115,10 @@ impl TurnRunner {
             .get(&resp.model)
             .or_else(|| self.catalog.get(&target.model))
             .map_or(action.reserved_micros, |e| e.cost_micros(&resp.usage));
+        // The call's usage joins the turn's books with its cost, before its
+        // frame is written: a turn that faults on that frame still books
+        // what the provider charged (R1).
+        add_usage(&mut t.usage, &resp.usage);
         let call = fact::turn::ProviderCall {
             loop_index: i,
             provider: &target.provider,
@@ -2058,23 +2133,42 @@ impl TurnRunner {
         // The call's `provider.call` row rides in its completion's frame, after
         // the node (theseus-qa0).
         let row = t.tc.rec().row(&call)?;
-        t.tc.kernel.accept_completion_with(
-            &Completion {
-                correlation_id: action.correlation_id.clone(),
-                outcome: ActionOutcome::Succeeded,
-                result_ref: Some(node.id.clone()),
-                external_op_id: resp.request_id.clone(),
-                started_at_ms: started_ms,
-                finished_at_ms: theseus_protocol::now_unix_ms(),
-                producer: format!("provider:{}", target.provider),
-                signature: None,
-                cost_micros: Some(cost),
-                detail: Some(json!({"served_model": resp.model, "message_id": resp.message_id})),
-            },
-            vec![node.record()?, row],
-        )?;
+        let completion = Completion {
+            correlation_id: action.correlation_id.clone(),
+            outcome: ActionOutcome::Succeeded,
+            result_ref: Some(node.id.clone()),
+            external_op_id: resp.request_id.clone(),
+            started_at_ms: started_ms,
+            finished_at_ms: theseus_protocol::now_unix_ms(),
+            producer: format!("provider:{}", target.provider),
+            signature: None,
+            cost_micros: Some(cost),
+            detail: Some(json!({"served_model": resp.model, "message_id": resp.message_id})),
+        };
+        if let Err(e) =
+            t.tc.kernel
+                .accept_completion_with(&completion, vec![node.record()?, row])
+        {
+            // The answer's frame was not written, though the call ended and
+            // its price is known: it settles alone, at that price, so the
+            // budget holds no reservation for it, and the turn faults with
+            // it booked (R1). If that frame fails too, the reconcile settles
+            // the call as unknown at its deadline.
+            let alone = Completion {
+                result_ref: None,
+                detail: Some(
+                    json!({"served_model": resp.model, "message_id": resp.message_id,
+                                    "answer": "not written: its frame failed"}),
+                ),
+                ..completion
+            };
+            if let Err(s) = t.tc.kernel.accept_completion(&alone) {
+                tracing::warn!(correlation_id = %action.correlation_id, error = %format!("{s:#}"),
+                    "a provider call's spend was not settled; the reconcile settles it at its deadline");
+            }
+            return Err(e);
+        }
         t.tc.node_written(&node);
-        add_usage(&mut t.usage, &resp.usage);
         if !resp.text.is_empty() {
             if !t.output.is_empty() {
                 t.output.push_str("\n\n");
@@ -2439,26 +2533,38 @@ impl TurnRunner {
         }
     }
 
-    /// End a turn that failed after it began: book what its finished loops
-    /// spent, close its trace, and write `turn.failed`.
-    fn fail(t: Turn<'_>, session: &mut SessionRecord, f: Failure) -> anyhow::Error {
+    /// End a turn that failed after it began, the one exit of every turn
+    /// that does not finish (R1): book what its loops spent, close its trace,
+    /// and write `turn.failed`. What the end had already done (`finish`, then
+    /// a fault) is not done twice: books counted once, one accounting row
+    /// (`turn.ended` or `turn.failed`), and the session's write once its last
+    /// frame carries it.
+    fn fail(mut t: Turn<'_>, session: &mut SessionRecord, f: Failure) -> anyhow::Error {
         t.close_books(session);
-        t.tc.record(&fact::turn::TurnFailed {
-            turn_id: t.tc.turn_id,
-            class: &f.class,
-            reason: &f.reason,
-            loops: t.loops,
-            usage: &t.usage,
-            cost_usd: t.cost,
-            tool_calls: t.tool_calls,
-        });
+        if !t.ended {
+            t.tc.record(&fact::turn::TurnFailed {
+                turn_id: t.tc.turn_id,
+                class: &f.class,
+                reason: &f.reason,
+                loops: t.loops,
+                usage: &t.usage,
+                cost_usd: t.cost,
+                tool_calls: t.tool_calls,
+            });
+        }
         let trace = t
             .trace
             .finish(json!({"outcome": "failed", "class": f.class}));
-        let _ = t.tc.store.update_session(t.tc.session_id, |r| {
-            r.take_turns_fields(session);
-            Ok(vec![])
-        });
+        if !t.deferred {
+            let written = t.tc.store.update_session(t.tc.session_id, |r| {
+                r.take_turns_fields(session);
+                Ok(vec![])
+            });
+            if let Err(e) = written {
+                tracing::warn!(session_id = %t.tc.session_id, turn_id = %t.tc.turn_id,
+                    error = %format!("{e:#}"), "a failed turn's books were not written to its session");
+            }
+        }
         TurnError {
             class: f.class,
             transient: f.transient,
@@ -2475,18 +2581,57 @@ impl TurnRunner {
         .into()
     }
 
+    /// A fault: an error the turn did not report itself, from any step after
+    /// it began (R1). It is logged, and ends the turn as a failure of class
+    /// `internal` does, so the session, the `turn.failed` row, telemetry,
+    /// and the error itself carry what the turn's loops spent.
+    fn fault(t: Turn<'_>, session: &mut SessionRecord, e: anyhow::Error) -> anyhow::Error {
+        tracing::warn!(session_id = %t.tc.session_id, turn_id = %t.tc.turn_id,
+            error = %format!("{e:#}"), "the turn faulted; its books are closed");
+        let reason =
+            crate::toolrun::cap(&format!("{FAULT_CLASS}: {e:#}"), 400, |_| String::new()).0;
+        Self::fail(
+            t,
+            session,
+            Failure {
+                class: FAULT_CLASS.into(),
+                transient: false,
+                usage_unknown: false,
+                reason,
+                source: e,
+            },
+        )
+    }
+
     /// Absorb results that settled while the turn ran, book the turn, write
     /// its result, and park the execution. The `bool` asks for another turn:
     /// a late result the model has not read. The session write waits for
     /// the turn's last frame, `end_turn`'s, under the returned hold
-    /// (theseus-l6y).
+    /// (theseus-l6y). A fault at any step is the turn's one exit (`fault`),
+    /// which books what this has not.
     fn finish(
         &self,
         mut t: Turn<'_>,
         session: &mut SessionRecord,
         unused_recompile: Option<Recompile>,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool, Option<SessionHold>)> {
-        let (_, late) = self.tools.absorb(&t.tc)?;
+        let late = match self.tools.absorb(&t.tc) {
+            Ok((_, late)) => late,
+            Err(e) => return Err(Self::fault(t, session, e)),
+        };
+        // Where the execution waits: only reads, so it is decided before
+        // anything is booked, and a fault here leaves nothing half done.
+        let end = match &t.budget_question {
+            Some(q) => TurnEnd::Wait {
+                wake: Wake::Budget {
+                    correlation_id: q.clone(),
+                },
+            },
+            None => match self.park(t.tc.execution_id, t.awaiting.clone(), &t.background) {
+                Ok(end) => end,
+                Err(e) => return Err(Self::fault(t, session, e)),
+            },
+        };
         t.close_books(session);
         let target = t.target;
         session.last_target = Some(TargetRef::from(target));
@@ -2495,12 +2640,16 @@ impl TurnRunner {
         // (theseus-xeo). The record rides in the turn's last frame, where
         // the rows before it here and after it wait too; the span times its
         // making, and the frame's write is `end_turn`'s.
-        let hold = t.tc.store.defer_session(t.tc.session_id, |r| {
+        let hold = match t.tc.store.defer_session(t.tc.session_id, |r| {
             r.take_turns_fields(session);
             if r.pending_recompile.is_none() {
                 r.pending_recompile = unused_recompile;
             }
-        })?;
+        }) {
+            Ok(hold) => hold,
+            Err(e) => return Err(Self::fault(t, session, e)),
+        };
+        t.deferred = true;
 
         let last = t.last.as_ref();
         let mut result = TurnSubmitResult {
@@ -2535,11 +2684,14 @@ impl TurnRunner {
             late,
             w0,
         });
+        t.ended = true;
         // A task's turns post nothing to the place: its report does, once,
         // when it ends (DD7). A stopped turn posts nothing either (W1): the
         // stop's answer says what stopped.
         if t.tc.task.is_none() && result.stop_reason != "stopped" {
-            self.stage_reply(&t, &result)?;
+            if let Err(e) = self.stage_reply(&t, &result) {
+                return Err(Self::fault(t, session, e));
+            }
         }
         result.trace = Some(t.trace.finish(json!({
             "outcome": "complete",
@@ -2551,12 +2703,6 @@ impl TurnRunner {
         t.tc.record(&fact::turn::TurnEnded { result: &result });
         let is_task = t.tc.task.is_some();
         let stop = result.stop_reason.clone();
-        let end = match t.budget_question {
-            Some(q) => TurnEnd::Wait {
-                wake: Wake::Budget { correlation_id: q },
-            },
-            None => self.park(t.tc.execution_id, t.awaiting, &t.background)?,
-        };
         // A stopped turn takes no other by itself (W1), even for a result
         // that landed during it: the next input's turn reads it.
         let mut again = late > 0 && stop != "stopped";
@@ -2783,6 +2929,7 @@ pub(crate) fn call_result(o: &CallOutcome) -> &'static str {
 /// cause, clipped.
 fn failure_reason(e: &anyhow::Error) -> String {
     let why = match e.downcast_ref::<TurnError>() {
+        Some(t) if t.class == FAULT_CLASS => format!("an internal error ({:#})", t.source),
         Some(t) => format!("{} ({:#})", t.class, t.source),
         None => format!("an internal error ({e:#})"),
     };
