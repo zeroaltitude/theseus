@@ -447,7 +447,7 @@ narrate session session=ses_#1 turn=turn_#41 Parked until the operator answers t
 {"approved":true,"correlation_id":"act_#39","execution_id":"exe_#2","resumes":true,"session_id":"ses_#1"}
 frame: action/2 act_#39 · ledger/1 · ledger/1 · execution/2 exe_#2 · ledger/1
   ledger scope=ses_#1 {"at_unix_ms":"<t>","kind":"action.confirmed","session_id":"ses_#1","data":{"by":"operator","confirm":{"bound_digest":"<sha256>","by":"operator","confirm_id":"cfm_#47","expires_at_ms":"<t>"},"correlation_id":"act_#39"}}
-  ledger {"at_unix_ms":"<t>","kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":true,"asker":null,"by":"test","correlation_id":"act_#39","note":null,"trust":false,"via":"unnamed"}}
+  ledger {"at_unix_ms":"<t>","kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":true,"asker":null,"by":"test","correlation_id":"act_#39","note":null,"trust":false,"via":"cli"}}
   ledger scope=ses_#1 {"at_unix_ms":"<t>","kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"confirmed"}}
 frame: outbox/1 out_#48 · ledger/1
   outbox scope=ses_#1 {"correlation_id":"out_#48","schema":2,"execution_id":"exe_#2","session_id":"ses_#1","tool":"outbox","args_digest":"<sha256>","proposal":{"tool":"outbox","args":{"card":"out_#45","closed":{"by":"test","how":"approved"},"kind":"settle","question":"act_#39"},"resource":"discord:dm:42","policy_context":null},"resource":"discord:dm:42","retry_class":{"class":"safe_to_repeat"},"state":"authorized","deadline_at_ms":"<t>","planned_at_ms":"<t>","authorized_at_ms":"<t>","reserved_micros":0,"completions_seen":0}
@@ -585,7 +585,7 @@ narrate session session=ses_#1 turn=turn_#56 Parked until the operator answers t
 {"approved":false,"correlation_id":"act_#54","execution_id":"exe_#2","resumes":true,"session_id":"ses_#1"}
 frame: action/2 act_#54 · execution/2 exe_#2 · ledger/1 · ledger/1 · execution/2 exe_#2 · ledger/1
   ledger scope=ses_#1 {"at_unix_ms":"<t>","kind":"action.declined","session_id":"ses_#1","data":{"by":"operator","correlation_id":"act_#54","reason":"not that one","tool":"fs.write"}}
-  ledger {"at_unix_ms":"<t>","kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":false,"asker":null,"by":"test","correlation_id":"act_#54","note":"not that one","trust":false,"via":"unnamed"}}
+  ledger {"at_unix_ms":"<t>","kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":false,"asker":null,"by":"test","correlation_id":"act_#54","note":"not that one","trust":false,"via":"cli"}}
   ledger scope=ses_#1 {"at_unix_ms":"<t>","kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"declined"}}
 frame: outbox/1 out_#62 · ledger/1
   outbox scope=ses_#1 {"correlation_id":"out_#62","schema":2,"execution_id":"exe_#2","session_id":"ses_#1","tool":"outbox","args_digest":"<sha256>","proposal":{"tool":"outbox","args":{"card":"out_#60","closed":{"by":"test","how":"declined"},"kind":"settle","question":"act_#54"},"resource":"discord:dm:42","policy_context":null},"resource":"discord:dm:42","retry_class":{"class":"safe_to_repeat"},"state":"authorized","deadline_at_ms":"<t>","planned_at_ms":"<t>","authorized_at_ms":"<t>","reserved_micros":0,"completions_seen":0}
@@ -1367,7 +1367,7 @@ narrate session session=ses_#129 turn=turn_#133 Parked on the budget until the o
 frame: action/2 act_#130 · execution/2 exe_#131 · ledger/1 · ledger/1 · ledger/1
   ledger scope=ses_#129 {"at_unix_ms":"<t>","kind":"budget.reset","session_id":"ses_#129","data":{"by":"test","correlation_id":"act_#130","execution_id":"exe_#131","held_unknown_usd":0.0,"limit_usd":1.4,"reserved_usd":0.0,"resets":1,"spent_before_usd":0.302}}
   ledger scope=ses_#129 {"at_unix_ms":"<t>","kind":"execution.queued","session_id":"ses_#129","data":{"execution_id":"exe_#131","why":"budget_reset"}}
-  ledger {"at_unix_ms":"<t>","kind":"action.confirm_answered","session_id":"ses_#129","data":{"approved":true,"asker":null,"by":"test","correlation_id":"act_#130","note":null,"tool":"budget.reset","via":"unnamed"}}
+  ledger {"at_unix_ms":"<t>","kind":"action.confirm_answered","session_id":"ses_#129","data":{"approved":true,"asker":null,"by":"test","correlation_id":"act_#130","note":null,"tool":"budget.reset","via":"cli"}}
 frame: outbox/1 out_#142 · ledger/1
   outbox scope=ses_#129 {"correlation_id":"out_#142","schema":2,"execution_id":"exe_#131","session_id":"ses_#129","tool":"outbox","args_digest":"<sha256>","proposal":{"tool":"outbox","args":{"card":"out_#140","closed":{"by":"test","how":"approved"},"kind":"settle","question":"act_#130"},"resource":"discord:dm:44","policy_context":null},"resource":"discord:dm:44","retry_class":{"class":"safe_to_repeat"},"state":"authorized","deadline_at_ms":"<t>","planned_at_ms":"<t>","authorized_at_ms":"<t>","reserved_micros":0,"completions_seen":0}
   ledger scope=ses_#129 {"at_unix_ms":"<t>","kind":"action.planned","session_id":"ses_#129","data":{"correlation_id":"out_#142","execution_id":"exe_#131","kind":"settle","outbox":"discord:dm:44","retry_class":{"class":"safe_to_repeat"},"tool":"outbox"}}
