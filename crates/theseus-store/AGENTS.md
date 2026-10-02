@@ -21,6 +21,9 @@ the reserved theseus-follow, theseus-index, and theseus-exam.
   once for all of them, indexes them in one transaction, and answers each. The answer comes after the index, so a
   caller's lock spans its read to its frame indexed (K1). Never append from the writer itself, and never hold
   `appending` while you append: the writer needs it shared.
+- **A segment's name is as durable as its frames** (theseus-xprd). A roll syncs the segment it leaves; the `sync`
+  that makes a new segment's first frame durable then syncs the log's directory before it returns, and a new
+  log's first sync syncs the directory holding the log too. A file made durable needs its directory synced too.
 - **The version rule** (P5b; Part III F4a). A new record layout bumps its kind in `kinds::SCHEMAS`, lands with the
   reader for the layout it replaces, and brings a test that reads the old layout. A new record kind goes into the
   table too. A change to the frame or record encoding bumps `MANIFEST_FORMAT`, with its reader. A new field on a
@@ -75,4 +78,5 @@ the reserved theseus-follow, theseus-index, and theseus-exam.
 - After `theseus shutdown` the daemon holds the store for 10 to 17 ms more (redb's close). Wait for the process to
   exit before you read the store's files.
 - A kill keeps the page cache, so a crash test can't show a missing sync. Test the syncs themselves, as `restore`'s
-  `Durable` does (Item 19).
+  `Durable` does (Item 19), and as `wal`'s `a_new_segments_name_is_synced_before_its_first_frame_is_reported_durable`
+  counts the directory syncs.

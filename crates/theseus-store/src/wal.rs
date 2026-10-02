@@ -11,11 +11,15 @@
 //! `fdatasync` that may cover several frames (`sync`): the store's writer
 //! thread writes every frame queued, back to back, then syncs once for all of
 //! them (**group commit**, theseus-vni9). `append` is one frame and its sync,
-//! for a caller that writes alone (a restore). On recovery,
-//! the first frame that fails (short, bad magic, bad crc) ends the log, and if
-//! it is in the last segment it is truncated as a torn write. A bad frame
-//! followed by good bytes in an earlier segment is corruption, not a torn
-//! tail, and recovery refuses to guess.
+//! for a caller that writes alone (a restore). A segment's name is as
+//! durable as its frames (theseus-xprd): the `sync` that makes a new
+//! segment's first frame durable also syncs the log's directory before it
+//! returns, and a new log's first sync also syncs the directory holding it.
+//!
+//! On recovery, the first frame that fails (short, bad magic, bad crc) ends
+//! the log, and if it is in the last segment it is truncated as a torn
+//! write. A bad frame followed by good bytes in an earlier segment is
+//! corruption, not a torn tail, and recovery refuses to guess.
 //!
 //! **What open checks** (theseus-8ni). Given where a known-good record lies
 //! (the index's checkpoint), `open_from` checks only the frames after it:
@@ -175,6 +179,15 @@ pub struct Wal {
     /// Counters for visibility: frames appended, fdatasync calls made.
     frames: std::sync::atomic::AtomicU64,
     syncs: std::sync::atomic::AtomicU64,
+    /// Directories that hold a name no sync has made durable yet: the log's
+    /// own, once a segment is created in it, and the one that holds the log,
+    /// once open created the log's directory. The next `sync` syncs each
+    /// after its fdatasync and before it returns, so no frame is reported
+    /// durable while a power loss could still lose its segment's name
+    /// (theseus-xprd).
+    unsynced_dirs: Mutex<Vec<PathBuf>>,
+    /// Directory syncs since open.
+    dir_syncs: std::sync::atomic::AtomicU64,
     /// One read handle per segment, opened on its first read: a record read
     /// is then one `pread`, where it was an open, a seek, a read, and a close
     /// (theseus-qa0: 10,000 executions read at startup cost 10,000 opens).
@@ -203,6 +216,38 @@ impl Writer {
 /// Segment `n`'s file in the log's directory.
 pub fn segment_path(dir: &Path, n: u32) -> PathBuf {
     dir.join(format!("{n:09}.seg"))
+}
+
+/// The segment an open appends to: the last, or segment 1, created, in a log
+/// with none. With it, the directories holding the names that open created,
+/// which the first frame's sync makes durable (theseus-xprd): segment 1's,
+/// and the log directory's own when the open created that too.
+fn append_segment(
+    dir: &Path,
+    last: Option<u32>,
+    new_dir: bool,
+) -> io::Result<(u32, File, u64, Vec<PathBuf>)> {
+    if let Some(seg) = last {
+        let f = OpenOptions::new()
+            .append(true)
+            .read(true)
+            .open(segment_path(dir, seg))?;
+        let len = f.metadata()?.len();
+        return Ok((seg, f, len, Vec::new()));
+    }
+    let f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .read(true)
+        .open(segment_path(dir, 1))?;
+    let mut unsynced = vec![dir.to_path_buf()];
+    if new_dir {
+        unsynced.push(match dir.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+            _ => PathBuf::from("."),
+        });
+    }
+    Ok((1, f, 0, unsynced))
 }
 
 /// The segments in the log's directory, in order.
@@ -330,6 +375,7 @@ impl Wal {
         after: u64,
         at: Option<RecordLocation>,
     ) -> Result<(Self, Vec<(Record, RecordLocation)>), WalError> {
+        let new_dir = !dir.exists();
         fs::create_dir_all(dir)?;
         let segments = list_segments(dir)?;
         let last_seg = segments.last().copied();
@@ -385,29 +431,12 @@ impl Wal {
         };
         recovery.frames = walk.frames;
         recovery.records = walk.records;
-        recovery.segments = segments.len() as u32;
+        // A log with none gets segment 1, below.
+        recovery.segments = segments.len().max(1) as u32;
         recovery.last_position = walk.expected - 1;
         let expected_pos = walk.expected;
 
-        // Open (or create) the segment to append to.
-        let (segment, file, segment_len) = match last_seg {
-            Some(seg) => {
-                let path = segment_path(dir, seg);
-                let f = OpenOptions::new().append(true).read(true).open(&path)?;
-                let len = f.metadata()?.len();
-                (seg, f, len)
-            }
-            None => {
-                let path = segment_path(dir, 1);
-                let f = OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .read(true)
-                    .open(&path)?;
-                recovery.segments = 1;
-                (1, f, 0)
-            }
-        };
+        let (segment, file, segment_len, unsynced_dirs) = append_segment(dir, last_seg, new_dir)?;
         let wal = Self {
             w: Mutex::new(Writer {
                 dir: dir.to_path_buf(),
@@ -425,6 +454,8 @@ impl Wal {
             recovery,
             frames: std::sync::atomic::AtomicU64::new(0),
             syncs: std::sync::atomic::AtomicU64::new(0),
+            unsynced_dirs: Mutex::new(unsynced_dirs),
+            dir_syncs: std::sync::atomic::AtomicU64::new(0),
             readers: Mutex::default(),
             history_end,
             bad: Arc::default(),
@@ -516,6 +547,11 @@ impl Wal {
                 .open(&path)?;
             w.segment = next;
             w.segment_len = 0;
+            // Its name is synced with its first frame (`sync`, theseus-xprd).
+            let mut dirs = self.unsynced_dirs.lock().unwrap();
+            if !dirs.contains(&w.dir) {
+                dirs.push(w.dir.clone());
+            }
         }
 
         let frame_offset = w.segment_len;
@@ -554,13 +590,26 @@ impl Wal {
     }
 
     /// Make every frame written so far durable: one fdatasync of the segment
-    /// written last (a roll synced the one before it). The handle is cloned,
-    /// so the sync holds no lock a reader of the last position waits on.
+    /// written last (a roll synced the one before it), then each directory
+    /// holding a name created since the last sync (a new segment's), so no
+    /// frame is reported durable in a segment a power loss could unname
+    /// (theseus-xprd). The handle is cloned, so the fdatasync holds no lock a
+    /// reader of the last position waits on.
     pub fn sync(&self) -> Result<(), WalError> {
         let file = self.w.lock().unwrap().file.try_clone()?;
         file.sync_data()?;
         self.syncs
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // Held across the directory syncs: a sync that finds none left
+        // returns only once another's have landed, and one that fails leaves
+        // its directory for the next.
+        let mut dirs = self.unsynced_dirs.lock().unwrap();
+        while let Some(dir) = dirs.first() {
+            File::open(dir)?.sync_all()?;
+            dirs.remove(0);
+            self.dir_syncs
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         Ok(())
     }
 
@@ -1291,6 +1340,53 @@ mod tests {
         let wal = Wal::open(dir.path(), WalConfig::default()).unwrap();
         assert_eq!(wal.recovery().records, 2);
         assert_eq!(wal.recovery().truncated_bytes, 0);
+    }
+
+    /// A segment's name is as durable as its frames (theseus-xprd). A kill
+    /// keeps the page cache, so only the syncs themselves show it: the sync
+    /// that makes a new segment's first frame durable syncs the log's
+    /// directory before the append returns, once a segment, and a new log's
+    /// first syncs the directory that holds the log too.
+    #[test]
+    fn a_new_segments_name_is_synced_before_its_first_frame_is_reported_durable() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("wal");
+        // Three 108-byte frames a segment.
+        let cfg = WalConfig {
+            segment_bytes: 400,
+            ..WalConfig::default()
+        };
+        let dir_syncs = |w: &Wal| w.dir_syncs.load(std::sync::atomic::Ordering::Relaxed);
+        let wal = Wal::open(&dir, cfg.clone()).unwrap();
+        assert_eq!(dir_syncs(&wal), 0, "nothing is synced before a frame is");
+        wal.append(&[rec(kinds::LEDGER, None, &[1u8; 64])]).unwrap();
+        assert_eq!(
+            dir_syncs(&wal),
+            2,
+            "segment 1's name, and the log directory's own"
+        );
+        for roll in 1..=3u64 {
+            let segments = wal.segment_count();
+            while wal.segment_count() == segments {
+                let before = dir_syncs(&wal);
+                wal.append(&[rec(kinds::LEDGER, None, &[2u8; 64])]).unwrap();
+                if wal.segment_count() == segments {
+                    assert_eq!(dir_syncs(&wal), before, "a frame in the same segment");
+                }
+            }
+            assert_eq!(
+                dir_syncs(&wal),
+                2 + roll,
+                "roll {roll}: the new segment's name synced before its first frame's append returned"
+            );
+        }
+        assert_eq!(wal.segment_count(), 4);
+        drop(wal);
+        // A log opened again creates no name until it rolls.
+        let wal = Wal::open(&dir, cfg).unwrap();
+        wal.append(&[rec(kinds::LEDGER, None, &[3u8; 64])]).unwrap();
+        assert_eq!(dir_syncs(&wal), 0);
+        assert_eq!(wal.recovery().records, 10);
     }
 
     #[test]
