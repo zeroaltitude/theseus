@@ -29,6 +29,7 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde::Serialize;
 use serde_json::{json, Value};
+use theseus_core::tender::START_AFTER;
 
 use crate::fake_model::{FakeModel, TOOL_MARK};
 use crate::history;
@@ -166,6 +167,27 @@ fn until_quiet(tail: &mut Tail) -> Result<Vec<Frame>> {
         }
         std::thread::sleep(Duration::from_millis(5));
     }
+}
+
+/// The start's own work after serving, read off the WAL until it is done:
+/// the index tender starts [`START_AFTER`] after serving and records its
+/// start (`ledger:index.tender`) in a frame of its own, which a measured
+/// turn would otherwise count (theseus-u55z; the join gate's six-frame plain
+/// turn at 11:08 on 2026-10-02). A daemon whose tender is off writes no such
+/// row, so the wait ends at its deadline; either way the WAL is then quiet.
+fn after_serving(tail: &mut Tail) -> Result<()> {
+    let deadline = Instant::now() + START_AFTER + Duration::from_secs(8);
+    while Instant::now() < deadline {
+        let frames = tail.read()?;
+        if frames
+            .iter()
+            .any(|f| f.records.iter().any(|r| r == "ledger:index.tender"))
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    until_quiet(tail).map(drop)
 }
 
 fn labels(frames: &[Frame]) -> Vec<String> {
@@ -374,9 +396,9 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
     let (mut daemon, start) = s.rig.start()?;
     let pid = daemon.0.id();
     // The start's own background work is done before a turn is timed.
-    std::thread::sleep(Duration::from_millis(500));
+    let mut tail = Tail::at_start(&s.wal());
+    after_serving(&mut tail)?;
     let rss_start = procfs::sample(pid)?;
-    let tail = Tail::at_end(&s.wal())?;
     let mut d = Driver { rig: &s.rig, tail };
     let session = d.open_session("bench turns")?;
     // Warm-ups, unmeasured: the first turn of a session builds its context,
