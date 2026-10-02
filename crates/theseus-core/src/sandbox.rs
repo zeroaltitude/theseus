@@ -163,10 +163,14 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
 }
 
 /// The gate's decision for a call, before the external-text hold, and its
-/// class (the gate in `toolrun`). L1 runs at notify: the floor, the approve
-/// lists, and the tool's posture guard what an L1 job cannot reach, and no
-/// secret is granted to one (18d's), so none of them is asked. Any other
-/// call takes L0's order: the policy, then the broker's grant.
+/// class (the gate in `toolrun`). L1 runs at notify: the floor and the
+/// approve lists guard what an L1 job cannot reach, and no secret is granted
+/// to one (18d's), so neither is asked. The operator's own word about the
+/// tool still is (Eddie, 2026-10-02, theseus-jfs6): a `[policy.tools]` line
+/// for it, or a tightening, that asks makes an L1 call wait too, so the model
+/// cannot step around it with `sandbox: true`. The inherited
+/// `[policy].enforcement` is not that word, and never makes L1 wait. Any
+/// other call takes L0's order: the policy, then the broker's grant.
 pub(crate) fn decide(
     rt: &ToolRuntime,
     tool: &dyn Tool,
@@ -181,7 +185,10 @@ pub(crate) fn decide(
         })
         .flatten();
     match l1 {
-        Some(why) => (decision(tool.name(), &why), Class::L1),
+        Some(why) => (
+            l1_decision(rt, tool.name(), plan, &why, tightened),
+            Class::L1,
+        ),
         None => {
             let d = rt.policy.decide_with(tool, plan, tightened);
             (rt.brokered(tool.name(), plan, input, d), Class::L0)
@@ -255,9 +262,43 @@ pub(crate) fn started(
     }
 }
 
-/// L1's posture (decision 1): notify, whatever the floor, the lists, and the
-/// tool's own posture say, since an L1 job can reach none of what they
-/// guard. `why` is what chose L1.
+/// An L1 call's decision: notify (decision 1), unless the operator's own
+/// word about the tool asks: its `[policy.tools]` line, or a tightening
+/// (theseus-jfs6). Neither makes it looser than notify.
+fn l1_decision(
+    rt: &ToolRuntime,
+    tool: &str,
+    plan: &Plan,
+    why: &str,
+    tightened: Option<crate::policy::Tightened<'_>>,
+) -> Decision {
+    let own = rt
+        .policy
+        .tools
+        .get(tool)
+        .map(|p| (*p, format!("[policy.tools] \"{tool}\" = {}", p.as_str())));
+    let base = own.unwrap_or((Posture::Notify, format!("L1: {why}")));
+    let now = crate::policy::ToolPolicy::now_from(base, tightened);
+    if now.posture < Posture::Approve {
+        return decision(tool, why);
+    }
+    Decision {
+        posture: Posture::Approve,
+        reason: format!(
+            "{}: {tool} — approve (L1: {why}; {})",
+            plan.summary,
+            now.why()
+        ),
+        notify: None,
+        floor: false,
+        granted: None,
+        external: None,
+    }
+}
+
+/// L1's posture (decision 1): notify, whatever the floor and the lists say,
+/// since an L1 job can reach none of what they guard. `why` is what chose
+/// L1.
 pub fn decision(tool: &str, why: &str) -> Decision {
     let rule = format!("{tool} — notify (L1: {why}; no network, no secret, writes to scratch)");
     Decision {

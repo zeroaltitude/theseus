@@ -229,6 +229,70 @@ async fn l1_runs_at_notify_where_l0_waits() {
     );
 }
 
+/// The operator's own word about `proc.run` reaches L1 (Eddie, 2026-10-02,
+/// theseus-jfs6): a `[policy.tools]` line that asks, or a "should have
+/// asked" tightening, makes an L1 call wait as it would at L0, so the model
+/// cannot step around it with `sandbox: true`. The call still names L1, so
+/// it runs there once approved. The inherited `[policy].enforcement` is not
+/// that word (the rig's `approve` never makes L1 wait, as the test above
+/// shows), and a looser line never makes L1 quieter than notify (the test
+/// below).
+#[tokio::test]
+async fn the_operators_own_word_about_proc_run_reaches_l1() {
+    let reasons = |r: &Rig, sid: &str| -> Vec<String> {
+        r.core
+            .store
+            .session_nodes(sid)
+            .unwrap()
+            .into_iter()
+            .filter_map(|(_, n)| match &n.body {
+                Body::ToolCall { gate: Some(g), .. } => {
+                    g.decision.as_ref().map(|d| d.reason.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let line = Rig::new(
+        vec![run(json!({"argv": ["true"], "sandbox": true}))],
+        |cfg, _| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Approve);
+        },
+    );
+    let res = line.turn(None, "L1 under an explicit approve").await;
+    assert_eq!(res.stop_reason, "awaiting_confirm", "{res:?}");
+    assert_eq!(
+        line.gates(&res.session_id),
+        [("approve".into(), Some("l1".into()), Some("l1".into()))]
+    );
+    let why = reasons(&line, &res.session_id).remove(0);
+    assert!(
+        why.contains("L1: the call asked for it")
+            && why.contains("[policy.tools] \"proc.run\" = approve"),
+        "{why}"
+    );
+    assert!(
+        line.launched().is_empty(),
+        "nothing runs before the approval"
+    );
+
+    let pressed = Rig::new(
+        vec![run(json!({"argv": ["true"], "sandbox": true}))],
+        |cfg, _| cfg.policy.enforcement = Posture::Notify,
+    );
+    pressed.core.tighten("proc.run", None, "test").unwrap();
+    let res = pressed.turn(None, "L1 after should have asked").await;
+    assert_eq!(res.stop_reason, "awaiting_confirm", "{res:?}");
+    let (posture, class, bound) = pressed.gates(&res.session_id).remove(0);
+    assert_eq!(
+        (posture.as_str(), class.as_deref(), bound.as_deref()),
+        ("approve", Some("l1"), Some("l1"))
+    );
+    let why = reasons(&pressed, &res.session_id).remove(0);
+    assert!(why.contains("tightened by"), "{why}");
+    assert!(pressed.launched().is_empty());
+}
+
 /// Decision 2: `l1_argv` routes a call to L1, and `sandbox: false` undoes
 /// neither it nor `default = "l1"`.
 #[tokio::test]

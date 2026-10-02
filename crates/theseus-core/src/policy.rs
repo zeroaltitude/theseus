@@ -103,7 +103,7 @@ impl PostureNow {
 
     /// Why, as a reason's parenthesis says it: the setting, and under a
     /// tightening what the config says as well.
-    fn why(&self) -> String {
+    pub(crate) fn why(&self) -> String {
         if self.tightened() {
             format!("{}; the config says {}", self.setting, self.config_setting)
         } else {
@@ -340,7 +340,7 @@ impl ToolPolicy {
     }
 
     /// The config's posture and its setting, then a tightening.
-    fn now_from(
+    pub(crate) fn now_from(
         (config, config_setting): (Posture, String),
         tightened: Option<Tightened<'_>>,
     ) -> PostureNow {

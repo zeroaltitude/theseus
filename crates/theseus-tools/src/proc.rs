@@ -44,7 +44,7 @@ impl Tool for Run {
                 "cwd": {"type": "string", "description": "Working directory. Default: the working directory."},
                 "timeout_secs": {"type": "integer", "minimum": 1, "description": "Kill the program after this many seconds."},
                 "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables (no secrets; token/key names are refused)."},
-                "sandbox": {"type": "boolean", "description": "Run it in the sandbox (L1): no network, no credentials, an empty HOME, and its writes discarded afterwards. It never waits for approval. For untrusted code, builds, and tests that need nothing from outside."}
+                "sandbox": {"type": "boolean", "description": "Run it in the sandbox (L1): no network, no credentials, an empty HOME, and its writes discarded afterwards. For untrusted code, builds, and tests that need nothing from outside."}
             },
             "required": ["argv"],
             "additionalProperties": false

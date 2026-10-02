@@ -70,7 +70,8 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   stricter wins.
 - **An L1 call runs at notify** (Eddie's decision, 2026-10-02): none of the L0 order applies, since the view hides
   the floor, the approve list's paths, and the socket, and no secret is granted to it; the external-text hold
-  still does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
+  still does, and so does the operator's own word about the tool: a `[policy.tools]` line or a tightening that
+  asks makes it wait (theseus-jfs6). The inherited `[policy].enforcement` never does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
   proposal names. Nothing falls back from L1 to L0.
 - **Results tell the truth.** `toolrun::cap` cuts on line edges and says what it left out, with the tool's own way
   to get the rest (`Tool::rest`). A listing names its scope.
