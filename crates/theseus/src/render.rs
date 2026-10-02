@@ -19,7 +19,9 @@ use theseus_protocol::{
 };
 
 mod index;
+mod store;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
+pub use store::{crash_line, store_reads_line};
 
 /// What a line is, as the CLI's marks have always told one from another. The
 /// CLI prints a line's text alone, so a tag changes nothing it prints; the
@@ -1227,42 +1229,6 @@ pub fn store_history_line(phases: &[theseus_protocol::StartupPhase]) -> Option<S
             p.detail["error"].as_str().unwrap_or("?")
         )
     })
-}
-
-/// `store: N records skipped …` when list reads skipped records whose reads
-/// are refused (R4, theseus-15g): which, and what repairs it; nothing while
-/// none are.
-pub fn store_reads_line(s: &theseus_protocol::StoreStatus) -> Option<String> {
-    (s.refused_records > 0).then(|| {
-        let shown: Vec<String> = s.refused_positions.iter().map(u64::to_string).collect();
-        let more = if (shown.len() as u64) < s.refused_records {
-            ", …"
-        } else {
-            ""
-        };
-        format!(
-            "store: {} skipped by list reads, their frame corrupt (positions {}{more}); {}",
-            plural(s.refused_records, "record", "records"),
-            shown.join(", "),
-            s.repair.as_deref().unwrap_or("restore from a copy")
-        )
-    })
-}
-
-/// `crash: …`, the newest crash a start found (Review 2's consideration 1):
-/// when, where it panicked, and its file, which holds the message.
-pub fn crash_line(c: &theseus_protocol::CrashStatus) -> String {
-    const ENDED: &str = ", which ended the last run";
-    let ended = if c.this_start { ENDED } else { "" };
-    format!(
-        "crash: {} at {} (thread {}, pid {}, {}){ended}; {}",
-        fmt_time(c.at_unix_ms),
-        c.location,
-        c.thread,
-        c.pid,
-        c.version,
-        c.file
-    )
 }
 
 /// What `theseus stop` prints (W1): what stopped, and what goes on.
@@ -2764,45 +2730,6 @@ mod tests {
             line.starts_with("store: CORRUPT history, corrupt frame in segment 1 at offset 0"),
             "{line}"
         );
-    }
-
-    /// The records list reads skipped (R4, theseus-15g), with what repairs
-    /// them, and nothing while none are; the newest crash, said as what ended
-    /// the last run when this start found it.
-    #[test]
-    fn health_counts_refused_reads_and_names_the_last_crash() {
-        use theseus_protocol::{CrashStatus, StoreStatus};
-        assert!(store_reads_line(&StoreStatus::default()).is_none());
-        let line = store_reads_line(&StoreStatus {
-            refused_records: 3,
-            refused_positions: vec![17, 18],
-            repair: Some("stop the daemon, then run `theseusd restore --repair`".into()),
-        })
-        .unwrap();
-        assert_eq!(
-            line,
-            "store: 3 records skipped by list reads, their frame corrupt (positions 17, 18, …); \
-             stop the daemon, then run `theseusd restore --repair`"
-        );
-        let mut c = CrashStatus {
-            at_unix_ms: 1_790_000_000_000,
-            pid: 4242,
-            version: "0.0.1".into(),
-            thread: "tokio-runtime-worker".into(),
-            location: "crates/theseus-core/src/html.rs:120:9".into(),
-            file: "/s/crashes/crash-1790000000000-4242.json".into(),
-            this_start: true,
-        };
-        let line = crash_line(&c);
-        assert!(
-            line.ends_with(
-                "at crates/theseus-core/src/html.rs:120:9 (thread tokio-runtime-worker, pid \
-                 4242, 0.0.1), which ended the last run; /s/crashes/crash-1790000000000-4242.json"
-            ),
-            "{line}"
-        );
-        c.this_start = false;
-        assert!(!crash_line(&c).contains("ended the last run"));
     }
 
     /// `config:` in `theseus health` (theseus-2fo): a file, a read before
