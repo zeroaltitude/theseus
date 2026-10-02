@@ -927,6 +927,40 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
     assert_eq!(posts(&r.core, "reply").len(), 1);
 }
 
+/// theseus-yey's books: one `provider.cut` row, an estimate, sent, by the
+/// stopper, at the budget's spend, which is also the session's cost.
+fn the_cut_is_booked_at_the_spend(core: &Core, sid: &str, spent_micros: u64) {
+    let cut = rows(core, "provider.cut");
+    assert_eq!(cut.len(), 1, "{cut:?}");
+    assert_eq!(
+        (
+            &cut[0]["by"],
+            &cut[0]["estimated"],
+            &cut[0]["sent"],
+            &cut[0]["output_chars"]
+        ),
+        (
+            &json!("discord:eddie"),
+            &json!(true),
+            &json!(true),
+            &json!(0)
+        )
+    );
+    let spent_usd = theseus_kernel::micros_to_usd(spent_micros);
+    assert_eq!(cut[0]["cost_usd"], json!(spent_usd));
+    let info = core
+        .session_list()
+        .unwrap()
+        .into_iter()
+        .find(|s| s.session_id == sid)
+        .unwrap();
+    assert!(
+        (info.cost_usd - spent_usd).abs() < 1e-9,
+        "the session's cost is the budget's spend: {} vs {spent_usd}",
+        info.cost_usd
+    );
+}
+
 /// theseus-yey: `/stop` while the model's call streams cuts the stream. The
 /// stop returns and the turn ends at once, without the gate's permit: no answer
 /// node, no call planned, nothing posted. The call settles as failed at an
@@ -1000,36 +1034,7 @@ async fn a_stop_cuts_the_models_call_and_books_an_estimate() {
         e.budget.spent_micros,
         call.reserved_micros
     );
-    let cut = rows(&r.core, "provider.cut");
-    assert_eq!(cut.len(), 1, "{cut:?}");
-    assert_eq!(
-        (
-            &cut[0]["by"],
-            &cut[0]["estimated"],
-            &cut[0]["sent"],
-            &cut[0]["output_chars"]
-        ),
-        (
-            &json!("discord:eddie"),
-            &json!(true),
-            &json!(true),
-            &json!(0)
-        )
-    );
-    let spent_usd = theseus_kernel::micros_to_usd(e.budget.spent_micros);
-    assert_eq!(cut[0]["cost_usd"], json!(spent_usd));
-    let info = r
-        .core
-        .session_list()
-        .unwrap()
-        .into_iter()
-        .find(|s| s.session_id == sid)
-        .unwrap();
-    assert!(
-        (info.cost_usd - spent_usd).abs() < 1e-9,
-        "the session's cost is the budget's spend: {} vs {spent_usd}",
-        info.cost_usd
-    );
+    the_cut_is_booked_at_the_spend(&r.core, &sid, e.budget.spent_micros);
     let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
     assert!(!root.join("a.txt").exists(), "nothing was written");
     // The next message continues the session, without the cut answer.

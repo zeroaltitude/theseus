@@ -9,7 +9,7 @@ crates/theseus-discord/src/runtime.rs 3500 the Discord binding's runtime in one 
 crates/theseus-core/src/turn.rs 3500 the turn loop; C2 and C6 reshape it
 crates/theseus-core/src/toolrun.rs 3300 tool calls and the gate's postures
 crates/theseus-core/src/config.rs 2900 the config's types and checks; past 2,500 at AWS C1's join (its [aws] tables), split it: theseus-sk47
-crates/theseus-kernel/src/kernel.rs 3010 every kernel transition; C6 reshapes it; raised from 3000 at robust2 for 3ebd's reopen in startup (its logic is reopen.rs)
+crates/theseus-kernel/src/kernel.rs 3030 every kernel transition; C6 reshapes it; raised from 3000 at robust2 for 3ebd's reopen in startup (its logic is reopen.rs), and from 3010 at robust3 for holds_turn (0o8) and the budget question's reset fields (6g6) (its stop_call is in stops.rs)
 crates/theseus/src/render.rs 3100 the CLI's renderer (review 2, C3 types it); raised from 2900 at AWS C1's join, split it: theseus-wdcw
 crates/theseus-discord/src/render.rs 2800 the Discord renderer (review 2, C3 types it)
 crates/theseus-index/src/vectors.rs 2650 the vector lane's engine, merged ahead of its reader

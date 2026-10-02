@@ -636,7 +636,10 @@ impl Kernel {
     /// that what the caller decides comes from the read inside the lock. A
     /// task's action locks the parent too (`lock_family`): what it settles
     /// is the parent's spend as well (DD7).
-    fn locked_action(&self, correlation_id: &str) -> Result<Option<(ExecLock<'_>, Action)>> {
+    pub(crate) fn locked_action(
+        &self,
+        correlation_id: &str,
+    ) -> Result<Option<(ExecLock<'_>, Action)>> {
         let Some(a) = self.action(correlation_id)? else {
             return Ok(None);
         };
@@ -2637,35 +2640,6 @@ impl Kernel {
     }
     pub fn cancel_uncertain(&self, correlation_id: &str) -> Result<Action> {
         self.cancel_step(correlation_id, CancelState::OutcomeUncertain, true)
-    }
-
-    /// Tell one running job or call to stop, for `by`, and leave its
-    /// execution as it is (theseus-ht82): the daemon stopping a job below the
-    /// disk's floor, where `/stop` and a cancel stop a whole execution's. The
-    /// action, dispatched and not yet told, is marked `cancel = requested`,
-    /// its resolution `stopped by <by>`, which the call's result reads as, in
-    /// one frame with an `action.cancel` row. The caller terminates its
-    /// backend and walks its cancel (`cancel_acknowledged`, then
-    /// `cancel_verified` or `cancel_uncertain`). None when it is not a running
-    /// call, or was told to stop already: nothing is written.
-    pub fn stop_call(&self, correlation_id: &str, by: &str) -> Result<Option<Action>> {
-        let Some((_w, mut a)) = self.locked_action(correlation_id)? else {
-            return Ok(None);
-        };
-        if a.state != ActionState::Dispatched || a.cancel.is_some() || a.tool == PROVIDER_TOOL {
-            return Ok(None);
-        }
-        a.cancel = Some(CancelState::Requested);
-        a.resolution = Some(format!("stopped by {by}"));
-        self.commit(&[
-            action_record(&a)?,
-            self.ledger(
-                LedgerKind::ActionCancel,
-                Some(&a.session_id),
-                json!({"correlation_id": a.correlation_id, "cancel": CancelState::Requested, "why": by, "settled": false}),
-            )?,
-        ])?;
-        Ok(Some(a))
     }
 
     fn cancel_step(&self, correlation_id: &str, st: CancelState, settle: bool) -> Result<Action> {
