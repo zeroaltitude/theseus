@@ -17,9 +17,10 @@
 //!
 //! 1. the floor (Theseus's own binary and state, the 1Password CLI and its
 //!    token) waits for approval at every posture, and is marked as the floor;
-//! 2. the operator's approve lists (`approve_argv`, `approve_paths`), any
-//!    path outside the roots, and a URL whose host is a private address
-//!    (DD5) wait for approval;
+//! 2. the operator's approve lists (`approve_argv`, `approve_paths`), a read
+//!    or a working directory outside the roots, and a URL whose host is a
+//!    private address (DD5) wait for approval. A write outside the roots
+//!    follows the tool's posture, whichever tool makes it (theseus-ewi);
 //! 3. the operator's explicit allow (`allow_argv`) runs, when every path
 //!    argument is inside the roots. An entry is a prefix (`["ls"]` also runs
 //!    `ls -la src`), so entries should be narrow;
@@ -203,7 +204,8 @@ impl Decision {
 
 #[derive(Debug, Clone)]
 pub struct ToolPolicy {
-    /// Canonical workspace roots; a path outside them waits for approval.
+    /// Canonical workspace roots: a read or a working directory outside them
+    /// waits for approval, and a write there follows the posture.
     pub roots: Vec<PathBuf>,
     /// Canonical paths that wait for approval, even under a root.
     pub approve_paths: Vec<PathBuf>,
@@ -402,7 +404,15 @@ impl ToolPolicy {
                 )
             };
         }
-        if let Some(why) = self.listed(&resources, plan.url.as_deref(), argv, &nargv, &args) {
+        let access: Vec<Access> = plan.resources.iter().map(|r| r.access).collect();
+        if let Some(why) = self.listed(
+            &resources,
+            &access,
+            plan.url.as_deref(),
+            argv,
+            &nargv,
+            &args,
+        ) {
             return Decision::new(
                 Posture::Approve,
                 format!("{}: {name} — approve ({why})", plan.summary),
@@ -476,18 +486,27 @@ impl ToolPolicy {
     }
 
     /// What of the call the operator listed for approval: a path on the
-    /// approve list, a path outside the roots, a URL whose host is a private
-    /// address (DD5), an approve-listed program, or a path argument on the
-    /// approve list.
+    /// approve list, a read or a working directory outside the roots, a URL
+    /// whose host is a private address (DD5), an approve-listed program, or a
+    /// path argument on the approve list.
+    ///
+    /// A write outside the roots is not listed: it follows the tool's
+    /// posture, whichever tool makes it (theseus-ewi; Eddie, 2026-09-30: one
+    /// rule for writes outside the roots). `proc.run`'s commands write
+    /// anywhere at theirs, and the gate never guesses what a command does,
+    /// so asking for a file tool's write there guarded nothing and taught a
+    /// model to write through the shell. The approve list and the floor
+    /// still ask, for every tool.
     fn listed(
         &self,
         resources: &[PathBuf],
+        access: &[Access],
         url: Option<&str>,
         argv: &[String],
         nargv: &[String],
         args: &[(String, PathBuf)],
     ) -> Option<String> {
-        for p in resources {
+        for (p, a) in resources.iter().zip(access) {
             if let Some(d) = self.approve_paths.iter().find(|d| paths::within(p, d)) {
                 return Some(format!(
                     "{} is protected: {} is on the approve list",
@@ -495,7 +514,7 @@ impl ToolPolicy {
                     d.display()
                 ));
             }
-            if !self.within_roots(p) {
+            if *a != Access::Write && !self.within_roots(p) {
                 let roots: Vec<String> =
                     self.roots.iter().map(|r| r.display().to_string()).collect();
                 return Some(format!(
@@ -662,6 +681,71 @@ mod tests {
                 format!("the call: {tool} — approve (enforcement = approve)")
             );
         }
+    }
+
+    /// theseus-ewi (Eddie, 2026-09-30: one rule for writes outside the
+    /// roots): a write outside the roots takes the tool's posture, whether
+    /// fs.write makes it or a shell script through proc.run does, so the file
+    /// tool no longer asks where the shell never did. A read or a working
+    /// directory outside the roots still asks, and so do the approve list
+    /// and the floor, for every tool and posture.
+    #[test]
+    fn a_write_outside_the_roots_takes_the_posture_whichever_tool_makes_it() {
+        let (_d, root) = workspace();
+        let (_o, outside) = workspace();
+        let write = plan(outside.join("scratch/config.toml"), Access::Write, None);
+        let script = plan(
+            root.clone(),
+            Access::Exec,
+            Some(vec![
+                "bash",
+                "-c",
+                "mkdir -p /tmp/s && echo x > /tmp/s/config.toml",
+            ]),
+        );
+        for e in Posture::ALL {
+            let p = policy(&root, e);
+            for (tool, pl) in [("fs.write", &write), ("proc.run", &script)] {
+                let out = p.decide(&T(tool), pl);
+                assert_eq!((out.posture, out.floor), (e, false), "{tool} at {e:?}");
+                assert!(out.reason.contains("(enforcement = "), "{}", out.reason);
+            }
+        }
+        let p = policy(&root, Posture::Notify);
+        let asks = |tool: &'static str, pl: &Plan, says: &str| {
+            let out = p.decide(&T(tool), pl);
+            assert_eq!(out.posture, Posture::Approve, "{tool}");
+            assert!(out.reason.contains(says), "{}", out.reason);
+        };
+        asks(
+            "fs.read",
+            &plan(outside.join("notes.txt"), Access::Read, None),
+            "is outside the workspace roots",
+        );
+        asks(
+            "proc.run",
+            &plan(outside.clone(), Access::Exec, Some(vec!["ls"])),
+            "is outside the workspace roots",
+        );
+        let mut listed = policy(&root, Posture::Open);
+        listed.approve_paths.push(outside.join("keys"));
+        let out = listed.decide(
+            &T("fs.write"),
+            &plan(outside.join("keys/id"), Access::Write, None),
+        );
+        assert_eq!(out.posture, Posture::Approve);
+        assert!(
+            out.reason.contains("is on the approve list"),
+            "{}",
+            out.reason
+        );
+        let mut floor = policy(&root, Posture::Open);
+        floor.floor_paths.push(outside.join("state"));
+        let out = floor.decide(
+            &T("fs.write"),
+            &plan(outside.join("state/store/0.wal"), Access::Write, None),
+        );
+        assert_eq!((out.posture, out.floor), (Posture::Approve, true));
     }
 
     #[test]

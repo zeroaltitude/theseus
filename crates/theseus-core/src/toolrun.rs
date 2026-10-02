@@ -495,7 +495,7 @@ impl ToolRuntime {
             .collect();
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
-             - Workspace roots: {}. A path outside them, or on the operator's approve list, waits for the operator's approval.\n\
+             - Workspace roots: {}. Reading or running a program outside them, or touching a path on the operator's approve list, waits for the operator's approval; a write outside them takes its tool's posture, as inside.\n\
              - Relative paths resolve against {}.\n\
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
              - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run. proc_run runs one program with a typed argv and no shell; pass [\"bash\", \"-c\", \"...\"] explicitly only when a shell is truly needed.\n\

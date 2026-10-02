@@ -179,8 +179,11 @@ confirm_ttl_secs = 900                  # how long a bound confirmation stays va
 # Toollets (fs.*, text.diff, git.diff/log, proc.run). The workspace is
 # projects_dir plus any more roots, and a path is judged after `..` and
 # symlinks resolve. There is no built-in workspace: without projects_dir (or
-# roots) every path is outside it. A path outside the workspace, or on
-# approve_paths (even inside it), waits for your approval.
+# roots) every path is outside it. A read or a program run outside the
+# workspace, or any path on approve_paths (even inside it), waits for your
+# approval. A write outside it takes the tool's posture, whichever tool makes
+# it (fs.write, or a script through proc.run, which the gate can't read), so
+# approve_paths, the floor, and the posture guard writes, not the workspace.
 [tools]
 enabled = true
 projects_dir = "/home/zeroaltitude/projects"   # the operator's projects directory: the workspace, and where relative paths resolve
@@ -236,7 +239,8 @@ search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Bra
 #      and says so: Theseus's own binary, store, spool, and bindings file; the
 #      1Password CLI, its credentials, and the token file this daemon was given;
 #   2. your approve lists wait for your approval: approve_argv,
-#      [tools].approve_paths, and any path outside the workspace roots;
+#      [tools].approve_paths, and a read or a working directory outside the
+#      workspace roots (a write there takes the tool's posture);
 #   3. your allow list runs: allow_argv. An entry is a prefix: ["ls"] also runs
 #      `ls -la src`, so keep entries narrow.
 [policy]

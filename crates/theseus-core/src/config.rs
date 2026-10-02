@@ -205,7 +205,9 @@ pub struct ToolsConfig {
     /// without `roots`) every path is outside the workspace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub projects_dir: Option<String>,
-    /// More workspace roots beside `projects_dir`; every path a tool touches must be under one.
+    /// More workspace roots beside `projects_dir`. A read or a program run
+    /// outside every root waits for approval; a write there takes its tool's
+    /// posture (theseus-ewi).
     #[serde(default)]
     pub roots: Vec<String>,
     /// Where relative paths resolve and programs run by default (default: `projects_dir`).
