@@ -1,7 +1,9 @@
 //! Property tests over the core's readers of outside text (theseus-s68,
 //! review 2's H2): a fetched page (`html::to_text`), a model's event stream
-//! (`SseLines`), and the times a wake is given (`wake::parse_after`,
-//! `wake::parse_at`). Arbitrary text, and text built from the pieces each
+//! (`SseLines`), the times a wake is given (`wake::parse_after`,
+//! `wake::parse_at`), and the scrubber over any tool output (review 2's H9,
+//! which also checks that a planted value never comes through). Arbitrary
+//! text, and text built from the pieces each
 //! reader looks for, must never panic: under the release profile's
 //! `panic = "abort"` one panic takes the whole daemon down. Discord's
 //! `split_text` has its own in `theseus-discord`. A run is a few seconds at
@@ -276,5 +278,90 @@ proptest! {
         let _ = span(ms);
         let l = local(ms);
         let _ = (l.hm(), l.hms(), l.full(), l.hms_on(&local(ms / 2)));
+    }
+}
+
+// ---------------------------------------------------------------- the scrubber
+
+/// What the scrubber acts on (review 2's H9): the starts of every shape, the
+/// separators its labels take, line breaks, `%`, `=`, and multibyte text.
+const SCRUB_PIECES: &[&str] = &[
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "-----END RSA PRIVATE KEY-----",
+    "-----BEGIN ",
+    "-----",
+    "eyJ",
+    "eyJhbGciOiJub25lIn0",
+    ".",
+    "AKIA",
+    "ASIA",
+    "ABCDEFGHIJKLMNOP",
+    "aws_secret_access_key",
+    "SessionToken",
+    "\": \"",
+    " = ",
+    "ghp_",
+    "sk-ant-",
+    "%",
+    "%2F",
+    "%2",
+    "=",
+    "==",
+    "\n",
+    "\r\n",
+    "/",
+    "+",
+    "0123456789abcdefghijklmnopqrstuvwxyzABCD",
+    "中文",
+    "😀",
+    "é",
+];
+
+/// An invented board value.
+const SCRUB_VALUE: &str = "Inv3nted/Value+For~Tests?x=1";
+
+fn scrub_text() -> impl Strategy<Value = String> {
+    let piece = prop_oneof![
+        3 => select(SCRUB_PIECES).prop_map(str::to_string),
+        1 => any::<String>(),
+    ];
+    vec(piece, 0..48).prop_map(|v| v.concat())
+}
+
+proptest! {
+    #![proptest_config(cases(2000))]
+
+    /// Any tool output is scrubbed without a panic.
+    #[test]
+    fn any_output_scrubs_without_a_panic(s in scrub_text()) {
+        let scrub = crate::scrub::Scrubber::with_values(vec![(SCRUB_VALUE.into(), "demo".into())]);
+        let _ = scrub.scrub(&s);
+    }
+
+    /// A board value never comes through, verbatim or encoded, whatever is
+    /// around it.
+    #[test]
+    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..4usize) {
+        use base64::Engine as _;
+        let scrub = crate::scrub::Scrubber::with_values(vec![(SCRUB_VALUE.into(), "demo".into())]);
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let (planted, look_for) = match how {
+            0 => (SCRUB_VALUE.to_string(), SCRUB_VALUE.to_string()),
+            1 => {
+                let e = b64.encode(SCRUB_VALUE);
+                (e.clone(), e)
+            }
+            2 => {
+                let e = b64.encode(format!("u:{SCRUB_VALUE}"));
+                (e.clone(), e)
+            }
+            _ => {
+                let e = SCRUB_VALUE.replace('/', "%2F").replace('+', "%2B");
+                (e.clone(), e)
+            }
+        };
+        let (out, n) = scrub.scrub(&format!("{before} {planted} {after}"));
+        prop_assert!(n >= 1);
+        prop_assert!(!out.contains(&look_for), "{out}");
     }
 }

@@ -53,8 +53,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **Nothing retractable goes in the shared header** (Appendix F), so sessions on a profile share one cache entry.
 - **The config template is the contract.** Change a default there, not only in code. The loader rejects unknown
   keys, and `example_template_uncommented_still_parses` un-comments every line and parses it.
-- **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output, and the
-  broker hands a value only to the program it is granted to.
+- **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output: each board
+  value verbatim, in base64, and percent-encoded, and the shapes of secrets never resolved here (token prefixes,
+  AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to.
 - **One fact, recorded once.** A new ledger row, notification, or narrative sentence is a fact's projection in
   `fact/`, not a hand-written channel at its site. Recording writes no frame: its row rides in the turn's next frame
   (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest
@@ -71,7 +72,8 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   leaves it byte-identical; `THESEUS_GOLDEN=write` rewrites it, for a change you mean, and the diff is the review.
   A narrative line that the machine's load decides is left out there (`by_the_load`); a new one joins it.
 - `tests_outside_text.rs`: property tests over every reader of outside text (the HTML reader, the wake's time
-  parsers, the provider's SSE lines), with a fresh seed each run, so the gate keeps looking (Item 13). The release
+  parsers, the provider's SSE lines, and the scrubber, which also never lets a planted value through), with a fresh
+  seed each run, so the gate keeps looking (Item 13). The release
   profile aborts on a panic, so one panic on outside text takes the daemon down. A new reader joins them.
 - `FakeProvider::scripted` scripts a provider's answers. `Parts::for_tests` builds a core around it, and a second
   provider can be inserted into `parts.providers`.
