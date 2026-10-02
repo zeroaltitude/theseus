@@ -272,6 +272,7 @@ impl Tool for Read {
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
         self.run_with_image(input, ctx).map(|(o, _)| o)
     }
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn run_with_image(
         &self,
         input: &Value,
@@ -1040,6 +1041,7 @@ impl Tool for Grep {
             url: None,
         })
     }
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
         let a: GrepArgs = parse(input).map_err(ToolFailure::new)?;
         let base = a

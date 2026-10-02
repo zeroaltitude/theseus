@@ -155,6 +155,7 @@ fn a_node_that_leaves_the_index_never_answers_again() {
 /// reads the rewritten file whole, and a forget that comes before the
 /// embedding thread has read the files takes the record all the same.
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn after_forget_no_vector_file_holds_its_bytes() {
     let v = VRig::new();
     let mut nodes: Vec<Node> = TEXTS.iter().map(|t| user("ses_1", t)).collect();

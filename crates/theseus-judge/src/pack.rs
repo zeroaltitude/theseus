@@ -532,6 +532,7 @@ impl Pack {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn check_question(id: &str, q: QuestionFile) -> Result<QuestionDef, (Rule, String)> {
     if !snake_id(id) {
         return Err((
@@ -1005,6 +1006,7 @@ mod tests {
 
     /// Design §2.4's table and §2.7's rollback table, pack by pack.
     #[test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn the_six_packs_ask_what_the_design_says() {
         let want: &[(&str, &[&str])] = &[
             (

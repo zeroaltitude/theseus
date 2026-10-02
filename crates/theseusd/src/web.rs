@@ -73,6 +73,7 @@ const COCKPIT_MISSING: &str =
 const WEB_MISSING: &str =
     "web UI assets are not built into this binary (run `npm run build` in web/)";
 
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
     // `Config::validate` refuses a bind that is not a loopback address
     // (theseus-2fo); this is the same check, where the socket is made.
@@ -444,6 +445,7 @@ async fn ws_upgrade(
 
 /// WebSocket ⇄ protocol connection. The core serves one end of an in-memory
 /// duplex exactly as it would a Unix socket; this task pumps frames.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn bridge(socket: WebSocket, core: Arc<Core>, peer: Peer) {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -202,6 +202,7 @@ fn tighten_result(changed: bool, already: bool) -> Value {
 
 /// One of every notification a turn can carry, in the order a turn sends
 /// them, with the payloads the daemon builds today.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn turn_notes() -> Vec<Value> {
     vec![
         note(

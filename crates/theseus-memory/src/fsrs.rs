@@ -639,6 +639,7 @@ mod tests {
     /// src/inference.rs), computed by its f32 code, agree with this f64 code
     /// to f32's rounding. None reviews Hard on the same day.
     #[test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn matches_the_reference_crates_own_numbers() {
         use Grade::*;
         // Relative: f32's rounding over a few steps comes to 7.9e-7 at most.

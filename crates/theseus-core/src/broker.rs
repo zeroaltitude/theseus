@@ -1015,6 +1015,7 @@ mod tests {
     /// an option or a URL names; and no program gets it from a call that
     /// sets its own environment. The gate's view agrees with the spawn's.
     #[tokio::test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn a_launchers_grant_reaches_only_the_program_the_call_names() {
         let b = bin(&["gh", "git"]);
         let mut cfg = BrokerConfig::default();

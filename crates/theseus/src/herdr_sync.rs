@@ -271,6 +271,8 @@ struct Place {
 }
 
 /// `theseus herdr sync`.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub async fn run(
     conn: &mut Conn,
     json: bool,

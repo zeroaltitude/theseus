@@ -123,6 +123,7 @@ fn quantile(v: &mut [f64], q: f64) -> f64 {
     v[i]
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn render(records: &[Record], exam: &Exam, source: &str) -> String {
     let recs = latest(records);
     let cells: Vec<Cell> = recs

@@ -820,6 +820,8 @@ impl TurnRunner {
         turn_error(r.class, sid, "", 0, source)
     }
 
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub async fn run(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
         let arrived = req.arrived.unwrap_or_else(Instant::now);
         let continuation = req.input.is_none();
@@ -1132,6 +1134,8 @@ impl TurnRunner {
     /// One turn under the lock (§3.3): catch up on what happened while no
     /// turn ran, write the input, run loops while the model has something new
     /// to read, then book the turn and decide where the execution waits.
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn run_inner(
         &self,
         guard: &TurnGuard,
@@ -1756,6 +1760,7 @@ impl TurnRunner {
     /// The provider call, as a kernel action (§3.16): planned (with its
     /// budget reservation), dispatched, streamed, and settled. The outer
     /// error is a fault; the rest the turn reports or parks on.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn call_model(
         &self,
         t: &mut Turn<'_>,

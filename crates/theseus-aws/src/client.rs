@@ -393,6 +393,7 @@ impl Client {
 
     /// One page: attempts until an answer, a failure the class does not
     /// retry, or the attempts run out.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn page(
         &self,
         op: OperationRef<'_>,

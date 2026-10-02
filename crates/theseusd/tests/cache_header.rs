@@ -250,6 +250,8 @@ fn text(block: &Value) -> &str {
     block["text"].as_str().unwrap_or_default()
 }
 
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     let r = Rig::start();
     r.turn(profile, "first", START);

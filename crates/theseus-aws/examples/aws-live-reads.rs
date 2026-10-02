@@ -31,6 +31,7 @@ fn shape(body: &Value) -> String {
 }
 
 #[tokio::main(flavor = "current_thread")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn main() {
     let key = std::env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID");
     let secret = std::env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY");

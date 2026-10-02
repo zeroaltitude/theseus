@@ -195,6 +195,8 @@ fn test_note(r: &Rig, spend_limit_usd: f64) -> String {
 }
 
 #[test]
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_place() {
     let r = Rig::new();
     let note = test_note(&r, 100.0);

@@ -253,6 +253,7 @@ impl Core {
     /// approval wakes the execution, so the calls after this one run at their
     /// postures. The answer's judgment covers the trust, which only goes with
     /// an approval of a tool call.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn confirm_action_with(
         &self,
         correlation_id: &str,

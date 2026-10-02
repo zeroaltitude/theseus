@@ -969,6 +969,7 @@ async fn a_job_below_the_disk_floor_is_refused_with_its_reason() {
 /// One `spool.swept` row says so with counts and bytes, and health shows the
 /// sweep.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn the_sweep_removes_raw_output_no_result_will_absorb_and_keeps_the_rest() {
     use std::os::unix::fs::PermissionsExt;
     let r = rig_with(
@@ -1590,6 +1591,7 @@ async fn a_stopped_jobs_raw_output_stays_while_its_wrapper_lives() {
 /// leaves it in the background and nothing removes its file before the
 /// child ends; the next turn's late result is read with the file whole.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn a_job_whose_child_holds_its_output_says_its_end_was_held() {
     let r = rig_with(
         vec![
@@ -2824,6 +2826,7 @@ fn sent(
 /// `budget.reset` row, and leaves the lifetime cost where it was; the driver
 /// then makes the call that did not fit, and the new call is the new spend.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn a_session_at_its_limit_asks_and_an_approved_reset_makes_the_waiting_call() {
     use theseus_kernel::{micros_to_usd, ExecState};
     let r = over_budget_rig(vec![Scripted::text("The diff is one line.")]);
@@ -4849,6 +4852,7 @@ fn write_script() -> Vec<Scripted> {
 /// is resolved, and nothing is written. Then Eddie approves in his DM and the
 /// write runs.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn with_approval_only_a_trusted_user_in_a_trusted_channel_approves() {
     use crate::approval::Surface::{Cli, Discord, Web};
     let r = approval_rig(write_script(), &["discord:dm"]);
@@ -5153,6 +5157,7 @@ fn tool_row(tools: &Value, name: &str) -> Value {
 /// proposal digest and tool, a labeled example for later. An undo makes the
 /// tool run with a notice again.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn should_have_asked_makes_the_next_call_wait_and_an_undo_notifies_again() {
     use crate::approval::Surface::{Cli, Web};
     use theseus_protocol::{method, notify};
@@ -5432,6 +5437,7 @@ async fn a_tightening_survives_a_restart() {
 /// A connection no listener named and a Discord claim from the CLI are
 /// refused either way.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn only_a_trusted_answer_undoes_a_tightening() {
     use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
     use theseus_protocol::method;

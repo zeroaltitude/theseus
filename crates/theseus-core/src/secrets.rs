@@ -664,6 +664,7 @@ pub async fn resolve_into(
     resolve_with_retry(board, refs, fetch, RETRY_FIRST).await;
 }
 
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn resolve_with_retry(
     board: Arc<SecretBoard>,
     refs: BTreeMap<String, String>,

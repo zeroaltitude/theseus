@@ -272,6 +272,7 @@ fn cancel(c: &mut Client, sid: &str) {
 }
 
 /// One cell, start to end. Never fails: a failure is the record's `error`.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, run: u32) -> Record {
     let started_at_ms = theseus_protocol::now_unix_ms();
     let t0 = Instant::now();
@@ -455,6 +456,7 @@ pub struct Summary {
     pub stopped_at_cap: bool,
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
     let items: Vec<&Item> = if plan.items.is_empty() {
         exam.file.items.iter().collect()

@@ -404,6 +404,7 @@ async fn main() {
     std::process::exit(code);
 }
 
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
     // `theseus tui` connects nothing itself: it becomes `theseus-tui` (10f).
     if let Cmd::Tui { args } = &cli.cmd {

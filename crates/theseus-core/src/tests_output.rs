@@ -256,6 +256,7 @@ fn bad_request() -> Scripted {
 
 /// A conversation that posts to a place, and one that sets a wake: every
 /// scenario but the budget's.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn conversation(out: &mut String) {
     out.push_str("== a conversation\n");
     let mut w = world(

@@ -1048,6 +1048,7 @@ impl Config {
         Ok((cfg, warnings))
     }
 
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn validate(&self) -> Result<()> {
         for (name, r) in &self.secrets {
             SecretRef::parse(r)

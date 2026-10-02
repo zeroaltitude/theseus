@@ -108,6 +108,7 @@ fn changed(o: &Ontology, name: &str, f: impl FnOnce(&mut Kind)) -> Kind {
 }
 
 /// Apply one write; a refused one must leave the snapshot as it was.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn apply(o: &mut Ontology, op: &Op, serial: &mut u64) {
     *serial += 1;
     let snowflake = |kind: &str, n: u64| id(&format!("{kind}:{}", 100_000_000_000_000_000 + n));

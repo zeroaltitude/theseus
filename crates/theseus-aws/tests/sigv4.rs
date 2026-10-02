@@ -103,6 +103,7 @@ fn authorization(signed_request: &str) -> String {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn the_sigv4_suite() {
     let suite: Value = serde_json::from_str(include_str!("fixtures/sigv4-suite.json")).unwrap();
     let cases = suite["cases"].as_array().unwrap();

@@ -164,6 +164,7 @@ fn the_v2_store_reads_identically_in_an_unmodified_daemon() {
 
 /// Write `exam`'s past, read it with the library, serve it with the daemon,
 /// and compare; the number of sessions compared.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn reads_identically(exam: &Exam) -> usize {
     let bin = theseusd();
     let dir = tempfile::tempdir().unwrap();

@@ -487,6 +487,7 @@ impl Engine {
     /// entities' top documents, and `vector`'s hits, joined by node and
     /// chunk and filtered as the others are; fused with `weights`, the best
     /// `k`.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn query(
         &self,
         p: &QueryParams,

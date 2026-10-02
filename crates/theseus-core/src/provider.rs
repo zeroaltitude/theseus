@@ -762,6 +762,7 @@ impl Anthropic {
         })
     }
 
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn stream_message_impl(
         &self,
         req: &ProviderRequest,
@@ -989,6 +990,7 @@ fn push_str(block: &mut Value, key: &str, s: &str) {
 }
 
 impl Accumulator {
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn apply(
         &mut self,
         ev: StreamEvent,

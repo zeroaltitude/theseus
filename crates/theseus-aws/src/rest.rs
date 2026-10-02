@@ -83,6 +83,8 @@ fn render(template: &str, labels: &HashMap<&str, String>) -> Result<String, Stri
 }
 
 /// Binds an operation's input to an HTTP request.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub(crate) fn serialize(
     op: OperationRef<'_>,
     input: Option<&V<'_>>,

@@ -1063,6 +1063,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn every_builder_stays_under_its_cap_on_huge_inputs() {
         let big = "a very long line of text that goes on ".repeat(30_000); // 1.1 MB
         let item = "an item of two kilobytes or so ".repeat(64);

@@ -567,6 +567,7 @@ fn client_uid_by(
 /// bucket of it (about 2 ms here). `Ok(Some((inode, uid)))`: found, its inode
 /// 0 once it has closed (TIME_WAIT); `Ok(None)`: no such socket; `Err`: the
 /// kernel would not say (no sock_diag), and the caller reads the tables.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn sock_diag(local: SocketAddr, remote: SocketAddr) -> Result<Option<(u64, u32)>, String> {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     const NETLINK_SOCK_DIAG: libc::c_int = 4;
@@ -950,6 +951,7 @@ mod tests {
     /// row or no table at all is refused, with why; a client that closed
     /// first is gone, not refused; the tcp6 and IPv4-mapped forms are found.
     #[test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn a_web_client_of_another_uid_is_refused_from_the_tables() {
         let s4: SocketAddr = "127.0.0.1:7436".parse().unwrap();
         let c4: SocketAddr = "127.0.0.1:46106".parse().unwrap();

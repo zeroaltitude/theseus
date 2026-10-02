@@ -113,6 +113,7 @@ fn exe(e: &Execution) -> String {
 
 /// The scripted run. Each step is one call of the kernel's API; the frames it
 /// writes follow its line.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn script(w: &World, log: &Log) {
     let k = &w.kernel;
     let tick = || {

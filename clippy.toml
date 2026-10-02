@@ -1,0 +1,5 @@
+# The shape budget's thresholds (theseus-goa8; review 2's C1): clippy's defaults, written down so that
+# a change to them is a commit. Held by the workspace lints (Cargo.toml) and the gate's `clippy -D warnings`.
+# To tighten: lower a number, run scripts/shape-expect.py to mark the new offenders, and commit both.
+too-many-lines-threshold = 100
+cognitive-complexity-threshold = 25

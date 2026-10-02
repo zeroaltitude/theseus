@@ -1229,6 +1229,7 @@ impl ToolRuntime {
     /// An in-process tool: its result node rides in its completion's frame.
     /// A toollet computes on a core; an async tool (DD5) waits as a task on
     /// the runtime and holds none.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn run_inproc(
         &self,
         tc: &TurnCtx<'_>,
@@ -1423,6 +1424,7 @@ impl ToolRuntime {
 
     /// A job: started through the wrapper, waited for up to `proc_sync_secs`,
     /// then left to run in the background with a placeholder result.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn run_job(
         &self,
         tc: &TurnCtx<'_>,
@@ -1747,6 +1749,7 @@ impl ToolRuntime {
     /// A settled job's result: how it ended (its exit code, a timeout, or an
     /// unknown outcome), then its output, the tail of it when it is long.
     /// Answer it with `answer_job`, which then deletes the raw output.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn job_result<'a>(
         &self,
         tc: &TurnCtx<'_>,
@@ -2603,6 +2606,7 @@ fn unanswered(nodes: &[(u64, Arc<Node>)]) -> Option<(&Node, Vec<ToolUse>)> {
 /// The tool runtime from config: registry, canonical roots, policy, limits,
 /// the job environment resolved once from the daemon's own, and the secret
 /// broker over the daemon's board.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn build_runtime(
     cfg: &crate::Config,
     spool: Option<Spool>,

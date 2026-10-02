@@ -30,6 +30,13 @@ members = [
 unused_async = "warn"
 unused_self = "warn"
 redundant_clone = "warn"
+# The shape budget (theseus-goa8; review 2's C1): a function over 100 lines of code, or over 25 in cognitive
+# complexity (thresholds in clippy.toml), fails the gate's `clippy -D warnings`. Today's offenders carry
+# `#[expect(.., reason = "..")]`, so nothing was rewritten and the list can only get shorter: once a function is
+# under the limit its `expect` is unfulfilled, and fails the gate until it is deleted. scripts/AGENTS.md, "The
+# shape budget", says more, and `scripts/shape.sh` holds the file ceiling.
+too_many_lines = "warn"
+cognitive_complexity = "warn"
 
 [workspace.package]
 version = "0.0.1"

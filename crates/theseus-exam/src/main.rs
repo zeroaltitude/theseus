@@ -142,6 +142,7 @@ enum Cmd {
     },
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let exam = Exam::load(cli.exam.as_deref())?;

@@ -96,6 +96,8 @@ pub(crate) type StaticParams = Vec<(String, J)>;
 /// Compiles one service's model into its decoded form and string table, and
 /// the distinct static context parameter sets its operations use: each is an
 /// endpoint variant, and variant 0 is the empty set.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub(crate) fn build_service(
     name: &str,
     files: &ModelFiles,

@@ -363,6 +363,7 @@ async fn until(what: &str, mut f: impl FnMut() -> bool) {
 /// count; a wait times out; `terminal` is refused for a conversation; and a
 /// wait for a session that does not exist, or with no params, fails at once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn session_wait_returns_on_blocked_settled_and_terminal() {
     let r = rig_full(
         vec![

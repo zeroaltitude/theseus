@@ -246,6 +246,9 @@ web_dist() {
 }
 
 phase fmt cargo fmt --all -- --check
+# The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
+# and complexity are clippy's lints, held by the next phase.
+phase shape scripts/shape.sh
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
 phase "reader rule" registry
 phase suite suite

@@ -399,6 +399,7 @@ fn median(v: &[u64]) -> Option<f64> {
 }
 
 /// Whether one rule fires on a pack's canary events.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn check(rule: &RollbackRule, events: &[CanaryEvent]) -> Option<Fired> {
     let fired = |why: String| {
         Some(Fired {

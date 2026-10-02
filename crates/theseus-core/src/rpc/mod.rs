@@ -338,6 +338,7 @@ impl Core {
     /// Ledger the secrets as they settle (theseus-qa0): the first round's
     /// outcome, then each retry that makes one ready. Closes the `secrets`
     /// startup phase.
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     pub async fn watch_secrets(self: Arc<Self>) {
         let start = self
             .secrets
@@ -399,6 +400,8 @@ impl Core {
     /// Build a core from its parts: the kernel opened on the store and started
     /// (its spool beside the store), then the catalog, the tool runtime, and
     /// the turn runner.
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn build(parts: Parts) -> Result<Arc<Self>> {
         let Parts {
             cfg,

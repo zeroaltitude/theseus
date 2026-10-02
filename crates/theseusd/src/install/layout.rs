@@ -372,6 +372,7 @@ impl Item {
 
     /// What it would do, the machine as it is, less what `going` says the
     /// items before it take away.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn inspect(&self, root: &Path, host: &dyn Host, going: &Going) -> Result<Act> {
         match self {
             Item::Group(name) => Ok(match host.group(name)? {
@@ -566,6 +567,7 @@ impl Item {
     }
 
     /// Do `act`, which `inspect` said a moment ago, and say what was done.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn apply(
         &self,
         act: &Act,

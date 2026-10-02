@@ -883,6 +883,8 @@ fn restore_phases(said: &str) -> Vec<(String, f64)> {
         .unwrap_or_default()
 }
 
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn run(o: &Opts) -> Result<Report> {
     let wall = Instant::now();
     let tmp = tempfile::tempdir()?;
@@ -1448,6 +1450,7 @@ const TITLES: [(&str, &str); 8] = [
     ("seed", "the push's seed: the first executions.watch"),
 ];
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn print(r: &Report) {
     let vault = match r.resolver_ms {
         0 => "the real op".to_string(),

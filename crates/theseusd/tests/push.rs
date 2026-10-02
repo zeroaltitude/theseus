@@ -340,6 +340,8 @@ fn row_state(row: &Value) -> Option<String> {
 }
 
 #[test]
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn every_execution_row_has_its_event_and_every_event_its_row() {
     let r = Rig::new();
     let _d = r.spawn();

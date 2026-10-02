@@ -171,6 +171,7 @@ fn bad_region(e: CatalogError) -> CallError {
 
 /// Builds the unsigned request for one call. `endpoint_override` sends it
 /// elsewhere (a test's fake endpoint): path-style S3, and no host prefix.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub(crate) fn build(
     catalog: &Catalog,
     op: OperationRef<'_>,

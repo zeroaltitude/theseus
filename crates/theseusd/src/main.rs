@@ -215,6 +215,8 @@ enum Start {
     },
 }
 
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     if cli.cmd.is_none() {
         // The socket daemon and `--stdio` both spawn job wrappers.
@@ -597,6 +599,7 @@ static CORE: std::sync::OnceLock<std::sync::Weak<Core>> = std::sync::OnceLock::n
 /// wake, so this one takes nothing from tokio's. A wrapper that a signal
 /// ended goes to the core, which says whether it was lost (theseus-6uo); one
 /// reaped before the core is built waits for it.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn reap_children() {
     use std::os::unix::process::ExitStatusExt;
     let mut signalled: Vec<(u32, String, i32)> = Vec::new();
@@ -752,6 +755,7 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result
 /// (`bindings`: the socket daemon only), and the GitHub check. Nothing acts,
 /// sends a secret, or talks to the network on a copy's word. `keep` is a
 /// note read before serving, kept as the copy now.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<PathBuf>) {
     let serving = core.startup_log.us(Instant::now());
     tracing::info!(serving_ms = serving / 1000, "serving");
@@ -829,6 +833,7 @@ async fn after_serving(core: Arc<Core>, keep: Option<String>, bindings: Option<P
 }
 
 /// Serve the protocol socket; `after_bind` starts once the socket answers.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn serve_socket(
     core: Arc<Core>,
     path: PathBuf,
@@ -962,6 +967,7 @@ async fn restore(cli: &Cli, cfg: &Config, from: &std::path::Path, force: bool) -
 
 /// Log when the GitHub token expires; warn loudly when close. Never fatal.
 /// Returns what it found, for the startup phase.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn github_token_report(token: Option<Secret>, warn_days: i64) -> serde_json::Value {
     let Some(tok) = token else {
         return json!({"outcome": "unconfigured"});

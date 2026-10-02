@@ -333,6 +333,8 @@ impl GuardList {
         out
     }
 
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn problems(&self) -> Vec<String> {
         let mut p = Vec::new();
         if !self

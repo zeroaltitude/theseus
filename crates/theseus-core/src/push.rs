@@ -459,6 +459,7 @@ impl Board {
     /// Apply a frame: each record newer than what the board holds of its
     /// entity, then each touched execution's view, built again. Returns the
     /// views that changed in what a surface shows, with `previous` set.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn apply(&mut self, core: &Core, f: &Frame) -> Vec<ExecutionView> {
         let mut execs: Vec<Execution> = Vec::new();
         let mut touched: Vec<String> = Vec::new();

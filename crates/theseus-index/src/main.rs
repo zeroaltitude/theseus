@@ -149,6 +149,7 @@ fn main() -> ExitCode {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
     match cmd {
         Cmd::Serve {

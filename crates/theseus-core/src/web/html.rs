@@ -158,6 +158,7 @@ impl Writer {
     }
 
     /// Read the tag at the start of `s` and act on it; return what follows it.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn tag<'a>(&mut self, s: &'a str) -> &'a str {
         if let Some(body) = s.strip_prefix("<!--") {
             return body.find("-->").map_or("", |e| &body[e + 3..]);

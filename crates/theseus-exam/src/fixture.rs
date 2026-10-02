@@ -162,6 +162,7 @@ struct Built {
     entry: SessionEntry,
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
     let off = exam.file.utc_offset_min;
     let times: Vec<u64> = s

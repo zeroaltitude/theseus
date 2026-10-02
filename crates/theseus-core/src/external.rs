@@ -292,6 +292,7 @@ mod tests {
     /// gives; a read and `wake.at` keep their postures; a call that waits
     /// already keeps its own reason; and `notify` notifies instead.
     #[test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn a_call_that_acts_waits_and_a_read_keeps_its_posture() {
         let h = Ok(Some(hold_of("http.fetch")));
         let notify = Decision::at_least(

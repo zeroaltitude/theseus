@@ -86,6 +86,7 @@ fn own_group(host: &dyn Host, user: &User) -> Result<String> {
 }
 
 /// `--user`: the operator's own daemon as a systemd user service.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub(crate) fn user(env: &Env, g: &Globals, remove: bool, host: &dyn Host) -> Result<Layout> {
     let op = operator(env, host, None)?;
     let owner = Owner::new(&op.name, &own_group(host, &op)?);
@@ -200,6 +201,7 @@ pub(crate) fn user(env: &Env, g: &Globals, remove: bool, host: &dyn Host) -> Res
 
 /// `--separate`: the daemon as `theseus`, or with `--remove`, all of it
 /// taken away again.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub(crate) fn separate(env: &Env, g: &Globals, a: &InstallArgs, host: &dyn Host) -> Result<Layout> {
     let op = operator(env, host, a.operator.as_deref())?;
     let theseus = Owner::new(DAEMON_USER, DAEMON_USER);

@@ -731,6 +731,7 @@ async fn usage_accumulates_per_session_and_globally() {
 /// loop 1 no longer fails the turn: it asks, see `tests_m3`.) The failure
 /// says its cause once (theseus-woy).
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
     use crate::provider::{ProviderError, Scripted};
     let mut wrong = Vec::new();
@@ -930,6 +931,7 @@ async fn a_store_with_unit_budgets_waits_for_a_config_the_vault_confirmed() {
 /// dollars at the configured limit with its units kept; the waiting one
 /// takes its session's recorded cost as its spend, and its next turn runs.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
     use theseus_store::{kinds, NewRecord};
     let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
@@ -1184,6 +1186,7 @@ async fn rows_stored_with_the_old_denied_names_still_decode() {
 }
 
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn per_turn_provider_and_model_selection() {
     let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
     let store = Store::open(&dir.join("store")).unwrap();
@@ -1292,6 +1295,7 @@ async fn per_turn_provider_and_model_selection() {
 }
 
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn live_profile_switch_persists_and_routes() {
     let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
     let store = Store::open(&dir.join("store")).unwrap();
@@ -1458,6 +1462,7 @@ where
 /// connection that arrives late gets the same lines as its tail. With
 /// narration off, both methods refuse with DISABLED and health says so.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
     use theseus_protocol::{NarrativeLine, NarrativePart, NarrativeWatchResult};
     let core = test_core("hello there");

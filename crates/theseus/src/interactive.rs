@@ -88,6 +88,8 @@ enum Purpose {
 }
 
 /// `theseus watch [SESSION] [--interactive] [--no-herdr]`.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub async fn watch(
     conn: &mut Conn,
     json: bool,

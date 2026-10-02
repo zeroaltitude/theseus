@@ -264,6 +264,7 @@ enum BenchCmd {
     },
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::FakeDiscord {

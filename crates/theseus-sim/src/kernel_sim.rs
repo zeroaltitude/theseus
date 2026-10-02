@@ -662,6 +662,7 @@ impl World {
         Ok(())
     }
 
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn take_a_turn(&mut self) -> Result<()> {
         let open = self.kernel.open_executions()?;
         // An input's turn, a third of the time (theseus-l6y): an execution
@@ -973,6 +974,7 @@ impl World {
     /// after the dispatch, or between two completions, leaves each in-process
     /// call it interrupts with no evidence: a lost job, which must end unknown
     /// or cancelled.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn take_a_batch(&mut self, exec_id: &str) -> Result<()> {
         let n = self.rng.random_range(3..=6);
         let mut batch: Vec<(String, bool)> = Vec::new();
@@ -1223,6 +1225,7 @@ impl World {
     }
 
     /// The raced turn's own commits, on this thread.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn raced_turn(
         &mut self,
         exec_id: &str,
@@ -1683,6 +1686,8 @@ impl World {
         Ok(())
     }
 
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn check_invariants(&mut self, at: &str) -> Result<()> {
         self.rep.invariant_checks += 1;
         let execs = self.kernel.executions()?;

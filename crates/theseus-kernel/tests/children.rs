@@ -49,6 +49,7 @@ fn children_of(pid: u32) -> Vec<u32> {
 /// whose command line is a wrapper's is learned as that job's wrapper, and
 /// any other as an orphan.
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn a_sweep_reaps_wrappers_and_orphans_and_never_an_owned_child() {
     let me = std::process::id();
     assert_eq!(children::daemon(), None, "nothing is adopted yet");

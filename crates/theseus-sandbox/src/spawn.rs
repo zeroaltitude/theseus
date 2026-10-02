@@ -67,6 +67,7 @@ fn fail(stage: impl Into<String>, error: impl std::fmt::Display) -> SpawnError {
 
 /// Starts `spec` in L1, with `init` as its pid 1. Returns once the command
 /// has been exec'd, or with the reason it could not be.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn spawn(spec: &Spec, init: &Init, stdio: Stdio) -> Result<SandboxChild, SpawnError> {
     if let Some(why) = spec.invalid() {
         return Err(fail("checking the job", why));

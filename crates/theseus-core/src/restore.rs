@@ -73,6 +73,7 @@ pub fn restore(from: &Path, state_dir: &Path, force: bool) -> Result<RestoreRepo
     restore_with(from, state_dir, force, &mut Sync)
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn restore_with(
     from: &Path,
     state_dir: &Path,

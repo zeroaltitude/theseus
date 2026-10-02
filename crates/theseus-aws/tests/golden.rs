@@ -108,6 +108,7 @@ fn blob(b: &[u8]) -> Value {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn requests_are_the_ones_botocore_sends() {
     let fx = fixture();
     let cases = fx["cases"].as_array().unwrap();

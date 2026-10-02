@@ -215,6 +215,7 @@ enum Reap {
 /// wrapper could not become a subreaper, recorded in the completion. Also
 /// the copy of the command's output, which may outlive the report while a
 /// descendant holds the output open.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn run(
     args: &WrapperArgs,
     reap: Reap,

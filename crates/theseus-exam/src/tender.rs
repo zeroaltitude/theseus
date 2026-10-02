@@ -247,6 +247,7 @@ pub fn node_ranks(hits: &[Value]) -> Result<HashMap<String, usize>> {
 }
 
 /// Ask the tender every item of `plan.half` with gold, under every arm.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn run(exam: &Exam, m: &Manifest, plan: &Plan, log: &mut dyn FnMut(&str)) -> Result<TenderRun> {
     ensure!(
         m.digest == exam.digest,
@@ -379,6 +380,7 @@ fn rank_str(r: usize) -> String {
 /// The run as Markdown: the tender, then items with all their gold in the
 /// top k and gold nodes in the top k, each cell every arm's in order; then
 /// the tender's times; with `per_item`, each item's gold ranks.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn render(exam: &Exam, run: &TenderRun, per_item: bool) -> String {
     let mut o = String::new();
     let s = &run.status;

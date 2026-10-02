@@ -528,6 +528,7 @@ fn sums_to_one(ps: impl Iterator<Item = f64>, what: &str) -> Result<(), String> 
 }
 
 /// One answer against its question.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn parse_answer(id: &str, q: &Question, a: &Value) -> Result<Answer, String> {
     let obj = a
         .as_object()

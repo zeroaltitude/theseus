@@ -17,7 +17,8 @@ flock -o ~/.cache/theseus-gate.lock scripts/gate.sh && git commit -S -F <message
 
 It runs, in order:
 
-1. `cargo fmt --all -- --check`, then `cargo clippy --workspace --all-targets -- -D warnings`.
+1. `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500 lines unless listed), then `cargo clippy
+   --workspace --all-targets -- -D warnings`, which also holds the shape budget's functions (see "The shape budget").
 2. The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
    and names every fix at once.
 3. The whole suite, `cargo nextest run --workspace` (about 1,300 tests).
@@ -69,6 +70,24 @@ give the gate's command a timeout of 30 minutes or more (a `proc.run` call can a
 - **A gate that sits at 0% CPU** is waiting on a lock: this one (held by another gate, or by an orphan that
   inherited it: scan `/proc/*/fd` for it, since `/proc/locks` hides a dead owner), or cargo's package cache. Find the
   holder before waiting longer, and never kill another agent's process.
+
+### The shape budget
+
+(theseus-goa8; review 2's C1.) Nothing held the shape, so every split the first review made regrew. Now:
+
+- **Functions.** clippy's `too_many_lines` (over 100 lines of code) and `cognitive_complexity` (over 25) are on for the whole
+  workspace (`[workspace.lints.clippy]`; the thresholds are in `clippy.toml`), and the gate's `clippy -D warnings` holds them.
+  Today's offenders (134 functions on 2026-10-02) carry `#[expect(clippy::..., reason = "...")]`, so nothing was rewritten and
+  the list can only get shorter: once a function is under the limit, its `expect` is an unfulfilled lint expectation and
+  fails the gate until the attribute is deleted. A new function over the limit fails the gate: split it. One that cannot be
+  split (a table, a generated match) gets an `expect` with its own reason.
+- **Files.** `shape.sh` (the gate's `shape` phase) fails a Rust file over 2,500 lines unless `long-files.txt` lists it with a
+  ceiling and why. A listed file past its ceiling fails; a listed file at or under 2,500 lines fails too (delete its entry), and
+  so does an entry for a file that is gone. The list can only shrink, or be raised on purpose, with the reason in the commit.
+- **Tightening, and a rebase.** Lower a threshold in `clippy.toml`, run `cargo clippy --workspace --all-targets
+  --message-format=json -q | python3 scripts/shape-expect.py` to mark the new offenders, and commit both. The script is
+  idempotent. It also regenerates the marks after a rebase conflict in them: take the other side of the conflict, and run it
+  again, instead of resolving the attributes by hand.
 
 ### The daily deny job
 

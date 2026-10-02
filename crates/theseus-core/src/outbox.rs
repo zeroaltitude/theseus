@@ -847,6 +847,7 @@ impl crate::Core {
     /// checkpointed after them, so the next start replays nothing. With no
     /// post in flight there is no wait, and the checkpoint costs nothing
     /// when the stop's own is still the newest.
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     pub async fn finish_stop(&self) -> InFlight {
         let t0 = std::time::Instant::now();
         let grace = std::time::Duration::from_millis(self.cfg.server.stop_grace_ms);

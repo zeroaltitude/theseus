@@ -528,6 +528,7 @@ fn cancel_of_dispatched_job_then_late_completion_does_not_revive() {
 /// the cancel when it goes on, as before: its authorize and its dispatch are
 /// refused as `NotRunnable`, and a confirm finds nothing waiting.
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn a_cancel_ends_what_its_execution_planned_and_never_sent() {
     let w = world();
     let (sid, e, g) = running(&w);
@@ -1002,6 +1003,8 @@ fn over(w: &World, g: &TurnGuard, reserve: Micros) -> (Micros, Micros, Micros, M
 /// before and the limit, and queues the execution with the question as a
 /// result, so its next turn makes the call.
 #[test]
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn a_call_over_the_limit_waits_on_the_operator_and_an_approved_reset_continues() {
     let w = world();
     let (s, e, g) = running(&w);
@@ -1807,6 +1810,7 @@ fn rows_stored_before_the_session_model_cut_still_read() {
 /// cost (a lookup the core installs). Terminal stays terminal, a turn a crash
 /// interrupted is requeued, and the next startup rewrites nothing.
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn executions_stored_with_unit_budgets_serve_in_dollars() {
     let exhausted = r#"{"id":"exe_old_exhausted","schema":1,"session_id":"ses_old_a","kind":"conversation","state":"budget_exhausted","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}},"outstanding":[],"queued_results":[],"turns":15,"interrupted":0,"resume_pending":false,"ended_reason":"action provider.messages needs 172068 units, 112317 available","created_at_ms":1790000000000,"updated_at_ms":1790000500000}"#;
     let waiting = r#"{"id":"exe_old_waiting","schema":1,"session_id":"ses_old_b","kind":"conversation","state":"waiting","authority":{"principal":"operator","ceilings":{}},"budget":{"limit":20000000,"spent":154321,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}},"wake":{"on":"input"},"outstanding":[],"queued_results":[],"turns":3,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000500000}"#;

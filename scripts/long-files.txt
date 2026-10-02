@@ -1,0 +1,14 @@
+# Rust files over 2,500 lines, each with a ceiling it may not pass and why it is
+# long (theseus-goa8; review 2's C1). scripts/shape.sh reads this; the gate runs it.
+# Format: <path> <ceiling> <reason>. Raising a ceiling needs a reason in the commit;
+# a file that falls to 2,500 lines or fewer has its entry deleted (shape.sh says so).
+# Ceilings were set on 2026-10-01 at today's length, rounded up with a little room
+# for the steps in flight.
+crates/theseus-core/src/tests_m3.rs 8000 the turn's tests, which every step adds to; split by subject (review 2, C7: deferred)
+crates/theseus-discord/src/runtime.rs 3500 the Discord binding's runtime in one file
+crates/theseus-core/src/turn.rs 3500 the turn loop; C2 and C6 reshape it
+crates/theseus-core/src/toolrun.rs 3300 tool calls and the gate's postures
+crates/theseus-kernel/src/kernel.rs 3000 every kernel transition; C6 reshapes it
+crates/theseus/src/render.rs 2900 the CLI's renderer (review 2, C3 types it)
+crates/theseus-discord/src/render.rs 2800 the Discord renderer (review 2, C3 types it)
+crates/theseus-index/src/vectors.rs 2650 the vector lane's engine, merged ahead of its reader

@@ -66,6 +66,7 @@ impl Drop for Rig {
 const OUT: &str = "projects/out";
 
 impl Rig {
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn start(web: bool) -> Self {
         let script = Script::default();
         let asks = script.clone();
@@ -406,6 +407,7 @@ fn assert_refused(out: &str, what: &str) {
 /// the wrapper that lingers. The operator's own answer counts, and the call
 /// runs. When the grandchild ends, the wrapper exits.
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
     let mut r = Rig::start(false);
     let script = format!(
@@ -534,6 +536,7 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
 /// daemon reaps the wrapper the job killed, the job's main process when it
 /// exits, and the grandchild when it ends.
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
     let mut r = Rig::start(false);
     let daemon = r.daemon.id();

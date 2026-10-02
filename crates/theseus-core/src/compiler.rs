@@ -566,6 +566,7 @@ pub(crate) fn renderable(n: &Node) -> bool {
     !matches!(n.body, Body::ToolCall { .. })
 }
 
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn compile(input: CompileInput<'_>) -> Compiled {
     let spec = input.spec;
     let entry = input.catalog.get(&spec.model);

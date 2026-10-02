@@ -1150,6 +1150,7 @@ impl Shared {
         }));
     }
 
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn on_interaction(self: Arc<Self>, i: Interaction) {
         let user = i.author().map(|u| (u.id.get(), u.name.clone()));
         let channel = i.channel.as_ref().map(|c| c.id.get());
@@ -1901,6 +1902,7 @@ impl Place {
         }
     }
 
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn handle(&mut self, m: PlaceMsg) {
         match m {
             PlaceMsg::Inbound(m) => {
@@ -2084,6 +2086,7 @@ impl Place {
         });
     }
 
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn control(&mut self, cmd: Control, by: &str) -> String {
         match cmd {
             Control::Status => {
@@ -3102,6 +3105,7 @@ mod tests {
     /// refused with the reason, and the hold stays; and a typed `/trust`
     /// answers in the place.
     #[tokio::test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn trust_clears_the_places_hold_as_the_presser_under_approval() {
         let d = tempfile::tempdir().unwrap();
         let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {

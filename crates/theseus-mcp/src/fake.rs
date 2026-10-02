@@ -630,6 +630,8 @@ impl Fake {
         }
     }
 
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn http_post(
         self: Arc<Self>,
         head: Head,

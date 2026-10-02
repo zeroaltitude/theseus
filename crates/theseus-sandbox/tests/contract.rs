@@ -52,6 +52,7 @@ type Row = (&'static str, Vec<PathBuf>, Vec<(String, String)>, String);
 
 /// git, python3, node, and cargo in L1 as 17b will run them, each with the
 /// `ro_paths` its install needs; one line each: how it ended, and its output.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn survey_toolchains() -> Result<(), String> {
     let home = common::home();
     let h = |p: &str| home.join(p);

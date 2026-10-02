@@ -205,6 +205,7 @@ fn ids(e: &ReachExposure) -> Vec<String> {
 /// the loops. The edge is keyed and scoped as §6.1 and §2.11 say, and its
 /// first write marks no manifest.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
     let r = rig(colours);
     let manifest = std::fs::read(r.dir.path().join("store/MANIFEST.json")).unwrap();

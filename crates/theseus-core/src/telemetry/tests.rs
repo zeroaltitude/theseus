@@ -193,6 +193,7 @@ fn s(name: &str, kind: &str, start: u64, end: u64, attrs: Value, children: Vec<S
 
 /// A turn of two loops and a tool call, with fixed times. KEEP IN STEP with
 /// the old exporter's dump (`testdata/old-exporter.json`, from 964411f).
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn two_loops_and_a_tool() -> Span {
     s(
         "turn",
@@ -1575,6 +1576,7 @@ fn tool_span(wire: &str, start: u64, end: u64, tool: [&str; 4]) -> Span {
 /// attributes, in a failed turn too; so the shell-fallback ratio, `proc.run`
 /// over every call, is one query (§3.23).
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn tool_calls_are_counted_and_timed_by_name_family_backend_and_outcome() {
     let rx = Receiver::start(vec![]).await;
     let tel = pipeline(&rx.endpoint(), None, tuning());

@@ -226,6 +226,7 @@ fn holder_of(tc: &TurnCtx<'_>, correlation_id: &str) -> Option<String> {
 /// Run `task.create` for the call `correlation_id` of the turn `tc` (the
 /// harness's side): open the child, and say what was opened. An error is the
 /// result the model reads.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn create(
     tc: &TurnCtx<'_>,
     input: &Value,

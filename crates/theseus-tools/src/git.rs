@@ -393,6 +393,8 @@ impl Tool for Diff {
             url: None,
         })
     }
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
         let a: DiffArgs = parse(input).map_err(ToolFailure::new)?;
         let r = open(ctx, a.path.as_deref())?;
@@ -996,6 +998,7 @@ mod tests {
     /// sees only its own part of it, in the diff, the stat, the untracked
     /// files, two revisions, and the log, and the first line says so.
     #[test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn a_root_inside_a_larger_repository_sees_only_its_own_part() {
         if !have_git() {
             return;

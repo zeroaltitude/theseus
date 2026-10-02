@@ -160,6 +160,7 @@ fn show(e: &Event) -> String {
 }
 
 #[tokio::main(flavor = "current_thread")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn main() {
     let a = parse();
     let started = Instant::now();

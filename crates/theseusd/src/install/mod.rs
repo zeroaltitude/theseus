@@ -284,6 +284,7 @@ fn separate_flags(a: &InstallArgs) -> String {
 }
 
 /// Print the plan, check the machine, or apply: the exit status.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub(crate) fn execute(
     l: &Layout,
     mode: Mode,

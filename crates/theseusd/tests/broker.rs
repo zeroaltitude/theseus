@@ -309,6 +309,8 @@ fn holding(at: &Path, needle: &[u8]) -> Vec<PathBuf> {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 fn a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does() {
     let r = Rig::start();
     let ops = r.op_calls("github_token");

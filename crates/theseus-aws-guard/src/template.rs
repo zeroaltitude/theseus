@@ -398,6 +398,7 @@ impl<'t> Resolver<'t> {
         }
     }
 
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn intrinsic(&self, name: &str, arg: &Node, depth: usize) -> Node {
         match name {
             "Ref" => match arg.as_str() {

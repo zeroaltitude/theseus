@@ -897,6 +897,7 @@ async fn a_copy_that_widens_approval_never_judges_an_approval() {
 /// anything may act. Nothing written under either copy changed a limit, and
 /// neither the spend nor the lifetime cost went down.
 #[tokio::test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn a_limit_raised_in_the_vault_lets_a_session_waiting_at_its_old_limit_continue() {
     use theseus_kernel::{micros_to_usd, ActionState, ExecState};
     let r = from_copy(

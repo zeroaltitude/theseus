@@ -387,6 +387,7 @@ impl Exam {
         }
     }
 
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn validate_answers_and_families(&self) -> Result<()> {
         let off = self.file.utc_offset_min;
         let mut all: Vec<Seen> = Vec::new();

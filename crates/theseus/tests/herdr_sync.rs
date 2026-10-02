@@ -308,6 +308,8 @@ fn reads(r: &str) -> bool {
 /// pane's watch died, one working whose watch died with its shell at the
 /// prompt, one whose pane runs an editor, and a pane of another daemon's.
 #[test]
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn sync_makes_mends_and_then_sends_only_reads() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = json!([

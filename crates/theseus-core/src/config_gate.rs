@@ -363,6 +363,7 @@ enum Step {
 /// start served from, or the daemon restarts onto a changed note. `first`
 /// is the read begun at process start, beside the secrets' `op inject`; the
 /// `config.vault` startup phase closes with the first answer.
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 pub async fn confirm(
     core: Arc<Core>,
     reader: Arc<dyn ReadNote>,

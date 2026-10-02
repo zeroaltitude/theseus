@@ -297,6 +297,8 @@ pub struct Step {
 impl Tender {
     /// Take the index directory's lock, open (or rebuild) the index, and
     /// open the follower at its cursor. Nothing is read from the WAL yet.
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn open(cfg: Config) -> Result<Self, OpenError> {
         let paths = Paths::new(&cfg.index_dir);
         paths.create().context("creating the index directory")?;

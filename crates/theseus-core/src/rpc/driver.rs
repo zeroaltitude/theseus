@@ -18,6 +18,7 @@ impl Core {
     /// Heartbeat: drain the spool, reconcile against the wrapper evidence.
     /// Called by the harness loop on its timer and when a wrapper pokes the
     /// notify socket.
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     pub fn heartbeat(&self, why: &str) {
         let t0 = Instant::now();
         let drained = self.drain_spool();
@@ -93,6 +94,7 @@ impl Core {
     }
 
     /// Accept every spooled completion, removing each file after its frame.
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     pub fn drain_spool(&self) -> u32 {
         let mut n = 0;
         match self.spool.drain() {

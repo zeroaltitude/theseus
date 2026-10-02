@@ -102,6 +102,7 @@ pub struct Show {
 /// it may hold several lines, or end inside one, and the next piece goes on
 /// where it stopped. A line of any other tag is whole, and a client ends a
 /// stream's open line before it.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn event(e: &Event, show: Show) -> Vec<Line> {
     let mut out = Vec::new();
     match e {
@@ -538,6 +539,7 @@ pub fn indent(s: &str, pad: &str) -> String {
 /// operator's message (`Plain`), a reply (`Reply`) with its thinking
 /// (`Thinking`, in full) and its usage (`Dim`), and a call and its result
 /// (`Tool`).
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
     let mut out = Vec::new();
     let t = fmt_time(n.at_unix_ms);
@@ -1592,6 +1594,7 @@ pub fn fmt_price(p: f64) -> String {
 
 /// `theseus health`: every line, `now_ms` for the ones that say how long ago.
 /// All `Plain`.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line> {
     let mut out = Vec::new();
     let o = &mut out;

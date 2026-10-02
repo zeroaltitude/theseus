@@ -330,6 +330,7 @@ fn seqs_grow(got: &[Value]) {
 /// again, and a spend-only view change no state), the pane named after its
 /// first report, `seq` growing, and the release when the daemon closes.
 #[test]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
     let dir = tempfile::tempdir().unwrap();
     let herdr = FakeHerdr::start(dir.path());

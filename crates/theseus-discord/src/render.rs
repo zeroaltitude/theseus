@@ -254,6 +254,7 @@ impl Renderer {
     }
 
     /// One event for this session, typed (theseus-0g4).
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn on_event(&mut self, e: &Event) -> Vec<Op> {
         let turn_id = e.turn_id().unwrap_or("");
         match e {

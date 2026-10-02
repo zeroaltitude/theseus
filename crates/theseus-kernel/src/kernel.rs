@@ -1230,6 +1230,7 @@ impl Kernel {
     /// (complete or failed) reaches its parent in the same frame (DD7): the
     /// carve is released but for what the task still has in flight, and the
     /// task joins the parent's `reports`.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn end_turn(&self, guard: TurnGuard, end: TurnEnd) -> Result<Execution> {
         let _w = self.lock_family(&guard.execution_id)?;
         let mut e = self
@@ -2226,6 +2227,7 @@ impl Kernel {
     /// Accept a completion from any transport (§3.16). Idempotent; atomic
     /// with the owning execution's continuation. A task's action locks the
     /// parent too (`locked_action`).
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn accept_completion(&self, c: &Completion) -> Result<Accepted> {
         let Some((_w, mut a)) = self.locked_action(&c.correlation_id)? else {
             // No action, so no execution to lock.
@@ -2758,6 +2760,7 @@ impl Kernel {
     /// 3. drain the completion spool (each file settles, then is removed),
     /// 4. reconcile against evidence,
     /// 5. accept events.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn startup(
         &self,
         spool: Option<&crate::spool::Spool>,

@@ -712,6 +712,8 @@ fn the_socket_answers_neighbours_embed_and_warm() {
 /// the bit, and its order); a weight that is negative or names no source is
 /// refused; status says the defaults; and the socket carries them.
 #[test]
+#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn fusion_weights_are_the_querys_over_the_tenders_and_ones_are_the_old_fusion() {
     let v = VRig::new();
     v.rig.put(&TEXTS.map(|t| user("ses_1", t)));
