@@ -159,7 +159,7 @@ pub async fn watch(
         asked: None,
         resolved: HashSet::new(),
         pending: HashMap::new(),
-        title_asked: false,
+        title_asked_at: 0,
     };
     eprintln!("watching {sid} (Ctrl-C to stop)");
     if let Some(r) = &w.reporter {
@@ -246,7 +246,8 @@ struct Watch {
     /// Questions answered or withdrawn: a refused answer never brings one back.
     resolved: HashSet<String>,
     pending: HashMap<Id, Purpose>,
-    title_asked: bool,
+    /// The turns the session had when its title was last asked for.
+    title_asked_at: u64,
 }
 
 impl Watch {
@@ -296,8 +297,10 @@ impl Watch {
             Some(Event::ExecutionChanged(v)) if v.session_id == self.sid => {
                 if let Some(rep) = &mut self.reporter {
                     rep.observe(&v);
-                    if !rep.has_title() && v.turns > 0 && !self.title_asked {
-                        self.title_asked = true;
+                    // Asked again at each new turn until the session has a
+                    // title: it may not have one yet at its first turn's start.
+                    if rep.wants_title() && v.turns > self.title_asked_at {
+                        self.title_asked_at = v.turns;
                         let id = conn
                             .send(method::SESSION_LIST, json!({ "ids": [self.sid] }))
                             .await?;

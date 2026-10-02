@@ -13,6 +13,7 @@
 
 mod cmd;
 mod herdr;
+mod herdr_sync;
 mod interactive;
 mod print;
 
@@ -250,6 +251,12 @@ enum Cmd {
         #[arg(short, long)]
         session: Option<String>,
     },
+    /// herdr, the terminal workspace manager: `theseus herdr sync` gives each session that needs
+    /// you or is working a pane in herdr, running `theseus watch --interactive`.
+    Herdr {
+        #[command(subcommand)]
+        cmd: herdr_sync::HerdrCmd,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -440,6 +447,10 @@ async fn run(cli: Cli) -> Result<()> {
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { n, kind, session } => cmd::ledger(c, json, n, kind, session).await,
+        Cmd::Herdr { cmd } => {
+            let socket = cli.spawn.is_none().then_some(cli.socket.as_str());
+            herdr_sync::run(c, json, cmd, socket).await
+        }
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

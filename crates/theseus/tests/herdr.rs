@@ -354,7 +354,8 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
         json!({"target": PANE, "name": "theseus-q7f3k2-tide-notes"})
     );
     let meta = &got[2]["params"];
-    assert_eq!(meta["title"], "check the tide tables");
+    // A session the operator labelled is titled by its label.
+    assert_eq!(meta["title"], "Tide notes");
     assert_eq!(meta["display_agent"], "theseus: ready");
     assert_eq!(
         meta["tokens"],
@@ -610,6 +611,76 @@ fn a_note_declines_and_a_refused_answer_is_asked_again() {
             "the answer to act_m3 was refused: approvals come from the operator's channels"
         ),
         "{err}"
+    );
+}
+
+/// A session with no label is titled by its title, which it may not have at
+/// its first turn's start: the watch asks again at each new turn until it
+/// has one, and then no more.
+#[test]
+fn an_unlabelled_session_is_titled_once_it_has_a_title() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let n = Mutex::new(0u32);
+    let d = FakeDaemon::start(dir.path(), move |req| {
+        Some(Ok(match req["method"].as_str().unwrap() {
+            "session.watch" => json!({"watching": true}),
+            "session.wait" => json!({"reached": "settled", "already": true,
+                                     "execution": view(10, "waiting", "ready", "ready", None, 0.0)}),
+            "session.list" => {
+                let mut n = n.lock().unwrap();
+                *n += 1;
+                // The first read, and the ask at turn 1, find no title yet.
+                let title = (*n >= 3).then_some("check the tide tables");
+                json!({"sessions": [{"session_id": S, "kind": "conversation", "label": null,
+                       "created_at_unix_ms": 1_759_300_000_000u64, "turns": 1, "title": title}]})
+            }
+            _ => return None,
+        }))
+    });
+    let w = Watch::start(&d, Some(&herdr), &[]);
+    herdr.wait_for("pane.report_metadata", 1);
+    let turn = |position: u64, turns: u64, label: &str| {
+        let mut v = view(position, "running", "working", label, None, 0.0);
+        v["turns"] = json!(turns);
+        v
+    };
+    // herdr has heard a report with this message.
+    let reported = |message: &str| {
+        wait_until(&format!("a report of `{message}`"), || {
+            reports(&herdr.requests())
+                .iter()
+                .any(|(_, m)| m == message)
+                .then_some(())
+        })
+    };
+    d.push("execution.changed", turn(11, 1, "turn 1"));
+    d.wait_for("session.list", 2);
+    reported("turn 1");
+    d.push("execution.changed", turn(12, 1, "turn 1 · tools"));
+    reported("turn 1 · tools");
+    d.push("execution.changed", turn(13, 2, "turn 2"));
+    d.wait_for("session.list", 3);
+    wait_until("the title at herdr", || {
+        herdr
+            .requests()
+            .iter()
+            .any(|r| r["params"]["title"] == "check the tide tables")
+            .then_some(())
+    });
+    d.push("execution.changed", turn(14, 3, "turn 3"));
+    reported("turn 3");
+    d.close();
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
+    let asked = d
+        .requests()
+        .iter()
+        .filter(|r| r["method"] == "session.list")
+        .count();
+    assert_eq!(
+        asked, 3,
+        "asked at the start, at turn 1 (no title yet), and at turn 2; not at turn 1 again, nor once titled"
     );
 }
 

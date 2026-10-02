@@ -310,8 +310,10 @@ impl Reporter {
         }
     }
 
-    pub fn has_title(&self) -> bool {
-        self.title.is_some()
+    /// Whether the pane's title still waits for the session's: a session the
+    /// operator labelled is titled by its label, and needs no other.
+    pub fn wants_title(&self) -> bool {
+        self.label.is_none() && self.title.is_none()
     }
 
     /// A view of the session, from the first read or `execution.changed`.
@@ -374,7 +376,7 @@ impl Reporter {
             return;
         };
         let meta = Meta {
-            title: self.title.clone().or_else(|| self.label.clone()),
+            title: self.label.clone().or_else(|| self.title.clone()),
             display_agent: format!("{AGENT}: {label}"),
             session: self.session_id.clone(),
             cost: self.cost.clone(),
