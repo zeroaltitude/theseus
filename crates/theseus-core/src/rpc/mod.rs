@@ -12,7 +12,7 @@
 
 mod bindings;
 mod confirms;
-pub(crate) use confirms::Act;
+pub(crate) use confirms::{expired_answer, Act};
 mod driver;
 mod info;
 mod methods;

@@ -10,13 +10,31 @@ use theseus_protocol::{ApprovalRefused, ConfirmRequest, GateDecision, PendingCon
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::fact;
-use crate::node::{Body, Node};
+use crate::node::{Body, Node, ResultStatus};
 use crate::outbox::Closed;
 use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::{Action, LimitFollowed, BUDGET_TOOL};
 use theseus_store::Store as _;
+
+/// Who declines a question nobody answered in time (theseus-830), as its
+/// `action.declined` row and its resolution name it.
+pub(crate) const EXPIRY: &str = "expiry";
+
+/// The resolution an expiry writes, before its reason (`Kernel::
+/// decline_action`'s `declined by <who>: <reason>`).
+const EXPIRED: &str = "declined by expiry: ";
+
+/// What the call of a question nobody answered in time tells the model
+/// (theseus-830): an expiry is no one's decline. None for any other call.
+pub(crate) fn expired_answer(a: &Action) -> Option<(ResultStatus, String)> {
+    let why = a.resolution.as_deref()?.strip_prefix(EXPIRED)?;
+    Some((
+        ResultStatus::Declined,
+        format!("Not run: {why}, so the request expired."),
+    ))
+}
 
 impl Core {
     /// A waiting action as the question the operator sees: the one place a
@@ -462,7 +480,7 @@ impl Core {
         let row = fact::row(&fact, Some(&a.session_id), None)?;
         let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
         self.kernel.frame(&[&a.execution_id], |k| {
-            k.decline_action(&a.correlation_id, crate::toolrun::EXPIRY, &why)?;
+            k.decline_action(&a.correlation_id, EXPIRY, &why)?;
             k.stage(std::slice::from_ref(&row))?;
             // The wake is its own part, as an answer's: one that cannot
             // happen (the execution ended) takes back nothing else.

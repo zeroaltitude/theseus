@@ -2747,28 +2747,13 @@ fn sentence(text: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Who declines a question nobody answered in time (theseus-830), as its
-/// `action.declined` row and its resolution name it.
-pub const EXPIRY: &str = "expiry";
-
-/// The resolution an expiry writes, before its reason (`Kernel::
-/// decline_action`'s `declined by <who>: <reason>`).
-const EXPIRED: &str = "declined by expiry: ";
-
 /// What a call that never ran tells the model: who declined it, that nobody
 /// answered its question in time, or why it was cancelled (its action's
 /// resolution).
 fn not_run_answer(a: &Action) -> (ResultStatus, String) {
     // An expired question is no one's decline (theseus-830).
-    if let Some(why) = a
-        .resolution
-        .as_deref()
-        .and_then(|r| r.strip_prefix(EXPIRED))
-    {
-        return (
-            ResultStatus::Declined,
-            format!("Not run: {why}, so the request expired."),
-        );
+    if let Some(answer) = crate::rpc::expired_answer(a) {
+        return answer;
     }
     // A decline records who declined; the model reads only the note.
     match a.declined_note() {

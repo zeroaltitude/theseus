@@ -33,3 +33,10 @@ retries = 2
 [[profile.default.overrides]]
 filter = 'package(theseusd) & test(=a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker)'
 retries = 2
+#
+# theseus-6a7o: a duration in the transcript's text has a digit more or less with the load, so
+# the output golden's request size for the parent's turn that reads a report moves by a byte
+# (17,219 run alone, 17,220 in a full suite; security3's join, 2026-10-02 12:08).
+[[profile.default.overrides]]
+filter = 'package(theseus-core) & test(=tests_output::the_cores_output_matches_its_golden)'
+retries = 2
