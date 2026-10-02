@@ -807,3 +807,99 @@ async fn events_lost_and_execution_changed_post_nothing_and_replies_still_go() {
     })
     .await;
 }
+
+/// theseus-c3e: with no DM taking approvals, an operator's notice falls back
+/// to the place of the session it concerns only when this daemon binds that
+/// place. Sessions whose places the bindings file does not name (as a store
+/// copied from another daemon's has, or a place since removed) get nothing
+/// there: no DM is opened with the user, nothing is posted to the channel,
+/// and each notice is refused with the reason. A bound place still gets its
+/// notice. Before, the first opened a DM with the stranger and the second
+/// posted to the unbound channel.
+#[tokio::test]
+async fn an_operators_notice_falls_back_only_to_a_place_this_daemon_binds() {
+    const STRANGER: u64 = 500_000_000_000_000_505;
+    const ELSEWHERE: u64 = 900_000_000_000_000_009;
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    // What a copied store names: a DM and a channel this daemon does not bind.
+    let placed = |place: &str| {
+        let r = theseus_core::session::SessionRecord::new(
+            theseus_protocol::SessionKind::Conversation,
+            None,
+        );
+        core.store.put_session(&r.session_id, &r).unwrap();
+        core.outbox.bind_place(place, &r.session_id).unwrap();
+        r.session_id
+    };
+    let stranger = placed(&format!("dm:{STRANGER}"));
+    let elsewhere = placed(&format!("channel:{ELSEWHERE}"));
+    let path = d.path().join("bindings.toml");
+    std::fs::write(
+        &path,
+        format!(
+            "guild_id = \"{GUILD}\"\n[[channel]]\nid = \"{CHANNEL}\"\nname = \"harbor\"\n\
+             users = [\"{USER}\"]\nmention_only = false\n"
+        ),
+    )
+    .unwrap();
+    tokio::spawn(crate::run(core.clone(), core.cfg.discord.clone(), path));
+    let f = fake.clone();
+    until("the channel's bind notice", 10, move || {
+        f.messages(CHANNEL).len() == 1
+    })
+    .await;
+    let before = fake.seen().len();
+    let notice = |sid: &str| {
+        core.outbox
+            .to_operator(
+                Some(sid),
+                serde_json::json!({"kind": "restarted", "at_unix_ms": 1, "tables": ["model"]}),
+            )
+            .unwrap()
+    };
+    notice(&stranger);
+    notice(&elsewhere);
+    let c = core.clone();
+    until("both notices are refused", 10, move || {
+        c.outbox.status("discord").failed == 2 && pending(&c) == 0
+    })
+    .await;
+    let mut why: Vec<String> = refused_rows(&core)
+        .iter()
+        .map(|r| r["detail"]["error"].as_str().unwrap_or("").to_string())
+        .collect();
+    why.sort();
+    assert_eq!(
+        why,
+        [
+            format!(
+                "no DM takes approvals, and the notice's place, discord:channel:{ELSEWHERE}, \
+                 is not one this daemon's bindings file names"
+            ),
+            format!(
+                "no DM takes approvals, and the notice's place, discord:dm:{STRANGER}, is not \
+                 one this daemon's bindings file names"
+            ),
+        ]
+    );
+    let reached: Vec<(String, String)> = fake.seen()[before..]
+        .iter()
+        .map(|s| (s.method.clone(), s.path.clone()))
+        .collect();
+    assert!(reached.is_empty(), "{reached:?}");
+    assert!(fake.messages(ELSEWHERE).is_empty());
+    // The bound channel's own session still gets its notice there.
+    let bound = core
+        .outbox
+        .place_session(&format!("channel:{CHANNEL}"))
+        .unwrap()
+        .unwrap();
+    notice(&bound);
+    let f = fake.clone();
+    until("the bound channel's notice", 10, move || {
+        f.messages(CHANNEL).len() == 2
+    })
+    .await;
+}

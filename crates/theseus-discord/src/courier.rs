@@ -904,23 +904,35 @@ impl Lane {
     }
 
     /// Where an operator's notice goes: the DM approvals go to, else the
-    /// place of the session it concerns. Returns the channel and its label.
+    /// place of the session it concerns, when this daemon binds it
+    /// (theseus-c3e). A place the bindings file does not name, a session's
+    /// in a store copied from another daemon's or a place since removed, is
+    /// never posted to and no DM is opened for it: two daemons may share a
+    /// bot when their bindings name disjoint places (theseus-e89). The
+    /// notice is refused with the reason, as one with no place is. Returns
+    /// the channel and its label.
     async fn operator_channel(&mut self, body: &Value) -> Result<(u64, String), SendErr> {
         self.shared.open_dm_channels().await?;
         if let Some((user, dm)) = self.shared.approval_dm(None) {
             return Ok((self.shared.dm_channel(user).await?, dm));
         }
         let fallback = body["fallback"].as_str().unwrap_or("");
-        if let Some(id) = fallback
+        let channel: Option<u64> = fallback
             .strip_prefix("discord:channel:")
-            .and_then(|s| s.parse().ok())
-        {
+            .and_then(|s| s.parse().ok());
+        let dm: Option<u64> = fallback
+            .strip_prefix("discord:dm:")
+            .and_then(|s| s.parse().ok());
+        if (channel.is_some() || dm.is_some()) && !self.shared.binds(fallback) {
+            return Err(SendErr::refused(format!(
+                "no DM takes approvals, and the notice's place, {fallback}, is not one this \
+                 daemon's bindings file names"
+            )));
+        }
+        if let Some(id) = channel {
             return Ok((id, fallback.to_string()));
         }
-        if let Some(u) = fallback
-            .strip_prefix("discord:dm:")
-            .and_then(|s| s.parse().ok())
-        {
+        if let Some(u) = dm {
             return Ok((self.shared.dm_channel(u).await?, fallback.to_string()));
         }
         Err(SendErr::refused(

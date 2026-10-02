@@ -821,6 +821,12 @@ impl Shared {
         self.lanes.lock().unwrap().get(target).cloned()
     }
 
+    /// Whether this daemon binds `target`: the bindings file names it, so it
+    /// has a lane (theseus-l3m, theseus-c3e).
+    pub(crate) fn binds(&self, target: &str) -> bool {
+        self.lanes.lock().unwrap().contains_key(target)
+    }
+
     /// Who the bot is, what its application allows, the slash commands, and
     /// the bot's roles: asked until Discord answers, while the lanes deliver
     /// on their own.
