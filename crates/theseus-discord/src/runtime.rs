@@ -2421,10 +2421,12 @@ mod tests {
             queued_results: 0,
             budget: Default::default(),
             wake: Value::Null,
+            waiting_on: None,
             reports_to: None,
             ended_reason: None,
             created_at_ms: 0,
             updated_at_ms: 0,
+            attention: None,
         };
         let mut r = theseus_protocol::ExecutionStopResult {
             execution: exec,

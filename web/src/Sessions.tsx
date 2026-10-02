@@ -1,4 +1,4 @@
-import type { SessionInfo } from './protocol'
+import type { Attention, SessionInfo } from './protocol'
 
 // Every session the store holds, most recently active first. Picking one
 // resumes it: its whole history renders from the store and new turns continue
@@ -25,6 +25,15 @@ const taskPill = (state: string | null | undefined) => {
     case 'cancelled': return <span className="pill muted">cancelled</span>
     default: return state ? <span className="pill muted">{state}</span> : null
   }
+}
+
+/** Each level's mark and tone, as every surface draws it (theseus-in3): ● needs you, ◐ working, ○ ready, · idle. */
+const MARK = { needs_you: '●', working: '◐', ready: '○', idle: '·' } as const
+const TONE = { needs_you: 'bad needs', working: 'accent', ready: 'ok', idle: 'muted' } as const
+
+/** What a session needs from you, as the server's one function says it (theseus-in3). */
+export function AttentionPill({ a }: { a: Attention }) {
+  return <span className={`pill att ${TONE[a.level]}`} title={`${a.level.replace('_', ' ')} since ${new Date(a.since_ms).toLocaleTimeString()}`}>{MARK[a.level]} {a.label}</span>
 }
 
 export default function Sessions({ sessions, current, onPick, onNew, now }: {
@@ -54,10 +63,12 @@ export default function Sessions({ sessions, current, onPick, onNew, now }: {
           {ago(last, now)} · {s.turns} turn{s.turns === 1 ? '' : 's'}
           {(s.tool_calls ?? 0) > 0 && <> · {s.tool_calls} tool{s.tool_calls === 1 ? '' : 's'}</>}
           {' · '}{money(s.cost_usd ?? 0)}{task && s.limit_usd != null && <> of {money(s.limit_usd)}</>}
-          {waiting > 0 && <span className="pill accent needs">needs you · {waiting}</span>}
-          {task ? taskPill(s.execution_state) : <>
-            {s.execution_state === 'running' && <span className="pill ok">running</span>}
-            {s.execution_state === 'queued' && <span className="pill accent">queued</span>}
+          {s.attention ? <AttentionPill a={s.attention} /> : <>
+            {waiting > 0 && <span className="pill accent needs">needs you · {waiting}</span>}
+            {task ? taskPill(s.execution_state) : <>
+              {s.execution_state === 'running' && <span className="pill ok">running</span>}
+              {s.execution_state === 'queued' && <span className="pill accent">queued</span>}
+            </>}
           </>}
         </div>
       </li>

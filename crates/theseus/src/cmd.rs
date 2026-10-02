@@ -951,10 +951,12 @@ mod tests {
             queued_results: 0,
             budget: Default::default(),
             wake: Value::Null,
+            waiting_on: None,
             reports_to: None,
             ended_reason: None,
             created_at_ms: 0,
             updated_at_ms: 0,
+            attention: None,
         };
         let execs = [
             e("exe_a1b2c3", "ses_a1b2c3", "conversation"),

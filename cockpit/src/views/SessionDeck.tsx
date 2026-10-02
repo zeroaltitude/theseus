@@ -23,7 +23,7 @@ import { ModelInspector } from '@/components/ModelInspector'
 import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
-import { Btn, Empty, Field, LiveDot, Meter, Panel, Pill, StatePill } from '@/components/ui'
+import { AttentionPill, Btn, Empty, Field, LiveDot, Meter, Panel, Pill } from '@/components/ui'
 
 type Rows = LedgerEntry[] | undefined
 
@@ -157,7 +157,7 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <h1 className="truncate text-[17px] font-semibold text-ink">{s.title || s.label || 'untitled session'}</h1>
-          <StatePill state={s.execution_state ?? 'idle'} />
+          <AttentionPill a={s.attention} state={s.execution_state} />
           <Pill tone={s.kind === 'task' ? 'tool' : 'idle'}>{s.kind}</Pill>
           {s.external_text && <Pill tone="wait"><ShieldCheck size={11} /> holds external text</Pill>}
         </div>

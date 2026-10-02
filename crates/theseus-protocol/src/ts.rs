@@ -38,6 +38,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("lib.rs"),
         include_str!("events.rs"),
         include_str!("gate.rs"),
+        include_str!("push.rs"),
     ] {
         let lines: Vec<&str> = src.lines().collect();
         for (i, l) in lines.iter().enumerate() {
@@ -97,7 +98,8 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         CacheSummary, EstimateSummary, CensusSummary, ContextCompiled, ToolStarted, ToolEnded,
         ConfirmResolved,
         NodeWritten, PolicyNotified, Asker, ApprovalRefused, Access, Resource, Plan, Proposal,
-        Notice, GateDecision, GateResult, GateRecord,
+        Notice, GateDecision, GateResult, GateRecord, Level, Attention, WaitingOn, PendingConfirm,
+        ExecutionView,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

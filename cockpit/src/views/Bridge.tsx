@@ -13,7 +13,7 @@ import { ago, ms, pct, short, tokens, usd, clock } from '@/lib/format'
 import { stateTone, toneHex, type Tone } from '@/lib/taxonomy'
 import { Echart } from '@/components/Echart'
 import { axisStyle, type EChartsOption } from '@/lib/chart'
-import { Empty, Kpi, Meter, Panel, Pill, Segmented, StatePill } from '@/components/ui'
+import { AttentionPill, Empty, Kpi, Meter, Panel, Pill, Segmented } from '@/components/ui'
 import { useHistory, useTick } from '@/lib/hooks'
 
 export function Bridge() {
@@ -188,7 +188,7 @@ function FleetGlance({ sessions, executions }: { sessions: SessionInfo[]; execut
         {recent.map((s) => (
           <button key={s.session_id} onClick={() => nav(`/session/${s.session_id}`)}
             className="flex w-full items-center gap-2 border-b border-line/60 px-3 py-1.5 text-left text-[12px] hover:bg-white/[0.03]">
-            <StatePill state={s.execution_state ?? 'idle'} />
+            <AttentionPill a={s.attention} state={s.execution_state} />
             <span className="min-w-0 flex-1 truncate text-ink">{s.title || s.label || short(s.session_id)}</span>
             <span className="num text-[11px] text-ink-faint">{s.turns}t</span>
             <span className="num w-14 text-right text-[11px] text-money">{usd(s.cost_usd)}</span>

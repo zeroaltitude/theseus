@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use serde_json::json;
-use theseus_protocol::{ApprovalRefused, ConfirmRequest, ConfirmResolved, Event, Message};
+use theseus_protocol::{
+    ApprovalRefused, ConfirmRequest, ConfirmResolved, Event, GateDecision, Message, PendingConfirm,
+};
 
 use super::Core;
 use crate::approval::{Answerer, Refusal};
@@ -159,6 +161,38 @@ impl Core {
             .filter(|a| a.session_id == session.session_id)
             .filter_map(|a| self.confirm_request(a, session, nodes))
             .collect()
+    }
+
+    /// Each execution's questions in brief (theseus-in3), from `pending`
+    /// (`Kernel::pending_confirms`, a budget question first). A tool call's
+    /// reason and floor are the gate's, on its node, so each session with one
+    /// waiting has its transcript read once; `known` is one already read.
+    pub(super) fn pending_by_execution(
+        &self,
+        pending: &[Action],
+        known: Option<(&str, &[(u64, Node)])>,
+    ) -> BTreeMap<String, Vec<PendingConfirm>> {
+        let ttl = self.kernel.config().confirm_ttl_ms;
+        let mut read: BTreeMap<String, Vec<(u64, Node)>> = BTreeMap::new();
+        let mut out: BTreeMap<String, Vec<PendingConfirm>> = BTreeMap::new();
+        for a in pending {
+            let decision = match (a.tool == BUDGET_TOOL, known) {
+                (true, _) => None,
+                (false, Some((sid, nodes))) if sid == a.session_id => {
+                    decision_of(nodes, &a.correlation_id)
+                }
+                (false, _) => {
+                    let nodes = read.entry(a.session_id.clone()).or_insert_with(|| {
+                        self.store.session_nodes(&a.session_id).unwrap_or_default()
+                    });
+                    decision_of(nodes, &a.correlation_id)
+                }
+            };
+            out.entry(a.execution_id.clone())
+                .or_default()
+                .push(crate::push::pending_of(a, decision.as_ref(), ttl));
+        }
+        out
     }
 
     /// Everything waiting for the operator (`confirm.list`, what `theseus
@@ -738,11 +772,15 @@ impl Act<'_> {
     }
 }
 
-/// How many questions each execution waits on, from `Kernel::pending_confirms`.
-pub(super) fn waiting_by_execution(pending: &[Action]) -> BTreeMap<String, u32> {
-    let mut by = BTreeMap::new();
-    for a in pending {
-        *by.entry(a.execution_id.clone()).or_insert(0) += 1;
-    }
-    by
+/// The gate's decision on the tool call `correlation_id` names, from its
+/// node in `nodes`, a session's transcript.
+fn decision_of(nodes: &[(u64, Node)], correlation_id: &str) -> Option<GateDecision> {
+    nodes.iter().rev().find_map(|(_, n)| match &n.body {
+        Body::ToolCall {
+            correlation_id: Some(c),
+            gate,
+            ..
+        } if c == correlation_id => gate.as_ref().and_then(|g| g.decision.clone()),
+        _ => None,
+    })
 }

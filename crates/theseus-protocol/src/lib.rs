@@ -10,11 +10,13 @@
 
 mod events;
 mod gate;
+mod push;
 #[cfg(test)]
 mod ts;
 
 pub use events::*;
 pub use gate::*;
+pub use push::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1178,6 +1180,10 @@ pub struct ExecutionInfo {
     #[serde(default, skip_serializing_if = "Value::is_null")]
     #[cfg_attr(test, ts(type = "unknown"))]
     pub wake: Value,
+    /// `wake`, typed (theseus-in3): what it waits on, while it waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub waiting_on: Option<WaitingOn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub reports_to: Option<String>,
@@ -1186,6 +1192,10 @@ pub struct ExecutionInfo {
     pub ended_reason: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
+    /// What it needs from people, by `attention()` (theseus-in3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub attention: Option<Attention>,
 }
 
 /// An execution's budget in US dollars (theseus-0sg).
@@ -1379,6 +1389,10 @@ pub struct TaskInfo {
     /// Its report starts its parent's next turn (W1, `wake_parent`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wake_parent: bool,
+    /// What it needs from people, by `attention()` (theseus-in3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub attention: Option<Attention>,
 }
 
 /// `task.list`: every task, the newest first, or only one session's, or
@@ -1589,6 +1603,10 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub external_text: Option<ExternalText>,
+    /// What its execution needs from people, by `attention()` (theseus-in3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub attention: Option<Attention>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

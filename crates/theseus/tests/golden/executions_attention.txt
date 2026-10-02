@@ -1,0 +1,7 @@
+$ theseus executions
+--- requests
+execution.list
+--- stdout
+exe_q7f3k2	conversation	waiting	● confirm proc.run: run the gate	turns=3	interrupted=0	outstanding=1	queued=0	budget $0.2500 of $100.00 (reserved $0.0100, held $0.0000)	session=ses_q7f3k2
+--- stderr
+--- exit 0

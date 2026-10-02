@@ -1676,6 +1676,70 @@ async fn session_list_counts_each_sessions_waiting_calls() {
     assert_eq!(waiting(&b.session_id), 1);
 }
 
+/// `session.list`, `execution.list`, and `session.history` carry `attention`
+/// (theseus-in3, 9a): a session parked on a confirm needs you, with the tool
+/// and the gate's reason, and a plain one is ready. An answer takes it back.
+#[tokio::test]
+async fn the_lists_carry_attention_for_a_session_parked_on_a_confirm() {
+    use theseus_protocol::{Level, WaitingOn};
+    let r = rig(vec![
+        Scripted::tools(
+            "",
+            &[("t1", "fs_write", json!({"path": "a.txt", "content": "a"}))],
+        ),
+        Scripted::text("Hello."),
+        Scripted::text("Not written, then."),
+    ]);
+    let a = turn(&r.core, None, "write a.txt").await;
+    let plain = turn(&r.core, None, "hi").await;
+    let corr = a.awaiting_confirm.clone().unwrap();
+    let list = r.core.session_list().unwrap();
+    let att = |list: &[theseus_protocol::SessionInfo], sid: &str| {
+        list.iter()
+            .find(|s| s.session_id == sid)
+            .unwrap()
+            .attention
+            .clone()
+            .unwrap()
+    };
+    let parked = att(&list, &a.session_id);
+    assert_eq!(parked.level, Level::NeedsYou, "{parked:?}");
+    assert!(
+        parked.label.starts_with("confirm fs.write: ") && parked.label.len() > 18,
+        "the tool and the gate's reason: {}",
+        parked.label
+    );
+    assert_eq!(att(&list, &plain.session_id).label, "ready");
+    assert_eq!(att(&list, &plain.session_id).level, Level::Ready);
+
+    let execs = r.core.execution_list().unwrap().executions;
+    let e = execs.iter().find(|e| e.session_id == a.session_id).unwrap();
+    assert_eq!(
+        e.attention.as_ref().unwrap(),
+        &parked,
+        "one function, one answer"
+    );
+    assert_eq!(
+        e.waiting_on,
+        Some(WaitingOn::Confirm {
+            confirm_id: corr.clone()
+        })
+    );
+    let history = r
+        .core
+        .session_history(theseus_protocol::SessionHistoryParams {
+            session_id: a.session_id.clone(),
+            n: None,
+        })
+        .unwrap();
+    assert_eq!(history.session.attention.as_ref(), Some(&parked));
+
+    r.core.confirm_action(&corr, false, None, "test").unwrap();
+    let list = r.core.session_list().unwrap();
+    let after = att(&list, &a.session_id);
+    assert_ne!(after.level, Level::NeedsYou, "answered: {after:?}");
+}
+
 /// The ledger kinds written after WAL position `after`, in order.
 fn ledger_after(core: &Core, after: u64) -> Vec<String> {
     core.store

@@ -587,6 +587,7 @@ pub fn info(
         created_at_ms: e.created_at_ms,
         updated_at_ms: e.updated_at_ms,
         wake_parent: e.wake_parent,
+        attention: None,
     }
 }
 

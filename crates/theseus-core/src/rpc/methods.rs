@@ -12,7 +12,6 @@ use theseus_protocol::{
     SessionKind, SessionOpenParams, TurnSubmitParams, Usage,
 };
 
-use super::confirms::waiting_by_execution;
 use super::server::{Conn, RpcFailure};
 use super::{Core, META_LIVE_PROFILE};
 use crate::approval::Refusal;
@@ -171,18 +170,21 @@ impl Core {
 
     /// Every session, the most recently active first.
     pub fn session_list(&self) -> Result<Vec<theseus_protocol::SessionInfo>> {
-        let waiting = waiting_by_execution(&self.kernel.pending_confirms().unwrap_or_default());
+        let pending =
+            self.pending_by_execution(&self.kernel.pending_confirms().unwrap_or_default(), None);
         Ok(self
             .sessions_by_activity()?
             .iter()
-            .map(|r| self.session_info(r, &waiting))
+            .map(|r| self.session_info(r, &pending))
             .collect())
     }
 
+    /// A session as `session.list` shows it, with its execution's state and
+    /// attention (theseus-in3). `pending` is `pending_by_execution`'s.
     fn session_info(
         &self,
         r: &SessionRecord,
-        waiting: &std::collections::BTreeMap<String, u32>,
+        pending: &std::collections::BTreeMap<String, Vec<theseus_protocol::PendingConfirm>>,
     ) -> theseus_protocol::SessionInfo {
         let mut i = r.info();
         let e = r
@@ -190,9 +192,13 @@ impl Core {
             .as_deref()
             .and_then(|id| self.kernel.execution(id).ok().flatten());
         i.execution_state = e.as_ref().map(|e| e.state.as_str().to_string());
-        if let Some(exec) = r.execution_id.as_deref() {
-            i.pending_confirms = waiting.get(exec).copied().unwrap_or(0);
-        }
+        let asks = r
+            .execution_id
+            .as_deref()
+            .and_then(|exec| pending.get(exec))
+            .cloned()
+            .unwrap_or_default();
+        i.pending_confirms = asks.len() as u32;
         // A task (DD7): its parent, for the tree, and its carved limit.
         if let Some(t) = &r.task {
             i.parent_session_id = Some(t.parent_session.clone());
@@ -200,6 +206,9 @@ impl Core {
                 .as_ref()
                 .map(|e| theseus_kernel::micros_to_usd(e.budget.limit_micros));
         }
+        i.attention = e.as_ref().map(|e| {
+            crate::push::view(e, asks, i.parent_session_id.clone(), 0, e.updated_at_ms).attention
+        });
         i
     }
 
@@ -220,15 +229,18 @@ impl Core {
             },
             None => None,
         };
-        let waiting = waiting_by_execution(&self.kernel.pending_confirms()?);
+        let pending = self.pending_by_execution(&self.kernel.pending_confirms()?, None);
         let mut out = Vec::new();
         for e in self.kernel.tasks(parent.as_deref())? {
             let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
-            let info =
-                crate::task::info(&e, rec.as_ref(), waiting.get(&e.id).copied().unwrap_or(0));
+            let asks = pending.get(&e.id).cloned().unwrap_or_default();
+            let mut info = crate::task::info(&e, rec.as_ref(), asks.len() as u32);
             if target.is_some_and(|t| info.target.as_deref() != Some(t)) {
                 continue;
             }
+            let parent = Some(info.parent_session_id.clone()).filter(|p| !p.is_empty());
+            info.attention =
+                Some(crate::push::view(&e, asks, parent, 0, e.updated_at_ms).attention);
             out.push(info);
         }
         out.reverse();
@@ -544,7 +556,7 @@ impl Core {
         Ok(changed)
     }
 
-    pub(super) fn session_history(
+    pub(crate) fn session_history(
         &self,
         p: theseus_protocol::SessionHistoryParams,
     ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
@@ -552,8 +564,14 @@ impl Core {
         let nodes = self.store.session_nodes(&p.session_id)?;
         let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
         let pending = self.kernel.pending_confirms()?;
+        let mine: Vec<theseus_kernel::Action> = pending
+            .iter()
+            .filter(|a| a.session_id == p.session_id)
+            .cloned()
+            .collect();
+        let asks = self.pending_by_execution(&mine, Some((&p.session_id, &nodes)));
         Ok(theseus_protocol::SessionHistoryResult {
-            session: self.session_info(&rec, &waiting_by_execution(&pending)),
+            session: self.session_info(&rec, &asks),
             nodes: nodes[skip..]
                 .iter()
                 .map(|(pos, n)| Self::node_info(*pos, n))
@@ -775,12 +793,33 @@ impl Core {
         }
     }
 
-    pub(super) fn execution_list(
+    /// Every execution, with its attention (theseus-in3): a task's parent
+    /// session is its parent execution's.
+    pub(crate) fn execution_list(
         &self,
     ) -> Result<theseus_protocol::ExecutionListResult, RpcFailure> {
         let execs = self.kernel.executions()?;
+        let pending = self.pending_by_execution(&self.kernel.pending_confirms()?, None);
+        let session_of: std::collections::HashMap<&str, &str> = execs
+            .iter()
+            .map(|e| (e.id.as_str(), e.session_id.as_str()))
+            .collect();
         Ok(theseus_protocol::ExecutionListResult {
-            executions: execs.iter().map(Self::execution_info).collect(),
+            executions: execs
+                .iter()
+                .map(|e| {
+                    let parent = e
+                        .parent
+                        .as_deref()
+                        .and_then(|p| session_of.get(p))
+                        .map(|s| s.to_string());
+                    let asks = pending.get(&e.id).cloned().unwrap_or_default();
+                    let mut info = Self::execution_info(e);
+                    info.attention =
+                        Some(crate::push::view(e, asks, parent, 0, e.updated_at_ms).attention);
+                    info
+                })
+                .collect(),
         })
     }
 

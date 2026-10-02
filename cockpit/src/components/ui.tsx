@@ -5,6 +5,7 @@ import { cn } from '@/lib/format'
 import { stateTone, toneClass, toneHex, type Tone } from '@/lib/taxonomy'
 import { Echart } from './Echart'
 import type { EChartsOption } from '@/lib/chart'
+import type { Attention } from '@protocol'
 
 export function Panel({
   title, icon, actions, children, className, bodyClassName,
@@ -45,6 +46,27 @@ export function StatePill({ state, className }: { state: string | null | undefin
     <Pill tone={tone} className={className}>
       <LiveDot tone={tone} pulse={tone === 'live'} />
       {state ?? '—'}
+    </Pill>
+  )
+}
+
+/** Each level's mark and tone (theseus-in3): ● needs you, ◐ working, ○ ready, · idle, as every surface draws them. */
+const LEVEL: Record<Attention['level'], { mark: string; tone: Tone }> = {
+  needs_you: { mark: '●', tone: 'fault' },
+  working: { mark: '◐', tone: 'live' },
+  ready: { mark: '○', tone: 'ok' },
+  idle: { mark: '·', tone: 'idle' },
+}
+
+/** What a session needs from you, as the server's one function says it (theseus-in3). A daemon that sends no
+ * attention gets the state pill. */
+export function AttentionPill({ a, state, className }: { a: Attention | null | undefined; state?: string | null; className?: string }) {
+  if (!a) return <StatePill state={state ?? 'idle'} className={className} />
+  const l = LEVEL[a.level]
+  return (
+    <Pill tone={l.tone} className={cn('max-w-[28ch] truncate', className)} title={`${a.label} · ${a.level.replace('_', ' ')} since ${new Date(a.since_ms).toLocaleTimeString()}`}>
+      <span aria-hidden>{l.mark}</span>
+      <span className="truncate">{a.label}</span>
     </Pill>
   )
 }

@@ -265,8 +265,13 @@ export default function App() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit() }
   }
 
-  const waiting = sessions.reduce((n, x) => n + (x.pending_confirms ?? 0), 0)
-  const firstWaiting = sessions.find((x) => (x.pending_confirms ?? 0) > 0)
+  // What needs you (theseus-in3): each session's attention, from a daemon that sends it, else its questions; the
+  // longest waiting first.
+  const needsYou = sessions
+    .filter((x) => x.attention ? x.attention.level === 'needs_you' : (x.pending_confirms ?? 0) > 0)
+    .sort((a, b) => (a.attention?.since_ms ?? 0) - (b.attention?.since_ms ?? 0))
+  const waiting = needsYou.length
+  const firstWaiting = needsYou[0]
   const liveHere = Object.fromEntries(Object.entries(live).filter(([, t]) => t.sessionId === current))
   const info = sessionInfo ?? sessions.find((x) => x.session_id === current) ?? null
   const busy = draft !== null && !draft.error
@@ -301,8 +306,9 @@ export default function App() {
         )}
         <div className={`status ${status}`}>{status === 'connecting' && health ? 'reconnecting' : status}</div>
         {waiting > 0 && firstWaiting && (
-          <button type="button" className="needs-you" onClick={() => pick(firstWaiting.session_id)} title="tool calls waiting for your confirmation">
-            {waiting} waiting for you
+          <button type="button" className="needs-you" onClick={() => pick(firstWaiting.session_id)}
+            title={`sessions that need you: a question, a failure, or a block; this opens the longest waiting${firstWaiting.attention ? ` (${firstWaiting.attention.label})` : ''}`}>
+            {waiting} need{waiting === 1 ? 's' : ''} you
           </button>
         )}
         {health && (

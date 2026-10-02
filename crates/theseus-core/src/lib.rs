@@ -31,6 +31,7 @@ pub mod outbox;
 pub mod peer;
 pub mod policy;
 pub mod provider;
+pub mod push;
 pub mod restore;
 pub mod rpc;
 pub mod scrub;

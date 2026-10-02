@@ -93,10 +93,12 @@ impl Core {
                     .map_or(Value::Null, |u| json!({"limit": u.limit, "spent": u.spent, "reserved": u.reserved, "held_unknown": u.held_unknown})),
             },
             wake: serde_json::to_value(&e.wake).unwrap_or(Value::Null),
+            waiting_on: e.wake.as_ref().map(crate::push::waiting_on),
             reports_to: e.reports_to.clone(),
             ended_reason: e.ended_reason.clone(),
             created_at_ms: e.created_at_ms,
             updated_at_ms: e.updated_at_ms,
+            attention: None,
         }
     }
 

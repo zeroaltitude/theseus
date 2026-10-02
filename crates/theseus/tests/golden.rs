@@ -1035,6 +1035,40 @@ fn sessions_list_open_and_recompile() {
     );
 }
 
+/// A daemon that sends `attention` (theseus-in3): each session's pill where
+/// its state goes, and each execution's after its state. A task's line is
+/// time-dependent, so its pill is `render`'s unit test.
+#[test]
+fn sessions_and_executions_show_attention() {
+    let needs =
+        json!({"level": "needs_you", "label": "confirm proc.run: run the gate", "since_ms": 1});
+    let ready = json!({"level": "ready", "label": "ready", "since_ms": 1});
+    let list = json!({"sessions": [
+        {"session_id": S, "kind": "conversation", "label": null, "title": "Tidy the notes",
+         "created_at_unix_ms": 1_759_300_000_000u64, "last_active_ms": 1_759_300_900_000u64,
+         "turns": 3, "tool_calls": 4, "cost_usd": 0.0123,
+         "usage": {"input_tokens": 9000, "output_tokens": 400},
+         "execution_state": "waiting", "model": "glm-x", "pending_confirms": 1,
+         "attention": needs},
+        {"session_id": "ses_b0r1ng", "kind": "conversation", "label": "scratch",
+         "created_at_unix_ms": 1_759_200_000_000u64, "turns": 1, "execution_state": "waiting",
+         "attention": ready}]});
+    golden(
+        "sessions_attention",
+        &run(&["sessions"], vec![step("session.list", list)]),
+    );
+    let mut e = execution(X, "waiting", None);
+    e["attention"] = needs;
+    e["waiting_on"] = json!({"on": "confirm", "confirm_id": "act_k2"});
+    golden(
+        "executions_attention",
+        &run(
+            &["executions"],
+            vec![step("execution.list", json!({"executions": [e]}))],
+        ),
+    );
+}
+
 #[test]
 fn executions_list_and_cancel() {
     let list = json!({"executions": [execution(X, "waiting", None),

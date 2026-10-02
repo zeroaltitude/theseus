@@ -275,6 +275,7 @@ impl SessionRecord {
             parent_session_id: self.task.as_ref().map(|t| t.parent_session.clone()),
             limit_usd: None,
             external_text: self.external.clone(),
+            attention: None,
         }
     }
 }

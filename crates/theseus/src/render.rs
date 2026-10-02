@@ -9,8 +9,8 @@ use std::io::{self, Stderr, Stdout, Write};
 
 use serde_json::Value;
 use theseus_protocol::{
-    method, ApprovalRefused, ConfirmRequest, Event, NodeInfo, SessionInfo, ToolEnded,
-    ToolListResult, TurnSubmitResult,
+    method, ApprovalRefused, Attention, ConfirmRequest, Event, Level, NodeInfo, SessionInfo,
+    ToolEnded, ToolListResult, TurnSubmitResult,
 };
 
 /// What a `Printer` shows of a session's events.
@@ -1119,9 +1119,10 @@ pub fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> String {
         3600..=86_399 => format!("{}h", age / 3600),
         _ => format!("{}d", age / 86_400),
     };
-    let state = match &t.waiting_on {
-        Some(w) => format!("{} on {w}", t.state),
-        None => t.state.clone(),
+    let state = match (&t.attention, &t.waiting_on) {
+        (Some(a), _) => pill(a),
+        (None, Some(w)) => format!("{} on {w}", t.state),
+        (None, None) => t.state.clone(),
     };
     let mut asks = match t.pending_confirms {
         0 => String::new(),
@@ -1521,7 +1522,25 @@ fn binding_line(b: &theseus_protocol::BindingStatus) -> String {
     )
 }
 
-/// One session, as `theseus sessions` lists it.
+/// A level's mark, as every surface draws it (design `stage2` §2.9): ●
+/// needs you, ◐ working, ○ ready, · idle. A client's "done until seen" is ◆.
+pub fn glyph(level: Level) -> char {
+    match level {
+        Level::NeedsYou => '●',
+        Level::Working => '◐',
+        Level::Ready => '○',
+        Level::Idle => '·',
+    }
+}
+
+/// What an execution needs from people, as a pill: `● confirm proc.run: run
+/// cargo test` (theseus-in3).
+pub fn pill(a: &Attention) -> String {
+    format!("{} {}", glyph(a.level), a.label)
+}
+
+/// One session, as `theseus sessions` lists it: its attention where the
+/// state goes, from a daemon that sends one (theseus-in3).
 pub fn session_row(s: &SessionInfo) -> String {
     format!(
         "{}\t{}\tturns={}\ttools={}\t${:.4}\tin={}\tout={}\t{}\t{}\t{}",
@@ -1532,7 +1551,10 @@ pub fn session_row(s: &SessionInfo) -> String {
         s.cost_usd,
         s.usage.input_tokens,
         s.usage.output_tokens,
-        s.execution_state.as_deref().unwrap_or("-"),
+        match &s.attention {
+            Some(a) => pill(a),
+            None => s.execution_state.clone().unwrap_or_else(|| "-".into()),
+        },
         s.model.as_deref().unwrap_or("-"),
         s.label
             .as_deref()
@@ -1541,13 +1563,18 @@ pub fn session_row(s: &SessionInfo) -> String {
     )
 }
 
-/// One execution, as `theseus executions` lists it.
+/// One execution, as `theseus executions` lists it: its attention after its
+/// state, from a daemon that sends one (theseus-in3).
 pub fn execution_row(e: &theseus_protocol::ExecutionInfo) -> String {
     format!(
-        "{}\t{}\t{}\tturns={}\tinterrupted={}\toutstanding={}\tqueued={}\t{}\tsession={}{}",
+        "{}\t{}\t{}{}\tturns={}\tinterrupted={}\toutstanding={}\tqueued={}\t{}\tsession={}{}",
         e.execution_id,
         e.kind,
         e.state,
+        e.attention
+            .as_ref()
+            .map(|a| format!("\t{}", pill(a)))
+            .unwrap_or_default(),
         e.turns,
         e.interrupted,
         e.outstanding,
@@ -1582,6 +1609,34 @@ mod tests {
     use theseus_protocol::notify;
 
     /// `theseus wakes` and health's wakes line (DD8).
+    /// A task's pill takes the place of its state and what it waits on
+    /// (theseus-in3); a daemon that sends none keeps the old words.
+    #[test]
+    fn a_tasks_line_shows_its_attention() {
+        let mut t = theseus_protocol::TaskInfo {
+            short: "a1b2c3".into(),
+            state: "waiting".into(),
+            waiting_on: Some("a job".into()),
+            limit_usd: 2.0,
+            turns: 1,
+            created_at_ms: 1_000,
+            ..Default::default()
+        };
+        assert!(task_line(&t, 61_000).starts_with("a1b2c3\twaiting on a job\t$0.0000 of $2.00"));
+        t.attention = Some(Attention {
+            level: Level::Working,
+            label: "waiting on 1 call".into(),
+            since_ms: 0,
+        });
+        assert!(
+            task_line(&t, 61_000).starts_with("a1b2c3\t◐ waiting on 1 call\t"),
+            "{}",
+            task_line(&t, 61_000)
+        );
+        assert_eq!(glyph(Level::NeedsYou), '●');
+        assert_eq!(glyph(Level::Idle), '·');
+    }
+
     #[test]
     fn a_wake_lists_its_due_time_session_and_note() {
         let w = theseus_protocol::WakeInfo {

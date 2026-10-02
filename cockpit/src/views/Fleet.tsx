@@ -11,7 +11,7 @@ import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { ago, cn, pct, short, tokens, usd } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
-import { Empty, LiveDot, Meter, Panel, Pill, StatePill } from '@/components/ui'
+import { AttentionPill, Empty, LiveDot, Meter, Panel, Pill } from '@/components/ui'
 
 type Key = 'state' | 'title' | 'turns' | 'tools' | 'tokens' | 'cache' | 'cost' | 'active'
 type Sort = { k: Key; desc: boolean }
@@ -136,7 +136,7 @@ export default function Fleet() {
                   const b = e?.budget
                   return (
                     <tr key={s.session_id} onClick={() => nav(`/session/${s.session_id}`)} className="cursor-pointer border-t border-line/60 hover:bg-live/[0.04]">
-                      <td className="px-2 py-1.5"><StatePill state={s.execution_state ?? 'idle'} /></td>
+                      <td className="px-2 py-1.5"><AttentionPill a={s.attention} state={s.execution_state} /></td>
                       <td className="max-w-[340px] px-2 py-1.5">
                         <div className="truncate text-ink">{s.title || s.label || 'untitled'}</div>
                         <div className="num truncate text-[10.5px] text-ink-faint">{short(s.session_id)} · {s.kind}{s.label && s.title ? ` · ${s.label}` : ''}{s.model ? ` · ${s.model}` : ''}</div>
@@ -182,7 +182,7 @@ function SessionNode({ data }: NodeProps<Node<SessionNodeData>>) {
         <span className="truncate text-[12px] font-medium text-ink">{s.title || s.label || short(s.session_id)}</span>
       </div>
       <div className="num mt-0.5 flex items-center gap-2 whitespace-nowrap text-[10.5px] text-ink-faint">
-        <span className="min-w-0 truncate" style={{ color: toneHex[tone] }}>{s.execution_state ?? 'idle'}</span>
+        <span className="min-w-0 truncate" style={{ color: toneHex[tone] }} title={s.attention?.label}>{s.attention?.label ?? s.execution_state ?? 'idle'}</span>
         <span className="ml-auto inline-flex items-center gap-1">{s.turns}t · {s.tool_calls ?? 0}<Wrench size={9} /></span><span className="text-money">{usd(s.cost_usd)}</span>
       </div>
       {e?.budget && <Meter className="mt-1.5" value={e.budget.spent_usd + e.budget.reserved_usd} max={e.budget.limit_usd} tone={tone === 'fault' ? 'fault' : 'ok'} />}
