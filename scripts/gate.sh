@@ -85,18 +85,22 @@ refuse_nested_lock() {
 # queue in order (DIR says which lane). A process waiting in `flock` has the lock file open too, so the open
 # files alone do not say who holds it: /proc/locks lists the waiters, and whoever else has the file open holds
 # it (also when its `flock` child took the lock and exited, as theseus-quiet.sh's does, or when an orphan
-# inherited it).
+# inherited it). A holder's own children that inherited the fd (that script's `sleep`) are not listed.
 lock_users() {
-  local ino dev key pid d queued
+  local ino dev key pid d ppid queued
+  local -a open=()
   ino="$(stat -c %i "$lock" 2>/dev/null)" || return 0
   dev=$((16#$(stat -c %D "$lock")))
   key="$(printf '%02x:%02x:%d' $(((dev >> 8) & 0xfff)) $(((dev & 0xff) | ((dev >> 12) & ~0xff))) "$ino")"
   queued="$(awk -v key="$key" '$0 ~ key && /->/ { for (i = 1; i <= NF; i++) if ($i == key) print $(i - 1) }' /proc/locks 2>/dev/null || true)"
   for d in /proc/[0-9]*; do
     pid=${d#/proc/}
-    if holds_lock "$pid" && ! grep -qx "$pid" <<<"$queued"; then
-      echo "held $pid $(readlink "$d/cwd" 2>/dev/null || echo '?')"
-    fi
+    if holds_lock "$pid" && ! grep -qx "$pid" <<<"$queued"; then open+=("$pid"); fi
+  done
+  for pid in "${open[@]}"; do
+    ppid="$(awk '{ sub(/^.*\) /, ""); print $2 }' "/proc/$pid/stat" 2>/dev/null || true)"
+    case " ${open[*]} " in *" $ppid "*) continue ;; esac
+    echo "held $pid $(readlink "/proc/$pid/cwd" 2>/dev/null || echo '?')"
   done
   for pid in $queued; do echo "queued $pid $(readlink "/proc/$pid/cwd" 2>/dev/null || echo '?')"; done
   return 0
