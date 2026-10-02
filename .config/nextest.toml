@@ -7,3 +7,17 @@ test-threads = 8
 slow-timeout = { period = "60s", terminate-after = 2 }
 # A test's leftover child processes (a daemon, an `op`) get this long to exit.
 leak-timeout = "500ms"
+
+# The flaky list (theseus-goa8; review 2's C7). A test that fails under load by
+# construction, and has an issue that fixes it, retries here, so a gate does not
+# fail for it and does not hide that it flaked: nextest names each test that passed
+# on a retry (`FLAKY 2/3`), and the gate prints and logs it (scripts/AGENTS.md,
+# "The flaky list"). Retries are for named tests only: a blanket retry would hide
+# a real race. A test goes on this list in the commit that files its issue, with
+# the issue's id in a comment; it comes off in the commit that fixes it.
+#
+# theseus-i1i4: every call must start before any finishes, and the fastest stand-in
+# call is delayed only 100 ms, so a loaded machine can fail it.
+[[profile.default.overrides]]
+filter = 'package(theseus-core) & test(=tests_m3::parallel::five_reads_and_two_greps_take_the_slowest_call_not_the_sum)'
+retries = 2

@@ -34,7 +34,10 @@ It runs, in order:
 7. The web apps' lint and build, each when its `node_modules` exists, and then a check that the Observatory's
    committed build is current.
 
-It ends with `gate: ok`.
+It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it
+ends, a failed run's too (with `<- failed here` on the phase that stopped it, and `gate: FAILED in <phase>`), and
+appends it to `~/.cache/theseus/gate-times.csv` (time, label, phase, seconds, status; `$THESEUS_GATE_TIMES`). The
+gate's own cost has a history now: read it before calling a gate slow.
 
 ### How long it takes
 
@@ -63,6 +66,21 @@ give the gate's command a timeout of 30 minutes or more (a `proc.run` call can a
 - **A gate that sits at 0% CPU** is waiting on a lock: this one (held by another gate, or by an orphan that
   inherited it: scan `/proc/*/fd` for it, since `/proc/locks` hides a dead owner), or cargo's package cache. Find the
   holder before waiting longer, and never kill another agent's process.
+
+### The flaky list
+
+A test that fails under load by construction, and has an issue that fixes it, is listed in `.config/nextest.toml` as
+an override with `retries = 2`. A flake then costs a rerun of that test, not of the gate, and is not hidden: nextest
+names each test that passed only on a retry (`FLAKY 2/3`), and the gate prints them after the suite and appends them
+to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG`).
+
+- **Onto the list**: in the commit that files the flake's issue, add one `[[profile.default.overrides]]` for the one
+  test: `filter = 'package(<crate>) & test(=<its full name>)'` and `retries = 2`, with the issue's id in a comment.
+  Check the filter with `cargo nextest list --workspace -E '<filter>'`: it must name exactly one test. Never a
+  blanket `--retries`: a retry that covers every test hides a real race.
+- **Off the list**: in the commit that fixes the test, proven under load (the load-flake recipe: loops at a lower nice
+  than the test) and against a planted revert. Delete the override with it.
+- **A test not on the list that flakes fails the gate**, as before. The flaky log shows what has been passing on luck.
 
 ## smoke.sh
 

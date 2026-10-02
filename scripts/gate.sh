@@ -5,29 +5,117 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -q -- -D warnings
+
+# Phase timings (theseus-goa8; review 2's C7). Each check runs under `phase`,
+# which times it, and the gate prints the table before it ends, a failed run's
+# too, naming the phase that failed and how long it ran: where the minutes go,
+# and which phase to speed up. Whole seconds: a phase is seconds to minutes.
+# Each run's table is appended to a log outside the tree, so the gate's own
+# cost has a history (`$THESEUS_GATE_TIMES`, by default
+# `~/.cache/theseus/gate-times.csv`: time, label, phase, seconds, status).
+history="${THESEUS_BENCH_HISTORY:-$HOME/.cache/theseus/bench-history.csv}"
+times="${THESEUS_GATE_TIMES:-$HOME/.cache/theseus/gate-times.csv}"
+flaky_log="${THESEUS_FLAKY_LOG:-$HOME/.cache/theseus/flaky.csv}"
+label="$(git rev-parse --abbrev-ref HEAD) $(git describe --always --dirty)"
+gate_tmp="$(mktemp -d "${TMPDIR:-/tmp}/theseus-gate.XXXXXX")"
+gate_began=$SECONDS
+phase_names=()
+phase_secs=()
+phase_now=""
+phase_began=0
+summary_printed=""
+phase() {
+  phase_now="$1"
+  phase_began=$SECONDS
+  shift
+  "$@"
+  phase_names+=("$phase_now")
+  phase_secs+=("$((SECONDS - phase_began))")
+  phase_now=""
+}
+# The table, once, and its log. `status` is how the gate ends.
+summary() {
+  [ -z "$summary_printed" ] || return 0
+  summary_printed=1
+  local status=$1 total=$((SECONDS - gate_began)) i when
+  when="$(date -Iseconds)"
+  echo "gate: phase times, in seconds"
+  for i in "${!phase_names[@]}"; do
+    printf '  %-16s %5d\n' "${phase_names[$i]}" "${phase_secs[$i]}"
+  done
+  if [ -n "$phase_now" ]; then
+    printf '  %-16s %5d  <- failed here\n' "$phase_now" "$((SECONDS - phase_began))"
+  fi
+  printf '  %-16s %5d\n' total "$total"
+  mkdir -p "$(dirname "$times")" 2>/dev/null || true
+  {
+    [ -s "$times" ] || echo "time,label,phase,seconds,status"
+    for i in "${!phase_names[@]}"; do
+      printf '%s,"%s",%s,%s,ok\n' "$when" "$label" "${phase_names[$i]// /_}" "${phase_secs[$i]}"
+    done
+    if [ -n "$phase_now" ]; then
+      printf '%s,"%s",%s,%s,failed\n' "$when" "$label" "${phase_now// /_}" "$((SECONDS - phase_began))"
+    fi
+    printf '%s,"%s",total,%s,%s\n' "$when" "$label" "$total" "$status"
+  } >>"$times" 2>/dev/null || echo "gate: the phase times were NOT logged to $times"
+}
+on_exit() {
+  local status=$?
+  rm -rf "$gate_tmp"
+  if [ "$status" -ne 0 ]; then
+    summary failed
+    echo "gate: FAILED${phase_now:+ in $phase_now}"
+  fi
+}
+trap on_exit EXIT
+
+# The suite, and then the tests that passed only on a retry. `.config/nextest.toml`
+# retries named flaky tests (and only those), so a flake costs a rerun of the test
+# and not of the gate; this says which ones flaked, so a retry is recorded and not
+# forgotten, in the output and in `$THESEUS_FLAKY_LOG` (time, label, test, attempt).
+# How a test gets onto the list, and off it, is in scripts/AGENTS.md.
+suite() {
+  local log="$gate_tmp/suite.log"
+  cargo nextest run --workspace --no-fail-fast 2>&1 | tee "$log"
+  local flaky
+  flaky="$(grep -E '^ *FLAKY ' "$log" || true)"
+  if [ -n "$flaky" ]; then
+    echo "gate: these tests passed only on a retry (scripts/AGENTS.md, \"The flaky list\"):"
+    echo "$flaky" | sed 's/^ */  /'
+    mkdir -p "$(dirname "$flaky_log")" 2>/dev/null || true
+    {
+      [ -s "$flaky_log" ] || echo "time,label,test,attempt"
+      echo "$flaky" | awk -v t="$(date -Iseconds)" -v l="$label" '{printf "%s,\"%s\",%s %s,%s\n", t, l, $(NF-1), $NF, $2}'
+    } >>"$flaky_log" 2>/dev/null || true
+  fi
+}
+
 # The reader rule (P0's rule 3, theseus-wjy): every crate, method, notification,
 # edge kind, and label has its reader, or a reserved marker naming the row that
 # brings it. The suite runs it again; first, alone, so a miss stops the gate in
 # seconds and says what to add, every miss at once.
-cargo nextest run --workspace --no-fail-fast \
-  -E 'package(theseus-core) & kind(lib) & test(/^tests_registry::/)'
-cargo nextest run --workspace --no-fail-fast
+registry() {
+  cargo nextest run --workspace --no-fail-fast \
+    -E 'package(theseus-core) & kind(lib) & test(/^tests_registry::/)'
+}
+
 # The web apps' protocol types, which a theseus-protocol test writes from the
 # Rust ones (theseus-0g4): a type changed without its TypeScript fails here.
-if ! git diff --quiet -- web/src/protocol.gen ||
-  [ -n "$(git ls-files --others --exclude-standard -- web/src/protocol.gen)" ]; then
-  echo "web/src/protocol.gen changed: the protocol's Rust types changed without their TypeScript; git add it"
-  exit 1
-fi
+protocol_types() {
+  if ! git diff --quiet -- web/src/protocol.gen ||
+    [ -n "$(git ls-files --others --exclude-standard -- web/src/protocol.gen)" ]; then
+    echo "web/src/protocol.gen changed: the protocol's Rust types changed without their TypeScript; git add it"
+    exit 1
+  fi
+}
+
 # The lifecycle budgets of §9 (FAST, theseus-qa0): cold start, clean shutdown
 # with a job running, SIGKILL then restart, a binary swap with the job's
 # wrapper adopted, 10 runs each on an empty store, p95 against the budget plus
 # the measured noise margin; and restore, measured, whose restored store must
 # serve. Debug binaries: they are never faster than release, so a pass here
 # holds for release.
-cargo build -q -p theseusd -p theseus-sim
+#
 # Other processes' dirty pages are flushed first, so a start's fsync never
 # pays for their writeback (1.3 GB of it once put a clean shutdown's p95 at
 # 148 ms). And one stalled fsync does not fail the gate: a miss runs the
@@ -37,8 +125,6 @@ cargo build -q -p theseusd -p theseus-sim
 # branch and the commit judged; a miss is recorded even when its rerun
 # passes. A passing run warns about a phase within 10% of its limit.
 # `theseus-sim bench history` reads it (theseus-1hk).
-history="${THESEUS_BENCH_HISTORY:-$HOME/.cache/theseus/bench-history.csv}"
-label="$(git rev-parse --abbrev-ref HEAD) $(git describe --always --dirty)"
 lifecycle() {
   target/debug/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label"
 }
@@ -81,6 +167,26 @@ settle() {
   fi
   return 0
 }
+# A lane's gate skips the timing bench (THESEUS_GATE_NO_BENCH=1, set by the
+# lane recipe): the gate that joins the lane to main runs it, on main's tree,
+# and its settle step held the shared gate lock for minutes while every other
+# agent's gate queued behind it. A lane whose work touches the start path
+# runs `theseus-sim bench lifecycle` alone once before its join.
+lifecycle_bench() {
+  if [ -n "${THESEUS_GATE_NO_BENCH:-}" ]; then
+    echo "lifecycle: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
+    return 0
+  fi
+  sync
+  settle
+  lifecycle || {
+    echo "lifecycle: a budget was missed; running the bench once more"
+    sync
+    settle
+    lifecycle
+  }
+}
+
 # The turn bench (theseus-goa8; review 2's S4 and consideration 8): a plain
 # turn's frames, counted from the daemon's WAL, against §9's per-turn overhead
 # restated as frames (5 today; the floor is 2). A frame is one fdatasync, so
@@ -95,35 +201,38 @@ settle() {
 turn_bench() {
   target/debug/theseus-sim bench turn --check "$@"
 }
-# A lane's gate skips the timing bench (THESEUS_GATE_NO_BENCH=1, set by the
-# lane recipe): the gate that joins the lane to main runs it, on main's tree,
-# and its settle step held the shared gate lock for minutes while every other
-# agent's gate queued behind it. A lane whose work touches the start path
-# runs `theseus-sim bench lifecycle` alone once before its join.
-if [ -n "${THESEUS_GATE_NO_BENCH:-}" ]; then
-  echo "lifecycle: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
-  turn_bench --runs 5 --burst 0 || {
+turn_step() {
+  local args=(--runs 5 --burst 0)
+  [ -n "${THESEUS_GATE_NO_BENCH:-}" ] || args=(--record "$history" --label "$label")
+  turn_bench "${args[@]}" || {
     echo "turn: the frames budget was missed; running the bench once more"
-    turn_bench --runs 5 --burst 0
+    turn_bench "${args[@]}"
   }
-else
-  sync
-  settle
-  lifecycle || {
-    echo "lifecycle: a budget was missed; running the bench once more"
-    sync
-    settle
-    lifecycle
-  }
-  turn_bench --record "$history" --label "$label" || {
-    echo "turn: the frames budget was missed; running the bench once more"
-    turn_bench --record "$history" --label "$label"
-  }
-fi
-cargo deny --log-level error check
-if [ -d web/node_modules ]; then (cd web && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
+}
+
+web_apps() {
+  if [ -d web/node_modules ]; then (cd web && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
+}
 # The cockpit (theseus-45n5): lint, type-check, and build. Its build is not committed (several MB, new with each
 # edit); the install builds it before the release build, and a binary without it says so at /cockpit/.
-if [ -d cockpit/node_modules ]; then (cd cockpit && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
-git diff --quiet -- crates/theseusd/web/dist || { echo "web dist changed by the build: commit it"; exit 1; }
+cockpit() {
+  if [ -d cockpit/node_modules ]; then (cd cockpit && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
+}
+web_dist() {
+  git diff --quiet -- crates/theseusd/web/dist || { echo "web dist changed by the build: commit it"; exit 1; }
+}
+
+phase fmt cargo fmt --all -- --check
+phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
+phase "reader rule" registry
+phase suite suite
+phase "protocol types" protocol_types
+phase build cargo build -q -p theseusd -p theseus-sim
+phase lifecycle lifecycle_bench
+phase turn turn_step
+phase deny cargo deny --log-level error check
+phase web web_apps
+phase cockpit cockpit
+phase "web dist" web_dist
+summary ok
 echo "gate: ok"
