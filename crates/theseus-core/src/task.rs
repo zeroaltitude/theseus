@@ -36,7 +36,7 @@ use theseus_kernel::{
 use theseus_store::{kinds, NewRecord};
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
-use crate::narrative::{self, narrate_turn};
+use crate::narrative;
 use crate::node::{Body, Node, Origin};
 use crate::session::{title_from, SessionRecord, TargetRef, TaskOf};
 use crate::toolrun::TurnCtx;
@@ -345,26 +345,16 @@ pub fn create(
         if let Some(t) = &target {
             tc.outbox.task_bound(&task.session_id, t);
         }
-        narrate_turn!(
-            tc,
-            Session,
-            "Task {s} started (\"{title}\"): its session {} runs on its own with {} carved from \
-             the {} this session had left, and reports {}.",
-            narrative::short(&task.session_id),
-            narrative::dollars(limit),
-            narrative::dollars(opened.available_before),
-            match &target {
-                Some(t) => format!("to {t}"),
-                None => "in this session".to_string(),
-            }
-        );
+        tc.record(&crate::fact::tool::TaskStarted {
+            short: &s,
+            title: &title,
+            session_id: &task.session_id,
+            limit,
+            available_before: opened.available_before,
+            target: target.as_deref(),
+        });
         if parent_hold.is_some() {
-            narrate_turn!(
-                tc,
-                Approval,
-                "Task {s} holds this session's external text from its start, so its calls that \
-                 act wait for approval too, until the operator trusts it."
-            );
+            tc.record(&crate::fact::tool::TaskHoldsExternal { short: &s });
         }
     }
     let capped = i.budget_usd.is_some() && want > limit;

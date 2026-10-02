@@ -5,21 +5,18 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use serde_json::json;
-use theseus_protocol::{
-    ApprovalRefused, ConfirmRequest, ConfirmResolved, Event, GateDecision, Message, PendingConfirm,
-};
+use theseus_protocol::{ApprovalRefused, ConfirmRequest, GateDecision, PendingConfirm};
 
 use super::Core;
 use crate::approval::{Answerer, Refusal};
-use crate::ledger::LedgerRow;
-use crate::narrative::narrate;
+use crate::fact;
 use crate::node::{Body, Node};
 use crate::outbox::Closed;
 use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::{Action, LimitFollowed, BUDGET_TOOL};
-use theseus_store::{kinds, NewRecord, Store as _};
+use theseus_store::Store as _;
 
 impl Core {
     /// A waiting action as the question the operator sees: the one place a
@@ -299,17 +296,16 @@ impl Core {
         // longer has, and the hold is cleared in the frame that wakes it. A
         // trust takes the session's lock first: the session, then the
         // execution.
-        let answered = NewRecord::json(
-            kinds::LEDGER,
-            None,
-            &LedgerRow::new(
-                "action.confirm_answered",
-                Some(&a.session_id),
-                None,
-                json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via,
-                       "asker": asker.json(), "trust": trust}),
-            ),
-        )?;
+        let fact = fact::answer::CallAnswered {
+            action: &a,
+            approve,
+            note,
+            by,
+            via: &via,
+            asker: asker.json(),
+            trust,
+        };
+        let answered = fact::row(&fact, Some(&a.session_id), None)?;
         let proposal = match approve {
             true => Some(crate::toolrun::confirm_proposal(&self.store, &a, None)?),
             false => None,
@@ -365,42 +361,12 @@ impl Core {
         if let Some(r) = &trusted {
             self.announce_trust(&a.session_id, r);
         }
-        narrate!(
-            self.narrator,
-            Approval,
-            Some(&a.session_id),
-            None,
-            "{} {} by {by}{}.",
-            a.tool,
-            if approve { "approved" } else { "declined" },
-            if note.is_some_and(|n| !n.trim().is_empty()) {
-                ", with a note"
-            } else {
-                ""
-            }
-        );
+        // Its row rode in the answer's frame; the rest is said now.
+        let rec = self.session_rec(&a.session_id);
+        rec.announce(&fact);
         if woke {
-            narrate!(
-                self.narrator,
-                Session,
-                Some(&a.session_id),
-                None,
-                "Woken by the {}; the driver resumes the turn.",
-                if approve { "approval" } else { "decline" }
-            );
+            rec.record(&fact::answer::WokenByAnswer { approve });
         }
-        self.bus.publish(
-            &a.session_id,
-            &Message::from(Event::ConfirmResolved(ConfirmResolved {
-                session_id: a.session_id.clone(),
-                correlation_id: correlation_id.into(),
-                approved: approve,
-                by: Some(by.into()),
-                trust: Some(trust),
-                ..Default::default()
-            })),
-            None,
-        );
         self.card_closed(
             correlation_id,
             Closed {
@@ -469,85 +435,24 @@ impl Core {
     /// event it is, and announced as `approval.refused` to every connection,
     /// so the Discord binding tells the operator where approvals go.
     fn refused(&self, act: Act<'_>, who: &Answerer, r: &Refusal, traced: &Traced) -> Result<()> {
-        let (session, mut data) = match act {
-            Act::Answer { action: a, approve } => (
-                Some(a.session_id.as_str()),
-                json!({"correlation_id": a.correlation_id, "tool": a.tool, "approve": approve,
-                       "who": r.who, "via": r.via, "why": r.why, "by": who.label}),
-            ),
-            Act::Tighten { tool } | Act::Untighten { tool } => (
-                None,
-                json!({"act": act.method(), "tool": tool, "who": r.who, "via": r.via,
-                       "why": r.why, "by": who.label}),
-            ),
-            Act::Trust { session } => (
-                Some(session),
-                json!({"act": act.method(), "session_id": session, "who": r.who, "via": r.via,
-                       "why": r.why, "by": who.label}),
-            ),
+        let fact = fact::answer::ActRefused {
+            act,
+            refusal: r,
+            by: &who.label,
+            traced,
         };
-        if *traced != Traced::NoProcess {
-            data["asker"] = traced.json();
-        }
-        let from_job = traced.refusal().is_some();
-        if from_job {
-            data["from_job"] = json!(true);
-        }
-        self.store.append_ledger(&LedgerRow::new(
-            "approval.refused",
+        let session = fact.session();
+        self.store.append(&[fact::row(&fact, session, None)?])?;
+        let rec = fact::Rec {
+            narrator: &self.narrator,
             session,
-            None,
-            data.clone(),
-        ))?;
-        if from_job {
-            self.refused_from_job(act, who, r, session, traced);
-            return Ok(());
-        }
-        match act {
-            Act::Answer { action: a, .. } => narrate!(
-                self.narrator,
-                Approval,
-                session,
-                None,
-                "An answer to {} from {} through {} did not count: {}. It keeps waiting.",
-                a.tool,
-                r.who,
-                r.via,
-                r.why
-            ),
-            Act::Tighten { tool } => narrate!(
-                self.narrator,
-                Approval,
-                None,
-                None,
-                "\"Should have asked\" for {tool} from {} through {} did not count: {}. It \
-                 keeps its posture.",
-                r.who,
-                r.via,
-                r.why
-            ),
-            Act::Untighten { tool } => narrate!(
-                self.narrator,
-                Approval,
-                None,
-                None,
-                "An undo of {tool}'s tightening from {} through {} did not count: {}. It keeps \
-                 asking first.",
-                r.who,
-                r.via,
-                r.why
-            ),
-            Act::Trust { .. } => narrate!(
-                self.narrator,
-                Approval,
-                session,
-                None,
-                "Trusting this session again, from {} through {}, did not count: {}. Its calls \
-                 that act keep waiting.",
-                r.who,
-                r.via,
-                r.why
-            ),
+            turn: None,
+            to: fact::To::Everyone(&self.bus),
+            store: &self.store,
+        };
+        rec.announce(&fact);
+        if traced.refusal().is_some() {
+            self.refused_from_job(rec, act, who, r, session, traced);
         }
         Ok(())
     }
@@ -559,36 +464,13 @@ impl Core {
     /// the DM where approvals go.
     fn refused_from_job(
         &self,
+        rec: fact::Rec<'_>,
         act: Act<'_>,
         who: &Answerer,
         r: &Refusal,
         session: Option<&str>,
         traced: &Traced,
     ) {
-        let what = match act {
-            Act::Answer { action: a, .. } => format!("an answer to {}", a.tool),
-            Act::Untighten { tool } => format!("the undo of {tool}'s tightening"),
-            Act::Tighten { tool } => format!("\"should have asked\" for {tool}"),
-            Act::Trust { session } => format!(
-                "trusting session {} again",
-                crate::narrative::short(session)
-            ),
-        };
-        let then = match act {
-            Act::Answer { .. } => "It keeps waiting for the operator's answer.",
-            Act::Untighten { .. } => "It keeps asking first.",
-            Act::Tighten { .. } => "Nothing changed.",
-            Act::Trust { .. } => "It still holds external text, and its calls that act wait.",
-        };
-        narrate!(
-            self.narrator,
-            Approval,
-            session,
-            None,
-            "Refused {what} {} through {}: a job's process cannot answer an approval. {then}",
-            r.why,
-            r.via
-        );
         let (correlation_id, tool, approve) = match act {
             Act::Answer { action: a, approve } => (
                 Some(a.correlation_id.clone()),
@@ -619,8 +501,11 @@ impl Core {
         {
             tracing::warn!(error = %format!("{e:#}"), "the refusal's notice was not written");
         }
-        self.bus
-            .publish_all(&Message::from(Event::ApprovalRefused(refusal)));
+        rec.record(&fact::answer::JobActRefused {
+            act,
+            refusal: r,
+            params: &refusal,
+        });
     }
 
     /// Answer a budget question (theseus-0sg). Approve: the execution's spend
@@ -640,17 +525,15 @@ impl Core {
         let correlation_id = q.correlation_id.as_str();
         // The answer and its row in one frame, a kernel transaction, as a
         // tool call's answer is (theseus-jj9f).
-        let answered = NewRecord::json(
-            kinds::LEDGER,
-            None,
-            &LedgerRow::new(
-                "action.confirm_answered",
-                Some(&q.session_id),
-                None,
-                json!({"correlation_id": correlation_id, "approved": approve, "note": note, "by": by, "via": via, "tool": q.tool,
-                       "asker": asker.json()}),
-            ),
-        )?;
+        let fact = fact::answer::BudgetAnswered {
+            question: q,
+            approve,
+            note,
+            by,
+            via,
+            asker: asker.json(),
+        };
+        let answered = fact::row(&fact, Some(&q.session_id), None)?;
         let reset = self.kernel.frame(&[&q.execution_id], |k| {
             let reset = match approve {
                 true => Some(k.reset_budget(correlation_id, by)?),
@@ -666,36 +549,17 @@ impl Core {
             k.stage(std::slice::from_ref(&answered))?;
             Ok(reset)
         })?;
+        let rec = self.session_rec(&q.session_id);
         match reset {
-            Some((e, before)) => narrate!(
-                self.narrator,
-                Approval,
-                Some(&q.session_id),
-                None,
-                "Spend reset to $0 by {by} (it was {} of the {} limit); continuing.",
-                crate::narrative::dollars(before),
-                crate::narrative::dollars(e.budget.limit_micros)
-            ),
-            None => narrate!(
-                self.narrator,
-                Approval,
-                Some(&q.session_id),
-                None,
-                "The budget reset was declined by {by}; the session keeps waiting, and a new \
-                 message asks again."
-            ),
+            Some((e, before)) => rec.record(&fact::answer::SpendReset {
+                by,
+                before,
+                limit: e.budget.limit_micros,
+            }),
+            None => rec.record(&fact::answer::ResetDeclined { by }),
         }
-        self.bus.publish(
-            &q.session_id,
-            &Message::from(Event::ConfirmResolved(ConfirmResolved {
-                session_id: q.session_id.clone(),
-                correlation_id: correlation_id.into(),
-                approved: approve,
-                by: Some(by.into()),
-                ..Default::default()
-            })),
-            None,
-        );
+        // Its row rode in the answer's frame.
+        rec.announce(&fact);
         self.card_closed(
             correlation_id,
             Closed::new(if approve { "approved" } else { "declined" }, Some(by)),
@@ -747,35 +611,13 @@ impl Core {
             "open sessions follow the configured spend limit"
         );
         for f in followed {
-            let then = if f.proceeds {
-                "; the call that waited at the old limit proceeds"
-            } else if f.to_micros < f.from_micros {
-                "; its next call that does not fit asks"
-            } else {
-                ""
-            };
-            narrate!(
-                self.narrator,
-                Session,
-                Some(&f.session_id),
-                None,
-                "Session {} follows the config's spend limit: {} before, {} now{then}.",
-                crate::narrative::short(&f.session_id),
-                crate::narrative::dollars(f.from_micros),
-                crate::narrative::dollars(f.to_micros)
-            );
+            let rec = self.session_rec(&f.session_id);
+            rec.record(&fact::answer::LimitChanged { followed: f });
             if let Some(q) = &f.withdrew {
-                self.bus.publish(
-                    &f.session_id,
-                    &Message::from(Event::ConfirmResolved(ConfirmResolved {
-                        session_id: f.session_id.clone(),
-                        correlation_id: q.clone(),
-                        by: Some("config".into()),
-                        withdrawn: true,
-                        ..Default::default()
-                    })),
-                    None,
-                );
+                rec.record(&fact::answer::QuestionWithdrawn {
+                    session_id: &f.session_id,
+                    question: q,
+                });
                 // S1's stale card (theseus-3pj): the raise closed it, and the
                 // card says so, whenever its binding is back.
                 self.card_closed(
@@ -814,7 +656,7 @@ pub(crate) enum Act<'a> {
 
 impl Act<'_> {
     /// The method that makes the act, as a refusal row names it.
-    fn method(self) -> &'static str {
+    pub(crate) fn method(self) -> &'static str {
         match self {
             Act::Answer { .. } => theseus_protocol::method::ACTION_CONFIRM,
             Act::Tighten { .. } => theseus_protocol::method::POLICY_TIGHTEN,

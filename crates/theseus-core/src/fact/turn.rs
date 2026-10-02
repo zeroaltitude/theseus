@@ -3,9 +3,7 @@
 use serde_json::{json, Value};
 use theseus_kernel::{micros_to_usd, Action, FiredWake, Kernel, Micros, TurnEnd, Wake};
 use theseus_protocol::NarrativePart::{Approval, Context, Loop, Model, Session, Turn};
-use theseus_protocol::{
-    notify, ConfirmRequest, ConfirmResolved, Event, ExternalText, TurnSubmitResult, Usage,
-};
+use theseus_protocol::{notify, ConfirmRequest, ConfirmResolved, Event, TurnSubmitResult, Usage};
 
 use super::{Fact, Say};
 use crate::advancer::{Decision, LoopOutcome};
@@ -462,19 +460,6 @@ impl Fact for WakeCameDue<'_> {
                 crate::session::title_from(&f.wake.note)
             ),
         );
-    }
-}
-
-/// A task's report brought its hold on external text to this session
-/// (theseus-9bp).
-pub struct HoldBrought<'a> {
-    pub hold: &'a ExternalText,
-    pub mode: crate::external::Mode,
-}
-
-impl Fact for HoldBrought<'_> {
-    fn narrate(&self, say: &mut Say<'_>) {
-        say.line(Approval, crate::external::narrated(self.hold, self.mode));
     }
 }
 

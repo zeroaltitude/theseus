@@ -23,7 +23,6 @@ use serde_json::{json, Value};
 use theseus_kernel::{Execution, FiredWake, KernelError, PendingWake, MAX_PENDING};
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
-use crate::narrative::narrate_turn;
 use crate::toolrun::TurnCtx;
 
 pub const AT: &str = "wake.at";
@@ -217,13 +216,12 @@ pub fn set(
         span(w.due_at_ms.saturating_sub(now))
     );
     if set.set {
-        narrate_turn!(
-            tc,
-            Session,
-            "Wake {s} set for {when}: \"{}\"; {} of {MAX_PENDING} pending.",
-            crate::session::title_from(&w.note),
-            set.pending
-        );
+        tc.record(&crate::fact::tool::WakeSet {
+            short: &s,
+            when: &when,
+            note: &w.note,
+            pending: set.pending,
+        });
     }
     let text = if set.set {
         format!(

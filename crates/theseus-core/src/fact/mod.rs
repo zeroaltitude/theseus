@@ -39,6 +39,8 @@ use crate::narrative::Narrator;
 use crate::store::Store;
 use crate::trace::Trace;
 
+pub mod answer;
+pub mod tool;
 pub mod turn;
 
 /// A fact: what happened, and what each channel says of it.
@@ -215,7 +217,6 @@ facts![
     turn::CaughtUp<'static>,
     turn::Stopped<'static>,
     turn::WakeCameDue<'static>,
-    turn::HoldBrought<'static>,
     turn::ReportWoke<'static>,
     turn::NoCall,
     turn::ContextFileMissing<'static>,
@@ -252,6 +253,40 @@ facts![
     turn::TurnFailureTold<'static>,
     turn::WokenAgain,
     turn::RetryDecided<'static>,
+    tool::ToolProposed<'static>,
+    tool::GateDecided<'static>,
+    tool::ToolNotified<'static>,
+    tool::CallAsked<'static>,
+    tool::UnknownTool<'static>,
+    tool::InvalidJson<'static>,
+    tool::InvalidInput<'static>,
+    tool::ToolStarted<'static>,
+    tool::JobStarted<'static>,
+    tool::SecretGranted<'static>,
+    tool::SecretWithheld<'static>,
+    tool::SecretHanded<'static>,
+    tool::HoldTaken<'static>,
+    tool::JobRefused<'static>,
+    tool::JobNotStarted<'static>,
+    tool::JobStoppedAtLaunch<'static>,
+    tool::ToolEnded<'static>,
+    tool::CallSuperseded<'static>,
+    tool::ApprovedRunning<'static>,
+    tool::ApprovalVoid<'static>,
+    tool::AuthorizedResumed<'static>,
+    tool::LateResult<'static>,
+    tool::TaskStarted<'static>,
+    tool::TaskHoldsExternal<'static>,
+    tool::WakeSet<'static>,
+    answer::CallAnswered<'static>,
+    answer::WokenByAnswer,
+    answer::BudgetAnswered<'static>,
+    answer::SpendReset<'static>,
+    answer::ResetDeclined<'static>,
+    answer::ActRefused<'static>,
+    answer::JobActRefused<'static>,
+    answer::LimitChanged<'static>,
+    answer::QuestionWithdrawn<'static>,
 ];
 
 #[cfg(test)]

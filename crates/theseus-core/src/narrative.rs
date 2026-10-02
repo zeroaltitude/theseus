@@ -40,16 +40,6 @@ macro_rules! narrate {
 }
 pub(crate) use narrate;
 
-/// Narrate one line in a turn, whose context (`TurnCtx`) names the narrator,
-/// the session, and the turn: `narrate_turn!(tc, Tool, "…")`.
-macro_rules! narrate_turn {
-    ($tc:expr, $part:ident, $($fmt:tt)+) => {{
-        let tc = &$tc;
-        $crate::narrative::narrate!(tc.narrator, $part, Some(tc.session_id), Some(tc.turn_id), $($fmt)+)
-    }};
-}
-pub(crate) use narrate_turn;
-
 /// The narrative's live channel: the tail and the subscribers.
 pub struct Narrator {
     on: bool,

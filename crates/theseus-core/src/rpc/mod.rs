@@ -12,6 +12,7 @@
 
 mod bindings;
 mod confirms;
+pub(crate) use confirms::Act;
 mod driver;
 mod info;
 mod methods;
@@ -203,6 +204,26 @@ impl Core {
             .headers_secret
             .clone()
             .filter(|_| cfg.telemetry.endpoint().is_some())
+    }
+
+    /// Where the core's own facts go, outside a turn (`crate::fact`), for
+    /// `session` or for none: their rows are written now, and their
+    /// notifications go to the session's watchers (none: to no one).
+    pub(crate) fn rec<'a>(&'a self, session: Option<&'a str>) -> crate::fact::Rec<'a> {
+        crate::fact::Rec {
+            narrator: &self.narrator,
+            session,
+            turn: None,
+            to: session.map_or(crate::fact::To::Nobody, |s| {
+                crate::fact::To::Session(&self.bus, s)
+            }),
+            store: &self.store,
+        }
+    }
+
+    /// A session's own facts, outside a turn (`rec`).
+    pub(crate) fn session_rec<'a>(&'a self, session: &'a str) -> crate::fact::Rec<'a> {
+        self.rec(Some(session))
     }
 
     /// The export pipeline, or a disabled one until it is built.

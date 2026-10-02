@@ -1606,7 +1606,7 @@ impl TurnRunner {
             tc.node_written(n);
         }
         if let Some(h) = &held {
-            tc.record(&fact::turn::HoldBrought {
+            tc.record(&fact::tool::HoldTaken {
                 hold: h,
                 mode: self.tools.external_text,
             });
