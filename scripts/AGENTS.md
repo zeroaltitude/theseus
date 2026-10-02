@@ -26,6 +26,10 @@ It runs, in order:
    core count. A miss reruns once, and only a second miss fails. Every run goes to the bench history
    (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With `THESEUS_GATE_NO_BENCH=1` (a
    lane's gate, which the lane recipe sets), this step is skipped: the gate that joins the lane to `main` runs it.
+   Then the turn bench (`theseus-sim bench turn --check`): a plain turn's frames, counted from the daemon's WAL,
+   against §9's per-turn overhead restated as frames (5; the floor is 2). A count needs no quiet machine, so it runs
+   in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the join it runs ten runs and a
+   burst of 30 turns and records the row (about 11 s). A miss reruns once.
 6. `cargo deny check`: licences, advisories, bans, and sources.
 7. The web apps' lint and build, each when its `node_modules` exists, and then a check that the Observatory's
    committed build is current.

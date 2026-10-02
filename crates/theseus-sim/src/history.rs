@@ -11,6 +11,10 @@
 //! so a miss shows even when the rerun passes. `bench history` reads the file
 //! back, with each phase's headroom.
 //!
+//! `bench turn`, `bench idle`, and `bench size` append rows of their own to the
+//! same file (theseus-goa8): the columns after the lifecycle's phases (`OTHER`),
+//! each with its unit, empty in a row of another bench.
+//!
 //! The file is `$THESEUS_BENCH_HISTORY`, or `~/.cache/theseus/bench-history.csv`,
 //! outside the tree: a tracked file the gate rewrote would dirty every commit.
 //! Every worktree shares it, and the gate lock serializes its writers. A row
@@ -29,6 +33,43 @@ use crate::lifecycle::{Summary, Verdict, PHASES};
 /// A passing run warns about each phase whose p95 is within this share of its
 /// limit (the warning changes no exit status).
 const NEAR_PERCENT: i64 = 10;
+
+/// The columns of the benches besides the lifecycle's, in order, each with its
+/// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
+/// when the bench has a budget for it. A single reading (a size, a memory) is
+/// its own p50 and p95.
+pub const OTHER: [(&str, &str); 13] = [
+    // `bench turn`
+    ("turn_plain", "ms"),
+    ("frames_plain", "frames"),
+    ("turn_tool", "ms"),
+    ("frames_tool", "frames"),
+    ("rss_start", "MB"),
+    ("rss_burst", "MB"),
+    // `bench idle`
+    ("idle_cpu", "ms"),
+    ("idle_wakeups", "per s"),
+    ("idle_frames", "frames"),
+    ("rss_idle", "MB"),
+    // `bench size`
+    ("size_theseusd", "MB"),
+    ("size_theseus", "MB"),
+    ("size_theseus_tui", "MB"),
+];
+
+/// Every column the history carries: the lifecycle's phases, then the other
+/// benches'.
+pub fn columns() -> impl Iterator<Item = &'static str> {
+    PHASES.iter().copied().chain(OTHER.iter().map(|(n, _)| *n))
+}
+
+/// A column's unit: `ms` for the lifecycle's phases.
+pub fn unit(column: &str) -> &'static str {
+    OTHER
+        .iter()
+        .find(|(n, _)| *n == column)
+        .map_or("ms", |(_, u)| *u)
+}
 
 /// `~/.cache/theseus/bench-history.csv`: where the history is when
 /// `$THESEUS_BENCH_HISTORY` doesn't say.
@@ -100,7 +141,7 @@ impl Row {
     pub fn to_csv(&self) -> String {
         let num = |x: Option<f64>| x.map_or(String::new(), |x| x.to_string());
         let mut f = vec![field(&self.time), field(&self.label), num(self.load1)];
-        for name in PHASES {
+        for name in columns() {
             match self.phases.iter().find(|p| p.phase == name) {
                 Some(p) => f.extend([p.p50.to_string(), p.p95.to_string(), num(p.limit)]),
                 None => f.extend([String::new(), String::new(), String::new()]),
@@ -112,10 +153,11 @@ impl Row {
 }
 
 /// The history's header: the time, the label, the load, three columns per
-/// phase (`cold_p50`, `cold_p95`, `cold_limit`, …), and `passed`.
+/// phase (`cold_p50`, `cold_p95`, `cold_limit`, …; the other benches' too),
+/// and `passed`.
 pub fn header() -> String {
     let mut h = vec!["time".to_string(), "label".to_string(), "load1".to_string()];
-    for name in PHASES {
+    for name in columns() {
         h.extend([
             format!("{name}_p50"),
             format!("{name}_p95"),
@@ -360,6 +402,19 @@ fn name(phase: &str) -> &str {
         "kill" => "restart after SIGKILL",
         "swap" => "binary swap",
         "restore" => "restore from a local WAL",
+        "turn_plain" => "a plain turn's wall time",
+        "frames_plain" => "a plain turn's frames",
+        "turn_tool" => "a tool-call turn's wall time",
+        "frames_tool" => "a tool-call turn's frames",
+        "rss_start" => "resident memory after the start",
+        "rss_burst" => "resident memory after a burst of turns",
+        "idle_cpu" => "an idle daemon's CPU time over the window",
+        "idle_wakeups" => "an idle daemon's wakeups",
+        "idle_frames" => "frames an idle daemon wrote",
+        "rss_idle" => "resident memory at idle",
+        "size_theseusd" => "theseusd's size",
+        "size_theseus" => "theseus's size",
+        "size_theseus_tui" => "theseus-tui's size",
         other => other,
     }
 }
@@ -368,18 +423,49 @@ fn name(phase: &str) -> &str {
 /// limit, such as `lifecycle: cold start's p95 51.3 ms is within 10% of its
 /// 57 ms limit`.
 pub fn near_limits(verdicts: &[Verdict]) -> Vec<String> {
+    near_limits_of("lifecycle", verdicts)
+}
+
+/// [`near_limits`] for the bench `bench`. A count of frames is held at its
+/// budget exactly, so being at it is no drift and never warns.
+pub fn near_limits_of(bench: &str, verdicts: &[Verdict]) -> Vec<String> {
     verdicts
         .iter()
-        .filter(|v| near(v.p95, v.budget + v.margin))
+        .filter(|v| warns_near(&v.phase) && near(v.p95, v.budget + v.margin))
         .map(|v| {
+            let unit = unit(&v.phase);
             format!(
-                "lifecycle: {}'s p95 {:.1} ms is within {NEAR_PERCENT}% of its {} ms limit",
+                "{bench}: {}'s p95 {:.1} {unit} is within {NEAR_PERCENT}% of its {} {unit} limit",
                 name(&v.phase),
                 v.p95,
                 round2(v.budget + v.margin)
             )
         })
         .collect()
+}
+
+/// Whether a column's nearness to its limit is drift worth a word: not a
+/// count of frames, which a budget holds exactly.
+fn warns_near(column: &str) -> bool {
+    unit(column) != "frames"
+}
+
+/// Append a bench's row to the history at `path`, and say where. A failure to
+/// write it is reported and changes nothing else: the gate's verdict comes
+/// from the run, not from its record.
+pub fn record(
+    path: &Path,
+    bench: &str,
+    label: &str,
+    phases: &[(String, Summary)],
+    verdicts: &[Verdict],
+    passed: bool,
+) {
+    let row = Row::of(phases, verdicts, passed, label, load1(), now());
+    match append(path, &row) {
+        Ok(()) => println!("{bench}: recorded in {} as {label:?}", path.display()),
+        Err(e) => eprintln!("{bench}: the run was NOT recorded: {e:#}"),
+    }
 }
 
 /// `bench history`: the last `last` runs of each phase, with the headroom
@@ -413,8 +499,8 @@ pub fn render(path: &Path, history: Option<&History>, last: usize) -> String {
         let _ = writeln!(o, "  no runs recorded yet");
         return o;
     }
-    // The phases in the bench's order, then any only an older header had.
-    let mut phases: Vec<&str> = PHASES.to_vec();
+    // The columns in the benches' order, then any only an older header had.
+    let mut phases: Vec<&str> = columns().collect();
     for r in &h.rows {
         for p in &r.phases {
             if !phases.contains(&p.phase.as_str()) {
@@ -438,11 +524,14 @@ pub fn render(path: &Path, history: Option<&History>, last: usize) -> String {
             .max()
             .unwrap_or(0)
             .max(5);
+        let u = unit(phase);
+        let (h50, h95) = (format!("p50 {u}"), format!("p95 {u}"));
+        let w = h50.chars().count().max(7);
         let _ = writeln!(o, "{} ({phase})", name(phase));
         let _ = writeln!(
             o,
-            "  {:<25}  {:<width$}  {:>5}  {:>7}  {:>7}  {:>6}  {:>8}",
-            "time", "label", "load", "p50 ms", "p95 ms", "limit", "headroom"
+            "  {:<25}  {:<width$}  {:>5}  {h50:>w$}  {h95:>w$}  {:>6}  {:>8}",
+            "time", "label", "load", "limit", "headroom"
         );
         for (r, p) in shown {
             let load = r.load1.map_or("-".to_string(), |l| format!("{l:.2}"));
@@ -452,7 +541,7 @@ pub fn render(path: &Path, history: Option<&History>, last: usize) -> String {
                     format!("{:.1}", l - p.p95),
                     if p.p95 > l {
                         "  MISSED"
-                    } else if near(p.p95, l) {
+                    } else if warns_near(phase) && near(p.p95, l) {
                         "  within 10%"
                     } else {
                         ""
@@ -467,7 +556,7 @@ pub fn render(path: &Path, history: Option<&History>, last: usize) -> String {
             };
             let _ = writeln!(
                 o,
-                "  {:<25}  {:<width$}  {load:>5}  {:>7.1}  {:>7.1}  {limit:>6}  {headroom:>8}{mark}{run}",
+                "  {:<25}  {:<width$}  {load:>5}  {:>w$.1}  {:>w$.1}  {limit:>6}  {headroom:>8}{mark}{run}",
                 r.time, r.label, p.p50, p.p95
             );
         }
@@ -536,11 +625,16 @@ mod tests {
         let line = r.to_csv();
         assert_eq!(
             line,
-            "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
-             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,,true"
+            format!(
+                "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
+             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,\
+             {},true",
+                // The other benches' columns, empty: three cells for each.
+                ",".repeat(3 * OTHER.len())
+            )
         );
         let cols = split(&header()).unwrap();
-        assert_eq!(cols.len(), 3 + 3 * PHASES.len() + 1);
+        assert_eq!(cols.len(), 3 + 3 * columns().count() + 1);
         assert_eq!(parse(&cols, &line).unwrap(), r);
 
         // A label with a comma, a quote, and a newline: one line, and back.

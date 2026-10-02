@@ -17,7 +17,19 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
     Discord (`inflight`, its own rig), SIGKILL and restart, a binary swap with the job's wrapper adopted, restore
     (with `theseusd restore`'s own phases), and the push's seed. `--check` fails a p95 over its budget plus the
     phase's margin (`lifecycle::margin_ms`, measured on the build machine).
-  - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends.
+  - `bench turn` (`src/perf.rs`, theseus-goa8): a plain turn and a tool-call turn on the stand-in model, each run N
+    times on one warm session: wall time by the bench's clock and the daemon's, and **frames per turn**, counted from the
+    daemon's WAL by `src/walcount.rs` (a read-only tail; the daemon reports no frame count, and the core is not changed
+    for a bench). A frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit that does not depend on the
+    disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (5; the floor is 2). Beside them:
+    this disk's `fdatasync` (so the harness's own share of a turn reads off), and the daemon's resident memory after the
+    start and after a burst of turns. The scratch daemon has Discord and the web UI off.
+  - `bench idle`: an idle daemon over a window (30 s): CPU time, wakeups (its threads' voluntary context switches, from
+    `src/procfs.rs`), frames written (a quiet daemon writes none), and memory, on an empty store or `--sessions N`.
+    Measured, no budget yet.
+  - `bench size`: the shipped binaries' sizes against §9's 60 MB. Meaningful on a release or install build.
+  - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends. The
+    other benches' columns (`history::OTHER`) are in the same file, each with its unit.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
   - `fake-discord`: a stand-in for Discord's REST API, and with `--gateway` its gateway (theseus-6g62); `--guild`
     gives it a guild for the viewer check (theseus-ck0k).
@@ -32,6 +44,10 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
 - **The budgets are §9's, and they don't move to make a gate pass.** A margin is the measured noise of a phase's
   p95 on the build machine, and changing one is a decision with its data (theseus-zay1).
 - **New startup work lands with its bench row**, so the gate times it.
+- **The plain turn's frames budget only goes down.** A step that writes fewer frames lowers `PLAIN_TURN_FRAMES` in the
+  same commit (C6 and S5 aim at 2). A step that must write one more raises it on purpose, with the reason in the
+  commit, as `tests_m3::a_plain_turn_stays_within_its_frame_budget` is raised. The bench holds it at the daemon, over
+  the protocol; the test holds it inside the core.
 - **A new kernel transition belongs in kernel-sim's random operations**, with any invariant it must keep.
 - The fake Discord never records a header, so no token reaches its log; its gateway never keeps what an IDENTIFY
   or a RESUME carries, and an interaction's token is cut out of a recorded path.
@@ -45,7 +61,9 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
 - Release numbers of record: `target/release/theseus-sim bench lifecycle --theseusd target/release/theseusd --runs
   10`, with `--sessions 10000` for the synthetic store, or `--store` on a copy of a real store.
 - Long runs stay out of the gate: `theseus-sim kernel-sim --seeds 40`, or a crash test with `--restarts 8`, so
-  stores cross checkpoints.
+  stores cross checkpoints; `bench idle` (30 s), and `bench size`, which needs a release build.
+- The turn bench's numbers of record are release's: `target/release/theseus-sim bench turn --theseusd
+  target/release/theseusd --runs 10`.
 
 ## Traps
 
@@ -53,3 +71,10 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
   `bench history` before calling a miss a regression.
 - A raced kernel-sim run reproduces from its seed only up to its first race.
 - A bench of release binaries while a build runs: copy them first, since cargo replaces them mid-run.
+- `bench turn` counts every frame the WAL gains from just before a turn until it has been still for 50 ms, so a frame
+  another writer put in that window counts as the turn's. The gate reruns a miss once; a regression writes its frame
+  every time, and the output names each frame by what it holds.
+- A tool-call turn writes 10 to 12 frames: whether the tool's result is consumed in the turn or by a wake varies. The
+  plain turn's 5 never does.
+- The stand-in model (`fake_model::FakeModel::start_mixed`) asks for its tool only when a turn's input holds
+  `fake_model::TOOL_MARK`; the lifecycle bench's `start` asks on every call.

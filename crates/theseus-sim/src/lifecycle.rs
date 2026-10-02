@@ -274,7 +274,7 @@ fn driver_ms(h: &Value) -> Option<f64> {
 // ------------------------------------------------------------------ the rig
 
 /// Where the daemon's secrets come from.
-enum Vault {
+pub(crate) enum Vault {
     /// The fake `op` in this directory, first on the daemon's PATH, and a
     /// token that is not one.
     Fake(PathBuf),
@@ -284,7 +284,7 @@ enum Vault {
 
 /// A spawned `theseusd`, killed and reaped when dropped: a bench that fails
 /// anywhere, with `?` or a panic, leaves no daemon running (theseus-hee).
-struct Daemon(Child);
+pub(crate) struct Daemon(pub(crate) Child);
 
 impl Daemon {
     /// SIGKILL, and reaped.
@@ -303,14 +303,14 @@ impl Drop for Daemon {
     }
 }
 
-struct Rig {
-    theseusd: PathBuf,
+pub(crate) struct Rig {
+    pub(crate) theseusd: PathBuf,
     /// A config file, or an `op://` note (the vault phase).
-    config: PathBuf,
-    state: PathBuf,
-    sock: PathBuf,
-    vault: Vault,
-    log: PathBuf,
+    pub(crate) config: PathBuf,
+    pub(crate) state: PathBuf,
+    pub(crate) sock: PathBuf,
+    pub(crate) vault: Vault,
+    pub(crate) log: PathBuf,
 }
 
 impl Rig {
@@ -486,7 +486,7 @@ impl Rig {
     }
 
     /// Start a daemon and time it to its first `health` answer.
-    fn start(&self) -> Result<(Daemon, Start)> {
+    pub(crate) fn start(&self) -> Result<(Daemon, Start)> {
         let (mut daemon, t0) = self.spawn()?;
         let deadline = t0 + Duration::from_secs(30);
         loop {
@@ -525,7 +525,7 @@ impl Rig {
     }
 
     /// The `shutdown` request to process exit, in ms.
-    fn stop(&self, daemon: &mut Daemon) -> Result<f64> {
+    pub(crate) fn stop(&self, daemon: &mut Daemon) -> Result<f64> {
         let s = UnixStream::connect(&self.sock).context("connecting to stop theseusd")?;
         let t0 = Instant::now();
         send(&s, "shutdown", Value::Null)?;
@@ -542,7 +542,7 @@ impl Rig {
         let _ = self.stop(daemon);
     }
 
-    fn call(&self, method: &str, params: Value) -> Result<Value> {
+    pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value> {
         request(UnixStream::connect(&self.sock)?, method, params)
     }
 
@@ -607,7 +607,7 @@ fn request(s: UnixStream, method: &str, params: Value) -> Result<Value> {
     }
 }
 
-fn tail(log: &Path) -> String {
+pub(crate) fn tail(log: &Path) -> String {
     let s = std::fs::read_to_string(log).unwrap_or_default();
     let lines: Vec<&str> = s.lines().collect();
     lines[lines.len().saturating_sub(15)..].join("\n")
@@ -688,7 +688,7 @@ fn read_cold(wal: &Path) -> Result<(u64, f64)> {
 
 /// The fake `op`: every reference gets the same value, after `ms`, except
 /// the bench's vault note (`VAULT_REF`), which is the file `note`.
-fn fake_op(ms: u64, note: &Path) -> String {
+pub(crate) fn fake_op(ms: u64, note: &Path) -> String {
     format!(
         "#!/bin/sh\n\
          # The lifecycle bench's stand-in for 1Password's op (theseus-sim):\n\
@@ -757,7 +757,7 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
     Ok(toml::to_string(&t)?)
 }
 
-fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
     for e in std::fs::read_dir(from)? {
         let e = e?;

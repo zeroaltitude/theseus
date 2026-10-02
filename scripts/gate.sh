@@ -81,13 +81,31 @@ settle() {
   fi
   return 0
 }
-# A lane's gate skips the bench (THESEUS_GATE_NO_BENCH=1, set by the lane
-# recipe): the gate that joins the lane to main runs it, on main's tree, and
-# its settle step held the shared gate lock for minutes while every other
+# The turn bench (theseus-goa8; review 2's S4 and consideration 8): a plain
+# turn's frames, counted from the daemon's WAL, against §9's per-turn overhead
+# restated as frames (5 today; the floor is 2). A frame is one fdatasync, so
+# the count does not depend on the disk or the load: it needs no quiet machine,
+# and runs in a lane's gate as well. Its timings (wall time, memory) are
+# recorded only where the lifecycle bench is recorded, so the history holds no
+# number measured beside a busy neighbour. A miss reruns once, as the lifecycle
+# bench's does: a frame another writer put inside the window is one run's, and a
+# real regression writes it every time. In a lane's gate: five runs of each
+# kind, and no burst (about 5 s); at the join, ten runs and a burst of 30 turns,
+# which the history records (about 11 s).
+turn_bench() {
+  target/debug/theseus-sim bench turn --check "$@"
+}
+# A lane's gate skips the timing bench (THESEUS_GATE_NO_BENCH=1, set by the
+# lane recipe): the gate that joins the lane to main runs it, on main's tree,
+# and its settle step held the shared gate lock for minutes while every other
 # agent's gate queued behind it. A lane whose work touches the start path
 # runs `theseus-sim bench lifecycle` alone once before its join.
 if [ -n "${THESEUS_GATE_NO_BENCH:-}" ]; then
   echo "lifecycle: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
+  turn_bench --runs 5 --burst 0 || {
+    echo "turn: the frames budget was missed; running the bench once more"
+    turn_bench --runs 5 --burst 0
+  }
 else
   sync
   settle
@@ -96,6 +114,10 @@ else
     sync
     settle
     lifecycle
+  }
+  turn_bench --record "$history" --label "$label" || {
+    echo "turn: the frames budget was missed; running the bench once more"
+    turn_bench --record "$history" --label "$label"
   }
 fi
 cargo deny --log-level error check

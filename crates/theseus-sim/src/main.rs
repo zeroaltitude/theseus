@@ -17,6 +17,11 @@
 //!               SIGKILL and restart, each p50/p95; `--check` fails a miss.
 //!               The gate runs it (`scripts/gate.sh`), and records each run
 //!               (`--record`); `bench history` reads them back (theseus-1hk).
+//! `bench turn`  what a turn costs (theseus-goa8): a plain turn and a tool-call
+//!               turn on the stand-in model, their wall time and their frames
+//!               (counted from the WAL; the plain turn's are a gated budget),
+//!               and the daemon's memory. `bench idle` is an idle daemon's CPU
+//!               and wakeups over a window, and `bench size` the binaries'.
 //! `synth-store` a store of parked sessions, many to a frame.
 
 use std::io::{BufRead, BufReader, Write};
@@ -35,7 +40,10 @@ mod fake_model;
 mod history;
 mod kernel_sim;
 mod lifecycle;
+mod perf;
+mod procfs;
 mod synth;
+mod walcount;
 
 #[derive(Parser)]
 #[command(
@@ -232,6 +240,18 @@ enum BenchCmd {
         #[arg(long, requires = "record")]
         label: Option<String>,
     },
+    /// What a turn costs, on the stand-in model: a plain turn's and a
+    /// tool-call turn's wall time and frames (a frame is one fdatasync; the
+    /// plain turn's count is held to §9's budget by --check), the daemon's
+    /// memory after the start and after a burst of turns, and this disk's
+    /// fdatasync (theseus-goa8).
+    Turn(perf::TurnArgs),
+    /// An idle daemon over a window (30 s): its CPU time, its wakeups, the
+    /// frames it writes, and its memory, on an empty store or a synthetic
+    /// one (--sessions 10000). Measured, with no budget yet (theseus-goa8).
+    Idle(perf::IdleArgs),
+    /// The release binaries' sizes, against §9's 60 MB (theseus-goa8).
+    Size(perf::SizeArgs),
     /// The lifecycle bench's history: each phase's last runs, with the
     /// headroom left under its limit.
     History {
@@ -363,6 +383,15 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        Cmd::Bench {
+            bench: BenchCmd::Turn(args),
+        } => perf::turn_cmd(args),
+        Cmd::Bench {
+            bench: BenchCmd::Idle(args),
+        } => perf::idle_cmd(args),
+        Cmd::Bench {
+            bench: BenchCmd::Size(args),
+        } => perf::size_cmd(args),
         Cmd::Bench {
             bench: BenchCmd::History { last, file },
         } => {

@@ -3,6 +3,10 @@
 //! last message carries no tool result asks for `proc.run` of `argv`, and
 //! the call that carries its result ends the turn. One response per
 //! connection, streamed as the API streams it.
+//!
+//! The turn bench's stand-in (`FakeModel::start_mixed`, theseus-goa8) asks for
+//! its tool only when the input holds [`TOOL_MARK`]; any other turn is one
+//! plain answer, so a bench can time both kinds on one daemon.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -14,6 +18,19 @@ use serde_json::{json, Value};
 /// The model name the fake answers as: the template's live profile's.
 pub const MODEL: &str = "claude-sonnet-5-5";
 
+/// What a mixed stand-in looks for in a turn's input: with it, the model asks
+/// for its tool; without it, the model answers in plain text.
+pub const TOOL_MARK: &str = "bench-tool";
+
+/// What the stand-in answers a call that carries no tool result.
+#[derive(Clone)]
+enum Script {
+    /// Always ask for `argv` (the lifecycle bench's job).
+    Job(Vec<String>),
+    /// Ask for `argv` when the input holds [`TOOL_MARK`], else answer in text.
+    Mixed(Vec<String>),
+}
+
 pub struct FakeModel {
     pub addr: SocketAddr,
 }
@@ -21,11 +38,21 @@ pub struct FakeModel {
 impl FakeModel {
     /// Listen on an ephemeral port; answer until the process ends.
     pub fn start(argv: Vec<String>) -> Result<Self> {
+        Self::listen(Script::Job(argv))
+    }
+
+    /// As [`FakeModel::start`], but a turn asks for `argv` only when its
+    /// input holds [`TOOL_MARK`], and is otherwise one plain answer.
+    pub fn start_mixed(argv: Vec<String>) -> Result<Self> {
+        Self::listen(Script::Mixed(argv))
+    }
+
+    fn listen(script: Script) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").context("binding the fake model")?;
         let addr = listener.local_addr()?;
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                if let Err(e) = answer(stream, &argv) {
+                if let Err(e) = answer(stream, &script) {
                     eprintln!("fake model: {e:#}");
                 }
             }
@@ -38,7 +65,7 @@ impl FakeModel {
     }
 }
 
-fn answer(mut stream: TcpStream, argv: &[String]) -> Result<()> {
+fn answer(mut stream: TcpStream, script: &Script) -> Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut r = BufReader::new(stream.try_clone()?);
     let mut len = 0usize;
@@ -59,10 +86,12 @@ fn answer(mut stream: TcpStream, argv: &[String]) -> Result<()> {
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).context("request body")?;
-    let events = if carries_tool_result(&req) {
-        text_turn("Started; it runs in the background.")
-    } else {
-        tool_turn(argv)
+    let events = match (script, carries_tool_result(&req)) {
+        (Script::Job(_), true) => text_turn("Started; it runs in the background."),
+        (Script::Mixed(_), true) => text_turn("The tool ran."),
+        (Script::Job(argv), false) => tool_turn(argv),
+        (Script::Mixed(argv), false) if asks_for_tool(&req) => tool_turn(argv),
+        (Script::Mixed(_), false) => text_turn("A plain answer from the stand-in model."),
     };
     let mut out = String::from(
         "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n",
@@ -85,6 +114,14 @@ pub fn carries_tool_result(req: &Value) -> bool {
         .and_then(|m| m.last())
         .and_then(|m| m["content"].as_array())
         .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
+}
+
+/// Whether the request's last message, the turn's input, holds [`TOOL_MARK`].
+pub fn asks_for_tool(req: &Value) -> bool {
+    req["messages"]
+        .as_array()
+        .and_then(|m| m.last())
+        .is_some_and(|m| m["content"].to_string().contains(TOOL_MARK))
 }
 
 fn start(input_tokens: u64) -> Value {
@@ -143,5 +180,16 @@ mod tests {
         assert_eq!(call[4]["delta"]["stop_reason"], "tool_use");
         assert_eq!(call[5]["type"], "message_stop");
         assert_eq!(text_turn("x")[4]["delta"]["stop_reason"], "end_turn");
+    }
+
+    #[test]
+    fn a_mixed_stand_in_asks_for_its_tool_only_when_the_input_says_so() {
+        let plain = json!({"messages": [{"role": "user", "content": "hello"}]});
+        let marked = json!({"messages": [
+            {"role": "user", "content": [{"type": "text", "text": "do it, bench-tool please"}]},
+        ]});
+        assert!(!asks_for_tool(&plain));
+        assert!(asks_for_tool(&marked));
+        assert!(!asks_for_tool(&json!({})), "no messages is no ask");
     }
 }
