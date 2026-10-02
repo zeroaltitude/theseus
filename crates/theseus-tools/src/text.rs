@@ -1,7 +1,5 @@
 //! `text.diff` (spec §3.24): a unified diff of two texts or two files.
 
-use std::fs;
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -93,9 +91,7 @@ impl Tool for Diff {
                 (Some(t), None) => Ok((t.clone(), name.to_string())),
                 (None, Some(p)) => {
                     let r = ctx.resolve(p);
-                    let t = fs::read_to_string(&r).map_err(|e| {
-                        ToolFailure::new(format!("cannot read {}: {e}", r.display()))
-                    })?;
+                    let t = crate::fs::read_regular_text(&r, "text_diff")?;
                     Ok((t, r.display().to_string()))
                 }
                 _ => unreachable!(),

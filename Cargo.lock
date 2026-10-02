@@ -6717,6 +6717,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "libc",
  "regex",
  "serde",
  "serde_json",

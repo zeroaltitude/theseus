@@ -286,7 +286,8 @@ fn worktree_bytes(wd: &Path, p: &str, real_dirs: &mut BTreeMap<PathBuf, bool>) -
     if !meta.is_file() {
         return None;
     }
-    fs::read(&path).ok()
+    // Not a FIFO or a link swapped in since the look above (review 2's R9).
+    crate::fs::read_regular(&path, u64::MAX, false).ok()
 }
 
 fn file_diff(
@@ -522,7 +523,8 @@ impl Tool for Diff {
                     if tree.contains_key(&rel) || !keep(&rel) {
                         continue;
                     }
-                    let data = fs::read(e.path()).unwrap_or_default();
+                    let data =
+                        crate::fs::read_regular(e.path(), u64::MAX, false).unwrap_or_default();
                     let binary = data.iter().take(8192).any(|b| *b == 0);
                     changes.push((
                         rel,

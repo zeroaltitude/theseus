@@ -26,6 +26,9 @@ theseus-core, whose `toolrun.rs` runs every call as a kernel action, and by thes
   own way to get it: a range where the tool takes one, else a narrower call. A listing (`fs.glob`, `fs.grep`,
   `fs.list`) ends with its scope and what it left out.
 - **`fs.patch` refuses a deletion that doesn't show every line it removes.**
+- **A tool reads only regular files, through a cap** (review 2's R9): `fs::read_regular`, never `fs::read`. A FIFO,
+  a socket, or a device is refused by name, since a read of one waits for a writer and holds a pool core and a
+  thread for as long as it waits. It is opened without blocking and checked again once open.
 
 ## Tests
 

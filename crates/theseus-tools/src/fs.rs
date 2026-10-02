@@ -25,6 +25,116 @@ fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(8192).any(|b| *b == 0)
 }
 
+/// Why a file was not read (review 2's R9).
+#[derive(Debug)]
+pub(crate) enum Unread {
+    Io(std::io::Error),
+    /// Not a regular file: what it is instead.
+    Kind(&'static str),
+    /// Longer than the cap: the bytes read before the cut.
+    Over(u64),
+}
+
+impl Unread {
+    /// In words, after the path: `/x/p is a FIFO, not a regular file; …`.
+    pub(crate) fn say(&self, path: &Path, tool: &str) -> String {
+        match self {
+            Self::Io(e) => format!("cannot read {}: {e}", path.display()),
+            Self::Kind(k) => format!(
+                "{} is {k}, not a regular file; {tool} reads only regular files (a read of a \
+                 FIFO, a socket, or a device can wait forever for a writer)",
+                path.display()
+            ),
+            Self::Over(n) => format!(
+                "{} grew while it was read, to {n} bytes or more; files over {MAX_FILE_BYTES} \
+                 bytes are not read whole (use fs_grep to find the part you need)",
+                path.display()
+            ),
+        }
+    }
+}
+
+impl From<std::io::Error> for Unread {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+/// What a file type is, when it is not a regular file.
+fn not_regular(t: fs::FileType) -> Option<&'static str> {
+    use std::os::unix::fs::FileTypeExt;
+    if t.is_file() {
+        None
+    } else if t.is_dir() {
+        Some("a directory")
+    } else if t.is_fifo() {
+        Some("a FIFO")
+    } else if t.is_socket() {
+        Some("a socket")
+    } else if t.is_char_device() {
+        Some("a character device")
+    } else if t.is_block_device() {
+        Some("a block device")
+    } else {
+        Some("not a file")
+    }
+}
+
+/// A regular file, open, with its metadata (review 2's R9). A FIFO, a socket,
+/// or a device is refused by name: a read of one waits for a writer, and
+/// holds a core from the pool and a thread for as long as it waits. The file
+/// is opened without blocking and checked again once open, so one swapped in
+/// after the first check is refused too. Without `follow`, a symlink is
+/// refused as well, even one swapped in after the caller looked.
+fn open_regular(path: &Path, follow: bool) -> Result<(fs::File, fs::Metadata), Unread> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let meta = if follow {
+        fs::metadata(path)
+    } else {
+        fs::symlink_metadata(path)
+    }?;
+    if let Some(k) = not_regular(meta.file_type()) {
+        return Err(Unread::Kind(k));
+    }
+    let nofollow = if follow { 0 } else { libc::O_NOFOLLOW };
+    let f = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | nofollow)
+        .open(path)?;
+    let meta = f.metadata()?;
+    if let Some(k) = not_regular(meta.file_type()) {
+        return Err(Unread::Kind(k));
+    }
+    Ok((f, meta))
+}
+
+/// A regular file's bytes, at most `cap` of them (`open_regular`). It is
+/// read through the cap, so a file that grows after its size was checked is
+/// cut there, never read whole.
+pub(crate) fn read_regular(path: &Path, cap: u64, follow: bool) -> Result<Vec<u8>, Unread> {
+    use std::io::Read as _;
+    let (f, meta) = open_regular(path, follow)?;
+    let mut bytes = Vec::with_capacity(meta.len().min(cap) as usize);
+    f.take(cap.saturating_add(1)).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > cap {
+        return Err(Unread::Over(bytes.len() as u64));
+    }
+    Ok(bytes)
+}
+
+/// A regular file's text, whole: `read_regular` without a cap, for the tools
+/// that read a file to change it or compare it.
+pub(crate) fn read_regular_text(path: &Path, tool: &str) -> Result<String, ToolFailure> {
+    let bytes =
+        read_regular(path, u64::MAX, true).map_err(|e| ToolFailure::new(e.say(path, tool)))?;
+    String::from_utf8(bytes).map_err(|_| {
+        ToolFailure::new(format!(
+            "cannot read {}: stream did not contain valid UTF-8",
+            path.display()
+        ))
+    })
+}
+
 /// Atomic write: temp file beside the target, fsync, rename; keeps the mode.
 /// A new file, and any directory made for it, get the mode `umask` gives
 /// (theseus-wz2): the operator's, where the daemon's own is 077. `None`: the
@@ -185,7 +295,8 @@ impl Tool for Read {
                 MAX_FILE_BYTES
             )));
         }
-        let bytes = fs::read(&path)?;
+        let bytes = read_regular(&path, MAX_FILE_BYTES, true)
+            .map_err(|e| ToolFailure::new(e.say(&path, "fs_read")))?;
         // An image the models read comes back as an image (theseus-9g2),
         // capped as an attached one is.
         if let Some(info) = image::sniff(&bytes) {
@@ -453,8 +564,7 @@ impl Tool for Edit {
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
         let a: EditArgs = parse(input).map_err(ToolFailure::new)?;
         let path = ctx.resolve(&a.path);
-        let before = fs::read_to_string(&path)
-            .map_err(|e| ToolFailure::new(format!("cannot read {}: {e}", path.display())))?;
+        let before = read_regular_text(&path, "fs_edit")?;
         let n = before.matches(a.old_string.as_str()).count();
         if n == 0 {
             return Err(ToolFailure::new(format!(
@@ -614,8 +724,7 @@ impl Tool for Patch {
             let path = ctx.resolve(target);
             let original = match &f.old {
                 None => String::new(),
-                Some(o) => fs::read_to_string(ctx.resolve(o))
-                    .map_err(|e| ToolFailure::new(format!("cannot read {o}: {e}")))?,
+                Some(o) => read_regular_text(&ctx.resolve(o), "fs_patch")?,
             };
             let p = diffy::Patch::from_str(&f.text).map_err(|e| {
                 ToolFailure::new(format!("cannot parse the section for {target}: {e}"))
@@ -1172,7 +1281,10 @@ impl Search {
             max: cap,
             last_line: None,
         };
-        searcher.search_path(&self.matcher, f, &mut sink).ok()?;
+        // A regular file only, even one swapped in since the walk looked
+        // (review 2's R9).
+        let (file, _) = open_regular(f, true).ok()?;
+        searcher.search_file(&self.matcher, &file, &mut sink).ok()?;
         Some((lines, hits))
     }
 }
@@ -1467,6 +1579,120 @@ mod tests {
         v.extend_from_slice(&[8, 2, 0, 0, 0, 0, 0, 0, 0]);
         v.resize(v.len() + pad, 0);
         v
+    }
+
+    /// A named pipe at `path`.
+    fn mkfifo(path: &Path) {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0, "mkfifo");
+    }
+
+    /// `call` on another thread, given five seconds. A call that waits on a
+    /// FIFO is let go, by opening the FIFO's other end, before the test fails,
+    /// so a revert of the fix fails here rather than hanging the suite.
+    fn within_5s<T: Send + 'static>(fifo: &Path, call: impl FnOnce() -> T + Send + 'static) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(call());
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(r) => r,
+            Err(_) => {
+                drop(fs::OpenOptions::new().write(true).open(fifo));
+                panic!("the call waited on {} for 5 s", fifo.display());
+            }
+        }
+    }
+
+    /// Review 2's R9: a FIFO in the roots is refused at once, by name, by
+    /// every tool that reads a file, never read (a read waits for a writer,
+    /// holding a core and a thread). So are a socket and a device.
+    #[test]
+    fn a_fifo_a_socket_or_a_device_is_refused_never_read() {
+        let d = tempfile::tempdir().unwrap();
+        let fifo = d.path().join("pipe");
+        mkfifo(&fifo);
+        let base = d.path().to_path_buf();
+        let read = within_5s(&fifo, move || {
+            Read.run(&json!({"path": "pipe"}), &ToolCtx::for_tests(&base))
+        });
+        let e = read.unwrap_err().message;
+        assert!(
+            e.ends_with("pipe is a FIFO, not a regular file; fs_read reads only regular files (a read of a FIFO, a socket, or a device can wait forever for a writer)"),
+            "{e}"
+        );
+        let base = d.path().to_path_buf();
+        let edit = within_5s(&fifo, move || {
+            Edit.run(
+                &json!({"path": "pipe", "old_string": "a", "new_string": "b"}),
+                &ToolCtx::for_tests(&base),
+            )
+        });
+        assert!(edit
+            .unwrap_err()
+            .message
+            .contains("pipe is a FIFO, not a regular file; fs_edit"));
+        let base = d.path().to_path_buf();
+        let diff = within_5s(&fifo, move || {
+            crate::text::Diff.run(
+                &json!({"a_path": "pipe", "b": "x\n"}),
+                &ToolCtx::for_tests(&base),
+            )
+        });
+        assert!(diff
+            .unwrap_err()
+            .message
+            .contains("is a FIFO, not a regular file; text_diff"));
+        // A search passes it by, named or walked past.
+        for path in ["pipe", "."] {
+            let base = d.path().to_path_buf();
+            let grep = within_5s(&fifo, move || {
+                Grep.run(
+                    &json!({"pattern": "a", "path": path}),
+                    &ToolCtx::for_tests(&base),
+                )
+            });
+            assert!(grep.is_ok(), "{path}");
+        }
+        let _sock = std::os::unix::net::UnixListener::bind(d.path().join("sock")).unwrap();
+        let e = Read
+            .run(&json!({"path": "sock"}), &ctx(&d))
+            .unwrap_err()
+            .message;
+        assert!(e.contains("sock is a socket, not a regular file"), "{e}");
+        let e = Read
+            .run(&json!({"path": "/dev/null"}), &ctx(&d))
+            .unwrap_err()
+            .message;
+        assert!(
+            e.contains("/dev/null is a character device, not a regular file"),
+            "{e}"
+        );
+    }
+
+    /// The read goes through the cap, so a file that grew after its size was
+    /// checked is cut there, never read whole (review 2's R9).
+    #[test]
+    fn a_read_stops_at_its_cap() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("grows.txt");
+        fs::write(&p, "0123456789").unwrap();
+        assert_eq!(read_regular(&p, 10, true).unwrap(), b"0123456789");
+        match read_regular(&p, 4, true) {
+            Err(Unread::Over(n)) => assert_eq!(n, 5, "it read one byte past the cap, no more"),
+            other => panic!("{other:?}"),
+        }
+        let link = d.path().join("link.txt");
+        std::os::unix::fs::symlink(&p, &link).unwrap();
+        assert!(read_regular(&link, 10, true).is_ok());
+        assert!(
+            matches!(
+                read_regular(&link, 10, false),
+                Err(Unread::Kind(_) | Unread::Io(_))
+            ),
+            "without follow, a link is not read"
+        );
     }
 
     /// `fs.read` of an image returns it for the model (theseus-9g2); one
