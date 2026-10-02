@@ -396,6 +396,22 @@ impl Core {
         }
     }
 
+    /// The driver's tick (theseus-830): the questions are read once after
+    /// the start, and then only once the earliest may have expired
+    /// (`question_due`), never by the executions the tick reads. Returns
+    /// how many expired.
+    pub fn expire_questions_if_due(&self) -> usize {
+        let now = self.kernel.now_ms();
+        let due = self
+            .tools
+            .question_due
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if now < due {
+            return 0;
+        }
+        self.expire_questions(now)
+    }
+
     /// Expire each call's question nobody answered by `now` (theseus-830):
     /// the time its card and `confirm.list` give, its plan's time and
     /// `[kernel] confirm_ttl_secs`. A budget question holds until it is

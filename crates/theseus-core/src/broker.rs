@@ -1627,22 +1627,96 @@ mod tests {
             .is_empty());
     }
 
+    /// `program`, granted `HARBOR_TOKEN`: each call of `given` gets it with
+    /// no note; each of `withheld` gets nothing, and a note that says why.
+    /// The gate's view agrees with the spawn's.
+    async fn grants_only(program: &str, given: &[&[&str]], withheld: &[(&[&str], &str)]) {
+        let b = bin(&[program]);
+        let path = format!("{}:/usr/bin:/bin", b.path().display());
+        let br = granting(b.path(), &[program]);
+        for a in given {
+            let j = br
+                .for_job(&argv(a), &[], b.path(), Some(&path), Posture::Notify)
+                .await;
+            assert_eq!((j.env.len(), j.note()), (1, None), "{a:?}");
+            let at_gate = br.at_gate("proc.run", Some(&argv(a)), &[], b.path(), Some(&path));
+            assert_eq!(at_gate.len(), 1, "{a:?}");
+        }
+        for (a, says) in withheld {
+            let j = br
+                .for_job(&argv(a), &[], b.path(), Some(&path), Posture::Notify)
+                .await;
+            assert!(j.env.is_empty(), "{a:?}");
+            let note = j.note().unwrap_or_default();
+            assert!(
+                note.starts_with(&format!("[{program} got no HARBOR_TOKEN: ")),
+                "{note}"
+            );
+            assert!(note.contains(says), "{a:?}: {note}");
+            let at_gate = br.at_gate("proc.run", Some(&argv(a)), &[], b.path(), Some(&path));
+            assert!(at_gate.is_empty(), "{a:?}");
+        }
+    }
+
     /// theseus-txvt: cargo gets its grant only for its registry commands that
     /// build nothing, `publish` only with `--no-verify`, and never with a
-    /// toolchain, `--config`, or `-Z`; npm only for its registry commands
-    /// that run no package's scripts, `publish` only with `--ignore-scripts`
-    /// and a local package, and never with an option that names a program.
-    /// The gate's view agrees with the spawn's.
+    /// toolchain, `--config`, or `-Z`.
     #[tokio::test]
-    async fn cargo_and_npm_get_a_grant_only_for_commands_that_run_nothing_else() {
-        let b = bin(&["cargo", "npm"]);
-        let path = format!("{}:/usr/bin:/bin", b.path().display());
-        let br = granting(b.path(), &["cargo", "npm"]);
-        let given: [&[&str]; 9] = [
-            &["cargo", "publish", "--no-verify"],
-            &["cargo", "-q", "publish", "--no-verify", "--allow-dirty"],
-            &["cargo", "owner", "--add", "ada", "harbor"],
-            &["cargo", "yank", "--version", "1.0.0", "harbor"],
+    async fn cargo_gets_a_grant_only_for_registry_commands_that_build_nothing() {
+        grants_only(
+            "cargo",
+            &[
+                &["cargo", "publish", "--no-verify"],
+                &["cargo", "-q", "publish", "--no-verify", "--allow-dirty"],
+                &["cargo", "owner", "--add", "ada", "harbor"],
+                &["cargo", "yank", "--version", "1.0.0", "harbor"],
+            ],
+            &[
+                (
+                    &["cargo", "publish"],
+                    "builds the package unless `--no-verify`",
+                ),
+                (
+                    &["cargo", "build"],
+                    "`cargo build` is not one of cargo's registry commands",
+                ),
+                (&["cargo", "leak"], "or a `cargo-leak` program"),
+                (
+                    &["cargo"],
+                    "the call runs none of cargo's registry commands",
+                ),
+                (
+                    &["cargo", "+nightly", "publish", "--no-verify"],
+                    "`+nightly` before cargo's command",
+                ),
+                (
+                    &["cargo", "--config", "x=1", "owner"],
+                    "`--config` before cargo's command",
+                ),
+                (
+                    &[
+                        "cargo",
+                        "publish",
+                        "--no-verify",
+                        "--config=build.rustc-wrapper='leak'",
+                    ],
+                    "can name a setting",
+                ),
+                (
+                    &["cargo", "yank", "-Zunstable-options"],
+                    "`-Zunstable-options` can name",
+                ),
+            ],
+        )
+        .await;
+    }
+
+    /// theseus-txvt: npm gets its grant only for its registry commands that
+    /// run no package's scripts, `publish` only with `--ignore-scripts` and a
+    /// local package, and never with an option that names a program.
+    #[tokio::test]
+    async fn npm_gets_a_grant_only_for_registry_commands_that_run_no_scripts() {
+        let given: [&[&str]; 5] = [
             &["npm", "publish", "--ignore-scripts"],
             &[
                 "npm",
@@ -1660,49 +1734,7 @@ mod tests {
             &["npm", "whoami"],
             &["npm", "view", "harbor", "version"],
         ];
-        for a in given {
-            let j = br
-                .for_job(&argv(a), &[], b.path(), Some(&path), Posture::Notify)
-                .await;
-            assert_eq!((j.env.len(), j.note()), (1, None), "{a:?}");
-            let at_gate = br.at_gate("proc.run", Some(&argv(a)), &[], b.path(), Some(&path));
-            assert_eq!(at_gate.len(), 1, "{a:?}");
-        }
-        let withheld: [(&[&str], &str); 16] = [
-            (
-                &["cargo", "publish"],
-                "builds the package unless `--no-verify`",
-            ),
-            (
-                &["cargo", "build"],
-                "`cargo build` is not one of cargo's registry commands",
-            ),
-            (&["cargo", "leak"], "or a `cargo-leak` program"),
-            (
-                &["cargo"],
-                "the call runs none of cargo's registry commands",
-            ),
-            (
-                &["cargo", "+nightly", "publish", "--no-verify"],
-                "`+nightly` before cargo's command",
-            ),
-            (
-                &["cargo", "--config", "x=1", "owner"],
-                "`--config` before cargo's command",
-            ),
-            (
-                &[
-                    "cargo",
-                    "publish",
-                    "--no-verify",
-                    "--config=build.rustc-wrapper='leak'",
-                ],
-                "can name a setting",
-            ),
-            (
-                &["cargo", "yank", "-Zunstable-options"],
-                "`-Zunstable-options` can name",
-            ),
+        let withheld: [(&[&str], &str); 8] = [
             (
                 &["npm", "publish"],
                 "runs the package's lifecycle scripts unless",
@@ -1738,20 +1770,7 @@ mod tests {
                 "`--userconfig` names",
             ),
         ];
-        for (a, says) in withheld {
-            let j = br
-                .for_job(&argv(a), &[], b.path(), Some(&path), Posture::Notify)
-                .await;
-            assert!(j.env.is_empty(), "{a:?}");
-            let note = j.note().unwrap_or_default();
-            assert!(
-                note.starts_with(&format!("[{} got no HARBOR_TOKEN: ", a[0])),
-                "{note}"
-            );
-            assert!(note.contains(says), "{a:?}: {note}");
-            let at_gate = br.at_gate("proc.run", Some(&argv(a)), &[], b.path(), Some(&path));
-            assert!(at_gate.is_empty(), "{a:?}");
-        }
+        grants_only("npm", &given, &withheld).await;
     }
 
     /// theseus-ur1t: the pins follow the `GIT_CONFIG_*` pairs a job has
@@ -1778,6 +1797,32 @@ mod tests {
         );
     }
 
+    /// A real git in `dir`, hermetic (`home` its home, no system or global
+    /// config, an invented author), with `extra` in its environment; it must
+    /// succeed.
+    fn git_in(home: &Path, dir: &Path, args: &[&str], extra: &[(String, String)]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", home)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@invented.example")
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@invented.example")
+            .envs(extra.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
     /// theseus-ur1t, against a real git: a job's git given a secret runs
     /// neither the repository's hooks (`reference-transaction`, which every
     /// fetch's ref update runs) nor its `core.fsmonitor` program, so neither
@@ -1786,30 +1831,10 @@ mod tests {
     #[tokio::test]
     async fn a_granted_gits_hooks_and_fsmonitor_never_see_the_variable() {
         use std::os::unix::fs::PermissionsExt;
-        use std::process::Command;
         let d = tempfile::tempdir().unwrap();
         let (src, dst) = (d.path().join("src"), d.path().join("dst"));
         let git = |dir: &Path, args: &[&str], extra: &[(String, String)]| {
-            let out = Command::new("git")
-                .args(args)
-                .current_dir(dir)
-                .env_clear()
-                .env("PATH", std::env::var("PATH").unwrap_or_default())
-                .env("HOME", d.path())
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .env("GIT_AUTHOR_NAME", "Ada")
-                .env("GIT_AUTHOR_EMAIL", "ada@invented.example")
-                .env("GIT_COMMITTER_NAME", "Ada")
-                .env("GIT_COMMITTER_EMAIL", "ada@invented.example")
-                .envs(extra.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
+            git_in(d.path(), dir, args, extra);
         };
         std::fs::create_dir_all(&src).unwrap();
         git(&src, &["init", "-q", "-b", "main"], &[]);
@@ -1894,5 +1919,91 @@ mod tests {
             )
             .await;
         assert!(w.env.is_empty() && !w.git_pinned);
+    }
+
+    // The config's `[broker]` checks (`Config::validate`), beside the broker
+    // they describe (moved from config.rs under the shape budget's file
+    // ceiling, theseus-goa8).
+
+    /// The broker is empty until a grant is added (theseus-dcy), so a note
+    /// without `[broker]` loads as it did. A grant names a program, a
+    /// variable, and a `[secrets]` entry; anything else fails to load, and
+    /// the error says which.
+    #[test]
+    fn a_broker_grant_names_a_program_a_variable_and_a_secret() {
+        use crate::config::Config;
+        assert!(Config::example().broker.is_empty());
+        let with = |broker: &str| {
+            Config::parse(&format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\ngithub_token = \"op://v/g/f\"\n\n{broker}\n"
+            ))
+            .map(|(c, _)| c)
+        };
+        let ok = with(
+            "[broker.programs.gh]\nenv = { GH_TOKEN = \"github_token\" }\n\
+             [broker.secrets.github_token]\nposture = \"approve\"",
+        )
+        .unwrap();
+        assert_eq!(ok.broker.secrets["github_token"].posture, Posture::Approve);
+        let default = with("[broker.secrets.github_token]").unwrap();
+        assert_eq!(
+            default.broker.secrets["github_token"].posture,
+            Posture::Notify
+        );
+        for (bad, says) in [
+            (
+                "[broker.programs.gh]\nenv = { GH_TOKEN = \"aws_key\" }",
+                "has no matching entry under [secrets]",
+            ),
+            (
+                "[broker.programs.\"/usr/bin/gh\"]\nenv = { GH_TOKEN = \"github_token\" }",
+                "with no '/'",
+            ),
+            (
+                "[broker.programs.gh]\nenv = { \"GH-TOKEN\" = \"github_token\" }",
+                "is not an environment variable's name",
+            ),
+            ("[broker.programs.gh]\nenv = {}", "grants nothing"),
+            (
+                "[broker.secrets.nope]",
+                "broker.secrets.nope has no matching entry",
+            ),
+            ("[broker.secrets.github_token]\nposture = \"never\"", "open"),
+            (
+                "[broker.programs.gh]\nenv = { GH_TOKEN = \"github_token\" }\nshell = true",
+                "shell",
+            ),
+        ] {
+            let e = format!("{:#}", with(bad).unwrap_err());
+            assert!(e.contains(says), "{bad}: {e}");
+        }
+    }
+
+    /// theseus-txvt: a grant to a launcher (a shell, an interpreter, a
+    /// wrapper that runs the command it is given, or a runner of a project's
+    /// scripts) fails to load, naming the rule; a leaf program, and the four
+    /// whose commands the broker knows (gh, git, cargo, npm), load.
+    #[test]
+    fn a_grant_to_a_launcher_fails_to_load_naming_the_rule() {
+        use crate::config::Config;
+        let with = |program: &str| {
+            Config::parse(&format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\nharbor_token = \"op://v/h/f\"\n\n\
+                 [broker.programs.\"{program}\"]\nenv = {{ HARBOR_TOKEN = \"harbor_token\" }}\n"
+            ))
+            .map(|(c, _)| c)
+        };
+        for program in [
+            "bash", "python3", "node", "env", "sudo", "xargs", "make", "npx",
+        ] {
+            let e = format!("{:#}", with(program).unwrap_err());
+            assert!(
+                e.contains(&format!("broker.programs.{program}: a secret granted to a program reaches only that program, never one it can be made to run")),
+                "{program}: {e}"
+            );
+        }
+        for program in ["gh", "git", "cargo", "npm", "harbor"] {
+            assert!(with(program).is_ok(), "{program}");
+        }
     }
 }
