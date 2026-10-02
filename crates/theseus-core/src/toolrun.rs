@@ -1563,15 +1563,25 @@ impl ToolRuntime {
                 .collect(),
             output_max_bytes: self.output_max_bytes,
         };
-        // Outbox: `dispatched` was durable before the process exists.
-        let launched = self.launcher.launch(&spool, &args);
-        // The values went with the spawn, as its environment; the copies
-        // here are wiped.
-        for (k, v) in args.env.iter_mut() {
-            if brokered.env.iter().any(|(g, _)| g == k) {
-                v.zeroize();
+        // The values go with the spawn, as its environment, or nowhere; the
+        // copies here are wiped either way.
+        let wipe = |args: &mut WrapperArgs| {
+            for (k, v) in args.env.iter_mut() {
+                if brokered.env.iter().any(|(g, _)| g == k) {
+                    v.zeroize();
+                }
             }
+        };
+        // Outbox: `dispatched` was durable before the process exists. A stop
+        // or a cancel that came since read the spool for a pid that is not
+        // there yet, and reached nothing: the job is not started
+        // (theseus-36to).
+        if let Some(a) = Self::told_to_stop(tc.kernel, correlation_id)? {
+            wipe(&mut args);
+            return self.not_started(tc, &a, call, tool.name());
         }
+        let launched = self.launcher.launch(&spool, &args);
+        wipe(&mut args);
         let pid = match launched {
             Ok(p) => p,
             Err(e) => {
@@ -1640,6 +1650,19 @@ impl ToolRuntime {
                 .map_or_else(String::new, |g| format!("; {g}")),
             narrative::duration(bound.as_millis() as u64)
         );
+        // A stop or a cancel that came during the launch read the spool
+        // before the pid was in it, and reached nothing: the job is stopped
+        // here, now that its pid is written (theseus-36to). The stop writes
+        // `cancel = requested`, then reads the pid; the launch writes the
+        // pid, then reads the cancel: one of them sees the other. When both
+        // do, the job's group gets a second SIGTERM, which is harmless.
+        if tc
+            .kernel
+            .action(correlation_id)?
+            .is_some_and(|a| a.cancel.is_some())
+        {
+            self.stop_launched(tc, correlation_id, pid).await;
+        }
         loop {
             if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
                 let mut r = ResultNode {
@@ -1711,6 +1734,90 @@ impl ToolRuntime {
         Ok(CallOutcome::Done {
             status: ResultStatus::Error,
         })
+    }
+
+    /// The job's action, when a stop or a cancel has told it to stop, or it
+    /// has settled, before its launch (theseus-36to).
+    fn told_to_stop(kernel: &Kernel, correlation_id: &str) -> Result<Option<Action>> {
+        let a = kernel
+            .action(correlation_id)?
+            .ok_or_else(|| anyhow!("action {correlation_id} vanished"))?;
+        Ok((a.cancel.is_some() || a.state.is_settled()).then_some(a))
+    }
+
+    /// A job a stop or a cancel reached before its launch is never started
+    /// (theseus-36to). Its action settles cancelled, its termination
+    /// verified, since nothing ran, unless the stop settled it first, having
+    /// found no pid to signal (unsupported). Its result reads as any call a
+    /// stop caught before it ran ("Not run: stopped by …"), and a
+    /// `job.not_started` row says why. Nothing was written to the spool.
+    fn not_started(
+        &self,
+        tc: &TurnCtx<'_>,
+        a: &Action,
+        call: &ToolUse,
+        tool: &str,
+    ) -> Result<CallOutcome> {
+        let a = if a.state.is_settled() {
+            a.clone()
+        } else {
+            tc.kernel.cancel_verified(&a.correlation_id)?
+        };
+        tc.ledger(
+            "job.not_started",
+            json!({"correlation_id": a.correlation_id, "tool": tool,
+                "cancel": a.cancel, "resolution": a.resolution}),
+        );
+        narrate_turn!(
+            tc,
+            Tool,
+            "{tool} was not started as job {}: {} before its launch.",
+            narrative::short(&a.correlation_id),
+            a.resolution
+                .as_deref()
+                .unwrap_or("its execution was cancelled")
+        );
+        let (status, _) = not_run_answer(&a);
+        self.answer_cancelled(tc, call, &a)?;
+        Ok(CallOutcome::Done { status })
+    }
+
+    /// Stop a job a stop or a cancel reached during its launch
+    /// (theseus-36to), as `terminate_all` stops one: SIGTERM to its process
+    /// group, the grace on the runtime's timer, then SIGKILL; its cancel is
+    /// acknowledged, then verified or left uncertain. A cancel step on an
+    /// action the stop already settled writes nothing, so the
+    /// `job.stopped_at_launch` row is what says the job was stopped.
+    async fn stop_launched(&self, tc: &TurnCtx<'_>, correlation_id: &str, pid: u32) {
+        let _ = tc.kernel.cancel_acknowledged(correlation_id);
+        let mut stopping = theseus_kernel::job::Stopping::start(
+            [(pid, correlation_id.to_string())],
+            theseus_kernel::job::STOP_GRACE,
+        );
+        while let Some(wait) = stopping.poll() {
+            tokio::time::sleep(wait).await;
+        }
+        let gone = stopping.all_gone();
+        let _ = if gone {
+            tc.kernel.cancel_verified(correlation_id)
+        } else {
+            tc.kernel.cancel_uncertain(correlation_id)
+        };
+        tc.ledger(
+            "job.stopped_at_launch",
+            json!({"correlation_id": correlation_id, "pid": pid, "gone": gone}),
+        );
+        narrate_turn!(
+            tc,
+            Tool,
+            "Job {} was told to stop as it launched, before its pid was known; {}.",
+            narrative::short(correlation_id),
+            if gone {
+                "it is stopped"
+            } else {
+                "it is not gone yet"
+            }
+        );
     }
 
     /// Has the job settled? Accepts a spooled completion if it is there

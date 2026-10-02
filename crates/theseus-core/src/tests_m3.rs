@@ -50,6 +50,16 @@ fn rig_full(
     tweak: impl FnOnce(&mut Config),
     toollets: Vec<Arc<dyn theseus_tools::Tool>>,
 ) -> Rig {
+    rig_parts(script, tweak, |p| p.toollets = toollets)
+}
+
+/// A rig whose `Parts` `parts` changes before the core is built: toollets,
+/// or a test's launcher (theseus-36to).
+fn rig_parts(
+    script: Vec<Scripted>,
+    tweak: impl FnOnce(&mut Config),
+    parts: impl FnOnce(&mut crate::rpc::Parts),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -58,11 +68,9 @@ fn rig_full(
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));
-    let core = Core::build(crate::rpc::Parts {
-        toollets,
-        ..crate::rpc::Parts::for_tests(cfg, fake.clone(), store)
-    })
-    .unwrap();
+    let mut p = crate::rpc::Parts::for_tests(cfg, fake.clone(), store);
+    parts(&mut p);
+    let core = Core::build(p).unwrap();
     Rig {
         core,
         fake,
@@ -1169,6 +1177,285 @@ async fn the_sweep_removes_raw_output_no_result_will_absorb_and_keeps_the_rest()
     std::fs::remove_file(r.root.join("running.marker")).unwrap();
     let _ = wrapper.kill();
     let _ = wrapper.wait();
+}
+
+// ---------------------------------------------------------------- a stop during a job's start (theseus-36to)
+
+/// A point inside a job's start where a test hook holds the turn's thread
+/// (theseus-36to): the hook says it is there, then waits until the test lets
+/// it go, so a stop the test sends meanwhile lands at that point.
+struct Held {
+    there: tokio::sync::mpsc::UnboundedSender<()>,
+    go: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl Held {
+    fn new() -> (
+        Arc<Self>,
+        tokio::sync::mpsc::UnboundedReceiver<()>,
+        std::sync::mpsc::Sender<()>,
+    ) {
+        let (there, at) = tokio::sync::mpsc::unbounded_channel();
+        let (go, wait) = std::sync::mpsc::channel();
+        let held = Arc::new(Self {
+            there,
+            go: std::sync::Mutex::new(wait),
+        });
+        (held, at, go)
+    }
+
+    /// Say the hook is here; wait until the test lets it go.
+    fn hold(&self) {
+        let _ = self.there.send(());
+        let _ = self
+            .go
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(20));
+    }
+}
+
+/// A disk probe that holds the first job's disk check, the first step of
+/// its start after its dispatch, then reports plenty of space.
+struct HeldDiskCheck {
+    held: Arc<Held>,
+    once: std::sync::Once,
+}
+
+impl crate::disk::Probe for HeldDiskCheck {
+    fn space(&self, _: &Path) -> std::io::Result<crate::disk::Space> {
+        self.once.call_once(|| self.held.hold());
+        Ok(crate::disk::Space {
+            free: 1 << 40,
+            total: 1 << 41,
+        })
+    }
+}
+
+/// Counts the jobs it launches, and runs each on a thread, as
+/// `InlineLauncher` does.
+#[derive(Default)]
+struct CountingLauncher(std::sync::atomic::AtomicU32);
+
+impl crate::toolrun::JobLauncher for CountingLauncher {
+    fn launch(
+        &self,
+        spool: &theseus_kernel::Spool,
+        args: &theseus_kernel::job::WrapperArgs,
+    ) -> anyhow::Result<u32> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        crate::toolrun::InlineLauncher.launch(spool, args)
+    }
+}
+
+/// A launcher held inside its launch, before the job's pid is in the spool,
+/// then starting a stand-in wrapper for the job (`peer::Standin`) and
+/// writing its pid there, as `spawn_detached` writes the real one after its
+/// spawn.
+struct HeldLaunch {
+    held: Arc<Held>,
+    started: std::sync::Mutex<Vec<crate::peer::Standin>>,
+}
+
+impl crate::toolrun::JobLauncher for HeldLaunch {
+    fn launch(
+        &self,
+        spool: &theseus_kernel::Spool,
+        args: &theseus_kernel::job::WrapperArgs,
+    ) -> anyhow::Result<u32> {
+        self.held.hold();
+        let s = crate::peer::Standin::start(&args.correlation_id);
+        spool.write_pid(&args.correlation_id, s.wrapper)?;
+        let pid = s.wrapper;
+        self.started.lock().unwrap().push(s);
+        Ok(pid)
+    }
+}
+
+/// The session's one `proc.run` action.
+fn the_job(core: &Core) -> theseus_kernel::Action {
+    core.kernel
+        .actions()
+        .unwrap()
+        .into_iter()
+        .find(|a| a.tool == "proc.run")
+        .expect("a proc.run action")
+}
+
+/// The first tool result's `meta`.
+fn result_meta(core: &Core, sid: &str) -> Value {
+    core.store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult { meta, .. } => Some(meta),
+            _ => None,
+        })
+        .expect("a tool result")
+}
+
+/// theseus-36to, the check before the launch: a `/stop` that lands after a
+/// job's action is dispatched and before the job is launched never starts it.
+/// Here the stop lands while the job's disk check is held; in the daemon the
+/// window is the start's own work up to the spawn. Before, the stop found no
+/// pid in the spool and settled the call cancelled (unsupported), and the
+/// launch went ahead anyway, so the job ran unstopped. Now nothing is
+/// launched: the result reads as any call a stop caught before it ran, a
+/// `job.not_started` row says why, and the spool holds nothing of the job.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_before_a_jobs_launch_means_it_never_starts() {
+    let (held, mut there, go) = Held::new();
+    let launcher = Arc::new(CountingLauncher::default());
+    let l = launcher.clone();
+    let r = rig_parts(
+        vec![
+            Scripted::tools("", &[("t1", "proc_run", json!({"argv": ["touch", "ran"]}))]),
+            Scripted::text("Done."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.server.disk_floor_mb = 1024;
+        },
+        |p| p.launcher = l,
+    );
+    r.core.tools.disk.set_probe(Arc::new(HeldDiskCheck {
+        held,
+        once: std::sync::Once::new(),
+    }));
+    let core = r.core.clone();
+    let first = tokio::spawn(async move { turn(&core, None, "touch a file").await });
+    there.recv().await.unwrap();
+    let job = the_job(&r.core);
+    assert_eq!(job.state, theseus_kernel::ActionState::Dispatched);
+    let corr = job.correlation_id.clone();
+    let stop = r
+        .core
+        .stop_execution(&job.execution_id, "test")
+        .await
+        .unwrap();
+    assert_eq!(stop.stopped_actions, vec![corr.clone()], "{stop:?}");
+    go.send(()).unwrap();
+    let res = tokio::time::timeout(Duration::from_secs(20), first)
+        .await
+        .expect("the turn ended")
+        .unwrap();
+    assert_eq!(res.stop_reason, "stopped");
+    // Nothing was launched, and nothing ran.
+    assert_eq!(
+        launcher.0.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the job was launched after the stop"
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!r.root.join("ran").exists(), "the job ran after the stop");
+    // Its result reads as a call the stop caught before it ran.
+    assert_eq!(
+        results(&r.core, &res.session_id),
+        vec![(
+            ResultStatus::Cancelled,
+            "Not run: stopped by test.".to_string()
+        )]
+    );
+    assert_eq!(result_meta(&r.core, &res.session_id)["stopped_by"], "test");
+    // The record: settled cancelled, and why it never started.
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    let rows = ledgered(&r, "job.not_started");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["correlation_id"], corr.as_str());
+    assert_eq!(rows[0]["tool"], "proc.run");
+    assert!(ledgered(&r, "tool.job_started").is_empty());
+    // The spool holds nothing of it.
+    let spool = &r.core.spool;
+    assert!(spool.read_pid(&corr).is_none());
+    assert!(!spool.result_path(&corr).exists());
+    assert!(!spool.has_completion(&corr));
+}
+
+/// theseus-36to, the check after the launch: a `/stop` that lands during the
+/// launch, after the check before it and before the job's pid is in the
+/// spool, reaches nothing (the call settles cancelled, unsupported). The
+/// start then reads the stop and stops the job itself, as the stop would
+/// have: its stand-in wrapper and the process under it are gone, and a
+/// `job.stopped_at_launch` row says so. Before, the job ran on unstopped.
+/// The stop writes `cancel = requested`, then reads the pid; the launch
+/// writes the pid, then reads the cancel: one of them sees the other.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_during_a_jobs_launch_stops_it_once_its_pid_is_written() {
+    let (held, mut there, go) = Held::new();
+    let launcher = Arc::new(HeldLaunch {
+        held,
+        started: Default::default(),
+    });
+    let l = launcher.clone();
+    let r = rig_parts(
+        vec![
+            Scripted::tools("", &[("t1", "proc_run", json!({"argv": ["sleep", "60"]}))]),
+            Scripted::text("Done."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+        },
+        |p| p.launcher = l,
+    );
+    let core = r.core.clone();
+    let first = tokio::spawn(async move { turn(&core, None, "sleep a minute").await });
+    there.recv().await.unwrap();
+    let job = the_job(&r.core);
+    let corr = job.correlation_id.clone();
+    let stop = r
+        .core
+        .stop_execution(&job.execution_id, "test")
+        .await
+        .unwrap();
+    assert_eq!(stop.stopped_actions, vec![corr.clone()], "{stop:?}");
+    // The stop found no pid: it reached nothing.
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(
+        (a.state, a.cancel),
+        (
+            theseus_kernel::ActionState::Cancelled,
+            Some(theseus_kernel::CancelState::Unsupported)
+        )
+    );
+    go.send(()).unwrap();
+    let res = tokio::time::timeout(Duration::from_secs(20), first)
+        .await
+        .expect("the turn ended")
+        .unwrap();
+    assert_eq!(res.stop_reason, "stopped");
+    let (wrapper, child) = {
+        let s = launcher.started.lock().unwrap();
+        assert_eq!(s.len(), 1, "one launch");
+        (s[0].wrapper, s[0].child)
+    };
+    assert!(
+        !theseus_kernel::job::wrapper_alive(wrapper, &corr),
+        "the job's wrapper runs on after the stop"
+    );
+    let t0 = std::time::Instant::now();
+    while theseus_kernel::job::pid_alive(child) && t0.elapsed() < Duration::from_secs(5) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        !theseus_kernel::job::pid_alive(child),
+        "the job's process runs on after the stop"
+    );
+    let rows = ledgered(&r, "job.stopped_at_launch");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (
+            &rows[0]["correlation_id"],
+            &rows[0]["pid"],
+            &rows[0]["gone"]
+        ),
+        (&json!(corr), &json!(wrapper), &json!(true))
+    );
+    let (status, text) = results(&r.core, &res.session_id).remove(0);
+    assert_eq!(status, ResultStatus::Cancelled);
+    assert!(text.starts_with("[cancelled: stopped by test]\n"), "{text}");
+    assert!(!text.contains("killed"), "{text}");
 }
 
 #[tokio::test]
