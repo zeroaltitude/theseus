@@ -177,6 +177,15 @@ fn confirm_budget() -> Value {
                       "lifetime_usd": 3.5}})
 }
 
+/// A question with no floor and no external text, which `confirm_tool` has.
+fn confirm_plain() -> Value {
+    json!({"correlation_id": "act_m3", "session_id": S, "execution_id": X,
+           "tool": "proc.run", "input": {"argv": ["tide", "--port", "lantern"]},
+           "reason": "proc.run — approve (enforcement = approve)",
+           "by": "operator", "requested_at_ms": 1_759_300_600_000u64,
+           "expires_at_ms": 1_759_301_500_000u64})
+}
+
 fn tighten_result(changed: bool, already: bool) -> Value {
     json!({"tool": "proc.run", "by": "the CLI",
            "tightening": {"tool": "proc.run", "posture": "approve", "by": "the CLI",
@@ -364,6 +373,97 @@ fn turn_notes() -> Vec<Value> {
         note(
             "turn.ended",
             turn_result("Looking at the folder.\nTwo files: a.md and b.md."),
+        ),
+    ]
+}
+
+/// The shapes of the `Printer`'s that `turn_notes` leaves out (theseus-7yx,
+/// step 10a). They were written before its formatting moved into the
+/// library, so the move is held to them: a thinking run a call ends, a call
+/// with its argv and no pid yet, a call with no time, a reply line that ends
+/// itself, a question with no floor and no external text, a notice with no
+/// grant and no call, the other words of a tightening and of its undo, an
+/// answer with no author, a recompile with no trigger, a failure retried
+/// once, and one with a class and no plan. A context's `append` outside
+/// `watch`, an execution's change, an empty delta, a newer daemon's method,
+/// and a payload this build cannot read print nothing.
+fn more_notes() -> Vec<Value> {
+    let compiled = |loop_index: u32, decision: &str, nodes: u64, tokens: u64| {
+        json!({"session_id": S, "turn_id": T, "loop": loop_index, "decision": decision,
+            "trigger": null, "compilation_id": "cmp_c3", "strategy": "transcript",
+            "prefix_nodes": 0, "tail_nodes": nodes, "messages": nodes, "est_tokens": tokens,
+            "digest": "0a1b2c3d4e5f6071", "repairs": [], "tools": 14, "nodes_scanned": nodes,
+            "cache": {"breakpoints": [], "ttl": "5m", "conversation_ttl": "5m"}})
+    };
+    vec![
+        note("context.compiled", compiled(0, "recompile", 9, 1830)),
+        note("context.compiled", compiled(1, "append", 10, 1990)),
+        note(
+            "model.thinking",
+            json!({"turn_id": T, "loop_index": 0,
+            "text": "Two tables;\nthe harbour's first."}),
+        ),
+        note(
+            "tool.started",
+            json!({"session_id": S, "turn_id": T, "tool_use_id": "tu_6",
+            "tool": "proc.run", "correlation_id": "act_m1", "backend": "job",
+            "argv": ["tide", "--port", "lantern"]}),
+        ),
+        note(
+            "tool.ended",
+            json!({"session_id": S, "turn_id": T, "tool_use_id": "tu_6",
+            "tool": "proc.run", "status": "error", "duration_ms": null,
+            "correlation_id": "act_m1", "late": false, "truncated": false, "bytes": 1024,
+            "node_id": "nod_r6", "exit_code": 2, "stopped_by": null,
+            "preview": "no such port"}),
+        ),
+        note(
+            "model.delta",
+            json!({"turn_id": T, "loop_index": 1,
+            "text": "The harbour's table:\n"}),
+        ),
+        note("confirm.requested", confirm_plain()),
+        note(
+            "policy.notified",
+            json!({"session_id": S, "turn_id": T, "tool_use_id": "tu_7",
+            "correlation_id": "", "tool": "web.search",
+            "input": {"query": "lantern tide tables"},
+            "summary": "search \"lantern tide tables\"", "kind": "notify",
+            "setting": "enforcement = notify",
+            "rule": "web.search — notify (enforcement = notify)"}),
+        ),
+        note("policy.tightened", tighten_result(false, true)),
+        note("policy.tightened", tighten_result(false, false)),
+        note("policy.untightened", tighten_result(false, false)),
+        note(
+            "confirm.resolved",
+            json!({"session_id": S, "correlation_id": "act_m3", "approved": true}),
+        ),
+        note(
+            "execution.changed",
+            push_view(60, "running", "working", "turn 4"),
+        ),
+        note(
+            "model.delta",
+            json!({"turn_id": T, "loop_index": 1, "text": ""}),
+        ),
+        note("tides.forecast", json!({"session_id": S})),
+        note("tool.started", json!({"session_id": S, "tool": 7})),
+        note(
+            "turn.failed",
+            json!({"session_id": S, "turn_id": T, "execution_id": X,
+            "continuation": false, "class": "overloaded", "error": "529 overloaded",
+            "then": "retry"}),
+        ),
+        note(
+            "turn.failed",
+            json!({"session_id": S, "turn_id": T, "execution_id": X,
+            "continuation": true, "class": "auth", "error": "the key was refused"}),
+        ),
+        note(
+            "model.delta",
+            json!({"turn_id": T, "loop_index": 2,
+            "text": "Low water at 14:10."}),
         ),
     ]
 }
@@ -674,6 +774,57 @@ fn watch_finds_the_most_recent_session() {
             vec![step("session.list", list), step("session.watch", json!({}))],
         ),
     );
+}
+
+/// The `Printer`'s other shapes (theseus-7yx, step 10a), as `ask` streams
+/// them, as `watch` shows them (the `append` too), and as `ask --no-stream`
+/// shows them: the thinking and the event lines, and none of the reply.
+#[test]
+fn ask_watch_and_no_stream_print_the_printers_other_shapes() {
+    let ask = || {
+        let mut s = step(
+            "turn.submit",
+            turn_result("The harbour's table: low water at 14:10."),
+        );
+        s.before = more_notes();
+        vec![s]
+    };
+    golden(
+        "ask_shapes",
+        &run(&["ask", "--thinking", "When is low water?"], ask()),
+    );
+    golden(
+        "ask_no_stream_thinking",
+        &run(
+            &["--no-stream", "ask", "--thinking", "When is low water?"],
+            ask(),
+        ),
+    );
+    let mut s = step("session.watch", json!({}));
+    s.after = more_notes();
+    golden("watch_shapes", &run(&["watch", S, "--thinking"], vec![s]));
+}
+
+/// `theseus watch` after `events.lost` (theseus-in3): it ends the reply's
+/// line, says what it lost and where to read it, and watches on.
+#[test]
+fn watch_says_what_it_lost_and_where_to_read_it() {
+    let mut s = step("session.watch", json!({}));
+    s.after = vec![
+        note(
+            "model.delta",
+            json!({"turn_id": T, "loop_index": 0, "text": "Halfway"}),
+        ),
+        note(
+            "events.lost",
+            json!({"dropped": 1, "streams": [format!("session:{S}")]}),
+        ),
+        note(
+            "model.delta",
+            json!({"turn_id": T, "loop_index": 0, "text": " there."}),
+        ),
+    ];
+    golden("watch_lost", &run(&["watch", S], vec![s]));
 }
 
 #[test]

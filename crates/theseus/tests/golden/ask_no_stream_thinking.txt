@@ -1,0 +1,25 @@
+$ theseus --no-stream ask --thinking When is low water?
+--- requests
+turn.submit
+--- stdout
+The harbour's table: low water at 14:10.
+--- stderr
+  ⟳ context recompile · 9 message(s) · ~1830 tokens
+  (thinking) Two tables;
+             the harbour's first.
+  → proc.run [tide --port lantern]
+  ← proc.run error · exit 2 · 1.0 KB
+  ? proc.run needs your confirmation: proc.run — approve (enforcement = approve)
+      input: {"argv":["tide","--port","lantern"]}
+      approve: theseus confirm act_m3
+      decline: theseus confirm --decline act_m3
+  ! notified: web.search: search "lantern tide tables"
+      (enforcement = notify) · should have asked: theseus policy tighten web.search
+  🔒 proc.run already asks first: tightened by the CLI at 06:31:40.250Z
+  🔒 proc.run already asks (enforcement = notify); tightened by the CLI as well, so it keeps asking if the config changes
+  🔒 the tightening of proc.run by the CLI is undone; the config still asks (tightened by the CLI)
+  ✓ approved act_m3 (by )
+  ✗ turn failed (overloaded): 529 overloaded [retrying once]
+  ✗ turn failed (auth): the key was refused
+[quick → zed/glm-x · 2 loop(s) · 3 tool call(s) · end_turn · tokens in 5230 out 212 cache r4096 w0 · $0.0031 · 3021 ms (first token 640 ms) · session ses_q7f3k2]
+--- exit 0

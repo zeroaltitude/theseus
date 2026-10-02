@@ -1,0 +1,26 @@
+$ theseus watch ses_q7f3k2 --thinking
+--- requests
+session.watch
+--- stdout
+The harbour's table:
+Low water at 14:10.--- stderr
+watching ses_q7f3k2 (Ctrl-C to stop)
+  ⟳ context recompile · 9 message(s) · ~1830 tokens
+  ⟳ context append · 10 message(s) · ~1990 tokens
+  (thinking) Two tables;
+             the harbour's first.
+  → proc.run [tide --port lantern]
+  ← proc.run error · exit 2 · 1.0 KB
+  ? proc.run needs your confirmation: proc.run — approve (enforcement = approve)
+      input: {"argv":["tide","--port","lantern"]}
+      approve: theseus confirm act_m3
+      decline: theseus confirm --decline act_m3
+  ! notified: web.search: search "lantern tide tables"
+      (enforcement = notify) · should have asked: theseus policy tighten web.search
+  🔒 proc.run already asks first: tightened by the CLI at 06:31:40.250Z
+  🔒 proc.run already asks (enforcement = notify); tightened by the CLI as well, so it keeps asking if the config changes
+  🔒 the tightening of proc.run by the CLI is undone; the config still asks (tightened by the CLI)
+  ✓ approved act_m3 (by )
+  ✗ turn failed (overloaded): 529 overloaded [retrying once]
+  ✗ turn failed (auth): the key was refused
+--- exit 0

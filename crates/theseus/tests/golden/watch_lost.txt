@@ -1,0 +1,9 @@
+$ theseus watch ses_q7f3k2
+--- requests
+session.watch
+--- stdout
+Halfway
+ there.--- stderr
+watching ses_q7f3k2 (Ctrl-C to stop)
+lost 1 notification while this terminal was behind (session:ses_q7f3k2); reading again · `theseus history ses_q7f3k2` shows what happened
+--- exit 0
