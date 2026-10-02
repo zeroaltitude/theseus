@@ -13,9 +13,10 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
     frames or inside a startup step, lost, duplicate, and late completions, cancels) and invariants checked at every
     step. `--p-race` races a second thread against turns; 0 is fully deterministic.
   - `bench lifecycle` (`src/lifecycle.rs`): §9's budgets on a real `theseusd`: cold start, the same from a vault
-    note's copy, clean shutdown with a job running, SIGKILL and restart, a binary swap with the job's wrapper
-    adopted, restore, and the push's seed. `--check` fails a p95 over its budget plus the phase's margin
-    (`lifecycle::margin_ms`, measured on the build machine).
+    note's copy, clean shutdown with a job running, the same with a reply's post in flight to the in-process fake
+    Discord (`inflight`, its own rig), SIGKILL and restart, a binary swap with the job's wrapper adopted, restore
+    (with `theseusd restore`'s own phases), and the push's seed. `--check` fails a p95 over its budget plus the
+    phase's margin (`lifecycle::margin_ms`, measured on the build machine).
   - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
   - `fake-discord`: a stand-in for Discord's REST API.

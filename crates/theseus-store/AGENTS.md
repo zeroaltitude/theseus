@@ -30,11 +30,12 @@ the reserved theseus-follow, theseus-index, and theseus-exam.
   Don't take a checkpoint while holding that lock. A stop's checkpoint (`checkpoint_for_close`) syncs nothing of
   its own: redb's close, a durable commit, makes it durable (theseus-02k). Only a durable checkpoint advances
   `durable_to`, so a durable one after it is never skipped as free.
-- **The terms are a projection, whole only when marked** (theseus-lv2). An open with a `Projection` keeps each
-  keyed record's terms (the kernel's: an execution's state, …) with every append and replay. A checkpoint marks
-  them whole under the projection's name; a writer with no projection (an older build, a tool) moves the
-  checkpoint alone, and the next projected open builds them again from every key's latest record. A store with
-  no projection answers `latest_by_terms` with `None`, and the reader reads every record instead.
+- **The terms and sums are a projection, whole only when marked** (theseus-lv2). An open with a `Projection`
+  keeps each keyed record's terms (the kernel's: an execution's state, …) and numbers (the core's: a session's
+  turns, tokens, and cost, added up per kind) with every append and replay. A checkpoint marks them whole under
+  the projection's name; a writer with no projection (an older build, a tool) moves the checkpoint alone, and the
+  next projected open leaves them to `build_terms`, after serving, never at open. Until they are whole, the store
+  answers `latest_by_terms`, `count_by_terms`, and `totals` with `None`, and the reader reads every record.
 - **The history check starts at the last one's mark** (theseus-0dq): `verified.*` in the index's meta, written
   with the next checkpoint. Its frame is checked again first; a frame that no longer checks or holds other
   positions sends the check back to the log's start, which finds what is wrong.

@@ -285,6 +285,9 @@ fn an_older_binarys_store_serves_at_once_and_is_marked_at_its_first_newer_record
     let h = rig.call("health", Value::Null).unwrap();
     let by_state = &h["kernel"]["executions_by_state"];
     assert_eq!(by_state, &json!({"waiting": 3, "cancelled": 1}), "{h}");
+    // Health's session totals, now from the projection, say what the full
+    // read said.
+    assert_eq!(h["sessions"], 4, "{h}");
 
     // The start wrote only what the older binary writes too: the manifest
     // is still format 2, and a rollback would still open the store.

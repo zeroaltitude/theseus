@@ -28,27 +28,28 @@ use theseus_kernel::Authority;
 const WAIT_DEFAULT_MS: u64 = 10 * 60 * 1000;
 const WAIT_MAX_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// Health's session totals (`Core::session_totals`).
+struct SessionTotals {
+    sessions: u64,
+    turns: u64,
+    usage: Usage,
+    cost_usd: f64,
+    /// The sessions that hold external text.
+    holding: Vec<SessionRecord>,
+}
+
 impl Core {
     pub fn health(&self) -> HealthResult {
         let (profile, _) = self.live_profile();
         let prof = self.cfg.all_profiles().get(&profile).cloned();
-        // The totals come from one read of every session record.
-        let sessions = self
-            .store
-            .list_sessions::<SessionRecord>()
-            .unwrap_or_default();
-        let mut usage_total = Usage::default();
-        for s in &sessions {
-            crate::turn::add_usage(&mut usage_total, &s.usage);
-        }
+        let totals = self.session_totals();
         HealthResult {
             name: crate::NAME.into(),
             version: crate::VERSION.into(),
             protocol: theseus_protocol::VERSION.into(),
             uptime_secs: self.started.elapsed().as_secs(),
-            // The records just read: `session_count` would read them all again.
-            sessions: sessions.len() as u64,
-            turns: sessions.iter().map(|s| s.turns).sum(),
+            sessions: totals.sessions,
+            turns: totals.turns,
             model: prof.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
             profile,
             provider: prof.map(|p| p.provider).unwrap_or_default(),
@@ -57,14 +58,14 @@ impl Core {
             secrets: self.secrets.status(),
             config: self.config_gate.status(),
             startup: self.startup_log.snapshot(),
-            usage_total,
+            usage_total: totals.usage,
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
             ledger_rows: self.store.ledger_len().unwrap_or(0),
             telemetry: self.telemetry_status(),
             kernel: self.kernel_status(),
             children: self.children_status(),
             broker: self.tools.broker.status(),
-            cost_usd_total: sessions.iter().map(|s| s.cost_usd).sum(),
+            cost_usd_total: totals.cost_usd,
             catalog_version: self.catalog.version.clone(),
             bindings: self
                 .bindings
@@ -80,12 +81,69 @@ impl Core {
             approval: self.approval_status(),
             tightenings: self.tools.tightened.all(),
             wakes: self.wakes(None, None).unwrap_or_default(),
-            external_text: crate::external::listed(&sessions, theseus_protocol::now_unix_ms()),
+            external_text: crate::external::listed(
+                &totals.holding,
+                theseus_protocol::now_unix_ms(),
+            ),
             web: self.web_refusals.status(self.cfg.web.dev_origin.as_deref()),
             disk: self.tools.disk.status(),
             binary: crate::binary::status(),
             spool: self.spool_status(),
             push: Some(self.push.status(self.bus.all_watchers())),
+        }
+    }
+
+    /// Health's session totals (theseus-lv2): from the index's projection,
+    /// which adds up every session's numbers as it is written, and the
+    /// sessions holding external text by their term; so a health answer
+    /// reads only those sessions. From one read of every session record
+    /// while the projection is not whole (a store an older build wrote last,
+    /// until its terms are built after serving).
+    fn session_totals(&self) -> SessionTotals {
+        use theseus_store::Store as _;
+        let inner = self.store.inner();
+        let projected = inner.totals(theseus_store::kinds::SESSION).ok().flatten();
+        let holding = inner
+            .latest_by_terms(
+                theseus_store::kinds::SESSION,
+                crate::store::EXTERNAL,
+                &format!("{}\u{1}", crate::store::EXTERNAL),
+            )
+            .ok()
+            .flatten();
+        if let (Some(t), Some(holding)) = (projected, holding) {
+            let n = |i: usize| u64::try_from(t[i]).unwrap_or(u64::MAX);
+            return SessionTotals {
+                sessions: n(0),
+                turns: n(1),
+                usage: Usage {
+                    input_tokens: n(2),
+                    output_tokens: n(3),
+                    cache_read_input_tokens: n(4),
+                    cache_creation_input_tokens: n(5),
+                    cache_creation_1h_input_tokens: n(6),
+                },
+                cost_usd: crate::store::cost_usd(t[7]),
+                holding: holding.iter().filter_map(|r| r.decode().ok()).collect(),
+            };
+        }
+        let sessions = self
+            .store
+            .list_sessions::<SessionRecord>()
+            .unwrap_or_default();
+        let mut usage = Usage::default();
+        for s in &sessions {
+            crate::turn::add_usage(&mut usage, &s.usage);
+        }
+        SessionTotals {
+            sessions: sessions.len() as u64,
+            turns: sessions.iter().map(|s| s.turns).sum(),
+            usage,
+            cost_usd: sessions.iter().map(|s| s.cost_usd).sum(),
+            holding: sessions
+                .into_iter()
+                .filter(|s| s.external.is_some())
+                .collect(),
         }
     }
 

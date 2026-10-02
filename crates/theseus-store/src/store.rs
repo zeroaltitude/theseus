@@ -19,7 +19,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::index::{Aside, Engine, IndexEntry, MovedAside, RedbIndex};
+use crate::index::{Aside, Engine, IndexEntry, MovedAside, Projected, RedbIndex, Sums};
 use crate::record::{kinds, NewRecord, Record, RecordKind};
 use crate::wal::{History, Recovery, Verified, Wal, WalConfig};
 
@@ -119,31 +119,47 @@ pub trait Store: Send + Sync {
     fn count_keys(&self, kind: RecordKind) -> Result<u64> {
         Ok(self.latest_of_kind(kind)?.len() as u64)
     }
+    /// The numbers of every key of `kind`, added up, as the projection gives
+    /// them (theseus-lv2); `None` when the store keeps none whole, and the
+    /// caller adds up every record itself.
+    fn totals(&self, _kind: RecordKind) -> Result<Option<Sums>> {
+        Ok(None)
+    }
 }
 
 /// What a store's index keeps beside each keyed record of the kinds it names
 /// (theseus-lv2): its terms, so a reader asks for the keys with a term (a
-/// state) instead of reading every record of the kind. The index is a
-/// projection of the WAL, and so are the terms: the open builds them from the
-/// WAL, and keeps them with every append.
+/// state) instead of reading every record of the kind, and its numbers, which
+/// the index adds up per kind. The index is a projection of the WAL, and so
+/// are these: every append and every replay keeps them.
 #[derive(Debug)]
 pub struct Projection {
     /// The terms are whole at the index's checkpoint only when its mark under
     /// this name says so: a writer that kept no terms (an older build, an
     /// open with no projection) moves the checkpoint alone, and the next open
-    /// with this projection builds them again. A change to what `terms`
-    /// returns gives it a new name.
+    /// with this projection builds them again after serving. A change to what
+    /// `terms` or `sums` returns gives it a new name.
     pub name: &'static str,
     pub kinds: &'static [RecordKind],
     /// A record's terms, from its kind and payload. A term is not empty and
     /// holds no 0x00.
     pub terms: fn(RecordKind, &[u8]) -> Vec<String>,
+    /// A record's numbers, for the kinds whose records are added up; `None`
+    /// for the rest.
+    pub sums: fn(RecordKind, &[u8]) -> Option<Sums>,
 }
 
 impl Projection {
     /// The terms of a keyed record of a kind this projects.
     fn of(&self, kind: RecordKind, key: Option<&str>, payload: &[u8]) -> Option<Vec<String>> {
         (key.is_some() && self.kinds.contains(&kind)).then(|| (self.terms)(kind, payload))
+    }
+
+    /// The numbers of a keyed record of a kind this adds up.
+    fn sums_of(&self, kind: RecordKind, key: Option<&str>, payload: &[u8]) -> Option<Sums> {
+        (key.is_some() && self.kinds.contains(&kind))
+            .then(|| (self.sums)(kind, payload))
+            .flatten()
     }
 }
 
@@ -552,6 +568,7 @@ impl WalStore {
                     scope: r.scope.clone(),
                     loc: *loc,
                     terms: projection.and_then(|p| p.of(r.kind, r.key.as_deref(), &r.payload)),
+                    sums: projection.and_then(|p| p.sums_of(r.kind, r.key.as_deref(), &r.payload)),
                 })
                 .collect();
             // A long replay (a restore, a store with no checkpoint) is built
@@ -671,12 +688,14 @@ impl WalStore {
                 continue;
             };
             let positions: Vec<u64> = keys.iter().map(|(_, pos)| *pos).collect();
-            let rows: Vec<(RecordKind, String, u64, Vec<String>)> = self
+            let rows: Vec<Projected> = self
                 .read_many(&positions)?
                 .into_iter()
                 .filter_map(|r| {
                     let key = r.key.clone()?;
-                    Some((kind, key, r.position, (p.terms)(kind, &r.payload)))
+                    let terms = (p.terms)(kind, &r.payload);
+                    let sums = (p.sums)(kind, &r.payload);
+                    Some((kind, key, r.position, terms, sums))
                 })
                 .collect();
             self.index.put_terms_if_latest(&rows)?;
@@ -870,6 +889,9 @@ impl Store for WalStore {
                     terms: self
                         .projection
                         .and_then(|p| p.of(r.kind, r.key.as_deref(), &r.payload)),
+                    sums: self
+                        .projection
+                        .and_then(|p| p.sums_of(r.kind, r.key.as_deref(), &r.payload)),
                 })
                 .collect();
             self.index.apply(&entries, false)?;
@@ -999,6 +1021,13 @@ impl Store for WalStore {
 
     fn count_keys(&self, kind: RecordKind) -> Result<u64> {
         self.index.count_keys(kind)
+    }
+
+    fn totals(&self, kind: RecordKind) -> Result<Option<Sums>> {
+        if !self.projection.is_some_and(|p| p.kinds.contains(&kind)) || !self.terms_whole() {
+            return Ok(None);
+        }
+        Ok(Some(self.index.totals(kind)?))
     }
 }
 
@@ -1143,16 +1172,24 @@ mod tests {
     }
 
     /// A toy projection: an execution's payload, a JSON string, is its one
-    /// term.
-    fn toy_terms(_: RecordKind, payload: &[u8]) -> Vec<String> {
+    /// term; a session's, a number, is added up as [1, the number].
+    fn toy_terms(kind: RecordKind, payload: &[u8]) -> Vec<String> {
+        if kind != kinds::EXECUTION {
+            return Vec::new();
+        }
         serde_json::from_slice::<String>(payload)
             .map(|s| vec![s])
             .unwrap_or_default()
     }
+    fn toy_sums(kind: RecordKind, payload: &[u8]) -> Option<Sums> {
+        let n: u128 = serde_json::from_slice::<u64>(payload).ok()?.into();
+        (kind == kinds::SESSION).then_some([1, n, 0, 0, 0, 0, 0, 0])
+    }
     static TOY: Projection = Projection {
         name: "terms.toy.1",
-        kinds: &[kinds::EXECUTION],
+        kinds: &[kinds::EXECUTION, kinds::SESSION],
         terms: toy_terms,
+        sums: toy_sums,
     };
 
     fn by_term(s: &WalStore, t: &str) -> Vec<String> {
@@ -1194,11 +1231,9 @@ mod tests {
             s.count_by_terms(kinds::EXECUTION, "a", "z").unwrap(),
             Some(3)
         );
-        // Another kind keeps no terms; a store with no projection, none.
-        assert!(s
-            .latest_by_terms(kinds::SESSION, "a", "z")
-            .unwrap()
-            .is_none());
+        // A kind the projection does not name keeps no terms; a store with no
+        // projection, none.
+        assert!(s.latest_by_terms(kinds::META, "a", "z").unwrap().is_none());
         s.checkpoint().unwrap();
         // The tail after the checkpoint is replayed with its terms.
         s.append(&[ex("e2", "waiting")]).unwrap();
@@ -1333,6 +1368,16 @@ mod tests {
             a.tail_of_kind(kinds::LEDGER, 5).unwrap(),
             b.tail_of_kind(kinds::LEDGER, 5).unwrap()
         );
+        // The totals: each session's latest number, added up, either way.
+        let latest: u128 = a
+            .latest_of_kind(kinds::SESSION)
+            .unwrap()
+            .iter()
+            .map(|r| u128::from(r.decode::<u64>().unwrap()))
+            .sum();
+        let want = Some([300, latest, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(a.totals(kinds::SESSION).unwrap(), want);
+        assert_eq!(b.totals(kinds::SESSION).unwrap(), want);
     }
 
     /// Keys by prefix and the count of keys come from the key table alone.

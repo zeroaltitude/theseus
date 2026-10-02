@@ -31,9 +31,81 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Serialize};
-use theseus_store::{kinds, NewRecord, Record, Store as _, StoreStats, WalConfig, WalStore};
+use theseus_store::{
+    kinds, NewRecord, Projection, Record, RecordKind, Store as _, StoreStats, Sums, WalConfig,
+    WalStore,
+};
 
 use crate::node::Node;
+
+/// The index's projection for a daemon's store (theseus-lv2): the kernel's
+/// terms for each execution and action, and for each session the numbers
+/// health adds up (sessions, turns, the five token counts, the cost) and the
+/// term `e` while it holds external text. A change to what these say renames
+/// it, and every store builds them again once, after serving.
+pub static PROJECTION: Projection = Projection {
+    name: "projection.core.1",
+    kinds: &[kinds::EXECUTION, kinds::ACTION, kinds::SESSION],
+    terms: terms_of,
+    sums: sums_of,
+};
+
+/// The term of a session that holds external text (health's list of them).
+pub const EXTERNAL: &str = "e";
+
+fn terms_of(kind: RecordKind, payload: &[u8]) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Held {
+        #[serde(default)]
+        external: Option<serde::de::IgnoredAny>,
+    }
+    match kind {
+        kinds::SESSION => match serde_json::from_slice::<Held>(payload) {
+            Ok(Held { external: Some(_) }) => vec![EXTERNAL.to_string()],
+            _ => Vec::new(),
+        },
+        _ => theseus_kernel::terms::of(kind, payload),
+    }
+}
+
+/// A session's numbers: [1, turns, input, output, cache read, cache
+/// creation, of it with the 1-hour TTL, cost in `COST_ONE`ths of a dollar].
+fn sums_of(kind: RecordKind, payload: &[u8]) -> Option<Sums> {
+    if kind != kinds::SESSION {
+        return None;
+    }
+    let s: crate::session::SessionRecord = serde_json::from_slice(payload).ok()?;
+    let u = &s.usage;
+    Some([
+        1,
+        s.turns.into(),
+        u.input_tokens.into(),
+        u.output_tokens.into(),
+        u.cache_read_input_tokens.into(),
+        u.cache_creation_input_tokens.into(),
+        u.cache_creation_1h_input_tokens.into(),
+        cost_fixed(s.cost_usd),
+    ])
+}
+
+/// The fixed point a session's cost is added up in: 2⁻⁸⁰ of a dollar. A
+/// cost of 2⁻²⁸ dollars or more converts exactly, so the total is the exact
+/// sum, rounded once when it is read, and one session's total is its cost.
+const COST_ONE: f64 = (1u128 << 80) as f64;
+
+/// A cost in the fixed point; a negative or not-finite one is none.
+pub fn cost_fixed(usd: f64) -> u128 {
+    if usd.is_finite() && usd > 0.0 {
+        (usd * COST_ONE) as u128
+    } else {
+        0
+    }
+}
+
+/// A cost from the fixed point, in dollars.
+pub fn cost_usd(fixed: u128) -> f64 {
+    fixed as f64 / COST_ONE
+}
 
 #[derive(Clone)]
 pub struct Store {
@@ -302,6 +374,9 @@ impl theseus_store::Store for TurnFrames {
     fn count_keys(&self, kind: u16) -> Result<u64> {
         self.inner.count_keys(kind)
     }
+    fn totals(&self, kind: u16) -> Result<Option<Sums>> {
+        self.inner.totals(kind)
+    }
 }
 
 impl Store {
@@ -325,9 +400,10 @@ impl Store {
     }
 
     fn open_with(dir: &Path, cfg: WalConfig) -> Result<Self> {
-        // The index keeps the kernel's terms (theseus-lv2), so the kernel's
-        // readers ask by state.
-        let inner = WalStore::open_projected(dir, cfg, &theseus_kernel::terms::PROJECTION)
+        // The index keeps the kernel's terms, so the kernel's readers ask by
+        // state, and each session's numbers, so health adds up none
+        // (theseus-lv2).
+        let inner = WalStore::open_projected(dir, cfg, &PROJECTION)
             .with_context(|| format!("opening store {}", dir.display()))?;
         let st = inner.stats()?;
         if st.truncated_bytes > 0 || st.replayed_into_index > 0 {

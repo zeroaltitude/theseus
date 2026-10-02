@@ -608,6 +608,48 @@ async fn provider_failure_is_classified_and_ledgered() {
     assert_eq!(core.health().turns, 1);
 }
 
+/// Health's session totals come from the index's projection (theseus-lv2),
+/// which adds up each session's numbers as it is written, and they say what
+/// a read of every session record says: the sessions, the turns, every token
+/// count, and the cost.
+#[tokio::test]
+async fn health_totals_from_the_projection_match_a_read_of_every_session() {
+    use theseus_store::Store as _;
+    let core = test_core("one two three");
+    let msgs = roundtrip(
+        core.clone(),
+        (0..3).map(|i| submit(20 + i, "a b c")).collect(),
+    )
+    .await;
+    assert_eq!(responses(&msgs).len(), 3);
+    assert!(
+        core.store
+            .inner()
+            .totals(theseus_store::kinds::SESSION)
+            .unwrap()
+            .is_some(),
+        "health reads the projection's totals"
+    );
+    let h = core.health();
+    let all: Vec<SessionRecord> = core.store.list_sessions().unwrap();
+    assert_eq!(h.sessions, all.len() as u64);
+    assert_eq!(h.turns, all.iter().map(|s| s.turns).sum::<u64>());
+    let mut usage = theseus_protocol::Usage::default();
+    for s in &all {
+        crate::turn::add_usage(&mut usage, &s.usage);
+    }
+    assert_eq!(h.usage_total, usage);
+    let cost: f64 = all.iter().map(|s| s.cost_usd).sum();
+    assert!(
+        (h.cost_usd_total - cost).abs() < 1e-12,
+        "{} against {cost}",
+        h.cost_usd_total
+    );
+    // One session's cost converts exactly: its total is its cost.
+    let one = crate::store::cost_fixed(all[0].cost_usd);
+    assert_eq!(crate::store::cost_usd(one), all[0].cost_usd);
+}
+
 #[tokio::test]
 async fn usage_accumulates_per_session_and_globally() {
     let core = test_core("one two three");

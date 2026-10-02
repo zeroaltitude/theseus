@@ -38,7 +38,13 @@ pub static PROJECTION: Projection = Projection {
     name: "terms.kernel.1",
     kinds: &[kinds::EXECUTION, kinds::ACTION],
     terms: of,
+    sums: no_sums,
 };
+
+/// The kernel adds nothing up: its readers count by term.
+pub fn no_sums(_: RecordKind, _: &[u8]) -> Option<theseus_store::Sums> {
+    None
+}
 
 /// A record's terms, from its payload; none for a kind with none. A payload
 /// that does not decode gets `s:?`, so a count still sees it.

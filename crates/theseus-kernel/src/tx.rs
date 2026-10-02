@@ -296,6 +296,11 @@ impl Store for Staged {
         }
         Ok(n)
     }
+    /// The store's: nothing in a transaction adds anything up. A staged
+    /// record counts once its frame commits.
+    fn totals(&self, kind: RecordKind) -> Result<Option<theseus_store::Sums>> {
+        self.under.totals(kind)
+    }
 }
 
 /// How many of `terms` are in `lo..hi`.

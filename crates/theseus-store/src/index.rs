@@ -46,6 +46,31 @@ pub struct IndexEntry {
     /// The terms a projection gives a keyed record of a kind it projects,
     /// which replace its key's last ones; `None` leaves them as they are.
     pub terms: Option<Vec<String>>,
+    /// The numbers a projection adds up for its kind (`Sums`), which replace
+    /// its key's last ones in the totals; `None` leaves them as they are.
+    pub sums: Option<Sums>,
+}
+
+/// One key's projection, as a build after serving puts it: (kind, key,
+/// latest position, terms, numbers).
+pub type Projected = (RecordKind, String, u64, Vec<String>, Option<Sums>);
+
+/// Numbers a projection adds up for a kind (theseus-lv2): each keyed
+/// record's replace its key's last ones in the kind's totals, so a reader of
+/// the totals (health's sessions, turns, tokens, and cost) reads one row, not
+/// every record. As u128s, so a fixed-point sum is exact.
+pub type Sums = [u128; 8];
+
+fn sums_bytes(s: &Sums) -> Vec<u8> {
+    s.iter().flat_map(|n| n.to_be_bytes()).collect()
+}
+fn sums_from(b: &[u8]) -> Sums {
+    let mut s = [0u128; 8];
+    let (words, _) = b.as_chunks::<16>();
+    for (n, w) in s.iter_mut().zip(words) {
+        *n = u128::from_be_bytes(*w);
+    }
+    s
 }
 
 fn bykey(kind: RecordKind, key: &str) -> Vec<u8> {
@@ -137,6 +162,8 @@ const BYKIND: TableDefinition<&[u8], ()> = TableDefinition::new("bykind");
 const BYSCOPE: TableDefinition<&[u8], ()> = TableDefinition::new("byscope");
 const TERMS: TableDefinition<&[u8], u64> = TableDefinition::new("terms");
 const TERMSOF: TableDefinition<&[u8], &[u8]> = TableDefinition::new("termsof");
+const SUMS: TableDefinition<u16, &[u8]> = TableDefinition::new("sums");
+const SUMSOF: TableDefinition<&[u8], &[u8]> = TableDefinition::new("sumsof");
 const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
 
 pub struct RedbIndex {
@@ -190,6 +217,8 @@ impl RedbIndex {
             txn.open_table(BYSCOPE)?;
             txn.open_table(TERMS)?;
             txn.open_table(TERMSOF)?;
+            txn.open_table(SUMS)?;
+            txn.open_table(SUMSOF)?;
             txn.open_table(META)?;
         }
         txn.commit()?;
@@ -277,9 +306,27 @@ impl RedbIndex {
                     }
                 }
             }
+            if entries.iter().any(|e| e.key.is_some() && e.sums.is_some()) {
+                let mut sums = txn.open_table(SUMS)?;
+                let mut sumsof = txn.open_table(SUMSOF)?;
+                for e in entries {
+                    if let (Some(k), Some(s)) = (&e.key, &e.sums) {
+                        put_sums(&mut sums, &mut sumsof, e.kind, k, s)?;
+                    }
+                }
+            }
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// A kind's totals: every key's numbers, added up (theseus-lv2).
+    pub fn totals(&self, kind: RecordKind) -> Result<Sums> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(SUMS)?;
+        Ok(t.get(kind)?
+            .map(|v| sums_from(v.value()))
+            .unwrap_or_default())
     }
 
     /// `apply`, for a replay of many records at once (theseus-byu: a
@@ -334,25 +381,31 @@ impl RedbIndex {
                 bsc.insert(k.as_slice(), ())?;
             }
         }
-        // Each key's last terms, in key order.
-        let mut termed: Vec<&IndexEntry> = entries
+        // Each key's last terms and numbers, in key order.
+        let mut projected: Vec<&IndexEntry> = entries
             .iter()
-            .filter(|e| e.key.is_some() && e.terms.is_some())
+            .filter(|e| e.key.is_some() && (e.terms.is_some() || e.sums.is_some()))
             .collect();
-        termed.sort_by(|a, b| (a.kind, &a.key, a.position).cmp(&(b.kind, &b.key, b.position)));
-        termed.dedup_by(|later, earlier| {
+        projected.sort_by(|a, b| (a.kind, &a.key, a.position).cmp(&(b.kind, &b.key, b.position)));
+        projected.dedup_by(|later, earlier| {
             let same = (later.kind, &later.key) == (earlier.kind, &earlier.key);
             if same {
                 std::mem::swap(later, earlier);
             }
             same
         });
-        if !termed.is_empty() {
+        if !projected.is_empty() {
             let mut terms = txn.open_table(TERMS)?;
             let mut termsof = txn.open_table(TERMSOF)?;
-            for e in termed {
-                if let (Some(k), Some(t)) = (&e.key, &e.terms) {
+            let mut sums = txn.open_table(SUMS)?;
+            let mut sumsof = txn.open_table(SUMSOF)?;
+            for e in projected {
+                let Some(k) = &e.key else { continue };
+                if let Some(t) = &e.terms {
                     put_terms(&mut terms, &mut termsof, e.kind, k, t, e.position)?;
+                }
+                if let Some(s) = &e.sums {
+                    put_sums(&mut sums, &mut sumsof, e.kind, k, s)?;
                 }
             }
         }
@@ -400,14 +453,11 @@ impl RedbIndex {
         Ok(out)
     }
 
-    /// Put each row's (kind, key, position, terms) whose key's latest
-    /// position is still `position`, in one non-durable transaction: an
-    /// append since the row was read put its own (theseus-lv2). Returns how
-    /// many it put.
-    pub fn put_terms_if_latest(
-        &self,
-        rows: &[(RecordKind, String, u64, Vec<String>)],
-    ) -> Result<u64> {
+    /// Put each row's (kind, key, position, terms, numbers) whose key's
+    /// latest position is still `position`, in one non-durable transaction:
+    /// an append since the row was read put its own (theseus-lv2). Returns
+    /// how many it put.
+    pub fn put_terms_if_latest(&self, rows: &[Projected]) -> Result<u64> {
         let mut txn = self.db.begin_write()?;
         txn.set_durability(Durability::None)?;
         let mut put = 0;
@@ -415,10 +465,15 @@ impl RedbIndex {
             let byk = txn.open_table(BYKEY)?;
             let mut terms = txn.open_table(TERMS)?;
             let mut termsof = txn.open_table(TERMSOF)?;
-            for (kind, key, position, t) in rows {
+            let mut sums = txn.open_table(SUMS)?;
+            let mut sumsof = txn.open_table(SUMSOF)?;
+            for (kind, key, position, t, s) in rows {
                 let latest = byk.get(bykey(*kind, key).as_slice())?.map(|v| v.value());
                 if latest == Some(*position) {
                     put_terms(&mut terms, &mut termsof, *kind, key, t, *position)?;
+                    if let Some(s) = s {
+                        put_sums(&mut sums, &mut sumsof, *kind, key, s)?;
+                    }
                     put += 1;
                 }
             }
@@ -634,6 +689,36 @@ impl RedbIndex {
     }
 }
 
+/// Replace `key`'s numbers in its kind's totals with `new`: the totals lose
+/// the key's last ones and gain these, so they always add up the latest
+/// record of every key.
+fn put_sums(
+    sums: &mut redb::Table<u16, &[u8]>,
+    sumsof: &mut redb::Table<&[u8], &[u8]>,
+    kind: RecordKind,
+    key: &str,
+    new: &Sums,
+) -> Result<()> {
+    let k = bykey(kind, key);
+    let old = sumsof
+        .get(k.as_slice())?
+        .map(|v| sums_from(v.value()))
+        .unwrap_or_default();
+    if old == *new {
+        return Ok(());
+    }
+    let mut total = sums
+        .get(kind)?
+        .map(|v| sums_from(v.value()))
+        .unwrap_or_default();
+    for ((t, o), n) in total.iter_mut().zip(old).zip(new) {
+        *t = t.wrapping_sub(o).wrapping_add(*n);
+    }
+    sums.insert(kind, sums_bytes(&total).as_slice())?;
+    sumsof.insert(k.as_slice(), sums_bytes(new).as_slice())?;
+    Ok(())
+}
+
 /// Replace `key`'s terms with `new`, each pointing at `position`.
 fn put_terms(
     terms: &mut redb::Table<&[u8], u64>,
@@ -780,6 +865,7 @@ mod tests {
                 len: 10,
             },
             terms: None,
+            sums: None,
         };
         idx.apply(
             &[
@@ -846,6 +932,7 @@ mod tests {
                 len: 10,
             },
             terms: Some(terms.iter().map(|t| t.to_string()).collect()),
+            sums: None,
         };
         let keys = |lo: &str, hi: &str| -> Vec<String> {
             idx.keys_by_terms(4, lo, hi)
@@ -901,16 +988,65 @@ mod tests {
         assert!(idx.keys_of_kind_after(4, Some("c"), 10).unwrap().is_empty());
         let put = idx
             .put_terms_if_latest(&[
-                (4, "b".into(), 6, vec!["s:blocked".into()]),
+                (4, "b".into(), 6, vec!["s:blocked".into()], None),
                 // Read at 5, and "c" is still at 5: put.
-                (4, "c".into(), 5, vec!["s:waiting".into()]),
+                (4, "c".into(), 5, vec!["s:waiting".into()], None),
                 // Read at 1: "a" has moved on to 4, which put its own.
-                (4, "a".into(), 1, vec!["s:waiting".into()]),
+                (4, "a".into(), 1, vec!["s:waiting".into()], None),
             ])
             .unwrap();
         assert_eq!(put, 2);
         assert_eq!(keys("s:blocked", "s:blocked\u{1}"), ["b"]);
         assert_eq!(keys("s:waiting", "s:waiting\u{1}"), ["c"]);
         assert_eq!(idx.terms_of(4, "a").unwrap(), ["s:queued"]);
+    }
+
+    /// A kind's totals add up each key's latest numbers: a key's next record
+    /// replaces its last ones, and a record with none leaves them
+    /// (theseus-lv2).
+    #[test]
+    fn totals_add_up_each_keys_latest_numbers() {
+        let dir = tempfile::tempdir().unwrap();
+        let idx = RedbIndex::open(&dir.path().join("index.redb")).unwrap();
+        let e = |p: u64, key: &str, sums: Option<Sums>| IndexEntry {
+            position: p,
+            kind: 1,
+            key: Some(key.into()),
+            scope: None,
+            loc: Location {
+                segment: 1,
+                offset: p * 10,
+                len: 10,
+            },
+            terms: None,
+            sums,
+        };
+        let n = |a: u128, b: u128| Some([1, a, b, 0, 0, 0, 0, 0]);
+        assert_eq!(idx.totals(1).unwrap(), [0; 8]);
+        idx.apply(&[e(1, "s1", n(1, 10)), e(2, "s2", n(2, 20))], false)
+            .unwrap();
+        assert_eq!(idx.totals(1).unwrap(), [2, 3, 30, 0, 0, 0, 0, 0]);
+        // s1 again: its numbers replace its last ones; a plain record of s2
+        // leaves s2's.
+        idx.apply(&[e(3, "s1", n(4, 15)), e(4, "s2", None)], false)
+            .unwrap();
+        assert_eq!(idx.totals(1).unwrap(), [2, 6, 35, 0, 0, 0, 0, 0]);
+        assert_eq!(idx.totals(2).unwrap(), [0; 8], "another kind's own");
+        // The bulk build and the build after serving add up the same.
+        let bulk = tempfile::tempdir().unwrap();
+        let other = RedbIndex::open(&bulk.path().join("index.redb")).unwrap();
+        other
+            .apply_bulk(&[
+                e(1, "s1", n(1, 10)),
+                e(2, "s2", n(2, 20)),
+                e(3, "s1", n(4, 15)),
+                e(4, "s2", None),
+            ])
+            .unwrap();
+        assert_eq!(other.totals(1).unwrap(), [2, 6, 35, 0, 0, 0, 0, 0]);
+        other
+            .put_terms_if_latest(&[(1, "s2".into(), 4, vec![], n(5, 50))])
+            .unwrap();
+        assert_eq!(other.totals(1).unwrap(), [2, 9, 65, 0, 0, 0, 0, 0]);
     }
 }
