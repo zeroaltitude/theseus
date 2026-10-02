@@ -36,7 +36,10 @@ the reserved theseus-follow, theseus-index, and theseus-exam.
 - **The open reads only the WAL's tail**, from the frame after the index's checkpoint. The rest is checked after
   serving by core's `store-verify` thread, and a corrupt frame there is refused and loud.
 - **A checkpoint takes the store's `appending` lock alone**, so the position it claims is synced and indexed: the
-  writer holds it shared from a batch's first write to its index. Don't take a checkpoint while holding that lock. A stop's checkpoint (`checkpoint_for_close`) syncs nothing of
+  writer holds it shared from a batch's first write to its index. Don't take a checkpoint while holding that lock.
+  The periodic one (every 1,000 records) runs on the writer, after it has answered the batch that crossed the
+  mark, so no append's call pays it (theseus-avvb); an append that queues meanwhile waits for it, as it would
+  wherever it ran. A stop's checkpoint (`checkpoint_for_close`) syncs nothing of
   its own: redb's close, a durable commit, makes it durable (theseus-02k). Only a durable checkpoint advances
   `durable_to`, so a durable one after it is never skipped as free.
 - **The terms and sums are a projection, whole only when marked** (theseus-lv2). An open with a `Projection`

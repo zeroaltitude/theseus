@@ -26,10 +26,14 @@
 //! that calls another which locks the same execution would wait on itself, so
 //! that panics instead.
 //!
-//! A wait for a lock another thread holds (across its fsync) holds no
-//! runtime worker (`theseus_store::blocking`, theseus-vni9).
+//! A lock belongs to its OS thread, so it is `!Send` (Review 2's R7): held
+//! across an `.await`, in a future a runtime may move between threads, it is
+//! a compile error rather than a "locked twice" panic in an unrelated task. A
+//! wait for a lock another thread holds (across its fsync) holds no runtime
+//! worker (`theseus_store::blocking`, theseus-vni9).
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::ThreadId;
 
@@ -53,7 +57,23 @@ struct Held {
 pub(crate) struct ExecLock<'a> {
     locks: &'a ExecLocks,
     ids: Vec<String>,
+    /// `!Send`: the lock is its thread's (R7).
+    _thread: PhantomData<*const ()>,
 }
+
+// R7, held at build time: an `ExecLock` that became `Send` fails to compile
+// here (the gate runs no doctests). Two impls apply to a `Send` type, so the
+// trait's parameter is ambiguous for it.
+const _: fn() = || {
+    trait AmbiguousIfSend<A> {
+        fn some_item() {}
+    }
+    impl<T: ?Sized> AmbiguousIfSend<()> for T {}
+    #[allow(dead_code)]
+    struct Invalid;
+    impl<T: ?Sized + Send> AmbiguousIfSend<Invalid> for T {}
+    let _ = <ExecLock<'static> as AmbiguousIfSend<_>>::some_item;
+};
 
 impl ExecLocks {
     /// The set is only ever held for an insert or a removal, so a panic
@@ -73,6 +93,7 @@ impl ExecLocks {
         ExecLock {
             locks: self,
             ids: Vec::new(),
+            _thread: PhantomData,
         }
     }
 
@@ -87,6 +108,7 @@ impl ExecLocks {
         let mut lock = ExecLock {
             locks: self,
             ids: Vec::with_capacity(ids.len()),
+            _thread: PhantomData,
         };
         let mut held = self.state();
         for id in ids {

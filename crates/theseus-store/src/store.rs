@@ -15,7 +15,8 @@
 //! which owns every append: a caller hands it a frame and waits for its
 //! answer, and the writer writes every frame queued, syncs once for all of
 //! them, indexes them in one transaction, and answers each. The wait holds no
-//! runtime worker (`blocking`).
+//! runtime worker (`blocking`). The periodic checkpoint runs on the writer
+//! too, after its answers (theseus-avvb).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -936,16 +937,45 @@ impl Inner {
     /// transaction, and answers each. So one fdatasync commits whatever
     /// queued while the last one ran: group commit across turns, by
     /// construction. The answer comes once the frame is indexed, so a
-    /// caller's lock still spans its read to its frame indexed (K1).
+    /// caller's lock still spans its read to its frame indexed (K1). The
+    /// periodic checkpoint runs here too, after the answers (theseus-avvb):
+    /// no append's call pays it.
     fn write_loop(&self, jobs: &mpsc::Receiver<Job>) {
         while let Ok(first) = jobs.recv() {
-            // A checkpoint, which takes this alone, never claims a frame
-            // written and not yet synced and indexed. What queues while the
-            // writer waits for it joins this batch.
-            let _appending = self.appending.read().unwrap();
-            let mut batch = vec![first];
-            batch.extend(jobs.try_iter());
-            self.commit(batch);
+            {
+                // A checkpoint, which takes this alone, never claims a frame
+                // written and not yet synced and indexed. What queues while
+                // the writer waits for it joins this batch.
+                let _appending = self.appending.read().unwrap();
+                let mut batch = vec![first];
+                batch.extend(jobs.try_iter());
+                self.commit(batch);
+            }
+            self.checkpoint_if_due();
+        }
+    }
+
+    /// The periodic checkpoint, once `checkpoint_every` records were written
+    /// since the last: on the writer, after it has answered the batch that
+    /// crossed the mark, so no append's call pays it. An append that queues
+    /// meanwhile waits for it, as it would wherever the checkpoint ran: it
+    /// takes `appending` alone, and redb's one write transaction.
+    fn checkpoint_if_due(&self) {
+        let every = self.checkpoint_every.load(Ordering::Relaxed);
+        if every == 0 || self.since_checkpoint.load(Ordering::Relaxed) < every {
+            return;
+        }
+        let t = std::time::Instant::now();
+        match self.checkpoint_as(true) {
+            Ok(at) => tracing::debug!(
+                position = at,
+                ms = t.elapsed().as_secs_f64() * 1000.0,
+                "store: periodic checkpoint"
+            ),
+            Err(e) => tracing::warn!(
+                error = %format!("{e:#}"),
+                "store: the periodic checkpoint failed; the next open replays from the one before"
+            ),
         }
     }
 
@@ -1089,14 +1119,9 @@ impl Store for WalStore {
                 anyhow::bail!("the store's writer has stopped");
             }
             s.queued.fetch_add(1, Ordering::SeqCst);
-            let placed = answered
+            answered
                 .recv()
-                .map_err(|_| anyhow::anyhow!("the store's writer stopped before it answered"))??;
-            let every = s.checkpoint_every.load(Ordering::Relaxed);
-            if every > 0 && s.since_checkpoint.load(Ordering::Relaxed) >= every {
-                s.checkpoint_as(true)?;
-            }
-            Ok(placed)
+                .map_err(|_| anyhow::anyhow!("the store's writer stopped before it answered"))?
         })
     }
 
@@ -1305,6 +1330,50 @@ mod tests {
         drop(s);
         let s = open(dir.path());
         assert_eq!(s.last_position(), 25, "every one durable");
+    }
+
+    /// The periodic checkpoint (theseus-avvb) runs on the writer after it has
+    /// answered the append that crossed the mark: no append's call pays it.
+    /// A checkpoint made slow, as a disk under writeback is, shows it: the
+    /// 1,000th record's append returns while the checkpoint still runs.
+    #[test]
+    fn the_append_that_crosses_the_checkpoint_mark_does_not_wait_for_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = WalStore::open(
+            dir.path(),
+            WalConfig {
+                fsync: false,
+                ..WalConfig::default()
+            },
+        )
+        .unwrap();
+        let slow = std::time::Duration::from_millis(1500);
+        *s.inner.checkpoint_delay.lock().unwrap() = slow;
+        let row = |i: u32| NewRecord::json(kinds::LEDGER, None, &i).unwrap();
+        for i in 0..999 {
+            s.append(&[row(i)]).unwrap();
+        }
+        assert_eq!(
+            s.stats().unwrap().checkpoint,
+            None,
+            "no checkpoint before the mark"
+        );
+        let t = std::time::Instant::now();
+        s.append(&[row(999)]).unwrap();
+        let took = t.elapsed();
+        assert!(
+            took < slow / 3,
+            "the 1,000th record's append took {took:?}: it waited for the checkpoint"
+        );
+        // The checkpoint follows, on the writer.
+        let t0 = std::time::Instant::now();
+        while s.stats().unwrap().checkpoint != Some(1000) {
+            assert!(
+                t0.elapsed() < std::time::Duration::from_secs(20),
+                "no checkpoint"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     /// The wait for the writer holds no runtime worker (theseus-vni9): with

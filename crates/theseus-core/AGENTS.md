@@ -42,7 +42,10 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **The frame budget.** A plain one-loop turn writes 5 frames, and each loop with one in-process tool adds 4.
   Observability rows ride in the turn's next frame; the session's write rides in `end_turn`'s
   (`Store::defer_session`). `tests_m3::a_plain_turn_stays_within_its_frame_budget` fails a sixth frame.
-- **Lock order**: a session's lock, then an execution's (`Store::with_session`, `update_session`).
+- **Lock order**: a session's lock, then an execution's (`Store::with_session`, `update_session`). Both belong
+  to their OS thread, so `SessionLock`, `SessionHold`, and the kernel's `ExecLock` are `!Send` (Review 2's R7):
+  holding one across an `.await` in a spawned future is a compile error, and a build-time check beside each fails
+  the build if one becomes `Send`.
 - **Kernel writes made together are one `Kernel::frame`**, with the core's own records added by `stage`: an answer
   (the bind or the decline, an approval's trust, its row, and the wake) is one (theseus-jj9f). A transaction holds
   its executions' locks, which belong to an OS thread, so it never spans an `.await`; a session's lock goes around

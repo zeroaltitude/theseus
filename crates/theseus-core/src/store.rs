@@ -26,6 +26,7 @@
 //! writer never puts back a copy it read before another's write.
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
@@ -139,11 +140,14 @@ struct SessionLocks {
     waiting: std::sync::atomic::AtomicUsize,
 }
 
-/// A session record locked by one writer; released when dropped.
+/// A session record locked by one writer; released when dropped. It is its
+/// thread's, so it is `!Send` (Review 2's R7): held across an `.await` in a
+/// spawned future, it is a compile error.
 #[must_use = "the lock is released when this is dropped"]
 pub struct SessionLock<'a> {
     locks: &'a SessionLocks,
     id: String,
+    _thread: PhantomData<*const ()>,
 }
 
 /// A session record's lock, owned: a turn keeps it from its session write,
@@ -151,12 +155,42 @@ pub struct SessionLock<'a> {
 /// (theseus-l6y). Released when dropped, after writing whatever still waits
 /// on the turn's handle: the record is never written without its lock, even
 /// when the turn fails before its last frame.
+///
+/// It is its thread's, so it is `!Send` (Review 2's R7): a spawned future
+/// that holds one across an `.await` doesn't compile.
+///
+/// ```compile_fail
+/// fn spawned<F: std::future::Future + Send + 'static>(_: F) {}
+/// fn turn(store: theseus_core::store::Store) {
+///     spawned(async move {
+///         let hold = store.defer_session("ses_x", |_| {}).unwrap();
+///         std::future::ready(()).await;
+///         drop(hold);
+///     });
+/// }
+/// ```
 #[must_use = "the lock is released when this is dropped"]
 pub struct SessionHold {
     /// The turn's handle, whose waiting rows carry the record.
     store: Store,
     id: String,
+    _thread: PhantomData<*const ()>,
 }
+
+// R7, held at build time: a session lock that became `Send` fails to compile
+// here (the gate runs no doctests). Two impls apply to a `Send` type, so the
+// trait's parameter is ambiguous for it.
+const _: fn() = || {
+    trait AmbiguousIfSend<A> {
+        fn some_item() {}
+    }
+    impl<T: ?Sized> AmbiguousIfSend<()> for T {}
+    #[allow(dead_code)]
+    struct Invalid;
+    impl<T: ?Sized + Send> AmbiguousIfSend<Invalid> for T {}
+    let _ = <SessionHold as AmbiguousIfSend<_>>::some_item;
+    let _ = <SessionLock<'static> as AmbiguousIfSend<_>>::some_item;
+};
 
 impl SessionLocks {
     fn lock(&self, id: &str) -> SessionLock<'_> {
@@ -164,6 +198,7 @@ impl SessionLocks {
         SessionLock {
             locks: self,
             id: id.to_string(),
+            _thread: PhantomData,
         }
     }
 
@@ -479,6 +514,7 @@ impl Store {
             Ok(true) => Ok(Some(SessionHold {
                 store: self.clone(),
                 id: id.to_string(),
+                _thread: PhantomData,
             })),
             // Nothing of this write waits: the lock goes, and the rows that
             // do wait keep waiting for the turn's next frame.
