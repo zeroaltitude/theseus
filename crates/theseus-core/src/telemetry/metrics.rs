@@ -90,6 +90,12 @@ const PUSH_EVENTS: Instrument = Instrument {
     unit: "",
     kind: Kind::IntSum,
 };
+const PUSH_LOST: Instrument = Instrument {
+    name: "theseus.push.lost",
+    description: "Notifications a connection's backlog cap dropped",
+    unit: "",
+    kind: Kind::IntSum,
+};
 const PUSH_DELAY: Instrument = Instrument {
     name: "theseus.push.delay_ms",
     description: "From a frame's commit to its execution.changed being queued",
@@ -98,7 +104,7 @@ const PUSH_DELAY: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 11] = [
+const INSTRUMENTS: [&Instrument; 12] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -109,6 +115,7 @@ const INSTRUMENTS: [&Instrument; 11] = [
     &TOOL_CALLS,
     &TOOL_DURATION,
     &PUSH_EVENTS,
+    &PUSH_LOST,
     &PUSH_DELAY,
 ];
 
@@ -291,6 +298,11 @@ impl Metrics {
             n,
         );
         self.record(&PUSH_DELAY, Vec::new(), delay_ms);
+    }
+
+    /// The push (theseus-in3): `n` notifications dropped at a backlog cap.
+    pub(super) fn push_lost(&mut self, n: u64) {
+        self.add(&PUSH_LOST, Vec::new(), n);
     }
 
     fn tokens(&mut self, u: &Usage, base: &Attrs) {

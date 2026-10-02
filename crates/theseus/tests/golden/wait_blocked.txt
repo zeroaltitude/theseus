@@ -1,0 +1,12 @@
+$ theseus wait q7f3k2 --until blocked --timeout 90s
+--- requests
+execution.list session.wait
+--- stdout
+blocked	48	ses_q7f3k2	conversation	waiting	● confirm fs.write: write outside the roots (/w)	$0.2500
+  ? fs.write waits for you in ses_q7f3k2: write outside the roots (/w)
+      input: {"path":"/srv/motd","text":"hello"}
+      approve: theseus confirm act_k4
+      approve, and trust the session again: theseus confirm --trust act_k4
+      decline: theseus confirm --decline act_k4
+--- stderr
+--- exit 0

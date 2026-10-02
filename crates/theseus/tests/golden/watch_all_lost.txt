@@ -1,0 +1,10 @@
+$ theseus watch --all
+--- requests
+executions.watch executions.watch
+--- stdout
+38	ses_q7f3k2	conversation	running	◐ turn 3	$0.2500
+88	ses_q7f3k2	conversation	waiting	○ ready	$0.2500
+--- stderr
+watching every session's executions: 1 of 1 at position 40, 0 question(s) waiting (Ctrl-C to stop)
+lost 4120 notifications while this terminal was behind (executions); reading again
+--- exit 0

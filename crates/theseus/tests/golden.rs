@@ -952,6 +952,94 @@ fn watch_all_prints_the_snapshot_then_each_change_once() {
     );
 }
 
+/// A view as `execution.changed` and `session.wait` carry it.
+fn push_view(pos: u64, state: &str, level: &str, label: &str) -> Value {
+    json!({"position": pos, "at_ms": 1_759_300_000_000u64, "execution_id": X, "session_id": S,
+           "kind": "conversation", "state": state, "pending": [], "turns": 3,
+           "spent_usd": 0.25, "limit_usd": 100.0,
+           "attention": {"level": level, "label": label, "since_ms": 1}})
+}
+
+/// `theseus wait` (theseus-in3): what it reached and the questions; a
+/// timeout exits 4.
+#[test]
+fn wait_prints_what_it_reached_and_a_timeout_exits_4() {
+    let execs = json!({"executions": [execution(X, "waiting", None)]});
+    let blocked = json!({"reached": "blocked", "already": false,
+        "execution": push_view(48, "waiting", "needs_you", "confirm fs.write: write outside the roots (/w)"),
+        "confirms": [confirm_tool()]});
+    golden(
+        "wait_blocked",
+        &run(
+            &["wait", "q7f3k2", "--until", "blocked", "--timeout", "90s"],
+            vec![
+                step("execution.list", execs.clone()),
+                step("session.wait", blocked),
+            ],
+        ),
+    );
+    let timeout = json!({"reached": "timeout", "already": false,
+        "execution": push_view(51, "running", "working", "turn 3"), "confirms": []});
+    golden(
+        "wait_timeout",
+        &run(
+            &["wait", S, "--after", "48"],
+            vec![step("execution.list", execs), step("session.wait", timeout)],
+        ),
+    );
+}
+
+/// `theseus executions explain` (theseus-in3): one execution in full.
+#[test]
+fn executions_explain_prints_one_in_full() {
+    let mut e = execution(X, "waiting", None);
+    e["waiting_on"] = json!({"on": "confirm", "confirm_id": "act_k4"});
+    e["attention"] = json!({"level": "needs_you", "label": "confirm fs.write: write outside the roots (/w)", "since_ms": 1});
+    let rows = json!({"total": 2048, "rows": [
+        {"position": 2040, "at_unix_ms": 1_759_300_000_123u64, "kind": "execution.waiting",
+         "session_id": S, "turn_id": null, "data": {"execution_id": X, "wake": {"on": "confirm"}}}]});
+    golden(
+        "executions_explain",
+        &run(
+            &["executions", "explain", "q7f3k2"],
+            vec![
+                step("execution.list", json!({"executions": [e]})),
+                step("confirm.list", json!({"confirms": [confirm_tool()]})),
+                step("wake.list", json!({"wakes": []})),
+                step("ledger.tail", rows),
+            ],
+        ),
+    );
+}
+
+/// `theseus watch --all` after `events.lost` (theseus-in3): it says so, reads
+/// the board again, and prints only what changed.
+#[test]
+fn watch_all_reads_again_after_events_lost() {
+    let first = json!({"position": 40, "total": 1, "confirms": [],
+        "executions": [push_view(38, "running", "working", "turn 3")]});
+    let again = json!({"position": 90, "total": 1, "confirms": [],
+        "executions": [push_view(88, "waiting", "ready", "ready")]});
+    golden(
+        "watch_all_lost",
+        &run(
+            &["watch", "--all"],
+            vec![
+                Step {
+                    method: "executions.watch",
+                    before: vec![],
+                    answer: Ok(first),
+                    after: vec![note(
+                        "events.lost",
+                        json!({"dropped": 4120, "streams": ["executions"]}),
+                    )],
+                },
+                step("executions.watch", again),
+            ],
+        ),
+    );
+}
+
 #[test]
 fn tools_lists_postures_and_calls() {
     golden("tools", &run(&["tools"], vec![step("tool.list", tools())]));

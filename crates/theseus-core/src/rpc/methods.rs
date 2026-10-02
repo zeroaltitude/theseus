@@ -23,6 +23,10 @@ use crate::session::SessionRecord;
 use crate::turn::{TurnError, TurnRequest, OPERATOR};
 use theseus_kernel::Authority;
 
+/// `session.wait`'s timeout: 10 minutes by default, a day at most.
+const WAIT_DEFAULT_MS: u64 = 10 * 60 * 1000;
+const WAIT_MAX_MS: u64 = 24 * 60 * 60 * 1000;
+
 impl Core {
     pub fn health(&self) -> HealthResult {
         let (profile, _) = self.live_profile();
@@ -121,7 +125,7 @@ impl Core {
         Ok(info)
     }
 
-    pub(super) fn open_session(&self, p: SessionOpenParams) -> Result<SessionRecord> {
+    pub(crate) fn open_session(&self, p: SessionOpenParams) -> Result<SessionRecord> {
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
         let exec = self.kernel.open_execution(
             &rec.session_id,
@@ -221,6 +225,85 @@ impl Core {
             confirms: self.confirm_list()?,
             total,
         })
+    }
+
+    /// `session.wait` (theseus-in3, design `stage2` §2.6): until the
+    /// session's execution is what `until` names. The board's feed wakes it,
+    /// so it costs nothing while parked, and it subscribes before it reads,
+    /// so no change falls between. A wait already satisfied answers at once
+    /// (`already`). It ends with its connection, and a connection holds at
+    /// most `push::MAX_WAITS`.
+    pub(super) async fn session_wait(
+        self: &std::sync::Arc<Self>,
+        p: theseus_protocol::SessionWaitParams,
+        conn: Conn<'_>,
+    ) -> Result<theseus_protocol::SessionWaitResult, RpcFailure> {
+        use theseus_protocol::WaitUntil;
+        let rec = self.session(&p.session_id)?;
+        if p.until == WaitUntil::Terminal && rec.kind == SessionKind::Conversation {
+            return Err(RpcFailure::new(
+                error_code::INVALID_PARAMS,
+                "a conversation never ends; wait for settled",
+            ));
+        }
+        let timeout = std::time::Duration::from_millis(
+            p.timeout_ms.unwrap_or(WAIT_DEFAULT_MS).min(WAIT_MAX_MS),
+        );
+        let Some(_slot) = self.push.wait_slot(conn.client) else {
+            return Err(RpcFailure::new(
+                error_code::LIMIT,
+                format!(
+                    "this connection holds {} waits already: end one, or wait on another \
+                     connection",
+                    crate::push::MAX_WAITS
+                ),
+            ));
+        };
+        self.push.ensure(self).await?;
+        let mut feed = self.push.feed();
+        let mut closed = conn.closed.clone();
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut first = true;
+        loop {
+            feed.borrow_and_update();
+            let view = self.push.view_of_session(&p.session_id);
+            if let Some(v) = view.as_ref().filter(|v| {
+                p.until.reached_by(v) && p.after_position.is_none_or(|a| v.position > a)
+            }) {
+                return Ok(self.waited(p.until.as_str(), first, Some(v.clone()), &p.session_id));
+            }
+            first = false;
+            tokio::select! {
+                changed = feed.changed() => {
+                    if changed.is_err() {
+                        return Ok(self.waited("timeout", false, view, &p.session_id));
+                    }
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    return Ok(self.waited("timeout", false, view, &p.session_id));
+                }
+                _ = closed.changed() => {
+                    return Err(RpcFailure::new(error_code::INTERNAL, "the connection closed"));
+                }
+            }
+        }
+    }
+
+    /// `session.wait`'s answer: what was reached, and the session's view and
+    /// questions as the wait ended.
+    fn waited(
+        &self,
+        reached: &str,
+        already: bool,
+        execution: Option<theseus_protocol::ExecutionView>,
+        session_id: &str,
+    ) -> theseus_protocol::SessionWaitResult {
+        theseus_protocol::SessionWaitResult {
+            reached: reached.to_string(),
+            already,
+            execution,
+            confirms: self.pending_confirms(session_id).unwrap_or_default(),
+        }
     }
 
     /// `executions.unwatch`: the connection's all-session watch ends.
@@ -586,11 +669,10 @@ impl Core {
         let changed = self
             .switch_profile(name, conn.client)
             .map_err(RpcFailure::invalid)?;
-        let _ = conn
-            .tx
-            .send(Message::from(theseus_protocol::Event::ProfileChanged(
-                changed.clone(),
-            )));
+        conn.tx.notify(
+            Message::from(theseus_protocol::Event::ProfileChanged(changed.clone())),
+            "policy",
+        );
         Ok(changed)
     }
 

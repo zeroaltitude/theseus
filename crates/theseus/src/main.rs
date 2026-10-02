@@ -41,6 +41,8 @@ Quick start:
   theseus wakes                              pending wakes (wake.at): session, due time, and note
   theseus cancel <id>                        stop a task and its jobs, or cancel a wake (its last six characters are enough)
   theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
+  theseus wait <session> --until blocked      return once a session needs you (or settled, or terminal for a task)
+  theseus executions explain <id>            one execution in full: what it waits on, its questions, budget, last rows
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
   theseus policy trust <session>             after a session read a web page, its calls that act wait; this trusts it again
@@ -169,6 +171,25 @@ enum Cmd {
         #[arg(value_name = "ID")]
         name: String,
     },
+    /// Wait until a session needs you, settles, or ends, then print its state and its questions
+    /// (session.wait). The daemon owns the wait, so nothing polls, and a wait already satisfied
+    /// answers at once. SESSION is its id, or at least its last four characters. Exit codes: 0
+    /// reached, 4 timed out, and 1, 2, and 3 as for every command.
+    Wait {
+        #[arg(value_name = "SESSION")]
+        session: String,
+        /// blocked (it needs you), settled (nothing runs or is queued for it: it needs you, is
+        /// ready, or ended; a job or a child task still runs), or terminal (a task ended).
+        #[arg(long, default_value = "settled", value_parser = ["blocked", "settled", "terminal"])]
+        until: String,
+        /// Only a change after this WAL position counts (one `theseus watch --all` printed, or
+        /// a previous wait's).
+        #[arg(long, value_name = "POSITION")]
+        after: Option<u64>,
+        /// How long to wait: 90s, 10m, 2h (default 10m, at most 24h).
+        #[arg(long, value_name = "DURATION")]
+        timeout: Option<String>,
+    },
     /// Halt what a session is doing, as Discord's `/stop` does: its running turn, its jobs, and
     /// what waits on you. The conversation goes on: the next `ask -s` continues it, and its tasks
     /// and wakes go on too (`theseus cancel <id>` stops one). SESSION is its id, or at least its
@@ -282,6 +303,10 @@ enum ExecutionsCmd {
     List,
     /// Cancel an execution: deterministic control path, terminates its jobs.
     Cancel { execution_id: String },
+    /// One execution in full: what it needs from you, what it waits on, its questions, its
+    /// budget, its pending wakes, and its session's last ledger rows. ID is an execution's or a
+    /// session's id, or at least the last four characters of either.
+    Explain { id: String },
 }
 
 #[derive(Subcommand, Debug)]
@@ -498,6 +523,12 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
         Cmd::Stop { session } => cmd::stop(c, json, session).await,
+        Cmd::Wait {
+            session,
+            until,
+            after,
+            timeout,
+        } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { n, kind, session } => cmd::ledger(c, json, n, kind, session).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,

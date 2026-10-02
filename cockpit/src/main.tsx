@@ -5,7 +5,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router'
 import '@fontsource-variable/inter'
 import '@fontsource-variable/jetbrains-mono'
 import './index.css'
-import './lib/rpc'
+import { bindPush } from './lib/rpc'
 import { Shell } from './components/Shell'
 import { Bridge } from './views/Bridge'
 import { Crash, NotFound } from './components/Crash'
@@ -21,6 +21,7 @@ const Systems = lazy(() => import('./views/Systems'))
 const queries = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, placeholderData: (prev: unknown) => prev } },
 })
+bindPush(queries)
 
 const wrap = (el: React.ReactNode) => <Suspense fallback={<div className="p-6 text-ink-faint">Loading…</div>}>{el}</Suspense>
 

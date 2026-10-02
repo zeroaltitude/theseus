@@ -45,6 +45,11 @@ pending: Array<PendingConfirm>,
  */
 turns: number, 
 /**
+ * Its calls dispatched and not settled: a conversation waiting on input
+ * with one is still working (a job its turn left running).
+ */
+outstanding: number, 
+/**
  * Its spend since the last reset, and its limit, in US dollars.
  */
 spent_usd: number, limit_usd: number, 

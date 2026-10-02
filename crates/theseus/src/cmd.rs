@@ -168,6 +168,15 @@ pub async fn watch(
         if let Message::Notification(n) = msg {
             if json {
                 println!("{}", serde_json::to_string(&n)?);
+            } else if n.method == notify::EVENTS_LOST {
+                // This terminal fell behind (theseus-in3): what it missed is
+                // in the history; the watch goes on.
+                let lost: theseus_protocol::EventsLost = serde_json::from_value(n.params)?;
+                printer.settle();
+                eprintln!(
+                    "{} · `theseus history {sid}` shows what happened",
+                    render::lost_line(&lost)
+                );
             } else {
                 printer.on(&n.method, &n.params);
             }
@@ -236,8 +245,28 @@ pub async fn watch_all(conn: &mut Conn, json: bool) -> Result<()> {
         show(&m, &p, &mut seen)?;
     }
     while let Some(msg) = conn.next().await? {
-        if let Message::Notification(n) = msg {
-            show(&n.method, &n.params, &mut seen)?;
+        let Message::Notification(n) = msg else {
+            continue;
+        };
+        show(&n.method, &n.params, &mut seen)?;
+        // This terminal fell behind (theseus-in3): say so, and read the board
+        // again; the position rule prints only what changed.
+        if n.method == notify::EVENTS_LOST && !json {
+            let lost: theseus_protocol::EventsLost = serde_json::from_value(n.params.clone())?;
+            eprintln!("{}", render::lost_line(&lost));
+            let v = conn
+                .call(method::EXECUTIONS_WATCH, serde_json::json!({}), |m, p| {
+                    let _ = show(m, p, &mut seen);
+                })
+                .await?;
+            let snap: theseus_protocol::ExecutionsWatchResult = serde_json::from_value(v)?;
+            for view in &snap.executions {
+                let last = seen.entry(view.execution_id.clone()).or_default();
+                if view.position > *last {
+                    *last = view.position;
+                    println!("{}", render::view_line(view));
+                }
+            }
         }
     }
     Ok(())
@@ -601,6 +630,7 @@ pub async fn executions(conn: &mut Conn, json: bool, cmd: ExecutionsCmd) -> Resu
                 Ok(())
             })
         }
+        ExecutionsCmd::Explain { id } => explain(conn, json, &id).await,
         ExecutionsCmd::Cancel { execution_id } => {
             let v = conn
                 .request(
@@ -626,6 +656,164 @@ pub async fn executions(conn: &mut Conn, json: bool, cmd: ExecutionsCmd) -> Resu
             })
         }
     }
+}
+
+/// `theseus executions explain ID` (theseus-in3): one execution in full,
+/// from four reads.
+async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
+    let l: theseus_protocol::ExecutionListResult =
+        serde_json::from_value(conn.request(method::EXECUTION_LIST, Value::Null).await?)?;
+    let e = explain_target(&l.executions, id)?;
+    let confirms: ConfirmListResult =
+        serde_json::from_value(conn.request(method::CONFIRM_LIST, Value::Null).await?)?;
+    let wakes: theseus_protocol::WakeListResult = serde_json::from_value(
+        conn.request(
+            method::WAKE_LIST,
+            theseus_protocol::WakeListParams {
+                session_id: Some(e.session_id.clone()),
+                target: None,
+            },
+        )
+        .await?,
+    )?;
+    let rows: LedgerTailResult = serde_json::from_value(
+        conn.request(
+            method::LEDGER_TAIL,
+            LedgerTailParams {
+                n: Some(8),
+                kind: None,
+                session_id: Some(e.session_id.clone()),
+            },
+        )
+        .await?,
+    )?;
+    let asks: Vec<_> = confirms
+        .confirms
+        .into_iter()
+        .filter(|c| c.execution_id == e.execution_id)
+        .collect();
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({"execution": e, "confirms": asks, "wakes": wakes.wakes, "rows": rows.rows})
+        );
+        return Ok(());
+    }
+    let now = theseus_protocol::now_unix_ms();
+    let mut out = io::stdout().lock();
+    for line in render::explain_lines(&e, &wakes.wakes, now) {
+        writeln!(out, "{line}")?;
+    }
+    if asks.is_empty() {
+        writeln!(out, "questions: none")?;
+    } else {
+        writeln!(out, "questions:")?;
+        for c in &asks {
+            render::print_confirm(&mut out, c)?;
+        }
+    }
+    writeln!(out, "last rows of its session:")?;
+    for r in &rows.rows {
+        writeln!(out, "  {}", render::ledger_row(r)?)?;
+    }
+    Ok(())
+}
+
+/// The execution `explain` names: an execution's or a session's id, or at
+/// least the last four characters of either.
+fn explain_target(
+    execs: &[theseus_protocol::ExecutionInfo],
+    id: &str,
+) -> Result<theseus_protocol::ExecutionInfo> {
+    let s = id.trim().trim_start_matches('…');
+    if s.len() < 4 {
+        anyhow::bail!("`{id}` is too short: give at least four characters of an id");
+    }
+    let exact: Vec<_> = execs
+        .iter()
+        .filter(|e| e.execution_id == s || e.session_id == s)
+        .collect();
+    let found: Vec<_> = if exact.is_empty() {
+        execs
+            .iter()
+            .filter(|e| e.execution_id.ends_with(s) || e.session_id.ends_with(s))
+            .collect()
+    } else {
+        exact
+    };
+    match found.as_slice() {
+        [] => anyhow::bail!("no execution or session is named `{id}`"),
+        [one] => Ok((*one).clone()),
+        many => anyhow::bail!(
+            "`{id}` names {} executions: give more of its id",
+            many.len()
+        ),
+    }
+}
+
+/// `theseus wait SESSION` (theseus-in3): `session.wait`, then the state it
+/// reached. A timeout exits 4.
+pub async fn wait(
+    conn: &mut Conn,
+    json: bool,
+    session: String,
+    until: String,
+    after: Option<u64>,
+    timeout: Option<String>,
+) -> Result<()> {
+    let l: theseus_protocol::ExecutionListResult =
+        serde_json::from_value(conn.request(method::EXECUTION_LIST, Value::Null).await?)?;
+    let session_id = explain_target(&l.executions, &session)?.session_id;
+    let timeout_ms = timeout.as_deref().map(parse_duration_ms).transpose()?;
+    let until = match until.as_str() {
+        "blocked" => theseus_protocol::WaitUntil::Blocked,
+        "terminal" => theseus_protocol::WaitUntil::Terminal,
+        _ => theseus_protocol::WaitUntil::Settled,
+    };
+    let v = conn
+        .request(
+            method::SESSION_WAIT,
+            theseus_protocol::SessionWaitParams {
+                session_id,
+                until,
+                after_position: after,
+                timeout_ms,
+            },
+        )
+        .await?;
+    let r: theseus_protocol::SessionWaitResult = serde_json::from_value(v.clone())?;
+    if json {
+        println!("{v}");
+    } else {
+        println!("{}", render::waited_line(&r));
+        let mut out = io::stdout().lock();
+        for c in &r.confirms {
+            render::print_confirm(&mut out, c)?;
+        }
+    }
+    if r.reached == "timeout" {
+        // Exit 4: the wait timed out (0 ok, 1 error, 2 usage, 3 cannot connect).
+        std::process::exit(4);
+    }
+    Ok(())
+}
+
+/// `90s`, `10m`, `2h`, `1500ms`, or bare seconds, in milliseconds.
+fn parse_duration_ms(s: &str) -> Result<u64> {
+    let t = s.trim();
+    let (n, unit) = t
+        .find(|c: char| !c.is_ascii_digit())
+        .map_or((t, ""), |i| t.split_at(i));
+    let n: u64 = n
+        .parse()
+        .map_err(|_| anyhow!("`{s}` is no duration: write 90s, 10m, or 2h"))?;
+    Ok(match unit {
+        "" | "s" => n * 1000,
+        "ms" => n,
+        "m" => n * 60_000,
+        "h" => n * 3_600_000,
+        _ => anyhow::bail!("`{s}` is no duration: write 90s, 10m, or 2h"),
+    })
 }
 
 /// `theseus stop SESSION`: the session's execution, as Discord's `/stop`

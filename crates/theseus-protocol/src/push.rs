@@ -144,6 +144,10 @@ pub struct ExecutionView {
     /// Turns taken.
     #[serde(default)]
     pub turns: u64,
+    /// Its calls dispatched and not settled: a conversation waiting on input
+    /// with one is still working (a job its turn left running).
+    #[serde(default)]
+    pub outstanding: u32,
     /// Its spend since the last reset, and its limit, in US dollars.
     #[serde(default)]
     pub spent_usd: f64,
@@ -207,6 +211,93 @@ pub struct SessionListParams {
     pub ids: Option<Vec<String>>,
 }
 
+/// What `session.wait` waits for (design `stage2` §2.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum WaitUntil {
+    /// The session needs someone: a question, a block, a failure.
+    Blocked,
+    /// Nothing runs or is queued for it: it needs you, is ready, or is idle.
+    /// A job, a child task, or a due time still counts as working.
+    Settled,
+    /// It ended. A conversation never does, so this is refused for one.
+    Terminal,
+}
+
+impl WaitUntil {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WaitUntil::Blocked => "blocked",
+            WaitUntil::Settled => "settled",
+            WaitUntil::Terminal => "terminal",
+        }
+    }
+
+    /// Whether `view` is what this waits for.
+    pub fn reached_by(self, view: &ExecutionView) -> bool {
+        match self {
+            WaitUntil::Blocked => view.attention.level == Level::NeedsYou,
+            WaitUntil::Settled => view.attention.level != Level::Working,
+            WaitUntil::Terminal => matches!(
+                view.state.as_str(),
+                "complete" | "cancelled" | "failed" | "budget_exhausted"
+            ),
+        }
+    }
+}
+
+/// `session.wait`: until the session's execution is `until`. Owned by the
+/// daemon: a parked task that costs nothing while it waits, and ends with its
+/// connection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SessionWaitParams {
+    pub session_id: String,
+    pub until: WaitUntil,
+    /// Only a view after this position counts; without it the current view
+    /// does, and a wait already satisfied answers at once (`already`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub after_position: Option<u64>,
+    /// How long to wait: 10 minutes by default, 24 hours at most.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub timeout_ms: Option<u64>,
+}
+
+/// `session.wait`'s answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SessionWaitResult {
+    /// `blocked`, `settled`, `terminal`, or `timeout`.
+    pub reached: String,
+    /// The wait was satisfied when it began: it never parked.
+    pub already: bool,
+    /// The session's execution as the wait ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub execution: Option<ExecutionView>,
+    /// The session's questions for the operator, whole.
+    #[serde(default)]
+    pub confirms: Vec<ConfirmRequest>,
+}
+
+/// `events.lost` (design `stage2` §2.5): a connection's queue passed the
+/// backlog cap, so its notifications were dropped from then until it drained.
+/// Responses are never dropped. Re-read each stream: `executions` with
+/// `executions.watch`, `session:<id>` with `session.history` then
+/// `session.watch`, `narrative` with `narrative.watch`, `policy` with
+/// `health`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct EventsLost {
+    /// How many notifications were dropped.
+    pub dropped: u64,
+    /// The streams they belonged to.
+    pub streams: Vec<String>,
+}
+
 /// The push for health (theseus-in3): `push: 3 watchers · board 212 · 1
 /// question · seeded in 38 ms`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -230,6 +321,13 @@ pub struct PushStatus {
     /// `execution.changed` notifications made since the daemon started.
     #[serde(default)]
     pub events: u64,
+    /// `session.wait` calls parked now.
+    #[serde(default)]
+    pub waiting: u64,
+    /// Notifications dropped at a connection's backlog cap since the daemon
+    /// started, every stream's.
+    #[serde(default)]
+    pub lost: u64,
     /// The board's position: the last frame it applied.
     #[serde(default)]
     pub position: u64,
@@ -251,7 +349,7 @@ const LABEL_REASON_CHARS: usize = 60;
 /// | 5 | `budget_exhausted` | needs you | `budget exhausted` |
 /// | 6 | `running` | working | `turn 4` |
 /// | 7 | `queued` | working | `queued`, `queued · wake` |
-/// | 8 | waiting on calls (a job) | working | `waiting on 2 calls` |
+/// | 8 | waiting on calls, or on input with calls still dispatched (a job its turn left running) | working | `waiting on 2 calls` |
 /// | 9 | waiting on another execution | working | `waiting on task a1b2c3` |
 /// | 10 | waiting on a due time | working | `sleeping until 14:00` |
 /// | 11 | waiting on a question with none pending (a race) | needs you | `waiting on you` |
@@ -308,11 +406,7 @@ fn level_and_label(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, 
 fn waiting(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, String) {
     match &view.waiting_on {
         Some(WaitingOn::Actions { correlation_ids }) => {
-            let n = correlation_ids.len();
-            (
-                Level::Working,
-                format!("waiting on {n} call{}", if n == 1 { "" } else { "s" }),
-            )
+            (Level::Working, calls(correlation_ids.len()))
         }
         Some(WaitingOn::Execution { execution_id }) => (
             Level::Working,
@@ -324,6 +418,10 @@ fn waiting(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, String) 
         Some(WaitingOn::Confirm { .. } | WaitingOn::Budget { .. }) => {
             (Level::NeedsYou, "waiting on you".into())
         }
+        // A job the turn left running (answered `background`): still working.
+        Some(WaitingOn::Input) if view.outstanding > 0 => {
+            (Level::Working, calls(view.outstanding as usize))
+        }
         Some(WaitingOn::Input) => (
             Level::Ready,
             match view.wake_at_ms {
@@ -333,6 +431,11 @@ fn waiting(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, String) 
         ),
         Some(WaitingOn::Unknown) | None => (Level::Working, "waiting".into()),
     }
+}
+
+/// `waiting on 2 calls`.
+fn calls(n: usize) -> String {
+    format!("waiting on {n} call{}", if n == 1 { "" } else { "s" })
 }
 
 fn confirm_label(first: &PendingConfirm, count: usize) -> String {
@@ -407,6 +510,7 @@ mod tests {
             waiting_on: wake,
             pending: questions,
             turns: 4,
+            outstanding: 0,
             spent_usd: 10.02,
             limit_usd: 10.0,
             ended_reason: None,
@@ -612,6 +716,14 @@ mod tests {
                 correlation_id: "q".into()
             })),
             "waiting on you"
+        );
+        // 8 again: a job the turn left running keeps it working.
+        let mut v = waiting(WaitingOn::Input);
+        v.outstanding = 1;
+        let a = attention(&v, &utc_hm);
+        assert_eq!(
+            (a.level, a.label.as_str()),
+            (Level::Working, "waiting on 1 call")
         );
         // 12: between exchanges.
         assert_eq!(label(waiting(WaitingOn::Input)), "ready");

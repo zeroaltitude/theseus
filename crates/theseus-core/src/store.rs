@@ -296,8 +296,25 @@ impl Store {
     /// Open the store directory. A store whose manifest names another format
     /// or engine is refused.
     pub fn open(dir: &Path) -> Result<Self> {
-        let inner = WalStore::open(dir, WalConfig::default())
-            .with_context(|| format!("opening store {}", dir.display()))?;
+        Self::open_with(dir, WalConfig::default())
+    }
+
+    /// The store at `dir` with no fsync per frame: for a test that writes
+    /// thousands of frames and times nothing (theseus-in3's lag prove).
+    #[cfg(test)]
+    pub fn open_unsynced(dir: &Path) -> Result<Self> {
+        Self::open_with(
+            dir,
+            WalConfig {
+                fsync: false,
+                ..WalConfig::default()
+            },
+        )
+    }
+
+    fn open_with(dir: &Path, cfg: WalConfig) -> Result<Self> {
+        let inner =
+            WalStore::open(dir, cfg).with_context(|| format!("opening store {}", dir.display()))?;
         let st = inner.stats()?;
         if st.truncated_bytes > 0 || st.replayed_into_index > 0 {
             tracing::warn!(

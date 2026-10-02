@@ -171,6 +171,16 @@ export default function Observatory({ client, health, tick, currentSession, onRe
   }, [client, currentSession, refresh])
 
   useEffect(() => { void refresh() }, [refresh, tick])
+  // The push (theseus-in3): any execution's change refreshes these tables within a second. The timer below stays for
+  // what the push does not carry (the ledger's other rows, the actions), as the design's open question 6 says.
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null
+    const off = client.onNotify((method) => {
+      if (method !== 'execution.changed' || t) return
+      t = setTimeout(() => { t = null; void refresh() }, 1000)
+    })
+    return () => { off(); if (t) clearTimeout(t) }
+  }, [client, refresh])
   useEffect(() => {
     if (!live) return
     const id = setInterval(() => void refresh(), 2500)
@@ -489,6 +499,17 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                     <span className="muted"> ({g.secret}, {g.posture}), used {fmt(g.uses)}×</span></span>))}
               <span className="muted"> (names only: a value never leaves the daemon but as the grant's variable)</span></div>
             <div><span className="muted">ledger rows</span> <b>{fmt(health!.ledger_rows)}</b> <span className="muted">· uptime</span> <b>{fmt(health!.uptime_secs)}</b><span className="muted"> s</span></div>
+            {health!.push && (
+              <div><span className="muted">push</span>{' '}
+                {health!.push.seeded ? <>
+                  <b>{health!.push.watchers}</b> <span className="muted">watching ·</span> <b>{health!.push.waiting ?? 0}</b> <span className="muted">waiting · board</span> <b>{fmt(health!.push.board)}</b>
+                  <span className="muted"> · questions</span> <b>{health!.push.questions}</b>
+                  <span className="muted"> · events</span> <b>{fmt(health!.push.events)}</b>
+                  <span className="muted"> · lost</span> <b className={health!.push.lost ? 'warn' : ''}>{fmt(health!.push.lost ?? 0)}</b>
+                  <span className="muted"> · seeded in</span> <b>{fmtUs(health!.push.seed_us ?? 0)}</b>
+                </> : <span className="muted">not seeded: nothing has watched since the start</span>}
+                <span className="muted"> (each execution's change goes to every watcher; the board is built at the first watch, off the start path)</span></div>
+            )}
             {startup?.steps && (
               <div className="startup">
                 <span className="muted">last startup ({fmtUs(startup.elapsed_us ?? 0)})</span>

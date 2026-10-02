@@ -19,7 +19,6 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use theseus_protocol::{Event, Message, NarrativeLine, NarrativePart};
-use tokio::sync::mpsc::UnboundedSender;
 
 /// Lines the tail keeps for a subscriber that arrives late.
 pub const TAIL: usize = 500;
@@ -62,7 +61,7 @@ pub struct Narrator {
 struct State {
     seq: u64,
     tail: VecDeque<NarrativeLine>,
-    subs: Vec<(String, UnboundedSender<Message>)>,
+    subs: Vec<(String, crate::outbound::Outbound)>,
     /// Sessions the narrative has met since the daemon started. The first
     /// turn of any other session with turns behind it is a resume.
     seen: HashSet<String>,
@@ -113,7 +112,7 @@ impl Narrator {
         };
         if !s.subs.is_empty() {
             let m = Message::from(Event::NarrativeLine(line.clone()));
-            s.subs.retain(|(_, tx)| tx.send(m.clone()).is_ok());
+            s.subs.retain(|(_, tx)| tx.notify(m.clone(), "narrative"));
         }
         s.tail.push_back(line);
         while s.tail.len() > self.capacity {
@@ -123,13 +122,17 @@ impl Narrator {
 
     /// Subscribe a connection: the tail, oldest first, now, and every later
     /// line as a notification. `None` when narration is off.
-    pub fn watch(&self, conn: &str, tx: UnboundedSender<Message>) -> Option<Vec<NarrativeLine>> {
+    pub fn watch(
+        &self,
+        conn: &str,
+        tx: impl Into<crate::outbound::Outbound>,
+    ) -> Option<Vec<NarrativeLine>> {
         if !self.on {
             return None;
         }
         let mut s = self.state.lock().unwrap();
         s.subs.retain(|(c, _)| c != conn);
-        s.subs.push((conn.to_string(), tx));
+        s.subs.push((conn.to_string(), tx.into()));
         Some(s.tail.iter().cloned().collect())
     }
 

@@ -1,0 +1,7 @@
+$ theseus wait ses_q7f3k2 --after 48
+--- requests
+execution.list session.wait
+--- stdout
+timeout	51	ses_q7f3k2	conversation	running	◐ turn 3	$0.2500
+--- stderr
+--- exit 4

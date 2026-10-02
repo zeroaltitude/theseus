@@ -1,10 +1,11 @@
-// The cockpit's data layer (theseus-45n5): one protocol connection, polled reads through TanStack Query, and
-// the pushes (the narrative, and the sessions being watched) collected in small stores.
+// The cockpit's data layer (theseus-45n5): one protocol connection, reads through TanStack Query, and the pushes
+// (the narrative, and the sessions being watched) collected in small stores.
 //
-// Until the all-sessions push lands (the spine's 9b, executions.watch), the fleet is polled. Polling is cheap:
-// every read is answered from the daemon's memory or its index.
+// The fleet follows the push (theseus-in3): the connection watches every execution (`executions.watch`), and the
+// reads the push keeps fresh (`PUSHED`) are read again when it says something changed, never on a timer. The other
+// reads are still polled; the report of theseus-in3 lists them.
 import { useEffect } from 'react'
-import { useQuery, type UseQueryOptions } from '@tanstack/react-query'
+import { useQuery, type QueryClient, type UseQueryOptions } from '@tanstack/react-query'
 import { create } from 'zustand'
 import { ProtocolClient, type NarrativeLine, type NarrativeWatchResult, type Status } from '@protocol'
 
@@ -49,7 +50,12 @@ export async function call<T = unknown>(method: string, params?: unknown): Promi
   return out
 }
 
-/** A polled read. `interval` in ms; 0 reads once. Disabled while the link is down. */
+/** The reads the push keeps fresh (theseus-in3): each execution's change, and each question's, says when to read
+ * them again, so they are never polled. */
+export const PUSHED = new Set(['session.list', 'execution.list', 'confirm.list', 'task.list'])
+
+/** A read. `interval` in ms; 0 reads once. A read the push keeps fresh (`PUSHED`) ignores its interval: the push
+ * reads it again. Disabled while the link is down. */
 export function useRpc<T>(
   method: string,
   params?: unknown,
@@ -57,13 +63,33 @@ export function useRpc<T>(
   opts?: Partial<UseQueryOptions<T>>,
 ) {
   const open = useConn((s) => s.status === 'open')
+  const pushed = PUSHED.has(method)
   return useQuery<T>({
     queryKey: [method, params ?? null],
     queryFn: () => call<T>(method, params),
-    refetchInterval: interval > 0 ? interval : false,
+    refetchInterval: !pushed && interval > 0 ? interval : false,
     enabled: open && (opts?.enabled ?? true),
-    staleTime: interval > 0 ? interval / 2 : 30_000,
+    staleTime: pushed ? Infinity : interval > 0 ? interval / 2 : 30_000,
     ...opts,
+  })
+}
+
+/** Follow the push (theseus-in3): on every (re)connect watch every execution, and read the pushed reads again when
+ * an execution or a question changes, at most every 250 ms. After `events.lost`, the same: everything is read again. */
+export function bindPush(queries: QueryClient) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const again = () => {
+    if (timer) return
+    timer = setTimeout(() => {
+      timer = null
+      void queries.invalidateQueries({ predicate: (q) => PUSHED.has(String(q.queryKey[0])) })
+    }, 250)
+  }
+  client.onOpen(() => {
+    client.call('executions.watch', { limit: 1 }).then(again).catch(() => {})
+  })
+  client.onNotify((method) => {
+    if (method === 'execution.changed' || method === 'confirm.requested' || method === 'confirm.resolved' || method === 'events.lost') again()
   })
 }
 

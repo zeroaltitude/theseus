@@ -327,6 +327,7 @@ async fn a_start_from_the_copy_answers_reads_at_once_and_every_acting_method_wai
             "wake.list",
             "executions.watch",
             "executions.unwatch",
+            "session.wait",
         ]
     );
 

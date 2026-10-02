@@ -27,6 +27,7 @@ pub mod harness;
 pub mod ledger;
 pub mod narrative;
 pub mod node;
+pub mod outbound;
 pub mod outbox;
 pub mod peer;
 pub mod policy;

@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::gate::{GateRecord, Notice};
 use crate::{
-    notify, ConfirmRequest, ExecutionView, LoopEnded, LoopStarted, Message, ModelDelta,
+    notify, ConfirmRequest, EventsLost, ExecutionView, LoopEnded, LoopStarted, Message, ModelDelta,
     NarrativeLine, Notification, ProfileChanged, TightenResult, TrustResult, TurnFailed,
     TurnStarted, TurnSubmitResult,
 };
@@ -453,6 +453,8 @@ events! {
     NarrativeLine(NarrativeLine) = notify::NARRATIVE_LINE,
     /// An execution's view, after a frame changed it (theseus-in3).
     ExecutionChanged(ExecutionView) = notify::EXECUTION_CHANGED,
+    /// The connection fell behind and dropped notifications (theseus-in3).
+    EventsLost(EventsLost) = notify::EVENTS_LOST,
 }
 
 impl Event {
@@ -480,7 +482,8 @@ impl Event {
             | Event::LoopEnded(_)
             | Event::ProfileChanged(_)
             | Event::PolicyTightened(_)
-            | Event::PolicyUntightened(_) => None,
+            | Event::PolicyUntightened(_)
+            | Event::EventsLost(_) => None,
         }
     }
 
@@ -507,7 +510,8 @@ impl Event {
             | Event::PolicyUntightened(_)
             | Event::SessionTrusted(_)
             | Event::ApprovalRefused(_)
-            | Event::ExecutionChanged(_) => None,
+            | Event::ExecutionChanged(_)
+            | Event::EventsLost(_) => None,
         }
     }
 }

@@ -110,6 +110,10 @@ pub mod method {
         /// `executions.unwatch`. A read.
         EXECUTIONS_WATCH = "executions.watch",
         EXECUTIONS_UNWATCH = "executions.unwatch",
+        /// Wait until a session needs someone, settles, or ends (theseus-in3).
+        /// The daemon owns the wait; it answers at once when it is satisfied
+        /// already. A read.
+        SESSION_WAIT = "session.wait",
     }
 }
 
@@ -164,6 +168,11 @@ pub mod notify {
         /// committed frame that changed it. Its params are an
         /// `ExecutionView`, whose frame carries the ledger rows.
         EXECUTION_CHANGED = "execution.changed",
+        /// The connection fell behind (theseus-in3): its queue passed the
+        /// backlog cap, so notifications were dropped, counted, until the
+        /// queue drained. Re-read each stream named. Transport, like
+        /// `narrative.line`: counted in health, never a ledger row.
+        EVENTS_LOST = "events.lost",
     }
 }
 
@@ -247,6 +256,9 @@ pub mod error_code {
     /// vault's config note and the vault has not confirmed it (theseus-2fo).
     /// The message says why; `data.class` is `config_unconfirmed`.
     pub const CONFIG_UNCONFIRMED: i64 = -32006;
+    /// A bound on what one connection may hold was reached (theseus-in3):
+    /// 64 parked `session.wait`s.
+    pub const LIMIT: i64 = -32007;
 }
 
 impl Request {

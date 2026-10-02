@@ -1,17 +1,22 @@
 //! The push in the core (theseus-in3): the snapshot and the events agree
 //! under the position rule however the turns race the watch, nothing is
-//! observed until someone watches, and the observer adds no frame.
+//! observed until someone watches, and the observer adds no frame (9b);
+//! `session.wait` returns on blocked, settled, and terminal, and a client
+//! that stops reading hears what it lost and catches up (9c).
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use theseus_protocol::{ExecutionView, ExecutionsWatchResult, Id, Message, Request, SessionKind};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use theseus_protocol::{
+    error_code, method, notify, ExecutionView, ExecutionsWatchResult, Id, Message, Notification,
+    Request, Response, SessionKind, SessionOpenParams, TurnSubmitResult,
+};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
 
 use crate::bus::EventSink;
-use crate::provider::FakeProvider;
+use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::turn::TurnRequest;
@@ -23,13 +28,30 @@ struct Rig {
 }
 
 fn rig() -> Rig {
+    rig_full(vec![], false, false)
+}
+
+/// A rig whose model answers `script`, then text; with `approve`, every call
+/// that acts waits for the operator; with `unsynced`, no frame is synced.
+fn rig_full(script: Vec<Scripted>, approve: bool, unsynced: bool) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
-    let store = Store::open(&dir.path().join("store")).unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    if approve {
+        cfg.policy.enforcement = crate::policy::Posture::Approve;
+    }
+    let store = if unsynced {
+        Store::open_unsynced(&dir.path().join("store")).unwrap()
+    } else {
+        Store::open(&dir.path().join("store")).unwrap()
+    };
     let core = Core::build(crate::rpc::Parts::for_tests(
         cfg,
-        Arc::new(FakeProvider::default()),
+        Arc::new(FakeProvider::scripted(script)),
         store,
     ))
     .unwrap();
@@ -38,6 +60,11 @@ fn rig() -> Rig {
 
 /// One plain turn, on `session` or a new conversation.
 async fn turn(core: &Arc<Core>, session: Option<&str>) -> String {
+    turn_result(core, session).await.session_id
+}
+
+/// One turn, and its result.
+async fn turn_result(core: &Arc<Core>, session: Option<&str>) -> TurnSubmitResult {
     let rec = match session {
         Some(id) => core
             .store
@@ -68,7 +95,6 @@ async fn turn(core: &Arc<Core>, session: Option<&str>) -> String {
         })
         .await
         .unwrap()
-        .session_id
 }
 
 /// A client on its own connection: it sends `executions.watch` and keeps
@@ -265,4 +291,391 @@ async fn a_plain_turn_keeps_its_frame_budget_while_the_push_watches() {
         (2..=5).contains(&changed),
         "queued+running, then waiting, and spend: {changed}"
     );
+}
+
+// ---------------------------------------------------------------- 9c
+
+/// A client on its own connection that reads only when told to, so a test
+/// can stop reading.
+struct Raw {
+    lines: tokio::io::Lines<BufReader<ReadHalf<DuplexStream>>>,
+    w: WriteHalf<DuplexStream>,
+    /// Every notification read so far, in order.
+    notes: Vec<Notification>,
+}
+
+impl Raw {
+    /// A connection whose pipe holds `buffer` bytes.
+    fn connect(core: &Arc<Core>, name: &str, buffer: usize) -> Raw {
+        let (client, server) = tokio::io::duplex(buffer);
+        let (sr, sw) = tokio::io::split(server);
+        tokio::spawn(core.clone().serve_connection(sr, sw, name.into()));
+        let (cr, w) = tokio::io::split(client);
+        Raw {
+            lines: BufReader::new(cr).lines(),
+            w,
+            notes: Vec::new(),
+        }
+    }
+
+    async fn send(&mut self, id: u64, m: &str, params: Value) {
+        let mut line = serde_json::to_string(&Request::new(Id::Num(id), m, params)).unwrap();
+        line.push('\n');
+        self.w.write_all(line.as_bytes()).await.unwrap();
+    }
+
+    /// Read until the answer to `id`, keeping the notifications on the way.
+    async fn answer(&mut self, id: u64) -> Response {
+        let read = async {
+            loop {
+                let line = self.lines.next_line().await.unwrap().expect("open");
+                match serde_json::from_str::<Message>(&line).unwrap() {
+                    Message::Response(r) if r.id == Id::Num(id) => return r,
+                    Message::Notification(n) => self.notes.push(n),
+                    _ => {}
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(30), read)
+            .await
+            .unwrap_or_else(|_| panic!("no answer to {id} in 30 s"))
+    }
+
+    async fn call(&mut self, id: u64, m: &str, params: Value) -> Response {
+        self.send(id, m, params).await;
+        self.answer(id).await
+    }
+}
+
+/// Until `f` holds, polled every 5 ms for at most 10 s.
+async fn until(what: &str, mut f: impl FnMut() -> bool) {
+    for _ in 0..2000 {
+        if f() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("not {what} in 10 s");
+}
+
+/// `session.wait` returns on blocked, settled, and terminal; a wait already
+/// satisfied answers at once; `after_position` makes the current view not
+/// count; a wait times out; `terminal` is refused for a conversation; and a
+/// wait for a session that does not exist, or with no params, fails at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_wait_returns_on_blocked_settled_and_terminal() {
+    let r = rig_full(
+        vec![
+            Scripted::text("Hello."),
+            Scripted::tools(
+                "",
+                &[("t1", "fs_write", json!({"path": "a.txt", "content": "a"}))],
+            ),
+            Scripted::text("Not written, then."),
+        ],
+        true,
+        false,
+    );
+    let sid = turn(&r.core, None).await;
+    let mut c = Raw::connect(&r.core, "waiter", 1 << 20);
+
+    // Already settled: at once.
+    let a = c
+        .call(
+            1,
+            method::SESSION_WAIT,
+            json!({"session_id": sid, "until": "settled"}),
+        )
+        .await;
+    let a = a.result.unwrap();
+    assert_eq!(
+        (a["reached"].as_str(), a["already"].as_bool()),
+        (Some("settled"), Some(true))
+    );
+    let ready_at = a["execution"]["position"].as_u64().unwrap();
+
+    // Blocked: parked, then woken by the turn that asks.
+    c.send(
+        2,
+        method::SESSION_WAIT,
+        json!({"session_id": sid, "until": "blocked", "timeout_ms": 20_000}),
+    )
+    .await;
+    until("the wait parked", || r.core.push.status(0).waiting == 1).await;
+    let asked = turn_result(&r.core, Some(&sid)).await;
+    let corr = asked.awaiting_confirm.clone().unwrap();
+    let b = c.answer(2).await.result.unwrap();
+    assert_eq!(
+        (b["reached"].as_str(), b["already"].as_bool()),
+        (Some("blocked"), Some(false))
+    );
+    assert_eq!(b["execution"]["attention"]["level"], "needs_you");
+    assert_eq!(b["confirms"][0]["correlation_id"], corr.as_str());
+    let blocked_at = b["execution"]["position"].as_u64().unwrap();
+    assert!(blocked_at > ready_at);
+
+    // Needs you is settled too: the parked session is settled at once.
+    let p = c
+        .call(
+            9,
+            method::SESSION_WAIT,
+            json!({"session_id": sid, "until": "settled"}),
+        )
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        (
+            p["already"].as_bool(),
+            p["execution"]["attention"]["level"].as_str()
+        ),
+        (Some(true), Some("needs_you"))
+    );
+    let parked_at = p["execution"]["position"].as_u64().unwrap();
+    assert!(parked_at >= blocked_at);
+    // The answer queues it (no driver runs here, so it stays queued: working);
+    // a wait for settled after that view parks, and the continuation's end
+    // wakes it. (A wait parked before the answer wakes at the answer's first
+    // frame: the execution still waits on the confirm with none pending, the
+    // design's rule 11, needs you, which is settled.)
+    let exec = asked.execution_id.clone().unwrap();
+    r.core.confirm_action(&corr, false, None, "test").unwrap();
+    until("the board saw the answer queue it", || {
+        r.core
+            .push
+            .view_of_session(&sid)
+            .is_some_and(|v| v.state == "queued")
+    })
+    .await;
+    let queued_at = r.core.push.view_of_session(&sid).unwrap().position;
+    assert!(queued_at > parked_at);
+    c.send(
+        3,
+        method::SESSION_WAIT,
+        json!({"session_id": sid, "until": "settled", "after_position": queued_at, "timeout_ms": 20_000}),
+    )
+    .await;
+    until("the second wait parked", || {
+        r.core.push.status(0).waiting == 1
+    })
+    .await;
+    r.core.continue_execution(&exec).await.unwrap();
+    let s = c.answer(3).await.result.unwrap();
+    assert_eq!(
+        (s["reached"].as_str(), s["already"].as_bool()),
+        (Some("settled"), Some(false))
+    );
+    assert_eq!(s["execution"]["attention"]["label"], "ready");
+    assert!(s["execution"]["position"].as_u64().unwrap() > queued_at);
+
+    // After the current view, nothing more happens: a timeout.
+    let at = s["execution"]["position"].as_u64().unwrap();
+    let t = c
+        .call(
+            4,
+            method::SESSION_WAIT,
+            json!({"session_id": sid, "until": "settled", "after_position": at, "timeout_ms": 200}),
+        )
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        (t["reached"].as_str(), t["already"].as_bool()),
+        (Some("timeout"), Some(false))
+    );
+    assert_eq!(t["execution"]["position"].as_u64(), Some(at));
+
+    // Terminal: refused for a conversation; a task session's end.
+    let e = c
+        .call(
+            5,
+            method::SESSION_WAIT,
+            json!({"session_id": sid, "until": "terminal"}),
+        )
+        .await
+        .error
+        .unwrap();
+    assert_eq!(e.code, error_code::INVALID_PARAMS);
+    assert!(
+        e.message.contains("a conversation never ends"),
+        "{}",
+        e.message
+    );
+    let task = r
+        .core
+        .open_session(SessionOpenParams {
+            kind: Some(SessionKind::Task),
+            label: None,
+        })
+        .unwrap();
+    c.send(
+        6,
+        method::SESSION_WAIT,
+        json!({"session_id": task.session_id, "until": "terminal", "timeout_ms": 20_000}),
+    )
+    .await;
+    until("the task's wait parked", || {
+        r.core.push.status(0).waiting == 1
+    })
+    .await;
+    r.core
+        .cancel_execution(task.execution_id.as_deref().unwrap(), "test")
+        .await
+        .unwrap();
+    let d = c.answer(6).await.result.unwrap();
+    assert_eq!(d["reached"], "terminal");
+    assert_eq!(d["execution"]["state"], "cancelled");
+
+    // No such session, and no params: at once.
+    let e = c
+        .call(
+            7,
+            method::SESSION_WAIT,
+            json!({"session_id": "ses_none", "until": "settled"}),
+        )
+        .await
+        .error
+        .unwrap();
+    assert_eq!(e.code, error_code::NOT_FOUND);
+    let e = c
+        .call(8, method::SESSION_WAIT, Value::Null)
+        .await
+        .error
+        .unwrap();
+    assert_eq!(e.code, error_code::INVALID_PARAMS);
+    assert_eq!(r.core.push.status(0).waiting, 0);
+}
+
+/// A connection holds at most 64 waits, and a closed connection ends its
+/// waits: health's count goes back to none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_closed_connection_ends_its_waits_and_one_holds_at_most_64() {
+    let r = rig();
+    let sid = turn(&r.core, None).await;
+    let mut c = Raw::connect(&r.core, "many", 1 << 20);
+    for i in 0..64 {
+        c.send(
+            i,
+            method::SESSION_WAIT,
+            json!({"session_id": sid, "until": "blocked", "timeout_ms": 60_000}),
+        )
+        .await;
+    }
+    until("64 waits parked", || r.core.push.status(0).waiting == 64).await;
+    let e = c
+        .call(
+            64,
+            method::SESSION_WAIT,
+            json!({"session_id": sid, "until": "blocked", "timeout_ms": 60_000}),
+        )
+        .await
+        .error
+        .unwrap();
+    assert_eq!(e.code, error_code::LIMIT, "{}", e.message);
+    // Another connection has its own 64.
+    let mut other = Raw::connect(&r.core, "other", 1 << 20);
+    let ok = other
+        .call(
+            1,
+            method::SESSION_WAIT,
+            json!({"session_id": sid, "until": "settled", "timeout_ms": 1000}),
+        )
+        .await;
+    assert_eq!(ok.result.unwrap()["already"], true);
+    drop(c);
+    until("the closed connection's waits ended", || {
+        r.core.push.status(0).waiting == 0
+    })
+    .await;
+}
+
+/// The lag prove (design `stage2` §3.2): a client that stops reading while
+/// 5,000 events pass. Its queue reaches the cap, what comes after is dropped
+/// and counted, and once it reads again it drains and hears one
+/// `events.lost` naming the stream. Its re-snapshot then equals a fresh
+/// client's, and health counts what was lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_that_stops_reading_hears_what_it_lost_and_catches_up() {
+    const EVENTS: usize = 5000;
+    let r = rig_full(vec![], false, true);
+    let mut slow = Raw::connect(&r.core, "slow", 16 * 1024);
+    let snap = slow
+        .call(1, method::EXECUTIONS_WATCH, json!({"limit": 10_000}))
+        .await;
+    assert_eq!(snap.result.unwrap()["total"], 0);
+    // It stops reading. Each new session is one frame and one event.
+    for _ in 0..EVENTS {
+        r.core.open_session(SessionOpenParams::default()).unwrap();
+    }
+    let last = last_kernel_position(&r.core);
+    until("the board applied every frame", || {
+        r.core.push.status(0).position >= last
+    })
+    .await;
+    assert!(
+        r.core.push.status(0).lost > 0,
+        "the cap dropped some: {:?}",
+        r.core.push.status(0)
+    );
+    // It reads again: everything queued, then one notice.
+    let mut changed = 0;
+    let lost = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), slow.lines.next_line())
+            .await
+            .expect("a line in 30 s")
+            .unwrap()
+            .unwrap();
+        let Message::Notification(n) = serde_json::from_str::<Message>(&line).unwrap() else {
+            continue;
+        };
+        match n.method.as_str() {
+            notify::EXECUTION_CHANGED => changed += 1,
+            notify::EVENTS_LOST => break n.params,
+            other => panic!("unexpected {other}"),
+        }
+    };
+    let dropped = lost["dropped"].as_u64().unwrap() as usize;
+    eprintln!("lag prove: {changed} execution.changed, then events.lost {lost}");
+    assert_eq!(lost["streams"], json!(["executions"]));
+    assert!(
+        dropped > 0 && changed >= crate::outbound::BACKLOG_CAP - 16,
+        "{changed} then {dropped}"
+    );
+    assert_eq!(changed + dropped, EVENTS, "every event came or was counted");
+    assert_eq!(r.core.push.status(0).lost as usize, dropped);
+    // Its re-snapshot equals a fresh client's.
+    let again: ExecutionsWatchResult = serde_json::from_value(
+        slow.call(2, method::EXECUTIONS_WATCH, json!({"limit": 10_000}))
+            .await
+            .result
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        slow.notes.iter().all(|n| n.method != notify::EVENTS_LOST),
+        "once only"
+    );
+    let mut fresh = Raw::connect(&r.core, "fresh", 1 << 20);
+    let fresh: ExecutionsWatchResult = serde_json::from_value(
+        fresh
+            .call(1, method::EXECUTIONS_WATCH, json!({"limit": 10_000}))
+            .await
+            .result
+            .unwrap(),
+    )
+    .unwrap();
+    let key = |s: &ExecutionsWatchResult| -> BTreeMap<String, (u64, String)> {
+        s.executions
+            .iter()
+            .map(|v| {
+                (
+                    v.execution_id.clone(),
+                    (v.position, v.attention.label.clone()),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(again.executions.len(), EVENTS);
+    assert_eq!(key(&again), key(&fresh));
+    assert_eq!(again.position, fresh.position);
 }

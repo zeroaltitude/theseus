@@ -31,6 +31,15 @@ watchers: number,
  */
 events: number, 
 /**
+ * `session.wait` calls parked now.
+ */
+waiting: number, 
+/**
+ * Notifications dropped at a connection's backlog cap since the daemon
+ * started, every stream's.
+ */
+lost: number, 
+/**
  * The board's position: the last frame it applied.
  */
 position: number, };

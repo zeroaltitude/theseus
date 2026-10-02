@@ -190,6 +190,16 @@ impl Telemetry {
         );
     }
 
+    /// The push (theseus-in3): `n` notifications a connection's backlog cap
+    /// dropped, counted once the connection hears it.
+    pub fn record_push_lost(&self, n: u64) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push_lost(n);
+    }
+
     /// Send what waits, and the metrics, now: true once done (or nothing to
     /// do), false when `within` passed first. The daemon's clean shutdown
     /// waits here, bounded.

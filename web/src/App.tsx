@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { ProtocolClient } from './protocol'
 import type {
-  ConfirmRequest, Health, NodeInfo, ProfileList, ProviderErrorData, RpcError, SessionHistory, SessionInfo, Span, Status, TightenResult,
-  TurnResult, Usage,
+  ConfirmRequest, ExecutionView, ExecutionsWatchResult, Health, NodeInfo, ProfileList, ProviderErrorData, RpcError, SessionHistory,
+  SessionInfo, Span, Status, TightenResult, TurnResult, Usage,
 } from './protocol'
 import Transcript from './Transcript'
 import type { LiveTurn, TurnError } from './Transcript'
@@ -79,6 +79,46 @@ export default function App() {
   const refreshSessions = useCallback(async () => {
     try { setSessions((await client.call<{ sessions: SessionInfo[] }>('session.list')).sessions) } catch { /* status */ }
   }, [client])
+
+  // The push (theseus-in3): every execution's view, kept by the position rule, and merged into the sidebar's rows, so
+  // the list follows every session with no poll. A session met for the first time, or one whose turn ended (its
+  // counts and cost moved), is read alone with `session.list { ids }`.
+  const views = useRef(new Map<string, ExecutionView>())
+  const sessionsRef = useRef<SessionInfo[]>([])
+  useEffect(() => { sessionsRef.current = sessions }, [sessions])
+  const fetchSessions = useCallback(async (ids: string[]) => {
+    try {
+      const got = (await client.call<{ sessions: SessionInfo[] }>('session.list', { ids })).sessions
+      // Known at once, so the events that follow update the row instead of asking again.
+      sessionsRef.current = [...got.filter((s) => !sessionsRef.current.some((x) => x.session_id === s.session_id)), ...sessionsRef.current]
+      setSessions((list) => {
+        const byId = new Map(got.map((s) => [s.session_id, s]))
+        const kept = list.map((s) => byId.get(s.session_id) ?? s)
+        const added = got.filter((s) => !list.some((x) => x.session_id === s.session_id))
+        return [...added, ...kept]
+      })
+    } catch { /* status */ }
+  }, [client])
+  const applyView = useCallback((v: ExecutionView) => {
+    const old = views.current.get(v.execution_id)
+    if (old && v.position <= old.position) return
+    views.current.set(v.execution_id, v)
+    const known = sessionsRef.current.some((s) => s.session_id === v.session_id)
+    setSessions((list) => {
+      const i = list.findIndex((s) => s.session_id === v.session_id)
+      if (i < 0) return list
+      const next = list.slice()
+      next[i] = { ...list[i], execution_state: v.state, attention: v.attention, pending_confirms: v.pending.length }
+      return next
+    })
+    if (!known || (old?.state === 'running' && v.state !== 'running')) void fetchSessions([v.session_id])
+  }, [fetchSessions])
+  const watchAll = useCallback(async () => {
+    try {
+      const snap = await client.call<ExecutionsWatchResult>('executions.watch', { limit: 500 })
+      for (const v of snap.executions) applyView(v)
+    } catch { /* status */ }
+  }, [client, applyView])
   const scheduleSessions = useCallback(() => {
     if (sessionsTimer.current) clearTimeout(sessionsTimer.current)
     sessionsTimer.current = setTimeout(() => void refreshSessions(), 150)
@@ -135,7 +175,8 @@ export default function App() {
   useEffect(() => {
     client.onStatus = setStatus
     const offOpen = client.onOpen(() => {
-      void refreshHealth(); void refreshSessions()
+      views.current.clear()
+      void refreshHealth(); void refreshSessions().then(() => watchAll())
       const sid = currentRef.current
       if (sid) { void watch(sid); void loadHistory(sid) }
     })
@@ -144,6 +185,10 @@ export default function App() {
       const turnId = s(p.turn_id)
       switch (method) {
         case 'profile.changed': void refreshHealth(); return
+        // The push: one execution changed somewhere.
+        case 'execution.changed': applyView(params as ExecutionView); return
+        // This page fell behind: read the list and the board again.
+        case 'events.lost': void refreshSessions().then(() => watchAll()); return
         case 'turn.started': {
           const sid = s(p.session_id)
           // Our own first message in a new session: this is where we learn its id.
@@ -202,14 +247,7 @@ export default function App() {
     })
     client.connect()
     return () => { offOpen(); offNotify(); client.close() }
-  }, [client, loadHistory, refreshHealth, refreshSessions, scheduleHistory, scheduleSessions, watch])
-
-  // Sessions change under other clients too (CLI, the driver): keep the list fresh.
-  useEffect(() => {
-    if (status !== 'open') return
-    const id = setInterval(() => void refreshSessions(), 5000)
-    return () => clearInterval(id)
-  }, [status, refreshSessions])
+  }, [client, loadHistory, refreshHealth, refreshSessions, scheduleHistory, scheduleSessions, watch, applyView, watchAll])
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [nodes.length, live, draft, pending.length])
 

@@ -521,6 +521,19 @@ fn every_execution_row_has_its_event_and_every_event_its_row() {
             .collect();
         assert!(ps.windows(2).all(|w| w[0] < w[1]), "{exec}: {ps:?}");
     }
+    // No event shows a question but the one asked: a call run at once is
+    // planned, authorized, and dispatched in one frame, and is never one.
+    for v in w.notes("execution.changed") {
+        for p in v["pending"].as_array().unwrap() {
+            assert_eq!(
+                p["correlation_id"], corr,
+                "a question that was not asked: {v}"
+            );
+        }
+        if v["attention"]["level"] == "needs_you" {
+            assert_eq!(v["session_id"], a, "only the confirm needs you: {v}");
+        }
+    }
     // The questions came on the all-session watch too.
     let requested = w.notes("confirm.requested");
     let resolved = w.notes("confirm.resolved");

@@ -1567,6 +1567,99 @@ pub fn view_line(v: &theseus_protocol::ExecutionView) -> String {
     )
 }
 
+/// What a wait reached, and the view it ended on: `blocked (already) 48213
+/// ses_… conversation waiting ● confirm proc.run: …`.
+pub fn waited_line(r: &theseus_protocol::SessionWaitResult) -> String {
+    let head = if r.already {
+        format!("{} (already)", r.reached)
+    } else {
+        r.reached.clone()
+    };
+    match &r.execution {
+        Some(v) => format!("{head}\t{}", view_line(v)),
+        None => head,
+    }
+}
+
+/// A connection that fell behind (theseus-in3): `lost 865 notifications while
+/// this terminal was behind (executions); reading them again`.
+pub fn lost_line(l: &theseus_protocol::EventsLost) -> String {
+    format!(
+        "lost {} notification{} while this terminal was behind ({}); reading again",
+        l.dropped,
+        if l.dropped == 1 { "" } else { "s" },
+        l.streams.join(", ")
+    )
+}
+
+/// One execution in full, as `theseus executions explain` prints it: its
+/// pill, what it waits on, its pending wakes, its turns and calls, and its
+/// budget.
+pub fn explain_lines(
+    e: &theseus_protocol::ExecutionInfo,
+    wakes: &[theseus_protocol::WakeInfo],
+    now_ms: u64,
+) -> Vec<String> {
+    use theseus_protocol::WaitingOn;
+    let mut out = vec![format!(
+        "{}\t{}\t{}{}",
+        e.execution_id,
+        e.kind,
+        e.state,
+        e.attention
+            .as_ref()
+            .map(|a| format!("\t{}", pill(a)))
+            .unwrap_or_default()
+    )];
+    out.push(format!(
+        "session: {}{}",
+        e.session_id,
+        e.reports_to
+            .as_deref()
+            .map(|r| format!(" · reports to {r}"))
+            .unwrap_or_default()
+    ));
+    let waits = match (e.state.as_str(), &e.waiting_on) {
+        ("waiting", Some(WaitingOn::Input)) if e.outstanding > 0 => format!(
+            "input, with {} call{} still running",
+            e.outstanding,
+            if e.outstanding == 1 { "" } else { "s" }
+        ),
+        ("waiting", Some(WaitingOn::Input)) => "input: the operator's next message".into(),
+        ("waiting", Some(WaitingOn::Confirm { confirm_id })) => {
+            format!("your answer to {confirm_id}")
+        }
+        ("waiting", Some(WaitingOn::Budget { correlation_id })) => {
+            format!("your answer to the budget question {correlation_id}")
+        }
+        ("waiting", Some(WaitingOn::Actions { correlation_ids })) => {
+            format!("calls: {}", correlation_ids.join(", "))
+        }
+        ("waiting", Some(WaitingOn::Execution { execution_id })) => {
+            format!("execution {execution_id}")
+        }
+        ("waiting", Some(WaitingOn::DueAt { at_ms })) => {
+            format!("a due time, {}", until_due(*at_ms, now_ms))
+        }
+        ("waiting", _) => "something this CLI does not know".into(),
+        (state, _) => format!("nothing: it is {state}"),
+    };
+    out.push(format!("waits on: {waits}"));
+    if !wakes.is_empty() {
+        let w: Vec<String> = wakes.iter().map(|w| wake_line(w, now_ms)).collect();
+        out.push(format!("wakes: {}", w.join("; ")));
+    }
+    out.push(format!(
+        "turns {} · interrupted {} · calls running {} · results queued {}",
+        e.turns, e.interrupted, e.outstanding, e.queued_results
+    ));
+    out.push(budget_line(&e.budget));
+    if let Some(r) = &e.ended_reason {
+        out.push(format!("ended: {r}"));
+    }
+    out
+}
+
 /// A question's arrival or end, as `theseus watch --all` prints it.
 pub fn question_line(e: &Event) -> Option<String> {
     match e {

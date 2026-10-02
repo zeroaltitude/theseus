@@ -11,10 +11,11 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use theseus_protocol::{notify, Event, Message};
-use tokio::sync::mpsc::UnboundedSender;
+
+use crate::outbound::Outbound;
 
 /// A watcher: its connection id and where its messages go.
-type Watcher = (String, UnboundedSender<Message>);
+type Watcher = (String, Outbound);
 
 #[derive(Default)]
 pub struct SessionBus {
@@ -39,10 +40,10 @@ fn wide(msg: &Message) -> bool {
 impl SessionBus {
     /// Watch every session's executions and questions (`executions.watch`),
     /// replacing an earlier watch of the same connection.
-    pub fn watch_all(&self, conn: &str, tx: UnboundedSender<Message>) {
+    pub fn watch_all(&self, conn: &str, tx: impl Into<Outbound>) {
         let mut all = self.all.lock().unwrap();
         all.retain(|(c, _)| c != conn);
-        all.push((conn.to_string(), tx));
+        all.push((conn.to_string(), tx.into()));
     }
 
     /// End a connection's `executions.watch`: true if it had one.
@@ -58,11 +59,11 @@ impl SessionBus {
         self.all.lock().unwrap().len()
     }
 
-    pub fn watch(&self, session: &str, conn: &str, tx: UnboundedSender<Message>) {
+    pub fn watch(&self, session: &str, conn: &str, tx: impl Into<Outbound>) {
         let mut g = self.subs.lock().unwrap();
         let v = g.entry(session.to_string()).or_default();
         v.retain(|(c, _)| c != conn);
-        v.push((conn.to_string(), tx));
+        v.push((conn.to_string(), tx.into()));
     }
 
     pub fn unwatch(&self, session: &str, conn: &str) {
@@ -87,13 +88,14 @@ impl SessionBus {
     pub fn publish(&self, session: &str, msg: &Message, except: Option<&str>) {
         let mut g = self.subs.lock().unwrap();
         let mut sent = HashSet::new();
+        let stream = format!("session:{session}");
         if let Some(v) = g.get_mut(session) {
             v.retain(|(c, tx)| {
                 if Some(c.as_str()) == except {
                     return true;
                 }
                 sent.insert(c.clone());
-                tx.send(msg.clone()).is_ok()
+                tx.notify(msg.clone(), &stream)
             });
         }
         if wide(msg) {
@@ -101,7 +103,7 @@ impl SessionBus {
                 if Some(c.as_str()) == except || sent.contains(c) {
                     return true;
                 }
-                tx.send(msg.clone()).is_ok()
+                tx.notify(msg.clone(), "executions")
             });
         }
     }
@@ -112,7 +114,7 @@ impl SessionBus {
         let mut g = self.subs.lock().unwrap();
         let mut sent = std::collections::HashSet::new();
         for v in g.values_mut() {
-            v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.send(msg.clone()).is_ok());
+            v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.notify(msg.clone(), "policy"));
         }
     }
 
@@ -129,17 +131,13 @@ impl SessionBus {
 /// Where a turn's notifications go: the requesting connection, if any, and the bus.
 #[derive(Clone)]
 pub struct EventSink {
-    pub direct: Option<(String, UnboundedSender<Message>)>,
+    pub direct: Option<(String, Outbound)>,
     pub bus: Arc<SessionBus>,
     pub session_id: String,
 }
 
 impl EventSink {
-    pub fn new(
-        bus: Arc<SessionBus>,
-        session_id: &str,
-        direct: Option<(String, UnboundedSender<Message>)>,
-    ) -> Self {
+    pub fn new(bus: Arc<SessionBus>, session_id: &str, direct: Option<(String, Outbound)>) -> Self {
         Self {
             direct,
             bus,
@@ -150,7 +148,7 @@ impl EventSink {
     pub fn send(&self, e: Event) {
         let m = Message::from(e);
         if let Some((_, tx)) = &self.direct {
-            let _ = tx.send(m.clone());
+            tx.notify(m.clone(), &format!("session:{}", self.session_id));
         }
         self.bus.publish(
             &self.session_id,
@@ -175,7 +173,7 @@ mod tests {
         bus.watch("s", "b", tx_b);
         bus.watch("s", "c", tx_c);
         drop(rx_c);
-        let sink = EventSink::new(bus.clone(), "s", Some(("a".into(), tx_a)));
+        let sink = EventSink::new(bus.clone(), "s", Some(("a".into(), tx_a.into())));
         sink.send(Event::NodeWritten(Default::default()));
         assert!(rx_a.try_recv().is_ok(), "direct delivery");
         assert!(rx_a.try_recv().is_err(), "not again through the bus");

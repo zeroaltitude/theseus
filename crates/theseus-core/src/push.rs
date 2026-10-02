@@ -103,6 +103,7 @@ pub fn view(
             .flatten(),
         pending,
         turns: e.turns,
+        outstanding: e.outstanding.len() as u32,
         spent_usd: usd(e.budget.spent_micros),
         limit_usd: usd(e.budget.limit_micros),
         ended_reason: e.ended_reason.clone(),
@@ -195,6 +196,10 @@ pub struct Push {
     feed: watch::Sender<u64>,
     seed_us: AtomicU64,
     events: AtomicU64,
+    /// Notifications every connection's backlog cap dropped (9c).
+    pub lost: Arc<AtomicU64>,
+    /// `session.wait` calls parked now, and each connection's (9c).
+    waits: Mutex<HashMap<String, usize>>,
 }
 
 impl Default for Push {
@@ -205,6 +210,30 @@ impl Default for Push {
             feed: watch::Sender::new(0),
             seed_us: AtomicU64::new(0),
             events: AtomicU64::new(0),
+            lost: Arc::default(),
+            waits: Mutex::default(),
+        }
+    }
+}
+
+/// The waits one connection may hold at once (design `stage2` §2.6).
+pub const MAX_WAITS: usize = 64;
+
+/// A parked `session.wait`'s place among its connection's: given back when
+/// the wait ends, however it ends.
+pub struct WaitSlot<'a> {
+    push: &'a Push,
+    conn: String,
+}
+
+impl Drop for WaitSlot<'_> {
+    fn drop(&mut self) {
+        let mut w = self.push.waits.lock().unwrap();
+        if let Some(n) = w.get_mut(&self.conn) {
+            *n -= 1;
+            if *n == 0 {
+                w.remove(&self.conn);
+            }
         }
     }
 }
@@ -255,6 +284,20 @@ impl Push {
     /// Whether the board is seeded.
     pub fn seeded(&self) -> bool {
         self.seed.initialized()
+    }
+
+    /// A place for one more wait on `conn`, or None at `MAX_WAITS`.
+    pub fn wait_slot(&self, conn: &str) -> Option<WaitSlot<'_>> {
+        let mut w = self.waits.lock().unwrap();
+        let n = w.entry(conn.to_string()).or_default();
+        if *n >= MAX_WAITS {
+            return None;
+        }
+        *n += 1;
+        Some(WaitSlot {
+            push: self,
+            conn: conn.to_string(),
+        })
     }
 
     /// Apply one frame, and send what it changed: each view to its session's
@@ -325,6 +368,8 @@ impl Push {
             questions: b.entries.values().map(|e| e.pending.len() as u64).sum(),
             watchers: watchers as u64,
             events: self.events.load(Ordering::Relaxed),
+            waiting: self.waits.lock().unwrap().values().sum::<usize>() as u64,
+            lost: self.lost.load(Ordering::Relaxed),
             position: b.position,
         }
     }
@@ -400,6 +445,7 @@ impl Board {
         let mut touched: Vec<String> = Vec::new();
         let mut why: HashMap<String, String> = HashMap::new();
         let mut asks: Vec<Action> = Vec::new();
+        let mut actions: Vec<Action> = Vec::new();
         for (kind, pos, payload) in &f.records {
             match *kind {
                 kinds::EXECUTION => {
@@ -423,18 +469,11 @@ impl Board {
                     if *pos <= entry.seed_pos {
                         continue;
                     }
-                    let at = entry
-                        .pending
-                        .iter()
-                        .position(|p| p.correlation_id == a.correlation_id);
-                    match (a.awaits_confirm(), at) {
-                        (true, None) => asks.push(a),
-                        (false, Some(i)) => {
-                            entry.pending.remove(i);
-                            touch(&mut touched, &a.execution_id);
-                        }
-                        _ => {}
-                    }
+                    // A frame may hold one action several times (planned,
+                    // authorized, dispatched: `plan_and_dispatch`): its last
+                    // record is what it is.
+                    actions.retain(|x: &Action| x.correlation_id != a.correlation_id);
+                    actions.push(a);
                 }
                 kinds::LEDGER => {
                     let Ok(row) = serde_json::from_slice::<LedgerRow>(payload) else {
@@ -453,6 +492,21 @@ impl Board {
                             why.entry(id.to_string()).or_insert_with(|| "result".into());
                         }
                     }
+                }
+                _ => {}
+            }
+        }
+        for a in actions {
+            let entry = self.entries.entry(a.execution_id.clone()).or_default();
+            let at = entry
+                .pending
+                .iter()
+                .position(|p| p.correlation_id == a.correlation_id);
+            match (a.awaits_confirm(), at) {
+                (true, None) => asks.push(a),
+                (false, Some(i)) => {
+                    entry.pending.remove(i);
+                    touch(&mut touched, &a.execution_id);
                 }
                 _ => {}
             }

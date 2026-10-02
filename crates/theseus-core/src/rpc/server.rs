@@ -8,10 +8,11 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use theseus_protocol::{error_code, method, Id, Message, Request, Response};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::Core;
 use crate::approval::{Answerer, Client, Peer, Surface};
+use crate::outbound::{Drain, Outbound};
 
 /// The connection a request came in on: who it is, the surface its listener
 /// named, and where its notifications go.
@@ -21,7 +22,11 @@ pub(super) struct Conn<'a> {
     pub surface: Surface,
     /// The process on the other end, as the listener read it (theseus-6qy).
     pub peer: &'a Peer,
-    pub tx: &'a mpsc::UnboundedSender<Message>,
+    /// The connection's one queue, with the backlog cap (theseus-in3).
+    pub tx: &'a Outbound,
+    /// Closed when the connection's reader ends: a parked `session.wait`
+    /// ends with it (theseus-in3).
+    pub closed: &'a watch::Receiver<()>,
     /// When the request arrived, and how long it waited at the config gate
     /// (theseus-2fo): a turn's trace starts at the arrival.
     pub arrived: std::time::Instant,
@@ -83,20 +88,25 @@ impl Core {
             peer,
         } = client;
         // One ordered outbound queue: notifications and responses share it, so a
-        // turn's events always precede its response on the wire.
-        let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+        // turn's events always precede its response on the wire. Past the
+        // backlog cap its notifications are dropped until it drains, and the
+        // writer then says what was lost (theseus-in3).
+        let (tx, mut rx) = crate::outbound::channel(self.push.lost.clone());
         let resp_tx = tx.clone();
         // Asks to be told once everything queued before the ask is written
         // (theseus-ur0): a stop's answer, before the serving loops wake.
         let (flush_tx, mut flush_rx) = mpsc::unbounded_channel::<oneshot::Sender<()>>();
+        // Dropped when the reader ends: a parked `session.wait` ends with it.
+        let (closed_tx, closed_rx) = watch::channel(());
 
+        let core = self.clone();
         let writer_task = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     biased;
                     m = rx.recv() => match m {
                         Some(m) => {
-                            if !write_line(&mut writer, &m).await {
+                            if !write_one(&core, &mut writer, &mut rx, &m).await {
                                 break;
                             }
                         }
@@ -106,8 +116,8 @@ impl Core {
                         // An ask is sent after what it waits for was queued,
                         // so all of that can be taken now.
                         let mut open = true;
-                        while let Ok(m) = rx.try_recv() {
-                            open = write_line(&mut writer, &m).await;
+                        while let Some(m) = rx.try_recv() {
+                            open = write_one(&core, &mut writer, &mut rx, &m).await;
                             if !open {
                                 break;
                             }
@@ -131,7 +141,7 @@ impl Core {
             let msg: Message = match serde_json::from_str(&line) {
                 Ok(m) => m,
                 Err(e) => {
-                    let _ = resp_tx.send(Message::Response(Response::err(
+                    resp_tx.respond(Message::Response(Response::err(
                         Id::Num(0),
                         error_code::PARSE,
                         format!("parse error: {e}"),
@@ -147,11 +157,15 @@ impl Core {
                     let flush_tx = flush_tx.clone();
                     let client = client.clone();
                     let peer = peer.clone();
+                    let closed = closed_rx.clone();
                     let shutdown = req.method == method::SHUTDOWN;
                     tokio::spawn(async move {
-                        let resp = core.clone().handle(req, tx, &client, surface, &peer).await;
+                        let resp = core
+                            .clone()
+                            .handle(req, tx, &client, surface, &peer, &closed)
+                            .await;
                         let stopping = shutdown && resp.error.is_none();
-                        let _ = resp_tx.send(Message::Response(resp));
+                        resp_tx.respond(Message::Response(resp));
                         if stopping {
                             core.wake_after_answer(&flush_tx).await;
                         }
@@ -163,6 +177,7 @@ impl Core {
                 Message::Response(_) => {}
             }
         }
+        drop(closed_tx);
         drop(tx);
         drop(resp_tx);
         drop(flush_tx);
@@ -187,13 +202,14 @@ impl Core {
     async fn handle(
         self: Arc<Self>,
         req: Request,
-        tx: mpsc::UnboundedSender<Message>,
+        tx: Outbound,
         client: &str,
         surface: Surface,
         peer: &Peer,
+        closed: &watch::Receiver<()>,
     ) -> Response {
         let id = req.id.clone();
-        match self.dispatch(req, tx, client, surface, peer).await {
+        match self.dispatch(req, tx, client, surface, peer, closed).await {
             Ok(v) => Response::ok(id, v),
             Err(f) => Response::err_with(id, f.code, f.message, f.data),
         }
@@ -205,10 +221,11 @@ impl Core {
     async fn dispatch(
         self: Arc<Self>,
         req: Request,
-        tx: mpsc::UnboundedSender<Message>,
+        tx: Outbound,
         client: &str,
         surface: Surface,
         peer: &Peer,
+        closed: &watch::Receiver<()>,
     ) -> Result<Value, RpcFailure> {
         let arrived = std::time::Instant::now();
         let mut config_wait_us = 0;
@@ -225,6 +242,7 @@ impl Core {
             surface,
             peer,
             tx: &tx,
+            closed,
             arrived,
             config_wait_us,
         };
@@ -289,6 +307,8 @@ impl Core {
                 reply(self.executions_watch(parse(params)?, conn).await?)
             }
             method::EXECUTIONS_UNWATCH => reply(self.executions_unwatch(conn)),
+            // A wait parks on the board's feed, never holding a worker.
+            method::SESSION_WAIT => reply(self.session_wait(parse(params)?, conn).await?),
             // The loops wake once the answer is written (`serve_connection`).
             method::SHUTDOWN => reply(self.stopping()),
             other => Err(RpcFailure::new(
@@ -303,6 +323,36 @@ impl Core {
 /// before the serving loops wake (theseus-ur0). A write takes microseconds;
 /// the bound is for a client that stopped reading.
 const ANSWER_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Write one message, and then, if the queue has drained after dropping
+/// notifications, the `events.lost` that says so (theseus-in3). False once
+/// the connection is gone.
+async fn write_one<W: AsyncWrite + Unpin>(
+    core: &Core,
+    writer: &mut W,
+    rx: &mut Drain,
+    m: &Message,
+) -> bool {
+    if !write_line(writer, m).await {
+        return false;
+    }
+    match rx.written() {
+        Some(lost) => {
+            core.telemetry().record_push_lost(lost.dropped);
+            tracing::info!(
+                dropped = lost.dropped,
+                streams = ?lost.streams,
+                "a connection fell behind; it heard what it lost"
+            );
+            write_line(
+                writer,
+                &Message::from(theseus_protocol::Event::EventsLost(lost)),
+            )
+            .await
+        }
+        None => true,
+    }
+}
 
 /// Write one message as an NDJSON line and flush it. False once the
 /// connection is gone; a message that does not serialize is skipped.
