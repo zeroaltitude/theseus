@@ -6630,6 +6630,8 @@ dependencies = [
  "theseus-protocol",
  "theseus-store",
  "toml",
+ "tungstenite 0.29.0",
+ "twilight-model",
 ]
 
 [[package]]

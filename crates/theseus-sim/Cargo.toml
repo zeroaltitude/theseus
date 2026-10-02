@@ -29,6 +29,13 @@ rand = "0.9"
 tempfile = "3"
 crc32fast = "1"
 libc = "0.2"
+# The gateway stand-in's WebSocket (theseus-6g62): the version, and the one
+# feature, the web server's axum already builds.
+tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+
+[dev-dependencies]
+# The fakes' payloads are checked against the binding's own model types.
+twilight-model = "0.17.1"
 
 [lints]
 workspace = true

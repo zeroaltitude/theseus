@@ -30,6 +30,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
 
+mod discord_cli;
 mod fake_model;
 mod history;
 mod kernel_sim;
@@ -144,6 +145,22 @@ enum Cmd {
         /// and the messages beside it in `<log>.messages.json`.
         #[arg(long)]
         log: Option<PathBuf>,
+        /// Also serve a gateway here (theseus-6g62), for `[discord]
+        /// gateway_proxy`; `theseus-sim discord say` and `press` act through it.
+        #[arg(long)]
+        gateway: Option<String>,
+        /// A guild for the viewer check (theseus-ck0k), as JSON: `id`, `name`,
+        /// `owner`, `everyone` (permission bits), `members`, `channels` with
+        /// `overwrites`, and `roles`.
+        #[arg(long)]
+        guild: Option<PathBuf>,
+    },
+    /// Discord without a person (theseus-9kjv): the kl8m proof against a real
+    /// daemon, and a typed message, a press, and a read for a live check
+    /// against a running fake-discord.
+    Discord {
+        #[command(subcommand)]
+        cmd: discord_cli::Cmd,
     },
 }
 
@@ -229,14 +246,32 @@ enum BenchCmd {
 
 fn main() -> Result<()> {
     match Cli::parse().cmd {
-        Cmd::FakeDiscord { addr, control, log } => {
+        Cmd::FakeDiscord {
+            addr,
+            control,
+            log,
+            gateway,
+            guild,
+        } => {
             let fake = theseus_sim::fake_discord::FakeDiscord::start_on(&addr, control, log)
                 .with_context(|| format!("listening on {addr}"))?;
             println!("fake discord REST on {}", fake.addr);
+            if let Some(g) = guild {
+                let text = std::fs::read_to_string(&g)
+                    .with_context(|| format!("reading {}", g.display()))?;
+                fake.set_guild(serde_json::from_str(&text).context("the guild's JSON")?);
+            }
+            if let Some(gw) = gateway {
+                let url = fake
+                    .serve_gateway(&gw)
+                    .with_context(|| format!("listening on {gw}"))?;
+                println!("fake discord gateway on {url}");
+            }
             loop {
                 std::thread::park();
             }
         }
+        Cmd::Discord { cmd } => discord_cli::run(cmd),
         Cmd::SynthStore { dir, sessions } => {
             let g = synth::generate(&dir, sessions)?;
             println!(

@@ -27,6 +27,8 @@ pub mod render;
 mod rpc_client;
 mod runtime;
 #[cfg(test)]
+mod tests_gateway;
+#[cfg(test)]
 mod tests_outbox;
 pub mod viewers;
 
