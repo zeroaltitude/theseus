@@ -9,7 +9,7 @@
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
@@ -70,26 +70,52 @@ pub enum Cmd {
     },
     /// The proof's stand-in for the Messages API, alone, for a daemon's
     /// `[model] api_base`: a prompt holding PROOF-WRITE asks for an
-    /// `fs.write` of `--write-path`, a tool's result ends the turn, and
-    /// anything else is answered "ready". Serves until killed.
+    /// `fs.write` of `<dir>/outside/proof.txt`, a tool's result ends the
+    /// turn, and anything else is answered "ready". Serves until killed.
     Model {
         #[arg(long, default_value = "127.0.0.1:9448")]
         addr: String,
+        /// The rig's directory (`discord rig --dir`).
         #[arg(long)]
-        write_path: PathBuf,
+        dir: PathBuf,
     },
+    /// Lay out a directory for a scratch daemon on the stand-ins, as the
+    /// proof does, and print how to start each process: `config.toml`, a
+    /// fake `op` in `bin/` (every secret an invented value), the bindings,
+    /// and `guild.json` for `fake-discord --guild`.
+    Rig {
+        #[arg(long)]
+        dir: PathBuf,
+        /// The daemon (default: the `theseusd` beside this binary).
+        #[arg(long)]
+        theseusd: Option<PathBuf>,
+        /// The fake's REST address.
+        #[arg(long, default_value = "127.0.0.1:9447")]
+        fake: String,
+        /// The fake's gateway address.
+        #[arg(long, default_value = "127.0.0.1:9449")]
+        gateway: String,
+        /// The model stand-in's address.
+        #[arg(long, default_value = "127.0.0.1:9448")]
+        model: String,
+    },
+}
+
+/// `theseusd` beside this binary, unless named.
+fn beside(theseusd: Option<PathBuf>) -> Result<PathBuf> {
+    match theseusd {
+        Some(p) => Ok(p),
+        None => Ok(std::env::current_exe()?
+            .parent()
+            .context("this binary's directory")?
+            .join("theseusd")),
+    }
 }
 
 pub fn run(cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Proof { theseusd, dir } => {
-            let theseusd = match theseusd {
-                Some(p) => p,
-                None => std::env::current_exe()?
-                    .parent()
-                    .context("this binary's directory")?
-                    .join("theseusd"),
-            };
+            let theseusd = beside(theseusd)?;
             println!("discord proof: {}", theseusd.display());
             let r = discord_proof::run(&discord_proof::Opts {
                 theseusd,
@@ -128,15 +154,47 @@ pub fn run(cmd: Cmd) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&v)?);
             Ok(())
         }
-        Cmd::Model { addr, write_path } => {
-            let write = json!({"path": write_path.display().to_string(), "content": "written through the Discord stand-in"});
-            let m = discord_proof::Model::start_on(&addr, write)?;
-            println!("the proof's model stand-in on {}", m.base);
+        Cmd::Model { addr, dir } => {
+            let m = discord_proof::Model::start_on(&addr, discord_proof::write_input(&dir))?;
+            println!("the proof's model stand-in on {}", m.addr);
             loop {
                 std::thread::park();
             }
         }
+        Cmd::Rig {
+            dir,
+            theseusd,
+            fake,
+            gateway,
+            model,
+        } => rig(&dir, &beside(theseusd)?, &fake, &gateway, &model),
     }
+}
+
+/// Lay out the rig, and say how to run each process and drive them.
+fn rig(dir: &Path, theseusd: &Path, fake: &str, gateway: &str, model: &str) -> Result<()> {
+    let ends = discord_proof::Ends {
+        rest: fake,
+        gateway,
+        model,
+    };
+    discord_proof::lay_out(dir, theseusd, &ends)?;
+    let d = dir.display();
+    let (ana, lab) = (discord_proof::ANA, discord_proof::LAB);
+    println!(
+        "laid out {d}: config.toml, bin/op, state/bindings.toml, guild.json, outside/\n\
+         start, each in its own shell:\n\
+         \x20 theseus-sim fake-discord --addr {fake} --gateway {gateway} --guild {d}/guild.json --log {d}/fake.log\n\
+         \x20 theseus-sim discord model --addr {model} --dir {d}\n\
+         \x20 PATH={d}/bin:$PATH OP_SERVICE_ACCOUNT_TOKEN=proof-not-a-token {} --config {d}/config.toml \
+         --socket {d}/sock --state-dir {d}/state\n\
+         then, as ana in #lab (ids {ana} and {lab}):\n\
+         \x20 theseus-sim discord say --fake {fake} --channel {lab} --user {ana} --name ana \"PROOF-WRITE: write it\"\n\
+         \x20 theseus-sim discord read --fake {fake}            # the card's id\n\
+         \x20 theseus-sim discord press --fake {fake} --message <id> --button Approve --user {ana} --name ana",
+        theseusd.display()
+    );
+    Ok(())
 }
 
 fn print_sent((status, v): (u16, Value)) -> Result<()> {

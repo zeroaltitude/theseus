@@ -19,8 +19,13 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
     phase's margin (`lifecycle::margin_ms`, measured on the build machine).
   - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
-  - `fake-discord`: a stand-in for Discord's REST API.
-- `src/lib.rs` exports `fake_discord` for other crates' tests. `src/fake_model.rs` stands in for the Messages API.
+  - `fake-discord`: a stand-in for Discord's REST API, and with `--gateway` its gateway (theseus-6g62); `--guild`
+    gives it a guild for the viewer check (theseus-ck0k).
+  - `discord` (`src/discord_cli.rs`): `proof`, kl8m's steps against a real daemon (`src/discord_proof.rs`); and
+    for a live check across processes, `rig` (a scratch daemon's config, fake `op`, and bindings), `model` (the
+    proof's scripted model), and `say`, `press`, `read` against a running `fake-discord`.
+- `src/lib.rs` exports `fake_discord`, `fake_gateway`, and `discord_proof` for other crates' tests.
+  `src/fake_model.rs` stands in for the Messages API for the bench.
 
 ## Invariants
 
@@ -28,11 +33,15 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
   p95 on the build machine, and changing one is a decision with its data (theseus-zay1).
 - **New startup work lands with its bench row**, so the gate times it.
 - **A new kernel transition belongs in kernel-sim's random operations**, with any invariant it must keep.
-- The fake Discord never records a header, so no token reaches its log.
+- The fake Discord never records a header, so no token reaches its log; its gateway never keeps what an IDENTIFY
+  or a RESUME carries, and an interaction's token is cut out of a recorded path.
+- Its payloads are checked against twilight-model's own types (a dev-dependency): a shape the binding's model
+  can't read fails here, not as a silent drop in a binding test.
 
 ## Tests and use
 
 - `tests/sim.rs`: the crash test and the kernel simulation on fixed seeds, in the gate.
+- The Discord proof is in the gate through theseusd's `tests/discord_proof.rs` (it needs the daemon's binary).
 - Release numbers of record: `target/release/theseus-sim bench lifecycle --theseusd target/release/theseusd --runs
   10`, with `--sessions 10000` for the synthetic store, or `--store` on a copy of a real store.
 - Long runs stay out of the gate: `theseus-sim kernel-sim --seeds 40`, or a crash test with `--restarts 8`, so

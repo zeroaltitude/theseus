@@ -113,8 +113,8 @@ fn step_line(s: &Step) -> String {
 /// `content`); anything else is answered `READY_TEXT`. `theseus-sim discord
 /// model` serves it alone, for a live check.
 pub struct Model {
-    /// `http://127.0.0.1:<port>`, for `[model] api_base`.
-    pub base: String,
+    /// `127.0.0.1:<port>`; `[model] api_base` is its `http://` URL.
+    pub addr: String,
 }
 
 impl Model {
@@ -125,7 +125,7 @@ impl Model {
     /// Listen on `addr`; answer until the process ends.
     pub fn start_on(addr: &str, write: Value) -> Result<Self> {
         let listener = TcpListener::bind(addr).context("binding the model stand-in")?;
-        let base = format!("http://{}", listener.local_addr()?);
+        let addr = listener.local_addr()?.to_string();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let write = write.clone();
@@ -134,8 +134,14 @@ impl Model {
                 });
             }
         });
-        Ok(Self { base })
+        Ok(Self { addr })
     }
+}
+
+/// The write the model asks for: the proof's file, under `dir`'s `outside/`.
+pub fn write_input(dir: &Path) -> Value {
+    let path = dir.join("outside").join("proof.txt");
+    json!({"path": path.display().to_string(), "content": WRITTEN})
 }
 
 fn answer_model(mut stream: TcpStream, write: &Value) -> Result<()> {
@@ -229,10 +235,66 @@ fn fake_op() -> String {
     )
 }
 
+/// Where a scratch daemon finds its stand-ins, each `host:port`: Discord's
+/// REST, its gateway, and the model.
+pub struct Ends<'a> {
+    pub rest: &'a str,
+    pub gateway: &'a str,
+    pub model: &'a str,
+}
+
+/// Lay out `dir` for a scratch daemon of `theseusd` on the stand-ins at
+/// `ends`: `config.toml`, the fake `op` in `bin/`, `state/bindings.toml`,
+/// `guild.json` (for `theseus-sim fake-discord --guild`), and `outside/`,
+/// where the proof's write goes.
+pub fn lay_out(dir: &Path, theseusd: &Path, ends: &Ends<'_>) -> Result<()> {
+    for d in ["bin", "projects", "state", "outside"] {
+        std::fs::create_dir_all(dir.join(d))?;
+    }
+    let text = config(theseusd, ends, &dir.join("projects"))?;
+    std::fs::write(dir.join("config.toml"), text)?;
+    std::fs::write(dir.join("state").join("bindings.toml"), bindings())?;
+    std::fs::write(
+        dir.join("guild.json"),
+        serde_json::to_string_pretty(&guild())?,
+    )?;
+    let op = dir.join("bin").join("op");
+    std::fs::write(&op, fake_op())?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+/// `theseusd` on a laid-out `dir`: its config, socket, and state dir there,
+/// the fake `op` first on its PATH, and none of the operator's settings.
+pub fn daemon_command(theseusd: &Path, dir: &Path) -> Command {
+    let path = format!(
+        "{}:{}",
+        dir.join("bin").display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut c = Command::new(theseusd);
+    c.arg("--config")
+        .arg(dir.join("config.toml"))
+        .arg("--socket")
+        .arg(dir.join("sock"))
+        .arg("--state-dir")
+        .arg(dir.join("state"))
+        .env("PATH", path)
+        .env("OP_SERVICE_ACCOUNT_TOKEN", "proof-not-a-token")
+        .env_remove("THESEUS_OP_TOKEN_FILE")
+        .env_remove("THESEUS_CONFIG")
+        .env_remove("THESEUS_STATE_DIR")
+        .env_remove("THESEUS_SOCKET");
+    c
+}
+
 /// The daemon's config: the template, with every endpoint on a stand-in,
 /// every secret on the fake `op`, the web UI off, and `[approval]` trusting
 /// ana and ben in the CLI, a DM, and `#lab`.
-fn config(theseusd: &Path, model: &str, fake: &FakeDiscord, projects: &Path) -> Result<String> {
+fn config(theseusd: &Path, ends: &Ends<'_>, projects: &Path) -> Result<String> {
+    let model = format!("http://{}", ends.model);
+    let model = model.as_str();
     let out = Command::new(theseusd)
         .arg("example-config")
         .output()
@@ -262,12 +324,11 @@ fn config(theseusd: &Path, model: &str, fake: &FakeDiscord, projects: &Path) -> 
     }
     let discord = table(&mut t, "discord");
     discord.insert("enabled".into(), true.into());
-    discord.insert("rest_proxy".into(), fake.addr.clone().into());
-    let gateway = fake
-        .gateway()
-        .context("the stand-in serves no gateway")?
-        .url();
-    discord.insert("gateway_proxy".into(), gateway.into());
+    discord.insert("rest_proxy".into(), ends.rest.into());
+    discord.insert(
+        "gateway_proxy".into(),
+        format!("ws://{}", ends.gateway).into(),
+    );
     discord.insert("edit_interval_ms".into(), 250.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
@@ -446,24 +507,20 @@ pub fn run(o: &Opts) -> Result<Report> {
     let t0 = Instant::now();
     let tmp = tempfile::tempdir()?;
     let dir = o.dir.clone().unwrap_or_else(|| tmp.path().to_path_buf());
-    for d in ["bin", "projects", "state", "outside"] {
-        std::fs::create_dir_all(dir.join(d))?;
-    }
     let fake = FakeDiscord::start_with_gateway();
     fake.set_guild(guild());
-    let written = dir.join("outside").join("proof.txt");
-    let model = Model::start(json!({"path": written.display().to_string(), "content": WRITTEN}))?;
-    std::fs::write(
-        dir.join("config.toml"),
-        config(&o.theseusd, &model.base, &fake, &dir.join("projects"))?,
-    )?;
-    std::fs::write(dir.join("state").join("bindings.toml"), bindings())?;
-    let op = dir.join("bin").join("op");
-    std::fs::write(&op, fake_op())?;
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755))?;
-    }
+    let gateway = fake
+        .gateway()
+        .context("the stand-in's gateway")?
+        .addr
+        .clone();
+    let model = Model::start(write_input(&dir))?;
+    let ends = Ends {
+        rest: &fake.addr,
+        gateway: &gateway,
+        model: &model.addr,
+    };
+    lay_out(&dir, &o.theseusd, &ends)?;
     let mut rig = Rig {
         dir,
         fake,
@@ -550,24 +607,7 @@ fn steps(r: &mut Rig, theseusd: &Path) -> Option<()> {
 
 fn start(r: &mut Rig, theseusd: &Path) -> Result<String, String> {
     let log = std::fs::File::create(r.dir.join("theseusd.log")).map_err(|e| e.to_string())?;
-    let path = format!(
-        "{}:{}",
-        r.dir.join("bin").display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
-    let child = Command::new(theseusd)
-        .arg("--config")
-        .arg(r.dir.join("config.toml"))
-        .arg("--socket")
-        .arg(r.sock())
-        .arg("--state-dir")
-        .arg(r.dir.join("state"))
-        .env("PATH", path)
-        .env("OP_SERVICE_ACCOUNT_TOKEN", "proof-not-a-token")
-        .env_remove("THESEUS_OP_TOKEN_FILE")
-        .env_remove("THESEUS_CONFIG")
-        .env_remove("THESEUS_STATE_DIR")
-        .env_remove("THESEUS_SOCKET")
+    let child = daemon_command(theseusd, &r.dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(log)
@@ -868,7 +908,7 @@ mod tests {
     fn the_model_answers_by_script() {
         let m = Model::start(json!({"path": "/x", "content": "y"})).unwrap();
         let post = |body: Value| -> String {
-            let addr = m.base.trim_start_matches("http://").parse().unwrap();
+            let addr = m.addr.parse().unwrap();
             let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(5)).unwrap();
             s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
             let b = body.to_string();

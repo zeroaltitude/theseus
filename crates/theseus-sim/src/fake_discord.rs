@@ -1556,4 +1556,66 @@ mod tests {
             .collect();
         assert_eq!(typed.iter().filter(|a| **a == ANA.to_string()).count(), 2);
     }
+
+    /// The control routes a check in another process uses (`theseus-sim
+    /// discord say|press|read`, `fake-discord --guild`): each answers, a
+    /// press of a button the message lacks is refused with why, and none of
+    /// them is recorded as a request to Discord.
+    #[test]
+    fn the_control_routes_drive_and_read_the_fake() {
+        let fake = FakeDiscord::start_with_gateway();
+        let ctl = |method: &str, route: &str, body: Value| {
+            http(&fake.addr, method, &format!("/_fake/{route}"), &body)
+        };
+        let (s, g) = ctl("GET", "gateway", Value::Null);
+        assert_eq!((s, g["connected"].clone()), (200, json!(false)));
+        let (s, e) = ctl(
+            "POST",
+            "say",
+            json!({"channel": LAB, "user": ANA, "content": "hi"}),
+        );
+        assert_eq!(s, 409, "no client yet: {e}");
+        let (s, _) = ctl("POST", "guild", serde_json::to_value(guild()).unwrap());
+        assert_eq!(s, 200);
+        let gw = fake.gateway().unwrap();
+        let stream =
+            TcpStream::connect_timeout(&gw.addr.parse().unwrap(), Duration::from_secs(5)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let (mut ws, _) = tungstenite::client::client(gw.url(), stream).unwrap();
+        read_frame(&mut ws);
+        ws.send(tungstenite::Message::text(
+            json!({"op": 2, "d": {}}).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(
+            read_frame(&mut ws)["d"]["guilds"][0]["id"],
+            DEFAULT_GUILD.to_string()
+        );
+        let (s, said) = ctl(
+            "POST",
+            "say",
+            json!({"channel": LAB.to_string(), "user": ANA, "name": "ana", "content": "hi"}),
+        );
+        assert_eq!(s, 200, "{said}");
+        let m = read_frame(&mut ws);
+        assert_eq!(
+            (m["t"].clone(), m["d"]["content"].clone()),
+            (json!("MESSAGE_CREATE"), json!("hi"))
+        );
+        assert_eq!(m["d"]["id"], said["id"]);
+        let (s, e) = ctl(
+            "POST",
+            "press",
+            json!({"message": said["id"], "button": "Approve", "user": ANA, "name": "ana"}),
+        );
+        assert_eq!(s, 409);
+        assert!(e["error"].as_str().unwrap().contains("no button"), "{e}");
+        let (_, msgs) = ctl("GET", "messages", Value::Null);
+        assert_eq!(msgs[0]["author"], ANA.to_string());
+        assert_eq!(ctl("GET", "replies", Value::Null).1, json!([]));
+        assert_eq!(ctl("GET", "nothing", Value::Null).0, 404);
+        assert!(fake.seen().is_empty(), "{:?}", fake.seen());
+    }
 }

@@ -29,11 +29,19 @@ theseusd.
 
 ## Tests
 
-- `src/tests_outbox.rs` drives the binding against `theseus_sim::fake_discord` (REST only: it honours a nonce as
+- `src/tests_outbox.rs` drives the binding against `theseus_sim::fake_discord` (REST: it honours a nonce as
   Discord does, and can be down, hang creates, or fail). Point a daemon at it with `[discord] rest_proxy` and
   `gateway_proxy`.
-- The gateway can't be faked, so tests drive a place directly (`place_for_tests`) and interactions through
-  `on_interaction`. A bot can neither type nor press, so a live press waits for the operator.
+- `src/tests_gateway.rs` drives it through the stand-in's gateway too (theseus-6g62): `FakeDiscord::say` types a
+  message as a user, and `press` presses a button the binding posted, each sent as Discord sends it; `replies()`
+  is what the binding answered each press, and each message keeps every version (theseus-qifw). A guild set on
+  the fake (`set_guild`) answers the viewer check, so a card in a trusted channel is tested end to end
+  (theseus-ck0k). Its core starts the continuation driver, as the daemon does, or an approved call never runs.
+- `theseus-sim discord proof --theseusd <bin>` runs a typed message, a card, a refused press, and an Approve
+  against a real daemon on the stand-ins in about 3 s; theseusd's `tests/discord_proof.rs` runs it in the gate.
+  A step that changes the binding uses it as its live check. Slash commands, select menus, attachments, and a
+  dropped gateway are not driven through the stand-in yet: tests drive those through `on_interaction` and
+  `place_for_tests`.
 - `split_text` (`src/render.rs`) has property tests: a message split past Discord's 2,000-character limit must
   never loop or panic.
 
@@ -46,3 +54,5 @@ theseusd.
   operator's daemon next starts.
 - A test that reads the channel waits for every message it reads: the outbox draining doesn't mean the live tool
   line has landed.
+- A ledger row names a Discord id as a string. Clippy's `cmp_owned` turns `row["author_id"] == ID.to_string()`
+  into `== ID`, a JSON string against a number that never matches: bind the string first.
