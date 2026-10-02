@@ -1636,6 +1636,100 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
     }
 }
 
+/// theseus-hmwv: a `/stop` that lands after an input arrived and before its
+/// turn is admitted stops that turn as it starts: no model call, stop reason
+/// `stopped`, and an `execution.stopped` row for its turn. The session's
+/// next input runs as usual. Here the input's turn waits for admission
+/// behind another session's turn, whose job's disk check is held (the
+/// ceiling is one); in the daemon the window is a start's wait for the
+/// secrets, or admission under load. Before, the stop found the execution
+/// idle and marked nothing, and the turn ran as if no stop had come.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
+    let (held, mut there, go) = Held::new();
+    let r = rig_parts(
+        vec![
+            Scripted::text("Hello."),
+            Scripted::tools(
+                "",
+                &[("t1", "proc_run", json!({"argv": ["touch", "a-ran"]}))],
+            ),
+            Scripted::text("A is done."),
+            Scripted::text("After the stop."),
+        ],
+        |cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+            cfg.server.disk_floor_mb = 1024;
+            cfg.kernel.admission_ceiling = 1;
+        },
+        |_| {},
+    );
+    let b = turn(&r.core, None, "hello").await;
+    let exec_b = b.execution_id.clone().unwrap();
+    r.core.tools.disk.set_probe(Arc::new(HeldDiskCheck {
+        held,
+        once: std::sync::Once::new(),
+    }));
+    // Session A's turn holds the one admission, its job held at its start.
+    let core = r.core.clone();
+    let a = tokio::spawn(async move { turn(&core, None, "touch a file").await });
+    there.recv().await.unwrap();
+    // B's input arrives, and its turn waits for admission.
+    let rec = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&b.session_id)
+        .unwrap()
+        .unwrap();
+    let (live, _) = r.core.live_profile();
+    let req = TurnRequest {
+        sink: EventSink::new(r.core.bus.clone(), &rec.session_id, None),
+        session: rec,
+        input: Some("do the thing".into()),
+        target: r
+            .core
+            .runner
+            .resolve_target(&live, None, None, None)
+            .unwrap(),
+        author: "test".into(),
+        recompile: None,
+        attachments: vec![],
+        arrived: Some(std::time::Instant::now()),
+        config_wait_us: 0,
+        reply_to: None,
+    };
+    let core = r.core.clone();
+    let b2 = tokio::spawn(async move { core.runner.run(req).await.unwrap() });
+    let calls = || r.fake.requests.lock().unwrap().len();
+    let before = calls();
+    // The stop lands while B is idle: nothing runs, so nothing is marked.
+    let stop = r.core.stop_execution(&exec_b, "test").await.unwrap();
+    assert!(stop.stopped && !stop.turn_running, "{stop:?}");
+    go.send(()).unwrap();
+    let a = tokio::time::timeout(Duration::from_secs(20), a)
+        .await
+        .expect("A's turn ended")
+        .unwrap();
+    assert_eq!(a.output, "A is done.");
+    let b2 = tokio::time::timeout(Duration::from_secs(20), b2)
+        .await
+        .expect("B's turn ended")
+        .unwrap();
+    assert_eq!(b2.stop_reason, "stopped", "{b2:?}");
+    assert_eq!(
+        calls(),
+        before + 1,
+        "only A's last call was made after the stop"
+    );
+    let rows = ledgered(&r, "execution.stopped");
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[1]["turn_running"], true);
+    // The next input runs.
+    let b3 = turn(&r.core, Some(&b.session_id), "and now?").await;
+    assert_eq!(b3.output, "After the stop.");
+    assert_ne!(b3.stop_reason, "stopped");
+}
+
 /// theseus-667d: a stopped job's raw output is kept while its wrapper still
 /// lives, and the sweep takes it once the wrapper has ended (theseus-ewev's
 /// guard in `remove_job_output`). The stop comes before the job's

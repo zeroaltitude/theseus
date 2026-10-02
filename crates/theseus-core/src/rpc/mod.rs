@@ -564,6 +564,7 @@ impl Core {
             secrets: secrets.clone(),
             startup_log: startup_log.clone(),
             stops: Default::default(),
+            latest_stops: Default::default(),
         };
         let telemetry_cell = std::sync::OnceLock::new();
         if let Some(t) = telemetry {

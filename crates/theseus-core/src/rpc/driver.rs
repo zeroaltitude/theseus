@@ -315,13 +315,15 @@ impl Core {
     /// conversation. The kernel tells its running jobs and calls to stop and
     /// declines what waits on the operator (`Kernel::stop_execution`); here
     /// each job's backend is terminated, and each declined question's card
-    /// settles where it was posted. A running turn ends at its next step.
-    /// The session's tasks and pending wakes go on.
+    /// settles where it was posted. A running turn ends at its next step,
+    /// and so does the turn of an input sent before the stop and admitted
+    /// after it (theseus-hmwv). The session's tasks and pending wakes go on.
     pub async fn stop_execution(
         &self,
         id: &str,
         by: &str,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
+        self.runner.stop_landed(id, by);
         let stop = self.kernel.stop_execution(id, by)?;
         let Some(stop) = stop else {
             let e = self

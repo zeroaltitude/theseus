@@ -109,6 +109,10 @@ pub struct TurnRunner {
     pub outbox: Arc<crate::outbox::Outbox>,
     /// What a `/stop` tells the model call a turn waits on (theseus-yey).
     pub stops: StopSignals,
+    /// The latest `/stop` of each execution since this process started, and
+    /// who sent it (theseus-hmwv): an input that arrived before it, and
+    /// whose turn is admitted after it, is stopped as its turn starts.
+    pub latest_stops: std::sync::Mutex<std::collections::HashMap<String, (Instant, String)>>,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -936,6 +940,26 @@ impl TurnRunner {
         turn_error(r.class, sid, "", 0, source)
     }
 
+    /// A `/stop` of `execution_id` by `by` is landing (theseus-hmwv): said
+    /// before the kernel's stop, so a turn admitted once it is done sees it.
+    pub fn stop_landed(&self, execution_id: &str, by: &str) {
+        self.latest_stops
+            .lock()
+            .unwrap()
+            .insert(execution_id.to_string(), (Instant::now(), by.to_string()));
+    }
+
+    /// Who stopped `execution_id` after an input that arrived at `arrived`,
+    /// if anyone did.
+    fn stopped_since(&self, execution_id: &str, arrived: Instant) -> Option<String> {
+        self.latest_stops
+            .lock()
+            .unwrap()
+            .get(execution_id)
+            .filter(|(at, _)| *at > arrived)
+            .map(|(_, by)| by.clone())
+    }
+
     #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub async fn run(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
@@ -994,6 +1018,18 @@ impl TurnRunner {
                 }
             },
         };
+        // A `/stop` that landed after this input arrived and before its turn
+        // held the execution (theseus-hmwv) found no turn to mark: it waited
+        // on its secrets, or for admission. The operator said "do this",
+        // then "stop", so it stops this turn now, as a stop during a turn
+        // does: the kernel marks it, and its first step plans nothing.
+        if !continuation {
+            if let Some(by) = self.stopped_since(&guard.execution_id, arrived) {
+                if let Err(e) = self.kernel.stop_execution(&guard.execution_id, &by) {
+                    tracing::warn!(execution_id = %guard.execution_id, error = %format!("{e:#}"), "a stop before admission could not mark the turn");
+                }
+            }
+        }
         let admit_us = admitting.map_or(0, |t| t.elapsed().as_micros() as u64);
         let admission_wait_us = arrived.elapsed().as_micros() as u64;
         let failure_sink = req.sink.clone();
