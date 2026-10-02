@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { heldWhat } from './protocol'
 import type { ProtocolClient } from './protocol'
 import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, ExternalTextInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList, Usage, WakeInfo } from './protocol'
+import { DiskSpoolLines } from './DiskSpool'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -510,6 +511,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                 </> : <span className="muted">not seeded: nothing has watched since the start</span>}
                 <span className="muted"> (each execution's change goes to every watcher; the board is built at the first watch, off the start path)</span></div>
             )}
+            <DiskSpoolLines disk={health!.disk} spool={health!.spool} now={now} />
             {startup?.steps && (
               <div className="startup">
                 <span className="muted">last startup ({fmtUs(startup.elapsed_us ?? 0)})</span>

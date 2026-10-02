@@ -12,6 +12,7 @@ import { useTick } from '@/lib/hooks'
 import { ago, ms, stamp, tokens, uptime, us, usd } from '@/lib/format'
 import { stateTone } from '@/lib/taxonomy'
 import { Startup } from '@/components/instruments'
+import { DiskSpoolCard } from '@/components/DiskSpool'
 import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
 
@@ -37,6 +38,8 @@ export default function Systems() {
         <Field label="catalog" mono>{h.catalog_version ?? '—'}</Field>
         <Field label="narrative" mono>{h.narrative ? 'on' : 'off'}</Field>
       </Card>
+
+      <DiskSpoolCard disk={h.disk} sweep={h.spool?.last_sweep} now={now} />
 
       <Card title="Kernel" icon={<Cpu size={13} />}>
         <Field label="accepting">{k.accepting ? <Pill tone="ok">accepting</Pill> : <Pill tone="wait">held</Pill>}</Field>

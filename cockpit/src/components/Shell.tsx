@@ -14,6 +14,8 @@ import { summarize } from '@/lib/summary'
 import { cn, ms, short, tokens, uptime, usd, clock, stamp } from '@/lib/format'
 import { ledgerKind, partTone, stateTone, toneHex } from '@/lib/taxonomy'
 import { LiveDot, Spark } from './ui'
+import { DiskAttention } from './DiskSpool'
+import { diskSummary, diskTone } from '@/lib/disk'
 import { useHistory, useTick } from '@/lib/hooks'
 
 const NAV = [
@@ -177,12 +179,14 @@ function HeartbeatBar() {
       </div>
       <Indicator label="model" tone="model" value={h ? h.model : '—'} title={h ? `${h.provider} · ${h.model} · profile ${h.profile}` : undefined} />
       <div className="ml-auto flex shrink-0 items-center gap-4">
+        <DiskAttention disk={h?.disk} />
         <div className="flex items-center gap-2.5 rounded-md bg-white/[0.03] px-2 py-1 ring-1 ring-line">
           <Dot label="kernel" tone={h?.kernel.accepting ? 'ok' : 'wait'} title={h ? (h.kernel.accepting ? 'kernel accepting' : 'kernel holding new turns') : ''} />
           <Dot label="discord" tone={stateTone(discord?.state)} title={discord ? `Discord ${discord.state}${discord.latency_ms ? ` · ${discord.latency_ms} ms` : ''}${discord.detail ? ` · ${discord.detail}` : ''}` : 'Discord'} />
           <Dot label="config" tone={stateTone(h?.config?.state)} title={`config ${h?.config?.state ?? '—'} (${h?.config?.source ?? '—'})`} />
           <Dot label="secrets" tone={stateTone(h?.secrets?.state)} title={`secrets ${h?.secrets?.state ?? '—'}`} />
           <Dot label="web" tone={webTone(h?.web)} title={webTitle(h?.web)} />
+          <Dot label="disk" tone={diskTone(h?.disk)} title={diskSummary(h?.disk)} />
         </div>
         <Indicator label="cache" tone="think" value={usage ? `${(cacheHit * 100).toFixed(0)}%` : '—'} title={usage ? `${tokens(usage.cache_read_input_tokens)} input tokens read from cache` : undefined} />
         <Indicator label="spent" tone="money" value={h?.cost_usd_total !== undefined ? usd(h.cost_usd_total) : '—'} />
