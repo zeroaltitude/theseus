@@ -1522,6 +1522,9 @@ impl ToolRuntime {
             env.retain(|(ek, _)| ek != k);
             env.push((k.clone(), v.expose().to_string()));
         }
+        // A git given a secret, or the git a gh given one runs: no hooks and
+        // no fsmonitor program (theseus-ur1t).
+        brokered.pin(&mut env);
         let mut args = WrapperArgs {
             spool_dir: spool.dir().to_path_buf(),
             correlation_id: correlation_id.into(),

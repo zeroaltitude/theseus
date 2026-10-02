@@ -13,11 +13,23 @@
 //! - **Nor does a program the call could make run another** (review 2's H7,
 //!   `launches`): a call that sets its own environment (`PATH`, `GIT_*`,
 //!   `LD_AUDIT`, …) gets no grant; gh gets one only for its own commands,
-//!   never an alias, an extension, or `--web`'s browser; and git only for its
+//!   never an alias, an extension, or `--web`'s browser; git only for its
 //!   commands that reach a remote, never an alias, `-c`, or a program that
-//!   an option or a URL names. What a granted program runs on its own
-//!   account still gets the variable: its repository's hooks, and the
-//!   helpers its config names.
+//!   an option or a URL names; cargo only for its registry commands that
+//!   build nothing; and npm only for its registry commands that run no
+//!   package's scripts (theseus-txvt).
+//! - **No grant to a launcher** (theseus-txvt, `launcher`): a shell, an
+//!   interpreter, a wrapper that runs the command it is given (`env`,
+//!   `sudo`, `xargs`, …), or a runner of a project's scripts (`make`, `npx`,
+//!   …) runs whatever the call names, so the config refuses a grant to one,
+//!   and a granted name that resolves to one gets nothing.
+//! - **A granted git runs no hooks** (theseus-ur1t, `GIT_PINS`): a job given
+//!   a secret by a grant to git or gh has `core.hooksPath` and
+//!   `core.fsmonitor` pinned off in its environment, over every config
+//!   file, so neither a cloned project's hooks nor its fsmonitor program
+//!   gets the variable. What else a granted program runs on its own account
+//!   still gets it: a credential helper or `core.sshCommand` its config
+//!   names, ssh's own config, and gh's.
 //! - **A native toollet** gets a secret through `secret_for_tool`, once the
 //!   wiring has granted it one (`grant_tool`): DD5's `web.search`, its key.
 //! - **Each secret has a posture** (`[broker.secrets.<name>] posture`, notify
@@ -103,20 +115,78 @@ pub struct ForJob {
     /// Why a granted program that the call names got nothing: it is not run
     /// by its own argv.
     pub indirect: Option<String>,
+    /// The program given a secret runs git, or is git: the job's git has its
+    /// hooks and its fsmonitor pinned off (`GIT_PINS`, theseus-ur1t).
+    pub git_pinned: bool,
 }
 
 impl ForJob {
-    /// For the result: each thing the job was not given, and why, one
-    /// bracketed line each. Never a value.
+    /// For the result: each thing the job was not given, and why, and a
+    /// granted git's pins, one bracketed line each. Never a value. A gh's
+    /// pins go unsaid: most of its commands run no git.
     pub fn note(&self) -> Option<String> {
+        let git = self.granted.first().is_some_and(|g| g.to == "git");
+        let pinned = (self.git_pinned && git).then(|| {
+            format!(
+                "[git ran with its hooks and core.fsmonitor off, since it got {}]",
+                and(&self.granted.iter().map(Grant::what).collect::<Vec<_>>())
+            )
+        });
         let lines: Vec<String> = self
             .withheld
             .iter()
             .map(|(g, why)| format!("[{} got no {}: {why}; it ran without it]", g.to, g.what()))
             .chain(self.indirect.iter().map(|n| format!("[{n}]")))
+            .chain(pinned)
             .collect();
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
+
+    /// The job's environment with `GIT_PINS`, when its program was given a
+    /// secret and runs git (theseus-ur1t): set after any `GIT_CONFIG_*`
+    /// pairs it already has, so they keep theirs and the pins win.
+    pub fn pin(&self, env: &mut Vec<(String, String)>) {
+        if self.git_pinned {
+            pin_git(env);
+        }
+    }
+}
+
+/// The settings a granted git, and every git a granted gh runs, takes from
+/// its environment over every config file (theseus-ur1t): no hooks, the
+/// repository's or the operator's, and no fsmonitor program. They are what
+/// runs third-party code on a remote command without a job's help: a cloned
+/// project's hook manager (`core.hooksPath` into its tree, or hooks it
+/// installs), and a `fsmonitor-watchman` hook script. git 2.31 or later
+/// reads them (`GIT_CONFIG_COUNT`). An empty `core.fsmonitor` is off for
+/// every git: before 2.36 the setting is a program's path, and `false` would
+/// run a program named `false`, found on the job's PATH.
+pub const GIT_PINS: &[(&str, &str)] = &[("core.hooksPath", "/dev/null"), ("core.fsmonitor", "")];
+
+/// Add `GIT_PINS` to a job's environment as git's `GIT_CONFIG_KEY_<n>` and
+/// `GIT_CONFIG_VALUE_<n>` pairs, after the pairs it already has.
+pub fn pin_git(env: &mut Vec<(String, String)>) {
+    let get = |env: &Vec<(String, String)>, k: &str| {
+        env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
+    };
+    let start: usize = get(env, "GIT_CONFIG_COUNT")
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or(0);
+    for (i, (key, value)) in GIT_PINS.iter().enumerate() {
+        let n = start + i;
+        for (var, val) in [
+            (format!("GIT_CONFIG_KEY_{n}"), key),
+            (format!("GIT_CONFIG_VALUE_{n}"), value),
+        ] {
+            env.retain(|(k, _)| *k != var);
+            env.push((var, (*val).to_string()));
+        }
+    }
+    env.retain(|(k, _)| k != "GIT_CONFIG_COUNT");
+    env.push((
+        "GIT_CONFIG_COUNT".into(),
+        (start + GIT_PINS.len()).to_string(),
+    ));
 }
 
 pub struct Broker {
@@ -288,6 +358,22 @@ impl Broker {
                     named.map_or_else(String::new, |n| format!(" ({})", n.display()))
                 )));
             }
+            // A granted name that is a launcher's file (a link `py` to
+            // python3), which the config's check of the name cannot see.
+            let file = ran
+                .as_deref()
+                .and_then(Path::file_name)
+                .and_then(|f| f.to_str())
+                .unwrap_or(program);
+            if let Some(what) = launcher(file) {
+                return Err(Some(format!(
+                    "{program} got no {}: it is {} ({what}), which runs whatever the call names, \
+                     so the variable would reach that too",
+                    vars(grant),
+                    ran.as_deref()
+                        .map_or(file.into(), |p| p.display().to_string())
+                )));
+            }
             if let Some(why) = launches(program, &argv[1..], env) {
                 return Err(Some(format!("{program} got no {}: {why}", vars(grant))));
             }
@@ -370,6 +456,9 @@ impl Broker {
                 }
             }
         }
+        // A git given a secret, or the git a gh given one runs, takes no
+        // hooks and no fsmonitor program (theseus-ur1t).
+        out.git_pinned = !out.env.is_empty() && matches!(program, "git" | "gh");
         out
     }
 
@@ -501,7 +590,12 @@ impl theseus_tools::Secrets for Bound {
 ///   `HOME`, `LD_AUDIT`, …), so a call that sets any gets no grant;
 /// - by gh: an alias, an extension, or `--web`'s browser (`gh_launches`);
 /// - by git: an alias, `-c`, or a program that an option or a URL names
-///   (`git_launches`).
+///   (`git_launches`);
+/// - by cargo: a build, which runs the package's build scripts and its
+///   dependencies', an alias, a `cargo-<word>` program, or `--config`
+///   (`cargo_launches`, theseus-txvt);
+/// - by npm: a package's scripts, `npm exec`, or an option that names a
+///   program (`npm_launches`, theseus-txvt).
 fn launches(program: &str, args: &[String], env: &[&str]) -> Option<String> {
     if !env.is_empty() {
         return Some(format!(
@@ -513,8 +607,288 @@ fn launches(program: &str, args: &[String], env: &[&str]) -> Option<String> {
     match program {
         "gh" => gh_launches(args),
         "git" => git_launches(args),
+        "cargo" => cargo_launches(args),
+        "npm" => npm_launches(args),
         _ => None,
     }
+}
+
+/// Programs whose job is to run another program that the call names, by
+/// name (theseus-txvt): a grant to one would reach whatever it runs. The
+/// list names the common ones and cannot be finished (`find -exec`, `tar
+/// --to-command`, an editor), so the template says to grant only to a
+/// program whose commands run nothing the call chooses.
+const SHELLS: &[&str] = &[
+    "sh", "ash", "bash", "dash", "zsh", "ksh", "mksh", "oksh", "rbash", "csh", "tcsh", "fish",
+    "nu", "elvish", "xonsh", "pwsh", "busybox", "toybox",
+];
+const INTERPRETERS: &[&str] = &[
+    "python",
+    "pypy",
+    "node",
+    "nodejs",
+    "deno",
+    "bun",
+    "perl",
+    "ruby",
+    "irb",
+    "php",
+    "lua",
+    "luajit",
+    "tclsh",
+    "wish",
+    "Rscript",
+    "julia",
+    "guile",
+    "racket",
+    "groovy",
+    "java",
+    "jshell",
+    "dotnet",
+    "osascript",
+    "awk",
+    "gawk",
+    "mawk",
+    "nawk",
+];
+const WRAPPERS: &[&str] = &[
+    "env",
+    "xargs",
+    "parallel",
+    "timeout",
+    "nohup",
+    "nice",
+    "ionice",
+    "chrt",
+    "taskset",
+    "setsid",
+    "setpriv",
+    "stdbuf",
+    "unbuffer",
+    "flock",
+    "time",
+    "watch",
+    "sudo",
+    "doas",
+    "su",
+    "runuser",
+    "pkexec",
+    "chroot",
+    "unshare",
+    "nsenter",
+    "firejail",
+    "bwrap",
+    "systemd-run",
+    "strace",
+    "ltrace",
+    "gdb",
+    "valgrind",
+    "script",
+    "expect",
+    "tmux",
+    "screen",
+    "xdg-open",
+    "docker",
+    "podman",
+];
+const RUNNERS: &[&str] = &[
+    "make", "gmake", "bmake", "just", "ninja", "rake", "gradle", "mvn", "ant", "bazel", "cmake",
+    "scons", "tox", "nox", "npx", "pnpx", "bunx", "pnpm", "yarn", "pip", "pipx", "uv", "uvx",
+    "poetry", "pipenv", "conda", "mamba", "go",
+];
+
+/// What `name`, a program's file name, is when its job is to run another
+/// program the call names: a shell, an interpreter (a version suffix is
+/// ignored: `python3.12` is `python`), a wrapper that runs a command, or a
+/// runner of a project's own scripts. None for any other program.
+pub fn launcher(name: &str) -> Option<&'static str> {
+    let stem = name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+    let stem = if stem.is_empty() { name } else { stem };
+    let is = |list: &[&str]| list.contains(&name) || list.contains(&stem);
+    if is(SHELLS) {
+        Some("a shell")
+    } else if is(INTERPRETERS) {
+        Some("an interpreter")
+    } else if is(WRAPPERS) {
+        Some("a program that runs the command it is given")
+    } else if is(RUNNERS) {
+        Some("a runner of a project's own scripts")
+    } else {
+        None
+    }
+}
+
+/// cargo's commands that use a registry token and build nothing (`publish`
+/// only with `--no-verify`, since it otherwise builds the package). Its
+/// aliases cannot shadow these, and any other word may be an alias, a
+/// build, or a `cargo-<word>` program.
+const CARGO_COMMANDS: &[&str] = &["login", "logout", "owner", "publish", "search", "yank"];
+
+fn cargo_launches(args: &[String]) -> Option<String> {
+    // Before the command, only the flags that name no toolchain, no
+    // setting, and no program.
+    let mut i = 0;
+    let command = loop {
+        let Some(a) = args.get(i) else {
+            return Some("the call runs none of cargo's registry commands".into());
+        };
+        match a.as_str() {
+            "-v" | "-vv" | "--verbose" | "-q" | "--quiet" | "--locked" | "--offline"
+            | "--frozen" => i += 1,
+            "--color" => i += 2,
+            a if a.starts_with("--color=") => i += 1,
+            a if a.starts_with('-') || a.starts_with('+') => {
+                return Some(format!(
+                    "`{a}` before cargo's command can name a toolchain, a setting, or a program \
+                     for cargo to run (`+<toolchain>`, `--config`, `-Z`), which would get it too"
+                ));
+            }
+            a => break a,
+        }
+    };
+    if !CARGO_COMMANDS.contains(&command) {
+        return Some(format!(
+            "`cargo {command}` is not one of cargo's registry commands that build nothing ({}), \
+             and cargo runs a build's scripts, an alias, or a `cargo-{command}` program by such \
+             a word, which would get it too",
+            CARGO_COMMANDS.join(", ")
+        ));
+    }
+    let rest = &args[i + 1..];
+    // `--config` and `-Z` are taken after the command too.
+    if let Some(a) = rest
+        .iter()
+        .find(|a| *a == "--config" || a.starts_with("--config=") || a.starts_with("-Z"))
+    {
+        return Some(format!(
+            "`{a}` can name a setting or a program for cargo to run, which would get it too"
+        ));
+    }
+    if command == "publish" && !rest.iter().any(|a| a == "--no-verify") {
+        return Some(
+            "`cargo publish` builds the package unless `--no-verify`, and the build runs its \
+             build scripts and its dependencies', which would get it too"
+                .into(),
+        );
+    }
+    None
+}
+
+/// npm's registry commands that run no package's scripts (`publish` only
+/// with `--ignore-scripts`). npm runs scripts for `install`, `ci`, `pack`,
+/// `run`, `test`, and more; `exec` and `init` run packages; `login` opens a
+/// browser.
+const NPM_COMMANDS: &[&str] = &[
+    "access",
+    "deprecate",
+    "dist-tag",
+    "info",
+    "org",
+    "owner",
+    "ping",
+    "profile",
+    "publish",
+    "search",
+    "show",
+    "star",
+    "stars",
+    "team",
+    "token",
+    "unpublish",
+    "unstar",
+    "v",
+    "view",
+    "whoami",
+];
+
+/// npm's options that name a program to run, or a config file that can.
+const NPM_PROGRAM_OPTIONS: &[&str] = &[
+    "--browser",
+    "--call",
+    "--editor",
+    "--git",
+    "--globalconfig",
+    "--node-options",
+    "--script-shell",
+    "--shell",
+    "--userconfig",
+];
+
+fn npm_launches(args: &[String]) -> Option<String> {
+    let Some(at) = args.iter().position(|a| !a.starts_with('-')) else {
+        return Some("the call runs none of npm's registry commands".into());
+    };
+    let command = args[at].as_str();
+    if !NPM_COMMANDS.contains(&command) {
+        return Some(format!(
+            "`npm {command}` is not one of npm's registry commands that run no package's \
+             scripts, and npm runs a package's scripts, or a package, for such a word, which \
+             would get it too"
+        ));
+    }
+    if let Some(a) = args.iter().find(|a| {
+        let name = a.split_once('=').map_or(a.as_str(), |(n, _)| n);
+        NPM_PROGRAM_OPTIONS.contains(&name) || name == "-c"
+    }) {
+        return Some(format!(
+            "`{a}` names a program for npm to run, or a config file that can, which would get \
+             it too"
+        ));
+    }
+    if command == "publish" {
+        // The last word on scripts wins, as npm reads its options, and a
+        // `false` after the flag is its value.
+        let mut ignore = false;
+        for (k, a) in args.iter().enumerate() {
+            match a.as_str() {
+                "--ignore-scripts" | "--ignore-scripts=true" => {
+                    ignore = args.get(k + 1).is_none_or(|v| v != "false");
+                }
+                "--no-ignore-scripts" => ignore = false,
+                a if a.starts_with("--ignore-scripts=") => ignore = false,
+                _ => {}
+            }
+        }
+        if !ignore {
+            return Some(
+                "`npm publish` runs the package's lifecycle scripts unless `--ignore-scripts`, \
+                 which would get it too"
+                    .into(),
+            );
+        }
+        // A spec npm fetches (a git or tarball URL, `github:…`) is prepared
+        // by running its scripts; a local folder or tarball is not. A word
+        // after an option that takes a value (`--registry <url>`) is that
+        // value.
+        let flag = |a: &str| {
+            a.contains('=')
+                || matches!(
+                    a,
+                    "--ignore-scripts"
+                        | "--no-ignore-scripts"
+                        | "--dry-run"
+                        | "--provenance"
+                        | "--json"
+                        | "--force"
+                        | "-f"
+                        | "--workspaces"
+                        | "--include-workspace-root"
+                )
+        };
+        let mut value_next = false;
+        for a in &args[at + 1..] {
+            let a_value = std::mem::take(&mut value_next);
+            if a.starts_with('-') {
+                value_next = !flag(a);
+            } else if !a_value && a.contains(':') {
+                return Some(format!(
+                    "`{a}` is a package npm fetches and prepares, by running its scripts, which \
+                     would get it too"
+                ));
+            }
+        }
+    }
+    None
 }
 
 /// gh's own commands that can use its token and run no program the call
@@ -1048,7 +1422,15 @@ mod tests {
             let j = br
                 .for_job(&argv(a), &[], b.path(), Some(&path), Posture::Notify)
                 .await;
-            assert_eq!((j.env.len(), j.note()), (1, None), "{a:?}");
+            // A git given the secret says its hooks are off (theseus-ur1t).
+            let pinned = (a[0] == "git").then(|| {
+                "[git ran with its hooks and core.fsmonitor off, since it got GH_TOKEN]".to_string()
+            });
+            assert_eq!(
+                (j.env.len(), j.git_pinned, j.note()),
+                (1, true, pinned),
+                "{a:?}"
+            );
             let at_gate = br.at_gate("proc.run", Some(&argv(a)), &[], b.path(), Some(&path));
             assert_eq!(at_gate.len(), 1, "{a:?}");
         }
@@ -1165,5 +1547,352 @@ mod tests {
             let at_gate = br.at_gate("proc.run", Some(&argv(a)), env, b.path(), Some(&path));
             assert!(at_gate.is_empty(), "{a:?}");
         }
+    }
+
+    /// A broker that grants `HARBOR_TOKEN` to each of `programs`, found in
+    /// `bin`.
+    fn granting(bin: &Path, programs: &[&str]) -> Broker {
+        let mut cfg = BrokerConfig::default();
+        for p in programs {
+            cfg.programs.insert(
+                p.to_string(),
+                ProgramGrant {
+                    env: [("HARBOR_TOKEN".to_string(), "harbor_token".to_string())].into(),
+                },
+            );
+        }
+        Broker::new(
+            &cfg,
+            ready(&[("harbor_token", "harbor-not-a-secret")]),
+            Some(format!("{}:/usr/bin:/bin", bin.display())),
+        )
+    }
+
+    /// theseus-txvt: the launchers are known by name, a version suffix
+    /// aside, and other programs are not.
+    #[test]
+    fn a_launcher_is_known_by_its_name() {
+        for (name, what) in [
+            ("bash", "a shell"),
+            ("sh", "a shell"),
+            ("python3.12", "an interpreter"),
+            ("python3", "an interpreter"),
+            ("node18", "an interpreter"),
+            ("env", "a program that runs the command it is given"),
+            ("sudo", "a program that runs the command it is given"),
+            ("make", "a runner of a project's own scripts"),
+            ("npx", "a runner of a project's own scripts"),
+            ("pip3", "a runner of a project's own scripts"),
+        ] {
+            assert_eq!(launcher(name), Some(what), "{name}");
+        }
+        for name in ["gh", "git", "cargo", "npm", "harbor", "python3-config", "3"] {
+            assert_eq!(launcher(name), None, "{name}");
+        }
+    }
+
+    /// theseus-txvt: a granted name that resolves to a launcher's file (a
+    /// link named for a leaf program) gets nothing at the call, which the
+    /// config's check of the name cannot see.
+    #[tokio::test]
+    async fn a_granted_name_that_is_a_launchers_file_gets_nothing() {
+        let b = bin(&["python3.12"]);
+        std::os::unix::fs::symlink(b.path().join("python3.12"), b.path().join("harbor")).unwrap();
+        let path = format!("{}:/usr/bin:/bin", b.path().display());
+        let br = granting(b.path(), &["harbor"]);
+        let j = br
+            .for_job(
+                &argv(&["harbor", "sync"]),
+                &[],
+                b.path(),
+                Some(&path),
+                Posture::Notify,
+            )
+            .await;
+        assert!(j.env.is_empty());
+        let note = j.note().unwrap();
+        assert!(
+            note.starts_with("[harbor got no HARBOR_TOKEN: it is ")
+                && note.contains("(an interpreter)"),
+            "{note}"
+        );
+        assert!(br
+            .at_gate(
+                "proc.run",
+                Some(&argv(&["harbor", "sync"])),
+                &[],
+                b.path(),
+                Some(&path)
+            )
+            .is_empty());
+    }
+
+    /// theseus-txvt: cargo gets its grant only for its registry commands that
+    /// build nothing, `publish` only with `--no-verify`, and never with a
+    /// toolchain, `--config`, or `-Z`; npm only for its registry commands
+    /// that run no package's scripts, `publish` only with `--ignore-scripts`
+    /// and a local package, and never with an option that names a program.
+    /// The gate's view agrees with the spawn's.
+    #[tokio::test]
+    async fn cargo_and_npm_get_a_grant_only_for_commands_that_run_nothing_else() {
+        let b = bin(&["cargo", "npm"]);
+        let path = format!("{}:/usr/bin:/bin", b.path().display());
+        let br = granting(b.path(), &["cargo", "npm"]);
+        let given: [&[&str]; 9] = [
+            &["cargo", "publish", "--no-verify"],
+            &["cargo", "-q", "publish", "--no-verify", "--allow-dirty"],
+            &["cargo", "owner", "--add", "ada", "harbor"],
+            &["cargo", "yank", "--version", "1.0.0", "harbor"],
+            &["npm", "publish", "--ignore-scripts"],
+            &[
+                "npm",
+                "publish",
+                "--ignore-scripts",
+                "--registry",
+                "https://registry.invented/",
+            ],
+            &[
+                "npm",
+                "publish",
+                "./harbor-1.0.0.tgz",
+                "--ignore-scripts=true",
+            ],
+            &["npm", "whoami"],
+            &["npm", "view", "harbor", "version"],
+        ];
+        for a in given {
+            let j = br
+                .for_job(&argv(a), &[], b.path(), Some(&path), Posture::Notify)
+                .await;
+            assert_eq!((j.env.len(), j.note()), (1, None), "{a:?}");
+            let at_gate = br.at_gate("proc.run", Some(&argv(a)), &[], b.path(), Some(&path));
+            assert_eq!(at_gate.len(), 1, "{a:?}");
+        }
+        let withheld: [(&[&str], &str); 16] = [
+            (
+                &["cargo", "publish"],
+                "builds the package unless `--no-verify`",
+            ),
+            (
+                &["cargo", "build"],
+                "`cargo build` is not one of cargo's registry commands",
+            ),
+            (&["cargo", "leak"], "or a `cargo-leak` program"),
+            (
+                &["cargo"],
+                "the call runs none of cargo's registry commands",
+            ),
+            (
+                &["cargo", "+nightly", "publish", "--no-verify"],
+                "`+nightly` before cargo's command",
+            ),
+            (
+                &["cargo", "--config", "x=1", "owner"],
+                "`--config` before cargo's command",
+            ),
+            (
+                &[
+                    "cargo",
+                    "publish",
+                    "--no-verify",
+                    "--config=build.rustc-wrapper='leak'",
+                ],
+                "can name a setting",
+            ),
+            (
+                &["cargo", "yank", "-Zunstable-options"],
+                "`-Zunstable-options` can name",
+            ),
+            (
+                &["npm", "publish"],
+                "runs the package's lifecycle scripts unless",
+            ),
+            (
+                &["npm", "publish", "--ignore-scripts", "false"],
+                "unless `--ignore-scripts`",
+            ),
+            (
+                &["npm", "publish", "--ignore-scripts", "--no-ignore-scripts"],
+                "unless",
+            ),
+            (
+                &["npm", "install"],
+                "`npm install` is not one of npm's registry commands",
+            ),
+            (&["npm", "exec", "leak"], "`npm exec` is not one of"),
+            (
+                &[
+                    "npm",
+                    "publish",
+                    "--ignore-scripts",
+                    "github:invented/harbor",
+                ],
+                "npm fetches and prepares",
+            ),
+            (
+                &["npm", "whoami", "--script-shell=leak"],
+                "`--script-shell=leak` names a program",
+            ),
+            (
+                &["npm", "publish", "--ignore-scripts", "--userconfig", "rc"],
+                "`--userconfig` names",
+            ),
+        ];
+        for (a, says) in withheld {
+            let j = br
+                .for_job(&argv(a), &[], b.path(), Some(&path), Posture::Notify)
+                .await;
+            assert!(j.env.is_empty(), "{a:?}");
+            let note = j.note().unwrap_or_default();
+            assert!(
+                note.starts_with(&format!("[{} got no HARBOR_TOKEN: ", a[0])),
+                "{note}"
+            );
+            assert!(note.contains(says), "{a:?}: {note}");
+            let at_gate = br.at_gate("proc.run", Some(&argv(a)), &[], b.path(), Some(&path));
+            assert!(at_gate.is_empty(), "{a:?}");
+        }
+    }
+
+    /// theseus-ur1t: the pins follow the `GIT_CONFIG_*` pairs a job has
+    /// already, so both apply.
+    #[test]
+    fn the_git_pins_follow_the_pairs_a_job_has() {
+        let mut env = vec![
+            ("PATH".to_string(), "/usr/bin".to_string()),
+            ("GIT_CONFIG_COUNT".to_string(), "1".to_string()),
+            ("GIT_CONFIG_KEY_0".to_string(), "color.ui".to_string()),
+            ("GIT_CONFIG_VALUE_0".to_string(), "never".to_string()),
+        ];
+        pin_git(&mut env);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("GIT_CONFIG_COUNT"), Some("3"));
+        assert_eq!(get("GIT_CONFIG_KEY_0"), Some("color.ui"));
+        assert_eq!(get("GIT_CONFIG_KEY_1"), Some("core.hooksPath"));
+        assert_eq!(get("GIT_CONFIG_VALUE_1"), Some("/dev/null"));
+        assert_eq!(get("GIT_CONFIG_KEY_2"), Some("core.fsmonitor"));
+        assert_eq!(get("GIT_CONFIG_VALUE_2"), Some(""));
+        assert_eq!(
+            env.iter().filter(|(k, _)| k == "GIT_CONFIG_COUNT").count(),
+            1
+        );
+    }
+
+    /// theseus-ur1t, against a real git: a job's git given a secret runs
+    /// neither the repository's hooks (`reference-transaction`, which every
+    /// fetch's ref update runs) nor its `core.fsmonitor` program, so neither
+    /// sees the value; without the pins both do. A grant withheld pins
+    /// nothing, so the operator's own hooks still run then.
+    #[tokio::test]
+    async fn a_granted_gits_hooks_and_fsmonitor_never_see_the_variable() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+        let d = tempfile::tempdir().unwrap();
+        let (src, dst) = (d.path().join("src"), d.path().join("dst"));
+        let git = |dir: &Path, args: &[&str], extra: &[(String, String)]| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .env_clear()
+                .env("PATH", std::env::var("PATH").unwrap_or_default())
+                .env("HOME", d.path())
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_AUTHOR_NAME", "Ada")
+                .env("GIT_AUTHOR_EMAIL", "ada@invented.example")
+                .env("GIT_COMMITTER_NAME", "Ada")
+                .env("GIT_COMMITTER_EMAIL", "ada@invented.example")
+                .envs(extra.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        std::fs::create_dir_all(&src).unwrap();
+        git(&src, &["init", "-q", "-b", "main"], &[]);
+        git(&src, &["commit", "-q", "--allow-empty", "-m", "one"], &[]);
+        git(d.path(), &["clone", "-q", "src", "dst"], &[]);
+        // What a cloned project's hook manager or an earlier job leaves.
+        let marker = d.path().join("leaked");
+        // Each writes the variable down: the hook lets the update go on,
+        // and the fsmonitor fails, so git scans the tree itself.
+        let script = |name: &str, exit: u8| {
+            let p = d.path().join(name);
+            std::fs::write(
+                &p,
+                format!(
+                    "#!/bin/sh\necho \"$HARBOR_TOKEN\" >> {}\nexit {exit}\n",
+                    marker.display()
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let hook = script("reference-transaction", 0);
+        let hooks = dst.join(".git/hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        std::fs::copy(&hook, hooks.join("reference-transaction")).unwrap();
+        let monitor = script("fsmonitor", 1);
+        git(
+            &dst,
+            &["config", "core.fsmonitor", &monitor.to_string_lossy()],
+            &[],
+        );
+        // The job's environment, as the broker leaves it for a granted git.
+        let b = bin(&["git"]);
+        let path = format!("{}:/usr/bin:/bin", b.path().display());
+        let br = granting(b.path(), &["git"]);
+        let j = br
+            .for_job(
+                &argv(&["git", "fetch"]),
+                &[],
+                &dst,
+                Some(&path),
+                Posture::Notify,
+            )
+            .await;
+        assert!(j.git_pinned);
+        let mut env: Vec<(String, String)> = j
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.expose().to_string()))
+            .collect();
+        let unpinned = env.clone();
+        j.pin(&mut env);
+        git(&src, &["commit", "-q", "--allow-empty", "-m", "two"], &[]);
+        git(&dst, &["fetch", "-q"], &env);
+        git(&dst, &["status", "--short"], &env);
+        assert!(
+            !marker.exists(),
+            "a hook or the fsmonitor ran with the pins"
+        );
+        // The same calls without the pins: both programs see the value.
+        git(&src, &["commit", "-q", "--allow-empty", "-m", "three"], &[]);
+        git(&dst, &["fetch", "-q"], &unpinned);
+        git(&dst, &["status", "--short"], &unpinned);
+        let leaked = std::fs::read_to_string(&marker).unwrap_or_default();
+        assert!(
+            leaked
+                .lines()
+                .filter(|l| *l == "harbor-not-a-secret")
+                .count()
+                >= 2,
+            "{leaked:?}"
+        );
+        // A withheld grant pins nothing.
+        let w = br
+            .for_job(
+                &argv(&["git", "status"]),
+                &[],
+                &dst,
+                Some(&path),
+                Posture::Notify,
+            )
+            .await;
+        assert!(w.env.is_empty() && !w.git_pinned);
     }
 }

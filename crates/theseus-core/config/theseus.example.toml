@@ -134,11 +134,23 @@ brave_api_key = "op://Eddie-Tabitha/vbihk5lczjkgyxwqe5ib7fko2m/notesPlain#value"
 # and the tool result says so.
 # Nor does a program the call could make run another: a call that sets its own
 # environment gets no grant; gh gets it only for its own commands (api, pr,
-# repo, ...), never an alias, an extension, or --web's browser; and git only for
+# repo, ...), never an alias, an extension, or --web's browser; git only for
 # clone, fetch, ls-remote, pull, push, and remote, never an alias, -c, or a
-# program an option or a URL names. What a granted program runs on its own
-# account (a repository's hooks, a helper its config names) still gets the
-# variable, so the secret's posture is your control.
+# program an option or a URL names; cargo only for login, logout, owner,
+# search, yank, and publish --no-verify, which build nothing; and npm only for
+# its registry commands (publish --ignore-scripts, view, whoami, owner, ...),
+# which run no package's scripts.
+# A grant to a launcher fails to load: a shell, an interpreter, a program that
+# runs the command it is given (env, sudo, xargs, timeout, ...), or a runner of
+# a project's scripts (make, just, npx, pip, ...) would hand the variable to
+# whatever the call names. That list can't be finished (find -exec, an
+# editor), so grant only to a program whose commands run nothing you didn't
+# choose. A granted git, and the git a granted gh runs, runs no hooks and no
+# fsmonitor program (both pinned off over every config file; git 2.31 or
+# later), so your own hooks don't run for them either. What else a granted
+# program runs on its own account (a credential helper or core.sshCommand its
+# config names, ssh's own config) still gets the variable, so the secret's
+# posture is your control.
 # web.search is granted its key ([tools.web] search_key_secret) the same way,
 # so each search runs at no looser a posture than that secret's.
 # [broker.programs.gh]

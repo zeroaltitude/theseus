@@ -1344,6 +1344,14 @@ impl Config {
                      found on PATH, with no '/'"
                 );
             }
+            if let Some(what) = crate::broker::launcher(program) {
+                anyhow::bail!(
+                    "broker.programs.{program}: a secret granted to a program reaches only that \
+                     program, never one it can be made to run, and {program} is {what}, whose \
+                     job is to run what the call names (theseus-txvt). Grant the secret to the \
+                     program {program} would run, and have the job run that one directly"
+                );
+            }
             if grant.env.is_empty() {
                 anyhow::bail!(
                     "broker.programs.{program}.env grants nothing: name a variable and its \
@@ -1887,6 +1895,33 @@ mod tests {
         ] {
             let e = format!("{:#}", with(bad).unwrap_err());
             assert!(e.contains(says), "{bad}: {e}");
+        }
+    }
+
+    /// theseus-txvt: a grant to a launcher (a shell, an interpreter, a
+    /// wrapper that runs the command it is given, or a runner of a project's
+    /// scripts) fails to load, naming the rule; a leaf program, and the four
+    /// whose commands the broker knows (gh, git, cargo, npm), load.
+    #[test]
+    fn a_grant_to_a_launcher_fails_to_load_naming_the_rule() {
+        let with = |program: &str| {
+            Config::parse(&format!(
+                "[secrets]\nanthropic_api_key = \"op://v/i/f\"\nharbor_token = \"op://v/h/f\"\n\n\
+                 [broker.programs.\"{program}\"]\nenv = {{ HARBOR_TOKEN = \"harbor_token\" }}\n"
+            ))
+            .map(|(c, _)| c)
+        };
+        for program in [
+            "bash", "python3", "node", "env", "sudo", "xargs", "make", "npx",
+        ] {
+            let e = format!("{:#}", with(program).unwrap_err());
+            assert!(
+                e.contains(&format!("broker.programs.{program}: a secret granted to a program reaches only that program, never one it can be made to run")),
+                "{program}: {e}"
+            );
+        }
+        for program in ["gh", "git", "cargo", "npm", "harbor"] {
+            assert!(with(program).is_ok(), "{program}");
         }
     }
 
