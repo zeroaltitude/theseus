@@ -133,6 +133,39 @@ fn refused_connection(e: &twilight_http::Error) -> bool {
     format!("{e:?}").contains("ConnectionRefused")
 }
 
+/// What a card does now (theseus-50p).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CardHold {
+    /// It goes.
+    Go,
+    /// Its place has not shown its call yet: it waits until then.
+    Until(tokio::time::Instant),
+    /// Its wait is over, and its place never showed the call: it goes all the
+    /// same, since a card is never held hostage to live progress.
+    GaveUp,
+}
+
+/// The card's rule, over what its lane knows: whether the place has shown the
+/// call (`asked`), whether the card was written while this lane runs
+/// (`fresh`) for a session a place here renders (`rendered_here`), and the wait
+/// it began, if any.
+fn card_hold(
+    asked: bool,
+    fresh: bool,
+    rendered_here: bool,
+    held: Option<tokio::time::Instant>,
+    now: tokio::time::Instant,
+) -> CardHold {
+    if asked || !fresh || !rendered_here {
+        return CardHold::Go;
+    }
+    match held {
+        None => CardHold::Until(now + CARD_WAIT),
+        Some(until) if now < until => CardHold::Until(until),
+        Some(_) => CardHold::GaveUp,
+    }
+}
+
 /// A create's nonce: from its message's key, which names the turn or the
 /// post it belongs to, so every send of one message carries the same one.
 /// A decimal u64, under Discord's 25 characters.
@@ -413,28 +446,38 @@ impl Lane {
             return false;
         }
         let q = body_of(a)["question"].as_str().unwrap_or("").to_string();
-        if let Some(i) = self.asked.iter().position(|x| *x == q) {
-            self.asked.remove(i);
-            self.held = None;
-            return false;
-        }
-        if let Some((held, until)) = &self.held {
-            if *held == q {
-                if tokio::time::Instant::now() < *until {
-                    return true;
-                }
+        let asked = match self.asked.iter().position(|x| *x == q) {
+            Some(i) => self.asked.remove(i).is_some(),
+            None => false,
+        };
+        let fresh = a.planned_at_ms >= self.started_ms;
+        // Read only when it decides.
+        let rendered_here = !asked
+            && fresh
+            && matches!(self.shared.core.kernel.action(&q), Ok(Some(question))
+                if self.shared.renders(&question.session_id));
+        let held = self.held.as_ref().filter(|(h, _)| *h == q).map(|h| h.1);
+        match card_hold(
+            asked,
+            fresh,
+            rendered_here,
+            held,
+            tokio::time::Instant::now(),
+        ) {
+            CardHold::Until(until) => {
+                self.held = Some((q, until));
+                true
+            }
+            CardHold::GaveUp => {
                 tracing::warn!(target = %self.target, question = %q, "a card went without its call's tool line: its place never showed the call");
                 self.held = None;
-                return false;
+                false
+            }
+            CardHold::Go => {
+                self.held = None;
+                false
             }
         }
-        let rendered_here = matches!(self.shared.core.kernel.action(&q), Ok(Some(question))
-            if self.shared.renders(&question.session_id));
-        if a.planned_at_ms < self.started_ms || !rendered_here {
-            return false;
-        }
-        self.held = Some((q, tokio::time::Instant::now() + CARD_WAIT));
-        true
     }
 
     /// One post: planned into writes, dispatched, written, settled. An error
@@ -1175,6 +1218,49 @@ pub(crate) async fn courier(shared: Arc<Shared>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A card's rule (theseus-50p): a card written while its lane runs, for a
+    /// session a place here renders, waits for its place to show its call,
+    /// for `CARD_WAIT` at most, and then goes all the same; once the place
+    /// has shown it, it goes at once; a card from before this process, or for
+    /// a session no place here renders, never waits.
+    #[test]
+    fn a_card_waits_for_its_call_at_most_card_wait() {
+        let now = tokio::time::Instant::from_std(std::time::Instant::now());
+        let later = now + CARD_WAIT / 2;
+        // A fresh card for a session rendered here starts its wait.
+        assert_eq!(
+            card_hold(false, true, true, None, now),
+            CardHold::Until(now + CARD_WAIT)
+        );
+        // It waits on, until its wait is over, never longer.
+        let until = now + CARD_WAIT;
+        assert_eq!(
+            card_hold(false, true, true, Some(until), later),
+            CardHold::Until(until)
+        );
+        assert_eq!(
+            card_hold(false, true, true, Some(until), until),
+            CardHold::GaveUp
+        );
+        assert_eq!(
+            card_hold(false, true, true, Some(until), until + CARD_WAIT),
+            CardHold::GaveUp
+        );
+        // The place showed the call: it goes, waiting or not.
+        assert_eq!(card_hold(true, true, true, None, now), CardHold::Go);
+        assert_eq!(
+            card_hold(true, true, true, Some(until), later),
+            CardHold::Go
+        );
+        // A card from before this process, or one no place here shows.
+        assert_eq!(card_hold(false, false, true, None, now), CardHold::Go);
+        assert_eq!(card_hold(false, true, false, None, now), CardHold::Go);
+        assert_eq!(
+            card_hold(false, true, false, Some(until), later),
+            CardHold::Go
+        );
+    }
 
     #[test]
     fn a_nonce_is_stable_per_message_and_fits_discord() {
