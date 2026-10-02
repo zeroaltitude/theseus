@@ -1,0 +1,9 @@
+$ theseus reach msg_task_last --generations 0
+--- requests
+node.reach
+--- stdout
+msg_task_last: seen by 1 context in 1 session · first 06:26:40.001Z · last 06:26:40.001Z
+  generation 0 · ses_task01 · msg_task_last at 120: 0 compilations, 1 loop · first 06:26:40.001Z · last 06:26:40.001Z
+partial: its copies go further than this walk followed (a generation cap, or 256 copies); --generations N follows more, up to 16
+--- stderr
+--- exit 0

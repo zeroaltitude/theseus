@@ -38,7 +38,8 @@ Quick start:
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
   theseus wakes                              pending wakes (wake.at): session, due time, and note
-  theseus cancel <id>                        stop a task and its jobs, or cancel a wake (its last six characters are enough)
+  theseus reach <node>                       where a node went: the contexts that held it, and its copies in other sessions
+  theseus cancel <id>                       stop a task and its jobs, or cancel a wake (its last six characters are enough)
   theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
   theseus wait <session> --until blocked      return once a session needs you (or settled, or terminal for a task)
   theseus executions explain <id>            one execution in full: what it waits on, its questions, budget, last rows
@@ -104,6 +105,17 @@ enum Cmd {
         /// Print tool results and long messages in full (default: clipped).
         #[arg(long)]
         full: bool,
+    },
+    /// Where a node went (node.reach): the compilations and loops of its own session whose
+    /// context held it, then its copies in other sessions over derived_from (a task's report in
+    /// its parent, a task's brief from the reply that started it), each with theirs. NODE is a
+    /// node's id, as `theseus history --json` and the Observatory's Nodes panel show it.
+    Reach {
+        #[arg(value_name = "NODE")]
+        node: String,
+        /// How many generations of copies to follow (default 3, at most 16).
+        #[arg(long, value_name = "N")]
+        generations: Option<u32>,
     },
     /// Follow a session live: streamed text, tool calls, confirmations, context decisions,
     /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent.
@@ -369,6 +381,7 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a).await,
         Cmd::History { session, n, full } => cmd::history(c, json, session, n, full).await,
+        Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Watch { all: true, .. } => cmd::watch_all(c, json).await,
         Cmd::Watch {
             session, thinking, ..

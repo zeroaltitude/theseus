@@ -143,6 +143,10 @@ button.link.danger { color: var(--bad); }
 .lrow .summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lrow .ids { white-space: nowrap; }
 .lrow .ldata { grid-column: 1 / -1; margin: 4px 0 6px; padding: 8px; background: var(--panel-2); border-radius: 6px; font-size: 11px; max-height: 260px; overflow: auto; }
+/* A node's row has a sixth cell, its reach (theseus-n4m). */
+.lrow.nrow { grid-template-columns: 44px 84px minmax(120px, auto) minmax(90px, auto) 1fr auto; }
+.lrow .reach { white-space: nowrap; justify-self: end; }
+.lrow .reach-seen { color: var(--accent); }
 .kind { color: var(--text); }
 .kind.action { color: var(--ok); } .kind.execution { color: var(--accent); } .kind.completion { color: #5ec8d8; }
 .kind.budget { color: var(--warn); } .kind.turn, .kind.loop { color: #b07cff; } .kind.provider { color: #d86a5e; }

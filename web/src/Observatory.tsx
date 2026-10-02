@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { heldWhat } from './protocol'
+import { heldWhat, reachWords } from './protocol'
 import type { ProtocolClient } from './protocol'
-import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, ExternalTextInfo, Health, LedgerEntry, NodeInfo, SessionInfo, StartupPhase, ToolList, Usage, WakeInfo } from './protocol'
+import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, ExternalTextInfo, Health, LedgerEntry, NodeInfo, NodeReachResult, SessionInfo, StartupPhase, ToolList, Usage, WakeInfo } from './protocol'
 import { DiskSpoolLines } from './DiskSpool'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
@@ -117,6 +117,17 @@ export default function Observatory({ client, health, tick, currentSession, onRe
   const [nodesTotal, setNodesTotal] = useState(0)
   const [nodeKind, setNodeKind] = useState<string>('all')
   const [openNode, setOpenNode] = useState<string | null>(null)
+  // Each node's reach (theseus-n4m), read when its cell is clicked: the answer, or why there is none.
+  const [reach, setReach] = useState<Record<string, NodeReachResult | string>>({})
+  const askReach = useCallback(async (id: string) => {
+    setReach((r) => ({ ...r, [id]: 'reading…' }))
+    try {
+      const got = await client.call<NodeReachResult>('node.reach', { node_id: id })
+      setReach((r) => ({ ...r, [id]: got }))
+    } catch (err) {
+      setReach((r) => ({ ...r, [id]: `no reach: ${(err as { message?: string }).message ?? String(err)}` }))
+    }
+  }, [client])
   const [tools, setTools] = useState<ToolList | null>(null)
   const [catalog, setCatalog] = useState<CatalogList | null>(null)
   const [recompileNote, setRecompileNote] = useState<string | null>(null)
@@ -783,12 +794,13 @@ export default function Observatory({ client, health, tick, currentSession, onRe
         </div>
         <div className="ledger">
           {nodes.filter((n) => nodeKind === 'all' || n.kind === nodeKind).map((n) => (
-            <div key={n.node_id} className={`lrow ${openNode === n.node_id ? 'open' : ''}`} onClick={() => setOpenNode((o) => o === n.node_id ? null : n.node_id)}>
+            <div key={n.node_id} className={`lrow nrow ${openNode === n.node_id ? 'open' : ''}`} onClick={() => setOpenNode((o) => o === n.node_id ? null : n.node_id)}>
               <span className="muted pos">{n.position}</span>
               <span className="muted">{clock(n.at_unix_ms)}</span>
               <code className={`kind node-${n.kind}`}>{n.kind}</code>
               <span className="muted small ids">{short(n.node_id)}{n.loop_index != null ? ` · loop ${n.loop_index}` : ''}</span>
               <span className="summary muted">{nodeSummary(n)}</span>
+              <ReachCell id={n.node_id} r={reach[n.node_id]} onAsk={askReach} />
               {openNode === n.node_id && <pre className="ldata">{JSON.stringify({ ...n, text: n.text.length > 4000 ? `${n.text.slice(0, 4000)}…` : n.text }, null, 2)}</pre>}
             </div>
           ))}
@@ -843,6 +855,25 @@ export default function Observatory({ client, health, tick, currentSession, onRe
         )}
       </ObsSection>
     </aside>
+  )
+}
+
+/// A node's reach cell (theseus-n4m, step 12a): `seen by 24 contexts in 2 sessions`, with the first and
+/// last exposure; each generation in its tooltip. It is read when clicked, never for every row, and a
+/// click reads it again.
+function ReachCell({ id, r, onAsk }: { id: string; r: NodeReachResult | string | undefined; onAsk: (id: string) => void }) {
+  const ask = (e: React.MouseEvent) => { e.stopPropagation(); onAsk(id) }
+  if (r === undefined) {
+    return <button type="button" className="chip reach-ask" data-node={id} title="where this node went: the contexts that held it, and its copies (node.reach)" onClick={ask}>reach</button>
+  }
+  if (typeof r === 'string') return <span className="muted small reach" data-node={id}>{r}</span>
+  const w = reachWords(r)
+  const span = w.first != null && w.last != null ? ` · ${clock(w.first)}–${clock(w.last)}` : ''
+  return (
+    <span className="small reach reach-seen" data-node={id} onClick={ask}
+      title={[...w.generations, w.first != null ? `first ${new Date(w.first).toLocaleString()}` : 'never held', w.last != null ? `last ${new Date(w.last).toLocaleString()}` : '', 'click to read it again'].filter(Boolean).join('\n')}>
+      {w.seen}{span}
+    </span>
   )
 }
 

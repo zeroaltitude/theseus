@@ -1,12 +1,13 @@
 // A session's content graph: every message, tool call, and result as a node. Edges: a turn's prompt to its first
 // reply, a reply to the calls it made, each call to its result, results to the loop that read them, and (dashed)
-// the end of one turn to the next. Click a node for its record.
+// the end of one turn to the next. Click a node for its record, and its reach.
 import { useEffect, useMemo, useState } from 'react'
 import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Bot, User, Wrench, FileText } from 'lucide-react'
-import type { NodeInfo } from '@protocol'
-import { ms, short, tokens, usd } from '@/lib/format'
+import { reachWords, type NodeInfo, type NodeReachResult } from '@protocol'
+import { call } from '@/lib/rpc'
+import { clock, ms, short, tokens, usd } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
 import { JsonView } from './JsonView'
 import { Empty } from './ui'
@@ -135,11 +136,40 @@ export function SessionGraph({ nodes }: { nodes: NodeInfo[] }) {
       <div className="h-48 shrink-0 overflow-auto border-t border-line p-2">
         {pick ? (
           <>
-            <div className="num mb-1 text-[11px] text-ink-faint">{pick.kind} · {short(pick.node_id)} · position {pick.position}</div>
+            <div className="num mb-1 text-[11px] text-ink-faint">
+              {pick.kind} · {short(pick.node_id)} · position {pick.position} · <Reach key={pick.node_id} id={pick.node_id} />
+            </div>
             <JsonView value={{ ...pick, text: pick.text.length > 2000 ? `${pick.text.slice(0, 2000)}…` : pick.text }} maxHeight="140px" />
           </>
         ) : <Empty>click a node for its record</Empty>}
       </div>
     </div>
+  )
+}
+
+/** A node's reach (theseus-n4m, step 12a), as the Observatory's cell says it: read when clicked, and again on a
+ * click; each generation in its tooltip. */
+function Reach({ id }: { id: string }) {
+  const [r, setR] = useState<NodeReachResult | string | null>(null)
+  const ask = () => {
+    setR('reading…')
+    call<NodeReachResult>('node.reach', { node_id: id }).then(setR, (e: unknown) =>
+      setR(`no reach: ${(e as { message?: string }).message ?? String(e)}`),
+    )
+  }
+  if (r === null) {
+    return (
+      <button onClick={ask} className="rounded px-1.5 ring-1 ring-inset ring-line hover:text-ink" title="where this node went (node.reach)">
+        reach
+      </button>
+    )
+  }
+  if (typeof r === 'string') return <span>{r}</span>
+  const w = reachWords(r)
+  return (
+    <span onClick={ask} className="cursor-pointer text-live" title={w.generations.join('\n')}>
+      {w.seen}
+      {w.first != null && w.last != null ? ` · ${clock(w.first)}–${clock(w.last)}` : ''}
+    </span>
   )
 }

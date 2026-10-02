@@ -1189,6 +1189,94 @@ pub fn wakes_line(wakes: &[theseus_protocol::WakeInfo], now_ms: u64) -> Option<S
     ))
 }
 
+/// Where a node went, as `theseus reach` prints it (theseus-n4m, step 12a):
+/// its reach in a line, `seen by 3 contexts in 2 sessions`, with the first
+/// and last exposure of the node and its copies; then the node and each
+/// copy, a generation to a line, with the compilations that hold it under
+/// it; and a line that says so when the walk stopped short.
+pub fn reach_lines(r: &theseus_protocol::NodeReachResult) -> Vec<Line> {
+    let all = || std::iter::once(&r.direct).chain(r.descendants.iter().map(|d| &d.exposure));
+    let first = all().filter_map(|e| e.first_ms).min();
+    let last = all().filter_map(|e| e.last_ms).max();
+    let mut lines = vec![Line::new(
+        Tag::Plain,
+        format!(
+            "{}: seen by {} in {}{}",
+            r.node_id,
+            plural(r.totals.contexts, "context", "contexts"),
+            plural(r.totals.sessions.into(), "session", "sessions"),
+            exposed(first, last)
+        ),
+    )];
+    reach_generation(
+        &mut lines,
+        format!(
+            "generation 0 · {} · {} at {}",
+            r.session_id, r.node_id, r.position
+        ),
+        &r.direct,
+    );
+    for d in &r.descendants {
+        reach_generation(
+            &mut lines,
+            format!(
+                "generation {} · {} · {} at {}, {} {} by the {}",
+                d.generation, d.session_id, d.node_id, d.position, d.via, d.from, d.route
+            ),
+            &d.exposure,
+        );
+    }
+    if r.partial {
+        lines.push(Line::new(
+            Tag::Warn,
+            "partial: its copies go further than this walk followed (a generation cap, or 256 \
+             copies); --generations N follows more, up to 16",
+        ));
+    }
+    lines
+}
+
+/// One generation of a reach: its head, what held it, and the compilations
+/// that hold it.
+fn reach_generation(lines: &mut Vec<Line>, head: String, e: &theseus_protocol::ReachExposure) {
+    let held = if e.compilations.is_empty() && e.loops == 0 {
+        "no context held it".to_string()
+    } else {
+        format!(
+            "{}, {}{}",
+            plural(e.compilations.len() as u64, "compilation", "compilations"),
+            plural(e.loops, "loop", "loops"),
+            exposed(e.first_ms, e.last_ms)
+        )
+    };
+    lines.push(Line::new(Tag::Plain, format!("  {head}: {held}")));
+    for c in &e.compilations {
+        lines.push(Line::new(
+            Tag::Dim,
+            format!(
+                "      compilation {} ({}, {})",
+                c.compilation_id,
+                c.strategy,
+                fmt_time(c.created_at_ms)
+            ),
+        ));
+    }
+}
+
+/// ` · first 03:41:07.123Z · last 03:42:10.456Z`, or nothing when nothing
+/// held it.
+fn exposed(first: Option<u64>, last: Option<u64>) -> String {
+    match (first, last) {
+        (Some(f), Some(l)) => format!(" · first {} · last {}", fmt_time(f), fmt_time(l)),
+        _ => String::new(),
+    }
+}
+
+/// `1 loop`, `2 loops`.
+fn plural(n: u64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
 /// One task, as `theseus tasks` lists it (DD7): its short id, its state and
 /// what it waits on, its spend of its carved limit, its age, its title, and
 /// the session that started it. Tagged with its pill's level, when it has

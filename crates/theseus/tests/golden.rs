@@ -1664,3 +1664,54 @@ fn an_error_answer_exits_1_with_its_class() {
     };
     golden("error_class", &run(&["sessions"], vec![s]));
 }
+
+/// `theseus reach` (theseus-n4m, step 12a): a task's last message, which no
+/// context of its own session held, relayed into the parent by its report,
+/// where one compilation and two loops held the copy. Then `--json`, a walk
+/// that stopped short, and a node the daemon does not know.
+#[test]
+fn reach_prints_each_generation_and_what_held_it() {
+    let result = json!({
+        "node_id": "msg_task_last", "session_id": "ses_task01", "position": 120,
+        "direct": {"compilations": [], "loops": 0},
+        "descendants": [{
+            "node_id": "msg_relayed", "session_id": S, "position": 140, "generation": 1,
+            "via": "derived_from", "route": "report", "from": "msg_task_last",
+            "compilations": [{"compilation_id": "cmp_r7", "strategy": "transcript",
+                              "created_at_ms": 1_759_300_000_123u64}],
+            "loops": 2, "first_ms": 1_759_300_000_123u64, "last_ms": 1_759_300_061_456u64}],
+        "totals": {"contexts": 3, "sessions": 2}, "partial": false});
+    golden(
+        "reach",
+        &run(
+            &["reach", "msg_task_last"],
+            vec![step("node.reach", result.clone())],
+        ),
+    );
+    golden(
+        "reach_json",
+        &run(
+            &["--json", "reach", "msg_task_last"],
+            vec![step("node.reach", result)],
+        ),
+    );
+    let cut = json!({
+        "node_id": "msg_task_last", "session_id": "ses_task01", "position": 120,
+        "direct": {"compilations": [], "loops": 1, "first_ms": 1_759_300_000_001u64,
+                   "last_ms": 1_759_300_000_001u64},
+        "descendants": [], "totals": {"contexts": 1, "sessions": 1}, "partial": true});
+    golden(
+        "reach_partial",
+        &run(
+            &["reach", "msg_task_last", "--generations", "0"],
+            vec![step("node.reach", cut)],
+        ),
+    );
+    let unknown = Step {
+        method: "node.reach",
+        before: vec![],
+        answer: Err(json!({"code": -32002, "message": "no node \"msg_gone\""})),
+        after: vec![],
+    };
+    golden("reach_unknown", &run(&["reach", "msg_gone"], vec![unknown]));
+}

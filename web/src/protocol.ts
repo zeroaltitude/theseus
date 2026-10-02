@@ -4,7 +4,7 @@
 // types. They are re-exported here, some under the names the apps use; this
 // file keeps what is not a type: ProtocolClient and its helpers.
 
-import type { ExternalText, Id, Message, Notification, Request, RpcError } from './protocol.gen'
+import type { ExternalText, Id, Message, NodeReachResult, Notification, Request, RpcError } from './protocol.gen'
 
 export type * from './protocol.gen'
 export type {
@@ -20,6 +20,29 @@ export type {
 /// query, `web.search "tokio JoinSet documentation"`, anything else by its URL.
 export function heldWhat(h: ExternalText): string {
   return h.query != null ? `${h.tool} "${h.query}"` : `${h.tool} ${h.url}`
+}
+
+/// A node's reach in words (theseus-n4m, step 12a), as `theseus reach` says it: `seen by 24 contexts in
+/// 2 sessions`, with the first and last exposure of the node and its copies (absent when nothing held it),
+/// and each generation in a line, for a tooltip.
+export function reachWords(r: NodeReachResult): { seen: string; first?: number; last?: number; generations: string[] } {
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`
+  const all = [r.direct, ...r.descendants]
+  const firsts = all.flatMap((e) => (e.first_ms != null ? [e.first_ms] : []))
+  const lasts = all.flatMap((e) => (e.last_ms != null ? [e.last_ms] : []))
+  const held = (e: (typeof all)[number]) =>
+    e.compilations.length === 0 && e.loops === 0
+      ? 'no context held it'
+      : `${n(e.compilations.length, 'compilation', 'compilations')}, ${n(e.loops, 'loop', 'loops')}`
+  return {
+    seen: `seen by ${n(r.totals.contexts, 'context', 'contexts')} in ${n(r.totals.sessions, 'session', 'sessions')}${r.partial ? ', or more' : ''}`,
+    first: firsts.length ? Math.min(...firsts) : undefined,
+    last: lasts.length ? Math.max(...lasts) : undefined,
+    generations: [
+      `generation 0 · ${r.session_id}: ${held(r.direct)}`,
+      ...r.descendants.map((d) => `generation ${d.generation} · ${d.session_id} (${d.via} by the ${d.route}): ${held(d)}`),
+    ],
+  }
 }
 
 export type NotifyHandler = (method: string, params: unknown) => void

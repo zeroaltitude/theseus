@@ -1,0 +1,7 @@
+$ theseus reach msg_gone
+--- requests
+node.reach
+--- stdout
+--- stderr
+theseus: no node "msg_gone" (code -32002)
+--- exit 1

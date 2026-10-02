@@ -1,0 +1,7 @@
+$ theseus --json reach msg_task_last
+--- requests
+node.reach
+--- stdout
+{"descendants":[{"compilations":[{"compilation_id":"cmp_r7","created_at_ms":1759300000123,"strategy":"transcript"}],"first_ms":1759300000123,"from":"msg_task_last","generation":1,"last_ms":1759300061456,"loops":2,"node_id":"msg_relayed","position":140,"route":"report","session_id":"ses_q7f3k2","via":"derived_from"}],"direct":{"compilations":[],"loops":0},"node_id":"msg_task_last","partial":false,"position":120,"session_id":"ses_task01","totals":{"contexts":3,"sessions":2}}
+--- stderr
+--- exit 0

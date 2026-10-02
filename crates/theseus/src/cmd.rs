@@ -897,6 +897,28 @@ pub async fn wakes(conn: &mut Conn, json: bool, session: Option<String>) -> Resu
     })
 }
 
+/// `theseus reach NODE` (theseus-n4m, step 12a): where a node went.
+pub async fn reach(
+    conn: &mut Conn,
+    json: bool,
+    node: String,
+    generations: Option<u32>,
+) -> Result<()> {
+    let v = conn
+        .request(
+            method::NODE_REACH,
+            theseus_protocol::NodeReachParams {
+                node_id: node,
+                max_generations: generations,
+            },
+        )
+        .await?;
+    output(json, v, |r: theseus_protocol::NodeReachResult| {
+        print::lines(&mut io::stdout().lock(), &render::reach_lines(&r))?;
+        Ok(())
+    })
+}
+
 /// `theseus cancel ID`: a pending wake first (DD8), then a task. Each is
 /// named by the end of its id, and the daemon refuses a name that means
 /// both.
