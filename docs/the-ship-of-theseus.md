@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.74
+# The Ship of Theseus — v0.75
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -150,7 +150,7 @@ Consequences:
 
 The runtime object behind a channel is a `tokio` actor with a mailbox and a few kilobytes of hot state. Parked, it costs no CPU and no thread. Turns are serialized per channel; messages arriving mid-turn are coalesced into the next context build **with each message's author preserved**, so authority never blurs across a coalesced batch. Under LOOP FOREVER, an inbound message during autonomous work is a nudge, not an interrupt, unless it is a deterministic control (`/stop`, `/cancel`, revocation) or Jev judges it a new ask.
 
-**Delivery** (theseus-q4v; built 2026-09-30). What must reach a channel is written when it becomes true, whether or not anything can deliver it: a turn's reply, a confirm card and how its question closed, a notice the operator must see, and a task's report. Each is an outbox post (§3.16), addressed to the channel its session reports into. The binding only delivers: it sends a channel's posts in order and once, and records the message ids in each post's completion. Live progress is not a post. Typing, and the edits of a reply while its turn runs, are the binding's alone: best-effort, never replayed, and only a message's latest state is ever sent. Nothing waits for a binding to start. A binding that was away sends what waited when it is back, before anything live.
+**Delivery** (theseus-q4v; built 2026-09-30). What must reach a channel is written when it becomes true, whether or not anything can deliver it: a turn's reply, a confirm card and how its question closed, a notice the operator must see, and a task's report. Each is an outbox post (§3.16), addressed to the channel its session reports into. The binding only delivers: it sends a channel's posts in order and once, and records the message ids in each post's completion. Live progress is not a post. Typing, and the edits of a reply while its turn runs, are the binding's alone: best-effort, never replayed, and only a message's latest state is ever sent. Nothing waits for a binding to start. A binding that was away sends what waited when it is back, before anything live. A card keeps its turn's order (theseus-50p; Part III Item 35). A call that asks has its card written at once, while its tool line is live progress, so a card written while the binding runs waits, at most 5 s, until its place has shown the call. A channel reads the turn's text, then the call, then its card.
 
 Humans are `Person` nodes keyed by Discord user id with their own memory namespace that follows them across every guild and channel.
 
@@ -543,6 +543,8 @@ Embedded in the binary, served on the node, authenticated by Discord OAuth again
 
 Still no auth. The browser is a protocol client over a WebSocket where each text frame is one JSON-RPC line, so it has no privileged path into the kernel. It shows the prompt, the streamed reply, tokens in and out per exchange and per session, totals, timing, the classified error when a turn fails, and the notification stream behind each turn, where thinking and tool calls will render later. Purpose: immediate and local observability. Conversation snooping (live view of any conversation's transcript, assembled context manifest, and loop state), the ledger stream with RL feedback controls, category and role management with scoring nudges, binding and policy editing with audit trail, tender health, arena occupancy, and budget burn. Historical search is CloudWatch: the ledger, bus events, and structured logs ship there through the durability tender when AWS is configured.
 
+_(Amended 2026-10-01, theseus-in3, Part III Item 33: the web apps follow the push.)_ The Observatory's sidebar shows each session's attention as a pill, and its header how many sessions need you, opening the longest waiting. It reads `executions.watch` on each connect, and each `execution.changed` into its rows. A session met for the first time, or one whose turn just ended, is read with `session.list { ids }`, and everything is read again after `events.lost`. The 5 s poll is gone. The Observatory pane's diagnostic tables keep their 2.5 s timer, refresh within a second of any change, and the Kernel panel shows the push. The cockpit shows attention in the Fleet, the Bridge, and the session deck, and reads its session, execution, question, and task lists again only when the push says something changed. Health's `disk` and the spool's last sweep are on both apps' screens (theseus-51v8, Item 35): the cockpit's Systems view has a Disk · spool card, and its status strip a disk dot and, while the disk is low, an attention item.
+
 **The cockpit** (theseus-45n5; built 2026-10-01, Part III Item 23). A second app at `/cockpit/`, which the Observatory links to as "see the new experience". It's the operator's instrument panel: how Theseus is running, with drill-down to each turn's loops, calls, tokens, cost, and context.
 - It is a protocol client like the Observatory, over the same `/ws` and the same client (`web/src/protocol.ts`). It is served from the binary under the same `Host`, `Origin`, and owner rules, and adds no privileged path.
 - It doesn't replace the Observatory, which stays the plain view.
@@ -632,6 +634,18 @@ So nothing of a cancelled execution counts as waiting: not in the session list, 
 turn that ends its execution (complete, failed) ends what it left unsent in the same way. A turn that planned a call
 the cancel ended hears the cancel at its next step, as before.
 
+**What needs the operator** (theseus-in3; built 2026-10-01, Part III Item 33). Every surface shows an execution the same way: one pure function in `theseus-protocol`, `attention()`, maps its view to a level and a label, and the server puts the result on the wire, on `execution.changed`, on `executions.watch`'s snapshot, and on `session.list`, `execution.list`, and `task.list`.
+- **The view** (`ExecutionView`): its state; what it waits on (the kernel's wake, typed, with a fallback for a wake a client does not know); its questions in brief (the tool, the gate's reason, the floor, and whether it is a budget question); its turns and its dispatched calls; its spend and limit; why it ended, or why its frame queued it; its soonest pending wake; its parent session; and the WAL position of the frame it comes from.
+- **The levels**, the most urgent first:
+  - *needs you*: a question, a block, a failure, `budget_exhausted`, or a wait on a question none holds;
+  - *working*: running, queued, waiting on calls, another execution, or a due time, and waiting on input with calls still dispatched (a job its turn left running);
+  - *ready*: a conversation between exchanges;
+  - *idle*: complete, cancelled.
+
+  A state or a wake a client does not know reads as working, never ready, so a sleeping task's wake never says "finished".
+- **The label** says why: `confirm proc.run: run cargo test · floor`, `budget: $10.02 of $10`, `turn 4`, `queued · report`, `waiting on 2 calls`, `sleeping until 14:00`, `ready · wake 16:00`. A time of day is the server's clock's.
+- What a client has seen, where it focuses, debouncing, and sound stay in each client. "Done until seen" is a client's: a level that moved from working or needs you to ready or idle after it last showed the session.
+
 **A continuation's model** (theseus-kol; built 2026-09-30). A continuation is a turn no input started: a job's late result, a restart's resume, the retry of a failed turn, a wake's or a report's turn. It runs on what the session's last turn ran on (its profile, provider, and model), never on the live profile. So a conversation does not change model under its own thinking blocks, and a `-P glm` turn's job is answered by GLM.
 - A turn records its target from its start, in the session record. An input that changes it writes it in the input's own frame. Every other session write the turn makes (a recompile's, a failure's, its end's) carries it, so a crash or a failed call leaves it as the turn ran.
 - A profile no longer configured gives its provider and model under the live profile's settings. Only a session with neither runs on the live profile, and §4.4's thinking rule then keeps the old provider's thinking out.
@@ -692,22 +706,34 @@ Native in-process calls of one response that only read run concurrently (§4.6).
 
   A cancel's own kill carries its cancel state, and is expected.
 - Once reaped, a wrapper's pid can belong to another process. So a wrapper is alive only while its pid's
-  command line names its job, and a cancel never signals a pid that has become another process.
+  command line names its job, and a cancel never signals a pid that has become another process. A live
+  process whose command line is still empty is in its exec (theseus-mi6a, Part III Item 35): a spawn returns
+  once the new image is in place, before the image has set its arguments, so a wrapper read a moment after
+  its spawn reads so, for about 0.1 ms, and for tens of milliseconds on a starved machine. It counts as
+  alive, and a stop signals it only once it reads as the job's wrapper. A process that took a reaped
+  wrapper's pid, caught in its own exec, is still left alone.
 - An exec restart keeps the pid and every child. The new image sets the subreaper flag again and learns its
   children: a live child whose command line is a wrapper's is that job's wrapper, and any other is an
   orphan.
 - Health's `children` counts the wrappers running and lingering, the orphans adopted, and the zombies, which
   are 0 in steady state.
-- **A job's output is copied, and capped** (theseus-102; built 2026-10-01). The command writes into a pipe, and the
-  wrapper copies what it reads into `spool/results/<id>.out`, withholding each granted value (theseus-l0d), up to
-  `[tools] job_output_max_bytes` (64 MiB). Past the cap it reads on and counts, so the command never blocks or dies
-  for printing. The completion says `truncated`, `dropped`, and the cap. The runtime reads only the file's last
-  4 MiB, by seek, so what a job prints never costs the daemon more memory than that. The copy keeps the head: a job
-  that overruns the cap loses its end (theseus-gsn9).
-- **Raw output goes once no result will absorb it** (theseus-wz2, theseus-2ij). It goes at once when a completed
-  job's result node is written. Otherwise the spool's sweep takes it, a tender after serving (§6): a job stopped
-  before its completion, once its cancelled result is written (theseus-ewev); an ended execution's job; a crash
-  between the result's frame and the unlink.
+- **A job's output is copied, and capped** (theseus-102; both ends since theseus-gsn9, Part III Item 34). The
+  command writes into a pipe, and the wrapper copies what it reads into `spool/results/<id>.out`, withholding
+  each granted value (theseus-l0d), within `[tools] job_output_max_bytes` (64 MiB). The file takes the output's
+  head as it is read, and the wrapper keeps the output's end, the last 4 MiB (half the cap, when that is less),
+  in a ring in its own memory. At the pipe's end it writes the end after a marker that counts the bytes dropped
+  between: `[theseus: N bytes dropped here, past the output cap; the last T bytes follow]`. So the file never
+  passes the cap, and an output that fits is kept whole. Past the head the copy reads on, so the command never
+  blocks or dies for printing. The completion says `truncated`, `dropped`, the cap, and the two ends' sizes
+  (`head`, `tail`). The runtime reads only the file's last 4 MiB, by seek, which is now the job's real end, the
+  verdict that builds and tests print last; what a job prints never costs the daemon more memory than that. A
+  wrapper killed before the pipe's end (SIGKILL, or a stop's SIGTERM) loses the ring, and its file holds the
+  head; the result says so.
+- **Raw output goes once its result is written** (theseus-wz2, theseus-2ij, theseus-ewev). It goes at once when a
+  job's result node is written: the file the completion names, or, for a job stopped before its completion, the
+  spool's file for its id, which its cancelled result reads first, unless its wrapper still lives. Otherwise the
+  spool's sweep takes it, a tender after serving (§6): an ended execution's job, a crash between the result's
+  frame and the unlink, a stopped job whose wrapper outlived its result.
 
 **Deadlines and reconciliation.** Every record carries a deadline from the tool's class and the execution's budget. The heartbeat reconciler (§3.3) checks open records against the spool, the queue, job-scope state, and, for AWS classes past their deadline, the service API. Reconciliation is event-first (EventBridge task state changes flow into the same queue) and polls only overdue records, so its cost scales with stuck work, not with total work.
 
@@ -770,7 +796,30 @@ Part III Item 30.)_
 
 **Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. _(Wakes, theseus-cff: `wake.list { session_id?, target? }` reads, `wake.cancel { wake, author? }` acts and waits at the config gate, and health's `wakes` lists every pending wake. A cancel's author is the request's `author`, else the surface's name, `the CLI` or `the web UI`, for executions, tasks, and wakes. The CLI has `theseus wakes` and `theseus cancel <id>`, for a wake or a task. Discord has `/wakes` and `/cancel id:<id>`, for a task or a wake; DD7 named the option `task`.)_ It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session. `policy.tighten` and `policy.untighten`, with the `policy.tightened` and `policy.untightened` notifications, arrived with "should have asked" (theseus-sgh).)_
 
-**Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. Both are static musl binaries.
+_(Amended 2026-10-01, theseus-in3, Part III Item 33: the push.)_
+- `execution.changed` (an `ExecutionView`) goes to a session's watchers and to every `executions.watch`
+  subscriber, once per committed frame that changes what a surface shows. It comes from one observer on
+  `Kernel::commit`, through which every execution and action record passes, so no writer can forget it.
+- `executions.watch { limit? }` subscribes, then answers a snapshot: every execution that needs you or works,
+  the `limit` (200) most recently active of the rest, and every question. Then it sends `execution.changed`,
+  `confirm.requested`, and `confirm.resolved` for every session, until `executions.unwatch`.
+- Every view and snapshot row carries its frame's WAL position, and a client applies one only if its position
+  is greater than the last it applied for that execution: that is its whole reconciliation, whatever order the
+  snapshot and the events come in.
+- `session.wait { session_id, until: blocked | settled | terminal, after_position?, timeout_ms? }` belongs to
+  the daemon: parked on the board's feed, it costs nothing while it waits, answers at once when it is satisfied
+  already (`already`), times out after 10 minutes by default (a day at most), and ends with its connection. A
+  connection holds 64 (`-32007`, a new code). `terminal` is refused for a conversation, and empty params fail
+  at once.
+- `session.list { ids }` reads only those sessions. All four requests are reads.
+- Each connection's one queue holds at most 4,096 messages. Past that its notifications are dropped and
+  counted until it drains, and then one `events.lost { dropped, streams }` says which streams to read again.
+  Responses always go. `events.lost`, like `narrative.line`, is transport: counted in health, never a ledger
+  row. `execution.changed` needs no row of its own, since each comes from a frame that carries its rows.
+- The CLI has `theseus watch --all`, `theseus wait` (exit 4 when it times out), and `theseus executions
+  explain`.
+
+**Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect, 4 a wait that timed out). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. Both are static musl binaries.
 
 **A stop always answers** (theseus-ur0; built 2026-09-30). A client's `shutdown` is answered before the daemon stops. Its method writes `server.stopping` and the checkpoint, its connection writes and flushes the answer, and only then are the serving loops woken (bounded at 1 s, for a client that stopped reading). Every transport goes through the same connection path, so each answers a stop before it lands. A restart onto a changed vault note stops at once, since no client waits. So `theseus shutdown && theseusd …` starts the next build every time.
 
@@ -990,7 +1039,7 @@ Reviewed against Claude Code (about twenty tools, six of which do nearly all the
 
 **Principles of the trim.** One tool, one verb: no action enums. Typed in, node out: every result is a node with provenance, and composition is by node reference (§3.16). The kernel is not a tool: sessions, executions, cancellation, budgets, policy, config, secrets, and operator controls are protocol requests or deterministic commands. Memory is compiled, not called (§5), with one explicit lookup and one explicit note. The shell is reachable only through a typed argv and is counted (§3.23). Everything else is a plank (§3.12).
 
-**A capped result says what it cut, and how to get it** (theseus-46v). A result longer than `[tools] result_max_chars` keeps its head and its tail, cut on lines' edges where it can. It says what it left out, and the call that returns it, which only the tool knows (`Tool::rest`): `…[19 lines (1,512 characters) not shown: lines 12-30; fs_read with offset=12 and limit=19 returns them]…`. A job's output isn't kept once its result is written (theseus-wz2). So a job's cut says to run it again printing less, or to send its output to a file and read that in ranges. Nothing claims a stored copy. A job that printed past its output cap (theseus-102) says so first: `[truncated: it printed N bytes, and the M bytes past its output cap of 64 MiB were dropped; <the tool's rest>]`, then which bytes of what was kept follow.
+**A capped result says what it cut, and how to get it** (theseus-46v). A result longer than `[tools] result_max_chars` keeps its head and its tail, cut on lines' edges where it can. It says what it left out, and the call that returns it, which only the tool knows (`Tool::rest`): `…[19 lines (1,512 characters) not shown: lines 12-30; fs_read with offset=12 and limit=19 returns them]…`. A job's output isn't kept once its result is written (theseus-wz2). So a job's cut says to run it again printing less, or to send its output to a file and read that in ranges. Nothing claims a stored copy. A job that printed past its output cap (theseus-102) says so first: `[truncated: it printed N bytes, more than its output cap of 64 MiB: its first H and its last T are kept, and the M between them were dropped; <the tool's rest>]` (theseus-gsn9), then which bytes of what was kept follow.
 
 **The selected set**, thirty-five tools in twelve families, offered by family per turn so a coding turn sees perhaps fifteen schemas:
 
@@ -1198,7 +1247,17 @@ Recompilation never loses anything. The old compilation, the tail, and the new c
 - **The ring.** Overflow rings when the counted part plus the estimated part × 1.4 passes the window, less the output cap and 4,096 tokens of headroom. It then drops leading turns at a user message until the estimate is under 60 % of that.
 - **What is kept.** Nothing is stored for it: the counts are on the answers' nodes, so a restart changes nothing. Every `context.compiled` row carries the estimate: its method, both parts, the bound, the request's JSON bytes (a fourth of them was the estimate before), and its bytes by class.
 
-_A session that passes its window anyway is refused by the provider every turn until it is recompiled by hand (theseus-9p88, P2)._
+- **The provider's word** (theseus-9p88; Part III Item 34). A request the provider says passed the window rings
+  whatever the estimate says. That is a 400, "prompt is too long: N tokens > M maximum", or an answer that stops
+  with `model_context_window_exceeded` (on the 4.5-and-later models a prompt plus `max_tokens` past the window is
+  not refused; the answer stops there). The ring uses the smaller of the catalog's window and the provider's (the
+  refusal's maximum, or a cut answer's prompt plus its output), and reads each candidate at the provider's count:
+  its estimate times the count over the estimate of the request that overflowed. The call is made once more. A
+  cut answer stays in the record, and is left out of the retry and of every later request, with its calls; its
+  turn's later answer replaced it. A retry that passes the window too, or a ring with nothing earlier to drop,
+  fails the turn with `context_window`, naming the window and the estimate, and the session waits on its next
+  message, which gives the ring a place to cut. Each is a `context.overflow` row. A GLM refusal is read only in
+  Anthropic's wording for now (theseus-kucs).
 
 ### 4.4b How sessions persist across runtime restarts
 
@@ -1541,11 +1600,20 @@ which are never faster than release.
   kill, 2 ms swap; restore has no budget yet).
 - **A miss.** With ten runs, nearest rank makes the p95 the slowest run, so one stalled fsync can decide it.
   A miss runs the bench once more, and only a second miss fails the gate.
-- **A quiet machine.** Before each run, the gate flushes dirty pages, then waits for up to 10 minutes until the
-  kernel's IO and CPU pressure (PSI, `some avg10`) are under 10 % and 20 %, and says how long it waited (theseus-m2lt,
-  2026-10-01). A neighbour that keeps writing stalls a start's fsyncs for seconds, and the bench would measure the
-  neighbour: during an openclaw rotation, a restart's p95 was 2.3 s on a tree that had passed at 41 ms. After
-  10 minutes it measures anyway. The budgets don't change.
+- **A quiet machine.** Before each run, the gate flushes dirty pages, then waits until the kernel's IO and CPU
+  pressure (PSI, `some avg10`) are under 10 % and 20 % (theseus-m2lt, 2026-10-01) and the 1-minute load average
+  is under the core count (theseus-611s), and says how long it waited. A neighbour that keeps writing stalls a
+  start's fsyncs for seconds, and the bench would measure the neighbour: during an openclaw rotation, a
+  restart's p95 was 2.3 s on a tree that had passed at 41 ms. Busy cores with nothing queued slow each thread
+  with little CPU pressure (all-core turbo, shared SMT siblings): at load 14 on 16 cores every phase ran about 2×
+  slow. The load bar is the core count, not half of it, so a long neighbouring build doesn't stall every gate.
+  After 5 minutes it measures anyway. The budgets don't change. A lane's niced gate whose only miss is the bench,
+  beside nice-0 neighbours, counts as green when the bench, rerun alone at normal priority, passes.
+- **The push's seed** (theseus-in3). The first `executions.watch` or `session.wait` after a start reads every
+  execution and action into the board, off the start path. It is measured, with no budget yet: on the gate's
+  empty store about 0.5 ms; on the 10,000-session synthetic store, release, p50 37.1 ms and p95 41.5 ms
+  (2026-10-01); on Eddie's store 285 µs. Past 250 ms, the design puts an index of open actions first, which
+  would also speed `session.list` and `confirm.list`.
 - **The history.** Every run, a miss and its rerun both, is appended to a history outside the tree
   (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`, shared by every worktree). Each
   row holds:
@@ -6525,9 +6593,9 @@ $0.028):
 - every bound covered its count.
 
 **Known gaps.**
-- theseus-9p88, raised to P2 at the review for the next fix batch: a provider's "prompt is too long" and
+- ~~theseus-9p88, raised to P2 at the review for the next fix batch: a provider's "prompt is too long" and
   `model_context_window_exceeded` have no handling, so a session past its window is refused every turn until a
-  manual recompile.
+  manual recompile.~~ Built in Item 34.
 - theseus-c5ba (Haiku 4.5's figures from one request), theseus-kdkv (the Observatory's view of the estimate),
   theseus-vj9q (a recompile's bytes-only estimate rings at about 71 %), and theseus-p171 (hex and base64 as a
   class), all P3.
@@ -6605,3 +6673,175 @@ and the bench on its rerun after one swap outlier. Carried forward:
 - 12a's first edge goes into `graph::EdgeKind` (on theseus-n4m);
 - 19a's first labels go into `graph::Label`.
 
+
+### Item 33. The protocol push: `attention()`, `execution.changed` and `executions.watch`, `session.wait` (theseus-in3; rows 8 to 10 of the re-cut, steps 9a, 9b, 9c; 2026-10-01 17:13 to 18:54, reviewed 18:55 to 18:57; d9944e7, d14248f, f26c8dd, ed80fba; installed 19:06 at 1970bc6)
+
+**Why.** Stage B's first step, and Appendix F's four adoptions: `execution.changed`, a watch over every session, a
+daemon-owned `session.wait`, and one `attention()` for every surface. Before it, an execution's changes were
+reported nowhere:
+- every client polled, and the web UI polled `session.list` every 5 s, each call decoding every action ever
+  written;
+- no client learned of another session's change;
+- each connection's queue was unbounded, so a stuck client grew the daemon's memory without bound and never
+  learned it had fallen behind.
+
+The TUI and the herdr adapter need exactly this.
+
+**What landed** (§3.14, §3.15, §3.18, §9).
+- **9a** (d9944e7): `Level`, `Attention`, `WaitingOn`, `PendingConfirm`, `ExecutionView`, and `attention()` (the
+  design's 14 rules, first match wins) in `theseus-protocol`, generated into the web apps' TypeScript; `attention`
+  on `session.list`, `execution.list`, `task.list`, and `session.history`'s session; the typed `waiting_on` on
+  `ExecutionInfo`; the pills (● ◐ ○ ·) in the CLI, the web UI, and the cockpit.
+- **9b** (d14248f):
+  - `Kernel::observe`, one observer, shared by every view and run after each append. Until something watches,
+    the commit path pays one `OnceLock::get`;
+  - the board (`theseus-core/src/push.rs`), seeded on the first watch, with an overlap rule per entity, so a frame
+    landing during the seed is neither lost nor applied twice;
+  - `execution.changed` to the session's watchers and every all-session watcher, once each;
+  - `executions.watch` / `unwatch` and `session.list { ids }`;
+  - health's `push`, the metrics `theseus.push.events` and `theseus.push.delay_ms`, `theseus watch --all`, and the
+    lifecycle bench's `seed` phase.
+- **9c** (f26c8dd, ed80fba):
+  - `session.wait` (blocked, settled, terminal; `already`, `after_position`, a timeout, 64 a connection);
+  - the backlog cap and `events.lost` (`outbound.rs`), with `theseus.push.lost`;
+  - `theseus wait` (exit 4 on a timeout) and `theseus executions explain`;
+  - the web UI and the cockpit's lists on the push;
+  - two fixes 9b's live check found: the board applies only a frame's last record per action, and a job its turn
+    left running keeps its session working (`waiting on 1 call`), not ready.
+
+**How it is proven.**
+- **The prove** (`theseusd/tests/push.rs`): a turn, a job past `proc_sync_secs`, a confirm, a task, a wake, a stop,
+  and a cancel, with an all-session watcher connected first, checked against the WAL's own frame boundaries (62
+  state rows over 5 executions). Every row that changes an execution's state has its event from its own frame, and
+  every event has its row. A planted observer that hears only frames with an `execution.*` row fails it; so does
+  the old first-record rule.
+- **The seed and the race:** a question parked before a restart is in the seed. Sixteen turns racing a watch leave
+  the client equal to the board. A plain turn's frame budget (5) holds while the push watches.
+- **The waits:** each condition, `already`, a timeout, `terminal` refused for a conversation, empty params refused
+  at once (the reader rule's methods check), a closed connection's waits ended, and the cap of 64.
+- **The lag prove:** a client that stops reading while 5,000 events pass gets 4,135, then one `events.lost` for the
+  other 865, and its re-snapshot equals a fresh client's.
+- **Live, on a scratch daemon** (GLM, under $0.01): `theseus watch --all` showed a turn, a confirm, a job and its
+  late result, a task, and a stop, with their positions. `theseus wait` returned 16 ms after the asking frame's
+  row, and settled 11 ms after the last turn's. The web page sent nothing in 30 idle seconds with its pane hidden.
+  Every cockpit view loaded clean.
+- **The seed in release:** on the 10,000-session synthetic store, p50 37.1 ms, p95 41.5 ms; on a copy of Eddie's
+  store at the install, 285 µs.
+- **Gates** green at each commit (1,282, 1,291, 1,299, 1,299 tests), and the review's rerun at ed80fba (1,299;
+  the bench on its first run).
+
+**Divergences** (the report's table, all kept): the caller passes how to write a time of day, since the protocol
+crate reads no clock; `wake_at_ms` and `outstanding` in the view; rule 8 widened to a conversation waiting on input
+with calls dispatched; the observer keeps a frame's ledger rows and node positions too; the seed's two reads with a
+position per entity; the prove against frames, not a row's position alone; a `seed` bench phase, with no budget
+yet; `LIMIT` (-32007); a `policy` stream in `events.lost`; once one notification drops, every one drops until the
+queue drains, so a client always hears what it lost; the Observatory's tables keep their timer.
+
+**Known gaps.**
+- theseus-jj9f (P2): an answer takes two kernel frames, so between them the session reads `● waiting on you`, and a
+  `session.wait --until settled` parked before an answer wakes at the answer. Merging the frames is the kernel
+  transaction Review 2 proposed (C6).
+- theseus-7ovb (what still polls), theseus-hanu (the board falls seconds behind a burst of 5,000 requests; nothing
+  lost), theseus-2xep (a job's result queues its execution with no `execution.queued` row), theseus-j7xi (the
+  Discord binding's test), all P3.
+- The cockpit reads its four lists whole again on any change, at most every 250 ms. That's fine today, and it goes
+  with stage C's paged lists (theseus-lv2).
+
+### Item 34. A session past its window, and a job's output at its edges (theseus-9p88, theseus-gsn9, theseus-ewev; the `overflow` lane; 2026-10-01 15:50 to 16:51, and a finish run for its report 17:13 to 17:32; reviewed 17:35 to 17:45; joined at 714bfc9 and 9558ba8; installed 19:06 at 1970bc6)
+
+**Why.** Three gaps the day's reviews found.
+- A session that passed its model's window was refused on every turn until an operator recompiled it by hand: the
+  provider's 400 was an invalid request, and nothing read `model_context_window_exceeded` (the tokens review, P2).
+- The output cap kept a job's head, so a job that overran it lost its end, where builds and tests print their
+  verdict (the fb2c review).
+- A job stopped before its completion kept its raw output, which may hold a printed secret, until the hourly sweep
+  after its cancelled result (the fb2c review).
+
+**What landed** (§3.16, §3.24, §4.4a).
+- **The provider's word** (714bfc9): a refusal ("prompt is too long") and a cut answer are an overflow trigger: a
+  ring by the provider's window and count, and one retry. A cut answer is left out of the retry and every later
+  request. A retry past the window too, or a ring with nothing to drop, fails the turn as `context_window` and
+  parks on input at once, where the driver's one retry would have sent the same request.
+- **Both ends of a job's output** (9558ba8): the head in the file as it is read, the last 4 MiB in a ring in the
+  wrapper (never the daemon), written at the pipe's end after a marker. The result names the dropped middle, and a
+  killed wrapper's lost end. Every byte kept is redacted, the end included.
+- **A stopped job's raw output** (9558ba8) goes once its cancelled result is written, unless its wrapper lives, and
+  the result shows what it printed first, where it said "(no output)".
+
+**How it is proven.**
+- Five turn tests through the whole core with a scripted provider, three compiler tests, and a parsing test
+  (Part 1).
+- The copy byte for byte around a cap, the ring's wraps, a granted job's two ends withheld, the real wrapper past
+  64 KiB, a real turn's result ending with the job's verdict (Part 2).
+- A real daemon's stop of a job past its head, whose next turn says the end was lost and deletes the file (Part 3).
+- 13 of 14 revert probes caught their fix. The one that missed, deleting while the wrapper lives (E2), shows a
+  missing test, not a defect: the guard reads right (theseus-667d).
+- Live, on Haiku 4.5 with a catalog that said 400,000: Anthropic refused a 209,425-token request against 200,000.
+  The turn failed at once with the window's error, and the next message rang and answered, for $0.000278 in all.
+  The build before was refused four times and never answered.
+- The join's gate on `main` at 9558ba8: 1,312 of 1,312.
+
+**Divergences:** the lane report's tables. The ring's end is min(cap / 2, 4 MiB), so a small cap keeps both ends;
+a marker sits between the ends, where fb2c had none; the provider's maximum isn't remembered past the turn.
+
+**Known gaps.** A GLM refusal is read only in Anthropic's wording (theseus-kucs). Two pieces no test proves: the
+guard that keeps a stopped job's raw output while its wrapper lives (theseus-667d), and the result's `held` line
+(theseus-z3de). All P3, and the last two are in lane `tidy`.
+
+### Item 35. The `steady` lane: a wrapper caught in its exec, a channel's order, and disk and spool on screen (theseus-mi6a, theseus-50p, theseus-51v8; 2026-10-01 17:47 to 18:39, reviewed 18:57 to 19:00; joined at bc2fdb9, aea37c3, da92475, 1970bc6; installed 19:06 at 1970bc6)
+
+**Why.** Gates now run beside heavy neighbours for hours, and some races show only there.
+- A process in the middle of its exec has an empty command line, as a zombie has: 748 of 3,000 reads made right
+  after a spawn came back empty at load 14. The sweep test flaked on it (theseus-uev6; its test fixed on `main` in
+  1fcb990, looking until the stand-in reads as the wrapper). In the product, a stop that came a moment after a
+  job's spawn took the wrapper for another process holding the pid, sent no signal, said the job was gone, and the
+  job ran on.
+- A call that waits on approval had its card written at once, and its tool line drawn only at the place's next
+  tick (1.2 s). The lane sends posts before live progress. So a channel read card, reply, then tool line: 8 of 8
+  runs, once the test asserted the order.
+- Health's `disk` and `spool.last_sweep` (Item 25) were on the CLI only.
+
+**What landed** (§3.16, §3.14, Delivery).
+- **mi6a** (bc2fdb9): `job::holder` tells what holds a wrapper's pid: the wrapper, a process still starting
+  (live, not a zombie, not a kernel thread, its command line empty), another process, or none. `wrapper_alive`
+  counts a process still starting as alive, so every reader that keeps or waits inherits it, lane overflow's
+  `remove_job_output` included. A stop signals a job only once its pid reads as the wrapper, or as no live process.
+- **50p** (aea37c3, 1970bc6): the renderer draws a call that asks at once, on `ConfirmRequested`. The place then
+  tells its lane (`Asked`), and the lane holds a card written while it runs, for a session a place here renders,
+  until that word comes, at most 5 s, and then sends it anyway with a WARN. A channel reads the turn's text, the
+  call, then its card. The reply's footer rides on the text above them, as it did for any turn that ended after a
+  tool call.
+- **51v8** (da92475): the cockpit's Systems view has a Disk · spool card (a free-space meter with the warning's and
+  the floor's lines, toned by state, and the last sweep by why). Its status strip has a disk dot and, while the
+  disk is low or below the floor, an attention item. The Observatory's health panel has the CLI's two lines, the
+  disk as a native meter.
+
+**How it is proven.**
+- The decision over every state: the wrapper, another program, an empty command line in each run state, a kernel
+  thread, a zombie, no process.
+- Two stops of a child held in the exec's state, its argument pages unmapped to the stack's end: one becomes the
+  real wrapper, which the stop ends with SIGTERM; one becomes `sleep`, which it leaves running. Each fails against
+  `main`'s rule, and against a stop that signals at once (which kills the unrelated process).
+- The channel test asserts the order: 8 of 8 failures against `main`'s code, 10 of 10 passes, and 6 of 6 at nice 19
+  beside busy loops at nice 5. The card's hold has its own test as a pure rule.
+- Live, on a scratch daemon of the lane's build on port 7439, with a stand-in `op` and no secrets: low, below the
+  floor, and ok, each screenshotted, and every cockpit view clean.
+- The join's gate on `main` at 1970bc6: 1,317 of 1,317.
+
+**Divergences.** The issue offered the wrapper's start time in the spool. The lane kept the spool's format and
+looks again instead, since the exec's window closes on its own (84 ms at the worst, measured starved).
+
+**Known gaps.** A stop that lands before a job's pid is in the spool, while `run_job` awaits the broker, settles the
+call cancelled, and the job then launches anyway (theseus-36to, P2; in lane `tidy`).
+
+**The install** (19:06:14 at 1970bc6, Items 33 to 35). Store backup first, then a release live check on a copy of
+Eddie's store:
+- health's push, disk, and spool lines;
+- `watch --all`'s snapshot (5 executions, seeded in 285 µs);
+- the pills;
+- a GLM turn ($0.0005) and `theseus wait --until settled`;
+- `executions explain`;
+- all six cockpit views clean, and the Observatory.
+
+It surfaced one thing: Eddie's Discord DM session from 2026-09-29 still reads `● budget exhausted`, from the old
+units limit, with $99.58 of its $100 left (theseus-3ebd, P3).
