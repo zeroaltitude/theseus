@@ -46,9 +46,16 @@ Key modules: `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs`. R
   refused (a corrupt frame), log it once, and count it in `StoreStats::refused_records`, which health shows. A read
   of that record alone (`get`, `latest_by_key`) is still refused. `repair.rs` takes a frame that does not check
   whole from a copy of the store, and `theseus_core::restore::repair` swaps the repaired WAL in.
-- **An open cuts a bad frame in the last segment, and all after it, as a torn tail** (theseus-gt12, open): a bad
-  frame there with good frames after it loses them. Until that is fixed, don't open a store you suspect is corrupt
-  just to look; repair it from a copy first.
+- **An open cuts a bad frame in the last segment as a torn tail only past every position known synced**
+  (theseus-gt12). The index's checkpoint claims only synced positions (it takes `appending` alone, and the writer
+  indexes a batch only after its sync), so the store's open passes it as `WalConfig::synced_to`, and a repair
+  passes the checkpoint of the store it repairs (`index::checkpoint_of`, read-only). A bad frame at or before it is
+  refused, naming `theseusd restore --repair`, and nothing is cut. Past it the bytes cannot tell rot from a batch
+  torn before its sync (a later frame of the batch can reach the disk whole), so the frame is cut, with all after
+  it, and `Recovery::cut` says whether a whole frame followed. Both walks (every segment, and the tail after the
+  checkpoint) decide alike. What this still cuts: rot after the last checkpoint, and any bad last frame of a log
+  opened with no index (a full replay with no index, `theseusd restore`). Don't open a store you suspect is
+  corrupt with its index moved aside; repair it from a copy first.
 - **A checkpoint takes the store's `appending` lock alone**, so the position it claims is synced and indexed: the
   writer holds it shared from a batch's first write to its index. Don't take a checkpoint while holding that lock.
   The periodic one (every 1,000 records) runs on the writer, after it has answered the batch that crossed the
