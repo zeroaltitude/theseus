@@ -1786,6 +1786,9 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         push(o, Tag::Plain, &push_line(p));
     }
     push(o, Tag::Plain, &broker_line(&h.broker));
+    if let Some(k) = &h.harness_only {
+        push(o, Tag::Plain, &k.line());
+    }
     push(
         o,
         Tag::Plain,

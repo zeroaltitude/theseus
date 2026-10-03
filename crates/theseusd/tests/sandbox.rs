@@ -320,7 +320,7 @@ fn a_probe_script_in_l1_shows_the_contract_and_l0_the_contrast() {
     let l0 = r.turn("at L0", vec![probe_call(&r, false, false)]);
     let (l1, l0) = (&l1[0], &l0[0]);
     assert!(
-        l1.starts_with("[ran in L1, the sandbox: no network, no secret; "),
+        l1.starts_with("[ran in L1, the sandbox: no network, no secret at its start; "),
         "{l1}"
     );
     let uid = unsafe { libc::getuid() }.to_string();
@@ -694,7 +694,7 @@ fn a_listed_host_is_reached_through_the_proxy_and_its_session_then_holds_outside
     let text = &out[0];
     assert!(
         text.starts_with(&format!(
-            "[ran in L1, the sandbox: egress: {stand}, no secret; "
+            "[ran in L1, the sandbox: egress: {stand}, no secret at its start; "
         )),
         "{text}"
     );
@@ -829,7 +829,7 @@ fn a_job_with_no_list_has_no_proxy() {
         )],
     );
     assert!(
-        out[0].starts_with("[ran in L1, the sandbox: no network, no secret; "),
+        out[0].starts_with("[ran in L1, the sandbox: no network, no secret at its start; "),
         "{}",
         out[0]
     );

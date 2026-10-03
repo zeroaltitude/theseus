@@ -84,7 +84,8 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         ConfigRestart, SecretFailed, StartupPhase, Tightening, PolicyTightenParams,
         PolicyUntightenParams, TightenResult, ExternalText, ExternalTextInfo, PolicyTrustParams,
         TrustResult, ApprovalStatus, ApprovalChannel, DiscordOrigin, BindingStatus, OutboxStatus,
-        PlaceStatus, TelemetryStatus, KernelStatus, ChildrenStatus, GrantStatus, ExecutionInfo,
+        PlaceStatus, TelemetryStatus, KernelStatus, ChildrenStatus, GrantStatus,
+        ExecutionInfo,
         BudgetInfo, ExecutionListResult, ActionInfo, ActionListParams, ActionListResult,
         ExecutionCancelParams, ExecutionCancelResult, ExecutionStopParams, ExecutionStopResult,
         TaskInfo, TaskListParams, TaskListResult, TaskCancelParams, TaskCancelResult, WakeInfo,
@@ -118,7 +119,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         sandbox::SandboxHealth, sandbox::SandboxProbe, cancel::CancelVerdict, cancel::CancelCount,
         sandbox::SandboxUsage, sandbox::JobUsage, bench::BenchHistoryParams,
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase,
-        SecretRequested, cred::CredRequests,
+        SecretRequested, cred::CredRequests, cred::HarnessOnly,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

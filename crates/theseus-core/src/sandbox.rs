@@ -403,7 +403,9 @@ pub fn no_grant(would: Vec<crate::broker::Grant>) -> crate::broker::ForJob {
 
 /// An L1 job's lines at the head of its result (design §2.11): where it
 /// ran and what it wrote to scratch, the limits it met, or why it could not
-/// start. Empty for an L0 job.
+/// start. Empty for an L0 job. "No secret at its start": a job may still
+/// have asked for one while it ran (18d), whose value its output then holds
+/// only as `[redacted:<secret>]` (theseus-3m11).
 pub fn result_lines(detail: &Value) -> String {
     let Some(sb) = detail.get("sandbox").filter(|s| s["class"] == "l1") else {
         return String::new();
@@ -416,7 +418,7 @@ pub fn result_lines(detail: &Value) -> String {
             e["error"].as_str().unwrap_or("?")
         )),
         None => lines.push(format!(
-            "[ran in L1, the sandbox: {}, no secret; {}]",
+            "[ran in L1, the sandbox: {}, no secret at its start; {}]",
             crate::egress::reach_words(detail),
             detail
                 .pointer("/scratch/summary")

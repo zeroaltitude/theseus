@@ -22,7 +22,10 @@
 //! 18c wired it in: the job wrapper's L1 path runs a `Proxy` for a job whose
 //! list is not empty, stops it when the job ends, and puts its `Summary` in
 //! the completion's `detail.egress`. Each `CONNECT`'s `Outcome` is a value
-//! the proxy acts on, the seam for credentials as stand-ins (theseus-gh7).
+//! the proxy acts on. The proxy never reads or rewrites what a tunnel
+//! carries: credentials as stand-ins, which would have ended TLS here, were
+//! dropped for v1 (theseus-gh7, 2026-10-03). What a job holds leaves only
+//! for the hosts its list names.
 
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
@@ -151,11 +154,9 @@ impl Resolver {
 }
 
 /// What the proxy does with one `CONNECT` (`Proxy::decide`). It is a value
-/// the proxy then acts on, never an action taken inside the checks: the seam
-/// for credentials as stand-ins (theseus-gh7), whose third outcome ends TLS
-/// for a host a secret is granted to, with a per-job CA, and swaps the
-/// stand-in for the value on that connection alone. That outcome slots in
-/// here and in `tunnel`'s match, and nothing else in the proxy changes.
+/// the proxy then acts on, never an action taken inside the checks, so each
+/// decision is tested as a value. Two outcomes, tunnel or refuse: nothing
+/// reads inside a tunnel (theseus-gh7 dropped TLS interception for v1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// Connect to the first of these addresses that answers, and copy bytes
@@ -735,7 +736,7 @@ mod tests {
         );
     }
 
-    /// The seam (theseus-gh7): each `CONNECT`'s outcome is a value decided
+    /// Each `CONNECT`'s outcome is a value decided
     /// before the proxy acts, and the job's summary keeps one entry per
     /// host reached and per refusal, whatever the number of connections.
     #[test]

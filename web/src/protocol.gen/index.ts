@@ -65,6 +65,7 @@ export type * from './GateRecord';
 export type * from './GateResult';
 export type * from './GraduateResult';
 export type * from './GrantStatus';
+export type * from './HarnessOnly';
 export type * from './HealthResult';
 export type * from './HeldPosts';
 export type * from './Id';

@@ -12,6 +12,7 @@ import type { CredRequests } from "./CredRequests";
 import type { DiskStatus } from "./DiskStatus";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
+import type { HarnessOnly } from "./HarnessOnly";
 import type { IndexHealth } from "./IndexHealth";
 import type { KernelStatus } from "./KernelStatus";
 import type { LabelsHealth } from "./LabelsHealth";
@@ -73,6 +74,11 @@ children: ChildrenStatus,
  * only, never a value.
  */
 broker: Array<GrantStatus>, 
+/**
+ * What a job may be handed, and what stays the harness's own: the AWS
+ * and providers' keys (theseus-gh7). Absent from a daemon before it.
+ */
+harness_only?: HarnessOnly, 
 /**
  * L1 jobs' credential requests since the daemon started (M4 18d): asked,
  * granted, declined, and waiting now; absent before the first.

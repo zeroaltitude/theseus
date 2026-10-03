@@ -22,8 +22,9 @@ lane 17a; read by the job wrapper's L1 path (`theseus-kernel`'s `job_l1.rs`, ste
 - `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry), `cgroup.rs` (`own`,
   `delegate`, `JobCgroup`: its limits, `kill`, `populated`, and `procs`, which an 18a stop counts), `report.rs` (`Started`, `Exit`, `Scratch::summary`), `spec.rs`.
 - `egress.rs` (18b, wired at 18c): the job's `Proxy` on the listener the init hands over. `Proxy::decide` makes each
-  `CONNECT`'s `Outcome` a value (tunnel, or refuse with a status and why) before the proxy acts: the seam where
-  credentials as stand-ins (theseus-gh7) add a third outcome. `Running::finish` stops it once the job has ended,
+  `CONNECT`'s `Outcome` a value (tunnel, or refuse with a status and why) before the proxy acts. Nothing reads inside a
+  tunnel: credentials as stand-ins, which would have ended TLS here, were dropped for v1 (theseus-gh7, Eddie
+  2026-10-03), so a secret a job holds is contained by the list alone. `Running::finish` stops it once the job has ended,
   ending any tunnel a server holds open so every one is recorded; `Summary` is the completion's `detail.egress`
   (one entry per host reached, one per refusal). `Allow` (the list's entries) lives in `theseus_tools::net`.
 

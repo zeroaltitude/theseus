@@ -391,7 +391,9 @@ fn an_l1_results_head_says_where_it_ran() {
         "scratch": {"summary": "wrote 1 file, 1 KB, to scratch: out.txt; discarded"}});
     let lines = crate::sandbox::result_lines(&ran);
     assert!(
-        lines.starts_with("[ran in L1, the sandbox: no network, no secret; wrote 1 file"),
+        lines.starts_with(
+            "[ran in L1, the sandbox: no network, no secret at its start; wrote 1 file"
+        ),
         "{lines}"
     );
     assert!(lines.contains("3 of its forks were refused"), "{lines}");

@@ -410,6 +410,11 @@ pub struct HealthResult {
     /// only, never a value.
     #[serde(default)]
     pub broker: Vec<GrantStatus>,
+    /// What a job may be handed, and what stays the harness's own: the AWS
+    /// and providers' keys (theseus-gh7). Absent from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub harness_only: Option<cred::HarnessOnly>,
     /// L1 jobs' credential requests since the daemon started (M4 18d): asked,
     /// granted, declined, and waiting now; absent before the first.
     #[serde(default, skip_serializing_if = "Option::is_none")]

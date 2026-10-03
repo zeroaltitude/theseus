@@ -569,6 +569,84 @@ impl Broker {
             .chain(tools.into_iter().map(|g| row(g, "tool")))
             .collect()
     }
+
+    /// Every secret `[broker]` names: each one a job may be handed, by a
+    /// program's grant at its start or asked for while it runs in L1.
+    pub fn handed(&self) -> BTreeSet<String> {
+        self.postures
+            .keys()
+            .cloned()
+            .chain(
+                self.programs
+                    .values()
+                    .flat_map(|vars| vars.iter().map(|(_, s)| s.clone())),
+            )
+            .collect()
+    }
+}
+
+/// What a job may be handed, and what stays the harness's own (theseus-gh7),
+/// for `theseusd check` and health. The AWS keys (each bound account's, and
+/// the template's two names when `[secrets]` keeps them) and the providers'
+/// keys are read only by Theseus's own tools (`aws`, the providers); a job is
+/// never handed one, by a grant or a request, unless `[broker]` names it,
+/// which `exposed` then says.
+pub fn harness_only(cfg: &crate::Config, broker: &Broker) -> theseus_protocol::cred::HarnessOnly {
+    let template = crate::config::AwsCredentialNames::default();
+    let aws: BTreeSet<String> = cfg
+        .aws
+        .accounts
+        .values()
+        .flat_map(|a| {
+            [
+                a.credentials.access_key_id.clone(),
+                a.credentials.secret_access_key.clone(),
+            ]
+        })
+        .chain(
+            [template.access_key_id, template.secret_access_key]
+                .into_iter()
+                .filter(|n| cfg.secrets.contains_key(n)),
+        )
+        .collect();
+    let providers: BTreeSet<String> = std::iter::once(cfg.model.api_key_secret.clone())
+        .chain(cfg.providers.values().map(|p| p.api_key_secret.clone()))
+        .collect();
+    let exposed = aws
+        .iter()
+        .chain(&providers)
+        .filter(|n| broker.may_hand_out(n))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    theseus_protocol::cred::HarnessOnly {
+        handed: broker.handed().into_iter().collect(),
+        aws: aws.into_iter().collect(),
+        providers: providers.into_iter().collect(),
+        exposed: exposed.into_iter().collect(),
+    }
+}
+
+/// The template's harness-only keys, un-commented (theseus-gh7): no AWS
+/// key and no provider's key is one a job may be handed, and the line says
+/// so by name. Driven from the config, so a grant that named one fails here.
+#[cfg(test)]
+pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
+    let broker = Broker::new(&cfg.broker, SecretBoard::empty(), None);
+    broker.grant_tool("web.search", &cfg.tools.web.search_key_secret);
+    let h = harness_only(cfg, &broker);
+    assert_eq!(h.aws, ["aws_access_key_id", "aws_secret_access_key"]);
+    assert_eq!(h.providers, ["anthropic_api_key", "zai_api_key"]);
+    for name in h.aws.iter().chain(&h.providers) {
+        assert!(!broker.may_hand_out(name), "a job may be handed {name}");
+    }
+    assert!(h.exposed.is_empty(), "{:?}", h.exposed);
+    assert_eq!(h.handed, ["github_token"]);
+    assert_eq!(
+        h.line(),
+        "broker: a job may be handed 1 secret (github_token); harness-only: the AWS keys \
+         (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key, \
+         zai_api_key)"
+    );
 }
 
 /// The broker bound to one call of one toollet: what `ToolCtx::secret` asks.
@@ -2019,5 +2097,41 @@ mod tests {
         for program in ["gh", "git", "cargo", "npm", "harbor"] {
             assert!(with(program).is_ok(), "{program}");
         }
+    }
+
+    /// theseus-gh7: the AWS keys and the providers' keys are harness-only,
+    /// and the line names them. A `[broker]` entry that names one makes it a
+    /// secret a job may be handed, and the line says so aloud instead.
+    #[test]
+    fn the_aws_and_provider_keys_are_harness_only_unless_the_broker_names_one() {
+        use crate::config::Config;
+        let with = |broker: &str| {
+            let (cfg, _) = Config::parse(&format!(
+                "[secrets]\nanthropic_api_key = \"op://v/a/f\"\ngithub_token = \"op://v/g/f\"\n\
+                 aws_access_key_id = \"op://v/k/f#AWS_ACCESS_KEY_ID\"\n\
+                 aws_secret_access_key = \"op://v/k/f#AWS_SECRET_ACCESS_KEY\"\n\n{broker}"
+            ))
+            .unwrap();
+            let b = Broker::new(&cfg.broker, SecretBoard::empty(), None);
+            harness_only(&cfg, &b)
+        };
+        let none = with("");
+        assert!(none.exposed.is_empty());
+        assert_eq!(
+            none.line(),
+            "broker: a job may be handed no secret; harness-only: the AWS keys \
+             (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key)"
+        );
+        let named = with(
+            "[broker.secrets.github_token]\nposture = \"notify\"\n\
+             [broker.secrets.anthropic_api_key]\nposture = \"approve\"\n",
+        );
+        assert_eq!(named.exposed, ["anthropic_api_key"]);
+        assert_eq!(
+            named.line(),
+            "broker: a job may be handed 2 secrets (anthropic_api_key, github_token); \
+             harness-only: the AWS keys (aws_access_key_id, aws_secret_access_key); not \
+             harness-only, since [broker] names them: anthropic_api_key"
+        );
     }
 }

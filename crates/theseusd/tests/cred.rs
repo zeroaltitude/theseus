@@ -502,8 +502,6 @@ fn a_job_that_runs_across_a_restart_asks_and_is_answered() {
     assert_eq!(res["stop_reason"], "no_tool_calls", "{res}");
     let job = r.sockets().pop().expect("the job's socket is served");
     let dir = r.path("projects/state/spool/broker").join(&job);
-    let inode = |p: &Path| std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(p).unwrap());
-    let before = inode(&dir.join("sock"));
     // A clean stop, and a new daemon on the same state dir.
     r.call("shutdown", Value::Null).ok();
     let t0 = Instant::now();
@@ -520,13 +518,22 @@ fn a_job_that_runs_across_a_restart_asks_and_is_answered() {
     );
     r.daemon = spawn(r.dir.path());
     r.until("the secrets again", |h| h["secrets"]["state"] == "ready");
-    // Served again, by a new socket in the same directory: tell the job to
-    // ask now, through the directory it binds.
+    // Served again, by a new socket in the same directory: a listener answers
+    // there (the stale socket refuses at once). Then tell the job to ask now,
+    // through the directory it binds. The socket's inode is no sign: on ext4
+    // a socket bound where a removed one was can take its number, so a
+    // changed inode raced (gh7s's third gate, 2026-10-03).
     let t0 = Instant::now();
-    while !dir.join("sock").exists() || inode(&dir.join("sock")) == before {
+    while UnixStream::connect(dir.join("sock")).is_err() {
         assert!(
-            t0.elapsed() < Duration::from_secs(10),
-            "not served again\n{}",
+            t0.elapsed() < Duration::from_secs(30),
+            "not served again: the directory {}, its socket {}\n{}",
+            if dir.exists() { "is there" } else { "is gone" },
+            if dir.join("sock").exists() {
+                "is there"
+            } else {
+                "is gone"
+            },
             r.log()
         );
         std::thread::sleep(Duration::from_millis(20));

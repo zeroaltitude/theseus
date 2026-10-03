@@ -903,12 +903,17 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result
         );
     }
     github_token_report(secrets.get(&cfg.github.token_secret), cfg.github.warn_days).await;
+    // What a job may be handed, and the keys that stay the harness's own
+    // (theseus-gh7): read from the config alone.
+    let broker = theseus_core::broker::Broker::new(&cfg.broker, secrets.clone(), None);
+    let kept = theseus_core::broker::harness_only(cfg, &broker);
     out(&format!(
-        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n",
+        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n{}\n",
         st.ready.len(),
         st.settled_ms.unwrap_or(0),
         st.method.as_deref().unwrap_or("nothing to fetch"),
-        st.ready.join(", ")
+        st.ready.join(", "),
+        kept.line()
     ))
 }
 

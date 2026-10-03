@@ -53,6 +53,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   4, its `parent` the job's call) with its card and waits on the push's feed until an answer (`confirm_action` ->
   `answer_cred_request`), a cancel, or the job's deadline. Its facts are `fact/cred.rs`; its tests
   `tests_cred.rs`, and the daemon's `tests/cred.rs` with real L1 jobs and the real helper.
+  - **Spawn grants stay withheld in L1** (theseus-7y9y, decided 2026-10-03 under Eddie's default-trust principle):
+    this request is the one gated way a secret reaches a sandboxed job, and the withheld note tells the model how to
+    ask (`GH_TOKEN="$(theseus-cred get github_token)"`). No mechanism change is planned.
 - **Egress** (M4 18c): `egress.rs`. `[sandbox] egress` and a call's `sandbox: { egress }`; the gate's step for
   hosts beyond the list (the call waits, and its approval reaches those hosts alone, since the list is in its
   proposal); and what a completion's `detail.egress` makes of a result: its `sandbox.egress` and
@@ -141,6 +144,12 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name). A value an L1 job asks
   for goes over its own socket to its helper alone (M4 18d): the request's records name the secret, never its
   value.
+- **The AWS keys and the providers' keys are harness-only** (theseus-gh7): Theseus's own tools read them from the
+  board (`aws/`, the providers), and `Broker::may_hand_out` refuses them to every job, by a grant or a request, unless
+  `[broker]` names one. `broker::harness_only` is the line `theseusd check` and health print, naming them; the
+  template test holds it (`the_templates_harness_only_keys`). Containment is that, the operator's `[broker]` grants,
+  and the egress list: credentials as stand-ins (TLS interception at the proxy) were dropped for v1 (Eddie,
+  2026-10-03). Do nothing heavier without his say.
 - **One fact, recorded once.** A new ledger row, notification, or narrative sentence is a fact's projection in
   `fact/`, not a hand-written channel at its site. Recording writes no frame: its row rides in the turn's next frame
   (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest
