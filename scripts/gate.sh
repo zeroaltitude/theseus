@@ -315,6 +315,25 @@ lifecycle_bench() {
   }
 }
 
+# The jobs bench's L1 row (theseus-mll1; design §2.10): an L1 job's start, from
+# the wrapper's spawn to the command's exec, 20 runs, p95 against §2.2's 25 ms.
+# A real start (a clone, namespaces) can't run on a paused clock, and the suite
+# runs under any load (its own tests beside it put a p95 at 1.1 s), so the suite
+# measures the row and this bounds it, on the machine the lifecycle bench just
+# settled. Skipped with it in a lane's gate; a miss reruns once, as its does.
+jobs_bench() {
+  if [ -n "${THESEUS_GATE_NO_BENCH:-}" ]; then
+    echo "jobs: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
+    return 0
+  fi
+  target/debug/theseus-sim bench jobs --class l1 --runs 20 --check || {
+    echo "jobs: an L1 start's p95 missed its target; running the bench once more"
+    sync
+    settle
+    target/debug/theseus-sim bench jobs --class l1 --runs 20 --check
+  }
+}
+
 # The turn bench (theseus-goa8; review 2's S4 and consideration 8): a plain
 # turn's frames, counted from the daemon's WAL, against §9's per-turn overhead
 # restated as frames (5 today; the floor is 2). A frame is one fdatasync, so
@@ -417,6 +436,7 @@ machine_checks() {
   if [ "$mode" = inner ]; then compiled_under_lock; fi
   if [ "$mode" = outer ]; then phase build bench_build; fi
   phase lifecycle lifecycle_bench
+  phase jobs jobs_bench
   phase turn turn_step
 }
 

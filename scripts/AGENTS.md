@@ -34,6 +34,9 @@ In outer mode it runs, in order:
    core count. A miss reruns once, and only a second miss fails. Every run goes to the bench history
    (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With `THESEUS_GATE_NO_BENCH=1` (a
    lane's gate, which the lane recipe sets), this step is skipped: the gate that joins the lane to `main` runs it.
+   Then, skipped with it, the jobs bench's L1 row (`theseus-sim bench jobs --class l1 --runs 20 --check`): an L1
+   start's p95 under §2.2's 25 ms, on the machine the lifecycle bench settled; a miss reruns once. The suite's
+   `the_jobs_bench_l1_row` measures the row and bounds nothing, since the suite runs under any load (theseus-mll1).
    Then the turn bench (`theseus-sim bench turn --check`): a plain turn's frames, counted from the daemon's WAL,
    against §9's per-turn overhead restated as frames (5; the floor is 2). A count needs no quiet machine, so it runs
    in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the join it runs ten runs and a
@@ -65,8 +68,8 @@ queued behind each other's compiles, and three join gates lost about 25 minutes.
   1. *Without the lock*, every compile: `fmt`, `shape`, `clippy`, then `bench build` (`cargo build` of the five binaries
      an install ships, `scripts/build.sh`'s list, among them those the benches run: the gate's `bench_build` function
      lists them) and `test build` (`cargo nextest run --workspace --no-run`, which builds what the suite runs).
-  2. *With the lock*, the locked part: the reader rule, the suite, the protocol-types check, the lifecycle bench (skipped
-     under `THESEUS_GATE_NO_BENCH`), and the turn bench. Nothing compiles here: step 1 built everything it runs (a
+  2. *With the lock*, the locked part: the reader rule, the suite, the protocol-types check, the lifecycle and jobs
+     benches (skipped under `THESEUS_GATE_NO_BENCH`), and the turn bench. Nothing compiles here: step 1 built everything it runs (a
      `gate: NOTE` says so when something does, which means the tree changed after step 1). Cargo links the binaries of
      the build it ran last, and the suite's cargo links the test build's `theseusd` and `theseus-sim`, so in inner
      mode the benches run those (the workspace's features, which an install has too); outer mode's run the `-p`

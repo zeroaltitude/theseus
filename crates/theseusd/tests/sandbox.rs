@@ -648,9 +648,12 @@ fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
 /// The jobs bench's L1 row (design §2.10; `theseus-sim bench jobs`): `/bin/true`
 /// through the real job wrapper, detached as the daemon starts a job, in L1,
 /// 20 times. Each start, from the wrapper's spawn to the command's exec, is
-/// in its completion (`detail.sandbox.start_us`). The target is a p95 under
-/// 25 ms; this fails only past ten times it, so a loaded machine never fails
-/// the gate, and the report quotes the bench itself.
+/// in its completion (`detail.sandbox.start_us`), and this holds that each
+/// one is measured. Its speed is not bounded here: a real start (a clone,
+/// namespaces) can't run on a paused clock, and the suite runs under any
+/// load (a p95 of 1.1 s once, beside the suite's other tests; theseus-mll1).
+/// The bound is the gate's, on a settled machine: `theseus-sim bench jobs
+/// --class l1 --check`, a p95 under 25 ms, in its bench phase.
 #[test]
 fn the_jobs_bench_l1_row() {
     use theseus_kernel::job::{self, WrapperArgs, L1};
@@ -697,6 +700,7 @@ fn the_jobs_bench_l1_row() {
             .pointer("/sandbox/start_us")
             .and_then(Value::as_u64)
             .unwrap_or_else(|| panic!("job {i} did not start in L1: {d}"));
+        assert!(us > 0, "job {i}: a start of 0 us is not a measurement: {d}");
         if i >= 2 {
             starts.push(us);
         }
@@ -704,12 +708,8 @@ fn the_jobs_bench_l1_row() {
     starts.sort_unstable();
     let p95 = starts[(starts.len() * 95).div_ceil(100) - 1];
     eprintln!(
-        "L1 start: p50 {} us, p95 {p95} us",
+        "L1 start: p50 {} us, p95 {p95} us (the gate's bench bounds it)",
         starts[starts.len() / 2]
-    );
-    assert!(
-        p95 < 250_000,
-        "an L1 start's p95 is {p95} us, ten times 25 ms"
     );
 }
 
