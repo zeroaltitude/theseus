@@ -136,7 +136,7 @@ function SpendOverTime({ calls, bucket }: { calls: ProviderCall[]; bucket: 'hour
     const cum = keys.map((k, i) => [k, Number(perKey.slice(0, i + 1).reduce((a, b) => a + b, 0).toFixed(6))])
     return {
       grid: { left: 52, right: 52, top: 30, bottom: 26 },
-      legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#94a3b8', fontSize: 10 } },
+      legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#c8bb9b', fontSize: 10 } },
       tooltip: { trigger: 'axis', valueFormatter: (v: any) => usd(Number(v)) },
       xAxis: { type: 'time', ...axisStyle, splitLine: { show: false } },
       yAxis: [
@@ -161,10 +161,10 @@ function SpendOverTime({ calls, bucket }: { calls: ProviderCall[]; bucket: 'hour
 function WhereItGoes({ parts, saved }: { parts: { input: number; cacheRead: number; cacheWrite: number; output: number }; saved: number }) {
   const option = useMemo<EChartsOption>(() => ({
     tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/><b>${usd(p.value)}</b> · ${p.percent}%` },
-    legend: { bottom: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#94a3b8', fontSize: 10 } },
+    legend: { bottom: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#c8bb9b', fontSize: 10 } },
     series: [{
       type: 'pie', radius: ['46%', '72%'], center: ['50%', '45%'], padAngle: 2, itemStyle: { borderRadius: 5 },
-      label: { color: '#cbd5e1', fontSize: 11, formatter: (p: any) => `${p.name}\n${usd(p.value)}` },
+      label: { color: '#ddd0b0', fontSize: 11, formatter: (p: any) => `${p.name}\n${usd(p.value)}` },
       data: [
         { name: 'output', value: Number(parts.output.toFixed(6)), itemStyle: { color: toneHex.money } },
         { name: 'cache write', value: Number(parts.cacheWrite.toFixed(6)), itemStyle: { color: toneHex.model } },
@@ -206,8 +206,8 @@ function Sunburst({ calls, title }: { calls: ProviderCall[]; title: Map<string, 
       tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/><b>${usd(p.value)}</b>` },
       series: [{
         type: 'sunburst', radius: ['12%', '92%'], data, sort: undefined, nodeClick: 'rootToNode',
-        itemStyle: { borderColor: '#070a10', borderWidth: 2 },
-        label: { color: '#e2e8f0', fontSize: 10, minAngle: 12 },
+        itemStyle: { borderColor: '#06101d', borderWidth: 2 },
+        label: { color: '#efe3c8', fontSize: 10, minAngle: 12 },
         levels: [{}, { r0: '12%', r: '38%', label: { rotate: 0 } }, { r0: '38%', r: '66%', itemStyle: { opacity: 0.85 } }, { r0: '66%', r: '92%', label: { position: 'outside', fontSize: 9 }, itemStyle: { opacity: 0.7 } }],
       }],
     }
@@ -226,7 +226,7 @@ function PerSession({ calls, title, onPick }: { calls: ProviderCall[]; title: Ma
     grid: { left: 150, right: 56, top: 8, bottom: 8 },
     tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/><b>${usd(p.value)}</b>` },
     xAxis: { type: 'value', show: false },
-    yAxis: { type: 'category', inverse: true, data: rows.map(([sid]) => title.get(sid) ?? short(sid)), ...axisStyle, axisLabel: { color: '#cbd5e1', fontSize: 11, width: 140, overflow: 'truncate' } },
+    yAxis: { type: 'category', inverse: true, data: rows.map(([sid]) => title.get(sid) ?? short(sid)), ...axisStyle, axisLabel: { color: '#ddd0b0', fontSize: 11, width: 140, overflow: 'truncate' } },
     series: [{
       type: 'bar', data: rows.map(([, v]) => Number(v.toFixed(6))), barMaxWidth: 16,
       itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: `${toneHex.money}55` }, { offset: 1, color: toneHex.money }] }, borderRadius: [0, 4, 4, 0] },
@@ -242,7 +242,7 @@ function LatencyByModel({ calls }: { calls: ProviderCall[] }) {
     const models = [...new Set(calls.map((c) => c.model))]
     return {
       grid: { left: 52, right: 12, top: 28, bottom: 40 },
-      legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#94a3b8', fontSize: 10 } },
+      legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#c8bb9b', fontSize: 10 } },
       tooltip: { trigger: 'item', formatter: (p: any) => `${p.seriesName} · ${p.value[0]}<br/><b>${ms(p.value[1])}</b>` },
       xAxis: { type: 'category', data: models, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, interval: 0, rotate: models.length > 3 ? 20 : 0 } },
       yAxis: { type: 'log', logBase: 10, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => ms(v) } },

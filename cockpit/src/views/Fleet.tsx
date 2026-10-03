@@ -250,7 +250,7 @@ function FleetGraph({ sessions, executions, onOpen }: { sessions: SessionInfo[];
     <div className="relative h-full">
       <ReactFlow nodes={nodes} edges={laid.edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.2} maxZoom={1.6}
         proOptions={{ hideAttribution: true }} colorMode="dark" nodesDraggable onNodeClick={(_, n) => onOpen(n.id)}>
-        <Background color="rgba(148,163,184,0.12)" gap={22} size={1} />
+        <Background color="rgba(176,141,87,0.12)" gap={22} size={1} />
         <Controls showInteractive={false} className="!bg-hull !shadow-none [&>button]:!border-line [&>button]:!bg-hull [&>button]:!fill-ink-dim" />
       </ReactFlow>
       {!laid.edges.length && <div className="pointer-events-none absolute bottom-3 right-3 text-[11px] text-ink-faint">no tasks or reports yet: edges appear when a session starts a task</div>}

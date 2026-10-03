@@ -131,7 +131,7 @@ function PulsePanel({ rows }: { rows: Parameters<typeof pulse>[0] }) {
     }
     return {
       grid: { left: 36, right: 12, top: 28, bottom: 22 },
-      legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#94a3b8', fontSize: 10 } },
+      legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#c8bb9b', fontSize: 10 } },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(34,211,238,.06)' } } },
       xAxis: {
         type: 'category', ...axisStyle, splitLine: { show: false },
@@ -247,7 +247,7 @@ function Fuel({ calls }: { calls: ProviderCall[] }) {
 function Latency({ calls }: { calls: ProviderCall[] }) {
   const option = useMemo<EChartsOption>(() => ({
     grid: { left: 44, right: 12, top: 26, bottom: 24 },
-    legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#94a3b8', fontSize: 10 } },
+    legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#c8bb9b', fontSize: 10 } },
     tooltip: { trigger: 'item', formatter: (p: any) => `${p.seriesName}<br/>${clock(p.value[0])} · <b>${ms(p.value[1])}</b>` },
     xAxis: { type: 'time', ...axisStyle, splitLine: { show: false } },
     yAxis: { type: 'log', logBase: 10, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => ms(v) } },
@@ -278,7 +278,7 @@ function SpendFlow({ calls, sessions }: { calls: ProviderCall[]; sessions: Sessi
         type: 'sankey', left: 4, right: 110, top: 8, bottom: 8, nodeWidth: 10, nodeGap: 8, draggable: false,
         emphasis: { focus: 'adjacency' },
         lineStyle: { color: 'gradient', opacity: 0.35, curveness: 0.5 },
-        label: { color: '#cbd5e1', fontSize: 11 },
+        label: { color: '#ddd0b0', fontSize: 11 },
         itemStyle: { borderWidth: 0 },
         data: [...nodes].map((n) => ({ name: n, itemStyle: { color: n.startsWith('◦') ? toneHex.money : calls.some((c) => c.provider === n) ? toneHex.model : toneHex.live } })),
         links: [...links.entries()].map(([k, v]) => { const [source, target] = k.split('\u0000'); return { source, target, value: Number(v.toFixed(6)) } }),

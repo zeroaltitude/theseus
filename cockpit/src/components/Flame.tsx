@@ -33,10 +33,10 @@ export function Flame({ trace, onPick, cursor }: { trace: Span | null | undefine
         formatter: (p: any) => {
           const f = flat[p.dataIndex]
           const a = f.attrs ? JSON.stringify(f.attrs).slice(0, 260).replace(/</g, '&lt;') : ''
-          return `<b>${f.name}</b> <span style="color:#94a3b8">${f.kind}</span><br/>${us(f.start)} → ${us(f.end)} · <b>${us(f.end - f.start)}</b>${a ? `<br/><span style="font-family:monospace;font-size:11px;color:#94a3b8">${a}</span>` : ''}`
+          return `<b>${f.name}</b> <span style="color:#c8bb9b">${f.kind}</span><br/>${us(f.start)} → ${us(f.end)} · <b>${us(f.end - f.start)}</b>${a ? `<br/><span style="font-family:monospace;font-size:11px;color:#c8bb9b">${a}</span>` : ''}`
         },
       },
-      dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'weakFilter' }, { type: 'slider', xAxisIndex: 0, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.05)', fillerColor: 'rgba(34,211,238,0.12)', handleSize: 10, showDetail: false }],
+      dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'weakFilter' }, { type: 'slider', xAxisIndex: 0, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(176,141,87,0.05)', fillerColor: 'rgba(34,211,238,0.12)', handleSize: 10, showDetail: false }],
       xAxis: { type: 'value', min: 0, max: end, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => us(v) } },
       // A fixed row count keeps rows a flame chart's height (about 26 px), however shallow the trace is.
       yAxis: { type: 'value', min: 0, max: Math.max(maxDepth + 1, 13), inverse: true, show: false },
@@ -61,7 +61,7 @@ export function Flame({ trace, onPick, cursor }: { trace: Span | null | undefine
           if (w < 46) return rect
           return {
             type: 'group',
-            children: [rect, { type: 'text' as const, style: { text: f.name, x: s[0] + 5, y: s[1] + 1 + h / 2, verticalAlign: 'middle', fill: '#e2e8f0', font: '11px Inter Variable', width: w - 8, overflow: 'truncate' } }],
+            children: [rect, { type: 'text' as const, style: { text: f.name, x: s[0] + 5, y: s[1] + 1 + h / 2, verticalAlign: 'middle', fill: '#efe3c8', font: '11px Inter Variable', width: w - 8, overflow: 'truncate' } }],
           }
         },
         encode: { x: [1, 2], y: 0 },

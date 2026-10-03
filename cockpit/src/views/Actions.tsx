@@ -181,7 +181,7 @@ function Lifecycle({ actions }: { actions: ActionInfo[] }) {
             <div className="mt-1.5 flex items-center gap-1">
               {STEPS.map((s, i) => (
                 <div key={s} className="flex flex-1 items-center gap-1">
-                  <div className="h-1.5 flex-1 rounded-full" style={{ background: i < reached ? toneHex[tone] : 'rgba(148,163,184,0.12)', boxShadow: i < reached ? `0 0 8px ${toneHex[tone]}55` : undefined }} />
+                  <div className="h-1.5 flex-1 rounded-full" style={{ background: i < reached ? toneHex[tone] : 'rgba(176,141,87,0.12)', boxShadow: i < reached ? `0 0 8px ${toneHex[tone]}55` : undefined }} />
                   <span className={cn('num text-[9.5px]', i < reached ? 'text-ink-dim' : 'text-ink-faint/60')}>
                     {s}{i > 0 && times[i] && times[i - 1] ? ` +${ms((times[i] as number) - (times[i - 1] as number))}` : ''}
                   </span>

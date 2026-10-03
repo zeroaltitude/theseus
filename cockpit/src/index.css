@@ -1,19 +1,33 @@
 @import "tailwindcss";
 
-/* The cockpit's design tokens (theseus-45n5). Dark, dense, legible: color carries state, never decoration.
-   live = cyan, healthy = emerald, waiting = amber, fault = rose, model = violet, tool = sky, thinking = fuchsia. */
+/* The cockpit's design tokens (theseus-45n5; brass and neon, theseus-logs). A Victorian ship's bridge rebuilt by a
+   hacker, in the README logo's colours: night navy, gold, and worn ivory, in brass bezels with rivets, lit by neon.
+   Colour still carries state, never decoration: live = cyan, healthy = emerald, waiting = amber, fault = rose,
+   model = violet, tool = sky, thinking = fuchsia, money = gold. Brass and ivory are the frame and the ink. */
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", monospace;
+  --font-display: "Cinzel Variable", "Cinzel", Georgia, serif;
 
-  --color-void: #04060a;
-  --color-deck: #070a10;
-  --color-hull: #0b1018;
-  --color-line: rgb(148 163 184 / 0.12);
-  --color-line-strong: rgb(148 163 184 / 0.22);
-  --color-ink: #e2e8f0;
-  --color-ink-dim: #94a3b8;
-  --color-ink-faint: #64748b;
+  /* The night: under the chart, the deck, raised surfaces. */
+  --color-void: #030912;
+  --color-deck: #06101d;
+  --color-hull: #0a1828;
+  --color-navy: #13314d;
+  /* Brass hairlines. */
+  --color-line: rgb(176 141 87 / 0.22);
+  --color-line-strong: rgb(214 165 72 / 0.42);
+  /* Ivory ink, at three strengths (each WCAG AA or better on the deck and the hull). */
+  --color-ink: #efe3c8;
+  --color-ink-dim: #c8bb9b;
+  --color-ink-faint: #9c907a;
+
+  --color-ivory: #efe3c8;
+  --color-gold: #d6a548;
+  --color-brass: #b08d57;
+  --color-verdigris: #4a7c6f;
+  --color-neon: #22d3ee;
+  --color-magenta: #f472b6;
 
   --color-live: #22d3ee;
   --color-ok: #34d399;
@@ -48,42 +62,66 @@
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
   }
-  ::selection { background: rgb(34 211 238 / 0.28); }
-  * { scrollbar-width: thin; scrollbar-color: rgb(148 163 184 / 0.22) transparent; }
+  ::selection { background: rgb(214 165 72 / 0.35); color: #fff8e6; }
+  * { scrollbar-width: thin; scrollbar-color: rgb(176 141 87 / 0.45) transparent; }
 }
 
 @layer components {
-  /* The instrument grid behind everything: faint, so panels read as floating glass. */
+  /* The chart table behind everything: night navy, a faint holographic grid, the lamp's warm pool. */
   .cockpit-bg {
     background-color: var(--color-void);
     background-image:
-      radial-gradient(1200px 600px at 12% -10%, rgb(34 211 238 / 0.07), transparent 60%),
-      radial-gradient(900px 500px at 100% 0%, rgb(167 139 250 / 0.06), transparent 55%),
-      linear-gradient(rgb(148 163 184 / 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(148 163 184 / 0.035) 1px, transparent 1px);
-    background-size: auto, auto, 32px 32px, 32px 32px;
+      radial-gradient(1200px 640px at 12% -12%, rgb(34 211 238 / 0.07), transparent 62%),
+      radial-gradient(900px 520px at 100% -4%, rgb(214 165 72 / 0.07), transparent 58%),
+      radial-gradient(1400px 700px at 50% 125%, rgb(19 49 77 / 0.75), transparent 72%),
+      linear-gradient(rgb(34 211 238 / 0.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(34 211 238 / 0.028) 1px, transparent 1px);
+    background-size: auto, auto, auto, 32px 32px, 32px 32px;
   }
 
+  /* A brass-framed instrument panel: a bevelled brass bezel, four rivets, and a night-glass face. */
   .panel {
-    background: linear-gradient(180deg, rgb(15 23 42 / 0.72), rgb(8 12 20 / 0.72));
-    border: 1px solid var(--color-line);
-    border-radius: 12px;
-    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4), 0 8px 30px -12px rgb(0 0 0 / 0.7), inset 0 1px 0 rgb(255 255 255 / 0.04);
-    backdrop-filter: blur(10px);
+    --rivet: radial-gradient(circle, #f6e2b4 0 1px, #9a7745 1.5px 2.1px, rgb(0 0 0 / 0.55) 2.4px 2.9px, transparent 3.1px);
+    position: relative;
+    background:
+      var(--rivet) 3px 3px / 10px 10px no-repeat padding-box,
+      var(--rivet) calc(100% - 3px) 3px / 10px 10px no-repeat padding-box,
+      var(--rivet) 3px calc(100% - 3px) / 10px 10px no-repeat padding-box,
+      var(--rivet) calc(100% - 3px) calc(100% - 3px) / 10px 10px no-repeat padding-box,
+      linear-gradient(180deg, #0c1c2f, #071322 70%, #06101d) padding-box,
+      linear-gradient(140deg, #f3d9a4, #b08d57 18%, #5b4325 42%, #8c6a3c 64%, #e3c27f 82%, #5b4325) border-box;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 0.55),
+      0 12px 32px -14px rgb(0 0 0 / 0.85),
+      inset 0 1px 0 rgb(243 217 164 / 0.10),
+      inset 0 0 28px rgb(34 211 238 / 0.025);
+  }
+  .panel > header {
+    background: linear-gradient(180deg, rgb(176 141 87 / 0.13), rgb(176 141 87 / 0.02));
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
   }
 
-  .panel-title {
+  /* Engraved in the brass: the titles of plates and panels. */
+  .panel-title, .ship-engraved {
+    font-family: var(--font-display);
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
+    font-weight: 700;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--color-ink-dim);
+    color: var(--color-gold);
+    text-shadow: 0 1px 0 rgb(0 0 0 / 0.85), 0 -1px 0 rgb(243 217 164 / 0.14);
   }
 
   .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
+  /* Neon on a number: the readout glows in its own tone. */
+  .neon { text-shadow: 0 0 10px color-mix(in srgb, currentColor 55%, transparent), 0 0 2px color-mix(in srgb, currentColor 40%, transparent); }
+
   .live-sweep {
-    background-image: linear-gradient(90deg, transparent, rgb(34 211 238 / 0.18), transparent);
+    background-image: linear-gradient(90deg, transparent, rgb(34 211 238 / 0.45), rgb(214 165 72 / 0.35), transparent);
     background-size: 200% 100%;
     animation: var(--animate-sweep);
   }
@@ -93,10 +131,243 @@
     font-size: 10px;
     padding: 1px 5px;
     border-radius: 4px;
-    border: 1px solid var(--color-line-strong);
     color: var(--color-ink-dim);
-    background: rgb(255 255 255 / 0.03);
+    background: linear-gradient(180deg, #1a2638, #0c1522) padding-box, linear-gradient(180deg, #e3c27f, #6e5230) border-box;
+    border: 1px solid transparent;
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.6);
   }
+
+  /* The wordmark: gold, struck like the coin. */
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    background: linear-gradient(180deg, #f8e6bd, #d6a548 48%, #9c6f23);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.8)) drop-shadow(0 0 10px rgb(214 165 72 / 0.25));
+  }
+
+  /* The nav rail and the heartbeat bar: dark brass and navy. */
+  .brass-rail {
+    background: linear-gradient(90deg, #0a1727, #07111d 70%, #091524);
+    box-shadow: inset -1px 0 0 rgb(176 141 87 / 0.45), inset -2px 0 0 rgb(0 0 0 / 0.6), 4px 0 18px -8px rgb(0 0 0 / 0.8);
+  }
+  .brass-bar {
+    background: linear-gradient(180deg, #0c1a2c, #07111e);
+    box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.7);
+  }
+
+  /* Brass controls. */
+  .brass-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-family: var(--font-display);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+    border-radius: 6px;
+    background: linear-gradient(180deg, #182b42, #0b1626) padding-box, linear-gradient(140deg, #f3d9a4, #8c6a3c 45%, #4a3519 75%, #b08d57) border-box;
+    border: 1px solid transparent;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(243 217 164 / 0.14);
+    transition: box-shadow 160ms, color 160ms;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .brass-button:hover { color: #fffaf0; box-shadow: 0 0 0 1px rgb(34 211 238 / 0.6), 0 0 14px rgb(34 211 238 / 0.32), inset 0 1px 0 rgb(243 217 164 / 0.14); }
+  .brass-button-on { color: var(--color-neon); box-shadow: 0 0 0 1px rgb(34 211 238 / 0.45), 0 0 12px rgb(34 211 238 / 0.25); }
+  .brass-button .kbd { font-family: var(--font-mono); text-transform: none; letter-spacing: 0; }
+
+  .brass-card {
+    --rivet: radial-gradient(circle, #f6e2b4 0 1px, #9a7745 1.5px 2.1px, rgb(0 0 0 / 0.55) 2.4px 2.9px, transparent 3.1px);
+    padding: 12px 14px;
+    border-radius: 10px;
+    background:
+      var(--rivet) 3px 3px / 10px 10px no-repeat padding-box,
+      var(--rivet) calc(100% - 3px) 3px / 10px 10px no-repeat padding-box,
+      var(--rivet) 3px calc(100% - 3px) / 10px 10px no-repeat padding-box,
+      var(--rivet) calc(100% - 3px) calc(100% - 3px) / 10px 10px no-repeat padding-box,
+      linear-gradient(180deg, rgb(13 29 48 / 0.97), rgb(6 15 27 / 0.97)) padding-box,
+      linear-gradient(140deg, #f3d9a4, #b08d57 18%, #5b4325 42%, #8c6a3c 64%, #e3c27f 82%, #5b4325) border-box;
+    border: 1px solid transparent;
+    box-shadow: 0 16px 40px -16px rgb(0 0 0 / 0.9), inset 0 1px 0 rgb(243 217 164 / 0.10);
+  }
+  .brass-tip {
+    padding: 7px 10px;
+    border-radius: 7px;
+    background: linear-gradient(180deg, rgb(13 29 48 / 0.97), rgb(6 15 27 / 0.97)) padding-box, linear-gradient(140deg, #f3d9a4, #8c6a3c 45%, #4a3519 75%, #b08d57) border-box;
+    border: 1px solid transparent;
+    box-shadow: 0 12px 30px -12px rgb(0 0 0 / 0.9), 0 0 18px -6px rgb(34 211 238 / 0.3);
+    z-index: 30;
+  }
+
+  /* The README's planks: worn ivory, the new ones gold. */
+  .plank { fill: #efe3c8; fill-opacity: 0.2; }
+  .plank-unlaid { fill: none; stroke: rgb(176 141 87 / 0.35); stroke-width: 0.5; }
+  .plank-gold { fill: #e2ae4f; fill-opacity: 0.85; }
+  .plank-new { fill: #ffd27a; fill-opacity: 1; filter: drop-shadow(0 0 2px #e2ae4f); animation: plank-in 1.8s ease-out; }
+  @keyframes plank-in { from { fill: #fffbe9; } to { fill: #ffd27a; } }
+}
+
+/* ---------------------------------------------------------------- the Ship */
+.ship-root { background: var(--color-void); isolation: isolate; }
+.ship-canvas { display: block; position: absolute; inset: 0; touch-action: none; }
+.ship-labels { z-index: 1; }
+.ship-labels > * { position: absolute; left: 0; top: 0; will-change: transform; }
+.ship-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  line-height: 1;
+  background: linear-gradient(180deg, #fbebc6, #d6a548 46%, #8c6a3c);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.9)) drop-shadow(0 0 16px rgb(214 165 72 / 0.32));
+}
+.ship-cartouche {
+  z-index: 2;
+  padding: 9px 18px 9px 14px;
+  background: linear-gradient(90deg, rgb(3 9 18 / 0.86), rgb(3 9 18 / 0.55) 70%, rgb(3 9 18 / 0));
+  border-left: 2px solid var(--color-gold);
+  box-shadow: -1px 0 0 rgb(0 0 0 / 0.6);
+}
+.ship-synthetic { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-magenta); border: 1px solid rgb(244 114 182 / 0.5); padding: 0 6px; border-radius: 4px; }
+.ship-root > .absolute { z-index: 2; }
+.ship-plate {
+  pointer-events: none;
+  padding: 3px 10px 4px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgb(19 33 51 / 0.93), rgb(7 16 28 / 0.93)) padding-box, linear-gradient(140deg, #f3d9a4, #8c6a3c 40%, #4a3519 70%, #b08d57) border-box;
+  border: 1px solid transparent;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.6);
+  white-space: nowrap;
+}
+.ship-plate-title { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--color-ivory); letter-spacing: 0.04em; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.ship-plate-sub { font-family: var(--font-mono); font-size: 10px; color: var(--color-ink-dim); display: flex; align-items: center; gap: 5px; }
+.ship-plate-sub i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-brass); flex: none; }
+.ship-plate[data-rig="sail"] .ship-plate-sub i { background: var(--color-live); box-shadow: 0 0 6px var(--color-live); }
+.ship-plate[data-rig="lantern"] .ship-plate-sub i { background: var(--color-wait); box-shadow: 0 0 7px var(--color-wait); }
+.ship-plate[data-rig="flare"] .ship-plate-sub i { background: var(--color-fault); box-shadow: 0 0 7px var(--color-fault); }
+.ship-plate[data-rig="lantern"] .ship-plate-sub { color: #f3d58c; }
+.ship-plate[data-on="selected"] { box-shadow: 0 0 0 1px var(--color-live), 0 0 18px rgb(34 211 238 / 0.45); }
+.ship-plate[data-on="hovered"] { box-shadow: 0 0 0 1px rgb(243 217 164 / 0.8), 0 4px 14px rgb(0 0 0 / 0.6); }
+.ship-formation {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: rgb(226 190 112 / 0.92);
+  text-shadow: 0 0 12px rgb(214 165 72 / 0.4), 0 1px 0 #000, 0 0 2px #000;
+  white-space: nowrap;
+}
+.ship-tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 14px;
+  color: var(--color-ivory);
+  background: rgb(3 9 18 / 0.8);
+  border-left: 2px solid currentColor;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+.ship-tag[data-kind="call"] { color: #67e8f9; }
+.ship-tag[data-kind="model"] { color: #c4b5fd; }
+.ship-tag[data-kind="user"] { color: var(--color-ivory); }
+.ship-tag[data-kind="result"] { color: #6ee7b7; }
+.ship-tag[data-flag="external"] { color: #f9a8d4; }
+.ship-tag[data-flag="failed"] { color: #fda4af; }
+.ship-tag[data-flag="l1"] { color: #5eead4; }
+.ship-console {
+  --rivet: radial-gradient(circle, #f6e2b4 0 1px, #9a7745 1.5px 2.1px, rgb(0 0 0 / 0.55) 2.4px 2.9px, transparent 3.1px);
+  border-radius: 16px 16px 12px 12px;
+  background:
+    var(--rivet) 4px 4px / 10px 10px no-repeat padding-box,
+    var(--rivet) calc(100% - 4px) 4px / 10px 10px no-repeat padding-box,
+    var(--rivet) 4px calc(100% - 4px) / 10px 10px no-repeat padding-box,
+    var(--rivet) calc(100% - 4px) calc(100% - 4px) / 10px 10px no-repeat padding-box,
+    linear-gradient(180deg, rgb(12 26 44 / 0.95), rgb(5 12 22 / 0.97)) padding-box,
+    linear-gradient(140deg, #f3d9a4, #b08d57 18%, #5b4325 42%, #8c6a3c 64%, #e3c27f 82%, #5b4325) border-box;
+  border: 1px solid transparent;
+  box-shadow: 0 -8px 40px -12px rgb(34 211 238 / 0.12), 0 18px 40px -10px rgb(0 0 0 / 0.95), inset 0 1px 0 rgb(243 217 164 / 0.12);
+}
+.ship-porthole {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, #f3d9a4, #8c6a3c 20%, #4a3519 38%, #b08d57 55%, #f3d9a4 70%, #6e5230 86%, #f3d9a4);
+  box-shadow: 0 10px 30px -8px rgb(0 0 0 / 0.9), inset 0 0 0 1px rgb(0 0 0 / 0.5), 0 0 22px -6px rgb(34 211 238 / 0.25);
+}
+.ship-porthole canvas { border-radius: 50%; box-shadow: inset 0 0 12px rgb(0 0 0 / 0.9), 0 0 0 2px rgb(0 0 0 / 0.65); cursor: crosshair; }
+.ship-porthole::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 4px, #f6e2b4 0 1.2px, #6e5230 1.7px 2.4px, transparent 2.7px),
+    radial-gradient(circle at 50% calc(100% - 4px), #f6e2b4 0 1.2px, #6e5230 1.7px 2.4px, transparent 2.7px),
+    radial-gradient(circle at 4px 50%, #f6e2b4 0 1.2px, #6e5230 1.7px 2.4px, transparent 2.7px),
+    radial-gradient(circle at calc(100% - 4px) 50%, #f6e2b4 0 1.2px, #6e5230 1.7px 2.4px, transparent 2.7px);
+}
+.ship-instrument figcaption { white-space: nowrap; }
+/* The console's dials: their size follows the screen, so the bridge fits a laptop as well as a wall. */
+.ship-console { --dial: 112px; }
+.ship-dial { width: var(--dial); height: var(--dial); }
+@media (max-width: 1680px) { .ship-console { --dial: 98px; } }
+@media (max-width: 1440px) { .ship-console { --dial: 86px; } .ship-console .nixie-tube { width: 19px; height: 37px; } .ship-console .nixie-digit, .ship-console .nixie-ghost { font-size: 26px; } }
+
+/* Nixie tubes: warm neon numerals behind glass and an anode mesh. */
+.nixie-bank {
+  display: flex;
+  gap: 3px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #1b130a, #0a0704) padding-box, linear-gradient(140deg, #f3d9a4, #8c6a3c 45%, #4a3519 75%, #b08d57) border-box;
+  border: 1px solid transparent;
+  box-shadow: inset 0 0 14px rgb(0 0 0 / 0.9), 0 6px 16px -6px rgb(0 0 0 / 0.8);
+}
+.nixie-tube {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 11px 11px 5px 5px;
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 0.09), transparent 28%, transparent 72%, rgb(255 255 255 / 0.05)),
+    radial-gradient(ellipse at 50% 40%, rgb(255 150 60 / 0.12), rgb(18 11 5 / 0.96) 72%);
+  border: 1px solid rgb(243 217 164 / 0.2);
+}
+.nixie-tube::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(60deg, rgb(255 190 120 / 0.09) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-60deg, rgb(255 190 120 / 0.09) 0 1px, transparent 1px 4px);
+}
+.nixie-ghost, .nixie-digit { grid-area: 1 / 1; font-family: var(--font-mono); font-size: 31px; line-height: 1; }
+.nixie-ghost { font-weight: 200; color: rgb(255 150 70 / 0.08); }
+.nixie-digit { position: relative; font-weight: 300; color: #ffdcae; text-shadow: 0 0 3px #ff9d42, 0 0 9px #ff7f22, 0 0 20px rgb(255 110 20 / 0.7); }
+.nixie-off .nixie-digit { color: rgb(255 170 90 / 0.16); text-shadow: none; }
+
+/* Calm: no decorative motion anywhere (the operator's choice, or the system's reduced motion). */
+html.calm .live-sweep, html.calm .animate-ping, html.calm .animate-pulse-soft, html.calm .plank-new { animation: none !important; }
+html.calm .animate-ping { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .live-sweep, .animate-ping, .animate-pulse-soft, .plank-new { animation: none !important; }
 }
 
 /* Model text: compact markdown, legible in a dense column. */
@@ -107,14 +378,14 @@
 .md ul { list-style: disc; } .md ol { list-style: decimal; }
 .md li + li { margin-top: 0.15em; }
 .md a { color: var(--color-live); text-decoration: underline; text-underline-offset: 2px; }
-.md code { font-family: var(--font-mono); font-size: 0.9em; background: rgb(255 255 255 / 0.06); padding: 0.05em 0.35em; border-radius: 4px; }
-.md pre { background: rgb(0 0 0 / 0.35); border: 1px solid var(--color-line); border-radius: 8px; padding: 0.6em 0.8em; overflow: auto; }
+.md code { font-family: var(--font-mono); font-size: 0.9em; background: rgb(214 165 72 / 0.09); padding: 0.05em 0.35em; border-radius: 4px; }
+.md pre { background: rgb(0 0 0 / 0.38); border: 1px solid var(--color-line); border-radius: 8px; padding: 0.6em 0.8em; overflow: auto; }
 .md pre code { background: none; padding: 0; }
 .md table { border-collapse: collapse; font-size: 0.92em; }
 .md th, .md td { border: 1px solid var(--color-line); padding: 0.25em 0.55em; }
-.md th { background: rgb(255 255 255 / 0.04); }
+.md th { background: rgb(214 165 72 / 0.06); }
 .md blockquote { border-left: 2px solid var(--color-line-strong); padding-left: 0.8em; color: var(--color-ink-dim); }
 
-/* React Flow, dark. */
+/* React Flow, on the night chart. */
 .react-flow { --xy-background-color: transparent; }
 .react-flow__attribution { display: none; }

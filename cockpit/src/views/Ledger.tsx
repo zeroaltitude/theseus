@@ -132,11 +132,11 @@ function KindMap({ rows, selected, onToggle }: { rows: LedgerEntry[]; selected: 
       tooltip: { formatter: (p: any) => `${p.name}<br/><b>${p.value}</b> rows` },
       series: [{
         type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: false }, width: '100%', height: '100%',
-        itemStyle: { borderColor: '#070a10', borderWidth: 2, gapWidth: 2 },
-        label: { color: '#e2e8f0', fontSize: 11, fontFamily: 'JetBrains Mono Variable', formatter: (p: any) => `${String(p.name).split('.').slice(1).join('.') || p.name}\n${p.value}` },
+        itemStyle: { borderColor: '#06101d', borderWidth: 2, gapWidth: 2 },
+        label: { color: '#efe3c8', fontSize: 11, fontFamily: 'JetBrains Mono Variable', formatter: (p: any) => `${String(p.name).split('.').slice(1).join('.') || p.name}\n${p.value}` },
         levels: [
           { itemStyle: { borderWidth: 0, gapWidth: 3 } },
-          { itemStyle: { gapWidth: 1, borderColor: '#0b1018', borderWidth: 2 }, upperLabel: { show: true, height: 15, color: '#94a3b8', fontSize: 10, fontWeight: 600 } },
+          { itemStyle: { gapWidth: 1, borderColor: '#0a1828', borderWidth: 2 }, upperLabel: { show: true, height: 15, color: '#c8bb9b', fontSize: 10, fontWeight: 600 } },
           { itemStyle: { gapWidth: 1 } },
         ],
         data: [...fam.entries()].map(([f, kinds]) => ({
@@ -168,7 +168,7 @@ function Histogram({ rows, onRange }: { rows: LedgerEntry[]; onRange: (r: [numbe
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
       xAxis: { type: 'category', data: edges.slice(0, -1).map((t) => stamp(t)), ...axisStyle, splitLine: { show: false }, axisLabel: { ...axisStyle.axisLabel, hideOverlap: true } },
       yAxis: { type: 'value', minInterval: 1, ...axisStyle },
-      dataZoom: [{ type: 'slider', height: 16, bottom: 4, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.05)', fillerColor: 'rgba(34,211,238,0.14)', showDetail: false, realtime: false }],
+      dataZoom: [{ type: 'slider', height: 16, bottom: 4, borderColor: 'transparent', backgroundColor: 'rgba(176,141,87,0.05)', fillerColor: 'rgba(34,211,238,0.14)', showDetail: false, realtime: false }],
       series: tones.filter((t) => series[t].some((v) => v > 0)).map((t) => ({
         name: t, type: 'bar', stack: 'k', data: series[t], barWidth: '85%', itemStyle: { color: toneHex[t], opacity: 0.85 },
       })),

@@ -134,10 +134,10 @@ export function Kpi({
       className={cn('panel group relative overflow-hidden px-3.5 pb-2 pt-3 text-left', onClick && 'cursor-pointer')}
     >
       <div className="absolute inset-x-0 top-0 h-px" style={{ background: `linear-gradient(90deg, transparent, ${toneHex[tone]}, transparent)`, opacity: 0.6 }} />
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-ink-faint">
+      <div className="flex items-center gap-1.5 font-display text-[10.5px] font-bold uppercase tracking-[0.12em] text-gold/90">
         {icon}<span className="truncate">{label}</span>
       </div>
-      <div className="mt-1 text-2xl font-semibold" style={{ color: toneHex[tone] }}>
+      <div className="neon mt-1 text-2xl font-semibold" style={{ color: toneHex[tone] }}>
         <AnimatedNumber value={value} format={format} />
       </div>
       <div className="mt-0.5 h-4 truncate text-[11px] text-ink-faint" title={typeof hint === 'string' ? hint : undefined}>{hint}</div>
@@ -154,7 +154,7 @@ export function Kpi({
 export function Meter({ value, max, tone = 'live', className }: { value: number; max: number; tone?: Tone; className?: string }) {
   const f = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0
   return (
-    <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-white/5', className)}>
+    <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-black/40 shadow-[inset_0_0_0_1px_rgba(176,141,87,0.25)]', className)}>
       <motion.div
         className="h-full rounded-full"
         initial={false}
@@ -180,12 +180,12 @@ export function Btn({ children, onClick, tone = 'live', busy, title }: { childre
 /** A compact segmented control for ranges and modes. */
 export function Segmented<T extends string>({ value, options, onChange }: { value: T; options: readonly T[]; onChange: (v: T) => void }) {
   return (
-    <div className="flex items-center rounded-md bg-white/[0.04] p-0.5 ring-1 ring-line">
+    <div className="flex items-center rounded-md bg-black/30 p-0.5 ring-1 ring-line">
       {options.map((o) => (
         <button
           key={o}
           onClick={() => onChange(o)}
-          className={cn('num rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors', o === value ? 'bg-live/15 text-live' : 'text-ink-faint hover:text-ink')}
+          className={cn('num rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors', o === value ? 'bg-live/15 text-live shadow-[0_0_10px_-2px_rgba(34,211,238,0.5)]' : 'text-ink-faint hover:text-ink')}
         >
           {o}
         </button>

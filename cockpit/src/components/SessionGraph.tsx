@@ -16,7 +16,7 @@ type D = Record<string, any>
 interface GData extends Record<string, unknown> { n: NodeInfo; turn: number }
 
 const KIND: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
-  user_message: { color: '#cbd5e1', icon: <User size={12} />, label: 'user' },
+  user_message: { color: '#ddd0b0', icon: <User size={12} />, label: 'user' },
   assistant_message: { color: toneHex.model, icon: <Bot size={12} />, label: 'reply' },
   tool_call: { color: toneHex.tool, icon: <Wrench size={12} />, label: 'call' },
   tool_result: { color: toneHex.ok, icon: <FileText size={12} />, label: 'result' },
@@ -68,7 +68,7 @@ function build(nodes: NodeInfo[]) {
   const turnOf = new Map<string, number>()
   for (const n of list) {
     if (n.turn_id !== prevTurn) {
-      if (prevTurn !== undefined) { turnIdx++; if (lastOfTurn && n.kind === 'user_message') add(lastOfTurn, n.node_id, { stroke: '#475569', strokeDasharray: '4 4' }) }
+      if (prevTurn !== undefined) { turnIdx++; if (lastOfTurn && n.kind === 'user_message') add(lastOfTurn, n.node_id, { stroke: '#6e6450', strokeDasharray: '4 4' }) }
       prevTurn = n.turn_id; pendingResults = []
       turns.push(n.turn_id ?? '')
     }
@@ -77,7 +77,7 @@ function build(nodes: NodeInfo[]) {
     if (n.kind === 'assistant_message') {
       const prev = list[list.indexOf(n) - 1]
       if (pendingResults.length) { for (const r of pendingResults) add(r, n.node_id, { stroke: toneHex.ok }); pendingResults = [] }
-      else if (prev && prev.turn_id === n.turn_id && prev.kind === 'user_message') add(prev.node_id, n.node_id, { stroke: '#64748b' })
+      else if (prev && prev.turn_id === n.turn_id && prev.kind === 'user_message') add(prev.node_id, n.node_id, { stroke: '#9c907a' })
       for (const c of (d.tool_calls ?? []) as D[]) { const call = byUse.get(c.id); if (call) add(n.node_id, call, { stroke: toneHex.tool }) }
     } else if (n.kind === 'tool_result') {
       const call = d.tool_use_id ? byUse.get(d.tool_use_id) : undefined
@@ -128,7 +128,7 @@ export function SessionGraph({ nodes }: { nodes: NodeInfo[] }) {
       <div className="relative min-h-0 flex-1">
         <ReactFlow key={shown} nodes={laid} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.1} maxZoom={1.5} colorMode="dark"
           proOptions={{ hideAttribution: true }} onNodeClick={(_, n) => setPick((n.data as GData).n)} nodesDraggable={false}>
-          <Background color="rgba(148,163,184,0.10)" gap={20} size={1} />
+          <Background color="rgba(176,141,87,0.10)" gap={20} size={1} />
           <Controls showInteractive={false} className="!bg-hull !shadow-none [&>button]:!border-line [&>button]:!bg-hull [&>button]:!fill-ink-dim" />
         </ReactFlow>
         <div className="num pointer-events-none absolute right-3 top-2 text-[10.5px] text-ink-faint">{list.length} nodes · {edges.length} edges{nodes.length > list.length ? ` · newest ${list.length}` : ''}</div>

@@ -1,13 +1,13 @@
 // The cockpit's frame: the nav rail, the heartbeat bar across the top, the view, and the activity river below.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useMatch, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import {
-  Activity, ArrowUpRight, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Gauge, Layers, OctagonX, Pause, Radio,
-  ScrollText, ShieldCheck, Ship,
+  Activity, ArrowUpRight, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Layers, Navigation, OctagonX, Pause, Radio,
+  Sailboat, ScrollText, ShieldCheck,
 } from 'lucide-react'
-import type { ConfirmRequest, ExecutionInfo, Health, SessionInfo } from '@protocol'
+import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, SessionInfo } from '@protocol'
 import { call, useConn, useRpc, usePush } from '@/lib/rpc'
 import { useLedger } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
@@ -15,11 +15,13 @@ import { cn, ms, short, tokens, uptime, usd, clock, stamp } from '@/lib/format'
 import { ledgerKind, partTone, stateTone, toneHex } from '@/lib/taxonomy'
 import { LiveDot, Spark } from './ui'
 import { DiskAttention } from './DiskSpool'
+import { Coin, PlankStrip } from './brass'
 import { diskSummary, diskTone } from '@/lib/disk'
 import { useHistory, useTick } from '@/lib/hooks'
 
 const NAV = [
-  { to: '/', label: 'Bridge', icon: Gauge, end: true },
+  { to: '/ship', label: 'Ship', icon: Sailboat },
+  { to: '/bridge', label: 'Bridge', icon: Gauge },
   { to: '/fleet', label: 'Fleet', icon: Layers },
   { to: '/actions', label: 'Actions', icon: ShieldCheck },
   { to: '/ledger', label: 'Ledger', icon: ScrollText },
@@ -27,14 +29,16 @@ const NAV = [
   { to: '/systems', label: 'Systems', icon: Cpu },
 ] as const
 
-const GO: Record<string, string> = { b: '/', f: '/fleet', a: '/actions', l: '/ledger', e: '/economics', s: '/systems' }
+const GO: Record<string, string> = { h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', l: '/ledger', e: '/economics', s: '/systems' }
 
 export function Shell() {
   const nav = useNavigate()
   const [palette, setPalette] = useState(false)
-  const [river, setRiver] = useState(true)
+  // The Ship is full-bleed: the river starts folded there (and open elsewhere), and the main area has no margin.
+  const onShip = !!useMatch('/ship')
+  const [river, setRiver] = useState(!onShip)
   useEffect(() => {
-    // Ctrl/Cmd+K opens the palette; "g" then a letter jumps to a view (g b, g f, g a, g l, g e, g s), unless
+    // Ctrl/Cmd+K opens the palette; "g" then a letter jumps to a view (g h, g b, g f, g a, g l, g e, g s), unless
     // you are typing in a field.
     let g = 0
     const k = (e: KeyboardEvent) => {
@@ -55,7 +59,7 @@ export function Shell() {
       <NavRail onPalette={() => setPalette(true)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <HeartbeatBar />
-        <main className="min-h-0 flex-1 overflow-auto px-4 pb-4 pt-3">
+        <main className={onShip ? 'relative min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-auto px-4 pb-4 pt-3'}>
           <Outlet />
         </main>
         <ActivityRiver open={river} onToggle={() => setRiver((v) => !v)} />
@@ -97,11 +101,11 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
   const waiting = cl?.confirms.length ?? 0
   const notify = useApprovalNotices(cl?.confirms)
   return (
-    <nav className="flex w-[68px] shrink-0 flex-col items-center gap-1 border-r border-line bg-deck/80 py-3">
+    <nav className="brass-rail relative z-10 flex w-[68px] shrink-0 flex-col items-center gap-1 py-3">
       <div className="mb-3 flex flex-col items-center">
-        <div className="relative grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-live/25 to-model/25 ring-1 ring-live/30">
-          <Ship size={18} className="text-live" />
-          <span className="absolute -right-0.5 -top-0.5"><LiveDot tone={status === 'open' ? 'ok' : status === 'connecting' ? 'wait' : 'fault'} size={7} /></span>
+        <div className="relative" title="Theseus">
+          <Coin size={42} className="drop-shadow-[0_0_10px_rgba(214,165,72,0.35)]" />
+          <span className="absolute -right-0.5 top-0"><LiveDot tone={status === 'open' ? 'ok' : status === 'connecting' ? 'wait' : 'fault'} size={7} /></span>
         </div>
       </div>
       {NAV.map(({ to, label, icon: Icon, ...rest }) => (
@@ -110,16 +114,16 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
           to={to}
           end={'end' in rest}
           className={({ isActive }) => cn(
-            'group relative flex w-14 flex-col items-center gap-0.5 rounded-lg py-2 text-[10px] font-medium transition-colors',
-            isActive ? 'text-live' : 'text-ink-faint hover:bg-white/5 hover:text-ink',
+            'group relative flex w-14 flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[9.5px] font-bold uppercase tracking-[0.08em] transition-colors',
+            isActive ? 'text-live' : 'text-ink-faint hover:bg-gold/10 hover:text-ink',
           )}
         >
           {({ isActive }) => (
             <>
               {isActive && (
-                <motion.span layoutId="nav-active" className="absolute inset-0 rounded-lg bg-live/10 ring-1 ring-live/25" transition={{ type: 'spring', stiffness: 400, damping: 32 }} />
+                <motion.span layoutId="nav-active" className="absolute inset-0 rounded-lg bg-live/10 shadow-[0_0_14px_-2px_rgba(34,211,238,0.45),inset_0_0_0_1px_rgba(34,211,238,0.35)]" transition={{ type: 'spring', stiffness: 400, damping: 32 }} />
               )}
-              <Icon size={18} className="relative" />
+              <Icon size={18} className={cn('relative', isActive && 'drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]')} />
               <span className="relative">{label}</span>
               {to === '/actions' && waiting > 0 && (
                 <span className="absolute right-1.5 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-wait px-1 text-[9.5px] font-bold text-void shadow-[0_0_10px_#fbbf24] animate-pulse-soft">{waiting}</span>
@@ -157,16 +161,19 @@ function HeartbeatBar() {
   const { data: tail } = useLedger(1, 2000)
   const totals = useHistory(tail?.total, 60, 2000)
   const flow = totals.slice(1).map((t, i) => Math.max(0, (t - totals[i]) / 2))
+  // Ledger rows of the last minute: one gold plank each (up to nine), in the strip under the bar.
+  const lit = Math.round(flow.slice(-30).reduce((a, b) => a + b * 2, 0))
   const running = h?.kernel.executions_by_state.running ?? 0
   const discord = h?.bindings?.find((b) => b.kind === 'discord')
   const usage = h?.usage_total
   const cacheHit = usage ? usage.cache_read_input_tokens / Math.max(1, usage.cache_read_input_tokens + usage.input_tokens + usage.cache_creation_input_tokens) : 0
 
   return (
-    <header className="relative flex h-12 shrink-0 items-center gap-4 overflow-hidden whitespace-nowrap border-b border-line bg-deck/70 px-4 backdrop-blur">
+    <header className="brass-bar relative flex h-12 shrink-0 items-center gap-4 overflow-hidden whitespace-nowrap px-4">
       <div className="absolute inset-x-0 top-0 h-px live-sweep" />
+      <div className="absolute inset-x-0 bottom-0" title="Each new plank is a ledger row of the last minute"><PlankStrip lit={lit} height={4} /></div>
       <div className="flex shrink-0 items-baseline gap-2" title={h ? `theseus ${h.version} · protocol ${h.protocol}` : undefined}>
-        <span className="text-[13px] font-semibold tracking-[0.2em] text-ink">THESEUS</span>
+        <span className="wordmark text-[15px]">THESEUS</span>
         <span className="num text-[11px] text-ink-faint">{h ? `v${h.version}` : '…'}</span>
       </div>
       <Indicator label="link" tone={conn.status === 'open' ? 'ok' : conn.status === 'connecting' ? 'wait' : 'fault'} value={conn.status === 'open' ? (rtt !== null ? ms(rtt) : 'open') : conn.status} />
@@ -294,6 +301,8 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
   const { data } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 3000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
+  // The calls to fly to: read only while the palette is open.
+  const { data: tc } = useRpc<{ nodes: NodeInfo[] }>('node.list', { session_id: null, kind: 'tool_call', n: 300 }, 0, { enabled: open })
   const go = (to: string) => { onOpenChange(false); nav(to) }
   const act = async (ask: string, method: string, params: unknown) => {
     onOpenChange(false)
@@ -310,11 +319,11 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       open={open}
       onOpenChange={onOpenChange}
       label="Command palette"
-      className="fixed left-1/2 top-[18%] z-50 w-[640px] -translate-x-1/2 overflow-hidden rounded-2xl border border-line-strong bg-hull/95 shadow-2xl backdrop-blur-xl"
+      className="brass-card fixed left-1/2 top-[18%] z-50 w-[680px] -translate-x-1/2 overflow-hidden !p-0 shadow-2xl"
       overlayClassName="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
     >
       <Command.Input
-        placeholder="Jump to a view, a session, an execution…"
+        placeholder="Jump to a view, fly to a session or a call, act…"
         className="w-full border-b border-line bg-transparent px-4 py-3.5 text-[15px] text-ink outline-none placeholder:text-ink-faint"
       />
       <Command.List className="max-h-[420px] overflow-auto p-2">
@@ -356,6 +365,30 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
             ))}
           </Command.Group>
         )}
+        <Command.Group heading="Fly to a session" className={group}>
+          {(data?.sessions ?? []).map((s) => (
+            <Command.Item key={`f-${s.session_id}`} value={`fly ${s.title ?? ''} ${s.label ?? ''} ${s.session_id}`} onSelect={() => go(`/ship?fly=${s.session_id}`)} className={item}>
+              <Navigation size={14} className="text-gold" />
+              <span className="truncate">{s.title || s.label || 'untitled'}</span>
+              <span className="num ml-auto text-[11px] text-ink-faint">{s.kind === 'task' ? 'task · ' : ''}{short(s.session_id)}</span>
+            </Command.Item>
+          ))}
+        </Command.Group>
+        {(tc?.nodes.length ?? 0) > 0 && (
+          <Command.Group heading="Fly to a call" className={group}>
+            {tc!.nodes.slice(0, 150).map((n) => {
+              const d = (n.detail ?? {}) as { tool?: string; plan?: { summary?: string } }
+              return (
+                <Command.Item key={`c-${n.node_id}`} value={`fly call ${d.tool ?? ''} ${d.plan?.summary ?? ''} ${title(n.session_id)} ${n.node_id}`} onSelect={() => go(`/ship?fly=${n.node_id}`)} className={item}>
+                  <Crosshair size={14} className="text-live" />
+                  <span className="num shrink-0 text-tool">{d.tool ?? 'tool'}</span>
+                  <span className="min-w-0 truncate text-ink-dim">{d.plan?.summary ?? ''}</span>
+                  <span className="num ml-auto shrink-0 text-[11px] text-ink-faint">{title(n.session_id).slice(0, 24)} · {stamp(n.at_unix_ms)}</span>
+                </Command.Item>
+              )
+            })}
+          </Command.Group>
+        )}
         <Command.Group heading="Sessions" className="text-[11px] text-ink-faint [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
           {(data?.sessions ?? []).map((s) => (
             <Command.Item
@@ -373,7 +406,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       </Command.List>
       <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11px] text-ink-faint">
         <span><span className="kbd">↑↓</span> move</span><span><span className="kbd">↵</span> open</span><span><span className="kbd">esc</span> close</span>
-        <span className="ml-auto"><span className="kbd">g</span> then <span className="kbd">b</span> <span className="kbd">f</span> <span className="kbd">a</span> <span className="kbd">l</span> <span className="kbd">e</span> <span className="kbd">s</span> jumps to a view</span>
+        <span className="ml-auto"><span className="kbd">g</span> then <span className="kbd">h</span> <span className="kbd">b</span> <span className="kbd">f</span> <span className="kbd">a</span> <span className="kbd">l</span> <span className="kbd">e</span> <span className="kbd">s</span> jumps to a view</span>
       </div>
     </Command.Dialog>
   )

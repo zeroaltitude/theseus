@@ -15,7 +15,7 @@ export function Crash() {
       {stack && <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-black/30 p-3 font-mono text-[11px] text-ink-faint ring-1 ring-line">{stack}</pre>}
       <div className="mt-3 flex gap-2">
         <Btn onClick={() => window.location.reload()}>Reload</Btn>
-        <Btn tone="idle" onClick={() => nav('/')}>Back to the Bridge</Btn>
+        <Btn tone="idle" onClick={() => nav('/bridge')}>Back to the Bridge</Btn>
       </div>
     </Panel>
   )
@@ -27,7 +27,7 @@ export function NotFound() {
   return (
     <Panel title="Nothing here" icon={<Compass size={13} />} bodyClassName="p-4">
       <div className="text-[13px] text-ink-dim">The cockpit has no view at <span className="num text-ink">{loc.pathname}</span>.</div>
-      <div className="mt-3"><Btn onClick={() => nav('/')}>Back to the Bridge</Btn></div>
+      <div className="mt-3"><Btn onClick={() => nav('/bridge')}>Back to the Bridge</Btn></div>
     </Panel>
   )
 }

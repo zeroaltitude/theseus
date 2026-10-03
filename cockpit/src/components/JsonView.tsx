@@ -6,7 +6,7 @@ import { EditorView } from '@codemirror/view'
 
 const look = EditorView.theme({
   '&': { backgroundColor: 'transparent', fontSize: '12px' },
-  '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: '#475569' },
+  '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: '#6e6450' },
   '.cm-content': { fontFamily: 'JetBrains Mono Variable, monospace' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'transparent' },
 })

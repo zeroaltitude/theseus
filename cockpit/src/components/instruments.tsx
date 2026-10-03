@@ -93,7 +93,7 @@ export function ContextGrowth({ rows, sessions }: { rows: LedgerEntry[] | undefi
     const palette = [toneHex.think, toneHex.live, toneHex.model, toneHex.tool, toneHex.ok, toneHex.money, toneHex.wait]
     return {
       grid: { left: 46, right: 12, top: 26, bottom: 24 },
-      legend: { top: 0, left: 0, type: 'scroll', itemWidth: 10, itemHeight: 6, textStyle: { color: '#94a3b8', fontSize: 10 } },
+      legend: { top: 0, left: 0, type: 'scroll', itemWidth: 10, itemHeight: 6, textStyle: { color: '#c8bb9b', fontSize: 10 } },
       tooltip: { trigger: 'axis', valueFormatter: (v: any) => `${tokens(Number(v))} tokens` },
       xAxis: { type: 'time', ...axisStyle, splitLine: { show: false } },
       yAxis: { type: 'value', ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => tokens(v) } },
@@ -112,7 +112,7 @@ export function TokenMix({ calls }: { calls: ProviderCall[] }) {
   const last = calls.slice(-48)
   const option = useMemo<EChartsOption>(() => ({
     grid: { left: 46, right: 12, top: 26, bottom: 22 },
-    legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#94a3b8', fontSize: 10 } },
+    legend: { top: 0, left: 0, itemWidth: 10, itemHeight: 6, textStyle: { color: '#c8bb9b', fontSize: 10 } },
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: any) => tokens(Number(v)) },
     xAxis: { type: 'category', data: last.map((c) => clock(c.at).slice(0, 5)), ...axisStyle, splitLine: { show: false } },
     yAxis: { type: 'value', ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => tokens(v) } },
@@ -136,7 +136,7 @@ export function Startup({ phases }: { phases: StartupPhase[] }) {
       grid: { left: 118, right: 16, top: 6, bottom: 22 },
       tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/>${us(p.value[1])} → ${us(p.value[2])} · <b>${us(p.value[2] - p.value[1])}</b>` },
       xAxis: { type: 'value', max: end, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => us(v) } },
-      yAxis: { type: 'category', data: ps.map((p) => p.name), inverse: true, ...axisStyle, axisLabel: { color: '#94a3b8', fontSize: 10 } },
+      yAxis: { type: 'category', data: ps.map((p) => p.name), inverse: true, ...axisStyle, axisLabel: { color: '#c8bb9b', fontSize: 10 } },
       series: [{
         type: 'custom',
         renderItem: (_params: any, api: any) => {

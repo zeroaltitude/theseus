@@ -12,7 +12,7 @@ export const toneHex: Record<Tone, string> = {
   tool: '#38bdf8',
   think: '#e879f9',
   money: '#facc15',
-  idle: '#64748b',
+  idle: '#9c907a',
 }
 
 export const toneClass: Record<Tone, string> = {
