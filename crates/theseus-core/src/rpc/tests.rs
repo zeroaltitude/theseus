@@ -1950,8 +1950,11 @@ async fn a_turn_does_not_wait_for_a_receiver_that_hangs() {
         median(times.get_mut("off").unwrap()),
     );
     eprintln!("turn.submit median: {h:?} with a receiver that hangs, {o:?} with telemetry off");
+    // A turn that waited for the receiver would wait out its 10 s timeout. Half of it
+    // is the line, which a loaded machine's slow turn (2.2 s at nice 19; theseus-vy7y)
+    // stays under and a wait does not.
     for t in &times["hung"] {
-        assert!(*t < Duration::from_secs(2), "a turn waited: {t:?}");
+        assert!(*t < Duration::from_secs(5), "a turn waited: {t:?}");
     }
     let t = health_telemetry(&hung).await;
     assert_eq!(t["state"], "exporting");
