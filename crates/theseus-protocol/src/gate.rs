@@ -72,6 +72,16 @@ pub struct AwsPlan {
     /// The names, ids, and ARNs its input gives (an S3 bucket and prefix).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resources: Vec<String>,
+    /// The guardrail the call hits, as the floor's confirm names it (AWS
+    /// design §3.6): the gate asks at every posture. The gate's input, held
+    /// in memory: its record keeps the verdict (`floor`, and this in its
+    /// reason), so a node's layout is unchanged.
+    #[serde(skip)]
+    pub guardrail: Option<String>,
+    /// It deletes a stateful resource or a stack (§3.9's approve list): the
+    /// gate asks. Held in memory, as `guardrail`.
+    #[serde(skip)]
+    pub destructive: bool,
 }
 
 /// What a call will do, before it does it: the gate reads this.

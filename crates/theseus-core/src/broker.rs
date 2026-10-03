@@ -192,6 +192,11 @@ pub fn pin_git(env: &mut Vec<(String, String)>) {
 pub struct Broker {
     /// Each program's grant: variable, then secret.
     programs: BTreeMap<String, Vec<(String, String)>>,
+    /// Each program granted an AWS job session, and its account (AWS design
+    /// §3.5): short-lived credentials under the guards, never the key.
+    aws_programs: BTreeMap<String, String>,
+    /// The accounts those sessions come from, once the runtime is built.
+    aws: std::sync::OnceLock<Arc<crate::aws::Aws>>,
     /// Each toollet's secrets, as the wiring granted them.
     tools: RwLock<BTreeMap<String, BTreeSet<String>>>,
     /// `[broker.secrets]`: a secret's posture, notify when it has none.
@@ -204,6 +209,19 @@ pub struct Broker {
     wait: Duration,
     /// Each grant's uses since the daemon started.
     uses: Mutex<BTreeMap<Grant, u64>>,
+}
+
+/// The job an AWS session is for: its correlation id names the session, and
+/// its deadline bounds it.
+#[derive(Clone, Copy)]
+pub struct JobAws<'a> {
+    pub correlation_id: &'a str,
+    pub lasts: Duration,
+}
+
+/// What the gate and the ledger call an AWS job session's grant.
+pub fn aws_session_label(account: &str) -> String {
+    format!("an AWS job session ({account})")
 }
 
 impl fmt::Debug for Broker {
@@ -228,6 +246,12 @@ impl Broker {
                     (p.clone(), vars)
                 })
                 .collect(),
+            aws_programs: cfg
+                .programs
+                .iter()
+                .filter_map(|(p, g)| Some((p.clone(), g.aws_account.clone()?)))
+                .collect(),
+            aws: std::sync::OnceLock::new(),
             tools: RwLock::default(),
             postures: cfg
                 .secrets
@@ -250,6 +274,17 @@ impl Broker {
     pub fn with_wait(mut self, wait: Duration) -> Self {
         self.wait = wait;
         self
+    }
+
+    /// The accounts a program's AWS job session comes from: set once, as the
+    /// tool runtime is built.
+    pub fn set_aws(&self, aws: Arc<crate::aws::Aws>) {
+        let _ = self.aws.set(aws);
+    }
+
+    /// The programs granted an AWS job session, for the harness-only line.
+    pub fn aws_programs(&self) -> Vec<String> {
+        self.aws_programs.keys().cloned().collect()
     }
 
     /// Grant `tool` the secret `secret`: the wiring's grant for a native
@@ -324,13 +359,22 @@ impl Broker {
         let mut grants: Vec<Grant> = argv
             .and_then(|a| self.program_for(a, env, cwd, job_path).ok())
             .map(|(program, vars)| {
-                vars.iter()
+                let mut g: Vec<Grant> = vars
+                    .iter()
                     .map(|(v, s)| Grant {
                         to: program.into(),
                         variable: Some(v.clone()),
                         secret: s.clone(),
                     })
-                    .collect()
+                    .collect();
+                if let Some(account) = self.aws_programs.get(program) {
+                    g.push(Grant {
+                        to: program.into(),
+                        variable: None,
+                        secret: aws_session_label(account),
+                    });
+                }
+                g
             })
             .unwrap_or_default();
         grants.extend(self.tool_secrets(tool).into_iter().map(|s| Grant {
@@ -359,7 +403,10 @@ impl Broker {
             .and_then(|n| n.to_str())
             .unwrap_or(first);
         let vars = |v: &Vars| {
-            let names: Vec<&str> = v.iter().map(|(n, _)| n.as_str()).collect();
+            let mut names: Vec<&str> = v.iter().map(|(n, _)| n.as_str()).collect();
+            if self.aws_programs.contains_key(name) {
+                names.push("an AWS job session");
+            }
             and(&names)
         };
         if let Some((program, grant)) = self.programs.get_key_value(name) {
@@ -425,6 +472,22 @@ impl Broker {
         job_path: Option<&str>,
         ran_at: Posture,
     ) -> ForJob {
+        self.for_job_of(argv, env, cwd, job_path, ran_at, None)
+            .await
+    }
+
+    /// `for_job`, for the job `job` names: a program granted an AWS job
+    /// session gets one, named by the job's correlation id and bounded by its
+    /// deadline (AWS design §3.5), and never the key.
+    pub async fn for_job_of(
+        &self,
+        argv: &[String],
+        env: &[&str],
+        cwd: &Path,
+        job_path: Option<&str>,
+        ran_at: Posture,
+        job: Option<JobAws<'_>>,
+    ) -> ForJob {
         let mut out = ForJob::default();
         let (program, vars) = match self.program_for(argv, env, cwd, job_path) {
             Ok(p) => p,
@@ -470,10 +533,80 @@ impl Broker {
                 }
             }
         }
+        if let Some(account) = self.aws_programs.get(program) {
+            self.aws_session(program, account, job, ran_at, &mut out)
+                .await;
+        }
         // A git given a secret, or the git a gh given one runs, takes no
         // hooks and no fsmonitor program (theseus-ur1t).
         out.git_pinned = !out.env.is_empty() && matches!(program, "git" | "gh");
         out
+    }
+
+    /// An AWS job session for `program` (§3.5): its three variables, the
+    /// region, and no `~/.aws` profile; or why it gets none.
+    async fn aws_session(
+        &self,
+        program: &str,
+        account: &str,
+        job: Option<JobAws<'_>>,
+        ran_at: Posture,
+        out: &mut ForJob,
+    ) {
+        let label = aws_session_label(account);
+        let grant = |var: &str| Grant {
+            to: program.into(),
+            variable: Some(var.into()),
+            secret: label.clone(),
+        };
+        let (posture, _) = self.posture_of(&label);
+        let minted = if posture > ran_at {
+            Err(format!(
+                "{label}'s posture is {}, and this call ran at {}",
+                posture.as_str(),
+                ran_at.as_str()
+            ))
+        } else {
+            match (self.aws.get(), job) {
+                (Some(aws), Some(job)) => match aws.account(Some(account)) {
+                    Ok(a) => a
+                        .job_session(job.correlation_id, job.lasts)
+                        .await
+                        .map(|c| (a.cfg.region.clone(), c)),
+                    Err(e) => Err(e),
+                },
+                (None, _) => Err("no AWS account is bound".into()),
+                (_, None) => Err("the job has no correlation id to name a session by".into()),
+            }
+        };
+        let (region, creds) = match minted {
+            Ok(m) => m,
+            Err(why) => {
+                out.withheld.push((grant("AWS_SESSION_TOKEN"), why));
+                return;
+            }
+        };
+        for (var, value) in [
+            ("AWS_ACCESS_KEY_ID", creds.access_key_id().to_string()),
+            ("AWS_SECRET_ACCESS_KEY", creds.expose_secret().to_string()),
+            (
+                "AWS_SESSION_TOKEN",
+                creds.expose_token().unwrap_or_default().to_string(),
+            ),
+        ] {
+            out.env.push((var.into(), Secret::new(value)));
+            let g = grant(var);
+            self.count(&g);
+            out.granted.push(g);
+        }
+        for (var, value) in [
+            ("AWS_REGION", region.clone()),
+            ("AWS_DEFAULT_REGION", region),
+            ("AWS_CONFIG_FILE", "/dev/null".into()),
+            ("AWS_SHARED_CREDENTIALS_FILE", "/dev/null".into()),
+        ] {
+            out.env.push((var.into(), Secret::new(value)));
+        }
     }
 
     /// Wait, bounded as a turn waits, for each secret granted to `tool` to
@@ -621,6 +754,7 @@ pub fn harness_only(cfg: &crate::Config, broker: &Broker) -> theseus_protocol::c
         aws: aws.into_iter().collect(),
         providers: providers.into_iter().collect(),
         exposed: exposed.into_iter().collect(),
+        aws_sessions: broker.aws_programs(),
     }
 }
 
@@ -643,7 +777,7 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
         h.line(),
         "broker: a job may be handed 1 secret (github_token); harness-only: the AWS keys \
          (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key, \
-         zai_api_key)"
+         zai_api_key); jobs get short-lived AWS sessions, never the key (aws)"
     );
 }
 
@@ -1223,6 +1357,7 @@ mod tests {
             "gh".into(),
             ProgramGrant {
                 env: [("GH_TOKEN".to_string(), "github_token".to_string())].into(),
+                aws_account: None,
             },
         );
         for (n, p) in postures {
@@ -1506,6 +1641,7 @@ mod tests {
                 program.into(),
                 ProgramGrant {
                     env: [("GH_TOKEN".to_string(), "github_token".to_string())].into(),
+                    aws_account: None,
                 },
             );
         }
@@ -1666,6 +1802,7 @@ mod tests {
                 p.to_string(),
                 ProgramGrant {
                     env: [("HARBOR_TOKEN".to_string(), "harbor_token".to_string())].into(),
+                    aws_account: None,
                 },
             );
         }

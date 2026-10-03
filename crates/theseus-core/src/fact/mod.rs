@@ -276,6 +276,7 @@ facts![
     tool::SecretWithheld<'static>,
     tool::SecretHanded<'static>,
     tool::AwsCalled<'static>,
+    tool::AwsSessionMinted<'static>,
     tool::HoldTaken<'static>,
     tool::JobRefused<'static>,
     tool::JobNotStarted<'static>,

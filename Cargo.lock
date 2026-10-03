@@ -4558,6 +4558,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "theseus-aws",
+ "theseus-aws-guard",
  "theseus-kernel",
  "theseus-protocol",
  "theseus-sandbox",

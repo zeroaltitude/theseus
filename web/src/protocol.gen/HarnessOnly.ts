@@ -23,4 +23,10 @@ providers: Array<string>,
  * Those of `aws` and `providers` that `[broker]` names after all, so a
  * job may be handed them: the operator's own choice, said aloud.
  */
-exposed: Array<string>, };
+exposed: Array<string>, 
+/**
+ * The programs `[broker.programs]` gives an AWS job session at launch
+ * (`aws_account`, AWS design §3.5): short-lived, under the guards, and
+ * never the key.
+ */
+aws_sessions?: Array<string>, };

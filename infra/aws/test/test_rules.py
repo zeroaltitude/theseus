@@ -186,15 +186,33 @@ class RuleTests(unittest.TestCase):
     def test_bucket_near_miss(self):
         self.assertEqual(self.violations(GOOD_BUCKET), [])
 
+    def test_bucket_sse_s3_and_both_branches_of_an_if(self):
+        sse_s3 = GOOD_BUCKET.replace("SSEAlgorithm: aws:kms\n              KMSMasterKeyID: alias/k", "SSEAlgorithm: AES256")
+        self.assertEqual(self.violations(sse_s3), [])
+        either = GOOD_BUCKET.replace(
+            """          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: alias/k""",
+            """          - !If
+            - Customer
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: aws:kms
+                KMSMasterKeyID: alias/k
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: KEYLESS""",
+        )
+        self.assertIn("bucket", self.rules_hit(either))
+        self.assertNotIn("bucket", self.rules_hit(either.replace("KEYLESS", "AES256")))
+
     def test_bucket_hits(self):
         bad = (
-            GOOD_BUCKET.replace("SSEAlgorithm: aws:kms", "SSEAlgorithm: AES256")
+            GOOD_BUCKET.replace("              KMSMasterKeyID: alias/k\n", "")
             .replace("Status: Enabled", "Status: Suspended")
             .replace("RestrictPublicBuckets: true", "RestrictPublicBuckets: false")
             .replace('aws:SecureTransport: "false"', 'aws:SecureTransport: "true"')
         )
         messages = [m for r, _, m in self.violations(bad) if r == "bucket"]
-        self.assertIn("is not encrypted by default with a KMS key", messages)
+        self.assertIn("is not encrypted by default (SSE-S3, or SSE-KMS with a key)", messages)
         self.assertIn("is not versioned", messages)
         self.assertIn("does not set RestrictPublicBuckets", messages)
         self.assertIn("has no bucket policy refusing requests without TLS", messages)
@@ -242,6 +260,16 @@ class RuleTests(unittest.TestCase):
     Type: AWS::SNS::Topic
     Properties:
       KmsMasterKeyId: alias/k""" + TAGS))
+        said = """
+  Topic:
+    Type: AWS::SNS::Topic
+    Metadata:
+      theseus:
+        unencrypted: WHY
+    Properties:
+      TopicName: t""" + TAGS
+        self.assertNotIn("topic", self.rules_hit(said.replace("WHY", "services publish to it")))
+        self.assertIn("topic", self.rules_hit(said.replace("WHY", '""')))
 
     def test_retain(self):
         self.assertIn("retain", self.rules_hit(GOOD_BUCKET.replace("DeletionPolicy: Retain", "DeletionPolicy: Delete")))
@@ -309,6 +337,16 @@ class RuleTests(unittest.TestCase):
 """
         self.assertIn("boundary", self.rules_hit(guards_template(boundary_extra=extra)))
         self.assertNotIn("boundary", self.rules_hit(guards_template(boundary_extra=extra.replace("Sid: Extra", "Sid: HandsOnlyExtra"))))
+
+    def test_boundary_may_hold_a_compact_pattern(self):
+        # ec2:Associate* is one of guardrails.toml's [boundary] compact patterns, broader than any
+        # guard's deny; ec2:Disassociate* is not.
+        compact = rules.compact_patterns()
+        self.assertIn("ec2:Associate*", compact)
+        denies = ["iam:Create*", "ec2:AllocateAddress", "ec2:Associate*"]
+        self.assertNotIn("boundary", self.rules_hit(guards_template(boundary_denies=denies)))
+        found = self.violations(guards_template(boundary_denies=denies + ["ec2:Disassociate*"]))
+        self.assertTrue(any("denies ec2:Disassociate*" in m for r, _, m in found if r == "boundary"))
 
     def test_guard_must_only_deny(self):
         template = guards_template().replace(
@@ -415,22 +453,6 @@ class RuleTests(unittest.TestCase):
     Properties:
       SqsManagedSseEnabled: true""" + TAGS) if v[0] == "stack-policy"]
         self.assertEqual(found, [("stack-policy", "theseus-test.json", "names Gone, which theseus-test.yaml does not define")])
-
-    def test_metric_filter(self):
-        long_pattern = "{ " + " || ".join(f"($.eventName = Event{i:04d})" for i in range(40)) + " }"
-        template = """
-  Filter:
-    Type: AWS::Logs::MetricFilter
-    Properties:
-      LogGroupName: g
-      FilterPattern: "PATTERN"
-      MetricTransformations:
-        - MetricNamespace: n
-          MetricName: m
-          MetricValue: "1"
-"""
-        self.assertIn("metric-filter", self.rules_hit(template.replace("PATTERN", long_pattern)))
-        self.assertNotIn("metric-filter", self.rules_hit(template.replace("PATTERN", "{ $.eventName = X }")))
 
     def test_inline_code(self):
         body = "x = 1\\n" * 700

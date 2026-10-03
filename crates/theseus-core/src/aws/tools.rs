@@ -5,9 +5,15 @@
 //! future on the daemon's runtime that holds no core while it waits. Each
 //! checks its whole call in `plan`, before the gate, with no network: the
 //! account and region, the operation in the catalog, and the input against
-//! its shape. So a bad call is invalid input, and nothing is sent. Until step
-//! 14b brings the guards, so is a call that writes, runs code, or returns a
-//! secret, and the error names the step that brings it. `aws.describe` reads
+//! its shape. So a bad call is invalid input, and nothing is sent.
+//!
+//! `aws.call` makes reads, writes, and runs (C2 = 14b), and its plan reads
+//! the guard list (§3.4, §3.6, `theseus_aws_guard`) in its order: a direct
+//! guardrail is the floor; a stack write or durable infrastructure is
+//! invalid input that points to the stack tools; any other guardrail is the
+//! floor; a deletion of what holds state waits for approval. An approved
+//! floor call that AWS's guards would refuse runs in a floor session. A call
+//! that returns a secret stays invalid input until 14c. `aws.describe` reads
 //! the local catalog alone.
 
 use std::sync::Arc;
@@ -16,12 +22,14 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use theseus_aws::catalog::{describe_operation, describe_service, Catalog, Class, SecretBearing};
 use theseus_aws::{Attribution, Call, CallError, Output};
+use theseus_aws_guard::{Context, GuardList, Verdict};
 use theseus_tools::{
     parse, AsyncRun, AwsPlan, Backend, Plan, Retry, Tool, ToolClass, ToolCtx, ToolFailure,
     ToolOutput,
 };
 
-use super::{Account, Aws, Failure, Request};
+use super::session::Kind;
+use super::{Account, Aws, Failure, Request, Signer};
 
 /// The most pages one `aws.call` follows.
 pub const PAGES_MAX: u32 = 10;
@@ -41,7 +49,7 @@ pub(super) fn all(aws: &Arc<Aws>) -> Vec<Arc<dyn Tool>> {
 }
 
 /// A call's words for an error: what it was, and what happened.
-fn failure(what: &str, f: Failure) -> ToolFailure {
+pub(super) fn failure(what: &str, f: Failure) -> ToolFailure {
     let message = match &f {
         Failure::Unbound(why) => format!("{what} was not sent: {why}."),
         Failure::Call(CallError::Aws(e)) => format!("{what}: AWS answered {e}."),
@@ -59,8 +67,19 @@ fn count(n: u64) -> String {
     crate::narrative::thousands(n)
 }
 
+/// Cents as dollars: `1234` is `12.34`.
+pub(super) fn cents(c: u64) -> String {
+    format!("{}.{:02}", c / 100, c % 100)
+}
+
+/// A dollar amount AWS writes as text (`"12.3456"`), in cents.
+pub(super) fn to_cents(amount: &str) -> Option<u64> {
+    let v: f64 = amount.trim().parse().ok()?;
+    (v.is_finite() && v >= 0.0).then(|| (v * 100.0).round() as u64)
+}
+
 /// What the client's check says of a call, as the model reads it.
-fn checked_error(e: CallError) -> String {
+pub(super) fn checked_error(e: CallError) -> String {
     match e {
         CallError::InvalidInput(m) => m,
         CallError::Unsupported(m) => {
@@ -96,6 +115,14 @@ struct Planned {
     input: Value,
     pages: u32,
     cost_bearing: bool,
+    class: ToolClass,
+    /// The floor's confirm line, when a guardrail hits (§3.6).
+    guardrail: Option<String>,
+    /// A hit AWS's guards refuse in a work session: the approved call runs
+    /// in a floor session, with no guard, for this one call.
+    floor_session: bool,
+    /// It deletes something that holds state (§3.9's approve list).
+    destructive: bool,
 }
 
 impl Planned {
@@ -115,7 +142,52 @@ impl Planned {
             operation: self.operation.clone(),
             cost_bearing: self.cost_bearing,
             resources: resources(&self.input),
+            guardrail: self.guardrail.clone(),
+            destructive: self.destructive,
         }
+    }
+
+    fn signer(&self) -> Signer<'static> {
+        Signer::As(if self.floor_session {
+            Kind::Floor
+        } else {
+            Kind::Work
+        })
+    }
+}
+
+/// What the guard list says of a call (§3.4, §3.6), in its order: the floor's
+/// confirm line, whether AWS's guards would refuse it in a work session, and
+/// whether it deletes what holds state; or the invalid input a stack write or
+/// durable infrastructure is.
+fn guard(
+    account: &str,
+    region: &str,
+    op: &str,
+    input: &Value,
+) -> Result<(Option<String>, bool, bool), String> {
+    let ctx = Context {
+        account: account.into(),
+        region: region.into(),
+    };
+    match theseus_aws_guard::embedded().check_call(&ctx, op, input) {
+        Verdict::Clear => Ok((None, false, false)),
+        Verdict::Destructive => Ok((None, false, true)),
+        Verdict::StackOnly => Err(format!(
+            "{}. Nothing was sent.",
+            GuardList::stack_message(op)
+        )),
+        Verdict::IacOnly => Err(format!("{}. Nothing was sent.", GuardList::iac_message(op))),
+        Verdict::Floor(hits) => Ok((
+            Some(
+                hits.iter()
+                    .map(|h| h.confirm(op))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ),
+            hits.iter().any(|h| h.guarded()),
+            false,
+        )),
     }
 }
 
@@ -151,8 +223,8 @@ fn resources(input: &Value) -> Vec<String> {
 pub struct CallTool(Arc<Aws>);
 
 impl CallTool {
-    /// The call, checked: the account and region, the operation, its class
-    /// (reads only until 14b), and its input against the shape.
+    /// The call, checked: the account and region, the operation, its input
+    /// against the shape, its class, and what the guard list says of it.
     fn planned(&self, input: &Value) -> Result<Planned, String> {
         let a: CallArgs = parse(input)?;
         let account = self.0.account(a.account.as_deref())?.clone();
@@ -181,27 +253,18 @@ impl CallTool {
         let checked = account.client().check(&call).map_err(checked_error)?;
         let c = &checked.classification;
         let name = format!("{}:{}", checked.service, checked.operation);
-        match c.class {
-            Class::Read => {}
-            Class::Write => {
-                return Err(format!(
-                    "{name} is a write: aws.call makes reads only until step 14b (AWS's C2) \
-                     brings writes, with the guards. Nothing was sent."
-                ));
-            }
-            Class::Run => {
-                return Err(format!(
-                    "{name} starts code: aws.call makes reads only until step 14b (AWS's C2) \
-                     brings writes and runs, with the guards. Nothing was sent."
-                ));
-            }
-        }
+        let class = match c.class {
+            Class::Read => ToolClass::Read,
+            Class::Write => ToolClass::Write,
+            Class::Run => ToolClass::Run,
+        };
         if c.secret != SecretBearing::No && c.secret.for_input(&body) {
             return Err(format!(
                 "{name} returns a secret value: secret-bearing reads arrive with step 14c \
                  (AWS's C3), as a handle the model never reads. Nothing was sent."
             ));
         }
+        let (guardrail, floor_session, destructive) = guard(&account.id, &region, &name, &body)?;
         Ok(Planned {
             account,
             region,
@@ -210,6 +273,10 @@ impl CallTool {
             input: body,
             pages,
             cost_bearing: c.cost_bearing,
+            class,
+            guardrail,
+            floor_session,
+            destructive,
         })
     }
 }
@@ -219,13 +286,16 @@ impl Tool for CallTool {
         "aws.call"
     }
     fn description(&self) -> &'static str {
-        "Call an AWS API operation that reads (a Describe, List, or Get) on Theseus's own AWS \
-         account, with Theseus's client: any operation of any service. `service` and \
-         `operation` as aws_describe names them (cloudformation, DescribeStacks); `input` as \
-         JSON keyed by the operation's member names, as aws_describe shows them (timestamps as \
-         RFC 3339 strings, blobs as text or {\"base64\": …}). It returns the operation's output \
-         as JSON, and `pages` follows its paginator. Until step 14b, an operation that writes, \
-         runs code, or returns a secret is invalid input, and nothing is sent. Event streams, \
+        "Call any AWS API operation of any service on Theseus's own AWS account, with \
+         Theseus's client: a read, a write, or a run. `service` and `operation` as aws_describe \
+         names them (cloudformation, DescribeStacks); `input` as JSON keyed by the operation's \
+         member names, as aws_describe shows them (timestamps as RFC 3339 strings, blobs as \
+         text or {\"base64\": …}). It returns the operation's output as JSON, and `pages` \
+         follows its paginator. Durable infrastructure (buckets, roles, networks, functions, \
+         alarms, rules) is made only through stacks: such an operation is invalid input that \
+         points to aws_stack_plan. A guardrail (public ingress, the audit trail, the budget, \
+         long-lived credentials) and deleting what holds state wait for the operator. An \
+         operation that returns a secret is invalid input until step 14c. Event streams, \
          SigV2 services, and S3 directory buckets need the aws CLI, through proc_run."
     }
     fn input_schema(&self) -> Value {
@@ -250,13 +320,15 @@ impl Tool for CallTool {
         Backend::Async
     }
     fn retry(&self) -> Retry {
-        Retry::SafeToRepeat
+        // A write may have run when a crash cut it: it is unknown, never run
+        // again; a read loses nothing by being asked again.
+        Retry::NonRepeatable
     }
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let p = self.planned(input)?;
         Ok(Plan {
-            summary: format!("read {}", p.what()),
-            class: Some(ToolClass::Read),
+            summary: format!("{} {}", p.class.as_str(), p.what()),
+            class: Some(p.class),
             aws: Some(p.aws()),
             ..Default::default()
         })
@@ -272,7 +344,8 @@ impl Tool for CallTool {
                 input: &p.input,
                 region: &p.region,
                 pages: p.pages,
-                class: "read",
+                class: p.class.as_str(),
+                signer: p.signer(),
             };
             let out = p
                 .account
@@ -320,7 +393,7 @@ fn call_text(p: &Planned, out: &Output) -> String {
 }
 
 /// A call's meta, for the ledger and the web UI: never the result.
-fn meta(account: &str, region: &str, name: &str, out: &Output) -> Value {
+pub(super) fn meta(account: &str, region: &str, name: &str, out: &Output) -> Value {
     json!({
         "account": account,
         "region": region,
@@ -545,6 +618,7 @@ impl Tool for Whoami {
                 region: &region,
                 pages: 1,
                 class: "read",
+                signer: Signer::As(Kind::Work),
             };
             let out = account
                 .request(binding.as_deref(), &req)
@@ -552,13 +626,25 @@ impl Tool for Whoami {
                 .map_err(|f| failure(&format!("sts:GetCallerIdentity in {region}"), f))?;
             let text_of = |k: &str| out.body[k].as_str().unwrap_or("?").to_string();
             let s = account.status();
+            let budget = match &s.budget {
+                Some(b) => format!(
+                    "${} of ${} this month{}, as AWS Budgets said at its last read",
+                    cents(b.actual_cents),
+                    cents(b.limit_cents),
+                    b.forecast_cents
+                        .map(|f| format!(" (forecast ${})", cents(f)))
+                        .unwrap_or_default()
+                ),
+                None => "not read yet (theseus-monthly, from the foundation stack; read every \
+                         six hours once the owner role is named)"
+                    .into(),
+            };
             let text = format!(
                 "AWS account {}, as sts:GetCallerIdentity answered now (request {}):\n\
                  - identity: {} (user id {})\n\
                  - region: {}; the regions a call may name: {}\n\
-                 - session: none yet. Until step 14b this account's calls sign with its key; \
-                 role sessions named by the execution arrive with the guards.\n\
-                 - budget: none yet. The account's budget arrives with step 14b.\n\
+                 - signs with: {}\n\
+                 - budget: {budget}\n\
                  - its check: {}; AWS requests since the daemon started: {} ({} failed)\n",
                 text_of("Account"),
                 out.request_id.as_deref().unwrap_or("(none)"),
@@ -566,6 +652,7 @@ impl Tool for Whoami {
                 text_of("UserId"),
                 region,
                 s.regions.join(", "),
+                account.signer(),
                 s.state,
                 count(s.calls),
                 count(s.failed),
@@ -844,6 +931,7 @@ async fn list(l: &Listing, b: Option<&theseus_tools::AwsBinding>) -> Result<Outp
         region: &l.region,
         pages: l.pages(),
         class: "read",
+        signer: Signer::As(Kind::Work),
     };
     l.account.request(b, &req).await
 }
@@ -863,6 +951,7 @@ async fn region_of(
         region: &region,
         pages: 1,
         class: "read",
+        signer: Signer::As(Kind::Work),
     };
     let out = l.account.request(b, &req).await.ok()?;
     out.body["Buckets"]

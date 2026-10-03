@@ -1,17 +1,25 @@
-//! AWS (AWS design §3; row 29, C1 = 14a): the accounts Theseus owns, and the
-//! tools that read them.
+//! AWS (AWS design §3; rows 29 and 30, C1 = 14a and C2 = 14b): the accounts
+//! Theseus owns, and the tools that read and change them.
 //!
 //! - **The accounts.** One [`Account`] per `[aws.accounts.<id>]` table. Its
 //!   key, the root of trust, comes from the secrets board after serving, and
 //!   is checked once with `sts:GetCallerIdentity`, which must name this
 //!   account. Until the check passes no call of the account signs: a call
 //!   waits for it, at most [`BIND_WAIT`], then fails as unbound, and says
-//!   why. Health shows each account's state (fail closed, §3.5). Until the
-//!   foundation stack exists (14b), the key signs these reads directly.
-//! - **The tools** ([`tools`]): `aws.call` (any read of any service),
-//!   `aws.describe` (the catalog, local), `aws.whoami`, and `aws.s3.list`.
-//!   Until 14b brings the guards, a call that writes, runs code, or returns a
-//!   secret is invalid input that names the step that brings it.
+//!   why. Health shows each account's state (fail closed, §3.5).
+//! - **Who signs** ([`session`]). Until the config names the owner role the
+//!   bootstrap made, the key signs. Then the key signs only STS, and each
+//!   call signs in a role session: its execution's (the guards on), a job's,
+//!   a floor session for one call the operator approved, or a tender's.
+//! - **The tools** ([`tools`], [`stack`], [`cost`]): `aws.call` (any
+//!   operation of any service: the guardrails at the floor, IaC-only as
+//!   invalid input, deletions of what holds state waiting), `aws.describe`
+//!   (the catalog, local), `aws.whoami`, `aws.s3.list`, `aws.stack.plan`,
+//!   `.apply`, `.status`, and `.delete`, and `aws.cost`. A call that returns
+//!   a secret is invalid input until 14c.
+//! - **The bootstrap** ([`bootstrap`]) and **the tenders** ([`tend`]): the
+//!   account's first stacks, on the operator's yes; after serving, the
+//!   budget's reconcile and reads, and GuardDuty's weekly usage.
 //! - **FAST** (§3.10). Building this does nothing: the catalog decodes on the
 //!   first call, the HTTP client builds on the first send, and the check runs
 //!   after serving (`theseusd`'s `aws.check` phase) or at the first call.
@@ -35,18 +43,47 @@ use tokio::sync::watch;
 use crate::config::{AwsAccountConfig, AwsConfig};
 use crate::secrets::{Secret, SecretBoard, SecretState};
 
+pub mod bootstrap;
+pub mod cost;
+pub mod session;
+pub mod stack;
+pub mod tend;
 pub mod tools;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_c2;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 4] = ["aws.call", "aws.describe", "aws.s3.list", "aws.whoami"];
+pub const NAMES: [&str; 9] = [
+    "aws.call",
+    "aws.cost",
+    "aws.describe",
+    "aws.s3.list",
+    "aws.stack.apply",
+    "aws.stack.delete",
+    "aws.stack.plan",
+    "aws.stack.status",
+    "aws.whoami",
+];
 
-/// The tools whose calls are AWS requests (`aws.describe` reads the local
-/// catalog). Until 14b every such call is a read, so `[policy.aws] read` is
-/// their posture short of a line for the call's service or operation.
-pub const CALLS: [&str; 3] = ["aws.call", "aws.s3.list", "aws.whoami"];
+/// The allow policy of a work, job, or floor session (§3.5), which the
+/// foundation stack makes.
+pub const ALLOW_ALL: &str = "theseus-allow-all";
+
+/// An AWS tool's own `[policy.aws]` class, as the tool list and the system
+/// note show its posture: a stack's apply and delete write, and the rest
+/// read (an `aws.call` that writes or runs takes its own class's line at the
+/// gate). None for `aws.describe`, which calls nothing.
+pub fn tool_class(name: &str) -> Option<&'static str> {
+    match name {
+        "aws.describe" => None,
+        "aws.stack.apply" | "aws.stack.delete" => Some("write"),
+        n if NAMES.contains(&n) => Some("read"),
+        _ => None,
+    }
+}
 
 /// How long a call waits for its account's check (§3.10), as a turn waits
 /// for a secret.
@@ -66,6 +103,8 @@ pub struct Aws {
     /// Each AWS call's binding, by its `tool_use` id, until its turn's trace
     /// takes its requests (`spans`). The oldest go first past `TRACED`.
     traced: Mutex<VecDeque<(String, Arc<AwsBinding>)>>,
+    /// The change sets plans showed, which `aws.stack.apply` names.
+    shows: stack::Shows,
 }
 
 impl Aws {
@@ -83,12 +122,21 @@ impl Aws {
         Some(Arc::new(Self {
             accounts,
             traced: Mutex::default(),
+            shows: stack::Shows::default(),
         }))
     }
 
-    /// `aws.call`, `aws.describe`, `aws.s3.list`, and `aws.whoami`.
+    /// Every AWS tool ([`NAMES`]).
     pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
-        tools::all(self)
+        let mut all = tools::all(self);
+        all.extend(stack::all(self));
+        all.push(Arc::new(cost::Cost::new(self.clone())));
+        all
+    }
+
+    /// Every bound account.
+    pub fn accounts(&self) -> impl Iterator<Item = &Arc<Account>> {
+        self.accounts.values()
     }
 
     /// The account a call names, or the only one.
@@ -277,11 +325,35 @@ pub struct Request<'a> {
     pub input: &'a Value,
     pub region: &'a str,
     pub pages: u32,
-    /// `read` (until 14b, every call's).
+    /// `read`, `write`, or `run`.
     pub class: &'a str,
+    /// What signs it.
+    pub signer: Signer<'a>,
 }
 
-/// One bound account: its key's check, its client, and its counts.
+/// What signs a request (§3.5).
+#[derive(Clone, Copy)]
+pub enum Signer<'a> {
+    /// A role session of this kind once the config names the owner role;
+    /// until then the key, but never for a job.
+    As(session::Kind),
+    /// The key itself: the bootstrap's creation of the foundation, before
+    /// any role exists.
+    Key,
+    /// Credentials the caller holds: the bootstrap's floor session.
+    With(&'a Credentials),
+}
+
+/// What the account's tenders last found, for health (§3.7).
+#[derive(Default)]
+pub struct Tended {
+    pub budget: Option<theseus_protocol::AwsBudgetStatus>,
+    pub guardduty: Option<theseus_protocol::AwsGuardDutyStatus>,
+    pub reconcile: Option<String>,
+}
+
+/// One bound account: its key's check, its client, its sessions, and its
+/// counts.
 pub struct Account {
     pub id: String,
     pub cfg: AwsAccountConfig,
@@ -292,6 +364,8 @@ pub struct Account {
     started: AtomicBool,
     calls: AtomicU64,
     failed: AtomicU64,
+    sessions: session::Sessions,
+    pub tended: Mutex<Tended>,
 }
 
 impl Account {
@@ -308,7 +382,129 @@ impl Account {
             started: AtomicBool::new(false),
             calls: AtomicU64::new(0),
             failed: AtomicU64::new(0),
+            sessions: session::Sessions::default(),
+            tended: Mutex::default(),
         }
+    }
+
+    /// What signs this account's calls, in health's words.
+    pub fn signer(&self) -> String {
+        match &self.cfg.owner_role {
+            Some(r) => format!("role sessions ({r})"),
+            None => "its key (no owner_role yet: theseus aws bootstrap makes it)".into(),
+        }
+    }
+
+    /// A role session of `kind` named `name`, minted with the key (which
+    /// waits for its check), or from the cache; its `aws.session.minted` row
+    /// goes on `binding`. Into the config's owner role, or `role`.
+    pub async fn session(
+        self: &Arc<Self>,
+        want: &session::Want<'_>,
+        role: Option<&str>,
+        binding: Option<&AwsBinding>,
+    ) -> Result<Credentials, String> {
+        let Some(role) = role.or(self.cfg.owner_role.as_deref()) else {
+            return Err(format!(
+                "AWS account {} has no role sessions yet: the config names no owner_role (theseus \
+                 aws bootstrap makes theseus-owner)",
+                self.id
+            ));
+        };
+        let key = self.credentials().await?;
+        let minted = self
+            .sessions
+            .get(
+                &self.client,
+                &key,
+                &self.id,
+                role,
+                self.cfg.deployment(),
+                want,
+            )
+            .await?;
+        if let (Some(row), Some(b)) = (minted.row, binding) {
+            b.record_session(row);
+        }
+        Ok(minted.creds)
+    }
+
+    /// A job's session (§3.5), for the broker's grant at its launch: named
+    /// by its correlation id, under the guards and the stack path's, for its
+    /// deadline. None before the owner role exists: never the key.
+    pub async fn job_session(
+        self: &Arc<Self>,
+        correlation_id: &str,
+        lasts: Duration,
+    ) -> Result<Credentials, String> {
+        if self.cfg.owner_role.is_none() {
+            return Err(format!(
+                "AWS account {} gives a job no session before its owner role exists \
+                 (owner_role; theseus aws bootstrap), and never its key",
+                self.id
+            ));
+        }
+        let want = session::Want {
+            kind: session::Kind::Job,
+            name: session::session_name(correlation_id),
+            execution: None,
+            lasts,
+            inline: None,
+        };
+        self.session(&want, None, None).await
+    }
+
+    /// The credentials a request signs with.
+    async fn signing(
+        self: &Arc<Self>,
+        signer: Signer<'_>,
+        binding: Option<&AwsBinding>,
+    ) -> Result<Credentials, String> {
+        let kind = match signer {
+            Signer::With(c) => return Ok(c.clone()),
+            Signer::Key => return self.credentials().await,
+            Signer::As(kind) => kind,
+        };
+        if self.cfg.owner_role.is_none() {
+            return match kind {
+                session::Kind::Job => Err(format!(
+                    "AWS account {} gives a job no session before its owner role exists \
+                     (owner_role; theseus aws bootstrap), and never its key",
+                    self.id
+                )),
+                _ => self.credentials().await,
+            };
+        }
+        let execution = binding.map(|b| b.execution_id.as_str());
+        let (name, lasts) = match kind {
+            session::Kind::Work => (
+                execution.unwrap_or("theseus-core").to_string(),
+                session::LONGEST,
+            ),
+            session::Kind::Floor => (
+                format!("{}.floor", execution.unwrap_or("theseus-core")),
+                session::SHORTEST,
+            ),
+            session::Kind::Tender(t) => (format!("theseus-{t}"), session::LONGEST),
+            session::Kind::Job => (
+                binding
+                    .map_or("theseus-job", |b| b.correlation_id.as_str())
+                    .to_string(),
+                session::LONGEST,
+            ),
+        };
+        let inline = match kind {
+            session::Kind::Tender(t) => tend::policy(t, &self.id),
+            _ => None,
+        };
+        let want = session::Want {
+            kind,
+            name: session::session_name(&name),
+            execution,
+            lasts,
+            inline: inline.as_ref(),
+        };
+        self.session(&want, None, binding).await
     }
 
     /// The client: its catalog, and its checks before a call.
@@ -509,10 +705,11 @@ impl Account {
         }
     }
 
-    /// One request for a call: signed with the account's key once its check
-    /// has passed, attributed to the call's execution and correlation id,
-    /// and recorded on its binding (an `aws.called` row, and a span). An
-    /// unbound account sends nothing, and that is recorded too.
+    /// One request for a call: signed as `r.signer` says once the key's
+    /// check has passed (the key, or a role session it mints), attributed to
+    /// the call's execution and correlation id, and recorded on its binding
+    /// (an `aws.called` row, and a span). An unbound account sends nothing,
+    /// and that is recorded too.
     pub async fn request(
         self: &Arc<Self>,
         binding: Option<&AwsBinding>,
@@ -523,7 +720,7 @@ impl Account {
             execution: binding.map(|b| b.execution_id.clone()),
             call: binding.map(|b| b.correlation_id.clone()),
         };
-        let result = match self.credentials().await {
+        let result = match self.signing(r.signer, binding).await {
             Err(why) => Err(Failure::Unbound(why)),
             Ok(creds) => {
                 let call = Call {
@@ -569,6 +766,11 @@ impl Account {
             "correlation_id": b.correlation_id,
             "duration_ms": started.elapsed().as_millis() as u64,
         });
+        if self.cfg.owner_role.is_some() {
+            if let Signer::As(kind) = r.signer {
+                row["session"] = json!(kind.as_str());
+            }
+        }
         match result {
             Ok(out) => {
                 row["status"] = json!("ok");
@@ -619,6 +821,7 @@ impl Account {
             Check::Waiting(why) => (None, None, why.clone()),
             Check::Unchecked | Check::Checking => (None, None, None),
         };
+        let t = self.tended.lock().unwrap();
         AwsAccountStatus {
             account: self.id.clone(),
             region: self.cfg.region.clone(),
@@ -629,7 +832,34 @@ impl Account {
             error,
             calls: self.calls.load(Ordering::Relaxed),
             failed: self.failed.load(Ordering::Relaxed),
+            signer: Some(self.signer()),
+            budget: t.budget.clone(),
+            guardduty: t.guardduty.clone(),
+            reconcile: t.reconcile.clone(),
         }
+    }
+
+    /// The key's IAM user, from the check's ARN (`arn:aws:iam::…:user/x`):
+    /// the bootstrap's `OwnerUserName`.
+    pub fn user_name(&self) -> Option<String> {
+        let (arn, _) = self.identity()?;
+        arn.split_once(":user/")
+            .map(|(_, path)| path.rsplit('/').next().unwrap_or(path).to_string())
+    }
+
+    /// The key, once its check has passed: for the bootstrap's foundation.
+    pub async fn root_key(self: &Arc<Self>) -> Result<Credentials, String> {
+        self.credentials().await
+    }
+
+    /// Start the check if nothing has, and wait for it to settle, however
+    /// long the vault takes: whether the key is bound. The tenders' wait.
+    pub async fn settled(self: &Arc<Self>) -> bool {
+        self.start_check();
+        let mut rx = self.check.subscribe();
+        let _ = rx.wait_for(Check::settled).await;
+        let bound = matches!(&*self.check.borrow(), Check::Bound(_));
+        bound
     }
 
     /// Who the key is, as the check found it: its ARN and user id.

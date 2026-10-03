@@ -2,27 +2,6 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "GuardPolicies",
-      "Effect": "Deny",
-      "Action": [
-        "iam:CreatePolicyVersion",
-        "iam:SetDefaultPolicyVersion",
-        "iam:DeletePolicy",
-        "iam:DeletePolicyVersion"
-      ],
-      "Resource": [
-        "arn:aws:iam::*:policy/theseus-guard-*",
-        "arn:aws:iam::*:policy/theseus-boundary",
-        "arn:aws:iam::*:policy/theseus-allow-all",
-        "arn:aws:iam::*:policy/theseus-deny-spend"
-      ],
-      "Condition": {
-        "ArnNotLike": {
-          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
-        }
-      }
-    },
-    {
       "Sid": "DeployerRole",
       "Effect": "Deny",
       "Action": [

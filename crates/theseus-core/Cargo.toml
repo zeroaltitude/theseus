@@ -15,6 +15,8 @@ theseus-tools.workspace = true
 theseus-sandbox.workspace = true
 # AWS (row 29, C1 = 14a): one caller for every operation, and its catalog.
 theseus-aws = { path = "../theseus-aws" }
+# AWS (row 30, C2 = 14b): the guard list both enforcers read.
+theseus-aws-guard = { path = "../theseus-aws-guard" }
 anyhow.workspace = true
 base64.workspace = true
 thiserror.workspace = true

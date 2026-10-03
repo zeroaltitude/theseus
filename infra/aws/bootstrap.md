@@ -1,71 +1,70 @@
 # Bootstrapping Theseus's AWS account
 
-The notes for slice C2's `theseus aws bootstrap` (Theseus's AWS design, theseus-mgw.1, §3.4–3.7 and §5).
-The bootstrap runs once, with the operator's approval. Everything after it changes through change sets that the
-deployer role applies.
+`theseus aws bootstrap` (C2, theseus-nyzn; Theseus's AWS design, theseus-mgw.1, §3.4–3.7 and §5) makes an account's
+first stacks from the templates `theseusd` carries: `theseus-foundation` and `theseus-posture` in the account's region,
+and `theseus-posture-relay` in us-east-1 when that is another. It runs once, with the operator's approval.
+Everything after it changes through change sets that the deployer role applies.
 
-## 0. Read-only checks first
+```bash
+theseus aws bootstrap --alert-email <the operator's address>     # the plan, then the question
+theseus aws bootstrap --plan-only                                # the plan alone
+theseus aws bootstrap --alert-email <address> --apply <digest>   # the plan whose digest that is, no question
+```
 
-- **Who:** `sts:GetCallerIdentity` gives the account and the root-of-trust IAM user. That user's name is the
-  `OwnerUserName` parameter of the foundation and posture stacks.
-- **Singletons that would collide:**
-  - a GuardDuty detector in the region (if there is one, posture takes `GuardDuty=disabled`);
-  - an `ACCOUNT` analyzer in IAM Access Analyzer (if so, `AccessAnalyzer=disabled`);
-  - other trails (the trail's management events are free only for the account's first copy);
-  - stacks, exports, roles, policies, buckets, tables, queues, log groups, repositories, aliases, and rules named
-    `theseus*`.
-- **Before account-level S3 Block Public Access:** for every bucket, its policy status, any ACL grant to a group,
-  and any website configuration. A bucket that is public on purpose must move first.
-- **Before blocking EBS snapshot sharing:** the account's public snapshots. Posture's `SnapshotPublicSharing`
-  defaults to `block-all-sharing`, which also hides the ones already public.
-- **Quotas hands will meet:** Lambda's concurrent executions (a new account starts at 10, and the reaper shares
-  them) and Fargate's On-Demand and Spot vCPU counts. Raising them is a Service Quotas request, which is a write:
-  step 40 makes it, with the operator.
+`--trail-key customer` gives the trail its own KMS key (about $1 a month); the default is SSE-S3. The account's
+`[aws.accounts.<id>]` table must exist in the config, with no `owner_role` yet; `monthly_budget_usd` (default 50) is
+the budget's amount.
 
-## 1. The foundation, signed with the user key
+## 0. The plan is read-only
 
-The deployer role doesn't exist yet, and neither does the bucket a template would be uploaded to. So:
+It makes no change set: a create's change set makes a stack in `REVIEW_IN_PROGRESS`, which is a write. It reads:
 
-- a change set of type `CREATE` for the stack `theseus-foundation`;
-- the template **by body**, which must stay within CloudFormation's 51,200 bytes (`test/rules.py` checks this);
-- **no role ARN**;
-- `CAPABILITY_NAMED_IAM`, since the roles and policies have the design's names;
-- parameters: `OwnerUserName`, `MonthlyBudgetUsd` (the config's `monthly_budget_usd`), and `AlertEmail` (the
-  operator's);
-- stack tags: `theseus:owner=theseus`, `theseus:stack=theseus-foundation`, `theseus:deployment`, and
-  `theseus:execution`;
-- termination protection on, and the stack policy `stack-policies/theseus-foundation.json`.
+- **Who:** `sts:GetCallerIdentity` (the account's check) gives the root-of-trust IAM user, the stacks'
+  `OwnerUserName`. It tries `sts:AssumeRole` into `theseus-owner` once: refused before the foundation exists, so the
+  plan reads with the key; after, it reads in that session, so a second plan signs nothing with the key but STS.
+- **Each stack:** `DescribeStacks`. A new stack's plan is its template's resources under its parameters, read
+  statically. An existing one is compared with `GetTemplate` and its parameters: equal is no change, so a plan after
+  the apply shows none.
+- **Singletons that would collide**, for a new posture: a GuardDuty detector in the region (then
+  `GuardDuty=disabled`), an `ACCOUNT` analyzer (then `AccessAnalyzer=disabled`), and other trails (the trail's
+  management events are free only as the account's first copy). Each is a warning in the plan.
 
-Show the change set and wait for the operator's approval. Then execute it and wait for `CREATE_COMPLETE`. SNS
-mails the operator a confirmation link for the alerts topic, which they must open once.
+The plan prints every stack, its parameters, each resource a create makes, the warnings, and its digest.
 
-## 2. Off the key
+## 1. The apply, on the operator's yes
 
-- Assume `theseus-owner` with a **source identity** (the deployment's name), because the trust policy refuses a
-  session without one. The session name is the bootstrap's execution id.
-- From here on, the key signs only `sts:AssumeRole` and `sts:GetCallerIdentity`. Once posture exists, its
-  `theseus-root-of-trust-key-use` alarm fires on anything else the key signs.
-- The rest of the bootstrap makes guarded changes, such as the account settings in step 4. So it runs in a
-  **floor session**: the owner role with no guard. The design's floor session covers one call, so C2 decides
-  whether the operator's one approval of the bootstrap covers them all, or each guarded call is approved alone.
+It plans again, and refuses a plan whose digest is not the one approved. Then, in order:
 
-## 3. Posture, through the deployer
+1. **The foundation, signed with the key:** a change set of type `CREATE`, by body (`test/rules.py` keeps every
+   template within 51,200 bytes), with no role ARN (the deployer doesn't exist yet) and `CAPABILITY_NAMED_IAM`.
+   Its resources are checked against the plan before it is executed. SNS mails the alert address a confirmation
+   link, which the operator opens once.
+2. **Off the key:** a floor session of `theseus-owner` (allow-all, no guard; the source identity is the
+   deployment), tried for up to a minute while IAM learns the new role. The operator's one approval of the plan
+   covers every guarded change the bootstrap makes in it.
+3. **The posture and the relay**, by change sets the deployer applies, each checked against the plan first.
+4. **Each stack's policy** (`stack-policies/`) **and termination protection.**
 
-- A change set of type `CREATE` for `theseus-posture`, with the role ARN `theseus-cfn-deployer` and
-  `CAPABILITY_NAMED_IAM`.
-- Its parameters are `FoundationStack`, `OwnerUserName`, and `GuardDuty`, `AccessAnalyzer`, and
-  `SnapshotPublicSharing`, as step 0's checks found.
-- Turn termination protection on, and set the stack policy `stack-policies/theseus-posture.json`.
-- Then update `theseus-foundation` once with the deployer's role ARN and no template change. Its later change sets
-  then run as the deployer.
+The foundation's later change sets name the deployer too (the budget's reconcile does), so CloudFormation uses it
+from then on.
 
-## 4. Account settings that have no CloudFormation type
+## 2. After
 
-Each is a direct call, made once, and ledgered. None is in a stack. (The schemas checked are cfn-lint 1.57.1's,
-dated 2026-09-28; EBS snapshot sharing does have a type, and posture sets it.)
+- **Name the owner role:** add `owner_role = "theseus-owner"` to `[aws.accounts.<id>]` and restart. Every call then
+  signs in a role session named by its execution, the key signs only STS, and the posture's
+  `theseus-posture-root-of-trust-key-use` rule alerts on anything else it signs. Until then the key signs, and that
+  rule fires on each call: the alerts say the config is behind.
+- **The tenders** start with the owner role: the budget's reconcile once a start, its line every six hours, and
+  GuardDuty's usage weekly (health warns past $1 a month).
+
+## 3. Account settings that have no CloudFormation type
+
+Each is a direct call, made once by hand, in a floor session, and checked first. None is in a stack. (The schemas
+checked are cfn-lint 1.57.1's, dated 2026-09-28; EBS snapshot sharing does have a type, and posture sets it.)
 
 - **S3 account-level Block Public Access:** `s3control:PutPublicAccessBlock` for the account, with all four
-  settings `true`.
+  settings `true`. First, for every bucket: its policy status, any ACL grant to a group, and any website
+  configuration. A bucket that is public on purpose must move first.
 - **EBS encryption by default:** `ec2:EnableEbsEncryptionByDefault`, in each allowed region (`us-west-2` and
   `us-east-1`). The default key, `aws/ebs`, will do.
 - **AMI public sharing:** `ec2:GetImageBlockPublicAccessState` should already say `block-new-sharing`, the default
@@ -74,9 +73,11 @@ dated 2026-09-28; EBS snapshot sharing does have a type, and posture sets it.)
   so it admits nothing (CIS 5.4). CloudFormation can't remove a default group's rules.
 - **Cost-allocation tags:** activate `theseus:owner`, `theseus:stack`, and `theseus:session` with
   `ce:UpdateCostAllocationTagsStatus`. A key can be activated only once it has appeared in the billing data, about
-  a day after the first resource carries it, so this step comes a day later.
+  a day after the first resource carries it.
+- **Before blocking EBS snapshot sharing** (the posture's `SnapshotPublicSharing`, default `block-all-sharing`):
+  the account's public snapshots, which it also hides.
 
-## 5. The hands (they may wait for step 40)
+## 4. The hands (step 40)
 
 - **`theseus-hands-network`** starts with `NatGateway=disabled`, so it has no internet gateway and no Elastic IP.
   Enabling the NAT later makes the template's only two guardrail hits, the internet gateway and the Elastic IP:
@@ -86,16 +87,14 @@ dated 2026-09-28; EBS snapshot sharing does have a type, and posture sets it.)
 - **`theseus-hands`** starts with `HandImageUri` empty. Step 40 pushes the image to `theseus/hand` and sets the
   parameter, which creates the Lambda hand.
 
-## 6. What C2's live check proves after
+## 5. What the live check proves after
 
 These are writes, so they wait for the operator.
 
-- CloudTrail shows the bootstrap's calls as `assumed-role/theseus-owner/<execution id>`, with the deployment as
-  the source identity.
-- **The alerts path, end to end.** The alerts topic is KMS-encrypted, and its key lets Budgets, CloudWatch, and
-  EventBridge use it only for that topic. Nothing offline can prove that grant.
-  - From a floor session (`theseus-guard-limits` denies `SetAlarmState` on `theseus-*` alarms), set one
-    `theseus-cis-*` alarm to `ALARM` with `cloudwatch:SetAlarmState`.
-  - Both the operator's email and a message in `theseus-completions` must arrive.
-- The budget `theseus-monthly` holds the configured amount, and both of its actions are in `STANDBY`.
-- A job session's `aws s3api create-bucket` is denied, and the denial names the session policy.
+- CloudTrail shows the bootstrap's calls after the foundation as `assumed-role/theseus-owner/<session>`, with the
+  deployment as the source identity.
+- **The alerts path, end to end.** A job session's `aws s3api create-bucket` is denied, naming the session policy
+  (`theseus-guard-iac`), and that denial trips `theseus-posture-unauthorized-api-calls`: both the operator's email
+  and a message in `theseus-completions` must arrive, the message naming the rule.
+- An IAM call by the key (any `iam:List*`) trips `theseus-posture-root-of-trust-key-use` through the relay.
+- The budget `theseus-monthly` holds the configured amount, and its action is in `STANDBY`.

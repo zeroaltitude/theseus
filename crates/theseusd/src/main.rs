@@ -961,6 +961,9 @@ async fn after_serving(
             let phase = log.begin("aws.check", true, Instant::now());
             log.end(phase, aws.check_all().await);
         });
+        // The budget's reconcile and reads, and GuardDuty's usage (C2), each
+        // once its account's check has passed.
+        core.tend_aws_after_serving();
     }
     if let Some(path) = bindings {
         core.post_restart_notice();

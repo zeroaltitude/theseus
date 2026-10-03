@@ -16,11 +16,13 @@
 //! resources (`Plan`), before anything runs. The first match wins:
 //!
 //! 1. the floor (Theseus's own binary and state, the 1Password CLI and its
-//!    token) waits for approval at every posture, and is marked as the floor;
+//!    token, and an AWS guardrail: AWS design §3.6) waits for approval at
+//!    every posture, and is marked as the floor;
 //! 2. the operator's approve lists (`approve_argv`, `approve_paths`), a read
-//!    or a working directory outside the roots, and a URL whose host is a
-//!    private address (DD5) wait for approval. A write outside the roots
-//!    follows the tool's posture, whichever tool makes it (theseus-ewi);
+//!    or a working directory outside the roots, a URL whose host is a
+//!    private address (DD5), and an AWS call that deletes what holds state
+//!    (§3.9) wait for approval. A write outside the roots follows the tool's
+//!    posture, whichever tool makes it (theseus-ewi);
 //! 3. the operator's explicit allow (`allow_argv`) runs, when every path
 //!    argument is inside the roots. An entry is a prefix (`["ls"]` also runs
 //!    `ls -la src`), so entries should be narrow;
@@ -293,8 +295,10 @@ pub(crate) fn normalized_argv(argv: &[String]) -> Vec<String> {
 impl ToolPolicy {
     /// A tool's posture and the setting that chose it: `[policy.tools]`, then
     /// for an MCP tool (`mcp:<server>/<tool>`) `[policy.mcp]` "server/tool"
-    /// and "server", for an AWS tool `[policy.aws]`'s class line, then
-    /// `[policy].enforcement`.
+    /// and "server", for an AWS tool its own class's `[policy.aws]` line
+    /// (`aws::tool_class`), then `[policy].enforcement`. An AWS call's own
+    /// lines, by its operation, service, and class, are the gate's to read
+    /// (`decide_with`).
     pub fn posture(&self, name: &str) -> (Posture, String) {
         if let Some(p) = self.tools.get(name) {
             return (*p, format!("[policy.tools] \"{name}\" = {}", p.as_str()));
@@ -307,12 +311,9 @@ impl ToolPolicy {
                 }
             }
         }
-        // Every call of an AWS tool is a read until 14b, so `[policy.aws]
-        // read` is the tool's; a call's own service and operation lines are
-        // the gate's to read (`decide_with`).
-        if crate::aws::CALLS.contains(&name) {
-            if let Some(p) = self.aws.get("read") {
-                return (*p, format!("[policy.aws] read = {}", p.as_str()));
+        if let Some(class) = crate::aws::tool_class(name) {
+            if let Some(p) = self.aws.get(class) {
+                return (*p, format!("[policy.aws] {class} = {}", p.as_str()));
             }
         }
         (
@@ -322,12 +323,26 @@ impl ToolPolicy {
     }
 
     /// An AWS call's own line (AWS design §3.9): `[policy.aws]` for its
-    /// operation, then for its service. None: the tool's posture decides.
-    fn aws_line(&self, a: &theseus_tools::AwsPlan) -> Option<(Posture, String)> {
+    /// operation, then for its service, then for its class (`read`, `write`,
+    /// `run`). None: the tool's posture decides.
+    fn aws_line(
+        &self,
+        a: &theseus_tools::AwsPlan,
+        class: Option<theseus_tools::ToolClass>,
+    ) -> Option<(Posture, String)> {
         let op = format!("{}:{}", a.service, a.operation);
-        for k in [op.as_str(), a.service.as_str()] {
+        let class = class.map(|c| c.as_str());
+        for k in [Some(op.as_str()), Some(a.service.as_str()), class]
+            .into_iter()
+            .flatten()
+        {
             if let Some(p) = self.aws.get(k) {
-                return Some((*p, format!("[policy.aws] \"{k}\" = {}", p.as_str())));
+                let key = if Some(k) == class {
+                    k.to_string()
+                } else {
+                    format!("\"{k}\"")
+                };
+                return Some((*p, format!("[policy.aws] {key} = {}", p.as_str())));
             }
         }
         None
@@ -397,7 +412,10 @@ impl ToolPolicy {
             path_args(argv, &cwd)
         };
 
-        if let Some(what) = self.floor(&resources, &nargv, &args) {
+        // The floor: Theseus's own state and the vault, and an AWS
+        // guardrail (AWS design §3.6), which asks at every posture.
+        let guardrail = plan.aws.as_ref().and_then(|a| a.guardrail.clone());
+        if let Some(what) = self.floor(&resources, &nargv, &args).or(guardrail) {
             return Decision {
                 floor: true,
                 ..Decision::new(
@@ -420,6 +438,18 @@ impl ToolPolicy {
                 format!("{}: {name} — approve ({why})", plan.summary),
             );
         }
+        // The approve list's AWS half (§3.9): deleting what holds state, or a
+        // stack, or a change set that replaces or removes it.
+        if plan.aws.as_ref().is_some_and(|a| a.destructive) {
+            return Decision::new(
+                Posture::Approve,
+                format!(
+                    "{}: {name} — approve (destructive: it deletes, replaces, or removes something \
+                     that holds state)",
+                    plan.summary
+                ),
+            );
+        }
         // The allow list runs a command outright when its path arguments stay
         // inside the roots; otherwise the tool's posture decides.
         if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
@@ -434,13 +464,13 @@ impl ToolPolicy {
                 );
             }
         }
-        // An AWS call with no `[policy.tools]` line takes its operation's or
-        // its service's `[policy.aws]` line first.
+        // An AWS call with no `[policy.tools]` line takes its operation's,
+        // its service's, or its class's `[policy.aws]` line first.
         let line = plan
             .aws
             .as_ref()
             .filter(|_| !self.tools.contains_key(name))
-            .and_then(|a| self.aws_line(a));
+            .and_then(|a| self.aws_line(a, plan.class));
         let now = match line {
             Some(line) => Self::now_from(line, tightened),
             None => self.posture_now(name, tightened),

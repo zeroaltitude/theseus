@@ -475,21 +475,21 @@ present = ["ArchiveRules"]
 types = ["AWS::GuardDuty::Detector", "AWS::AccessAnalyzer::Analyzer", "AWS::Config::ConfigurationRecorder", "AWS::Config::DeliveryChannel"]
 
 [[guardrail]]
-name = "alarm-tamper"
+name = "alert-tamper"
 limit = "audit-trail"
-summary = "the CIS alarms, their metric filters, or the alerts topic"
+summary = "the posture's alert rules (the CIS checks, the findings, the relay) or the alerts topic"
 operations = [
-    "cloudwatch:DeleteAlarms", "cloudwatch:DisableAlarmActions", "cloudwatch:PutMetricAlarm", "sns:DeleteTopic",
-    "sns:SetTopicAttributes", "sns:Unsubscribe", "logs:DeleteMetricFilter", "logs:PutMetricFilter",
+    "events:DeleteRule", "events:DisableRule", "events:PutRule", "events:PutTargets", "events:RemoveTargets",
+    "sns:DeleteTopic", "sns:SetTopicAttributes", "sns:Unsubscribe",
 ]
-resources = ["arn:aws:cloudwatch:*:*:alarm:theseus-cis-*", "arn:aws:sns:*:*:theseus-alerts", "arn:aws:logs:*:*:log-group:/theseus/trail*"]
+resources = ["arn:aws:events:*:*:rule/theseus-posture-*", "arn:aws:sns:*:*:theseus-alerts"]
 scp = "deny-except-deployer"
-note = "The posture stack names the alarms theseus-cis-*, the topic theseus-alerts, and the trail's log group /theseus/trail."
+note = "The posture stacks name their EventBridge rules theseus-posture-* (the relay in us-east-1 too) and the foundation the topic theseus-alerts (C2's lean posture, theseus-nyzn)."
 [guardrail.when]
-matches = { AlarmNames = "theseus-cis-*", AlarmName = "theseus-cis-*", TopicArn = "*:theseus-alerts", SubscriptionArn = "*:theseus-alerts:*", logGroupName = "/theseus/trail*" }
+matches = { Name = "theseus-posture-*", Rule = "theseus-posture-*", TopicArn = "*:theseus-alerts", SubscriptionArn = "*:theseus-alerts:*" }
 [[guardrail.change]]
-types = ["AWS::CloudWatch::Alarm"]
-name = "theseus-cis-*"
+types = ["AWS::Events::Rule"]
+name = "theseus-posture-*"
 [[guardrail.change]]
 types = ["AWS::SNS::Topic"]
 name = "*:theseus-alerts"

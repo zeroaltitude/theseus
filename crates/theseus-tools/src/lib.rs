@@ -155,13 +155,15 @@ pub trait Secrets: Send + Sync + std::fmt::Debug {
 /// An AWS call's binding (AWS design §3.9), made per call by the runtime for
 /// the `aws.*` tools: whose call it is, which the user agent names to AWS
 /// and CloudTrail keeps (§3.5), and the requests the call made, which the
-/// runtime ledgers (`aws.called`) and traces once the call ends (§3.8). It
-/// holds no credential: the core signs.
+/// runtime ledgers (`aws.called`) and traces once the call ends (§3.8), and
+/// the role sessions minted for it (`aws.session.minted`, §3.5). It holds no
+/// credential: the core signs.
 #[derive(Debug, Default)]
 pub struct AwsBinding {
     pub execution_id: String,
     pub correlation_id: String,
     requests: std::sync::Mutex<Vec<AwsRequest>>,
+    sessions: std::sync::Mutex<Vec<Value>>,
 }
 
 /// One AWS request a call made: when it ran, and its `aws.called` row.
@@ -178,6 +180,7 @@ impl AwsBinding {
             execution_id: execution_id.into(),
             correlation_id: correlation_id.into(),
             requests: Default::default(),
+            sessions: Default::default(),
         }
     }
 
@@ -189,6 +192,16 @@ impl AwsBinding {
     /// Every request so far, in the order they were made.
     pub fn requests(&self) -> Vec<AwsRequest> {
         self.requests.lock().unwrap().clone()
+    }
+
+    /// A role session minted for the call: its row, never its credentials.
+    pub fn record_session(&self, row: Value) {
+        self.sessions.lock().unwrap().push(row);
+    }
+
+    /// Every session minted for the call.
+    pub fn sessions(&self) -> Vec<Value> {
+        self.sessions.lock().unwrap().clone()
     }
 }
 
@@ -305,6 +318,12 @@ pub trait Tool: Send + Sync {
     }
     fn family(&self) -> &'static str {
         self.name().split('.').next().unwrap_or("")
+    }
+    /// How long an in-process or async call may run, when not the runtime's
+    /// default: a stack's apply waits for the stack to settle (AWS design
+    /// §3.4). None: the default.
+    fn deadline(&self) -> Option<std::time::Duration> {
+        None
     }
     /// How the model gets what the runtime cut from the middle of a result
     /// too long to show whole, `left_out` (theseus-46v). Nothing keeps a

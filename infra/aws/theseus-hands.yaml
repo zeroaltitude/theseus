@@ -168,16 +168,6 @@ Resources:
             Condition:
               StringLike:
                 s3:prefix: hands/*
-          - Sid: TheBucketsKeyThroughS3
-            Effect: Allow
-            Action:
-              - kms:GenerateDataKey
-              - kms:Decrypt
-            Resource:
-              Fn::ImportValue: !Sub "${FoundationStack}-KeyArn"
-            Condition:
-              StringEquals:
-                kms:ViaService: !Sub "s3.${AWS::Region}.amazonaws.com"
           - Sid: TheHandsLogs
             Effect: Allow
             Action:

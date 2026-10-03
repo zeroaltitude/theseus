@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
+mod aws;
+pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
+
 /// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
 /// names it: a local file, so nothing here names anyone's vault
 /// (theseus-8d1b). A deployment kept in 1Password names its note in its
@@ -397,11 +400,16 @@ impl BrokerConfig {
 }
 
 /// One program's grant: each environment variable it gets, with the name of
-/// the `[secrets]` entry whose value it holds.
+/// the `[secrets]` entry whose value it holds; or, for a program that calls
+/// AWS (`aws`), an account whose short-lived job session it gets at launch,
+/// under the guards, and never the key (AWS design §3.5).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProgramGrant {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aws_account: Option<String>,
 }
 
 /// A secret's posture: a call given the secret runs at no looser a posture.
@@ -723,128 +731,6 @@ impl Default for GitHubConfig {
             token_secret: default_github_secret(),
             warn_days: default_warn_days(),
         }
-    }
-}
-
-/// `[aws]` (AWS design §3.5; row 29, C1 = 14a): the accounts Theseus owns,
-/// each by its id. Empty: no AWS tool is registered, and nothing AWS runs.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AwsConfig {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub accounts: BTreeMap<String, AwsAccountConfig>,
-}
-
-impl AwsConfig {
-    pub fn is_empty(&self) -> bool {
-        self.accounts.is_empty()
-    }
-}
-
-/// One account: its key (the root of trust), its default region, and the
-/// regions a call may name. Its key is checked after serving: STS must name
-/// this account for it, or no call of the account signs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AwsAccountConfig {
-    /// The key: the `[secrets]` entries holding its access key id and its
-    /// secret access key.
-    #[serde(default)]
-    pub credentials: AwsCredentialNames,
-    /// The region a call goes to unless it names one.
-    pub region: String,
-    /// The regions a call may name. Empty: `region` alone.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub regions: Vec<String>,
-    /// A local stand-in for AWS, `http://127.0.0.1:<port>`: tests and
-    /// scratch daemons only, so that no request and no signature leaves the
-    /// machine. Every call goes there, signed as AWS's own endpoint would be.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub endpoint: Option<String>,
-}
-
-impl AwsAccountConfig {
-    /// The regions a call may name: `regions`, or `region` alone.
-    pub fn allowed_regions(&self) -> Vec<String> {
-        if self.regions.is_empty() {
-            vec![self.region.clone()]
-        } else {
-            self.regions.clone()
-        }
-    }
-}
-
-/// The two `[secrets]` entries of an AWS key.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AwsCredentialNames {
-    #[serde(default = "default_aws_key_id_secret")]
-    pub access_key_id: String,
-    #[serde(default = "default_aws_secret_key_secret")]
-    pub secret_access_key: String,
-}
-
-fn default_aws_key_id_secret() -> String {
-    "aws_access_key_id".into()
-}
-fn default_aws_secret_key_secret() -> String {
-    "aws_secret_access_key".into()
-}
-
-impl Default for AwsCredentialNames {
-    fn default() -> Self {
-        Self {
-            access_key_id: default_aws_key_id_secret(),
-            secret_access_key: default_aws_secret_key_secret(),
-        }
-    }
-}
-
-/// `us-west-2`, `eu-central-1`, `us-gov-west-1`, `cn-north-1`: a region's
-/// form, letters and dashes ending in a number.
-fn aws_region_ok(r: &str) -> bool {
-    let mut parts = r.split('-');
-    let first = parts.next().unwrap_or("");
-    let rest: Vec<&str> = parts.collect();
-    first.len() == 2
-        && first.bytes().all(|b| b.is_ascii_lowercase())
-        && rest.len() >= 2
-        && rest[..rest.len() - 1]
-            .iter()
-            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_lowercase()))
-        && rest
-            .last()
-            .is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// A `[policy.aws]` key: `read`, a service (`ec2`, `s3`), or a service and
-/// an operation (`s3:ListBuckets`), as `aws.describe` names them. `write` and
-/// `run` arrive with the writes (14b); until then they would govern nothing.
-fn aws_policy_key(k: &str) -> Result<(), String> {
-    let service = |s: &str| {
-        !s.is_empty()
-            && s.bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-    };
-    match k.split_once(':') {
-        _ if k == "read" => Ok(()),
-        _ if k == "write" || k == "run" => Err(format!(
-            "policy.aws.{k}: AWS calls that {} arrive with step 14b, with the guards; until then \
-             aws.call makes reads only, so the key would govern nothing",
-            if k == "write" { "write" } else { "run code" }
-        )),
-        None if service(k) => Ok(()),
-        Some((s, op))
-            if service(s)
-                && op.starts_with(|c: char| c.is_ascii_uppercase())
-                && op.bytes().all(|b| b.is_ascii_alphanumeric()) =>
-        {
-            Ok(())
-        }
-        _ => Err(format!(
-            "policy.aws.\"{k}\" is not `read`, a service (\"ec2\"), or a service and an \
-             operation (\"s3:ListBuckets\") as aws.describe names them"
-        )),
     }
 }
 
@@ -1384,11 +1270,20 @@ impl Config {
                      program {program} would run, and have the job run that one directly"
                 );
             }
-            if grant.env.is_empty() {
+            if grant.env.is_empty() && grant.aws_account.is_none() {
                 anyhow::bail!(
-                    "broker.programs.{program}.env grants nothing: name a variable and its \
-                     [secrets] entry, as env = {{ GH_TOKEN = \"github_token\" }}"
+                    "broker.programs.{program} grants nothing: name a variable and its [secrets] \
+                     entry, as env = {{ GH_TOKEN = \"github_token\" }}, or an AWS account whose \
+                     job session it gets, as aws_account = \"111122223333\""
                 );
+            }
+            if let Some(id) = &grant.aws_account {
+                if !self.aws.accounts.contains_key(id) {
+                    anyhow::bail!(
+                        "broker.programs.{program}.aws_account = {id:?} is not an account under \
+                         [aws.accounts]"
+                    );
+                }
             }
             for (var, secret) in &grant.env {
                 let name = var.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
@@ -1517,54 +1412,6 @@ impl Config {
             }
         }
         self.validate_aws()
-    }
-
-    /// `[aws.accounts.<id>]` and `[policy.aws]` (AWS design §3.5, §3.9):
-    /// checked as they are read, with no lookup in the catalog, which stays
-    /// undecoded until a call (§3.10).
-    fn validate_aws(&self) -> Result<()> {
-        for (id, a) in &self.aws.accounts {
-            if id.len() != 12 || !id.bytes().all(|b| b.is_ascii_digit()) {
-                anyhow::bail!("aws.accounts.\"{id}\" is not an account's id, which is 12 digits");
-            }
-            for (key, name) in [
-                ("access_key_id", &a.credentials.access_key_id),
-                ("secret_access_key", &a.credentials.secret_access_key),
-            ] {
-                if !self.secrets.contains_key(name) {
-                    anyhow::bail!(
-                        "aws.accounts.{id}.credentials.{key} = {name:?} has no matching entry \
-                         under [secrets]"
-                    );
-                }
-            }
-            if let Some(r) = std::iter::once(&a.region)
-                .chain(&a.regions)
-                .find(|r| !aws_region_ok(r))
-            {
-                anyhow::bail!("aws.accounts.{id}: {r:?} is not a region's name, as us-west-2 is");
-            }
-            if !a.allowed_regions().contains(&a.region) {
-                anyhow::bail!(
-                    "aws.accounts.{id}.region = {:?} is not one of its regions: {}",
-                    a.region,
-                    a.regions.join(", ")
-                );
-            }
-            if let Some(e) = &a.endpoint {
-                if !dev_origin_ok(e) {
-                    anyhow::bail!(
-                        "aws.accounts.{id}.endpoint = {e:?} is not a stand-in on this machine: it \
-                         must be http://, then localhost or a loopback address, then a port, and \
-                         nothing more"
-                    );
-                }
-            }
-        }
-        for key in self.policy.aws.keys() {
-            aws_policy_key(key).map_err(anyhow::Error::msg)?;
-        }
-        Ok(())
     }
 
     /// Deserialize a document and resolve its implicit profile and provider.
@@ -1858,13 +1705,23 @@ mod tests {
         assert_eq!(cfg.policy.tools["task.create"], Posture::Notify);
         assert_eq!(cfg.policy.tools["wake.at"], Posture::Notify);
         assert_eq!(cfg.policy.tools["aws.call"], Posture::Approve);
-        assert_eq!(cfg.policy.tools.len(), 19);
-        // The AWS account's table, and [policy.aws]'s lines (row 29, C1).
+        assert_eq!(cfg.policy.tools["aws.stack.apply"], Posture::Approve);
+        assert_eq!(cfg.policy.tools.len(), 24);
+        // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
         let a = &cfg.aws.accounts["111122223333"];
         assert_eq!(a.credentials, AwsCredentialNames::default());
         assert_eq!(a.region, "us-west-2");
         assert_eq!(a.allowed_regions(), ["us-west-2", "us-east-1"]);
         assert_eq!(a.endpoint.as_deref(), Some("http://127.0.0.1:4566"));
+        assert_eq!(a.owner_role.as_deref(), Some("theseus-owner"));
+        assert_eq!(a.deployment(), "theseus-desktop");
+        assert_eq!(a.monthly_budget_usd, Some(50));
+        assert_eq!(
+            cfg.broker.programs["aws"].aws_account.as_deref(),
+            Some("111122223333")
+        );
+        assert_eq!(cfg.policy.aws["write"], Posture::Notify);
+        assert_eq!(cfg.policy.aws["run"], Posture::Notify);
         assert_eq!(cfg.policy.aws["read"], Posture::Open);
         assert_eq!(cfg.policy.aws["ec2"], Posture::Notify);
         assert_eq!(cfg.policy.aws["s3:ListBuckets"], Posture::Approve);
@@ -2790,26 +2647,28 @@ mod tests {
         }
     }
 
-    /// `[policy.aws]` (AWS design §3.9): `read`, a service, or a service and
-    /// an operation, as aws.describe names them. `write` and `run` arrive
-    /// with the writes (14b): until then they would govern nothing.
+    /// `[policy.aws]` (AWS design §3.9): a class (`read`, `write`, `run`), a
+    /// service, or a service and an operation, as aws.describe names them.
     #[test]
     fn policy_aws_takes_read_a_service_or_an_operation() {
         let cfg = policy_only(
-            "[policy.aws]\nread = \"open\"\nec2 = \"notify\"\n\"s3:ListBuckets\" = \"approve\"\n\
-             resource-groups = \"open\"",
+            "[policy.aws]\nread = \"open\"\nwrite = \"notify\"\nrun = \"approve\"\nec2 = \"notify\"\n\
+             \"s3:ListBuckets\" = \"approve\"\nresource-groups = \"open\"",
         )
         .unwrap();
         assert_eq!(cfg.policy.aws["read"], Posture::Open);
+        assert_eq!(cfg.policy.aws["write"], Posture::Notify);
+        assert_eq!(cfg.policy.aws["run"], Posture::Approve);
         assert_eq!(cfg.policy.aws["ec2"], Posture::Notify);
         assert_eq!(cfg.policy.aws["s3:ListBuckets"], Posture::Approve);
         assert!(policy_only("").unwrap().policy.aws.is_empty());
         for (bad, says) in [
-            ("write = \"notify\"", "arrive with step 14b"),
-            ("run = \"notify\"", "arrive with step 14b"),
-            ("\"EC2\" = \"open\"", "is not `read`, a service"),
-            ("\"s3:listBuckets\" = \"open\"", "is not `read`, a service"),
-            ("\"s3:\" = \"open\"", "is not `read`, a service"),
+            (
+                "\"EC2\" = \"open\"",
+                "is not a class (`read`, `write`, `run`), a service",
+            ),
+            ("\"s3:listBuckets\" = \"open\"", "is not a class"),
+            ("\"s3:\" = \"open\"", "is not a class"),
             ("read = \"never\"", "open"),
         ] {
             let e = format!(

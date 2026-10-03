@@ -11,10 +11,8 @@
       "Action": ["Update:Replace", "Update:Delete"],
       "Principal": "*",
       "Resource": [
-        "LogicalResourceId/Trail",
-        "LogicalResourceId/TrailBucket",
-        "LogicalResourceId/TrailBucketPolicy",
-        "LogicalResourceId/TrailKmsKey"
+        "LogicalResourceId/RelayRule",
+        "LogicalResourceId/RelayRole"
       ]
     }
   ]

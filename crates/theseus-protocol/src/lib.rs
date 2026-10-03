@@ -8,6 +8,7 @@
 //! Requests change state and get exactly one response. Notifications report
 //! state and are also ledger rows on the server side.
 
+mod aws;
 pub mod bench;
 pub mod cancel;
 pub mod cred;
@@ -22,6 +23,7 @@ pub mod sandbox;
 #[cfg(test)]
 mod ts;
 
+pub use aws::*;
 pub use cancel::{CancelCount, CancelVerdict};
 pub use events::*;
 pub use gate::*;
@@ -149,6 +151,11 @@ pub mod method {
         /// theseus-kpz1), for the cockpit's boundaries board
         /// (`sandbox::SandboxUsage`). A read of the daemon's memory.
         SANDBOX_USAGE = "sandbox.usage",
+        /// The AWS bootstrap (AWS design §5, C2; `AwsBootstrapParams`): the
+        /// plan of an account's foundation, posture, and relay stacks,
+        /// read-only, or that plan applied on the operator's yes. The
+        /// operator's alone: refused from a job's process.
+        AWS_BOOTSTRAP = "aws.bootstrap",
     }
 }
 
@@ -525,6 +532,24 @@ pub struct AwsAccountStatus {
     /// many of them failed.
     pub calls: u64,
     pub failed: u64,
+    /// What signs its calls (AWS design §3.5): `its key` until the config
+    /// names the owner role the bootstrap made, then `role sessions
+    /// (theseus-owner)`, and the key signs only STS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub signer: Option<String>,
+    /// The month's budget, as AWS Budgets said at its last read (§3.7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub budget: Option<AwsBudgetStatus>,
+    /// GuardDuty's cost over its last 30 days, as its weekly read found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub guardduty: Option<AwsGuardDutyStatus>,
+    /// What the budget's reconcile did after serving (config to stack).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reconcile: Option<String>,
 }
 
 /// The spool's sweeps (theseus-2ij): a job's raw output, what it printed

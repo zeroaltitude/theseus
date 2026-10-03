@@ -148,8 +148,16 @@ impl ToolRuntime {
             .find(|(k, _)| k == "PATH")
             .map(|(_, v)| v.clone());
         let set: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
-        let (brokered, sandbox) =
-            sandbox::for_job(self, class, &spec, &set, path.as_deref(), ran_at).await;
+        let (brokered, sandbox) = sandbox::for_job(
+            self,
+            class,
+            &spec,
+            &set,
+            path.as_deref(),
+            ran_at,
+            correlation_id,
+        )
+        .await;
         for (k, v) in &brokered.env {
             env.retain(|(ek, _)| ek != k);
             env.push((k.clone(), v.expose().to_string()));

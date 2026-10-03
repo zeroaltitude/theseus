@@ -266,6 +266,12 @@ pub struct ToolRuntime {
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
 
+/// An in-process or async call's deadline: its tool's own, else the default.
+fn inproc_deadline_ms(tool: &dyn Tool) -> u64 {
+    tool.deadline()
+        .map_or(INPROC_DEADLINE_MS, |d| d.as_millis() as u64)
+}
+
 /// Environment names a model may never set on a job.
 fn forbidden_env(name: &str) -> bool {
     let n = name.to_ascii_uppercase();
@@ -1180,7 +1186,7 @@ impl ToolRuntime {
 
     fn deadline_ms(&self, tool: &dyn Tool, input: &Value) -> u64 {
         match tool.backend() {
-            Backend::Inproc | Backend::Async | Backend::Harness => INPROC_DEADLINE_MS,
+            Backend::Inproc | Backend::Async | Backend::Harness => inproc_deadline_ms(tool),
             Backend::Job => {
                 let t = input
                     .get("timeout_secs")
@@ -1323,8 +1329,9 @@ impl ToolRuntime {
             ctx.aws = Some(a.bind(tc.execution_id, correlation_id, &call.id));
         }
         let aws = ctx.aws.clone();
-        let deadline = Duration::from_millis(INPROC_DEADLINE_MS);
-        let timed_out = || format!("timed out after {} ms", INPROC_DEADLINE_MS);
+        let deadline_ms = inproc_deadline_ms(tool.as_ref());
+        let deadline = Duration::from_millis(deadline_ms);
+        let timed_out = || format!("timed out after {deadline_ms} ms");
         let mut aborted = false;
         let (started, outcome, took) = if tool.backend() == Backend::Async {
             // A task of its own, so a panic is the call's error and not the
@@ -1444,6 +1451,9 @@ impl ToolRuntime {
                 secret: &secret,
                 correlation_id,
             });
+        }
+        for row in aws.iter().flat_map(|a| a.sessions()) {
+            tc.record(&fact::tool::AwsSessionMinted { row: &row });
         }
         for r in aws.iter().flat_map(|a| a.requests()) {
             tc.record(&fact::tool::AwsCalled { row: &r.row });
@@ -1712,6 +1722,10 @@ pub fn build_runtime(
     // key's, and health lists the grant with its uses (DD5).
     if t.enabled {
         broker.grant_tool("web.search", &t.web.search_key_secret);
+    }
+    // A program's AWS job session comes from these accounts (C2).
+    if let Some(a) = &aws {
+        broker.set_aws(a.clone());
     }
     Ok(ToolRuntime {
         registry,

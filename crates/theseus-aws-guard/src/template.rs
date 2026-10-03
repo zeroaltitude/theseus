@@ -297,6 +297,48 @@ impl GuardList {
     }
 }
 
+/// A resource a template makes under its parameters, as a static reading sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedResource {
+    pub logical_id: String,
+    pub resource_type: String,
+    /// `Yes`, or `Maybe` under a condition the reading cannot decide.
+    pub exists: Truth,
+}
+
+/// The resources `template` makes with `parameters` (the stack's values, else their defaults): a new
+/// stack's plan, which needs no change set (the design's §5, C2's bootstrap), and the templates' own
+/// tests of what a choice of parameters makes.
+pub fn planned_resources(
+    template: &Node,
+    ctx: &Context,
+    parameters: &BTreeMap<String, String>,
+) -> Result<Vec<PlannedResource>, TemplateError> {
+    let Some(Node::Map(resources)) = template.get("Resources") else {
+        return Err(TemplateError::NoResources);
+    };
+    let r = Resolver::new(template, ctx, parameters);
+    Ok(resources
+        .iter()
+        .filter_map(|(id, res)| {
+            let ty = res.get("Type").and_then(Node::as_str)?;
+            let exists = match res.get("Condition").and_then(Node::as_str) {
+                None => Truth::Yes,
+                Some(c) => match r.condition(c) {
+                    Some(true) => Truth::Yes,
+                    Some(false) => return None,
+                    None => Truth::Maybe,
+                },
+            };
+            Some(PlannedResource {
+                logical_id: id.clone(),
+                resource_type: ty.to_string(),
+                exists,
+            })
+        })
+        .collect())
+}
+
 /// Resolves intrinsic functions as far as a static reading can.
 struct Resolver<'t> {
     ctx: &'t Context,

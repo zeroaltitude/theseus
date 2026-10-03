@@ -39,6 +39,18 @@ impl Credentials {
         self.session_token.is_some()
     }
 
+    /// The secret key, for a job's environment at its launch only: a session's
+    /// the broker hands a granted program (AWS design §3.5), never the root
+    /// key, and never a record.
+    pub fn expose_secret(&self) -> &str {
+        &self.secret_access_key
+    }
+
+    /// The session token, as `expose_secret`.
+    pub fn expose_token(&self) -> Option<&str> {
+        self.session_token.as_ref().map(|t| t.as_str())
+    }
+
     /// When a session's credentials stop working.
     pub fn expires(&self) -> Option<SystemTime> {
         self.expires

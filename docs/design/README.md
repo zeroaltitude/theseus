@@ -30,7 +30,6 @@ Each says so in its manifest (`reserved_for` under `[package.metadata.theseus]`,
 | Crate | What it is | Wired in at |
 |---|---|---|
 | `theseus-ontology` | The fungible ontology's first slice (§4.1a) | row 26 (21b) |
-| `theseus-aws-guard` | The AWS guardrails: the gate's check, and the generated guards and SCPs | row 30 (C2, 14b) |
 | `theseus-judge` | Jev: the typed client, bands, batching, the breaker, the question packs | row 37 (23a) |
 | `theseus-memory` | FSRS-6 and spreading activation, pure | row 52 (30a) |
 | `theseus-exam` | The memory exam | row 55 |

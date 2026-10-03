@@ -20,7 +20,9 @@ use theseus_protocol::{
 };
 
 use crate::print::{self, Mode, Printer};
-use crate::{AskArgs, ConfirmArgs, ExecutionsCmd, IndexCmd, PolicyCmd, ProfileCmd, SessionsCmd};
+use crate::{
+    AskArgs, AwsCmd, ConfirmArgs, ExecutionsCmd, IndexCmd, PolicyCmd, ProfileCmd, SessionsCmd,
+};
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it
 /// decoded.
@@ -458,6 +460,63 @@ pub async fn tools(conn: &mut Conn, json: bool, verbose: bool) -> Result<()> {
         );
         Ok(())
     })
+}
+
+/// `theseus aws bootstrap` (AWS design §5, C2): the plan, read-only; then,
+/// on a terminal and when the plan changes something, the question, and the
+/// apply of exactly that plan, bound to its digest.
+pub async fn aws(conn: &mut Conn, json: bool, cmd: AwsCmd) -> Result<()> {
+    use std::io::IsTerminal;
+    let AwsCmd::Bootstrap {
+        account,
+        alert_email,
+        trail_key,
+        apply,
+        plan_only,
+    } = cmd;
+    let params = |apply: Option<String>| theseus_protocol::AwsBootstrapParams {
+        account: account.clone(),
+        alert_email: alert_email.clone(),
+        trail_key: trail_key.clone(),
+        apply,
+    };
+    let applying = apply.is_some();
+    let v = conn.request(method::AWS_BOOTSTRAP, params(apply)).await?;
+    let r: theseus_protocol::AwsBootstrapResult = if json {
+        println!("{}", serde_json::to_string(&v)?);
+        return Ok(());
+    } else {
+        serde_json::from_value(v)?
+    };
+    for line in render::bootstrap_lines(&r) {
+        println!("{line}");
+    }
+    if applying || plan_only || !r.changes || !io::stdin().is_terminal() {
+        return Ok(());
+    }
+    print!(
+        "Apply this plan to account {}? It writes the stacks above. [y/N] ",
+        r.account
+    );
+    io::stdout().flush()?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    if !matches!(answer.trim(), "y" | "Y" | "yes") {
+        println!("Nothing was applied.");
+        return Ok(());
+    }
+    println!(
+        "Applying plan {}: each stack takes a few minutes.",
+        r.digest
+    );
+    let v = conn
+        .request(method::AWS_BOOTSTRAP, params(Some(r.digest.clone())))
+        .await?;
+    let done: theseus_protocol::AwsBootstrapResult = serde_json::from_value(v)?;
+    for line in render::bootstrap_lines(&done) {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 /// `theseus policy`: the postures, a tightening and its undo, and a trust.

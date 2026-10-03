@@ -1,10 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  theseus-foundation: the owner and deployer roles, the guards, the Theseus key, bucket, and
+  theseus-foundation: the owner and deployer roles, the guards, the Theseus bucket and
   durability table, the completion queue and its dead-letter queue, the alerts topic, and the
   monthly budget with its AWS-side stop. Theseus's AWS design (theseus-mgw.1), sections 3.4-3.7;
-  built by P4 (theseus-mgw.4). The bootstrap creates it once with the user key; the deployer role
-  applies every later change set.
+  built by P4 (theseus-mgw.4), lean since C2 (theseus-nyzn): no customer key. The bootstrap
+  creates it once with the user key; the deployer role applies every later change set.
 
 Parameters:
   OwnerUserName:
@@ -17,7 +17,7 @@ Parameters:
     MaxLength: 64
   MonthlyBudgetUsd:
     Type: Number
-    Default: 300
+    Default: 50
     MinValue: 1
     Description: >-
       The month's budget in USD. The budget's reconcile keeps it equal to monthly_budget_usd in the
@@ -128,211 +128,17 @@ Resources:
   # ---------------------------------------------------------------------------------------------
   # The guards, allow-all, and the boundary (design sections 3.4-3.6, appendix C).
   #
-  # These documents are v0, written by hand from the design. P3 (theseus-aws-guard) generates the
-  # guards from guardrails.toml; at the join its output replaces GuardIacPolicy's and
-  # GuardLimitsPolicy's statements, and BoundaryPolicy's denies with their compaction. The check
-  # in infra/aws/test/rules.py keeps the boundary to allow-all plus exactly what the guards deny
-  # (and the statements whose Sid starts "HandsOnly"), and every policy inside IAM's size limit.
+  # The guards' and the boundary's documents are generated from
+  # crates/theseus-aws-guard/guardrails.toml, the one list both enforcers read, and never edited by
+  # hand: the guard crate's test the_policies_on_disk_are_what_the_list_generates fails when a line
+  # here is out of step with the list, and THESEUS_GUARD_WRITE=1 rewrites them. Each is minified
+  # JSON on one line, inside IAM's 6,144 characters.
   #
-  # A session's allows come from exactly one allow policy (theseus-allow-all for a work session,
-  # or a job's narrowing), so the guards hold however AWS combines the session policies.
+  # A work session carries theseus-guard-limits, the theseus-guard-iac parts, and theseus-allow-all;
+  # a job session adds theseus-guard-stacks. A session's allows come from exactly one allow policy
+  # (theseus-allow-all, or a job's narrowing), so the guards hold however AWS combines the session
+  # policies.
   # ---------------------------------------------------------------------------------------------
-
-  GuardIacPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: theseus-guard-iac
-      Description: >-
-        Deny-only: durable infrastructure changes only through CloudFormation change sets, which the
-        deployer role applies (design section 3.4). On every work and job session, and in
-        theseus-boundary.
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: IacNetwork
-            Effect: Deny
-            Action:
-              - ec2:CreateVpc*
-              - ec2:DeleteVpc*
-              - ec2:ModifyVpc*
-              - ec2:AcceptVpcPeeringConnection
-              - ec2:AssociateVpcCidrBlock
-              - ec2:CreateSubnet*
-              - ec2:DeleteSubnet*
-              - ec2:ModifySubnetAttribute
-              - ec2:*InternetGateway
-              - ec2:*NatGateway
-              - ec2:*NatGatewayAddress
-              - ec2:*Route
-              - ec2:*RouteTable
-              - ec2:ReplaceRouteTableAssociation
-              - ec2:*SecurityGroup
-              - ec2:AuthorizeSecurityGroup*
-              - ec2:RevokeSecurityGroup*
-              - ec2:ModifySecurityGroupRules
-              - ec2:CreateNetworkAcl*
-              - ec2:DeleteNetworkAcl*
-              - ec2:ReplaceNetworkAcl*
-              - ec2:CreateTransitGateway*
-              - ec2:CreateVpn*
-              - ec2:CreateCustomerGateway
-              - ec2:CreateClientVpn*
-              - ec2:CreateFlowLogs
-              - ec2:DeleteFlowLogs
-              - ec2:RunInstances
-              - ec2:RequestSpot*
-              - ec2:CreateFleet
-            Resource: "*"
-          - Sid: IacData
-            Effect: Deny
-            Action:
-              - s3:CreateBucket
-              - s3:DeleteBucket
-              - s3:PutBucketPolicy
-              - s3:DeleteBucketPolicy
-              - s3:PutBucketAcl
-              - s3:PutBucketPublicAccessBlock
-              - s3:PutBucketOwnershipControls
-              - s3:PutBucketVersioning
-              - s3:PutBucketObjectLockConfiguration
-              - s3:PutBucketWebsite
-              - s3:PutBucketCORS
-              - s3:PutBucketNotification
-              - s3:PutBucketLogging
-              - s3:PutEncryptionConfiguration
-              - s3:PutLifecycleConfiguration
-              - s3:PutReplicationConfiguration
-              - s3:CreateAccessPoint*
-              - s3:PutAccessPointPolicy*
-              - dynamodb:CreateTable
-              - dynamodb:DeleteTable
-              - dynamodb:UpdateTable
-              - dynamodb:RestoreTable*
-              - dynamodb:UpdateContinuousBackups
-              - dynamodb:PutResourcePolicy
-              - sqs:CreateQueue
-              - sqs:DeleteQueue
-              - sqs:SetQueueAttributes
-              - sqs:AddPermission
-              - sns:CreateTopic
-              - sns:DeleteTopic
-              - sns:SetTopicAttributes
-              - sns:AddPermission
-              - kinesis:CreateStream
-              - kinesis:DeleteStream
-              - firehose:CreateDeliveryStream
-              - firehose:DeleteDeliveryStream
-              - logs:CreateLogGroup
-              - logs:DeleteLogGroup
-              - logs:PutRetentionPolicy
-              - logs:DeleteRetentionPolicy
-              - logs:PutMetricFilter
-              - logs:DeleteMetricFilter
-              - logs:PutSubscriptionFilter
-              - logs:DisassociateKmsKey
-              - logs:PutResourcePolicy
-            Resource: "*"
-          - Sid: IacCompute
-            Effect: Deny
-            Action:
-              - lambda:CreateFunction*
-              - lambda:DeleteFunction*
-              - lambda:UpdateFunction*
-              - lambda:PutFunction*
-              - lambda:AddPermission
-              - lambda:AddLayerVersionPermission
-              - lambda:CreateEventSourceMapping
-              - lambda:UpdateEventSourceMapping
-              - lambda:DeleteEventSourceMapping
-              - lambda:PutProvisionedConcurrencyConfig
-              - lambda:PublishLayerVersion
-              - ecs:CreateCluster
-              - ecs:DeleteCluster
-              - ecs:UpdateCluster*
-              - ecs:CreateService
-              - ecs:DeleteService
-              - ecs:CreateCapacityProvider
-              - ecs:PutClusterCapacityProviders
-              - batch:*ComputeEnvironment
-              - batch:*JobQueue
-              - eks:CreateCluster
-              - eks:DeleteCluster
-              - eks:CreateNodegroup
-              - ecr:CreateRepository
-              - ecr:DeleteRepository
-              - ecr:SetRepositoryPolicy
-              - ecr:PutLifecyclePolicy
-            Resource: "*"
-          - Sid: IacIdentity
-            Effect: Deny
-            Action:
-              - iam:Create*
-              - iam:Delete*
-              - iam:Put*
-              - iam:Attach*
-              - iam:Detach*
-              - iam:Update*
-              - iam:Add*
-              - iam:Remove*
-              - iam:Set*
-              - iam:Upload*
-              - kms:CreateKey
-              - kms:DisableKey
-              - kms:EnableKey
-              - kms:ScheduleKeyDeletion
-              - kms:PutKeyPolicy
-              - kms:DisableKeyRotation
-              - kms:ReplicateKey
-              - kms:*Alias
-              - kms:ImportKeyMaterial
-            Resource: "*"
-          - Sid: IacEdgeAndOperations
-            Effect: Deny
-            Action:
-              - elasticloadbalancing:Create*
-              - elasticloadbalancing:Delete*
-              - elasticloadbalancing:Modify*
-              - elasticloadbalancing:Set*
-              - cloudfront:CreateDistribution*
-              - cloudfront:UpdateDistribution*
-              - cloudfront:DeleteDistribution*
-              - route53:CreateHostedZone
-              - route53:DeleteHostedZone
-              - route53:ChangeResourceRecordSets
-              - route53:AssociateVPCWithHostedZone
-              - acm:RequestCertificate
-              - acm:ImportCertificate
-              - acm:DeleteCertificate
-              - cloudwatch:PutMetricAlarm
-              - cloudwatch:PutCompositeAlarm
-              - cloudwatch:DeleteAlarms
-              - events:PutRule
-              - events:DeleteRule
-              - events:PutTargets
-              - events:RemoveTargets
-              - events:CreateEventBus
-              - events:PutPermission
-              - scheduler:CreateSchedule*
-              - scheduler:UpdateSchedule
-              - scheduler:DeleteSchedule*
-              - budgets:ModifyBudget
-              - budgets:CreateBudgetAction
-            Resource: "*"
-          - Sid: IacApiGateway
-            Effect: Deny
-            Action:
-              - apigateway:POST
-              - apigateway:PUT
-              - apigateway:PATCH
-              - apigateway:DELETE
-            Resource: !Sub "arn:${AWS::Partition}:apigateway:*::/*"
-          - Sid: DeployerOnlyToCloudFormation
-            Effect: Deny
-            Action: iam:PassRole
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/theseus-cfn-deployer"
-            Condition:
-              StringNotEquals:
-                iam:PassedToService: cloudformation.amazonaws.com
 
   GuardLimitsPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -340,131 +146,36 @@ Resources:
       ManagedPolicyName: theseus-guard-limits
       Description: >-
         Deny-only: the operator's two hard limits, the budget and the SOC2 stance (public ingress,
-        the audit trail, long-lived credentials), as far as IAM can see them (design section 3.6).
-        On every work and job session, and in theseus-boundary.
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: PublicIngress
-            Effect: Deny
-            Action:
-              - ec2:AllocateAddress
-              - ec2:AssociateAddress
-              - s3:PutAccountPublicAccessBlock
-              - ec2:DisableSnapshotBlockPublicAccess
-              - ec2:DisableImageBlockPublicAccess
-              - ec2:DisableEbsEncryptionByDefault
-            Resource: "*"
-          - Sid: PublicObjectAcls
-            Effect: Deny
-            Action:
-              - s3:PutObject
-              - s3:PutObjectAcl
-            Resource: "*"
-            Condition:
-              StringEquals:
-                s3:x-amz-acl:
-                  - public-read
-                  - public-read-write
-                  - authenticated-read
-          - Sid: PublicFunctionUrls
-            Effect: Deny
-            Action:
-              - lambda:CreateFunctionUrlConfig
-              - lambda:UpdateFunctionUrlConfig
-            Resource: "*"
-            Condition:
-              StringEquals:
-                lambda:FunctionUrlAuthType: NONE
-          - Sid: AuditTrail
-            Effect: Deny
-            Action:
-              - cloudtrail:StopLogging
-              - cloudtrail:DeleteTrail
-              - cloudtrail:UpdateTrail
-              - cloudtrail:PutEventSelectors
-              - cloudtrail:PutInsightSelectors
-              - config:StopConfigurationRecorder
-              - config:DeleteConfigurationRecorder
-              - config:DeleteDeliveryChannel
-              - guardduty:DeleteDetector
-              - guardduty:UpdateDetector
-              - guardduty:CreateFilter
-              - guardduty:UpdateFilter
-              - access-analyzer:DeleteAnalyzer
-              - access-analyzer:CreateArchiveRule
-              - access-analyzer:UpdateArchiveRule
-            Resource: "*"
-          - Sid: AuditTrailBucket
-            Effect: Deny
-            Action:
-              - s3:Put*
-              - s3:Delete*
-            Resource:
-              - !Sub "arn:${AWS::Partition}:s3:::theseus-trail-${AWS::AccountId}-${AWS::Region}"
-              - !Sub "arn:${AWS::Partition}:s3:::theseus-trail-${AWS::AccountId}-${AWS::Region}/*"
-          - Sid: AuditTrailLogsAlarmsAndTopic
-            Effect: Deny
-            Action:
-              - logs:DeleteLogStream
-              - cloudwatch:DisableAlarmActions
-              - cloudwatch:SetAlarmState
-              - sns:Unsubscribe
-              - sns:RemovePermission
-            Resource:
-              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/theseus/trail:*"
-              - !Sub "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:theseus-*"
-              - !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:theseus-alerts"
-          - Sid: Budget
-            Effect: Deny
-            Action:
-              - budgets:ModifyBudget
-              - budgets:UpdateBudgetAction
-              - budgets:DeleteBudgetAction
-              - budgets:ExecuteBudgetAction
-              - organizations:LeaveOrganization
-              - organizations:AcceptHandshake
-              - organizations:CreateOrganization
-              - organizations:DeleteOrganization
-              - organizations:CloseAccount
-            Resource: "*"
-          - Sid: BudgetStopDetach
-            Effect: Deny
-            Action: iam:DetachRolePolicy
-            Resource: "*"
-            Condition:
-              ArnEquals:
-                iam:PolicyARN: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/theseus-deny-spend"
-          - Sid: BudgetStopPolicy
-            Effect: Deny
-            Action:
-              - iam:CreatePolicyVersion
-              - iam:SetDefaultPolicyVersion
-              - iam:DeletePolicy
-              - iam:DeletePolicyVersion
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/theseus-deny-spend"
-          - Sid: LongLivedCredentials
-            Effect: Deny
-            Action:
-              - iam:CreateUser
-              - iam:CreateAccessKey
-              - iam:CreateLoginProfile
-              - iam:UpdateLoginProfile
-              - iam:CreateServiceSpecificCredential
-              - iam:UploadSSHPublicKey
-              - iam:UploadSigningCertificate
-            Resource: "*"
-          - Sid: RootOfTrustKey
-            Effect: Deny
-            Action:
-              - iam:UpdateAccessKey
-              - iam:DeleteAccessKey
-              - iam:DeleteUser
-              - iam:AttachUserPolicy
-              - iam:DetachUserPolicy
-              - iam:PutUserPolicy
-              - iam:DeleteUserPolicy
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/${OwnerUserName}"
+        the audit trail, encryption, long-lived credentials), and the guards' own integrity, as far as
+        IAM can see them (design section 3.6). On every work and job session.
+      PolicyDocument: {"Version":"2012-10-17","Statement":[{"Sid":"Guardrails","Effect":"Deny","Action":["ec2:AuthorizeSecurityGroupIngress","ec2:ModifySecurityGroupRules","ec2:ModifySubnetAttribute","ec2:AllocateAddress","ec2:AssociateAddress","ec2:CreateInternetGateway","ec2:AttachInternetGateway","cloudfront:CreateDistribution","cloudfront:CopyDistribution","s3:PutBucketPublicAccessBlock","s3:PutAccountPublicAccessBlock","ec2:ModifySnapshotAttribute","ec2:ModifyImageAttribute","rds:ModifyDBSnapshotAttribute","rds:ModifyDBClusterSnapshotAttribute","ram:CreateResourceShare","ram:AssociateResourceShare","cloudtrail:StopLogging","cloudtrail:DeleteTrail","cloudtrail:UpdateTrail","cloudtrail:PutEventSelectors","guardduty:DeleteDetector","guardduty:UpdateDetector","guardduty:ArchiveFindings","guardduty:CreateFilter","guardduty:UpdateFilter","config:StopConfigurationRecorder","config:DeleteConfigurationRecorder","config:DeleteDeliveryChannel","access-analyzer:DeleteAnalyzer","access-analyzer:CreateArchiveRule","access-analyzer:UpdateArchiveRule","access-analyzer:UpdateFindings","securityhub:DisableSecurityHub","ec2:DisableEbsEncryptionByDefault","iam:CreateUser","iam:CreateAccessKey","iam:CreateLoginProfile","iam:UpdateLoginProfile","iam:CreateServiceSpecificCredential","iam:UploadSSHPublicKey","iam:UploadSigningCertificate","ec2:CreateKeyPair","ec2:ImportKeyPair","iam:DeleteAccessKey","iam:UpdateAccessKey","iam:DeleteUser","iam:UpdateUser","iam:AttachUserPolicy","iam:DetachUserPolicy","iam:PutUserPolicy","iam:DeleteUserPolicy","iam:AddUserToGroup","iam:RemoveUserFromGroup","iam:PutUserPermissionsBoundary","iam:DeleteUserPermissionsBoundary","iam:DeleteLoginProfile","iam:CreateOpenIDConnectProvider","iam:CreateSAMLProvider","iam:UpdateOpenIDConnectProviderThumbprint","iam:AddClientIDToOpenIDConnectProvider","iam:UpdateSAMLProvider","budgets:ModifyBudget","budgets:CreateBudgetAction","budgets:UpdateBudgetAction","budgets:DeleteBudgetAction","budgets:ExecuteBudgetAction","organizations:CreateOrganization","organizations:AcceptHandshake","organizations:LeaveOrganization","account:PutAlternateContact","account:DeleteAlternateContact","account:PutContactInformation"],"Resource":"*"},{"Sid":"PublicIp","Effect":"Deny","Action":"ec2:RunInstances","Resource":"*","Condition":{"Bool":{"ec2:AssociatePublicIpAddress":"true"}}},{"Sid":"LbInternetFacing","Effect":"Deny","Action":"elasticloadbalancing:CreateLoadBalancer","Resource":"*","Condition":{"StringNotEquals":{"elasticloadbalancing:Scheme":"internal"}}},{"Sid":"LambdaUrlPublic","Effect":"Deny","Action":["lambda:CreateFunctionUrlConfig","lambda:UpdateFunctionUrlConfig"],"Resource":"*","Condition":{"StringEquals":{"lambda:FunctionUrlAuthType":"NONE"}}},{"Sid":"ApiPublic","Effect":"Deny","Action":"apigateway:POST","Resource":["arn:aws:apigateway:*::/restapis","arn:aws:apigateway:*::/apis"]},{"Sid":"KmsGrantDirect","Effect":"Deny","Action":"kms:CreateGrant","Resource":"*","Condition":{"Bool":{"kms:GrantIsForAWSResource":"false"}}},{"Sid":"TrailStorage","Effect":"Deny","Action":["s3:PutBucketPolicy","s3:DeleteBucketPolicy","s3:PutLifecycleConfiguration","s3:PutBucketVersioning","s3:DeleteObject","s3:DeleteObjectVersion","s3:DeleteBucket"],"Resource":"arn:aws:s3:::theseus-trail-*"},{"Sid":"TrailKey","Effect":"Deny","Action":["kms:ScheduleKeyDeletion","kms:DisableKey","kms:PutKeyPolicy"],"Resource":"*","Condition":{"ForAnyValue:StringLike":{"kms:ResourceAliases":"alias/theseus-trail*"}}},{"Sid":"AlertTamper","Effect":"Deny","Action":["events:DeleteRule","events:DisableRule","events:PutRule","events:PutTargets","events:RemoveTargets","sns:DeleteTopic","sns:SetTopicAttributes","sns:Unsubscribe"],"Resource":["arn:aws:events:*:*:rule/theseus-posture-*","arn:aws:sns:*:*:theseus-alerts"]},{"Sid":"BudgetStopDetach","Effect":"Deny","Action":"iam:DetachRolePolicy","Resource":"*","Condition":{"ArnLike":{"iam:PolicyARN":"arn:aws:iam::*:policy/theseus-deny-spend"}}},{"Sid":"GuardPolicies","Effect":"Deny","Action":["iam:CreatePolicyVersion","iam:SetDefaultPolicyVersion","iam:DeletePolicy","iam:DeletePolicyVersion"],"Resource":["arn:aws:iam::*:policy/theseus-guard-*","arn:aws:iam::*:policy/theseus-boundary","arn:aws:iam::*:policy/theseus-allow-all","arn:aws:iam::*:policy/theseus-deny-spend"]},{"Sid":"DeployerRole","Effect":"Deny","Action":["iam:UpdateAssumeRolePolicy","iam:DeleteRole","iam:UpdateRole","iam:AttachRolePolicy","iam:DetachRolePolicy","iam:PutRolePolicy","iam:DeleteRolePolicy","iam:PutRolePermissionsBoundary","iam:DeleteRolePermissionsBoundary"],"Resource":"arn:aws:iam::*:role/theseus-cfn-deployer"},{"Sid":"DeployerPass","Effect":"Deny","Action":"iam:PassRole","Resource":"arn:aws:iam::*:role/theseus-cfn-deployer","Condition":{"StringNotEquals":{"iam:PassedToService":"cloudformation.amazonaws.com"}}},{"Sid":"HandBoundary","Effect":"Deny","Action":["iam:PutRolePermissionsBoundary","iam:DeleteRolePermissionsBoundary"],"Resource":"arn:aws:iam::*:role/theseus-hand-*"}]}
+
+  GuardIacPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-guard-iac
+      Description: >-
+        Deny-only: durable infrastructure changes only through CloudFormation change sets, which the
+        deployer role applies (design section 3.4). On every work and job session.
+      PolicyDocument: {"Version":"2012-10-17","Statement":[{"Sid":"IacOnly","Effect":"Deny","Action":["ec2:CreateVpc","ec2:ModifyVpcAttribute","ec2:AssociateVpcCidrBlock","ec2:CreateSubnet","ec2:ModifySubnetAttribute","ec2:CreateInternetGateway","ec2:AttachInternetGateway","ec2:CreateEgressOnlyInternetGateway","ec2:CreateNatGateway","ec2:AllocateAddress","ec2:AssociateAddress","ec2:CreateVpcEndpoint","ec2:ModifyVpcEndpoint","ec2:CreateSecurityGroup","ec2:AuthorizeSecurityGroupIngress","ec2:AuthorizeSecurityGroupEgress","ec2:RevokeSecurityGroupIngress","ec2:RevokeSecurityGroupEgress","ec2:ModifySecurityGroupRules","ec2:CreateRouteTable","ec2:CreateRoute","ec2:ReplaceRoute","ec2:AssociateRouteTable","ec2:ReplaceRouteTableAssociation","ec2:CreateNetworkAcl","ec2:CreateNetworkAclEntry","ec2:ReplaceNetworkAclEntry","ec2:ReplaceNetworkAclAssociation","ec2:CreateVpcPeeringConnection","ec2:AcceptVpcPeeringConnection","ec2:CreateTransitGateway","ec2:CreateTransitGatewayVpcAttachment","ec2:CreateVpnGateway","ec2:AttachVpnGateway","ec2:CreateCustomerGateway","ec2:CreateVpnConnection","ec2:CreateFlowLogs","ec2:RunInstances","ec2:CreateLaunchTemplate","ec2:CreateLaunchTemplateVersion","ec2:ModifyLaunchTemplate","ec2:CreateKeyPair","ec2:ImportKeyPair","ec2:CreateVolume","ec2:CreatePlacementGroup","autoscaling:CreateAutoScalingGroup","autoscaling:CreateLaunchConfiguration","s3:CreateBucket","s3:PutBucketPolicy","s3:DeleteBucketPolicy","s3:PutBucketAcl","s3:PutBucketPublicAccessBlock","s3:PutBucketVersioning","s3:PutEncryptionConfiguration","s3:PutLifecycleConfiguration","s3:PutReplicationConfiguration","s3:PutBucketNotification","s3:PutBucketCORS","s3:PutBucketWebsite","s3:PutBucketLogging","s3:PutBucketOwnershipControls","s3:PutBucketObjectLockConfiguration","dynamodb:CreateTable","dynamodb:UpdateTable","dynamodb:CreateGlobalTable","dynamodb:UpdateGlobalTable","dynamodb:UpdateTimeToLive","elasticfilesystem:CreateFileSystem","elasticfilesystem:UpdateFileSystem","elasticfilesystem:CreateMountTarget","elasticfilesystem:PutFileSystemPolicy","elasticfilesystem:PutLifecycleConfiguration","backup:PutBackupVaultAccessPolicy","glacier:SetVaultAccessPolicy","sqs:CreateQueue","sqs:SetQueueAttributes","sqs:AddPermission","sns:CreateTopic","sns:SetTopicAttributes","sns:AddPermission","kinesis:CreateStream","firehose:CreateDeliveryStream","logs:CreateLogGroup","logs:PutRetentionPolicy","logs:DeleteRetentionPolicy","logs:AssociateKmsKey","logs:DisassociateKmsKey","logs:PutMetricFilter","logs:PutSubscriptionFilter","logs:PutResourcePolicy","logs:PutDestination","logs:PutDestinationPolicy","lambda:CreateFunction","lambda:UpdateFunctionConfiguration","lambda:CreateFunctionUrlConfig","lambda:UpdateFunctionUrlConfig","lambda:AddPermission","lambda:AddLayerVersionPermission","lambda:CreateEventSourceMapping","lambda:UpdateEventSourceMapping","ecs:CreateCluster","ecs:UpdateCluster","ecs:CreateService","ecs:CreateTaskSet","ecs:CreateCapacityProvider","ecs:PutClusterCapacityProviders","batch:CreateComputeEnvironment","batch:UpdateComputeEnvironment","batch:CreateJobQueue","batch:UpdateJobQueue","eks:CreateCluster","eks:CreateNodegroup","eks:CreateFargateProfile","states:CreateStateMachine","states:UpdateStateMachine","codebuild:CreateProject","codebuild:UpdateProject","codebuild:UpdateProjectVisibility","sagemaker:CreateEndpoint","sagemaker:CreateNotebookInstance","ecr:CreateRepository","ecr:SetRepositoryPolicy","ecr:PutRegistryPolicy","ecr:PutLifecyclePolicy","rds:CreateDBInstance","rds:CreateDBCluster","rds:CreateDBInstanceReadReplica","rds:CreateDBSubnetGroup","rds:CreateDBParameterGroup","rds:CreateDBClusterParameterGroup","rds:RestoreDBInstanceFromDBSnapshot","rds:RestoreDBInstanceToPointInTime","rds:RestoreDBInstanceFromS3","rds:RestoreDBClusterFromSnapshot","elasticache:CreateCacheCluster","elasticache:CreateReplicationGroup","redshift:CreateCluster","redshift:RestoreFromClusterSnapshot","es:CreateDomain","es:UpdateDomainConfig","es:CreateElasticsearchDomain","es:UpdateElasticsearchDomainConfig","mq:CreateBroker","dms:CreateReplicationInstance","iam:CreateRole","iam:UpdateRole","iam:UpdateAssumeRolePolicy","iam:PutRolePolicy","iam:DeleteRolePolicy","iam:AttachRolePolicy","iam:DetachRolePolicy","iam:PutRolePermissionsBoundary","iam:DeleteRolePermissionsBoundary","iam:CreatePolicy","iam:CreatePolicyVersion","iam:SetDefaultPolicyVersion","iam:CreateUser","iam:CreateGroup","iam:PutGroupPolicy","iam:AttachGroupPolicy","iam:CreateInstanceProfile","iam:AddRoleToInstanceProfile","iam:RemoveRoleFromInstanceProfile","iam:CreateAccessKey","iam:CreateLoginProfile","iam:UpdateLoginProfile","iam:CreateServiceSpecificCredential","iam:UploadSSHPublicKey","iam:UploadSigningCertificate","iam:UploadServerCertificate","iam:CreateOpenIDConnectProvider","iam:CreateSAMLProvider","iam:UpdateOpenIDConnectProviderThumbprint","iam:AddClientIDToOpenIDConnectProvider","iam:UpdateSAMLProvider","kms:CreateKey","kms:PutKeyPolicy","kms:CreateAlias","kms:UpdateAlias","kms:EnableKeyRotation","kms:DisableKeyRotation","secretsmanager:PutResourcePolicy","acm:RequestCertificate","acm:ImportCertificate","elasticloadbalancing:CreateLoadBalancer","elasticloadbalancing:CreateListener","elasticloadbalancing:ModifyListener","elasticloadbalancing:CreateTargetGroup","elasticloadbalancing:ModifyTargetGroup","elasticloadbalancing:CreateRule","elasticloadbalancing:ModifyRule","elasticloadbalancing:SetSecurityGroups","elasticloadbalancing:SetSubnets","elasticloadbalancing:CreateLoadBalancerListeners","cloudfront:CreateDistribution","cloudfront:UpdateDistribution","cloudfront:CopyDistribution","route53:CreateHostedZone","route53:ChangeResourceRecordSets","route53:AssociateVPCWithHostedZone","cloudwatch:PutMetricAlarm","cloudwatch:PutCompositeAlarm","events:PutRule","events:PutTargets","events:CreateEventBus","events:PutPermission","scheduler:CreateSchedule","scheduler:UpdateSchedule","scheduler:CreateScheduleGroup","application-autoscaling:RegisterScalableTarget","application-autoscaling:PutScalingPolicy","application-autoscaling:PutScheduledAction","cloudtrail:CreateTrail","cloudtrail:UpdateTrail"],"Resource":"*"}]}
+
+  GuardIac2Policy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-guard-iac-2
+      Description: >-
+        The rest of theseus-guard-iac's denies, which one policy cannot hold. On every work and job
+        session.
+      PolicyDocument: {"Version":"2012-10-17","Statement":[{"Sid":"IacOnly2","Effect":"Deny","Action":["cloudtrail:PutEventSelectors","config:PutConfigurationRecorder","config:PutDeliveryChannel","config:PutConfigRule","guardduty:CreateDetector","access-analyzer:CreateAnalyzer","budgets:ModifyBudget","budgets:CreateBudgetAction","budgets:UpdateBudgetAction"],"Resource":"*"},{"Sid":"APIGatewaySVerbs","Effect":"Deny","Action":["apigateway:POST","apigateway:PUT","apigateway:PATCH"],"Resource":["arn:aws:apigateway:*::/restapis","arn:aws:apigateway:*::/restapis/*","arn:aws:apigateway:*::/apis","arn:aws:apigateway:*::/apis/*","arn:aws:apigateway:*::/domainnames","arn:aws:apigateway:*::/domainnames/*"]}]}
+
+  GuardStacksPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: theseus-guard-stacks
+      Description: >-
+        Deny-only: the stack path's writes, and passing the deployer role. On every job session; never
+        on a work session, whose stack tools write stacks.
+      PolicyDocument: {"Version":"2012-10-17","Statement":[{"Sid":"StackPath","Effect":"Deny","Action":["cloudformation:CreateStack","cloudformation:UpdateStack","cloudformation:DeleteStack","cloudformation:ExecuteChangeSet","cloudformation:ContinueUpdateRollback","cloudformation:RollbackStack","cloudformation:CancelUpdateStack","cloudformation:SetStackPolicy","cloudformation:UpdateTerminationProtection","cloudformation:CreateStackSet","cloudformation:UpdateStackSet","cloudformation:DeleteStackSet","cloudformation:CreateStackInstances","cloudformation:UpdateStackInstances","cloudformation:DeleteStackInstances","cloudformation:ImportStacksToStackSet"],"Resource":"*"},{"Sid":"PassTheDeployer","Effect":"Deny","Action":"iam:PassRole","Resource":"arn:aws:iam::*:role/theseus-cfn-deployer"}]}
 
   AllowAllPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -481,12 +192,6 @@ Resources:
             Action: "*"
             Resource: "*"
 
-  # The boundary must hold both guards' denies in one managed policy, inside IAM's 6,144
-  # characters, so it is the guards compacted: one statement for every unconditional deny on any
-  # resource, and without the guard denies a broader one here already covers (theseus-guard-limits'
-  # credential, root-key, budget-stop, and function-URL denies all fall under theseus-guard-iac's
-  # iam: and lambda: patterns). test/rules.py checks that it covers every guard deny and adds
-  # nothing but the HandsOnly statement.
   BoundaryPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -494,240 +199,8 @@ Resources:
       Description: >-
         The permissions boundary of every role a Theseus stack makes for its hands and tenders:
         everything except what the guards deny (a boundary must allow, so it cannot be a guard),
-        and no passing of the deployer role.
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: AllowAll
-            Effect: Allow
-            Action: "*"
-            Resource: "*"
-          - Sid: Guards
-            Effect: Deny
-            Action:
-              - ec2:CreateVpc*
-              - ec2:DeleteVpc*
-              - ec2:ModifyVpc*
-              - ec2:AcceptVpcPeeringConnection
-              - ec2:AssociateVpcCidrBlock
-              - ec2:CreateSubnet*
-              - ec2:DeleteSubnet*
-              - ec2:ModifySubnetAttribute
-              - ec2:*InternetGateway
-              - ec2:*NatGateway
-              - ec2:*NatGatewayAddress
-              - ec2:*Route
-              - ec2:*RouteTable
-              - ec2:ReplaceRouteTableAssociation
-              - ec2:*SecurityGroup
-              - ec2:AuthorizeSecurityGroup*
-              - ec2:RevokeSecurityGroup*
-              - ec2:ModifySecurityGroupRules
-              - ec2:CreateNetworkAcl*
-              - ec2:DeleteNetworkAcl*
-              - ec2:ReplaceNetworkAcl*
-              - ec2:CreateTransitGateway*
-              - ec2:CreateVpn*
-              - ec2:CreateCustomerGateway
-              - ec2:CreateClientVpn*
-              - ec2:CreateFlowLogs
-              - ec2:DeleteFlowLogs
-              - ec2:RunInstances
-              - ec2:RequestSpot*
-              - ec2:CreateFleet
-              - ec2:AllocateAddress
-              - ec2:AssociateAddress
-              - ec2:DisableSnapshotBlockPublicAccess
-              - ec2:DisableImageBlockPublicAccess
-              - ec2:DisableEbsEncryptionByDefault
-              - s3:CreateBucket
-              - s3:DeleteBucket
-              - s3:PutBucketPolicy
-              - s3:DeleteBucketPolicy
-              - s3:PutBucketAcl
-              - s3:PutBucketPublicAccessBlock
-              - s3:PutBucketOwnershipControls
-              - s3:PutBucketVersioning
-              - s3:PutBucketObjectLockConfiguration
-              - s3:PutBucketWebsite
-              - s3:PutBucketCORS
-              - s3:PutBucketNotification
-              - s3:PutBucketLogging
-              - s3:PutEncryptionConfiguration
-              - s3:PutLifecycleConfiguration
-              - s3:PutReplicationConfiguration
-              - s3:CreateAccessPoint*
-              - s3:PutAccessPointPolicy*
-              - s3:PutAccountPublicAccessBlock
-              - dynamodb:CreateTable
-              - dynamodb:DeleteTable
-              - dynamodb:UpdateTable
-              - dynamodb:RestoreTable*
-              - dynamodb:UpdateContinuousBackups
-              - dynamodb:PutResourcePolicy
-              - sqs:CreateQueue
-              - sqs:DeleteQueue
-              - sqs:SetQueueAttributes
-              - sqs:AddPermission
-              - sns:CreateTopic
-              - sns:DeleteTopic
-              - sns:SetTopicAttributes
-              - sns:AddPermission
-              - kinesis:CreateStream
-              - kinesis:DeleteStream
-              - firehose:CreateDeliveryStream
-              - firehose:DeleteDeliveryStream
-              - logs:CreateLogGroup
-              - logs:DeleteLogGroup
-              - logs:PutRetentionPolicy
-              - logs:DeleteRetentionPolicy
-              - logs:PutMetricFilter
-              - logs:DeleteMetricFilter
-              - logs:PutSubscriptionFilter
-              - logs:DisassociateKmsKey
-              - logs:PutResourcePolicy
-              - lambda:CreateFunction*
-              - lambda:DeleteFunction*
-              - lambda:UpdateFunction*
-              - lambda:PutFunction*
-              - lambda:AddPermission
-              - lambda:AddLayerVersionPermission
-              - lambda:CreateEventSourceMapping
-              - lambda:UpdateEventSourceMapping
-              - lambda:DeleteEventSourceMapping
-              - lambda:PutProvisionedConcurrencyConfig
-              - lambda:PublishLayerVersion
-              - ecs:CreateCluster
-              - ecs:DeleteCluster
-              - ecs:UpdateCluster*
-              - ecs:CreateService
-              - ecs:DeleteService
-              - ecs:CreateCapacityProvider
-              - ecs:PutClusterCapacityProviders
-              - batch:*ComputeEnvironment
-              - batch:*JobQueue
-              - eks:CreateCluster
-              - eks:DeleteCluster
-              - eks:CreateNodegroup
-              - ecr:CreateRepository
-              - ecr:DeleteRepository
-              - ecr:SetRepositoryPolicy
-              - ecr:PutLifecyclePolicy
-              - iam:Create*
-              - iam:Delete*
-              - iam:Put*
-              - iam:Attach*
-              - iam:Detach*
-              - iam:Update*
-              - iam:Add*
-              - iam:Remove*
-              - iam:Set*
-              - iam:Upload*
-              - kms:CreateKey
-              - kms:DisableKey
-              - kms:EnableKey
-              - kms:ScheduleKeyDeletion
-              - kms:PutKeyPolicy
-              - kms:DisableKeyRotation
-              - kms:ReplicateKey
-              - kms:*Alias
-              - kms:ImportKeyMaterial
-              - elasticloadbalancing:Create*
-              - elasticloadbalancing:Delete*
-              - elasticloadbalancing:Modify*
-              - elasticloadbalancing:Set*
-              - cloudfront:CreateDistribution*
-              - cloudfront:UpdateDistribution*
-              - cloudfront:DeleteDistribution*
-              - route53:CreateHostedZone
-              - route53:DeleteHostedZone
-              - route53:ChangeResourceRecordSets
-              - route53:AssociateVPCWithHostedZone
-              - acm:RequestCertificate
-              - acm:ImportCertificate
-              - acm:DeleteCertificate
-              - cloudwatch:PutMetricAlarm
-              - cloudwatch:PutCompositeAlarm
-              - cloudwatch:DeleteAlarms
-              - events:PutRule
-              - events:DeleteRule
-              - events:PutTargets
-              - events:RemoveTargets
-              - events:CreateEventBus
-              - events:PutPermission
-              - scheduler:CreateSchedule*
-              - scheduler:UpdateSchedule
-              - scheduler:DeleteSchedule*
-              - budgets:ModifyBudget
-              - budgets:CreateBudgetAction
-              - budgets:UpdateBudgetAction
-              - budgets:DeleteBudgetAction
-              - budgets:ExecuteBudgetAction
-              - cloudtrail:StopLogging
-              - cloudtrail:DeleteTrail
-              - cloudtrail:UpdateTrail
-              - cloudtrail:PutEventSelectors
-              - cloudtrail:PutInsightSelectors
-              - config:StopConfigurationRecorder
-              - config:DeleteConfigurationRecorder
-              - config:DeleteDeliveryChannel
-              - guardduty:DeleteDetector
-              - guardduty:UpdateDetector
-              - guardduty:CreateFilter
-              - guardduty:UpdateFilter
-              - access-analyzer:DeleteAnalyzer
-              - access-analyzer:CreateArchiveRule
-              - access-analyzer:UpdateArchiveRule
-              - organizations:LeaveOrganization
-              - organizations:AcceptHandshake
-              - organizations:CreateOrganization
-              - organizations:DeleteOrganization
-              - organizations:CloseAccount
-            Resource: "*"
-          - Sid: IacApiGateway
-            Effect: Deny
-            Action:
-              - apigateway:POST
-              - apigateway:PUT
-              - apigateway:PATCH
-              - apigateway:DELETE
-            Resource: !Sub "arn:${AWS::Partition}:apigateway:*::/*"
-          - Sid: PublicObjectAcls
-            Effect: Deny
-            Action:
-              - s3:PutObject
-              - s3:PutObjectAcl
-            Resource: "*"
-            Condition:
-              StringEquals:
-                s3:x-amz-acl:
-                  - public-read
-                  - public-read-write
-                  - authenticated-read
-          - Sid: AuditTrailBucket
-            Effect: Deny
-            Action:
-              - s3:Put*
-              - s3:Delete*
-            Resource:
-              - !Sub "arn:${AWS::Partition}:s3:::theseus-trail-${AWS::AccountId}-${AWS::Region}"
-              - !Sub "arn:${AWS::Partition}:s3:::theseus-trail-${AWS::AccountId}-${AWS::Region}/*"
-          - Sid: AuditTrailLogsAlarmsAndTopic
-            Effect: Deny
-            Action:
-              - logs:DeleteLogStream
-              - cloudwatch:DisableAlarmActions
-              - cloudwatch:SetAlarmState
-              - sns:Unsubscribe
-              - sns:RemovePermission
-            Resource:
-              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/theseus/trail:*"
-              - !Sub "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:theseus-*"
-              - !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:theseus-alerts"
-          - Sid: HandsOnlyNoDeployer
-            Effect: Deny
-            Action: iam:PassRole
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/theseus-cfn-deployer"
+        compacted to fit one policy.
+      PolicyDocument: {"Version":"2012-10-17","Statement":[{"Sid":"AllowAll","Effect":"Allow","Action":"*","Resource":"*"},{"Sid":"Guards","Effect":"Deny","Action":["iam:Add*","iam:Attach*","iam:Create*","iam:Delete*","iam:Detach*","iam:Put*","iam:Remove*","iam:Set*","iam:Update*","iam:Upload*","ec2:CreateVpc*","ec2:ModifyVpc*","ec2:CreateRoute*","ec2:ReplaceRoute*","ec2:CreateNetworkAcl*","ec2:ReplaceNetworkAcl*","ec2:AuthorizeSecurityGroup*","ec2:RevokeSecurityGroup*","ec2:CreateTransitGateway*","ec2:CreateVpn*","ec2:CreateLaunchTemplate*","ec2:Associate*","elasticloadbalancing:Create*","elasticloadbalancing:Modify*","elasticloadbalancing:Set*","rds:Create*","rds:Restore*","rds:ModifyDB*SnapshotAttribute","lambda:Create*","lambda:Update*","lambda:Add*","elasticfilesystem:Create*","elasticfilesystem:Put*","logs:Put*Policy","logs:Put*Filter","logs:PutDestination*","ecs:Create*","ecs:UpdateCluster*","application-autoscaling:Put*","batch:Create*","batch:Update*","es:Create*","es:Update*","account:Put*","codebuild:UpdateProject*","scheduler:Create*","autoscaling:Create*","eks:Create*","access-analyzer:Create*","access-analyzer:Update*","guardduty:Create*","guardduty:Update*","ec2:Create*Gateway","ec2:Attach*Gateway","ec2:Modify*Attribute","s3:PutBucket*","s3:Put*Configuration","cloudformation:Create*","cloudformation:Update*","cloudformation:Delete*","ec2:ModifySecurityGroupRules","ec2:AllocateAddress","cloudfront:CreateDistribution","cloudfront:CopyDistribution","s3:PutAccountPublicAccessBlock","ram:CreateResourceShare","ram:AssociateResourceShare","cloudtrail:StopLogging","cloudtrail:DeleteTrail","cloudtrail:UpdateTrail","cloudtrail:PutEventSelectors","guardduty:DeleteDetector","guardduty:ArchiveFindings","config:StopConfigurationRecorder","config:DeleteConfigurationRecorder","config:DeleteDeliveryChannel","access-analyzer:DeleteAnalyzer","securityhub:DisableSecurityHub","ec2:DisableEbsEncryptionByDefault","ec2:CreateKeyPair","ec2:ImportKeyPair","budgets:ModifyBudget","budgets:CreateBudgetAction","budgets:UpdateBudgetAction","budgets:DeleteBudgetAction","budgets:ExecuteBudgetAction","organizations:CreateOrganization","organizations:AcceptHandshake","organizations:LeaveOrganization","account:DeleteAlternateContact","ec2:CreateSubnet","ec2:CreateSecurityGroup","ec2:AcceptVpcPeeringConnection","ec2:CreateFlowLogs","ec2:RunInstances","ec2:ModifyLaunchTemplate","ec2:CreateVolume","ec2:CreatePlacementGroup","s3:CreateBucket","s3:DeleteBucketPolicy","dynamodb:CreateTable","dynamodb:UpdateTable","dynamodb:CreateGlobalTable","dynamodb:UpdateGlobalTable","dynamodb:UpdateTimeToLive","elasticfilesystem:UpdateFileSystem","backup:PutBackupVaultAccessPolicy","glacier:SetVaultAccessPolicy","sqs:CreateQueue","sqs:SetQueueAttributes","sqs:AddPermission","sns:CreateTopic","sns:SetTopicAttributes","sns:AddPermission","kinesis:CreateStream","firehose:CreateDeliveryStream","logs:CreateLogGroup","logs:DeleteRetentionPolicy","logs:AssociateKmsKey","logs:DisassociateKmsKey","ecs:PutClusterCapacityProviders","states:CreateStateMachine","states:UpdateStateMachine","codebuild:CreateProject","sagemaker:CreateEndpoint","sagemaker:CreateNotebookInstance","ecr:CreateRepository","ecr:SetRepositoryPolicy","ecr:PutRegistryPolicy","ecr:PutLifecyclePolicy","elasticache:CreateCacheCluster","elasticache:CreateReplicationGroup","redshift:CreateCluster","redshift:RestoreFromClusterSnapshot","mq:CreateBroker","dms:CreateReplicationInstance","kms:CreateKey","kms:PutKeyPolicy","kms:CreateAlias","kms:UpdateAlias","kms:EnableKeyRotation","kms:DisableKeyRotation","secretsmanager:PutResourcePolicy","acm:RequestCertificate","acm:ImportCertificate","cloudfront:UpdateDistribution","route53:CreateHostedZone","route53:ChangeResourceRecordSets","route53:AssociateVPCWithHostedZone","cloudwatch:PutMetricAlarm","cloudwatch:PutCompositeAlarm","events:PutRule","events:PutTargets","events:CreateEventBus","events:PutPermission","scheduler:UpdateSchedule","application-autoscaling:RegisterScalableTarget","cloudtrail:CreateTrail","config:PutConfigurationRecorder","config:PutDeliveryChannel","config:PutConfigRule","cloudformation:ExecuteChangeSet","cloudformation:ContinueUpdateRollback","cloudformation:RollbackStack","cloudformation:CancelUpdateStack","cloudformation:SetStackPolicy","cloudformation:ImportStacksToStackSet"],"Resource":"*"},{"Sid":"KmsGrantDirect","Effect":"Deny","Action":"kms:CreateGrant","Resource":"*","Condition":{"Bool":{"kms:GrantIsForAWSResource":"false"}}},{"Sid":"TrailStorage","Effect":"Deny","Action":["s3:DeleteObject","s3:DeleteObjectVersion","s3:DeleteBucket"],"Resource":"arn:aws:s3:::theseus-trail-*"},{"Sid":"TrailKey","Effect":"Deny","Action":["kms:ScheduleKeyDeletion","kms:DisableKey"],"Resource":"*","Condition":{"ForAnyValue:StringLike":{"kms:ResourceAliases":"alias/theseus-trail*"}}},{"Sid":"AlertTamper","Effect":"Deny","Action":["events:DeleteRule","events:DisableRule","events:RemoveTargets","sns:DeleteTopic","sns:Unsubscribe"],"Resource":["arn:aws:events:*:*:rule/theseus-posture-*","arn:aws:sns:*:*:theseus-alerts"]},{"Sid":"APIGatewaySVerbs","Effect":"Deny","Action":["apigateway:POST","apigateway:PUT","apigateway:PATCH"],"Resource":["arn:aws:apigateway:*::/restapis","arn:aws:apigateway:*::/restapis/*","arn:aws:apigateway:*::/apis","arn:aws:apigateway:*::/apis/*","arn:aws:apigateway:*::/domainnames","arn:aws:apigateway:*::/domainnames/*"]},{"Sid":"PassTheDeployer","Effect":"Deny","Action":"iam:PassRole","Resource":"arn:aws:iam::*:role/theseus-cfn-deployer"}]}
 
   DenySpendPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -818,51 +291,10 @@ Resources:
             Resource: "*"
 
   # ---------------------------------------------------------------------------------------------
-  # The Theseus key, bucket, and durability table (design sections 3.3, steps 15-16; appendix B)
+  # The Theseus bucket and durability table (design sections 3.3, steps 15-16; appendix B). They
+  # encrypt at rest with keys AWS holds (SSE-S3, and DynamoDB's own key), which cost nothing: C2's
+  # lean posture (theseus-nyzn) has no customer key here.
   # ---------------------------------------------------------------------------------------------
-
-  TheseusKey:
-    Type: AWS::KMS::Key
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      Description: >-
-        Theseus's key: the Theseus bucket, the durability table, and the alerts topic.
-      EnableKeyRotation: true
-      KeyPolicy:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: TheAccountAdministersThroughIam
-            Effect: Allow
-            Principal:
-              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
-            Action: kms:*
-            Resource: "*"
-          - Sid: ServicesPublishToTheAlertsTopic
-            Effect: Allow
-            Principal:
-              Service:
-                - budgets.amazonaws.com
-                - cloudwatch.amazonaws.com
-                - events.amazonaws.com
-            Action:
-              - kms:GenerateDataKey*
-              - kms:Decrypt
-            Resource: "*"
-            Condition:
-              StringEquals:
-                kms:EncryptionContext:aws:sns:topicArn: !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:theseus-alerts"
-      Tags:
-        - Key: "theseus:owner"
-          Value: theseus
-        - Key: "theseus:stack"
-          Value: !Ref AWS::StackName
-
-  TheseusKeyAlias:
-    Type: AWS::KMS::Alias
-    Properties:
-      AliasName: alias/theseus
-      TargetKeyId: !Ref TheseusKey
 
   TheseusBucket:
     Type: AWS::S3::Bucket
@@ -875,9 +307,7 @@ Resources:
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
-              SSEAlgorithm: aws:kms
-              KMSMasterKeyID: !GetAtt TheseusKey.Arn
-            BucketKeyEnabled: true
+              SSEAlgorithm: AES256
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -941,10 +371,6 @@ Resources:
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
-      SSESpecification:
-        SSEEnabled: true
-        SSEType: KMS
-        KMSMasterKeyId: !GetAtt TheseusKey.Arn
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
       DeletionProtectionEnabled: true
@@ -1042,12 +468,19 @@ Resources:
               ArnLike:
                 aws:SourceArn: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/theseus-*"
 
+  # The alerts topic has no server-side encryption, on purpose. SNS encrypts a topic only with a
+  # KMS key, and EventBridge, Budgets, and CloudWatch can publish to an encrypted topic only when
+  # it is a customer key whose policy admits them ($1 a month); AWS's own aws/sns key admits none.
+  # A message rests in SNS only until it is delivered, its email copy is plain text in any case,
+  # and the queue it feeds is encrypted (SSE-SQS).
   AlertsTopic:
     Type: AWS::SNS::Topic
+    Metadata:
+      theseus:
+        unencrypted: an alerts topic that services publish to needs a customer key; see the comment
     Properties:
       TopicName: theseus-alerts
       DisplayName: Theseus alerts
-      KmsMasterKeyId: !GetAtt TheseusKey.Arn
       Tags:
         - Key: "theseus:owner"
           Value: theseus
@@ -1229,10 +662,6 @@ Outputs:
     Value: !Ref DenySpendPolicy
     Export:
       Name: !Sub "${AWS::StackName}-DenySpendArn"
-  KeyArn:
-    Value: !GetAtt TheseusKey.Arn
-    Export:
-      Name: !Sub "${AWS::StackName}-KeyArn"
   BucketName:
     Value: !Ref TheseusBucket
     Export:

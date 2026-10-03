@@ -1,7 +1,7 @@
 //! The generated AWS side (the AWS design's §3.5 and §3.6): every policy fits its limit, a work session
-//! can carry the guards, every entry is denied in each of its forms, and the copies in `policies/` are
-//! exactly what the list generates. After the list changes, rewrite them with
-//! `THESEUS_GUARD_WRITE=1 cargo test -p theseus-aws-guard --test policies`.
+//! can carry the guards, every entry is denied in each of its forms, and the copies in `policies/` and
+//! the foundation template's guard documents are exactly what the list generates. After the list
+//! changes, rewrite them with `THESEUS_GUARD_WRITE=1 cargo test -p theseus-aws-guard --test policies`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -14,6 +14,74 @@ use theseus_aws_guard::{
 
 fn policies_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("policies")
+}
+
+fn foundation_template() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../infra/aws/theseus-foundation.yaml")
+}
+
+/// The foundation stack makes the guards a session carries (C2, theseus-nyzn): each guard and the
+/// boundary the list generates is a managed policy there by its name, its document the generated
+/// one, minified on one line. So AWS enforces this list, the one the gate reads.
+#[test]
+fn the_foundation_template_carries_the_generated_guards() {
+    let write = std::env::var_os("THESEUS_GUARD_WRITE").is_some();
+    let path = foundation_template();
+    let text = std::fs::read_to_string(&path).expect("infra/aws/theseus-foundation.yaml");
+    let l = embedded();
+    let generated: Vec<Policy> = l
+        .guard_limits()
+        .into_iter()
+        .chain(l.guard_iac())
+        .chain(l.guard_stacks())
+        .chain([l.boundary()])
+        .collect();
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let mut stale = Vec::new();
+    for p in &generated {
+        let named = format!("ManagedPolicyName: {}", p.name);
+        let Some(at) = lines.iter().position(|x| x.trim() == named) else {
+            stale.push(format!(
+                "{}: no managed policy of that name; add one",
+                p.name
+            ));
+            continue;
+        };
+        let Some(doc) = lines[at..]
+            .iter()
+            .position(|x| x.trim_start().starts_with("PolicyDocument:"))
+            .map(|i| at + i)
+        else {
+            stale.push(format!("{}: no PolicyDocument after its name", p.name));
+            continue;
+        };
+        let want = format!("      PolicyDocument: {}", p.minified());
+        if lines[doc] != want {
+            if write {
+                lines[doc] = want;
+            } else {
+                stale.push(p.name.clone());
+            }
+        }
+    }
+    for x in &lines {
+        if let Some(rest) = x.trim().strip_prefix("ManagedPolicyName: theseus-guard-") {
+            let name = format!("theseus-guard-{rest}");
+            if !generated.iter().any(|p| p.name == name) {
+                stale.push(format!(
+                    "{name}: the list generates no such guard; remove it"
+                ));
+            }
+        }
+    }
+    if write {
+        std::fs::write(&path, lines.join("\n") + "\n").expect("the template is writable");
+    }
+    assert!(
+        stale.is_empty(),
+        "infra/aws/theseus-foundation.yaml is out of step with guardrails.toml ({}): rewrite it with THESEUS_GUARD_WRITE=1 cargo test -p theseus-aws-guard --test policies",
+        stale.join("; ")
+    );
 }
 
 #[test]

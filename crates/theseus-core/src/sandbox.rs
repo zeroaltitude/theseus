@@ -281,10 +281,16 @@ pub(crate) async fn for_job(
     set: &[&str],
     path: Option<&str>,
     ran_at: Posture,
+    correlation_id: &str,
 ) -> (crate::broker::ForJob, Option<L1>) {
+    // An AWS job session lasts the job's deadline (AWS design §3.5).
+    let job = crate::broker::JobAws {
+        correlation_id,
+        lasts: std::time::Duration::from_secs(spec.timeout_secs + 60),
+    };
     let granted = rt
         .broker
-        .for_job(&spec.argv, set, &spec.cwd, path, ran_at)
+        .for_job_of(&spec.argv, set, &spec.cwd, path, ran_at, Some(job))
         .await;
     if !bound.l1() {
         return (granted, None);

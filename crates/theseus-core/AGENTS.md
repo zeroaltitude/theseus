@@ -38,8 +38,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
   `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
-  serving (its calls fail closed until STS names the account), and `aws.call`, `aws.describe`, `aws.whoami`, and
-  `aws.s3.list` (reads only until 14b; a write is invalid input).
+  serving (its calls fail closed until STS names the account), who signs (`session.rs`: the key until the config
+  names `owner_role`, then work, job, floor, and tender sessions, and the key signs only STS), `aws.call` (reads,
+  writes, runs; its plan reads `theseus-aws-guard`: a guardrail is the floor, IaC-only and stack writes are invalid
+  input, deletions of what holds state wait), `aws.describe`, `aws.whoami`, `aws.s3.list`, the stack tools
+  (`stack.rs`: plan, apply bound to the change set's digest, status, delete), `aws.cost` (`cost.rs`), the bootstrap
+  (`bootstrap.rs`, `rpc/aws.rs`: a read-only plan, the apply on the operator's yes), and the tenders after serving
+  (`tend.rs`: the budget's reconcile and line, GuardDuty's weekly usage). Its tests are `aws/tests.rs` (C1) and
+  `aws/tests_c2.rs` (a fake CloudFormation with state); `config/aws.rs` holds `[aws]`'s types and checks.
 - **L1** (M4 17b): `sandbox.rs`: `[sandbox]`, a job's class (toward L1 alone: the default, `l1_argv`, the model's
   `sandbox: true`), L1's posture (notify), the view an L1 job gets, and health's block: the last L1 launch, read from
   its job's completion (`Sandbox::launched`), and why L1 refuses every job of a root daemon (theseus-pv6i).
@@ -175,7 +181,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name), in L1 as at L0.
 - **The AWS keys and the providers' keys are harness-only** (theseus-gh7): Theseus's own tools read them from the
   board (`aws/`, the providers), and no job is handed one unless `[broker]` names it (`Broker::may_hand_out`). `broker::harness_only` is the line `theseusd check` and health print, naming them; the
-  template test holds it (`the_templates_harness_only_keys`). Containment is that, the operator's `[broker]` grants,
+  template test holds it (`the_templates_harness_only_keys`). A program granted `aws_account` gets a short-lived
+  job session at launch (`Broker::for_job_of`, `aws::Account::job_session`), never the key, and none before the
+  owner role exists. Containment is that, the operator's `[broker]` grants,
   and the egress list: credentials as stand-ins (TLS interception at the proxy) were dropped for v1 (Eddie,
   2026-10-03). Do nothing heavier without his say.
 - **One fact, recorded once.** A new ledger row, notification, or narrative sentence is a fact's projection in

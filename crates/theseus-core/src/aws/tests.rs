@@ -20,24 +20,24 @@ use crate::policy::{Posture, ToolPolicy};
 use crate::secrets::{Secret, SecretBoard};
 
 /// The account the tests bind: AWS's documentation's example id.
-const ACCOUNT: &str = "111122223333";
-const KEY_ID: &str = "AKIDTESTEXAMPLE0001";
-const SECRET: &str = "test-secret-not-a-key-0001";
+pub(super) const ACCOUNT: &str = "111122223333";
+pub(super) const KEY_ID: &str = "AKIDTESTEXAMPLE0001";
+pub(super) const SECRET: &str = "test-secret-not-a-key-0001";
 
 // ------------------------------------------------------------------ the fake
 
 /// A request as the fake saw it.
 #[derive(Clone, Debug)]
-struct Seen {
-    method: String,
+pub(super) struct Seen {
+    pub(super) method: String,
     /// The path and query, as sent.
-    target: String,
-    headers: Vec<(String, String)>,
-    body: String,
+    pub(super) target: String,
+    pub(super) headers: Vec<(String, String)>,
+    pub(super) body: String,
 }
 
 impl Seen {
-    fn header(&self, k: &str) -> Option<&str> {
+    pub(super) fn header(&self, k: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(h, _)| h.eq_ignore_ascii_case(k))
@@ -45,14 +45,14 @@ impl Seen {
     }
 
     /// The region it was signed for: its credential scope's.
-    fn region(&self) -> Option<&str> {
+    pub(super) fn region(&self) -> Option<&str> {
         let auth = self.header("authorization")?;
         let cred = auth.split("Credential=").nth(1)?;
         cred.split('/').nth(2)
     }
 
     /// A query protocol's action (`GetCallerIdentity`).
-    fn action(&self) -> Option<&str> {
+    pub(super) fn action(&self) -> Option<&str> {
         self.body
             .split('&')
             .find_map(|kv| kv.strip_prefix("Action="))
@@ -76,19 +76,19 @@ impl Seen {
 }
 
 /// A reply: a status, its headers, and its body.
-type Reply = (u16, Vec<(&'static str, String)>, String);
+pub(super) type Reply = (u16, Vec<(&'static str, String)>, String);
 
 /// A local stand-in for AWS on 127.0.0.1: its listener is bound before any
 /// client connects (a connect to a port nothing listens on hangs here), it
 /// answers each request with `answer`'s reply and closes, and it keeps every
 /// request in arrival order.
-struct Fake {
-    url: String,
+pub(super) struct Fake {
+    pub(super) url: String,
     seen: Arc<Mutex<Vec<Seen>>>,
 }
 
 impl Fake {
-    fn start(answer: impl Fn(&Seen, usize) -> Reply + Send + Sync + 'static) -> Self {
+    pub(super) fn start(answer: impl Fn(&Seen, usize) -> Reply + Send + Sync + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
@@ -104,7 +104,7 @@ impl Fake {
         Fake { url, seen }
     }
 
-    fn seen(&self) -> Vec<Seen> {
+    pub(super) fn seen(&self) -> Vec<Seen> {
         self.seen.lock().unwrap().clone()
     }
 }
@@ -171,7 +171,7 @@ fn serve(
 }
 
 /// STS's answer: the key is `account`'s.
-fn sts(account: &str, n: usize) -> Reply {
+pub(super) fn sts(account: &str, n: usize) -> Reply {
     let id = format!("req-{n}");
     let body = format!(
         "<GetCallerIdentityResponse><GetCallerIdentityResult>\
@@ -247,7 +247,7 @@ fn aws_answers(account: &'static str) -> impl Fn(&Seen, usize) -> Reply + Send +
 // ------------------------------------------------------------------ the rig
 
 /// A board whose AWS key has resolved.
-fn board() -> Arc<SecretBoard> {
+pub(super) fn board() -> Arc<SecretBoard> {
     let b = SecretBoard::new(
         [
             "aws_access_key_id".to_string(),
@@ -282,6 +282,9 @@ fn account(endpoint: &str) -> AwsConfig {
                 region: "us-west-2".into(),
                 regions: vec!["us-west-2".into(), "eu-west-1".into()],
                 endpoint: Some(endpoint.into()),
+                owner_role: None,
+                deployment: None,
+                monthly_budget_usd: None,
             },
         )]),
     }
@@ -298,7 +301,7 @@ fn tool(aws: &Arc<Aws>, name: &str) -> Arc<dyn Tool> {
         .unwrap_or_else(|| panic!("no tool {name}"))
 }
 
-fn plain_ctx() -> ToolCtx {
+pub(super) fn plain_ctx() -> ToolCtx {
     ToolCtx::for_tests(&std::env::temp_dir())
 }
 
@@ -397,8 +400,8 @@ async fn whoami_asks_aws_now_after_the_check_and_names_its_call() {
         "arn:aws:iam::111122223333:user/example",
         "AIDATESTEXAMPLE",
         "the regions a call may name: us-west-2, eu-west-1",
-        "session: none yet",
-        "budget: none yet",
+        "signs with: its key (no owner_role yet: theseus aws bootstrap makes it)",
+        "budget: not read yet",
         "its check: bound",
         "(request req-2)",
     ] {
@@ -517,28 +520,21 @@ async fn aws_call_reads_any_service_and_returns_its_output() {
 /// and a secret-bearing read are invalid input that names the step that
 /// brings them, and nothing is sent. So are an unknown operation, a bad
 /// input, and a region the account does not allow; an event stream says
-/// the CLI can make it.
+/// the CLI can make it. Since C2 (14b) a write and a run plan; durable
+/// infrastructure and a stack's own writes are what stay invalid input.
 #[tokio::test]
-async fn a_write_a_run_and_a_secret_are_invalid_input_and_nothing_is_sent() {
+async fn iac_a_stack_write_and_a_secret_are_invalid_input_and_nothing_is_sent() {
     let fake = Fake::start(aws_answers(ACCOUNT));
     let aws = layer(&fake, board());
     let t = tool(&aws, "aws.call");
     for (input, says) in [
         (
             json!({"service": "ec2", "operation": "RunInstances", "input": {"ImageId": "ami-1", "MinCount": 1, "MaxCount": 1}}),
-            "ec2:RunInstances is a write: aws.call makes reads only until step 14b",
-        ),
-        (
-            json!({"service": "s3", "operation": "PutObject", "input": {"Bucket": "example-bucket", "Key": "k"}}),
-            "s3:PutObject is a write",
+            "ec2:RunInstances makes or changes durable infrastructure; use aws.stack.plan",
         ),
         (
             json!({"service": "cloudformation", "operation": "DeleteStack", "input": {"StackName": "example-stack"}}),
-            "is a write",
-        ),
-        (
-            json!({"service": "lambda", "operation": "Invoke", "input": {"FunctionName": "f"}}),
-            "lambda:Invoke starts code",
+            "cloudformation:DeleteStack writes a stack outside the review; use aws.stack.plan",
         ),
         (
             json!({"service": "secretsmanager", "operation": "GetSecretValue", "input": {"SecretId": "s"}}),
@@ -591,12 +587,15 @@ async fn a_write_a_run_and_a_secret_are_invalid_input_and_nothing_is_sent() {
     // Without decryption, a parameter is a plain read.
     let plain = json!({"service": "ssm", "operation": "GetParameter", "input": {"Name": "p"}});
     t.plan(&plain, &plain_ctx()).unwrap();
-    // A run that plans would still check it again, and send nothing.
+    // A run that skipped the plan would still check it again, and send nothing.
     let f = t
-        .run_async(&json!({"service": "ec2", "operation": "TerminateInstances", "input": {"InstanceIds": ["i-1"]}}), &plain_ctx())
+        .run_async(
+            &json!({"service": "s3", "operation": "CreateBucket", "input": {"Bucket": "b-1"}}),
+            &plain_ctx(),
+        )
         .await
         .unwrap_err();
-    assert!(f.message.contains("is a write"), "{}", f.message);
+    assert!(f.message.contains("use aws.stack.plan"), "{}", f.message);
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(
         fake.seen().is_empty(),
@@ -966,7 +965,7 @@ async fn an_aws_call_through_the_core_is_a_row_a_span_and_a_result() {
     let fake = Fake::start(aws_answers(ACCOUNT));
     let dir = tempfile::tempdir().unwrap();
     let read = json!({"service": "cloudformation", "operation": "DescribeStacks"});
-    let write = json!({"service": "ec2", "operation": "StopInstances", "input": {"InstanceIds": ["i-0123456789abcdef0"]}});
+    let write = json!({"service": "s3", "operation": "CreateBucket", "input": {"Bucket": "theseus-scratch"}});
     let core = core(
         &fake,
         dir.path(),
@@ -986,7 +985,17 @@ async fn an_aws_call_through_the_core_is_a_row_a_span_and_a_result() {
         .collect();
     assert_eq!(
         wire,
-        ["aws_call", "aws_describe", "aws_s3_list", "aws_whoami"]
+        [
+            "aws_call",
+            "aws_cost",
+            "aws_describe",
+            "aws_s3_list",
+            "aws_stack_apply",
+            "aws_stack_delete",
+            "aws_stack_plan",
+            "aws_stack_status",
+            "aws_whoami"
+        ]
     );
     let r = turn(&core, "what stacks are there?").await;
     assert_eq!(r.tool_calls, 1);
@@ -1056,16 +1065,15 @@ async fn an_aws_call_through_the_core_is_a_row_a_span_and_a_result() {
     assert!(result.contains("example-stack"), "{result}");
     no_secret_in(&result);
 
-    // The write: invalid input, and nothing more is sent.
+    // Durable infrastructure: invalid input (C2's IaC-only), and nothing more is sent.
     let sent = fake.seen().len();
-    let w = turn(&core, "stop the instance").await;
+    let w = turn(&core, "make a bucket").await;
     let invalid = ledgered(&core, "tool.invalid_input");
     assert_eq!(invalid.len(), 1, "{invalid:?}");
     assert!(
-        invalid[0]["reason"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("ec2:StopInstances is a write"),
+        invalid[0]["reason"].as_str().unwrap_or_default().contains(
+            "s3:CreateBucket makes or changes durable infrastructure; use aws.stack.plan"
+        ),
         "{}",
         invalid[0]
     );

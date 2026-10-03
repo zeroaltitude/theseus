@@ -901,17 +901,27 @@ Rank: 1
 FindingCriteria: { Criterion: { severity: { Gte: 7 } } }
 '''
 
-# --- alarm-tamper
+# --- alert-tamper
 [[call]]
-guardrail = "alarm-tamper"
-op = "cloudwatch:DeleteAlarms"
+guardrail = "alert-tamper"
+op = "events:DisableRule"
 hit = true
-input = '{"AlarmNames": ["theseus-cis-root-use"]}'
+input = '{"Name": "theseus-posture-root-of-trust-key-use"}'
 [[call]]
-guardrail = "alarm-tamper"
-op = "cloudwatch:DeleteAlarms"
+guardrail = "alert-tamper"
+op = "events:DisableRule"
 hit = false
-input = '{"AlarmNames": ["theseus-hands-cpu"]}'
+input = '{"Name": "theseus-hands-task-state"}'
+[[call]]
+guardrail = "alert-tamper"
+op = "events:RemoveTargets"
+hit = true
+input = '{"Rule": "theseus-posture-relay", "Ids": ["home-bus"]}'
+[[call]]
+guardrail = "alert-tamper"
+op = "sns:Unsubscribe"
+hit = true
+input = '{"SubscriptionArn": "arn:aws:sns:us-west-2:111122223333:theseus-alerts:0f1e2d3c"}'
 
 # --- ebs-default-encryption-off
 [[call]]
@@ -1162,15 +1172,15 @@ type = "AWS::GuardDuty::Detector"
 action = "add"
 hit = false
 [[change]]
-guardrail = "alarm-tamper"
-type = "AWS::CloudWatch::Alarm"
-physical = "theseus-cis-root-use"
+guardrail = "alert-tamper"
+type = "AWS::Events::Rule"
+physical = "theseus-posture-root-usage"
 action = "modify"
 hit = true
 [[change]]
-guardrail = "alarm-tamper"
-type = "AWS::CloudWatch::Alarm"
-physical = "theseus-hands-cpu"
+guardrail = "alert-tamper"
+type = "AWS::Events::Rule"
+physical = "theseus-hands-task-state"
 action = "modify"
 hit = false
 [[change]]

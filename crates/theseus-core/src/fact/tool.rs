@@ -360,6 +360,21 @@ impl Fact for AwsCalled<'_> {
     }
 }
 
+/// A role session minted for an AWS call (`aws.session.minted`, AWS design
+/// §3.5, §3.8): its kind, name, role, policies, and lifetime, never its
+/// credentials (`aws::session`).
+pub struct AwsSessionMinted<'a> {
+    pub row: &'a Value,
+}
+
+impl Fact for AwsSessionMinted<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::AwsSessionMinted);
+
+    fn row(&self) -> Value {
+        self.row.clone()
+    }
+}
+
 /// The session took a hold on external text (theseus-9bp): a result it
 /// read, or a task's report that carried one. A call that acts now waits,
 /// or is notified.

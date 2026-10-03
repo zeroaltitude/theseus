@@ -10,6 +10,7 @@
 //! (`policy`), what the harness loop drives (`driver`), and channel bindings
 //! (`bindings`).
 
+mod aws;
 mod bindings;
 mod confirms;
 pub(crate) use confirms::{expired_answer, Act};

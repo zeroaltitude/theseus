@@ -31,7 +31,9 @@ pub use policy::{
     Document, Policy, PolicyKind, Statement, MANAGED_POLICY_LIMIT, SCPS_PER_TARGET, SCP_LIMIT,
     SESSION_POLICY_ARNS, SESSION_POLICY_PLAINTEXT,
 };
-pub use template::{parse_template, Scan, TemplateError, TemplateHit};
+pub use template::{
+    parse_template, planned_resources, PlannedResource, Scan, TemplateError, TemplateHit,
+};
 
 /// The list as shipped, in the crate.
 pub const GUARDRAILS_TOML: &str = include_str!("../guardrails.toml");

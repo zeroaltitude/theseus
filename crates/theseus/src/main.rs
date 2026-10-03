@@ -195,6 +195,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<PolicyCmd>,
     },
+    /// Theseus's AWS account: `bootstrap` plans its first stacks, read-only, and applies them on
+    /// your yes.
+    Aws {
+        #[command(subcommand)]
+        cmd: AwsCmd,
+    },
     /// The model catalog: context windows, output limits, prices per million tokens.
     Catalog,
     /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
@@ -370,6 +376,32 @@ enum PolicyCmd {
 }
 
 #[derive(Subcommand, Debug)]
+enum AwsCmd {
+    /// The account's foundation, posture, and relay stacks (AWS design §5): the plan, read-only
+    /// (no change set is made), then, on a terminal, a question whether to apply it. A stack
+    /// that is as planned shows no change, so a second plan after the apply shows none.
+    Bootstrap {
+        /// The account, when several are bound.
+        #[arg(long)]
+        account: Option<String>,
+        /// The address the alerts topic emails (a new foundation only); SNS mails it a
+        /// confirmation link once.
+        #[arg(long, value_name = "ADDRESS")]
+        alert_email: Option<String>,
+        /// The trail's encryption: aws-managed (SSE-S3, the default) or customer (its own KMS
+        /// key, about $1 a month).
+        #[arg(long, value_name = "KIND")]
+        trail_key: Option<String>,
+        /// Apply the plan whose digest this is, as a plan printed it, with no question.
+        #[arg(long, value_name = "DIGEST")]
+        apply: Option<String>,
+        /// Show the plan and stop: never ask.
+        #[arg(long, conflicts_with = "apply")]
+        plan_only: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum ExecutionsCmd {
     /// List every execution with state, turns, outstanding actions, and budget.
     List,
@@ -489,6 +521,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Confirm(a) => cmd::confirm(c, json, a).await,
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
+        Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
         Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { cmd } => cmd::sessions(c, json, cmd.unwrap_or(SessionsCmd::List)).await,

@@ -217,19 +217,18 @@
       }
     },
     {
-      "Sid": "AlarmTamper",
+      "Sid": "AlertTamper",
       "Effect": "Deny",
       "Action": [
-        "cloudwatch:DeleteAlarms",
-        "cloudwatch:DisableAlarmActions",
+        "events:DeleteRule",
+        "events:DisableRule",
+        "events:RemoveTargets",
         "sns:DeleteTopic",
-        "sns:Unsubscribe",
-        "logs:DeleteMetricFilter"
+        "sns:Unsubscribe"
       ],
       "Resource": [
-        "arn:aws:cloudwatch:*:*:alarm:theseus-cis-*",
-        "arn:aws:sns:*:*:theseus-alerts",
-        "arn:aws:logs:*:*:log-group:/theseus/trail*"
+        "arn:aws:events:*:*:rule/theseus-posture-*",
+        "arn:aws:sns:*:*:theseus-alerts"
       ]
     },
     {

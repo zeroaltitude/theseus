@@ -201,22 +201,21 @@
       }
     },
     {
-      "Sid": "AlarmTamper",
+      "Sid": "AlertTamper",
       "Effect": "Deny",
       "Action": [
-        "cloudwatch:DeleteAlarms",
-        "cloudwatch:DisableAlarmActions",
-        "cloudwatch:PutMetricAlarm",
+        "events:DeleteRule",
+        "events:DisableRule",
+        "events:PutRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
         "sns:DeleteTopic",
         "sns:SetTopicAttributes",
-        "sns:Unsubscribe",
-        "logs:DeleteMetricFilter",
-        "logs:PutMetricFilter"
+        "sns:Unsubscribe"
       ],
       "Resource": [
-        "arn:aws:cloudwatch:*:*:alarm:theseus-cis-*",
-        "arn:aws:sns:*:*:theseus-alerts",
-        "arn:aws:logs:*:*:log-group:/theseus/trail*"
+        "arn:aws:events:*:*:rule/theseus-posture-*",
+        "arn:aws:sns:*:*:theseus-alerts"
       ],
       "Condition": {
         "ArnNotLike": {
@@ -232,6 +231,27 @@
       "Condition": {
         "ArnLike": {
           "iam:PolicyARN": "arn:aws:iam::*:policy/theseus-deny-spend"
+        }
+      }
+    },
+    {
+      "Sid": "GuardPolicies",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreatePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:policy/theseus-guard-*",
+        "arn:aws:iam::*:policy/theseus-boundary",
+        "arn:aws:iam::*:policy/theseus-allow-all",
+        "arn:aws:iam::*:policy/theseus-deny-spend"
+      ],
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
         }
       }
     }

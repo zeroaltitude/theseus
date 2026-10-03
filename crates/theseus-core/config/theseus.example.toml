@@ -178,6 +178,14 @@ brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # w
 # so each search runs at no looser a posture than that secret's.
 # [broker.programs.gh]
 # env = { GH_TOKEN = "github_token" }   # variable = [secrets] name, never a value
+# A program that calls AWS gets a short-lived job session for an account at
+# its start, never the key (AWS design §3.5): AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, and AWS_REGION, with no ~/.aws
+# profile read. The session carries the guards, so AWS itself refuses what the
+# floor would ask about, and any write to a stack. Before the account's
+# owner_role is named, the program gets nothing, and the result says why.
+# [broker.programs.aws]
+# aws_account = "111122223333"          # an [aws.accounts] id
 # A secret's posture, notify by default: a call given the secret runs at no
 # looser a posture, so "approve" makes each call that gets it wait for you
 # before its job starts, in L1 too (an L1 call otherwise runs at notify).
@@ -250,15 +258,25 @@ search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Bra
 # The AWS accounts Theseus owns, each by its id, with its key (the root of
 # trust) as two [secrets] entries. After serving, the key is checked once:
 # sts:GetCallerIdentity must name the account. Until that passes, no call of
-# the account signs, and health says why. Then aws.call reads any service,
-# aws.describe looks AWS's API up in the local catalog, aws.whoami asks AWS who
-# Theseus is, and aws.s3.list lists buckets and prefixes. Until step 14b a call
-# that writes, runs code, or returns a secret is invalid input, and nothing is
-# sent. With no table, no AWS tool exists, and nothing AWS runs.
+# the account signs, and health says why. Then aws.call makes any operation of
+# any service: a read, a write, or a run, by its posture in [policy.aws]. A
+# guardrail (public ingress, the audit trail, the budget, long-lived
+# credentials) asks at the floor, deleting a stateful resource or a stack asks,
+# and durable infrastructure is made only through stacks: aws.stack.plan,
+# .apply, .status, and .delete. aws.describe looks AWS's API up in the local
+# catalog, aws.whoami asks AWS who Theseus is, aws.s3.list lists buckets and
+# prefixes, and aws.cost reads the month's spend. A call that returns a secret
+# is invalid input until step 14c. `theseus aws bootstrap` makes the account's
+# foundation and posture stacks; then name its owner role here, and every call
+# signs in a role session named by its execution. With no table, no AWS tool
+# exists, and nothing AWS runs.
 # [aws.accounts.111122223333]           # the account's id (12 digits), which STS must name
 # credentials = { access_key_id = "aws_access_key_id", secret_access_key = "aws_secret_access_key" }   # its key's [secrets] entries (these, by default)
 # region = "us-west-2"                  # where a call goes unless it names a region
 # regions = ["us-west-2", "us-east-1"]  # the regions a call may name (default: region alone)
+# owner_role = "theseus-owner"          # after `theseus aws bootstrap`: calls sign in role sessions under the guards, and the key signs only STS
+# deployment = "theseus-desktop"        # every session's source identity: which Theseus this is (default "theseus")
+# monthly_budget_usd = 50               # the month's budget: the bootstrap's, and reconciled into its stack after serving
 # endpoint = "http://127.0.0.1:4566"    # tests and scratch daemons only: a stand-in for AWS on this machine
 
 # ---------------------------------------------------------------- policy
@@ -332,6 +350,11 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # "aws.call" = "approve"
 # "aws.whoami" = "approve"
 # "aws.s3.list" = "approve"
+# "aws.stack.plan" = "approve"
+# "aws.stack.apply" = "approve"
+# "aws.stack.status" = "approve"
+# "aws.stack.delete" = "approve"
+# "aws.cost" = "approve"
 
 # Per-MCP postures, for when MCP servers land (M7): "server" covers every tool
 # from that server, "server/tool" one tool. An MCP tool's posture comes from
@@ -343,10 +366,12 @@ external_programs = ["gh"]              # program names, matched by file name (b
 
 # AWS calls, when an [aws.accounts] table binds an account: a call whose tool
 # has no [policy.tools] line takes its operation's line here, then its
-# service's, then its class's, then enforcement. Until step 14b every AWS call
-# is a read: a write or a run is invalid input, whatever its posture says.
+# service's, then its class's, then enforcement. A guardrail asks at the floor,
+# and deleting a stateful resource or a stack asks, whatever these say.
 [policy.aws]
 read = "open"                           # a Describe, List, or Get: safe to leave open (unset: enforcement)
+write = "notify"                        # a call that changes something: a notice each (unset: enforcement)
+run = "notify"                          # a call that starts code: a task, a function, a command (unset: enforcement)
 # "ec2" = "notify"                      # every call to one service
 # "s3:ListBuckets" = "approve"          # one operation
 

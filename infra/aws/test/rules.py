@@ -10,18 +10,21 @@ models of the `aws` CLI on PATH (or THESEUS_BOTOCORE_DATA) back the wildcard rul
 The rules, each named in its violations:
   tags         every taggable resource carries theseus:owner = theseus and
                theseus:stack = the stack's name (design section 3.7)
-  bucket       every bucket: KMS encryption with a key, versioning, all four public-access
-               blocks, ACLs off, and a policy that refuses requests without TLS
+  bucket       every bucket: encrypted by default (SSE-S3, or SSE-KMS with a key; under an
+               Fn::If, both branches), versioning, all four public-access blocks, ACLs off,
+               and a policy that refuses requests without TLS
   log-group    every log group has a retention
   queue        every queue is encrypted
-  topic        every topic is encrypted with a KMS key
+  topic        every topic is encrypted with a KMS key, unless its Metadata's
+               theseus.unencrypted says why not (the alerts topic: services publish to it)
   retain       every bucket, table, key, and image repository is kept when its stack goes
   policy-size  managed policies fit IAM's 6,144 characters, a role's inline policies its
                10,240, and a trust policy its 2,048 (whitespace is not counted)
-  boundary     theseus-boundary is allow-all, plus both guards' denies, plus the statements
-               whose Sid starts with HandsOnly: each guard deny is covered by a boundary deny,
-               and each other boundary deny by a guard's (so it may merge and drop what a
-               broader pattern covers, to fit its 6,144 characters); the guards only deny
+  boundary     theseus-boundary is allow-all, plus every guard's denies (the theseus-guard-*
+               policies), plus the statements whose Sid starts with HandsOnly: each guard deny
+               is covered by a boundary deny, and each other boundary deny by a guard's or is
+               one of guardrails.toml's [boundary] compact patterns (so it may merge and drop
+               what a broader pattern covers, to fit its 6,144 characters); the guards only deny
   wildcards    no action a guard, the boundary, or theseus-deny-spend denies matches a
                read operation, and every plain action names a real operation
   bounded      every role the hands stack makes has theseus-boundary
@@ -32,7 +35,6 @@ The rules, each named in its violations:
                foundation's first create must use: the bucket a larger one would go through is
                one of the things it makes
   stack-policy every logical id a stack policy in stack-policies/ names exists in its template
-  metric-filter  every metric filter's pattern fits CloudWatch Logs' 1,024 characters
 """
 import fnmatch
 import glob
@@ -41,12 +43,14 @@ import os
 import re
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 
 import yaml
 
 HERE = Path(__file__).resolve().parent
 INFRA = HERE.parent
+GUARDRAILS = INFRA.parent.parent / "crates" / "theseus-aws-guard" / "guardrails.toml"
 
 # Each resource type the templates use, and its tag property; None when the type takes no tags.
 # A type missing from this table is itself a violation, so a new type is a conscious choice.
@@ -55,7 +59,6 @@ TAG_PROPERTY = {
     "AWS::Budgets::Budget": "ResourceTags",
     "AWS::Budgets::BudgetsAction": "ResourceTags",
     "AWS::CloudTrail::Trail": "Tags",
-    "AWS::CloudWatch::Alarm": "Tags",
     "AWS::DynamoDB::Table": "Tags",
     "AWS::EC2::EIP": "Tags",
     "AWS::EC2::FlowLog": "Tags",
@@ -82,7 +85,6 @@ TAG_PROPERTY = {
     "AWS::Lambda::Function": "Tags",
     "AWS::Lambda::Permission": None,
     "AWS::Logs::LogGroup": "Tags",
-    "AWS::Logs::MetricFilter": None,
     "AWS::S3::Bucket": "Tags",
     "AWS::S3::BucketPolicy": None,
     "AWS::SNS::Subscription": None,
@@ -94,6 +96,9 @@ TAG_PROPERTY = {
 
 RETAINED = ("AWS::S3::Bucket", "AWS::DynamoDB::Table", "AWS::KMS::Key", "AWS::ECR::Repository")
 
+# The guards are generated from guardrails.toml, as many parts as IAM's limit needs: every
+# theseus-guard-* policy is one, and these two always exist.
+GUARD_PREFIX = "theseus-guard-"
 GUARD_NAMES = ("theseus-guard-iac", "theseus-guard-limits")
 BOUNDARY_NAME = "theseus-boundary"
 ALLOW_ALL_NAME = "theseus-allow-all"
@@ -104,7 +109,6 @@ INLINE_POLICIES_LIMIT = 10240
 TRUST_POLICY_LIMIT = 2048
 INLINE_CODE_LIMIT = 4096
 TEMPLATE_BODY_LIMIT = 51200
-FILTER_PATTERN_LIMIT = 1024
 
 # IAM prefixes whose action names are the botocore operations' names, and their models.
 BOTOCORE_SERVICES = {
@@ -336,9 +340,8 @@ def rule_bucket(path, template):
             continue
         props = res.get("Properties") or {}
         sse = ((props.get("BucketEncryption") or {}).get("ServerSideEncryptionConfiguration") or [{}])[0]
-        default = sse.get("ServerSideEncryptionByDefault") or {}
-        if default.get("SSEAlgorithm") != "aws:kms" or not default.get("KMSMasterKeyID"):
-            yield "bucket", name, "is not encrypted by default with a KMS key"
+        if not all(_encrypts(branch) for branch in _branches(sse)):
+            yield "bucket", name, "is not encrypted by default (SSE-S3, or SSE-KMS with a key)"
         if (props.get("VersioningConfiguration") or {}).get("Status") != "Enabled":
             yield "bucket", name, "is not versioned"
         block = props.get("PublicAccessBlockConfiguration") or {}
@@ -350,6 +353,19 @@ def rule_bucket(path, template):
             yield "bucket", name, "keeps ACLs on (ObjectOwnership is not BucketOwnerEnforced)"
         if not _refuses_plain_http(policies.get(name, []), name):
             yield "bucket", name, "has no bucket policy refusing requests without TLS"
+
+
+def _branches(node):
+    """Both sides of an Fn::If, each as far down as it goes; anything else is one branch."""
+    if isinstance(node, dict) and list(node) == ["Fn::If"] and len(node["Fn::If"]) == 3:
+        return _branches(node["Fn::If"][1]) + _branches(node["Fn::If"][2])
+    return [node]
+
+
+def _encrypts(sse):
+    default = (sse or {}).get("ServerSideEncryptionByDefault") or {}
+    algorithm = default.get("SSEAlgorithm")
+    return algorithm == "AES256" or (algorithm == "aws:kms" and bool(default.get("KMSMasterKeyID")))
 
 
 def rule_log_group(path, template):
@@ -369,8 +385,11 @@ def rule_queue(path, template):
 
 def rule_topic(path, template):
     for name, res in resources(template):
-        if res.get("Type") == "AWS::SNS::Topic" and not (res.get("Properties") or {}).get("KmsMasterKeyId"):
-            yield "topic", name, "is not encrypted with a KMS key"
+        if res.get("Type") != "AWS::SNS::Topic" or (res.get("Properties") or {}).get("KmsMasterKeyId"):
+            continue
+        why = ((res.get("Metadata") or {}).get("theseus") or {}).get("unencrypted")
+        if not (isinstance(why, str) and why.strip()):
+            yield "topic", name, "is not encrypted with a KMS key, and its Metadata's theseus.unencrypted says no reason"
 
 
 def rule_retain(path, template):
@@ -425,15 +444,25 @@ def _deny_triples(statements, skip_sid_prefix=None):
     return out
 
 
-def rule_boundary(path, template):
+def compact_patterns():
+    """guardrails.toml's [boundary] compact patterns: the boundary's denies broader than a guard's."""
+    if not GUARDRAILS.exists():
+        return set()
+    with open(GUARDRAILS, "rb") as f:
+        return set((tomllib.load(f).get("boundary") or {}).get("compact") or [])
+
+
+def rule_boundary(path, template, compact=None):
     policies = managed_policies(template)
     present = [n for n in (*GUARD_NAMES, BOUNDARY_NAME, ALLOW_ALL_NAME) if n in policies]
     if not present:
         return
     for missing in sorted({*GUARD_NAMES, BOUNDARY_NAME, ALLOW_ALL_NAME} - set(present)):
         yield "boundary", missing, "is missing beside the others"
-    if len(present) < 4:
+    if len(present) < len(GUARD_NAMES) + 2:
         return
+    guard_names = sorted(n for n in policies if n.startswith(GUARD_PREFIX))
+    compact = compact_patterns() if compact is None else compact
 
     def statements(policy):
         return as_list(policies[policy][1].get("Statement") or [])
@@ -447,11 +476,11 @@ def rule_boundary(path, template):
         yield "boundary", policies[ALLOW_ALL_NAME][0], "must allow everything, in one statement, and deny nothing"
     if allows(BOUNDARY_NAME) != [allow_all]:
         yield "boundary", policies[BOUNDARY_NAME][0], "must allow everything in exactly one statement"
-    for guard in GUARD_NAMES:
+    for guard in guard_names:
         if allows(guard):
             yield "boundary", policies[guard][0], f"{guard} must only deny"
     guards = set()
-    for guard in GUARD_NAMES:
+    for guard in guard_names:
         guards |= _deny_triples(statements(guard))
     every = _deny_triples(statements(BOUNDARY_NAME))
     own = _deny_triples(statements(BOUNDARY_NAME), skip_sid_prefix="HandsOnly")
@@ -459,6 +488,8 @@ def rule_boundary(path, template):
         if not any(_covers(b, triple) for b in every):
             yield "boundary", policies[BOUNDARY_NAME][0], f"lacks a guard's deny: {triple[0]} on {triple[1]}"
     for triple in sorted(own):
+        if triple[0] in compact and triple[1] == json.dumps("*") and triple[2] == "null":
+            continue
         if not any(_covers(g, triple) for g in guards):
             yield "boundary", policies[BOUNDARY_NAME][0], f"denies {triple[0]} on {triple[1]}, which no guard does (prefix the Sid HandsOnly if meant)"
 
@@ -494,7 +525,7 @@ def rule_wildcards(path, template, models=None):
     if models is None:
         return
     for policy, (name, document) in managed_policies(template).items():
-        if policy not in (*GUARD_NAMES, BOUNDARY_NAME, DENY_SPEND_NAME):
+        if not (policy.startswith(GUARD_PREFIX) or policy in (BOUNDARY_NAME, DENY_SPEND_NAME)):
             continue
         for st in as_list(document.get("Statement") or []):
             if st.get("Effect") != "Deny":
@@ -549,14 +580,6 @@ def rule_inline_code(path, template):
             code = ((res.get("Properties") or {}).get("Code") or {}).get("ZipFile")
             if isinstance(code, str) and len(code) > INLINE_CODE_LIMIT:
                 yield "inline-code", name, f"inline code is {len(code)} characters, over {INLINE_CODE_LIMIT}"
-
-
-def rule_metric_filter(path, template):
-    for name, res in resources(template):
-        if res.get("Type") == "AWS::Logs::MetricFilter":
-            pattern = render((res.get("Properties") or {}).get("FilterPattern", ""), template, stack_name(path))
-            if len(pattern) > FILTER_PATTERN_LIMIT:
-                yield "metric-filter", name, f"its pattern is {len(pattern)} characters, over {FILTER_PATTERN_LIMIT}"
 
 
 def rule_template_size(path, template):
@@ -653,7 +676,6 @@ RULES = (
     rule_inline_code,
     rule_template_size,
     rule_stack_policy,
-    rule_metric_filter,
 )
 
 

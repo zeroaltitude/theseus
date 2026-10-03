@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  theseus-posture-relay: deployed in us-east-1 when the home region is another (C2, theseus-nyzn).
+  The global services (IAM, Organizations, Budgets, the console's sign-in, STS's global endpoint)
+  record their CloudTrail events in us-east-1, and EventBridge rules see only their own region's.
+  One rule here forwards this region's CloudTrail events to the home region's default bus, where
+  theseus-posture's checks see them beside the home region's own. Forwarded events cost $1 a
+  million; a quiet account sends a few thousand a month.
+
+Parameters:
+  HomeRegion:
+    Type: String
+    Default: us-west-2
+    AllowedPattern: "[a-z]{2}(-[a-z]+)+-[0-9]"
+    Description: The region of theseus-posture, whose default bus the events go to.
+
+Resources:
+  RelayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: theseus-posture-relay
+      Description: >-
+        EventBridge's delivery of this region's CloudTrail events to the home region's default bus,
+        and nothing else.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EventBridgeOnly
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: put-events-on-the-home-bus
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Sub "arn:${AWS::Partition}:events:${HomeRegion}:${AWS::AccountId}:event-bus/default"
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # Every management event, reads included: three of the home region's checks (a refused call,
+  # the root user, the root-of-trust key) look at reads too.
+  RelayRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: theseus-posture-relay
+      Description: This region's CloudTrail events, to the home region's default bus and its checks.
+      State: ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS
+      EventPattern:
+        detail-type:
+          - AWS API Call via CloudTrail
+          - AWS Console Sign In via CloudTrail
+      Targets:
+        - Id: home-bus
+          Arn: !Sub "arn:${AWS::Partition}:events:${HomeRegion}:${AWS::AccountId}:event-bus/default"
+          RoleArn: !GetAtt RelayRole.Arn
+      Tags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+Outputs:
+  RelayRuleArn:
+    Value: !GetAtt RelayRule.Arn

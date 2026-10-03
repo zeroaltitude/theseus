@@ -18,11 +18,13 @@ use theseus_protocol::{
     ToolEnded, ToolListResult, TurnSubmitResult,
 };
 
+mod aws;
 mod cancel;
 mod index;
 mod places;
 mod sandbox;
 mod store;
+pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use places::{places_health_line, places_lines};
@@ -1013,87 +1015,6 @@ pub fn spool_line(s: &theseus_protocol::SpoolStatus, now_ms: u64) -> Option<Stri
         line.push_str(&format!(": {}", by(&w.kept_by)));
     }
     Some(line)
-}
-
-/// `s3:ListObjectsV2 · us-west-2 · account 111122223333 · example-bucket,
-/// logs/`: an AWS call as the CLI and Discord name it (row 29, C1).
-pub fn aws_call_line(a: &theseus_protocol::AwsPlan) -> String {
-    let mut line = format!(
-        "{}:{} · {} · account {}",
-        a.service, a.operation, a.region, a.account
-    );
-    if !a.resources.is_empty() {
-        line.push_str(&format!(" · {}", a.resources.join(", ")));
-    }
-    if a.cost_bearing {
-        line.push_str(" · $");
-    }
-    line
-}
-
-/// `aws: 111122223333 bound (arn:aws:iam::…:user/x) 2 min ago · us-west-2 (may
-/// name us-east-1) · 4 requests` (row 29, C1): each bound AWS account, as its
-/// check left it, and its requests. Nothing when the config binds none.
-pub fn aws_lines(s: Option<&theseus_protocol::AwsStatus>, now_ms: u64) -> Vec<String> {
-    let Some(s) = s else {
-        return Vec::new();
-    };
-    s.accounts
-        .iter()
-        .map(|a| {
-            let ago = a.checked_at_unix_ms.map(|t| {
-                let secs = now_ms.saturating_sub(t) / 1000;
-                if secs < 120 {
-                    format!(" {secs} s ago")
-                } else {
-                    format!(" {} min ago", secs / 60)
-                }
-            });
-            let state = match a.state.as_str() {
-                "bound" => format!(
-                    "bound ({}){}",
-                    a.arn.as_deref().unwrap_or("?"),
-                    ago.unwrap_or_default()
-                ),
-                "failed" => format!(
-                    "NOT BOUND{}: {}; its calls fail closed",
-                    ago.unwrap_or_default(),
-                    a.error.as_deref().unwrap_or("?")
-                ),
-                "waiting" => format!(
-                    "waiting for its key{}",
-                    a.error
-                        .as_deref()
-                        .map(|e| format!(": {e}"))
-                        .unwrap_or_default()
-                ),
-                other => other.to_string(),
-            };
-            let more: Vec<&str> = a
-                .regions
-                .iter()
-                .map(String::as_str)
-                .filter(|r| *r != a.region)
-                .collect();
-            format!(
-                "aws: {} {state} · {}{} · {} {}{}",
-                a.account,
-                a.region,
-                if more.is_empty() {
-                    String::new()
-                } else {
-                    format!(" (may name {})", more.join(", "))
-                },
-                thousands(a.calls),
-                if a.calls == 1 { "request" } else { "requests" },
-                if a.failed > 0 {
-                    format!(", {} failed", thousands(a.failed))
-                } else {
-                    String::new()
-                }
-            )
-        })
-        .collect()
 }
 
 /// `130,300`.
@@ -2489,6 +2410,7 @@ mod tests {
             error: error.map(String::from),
             calls: 1_204,
             failed: if state == "bound" { 0 } else { 1 },
+            ..Default::default()
         };
         let s = AwsStatus {
             accounts: vec![
@@ -2522,6 +2444,7 @@ mod tests {
             operation: "ListObjectsV2".into(),
             cost_bearing: false,
             resources: vec!["example-bucket".into(), "logs/".into()],
+            ..Default::default()
         };
         assert_eq!(
             aws_call_line(&call),

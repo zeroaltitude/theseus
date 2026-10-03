@@ -21,6 +21,11 @@ pub struct HarnessOnly {
     /// Those of `aws` and `providers` that `[broker]` names after all, so a
     /// job may be handed them: the operator's own choice, said aloud.
     pub exposed: Vec<String>,
+    /// The programs `[broker.programs]` gives an AWS job session at launch
+    /// (`aws_account`, AWS design §3.5): short-lived, under the guards, and
+    /// never the key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aws_sessions: Vec<String>,
 }
 
 impl HarnessOnly {
@@ -55,6 +60,12 @@ impl HarnessOnly {
         .collect();
         if !kinds.is_empty() {
             line.push_str(&format!("; harness-only: {}", kinds.join(" and ")));
+        }
+        if !self.aws_sessions.is_empty() {
+            line.push_str(&format!(
+                "; jobs get short-lived AWS sessions, never the key ({})",
+                self.aws_sessions.join(", ")
+            ));
         }
         if !self.exposed.is_empty() {
             line.push_str(&format!(

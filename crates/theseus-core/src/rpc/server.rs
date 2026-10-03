@@ -327,6 +327,8 @@ impl Core {
             method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
+            // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.
+            method::AWS_BOOTSTRAP => reply(self.aws_bootstrap(parse(params)?, conn).await?),
             // The loops wake once the answer is written (`serve_connection`).
             method::SHUTDOWN => reply(self.stopping()),
             other => Err(RpcFailure::new(
@@ -390,7 +392,7 @@ async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool 
 /// vault confirms the config a start served from, each waits at the gate,
 /// bounded like the secrets, then fails with `config_unconfirmed`. Every
 /// other method only reads, and answers at once; `shutdown` works too.
-pub const ACTS: [&str; 13] = [
+pub const ACTS: [&str; 14] = [
     method::TURN_SUBMIT,
     method::SESSION_OPEN,
     method::PROFILE_USE,
@@ -404,6 +406,7 @@ pub const ACTS: [&str; 13] = [
     method::EXECUTION_STOP,
     method::TASK_CANCEL,
     method::WAKE_CANCEL,
+    method::AWS_BOOTSTRAP,
 ];
 
 /// A failed request: JSON-RPC code, human message, structured data.
