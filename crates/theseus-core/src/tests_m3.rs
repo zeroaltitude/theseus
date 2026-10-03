@@ -7547,11 +7547,11 @@ mod web {
             .find(|l| l.kind == "loop")
             .and_then(|l| l.children.iter().find(|s| s.name == "tools"))
             .expect("a tools span");
+        // No upper bound on the wall clock: the order check above (each request
+        // reaches the server before either is answered) is what proves the overlap,
+        // and a loaded machine stretches any bound (theseus-ioq7). Each waits 400 ms.
         let took_ms = tools.duration_us() / 1000;
-        assert!(
-            (400..780).contains(&took_ms),
-            "the fetches took {took_ms} ms"
-        );
+        assert!(took_ms >= 400, "the fetches took {took_ms} ms");
         let mut got = externals(&r.core, &res.session_id);
         got.sort_by(|x, y| x.2.cmp(&y.2));
         let mut want = vec![
