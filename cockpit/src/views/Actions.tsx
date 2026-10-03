@@ -1,20 +1,20 @@
 // Actions: where the operator acts. Waiting approvals (approve, approve and trust, decline), every tool call's
 // lifecycle (planned → authorized → dispatched → settled), the tools' postures (tighten, untighten), wakes, and the
-// sessions that hold external text (trust).
+// sessions that hold external text (trust). `?execution=` narrows the calls to one execution, as picking one in the
+// Observatory's table did.
 import { memo, useDeferredValue, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
-import { AnimatePresence, motion } from 'motion/react'
-import { useQueryClient } from '@tanstack/react-query'
-import { CircleCheck, GitFork, History, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, Zap } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router'
+import { AnimatePresence } from 'motion/react'
+import { CircleCheck, GitFork, History, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, X } from 'lucide-react'
 import type { ActionInfo, ConfirmRequest, ExternalTextInfo, Health, TaskInfo, TaskListResult, Tightening, ToolList } from '@protocol'
-import { call, useRpc } from '@/lib/rpc'
+import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { verdictWords } from '@/lib/verdict'
-import { ago, cn, ms, short, stamp, usd } from '@/lib/format'
+import { ago, cn, ms, short, stamp, usd, clock } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
-import { JsonView } from '@/components/JsonView'
 import { Btn, Empty, Panel, Pill, StatePill } from '@/components/ui'
+import { ConfirmCard, useAct } from '@/components/ConfirmCard'
 
 export default function Actions() {
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 1500)
@@ -26,7 +26,11 @@ export default function Actions() {
   const world = useDeferredValue(useWorld())
   const past = world?.t
   const confirms = world?.confirms ?? cl?.confirms ?? []
-  const actions = world ? [...world.actions].sort((a, b) => b.planned_at_ms - a.planned_at_ms).slice(0, 300) : al?.actions ?? []
+  const [params, setParams] = useSearchParams()
+  const execution = params.get('execution')
+  const clearExecution = () => setParams((p) => { p.delete('execution'); return p }, { replace: true })
+  const all = world ? [...world.actions].sort((a, b) => b.planned_at_ms - a.planned_at_ms).slice(0, 300) : al?.actions ?? []
+  const actions = execution ? all.filter((a) => a.execution_id === execution) : all
   return (
     <div className="flex flex-col gap-3">
       {world && (
@@ -42,7 +46,8 @@ export default function Actions() {
             </AnimatePresence>
             {!confirms.length && <Empty><span className="flex items-center gap-2"><CircleCheck size={15} className="text-ok" /> {past ? 'nothing waited for you then' : 'nothing waits for you'}</span></Empty>}
           </Panel>
-          <Panel title={<>Tool calls · {world ? world.actions.length : al?.total ?? 0} in the record</>} icon={<Workflow size={13} />} bodyClassName="max-h-[560px] overflow-auto">
+          <Panel title={execution ? <>Tool calls · {actions.length} of execution {short(execution)}</> : <>Tool calls · {world ? world.actions.length : al?.total ?? 0} in the record</>} icon={<Workflow size={13} />} bodyClassName="max-h-[560px] overflow-auto"
+            actions={execution ? <button onClick={clearExecution} className="flex items-center gap-1 text-[11px] text-live"><X size={11} /> all executions</button> : null}>
             <Lifecycle actions={actions} past={past} />
           </Panel>
         </div>
@@ -58,7 +63,7 @@ export default function Actions() {
           <Tasks past={world ? { t: world.t, tasks: world.tasks } : undefined} />
 
           <Panel title="Tool postures" icon={<Wrench size={13} />} bodyClassName="max-h-[520px] overflow-auto"
-            actions={tl ? <span className="num text-[11px] text-ink-faint">roots {tl.roots.join(', ')}</span> : null}>
+            actions={tl ? <span className="num text-[11px] text-ink-faint" title="proc.run (typed argv) is the only shell path; the shell-fallback ratio is proc.run calls over all calls">roots {tl.roots.join(', ')} · {tl.calls_total} call{tl.calls_total === 1 ? '' : 's'} since start · shell fallback {(tl.shell_fallback_ratio * 100).toFixed(0)}%</span> : null}>
             <Postures tl={tl} tightenings={world?.tightenings ?? h?.tightenings ?? []} past={past} />
           </Panel>
         </div>
@@ -108,61 +113,6 @@ function Tasks({ past }: { past?: { t: number; tasks: TaskInfo[] } }) {
   )
 }
 
-function useAct() {
-  const qc = useQueryClient()
-  const [busy, setBusy] = useState<string | null>(null)
-  const run = async (key: string, method: string, params: unknown, ask?: string) => {
-    if (ask && !window.confirm(ask)) return
-    setBusy(key)
-    try { await call(method, params); await qc.invalidateQueries() } catch (e: any) { window.alert(e?.message ?? String(e)) } finally { setBusy(null) }
-  }
-  return { busy, run }
-}
-
-function ConfirmCard({ c, past }: { c: ConfirmRequest; past?: number }) {
-  const nav = useNavigate()
-  const tick = useTick(1000)
-  const now = past ?? tick
-  const { busy, run } = useAct()
-  const [note, setNote] = useState('')
-  const left = c.expires_at_ms ? c.expires_at_ms - now : null
-  const span = c.expires_at_ms && c.requested_at_ms ? c.expires_at_ms - c.requested_at_ms : 0
-  return (
-    <motion.div layout initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, x: 40 }}
-      className="mb-3 overflow-hidden rounded-xl bg-wait/[0.05] ring-1 ring-wait/30">
-      {span > 0 && left !== null && <div className="h-0.5 bg-wait/20"><div className="h-full bg-wait transition-[width] duration-1000" style={{ width: `${Math.max(0, Math.min(100, (left / span) * 100))}%` }} /></div>}
-      <div className="flex items-start gap-3 p-3">
-        <Zap size={16} className="mt-0.5 text-wait" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="num text-[14px] font-semibold text-tool">{c.tool}</span>
-            {c.floor && <Pill tone="fault">floor</Pill>}
-            {c.external_text && <Pill tone="wait"><Siren size={11} /> after external text</Pill>}
-            <button onClick={() => nav(`/session/${c.session_id}`)} className="num text-[11px] text-ink-faint hover:text-live">{short(c.session_id)}</button>
-            <span className="num ml-auto text-[11px] text-ink-faint">asked {ago(c.requested_at_ms, now)}{left !== null && c.expires_at_ms ? ` · ${left > 0 ? `${ms(left)} left` : 'expired'}` : ''}</span>
-          </div>
-          <div className="mt-1 text-[12.5px] text-ink">{c.reason}</div>
-          {c.resource && <div className="num mt-0.5 text-[11.5px] text-ink-dim">{c.resource}</div>}
-          {c.budget && (
-            <div className="num mt-1 text-[12px] text-money">spent {usd(c.budget.spent_usd)} of {usd(c.budget.limit_usd)}; needs {usd(c.budget.needed_usd)} more · lifetime {usd(c.budget.lifetime_usd)}</div>
-          )}
-          {c.external_text && <div className="num mt-1 text-[11.5px] text-wait">read {c.external_text.tool} {c.external_text.url} {ago(c.external_text.since_ms, now)}</div>}
-          {c.input !== undefined && c.input !== null && <div className="mt-2"><JsonView value={c.input} maxHeight="180px" /></div>}
-          {past !== undefined && <div className="mt-2 text-[11px] text-ink-faint">asked by {c.by}; the log shows how it was answered after this moment</div>}
-          {past === undefined && <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <Btn tone="ok" busy={busy === 'yes'} onClick={() => run('yes', 'action.confirm', { correlation_id: c.correlation_id, approve: true, note: note || undefined })}><CircleCheck size={13} /> Approve</Btn>
-            {c.external_text && <Btn tone="wait" busy={busy === 'trust'} onClick={() => run('trust', 'action.confirm', { correlation_id: c.correlation_id, approve: true, trust: true, note: note || undefined })}><ShieldCheck size={13} /> Approve and trust</Btn>}
-            <Btn tone="fault" busy={busy === 'no'} onClick={() => run('no', 'action.confirm', { correlation_id: c.correlation_id, approve: false, note: note || undefined })}><OctagonX size={13} /> Decline</Btn>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note (optional)"
-              className="min-w-40 flex-1 rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />
-            <span className="text-[11px] text-ink-faint">by {c.by}</span>
-          </div>}
-        </div>
-      </div>
-    </motion.div>
-  )
-}
-
 const STEPS = ['planned', 'authorized', 'dispatched', 'settled'] as const
 
 function Lifecycle({ actions, past }: { actions: ActionInfo[]; past?: number }) {
@@ -195,14 +145,24 @@ const LifecycleRow = memo(function LifecycleRow({ a, now, nav }: { a: ActionInfo
   const reached = times.filter(Boolean).length
   const total = (a.settled_at_ms ?? now) - a.planned_at_ms
   const tone = stateTone(a.state)
+  const overdue = !a.settled_at_ms && !['succeeded', 'failed', 'cancelled'].includes(a.state) && a.deadline_at_ms < (now || Date.now())
+  // Every id and time the row stands for, as the Observatory's tooltip gave them.
+  const ids = [
+    a.correlation_id, `execution ${a.execution_id}`, `session ${a.session_id}`,
+    ...(['planned', 'authorized', 'dispatched', 'settled'] as const).flatMap((s, i) => (times[i] ? [`${s} ${clock(times[i] as number)}`] : [])),
+    `deadline ${clock(a.deadline_at_ms)}`, ...(a.external_op_id ? [`external ${a.external_op_id}`] : []), ...(a.result_ref ? [`result ${a.result_ref}`] : []),
+  ].join('\n')
   return (
-    <div className="border-b border-line/50 px-3 py-2 hover:bg-white/[0.02]">
+    <div className="border-b border-line/50 px-3 py-2 hover:bg-white/[0.02]" title={ids}>
       <div className="flex items-center gap-2 text-[12px]">
         <StatePill state={a.state} />
         <span className="num font-medium text-tool">{a.tool}</span>
         <button onClick={() => nav(`/session/${a.session_id}`)} className="num text-[10.5px] text-ink-faint hover:text-live">{short(a.session_id)}</button>
         <button onClick={() => nav(`/session/${a.session_id}?call=${a.correlation_id}`)} title="inspect this call" className="text-ink-faint hover:text-tool"><ScanSearch size={12} /></button>
         <span className="num text-[10.5px] text-ink-faint">{a.retry_class}{a.confirmed ? ' · confirmed' : ''}{a.cancel ? ` · ${a.cancel}` : ''}</span>
+        {overdue && <Pill tone="wait" title="past its deadline and not settled">overdue</Pill>}
+        {a.completions_seen > 1 && <Pill tone="wait" title="completions received; more than one means duplicates were ignored">seen {a.completions_seen}×</Pill>}
+        {(a.resolution || (a.external_op_id && a.tool === 'provider.messages')) && <span className="num text-[10.5px] text-ink-dim">{a.resolution ?? `req ${short(a.external_op_id)}`}</span>}
         {a.verdict && <Pill tone={a.verdict.state === 'termination_verified' ? 'ok' : 'wait'} title={a.verdict.why}>{verdictWords(a.verdict)}</Pill>}
         <span className="num ml-auto text-[11px] text-ink-faint">{stamp(a.planned_at_ms)} · <span className="text-ink">{ms(total)}</span></span>
       </div>
@@ -216,7 +176,8 @@ const LifecycleRow = memo(function LifecycleRow({ a, now, nav }: { a: ActionInfo
           </div>
         ))}
       </div>
-      {!a.settled_at_ms && <div className="num mt-1 text-[10.5px] text-wait">deadline {a.deadline_at_ms > now ? `in ${ms(a.deadline_at_ms - now)}` : `${ms(now - a.deadline_at_ms)} ago`}{a.reserved_usd ? ` · reserved ${usd(a.reserved_usd)}` : ''}</div>}
+      {!a.settled_at_ms && <div className={cn('num mt-1 text-[10.5px]', overdue ? 'text-fault' : 'text-wait')}>deadline {a.deadline_at_ms > now ? `in ${ms(a.deadline_at_ms - now)}` : `${ms(now - a.deadline_at_ms)} ago`}</div>}
+      {a.reserved_usd > 0 && <div className="num mt-0.5 text-[10.5px] text-money">{a.settled_at_ms ? 'reserved' : 'holds'} {usd(a.reserved_usd)}</div>}
     </div>
   )
 })
@@ -233,7 +194,9 @@ function Holds({ holds, past }: { holds: ExternalTextInfo[]; past?: number }) {
         <div key={x.session_id} className="flex items-center gap-2 rounded-lg bg-wait/[0.04] px-3 py-2 ring-1 ring-wait/20">
           <div className="min-w-0 flex-1">
             <button onClick={() => nav(`/session/${x.session_id}`)} className="truncate text-left text-[12.5px] text-ink hover:text-live">{x.title || short(x.session_id)}{x.task ? ` · task ${x.task}` : ''}</button>
-            <div className="num truncate text-[11px] text-ink-faint">{x.held.tool} {x.held.url} · {ago(x.held.since_ms, now)}{x.held.via ? ` · via ${x.held.via}` : ''}</div>
+            <div className="num truncate text-[11px] text-ink-faint" title={`${x.session_id}\nnode ${x.held.node_id}${x.since_local ? `\nsince ${x.since_local}` : ''}`}>
+              {x.held.tool} {x.held.query != null ? `"${x.held.query}"` : x.held.url} · {ago(x.held.since_ms, now)} · {holdHow(x.held)}
+            </div>
           </div>
           {!past && <Btn tone="wait" busy={busy === x.session_id} onClick={() => run(x.session_id, 'policy.trust', { session_id: x.session_id }, `Trust ${x.title || short(x.session_id)} again? Its calls that act stop waiting.`)}><ShieldCheck size={13} /> Trust</Btn>}
         </div>
@@ -242,7 +205,15 @@ function Holds({ holds, past }: { holds: ExternalTextInfo[]; past?: number }) {
   )
 }
 
+/** How a session came to hold external text, in the Observatory's words. */
+function holdHow(h: ExternalTextInfo['held']): string {
+  return h.via === 'task.create' ? `from the session that started it (${short(h.from_session)})`
+    : h.via === 'task.report' ? `from task ${short(h.from_session)}'s report`
+    : h.via === 'egress' ? 'an L1 job here reached these hosts' : 'read here'
+}
+
 function Wakes({ h }: { h?: Health }) {
+  const nav = useNavigate()
   const now = useTick(1000)
   const { busy, run } = useAct()
   const wakes = h?.wakes ?? []
@@ -252,9 +223,9 @@ function Wakes({ h }: { h?: Health }) {
       {wakes.map((w) => (
         <div key={w.wake_id} className="flex items-center gap-2 rounded-lg px-3 py-2 ring-1 ring-line">
           <Hourglass size={14} className="text-live" />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1" title={`${w.wake_id}\nset ${clock(w.set_at_ms)}${w.target ? `\nits reply goes to ${w.target}` : ''}`}>
             <div className="truncate text-[12.5px] text-ink">{w.note}</div>
-            <div className="num text-[11px] text-ink-faint">{w.short} · {w.session_title ?? short(w.session_id)} · {w.due_local} · <span className="text-live">{w.due_at_ms > now ? `in ${ms(w.due_at_ms - now)}` : 'due'}</span></div>
+            <div className="num text-[11px] text-ink-faint">{w.short} · <button onClick={() => nav(`/session/${w.session_id}`)} className="hover:text-live">{w.session_title ?? short(w.session_id)}</button> <StatePill state={w.state} /> · {w.due_local} · <span className={w.due_at_ms > now ? 'text-live' : 'text-wait'}>{w.due_at_ms > now ? `in ${ms(w.due_at_ms - now)}` : `due ${ms(now - w.due_at_ms)} ago`}</span></div>
           </div>
           <Btn tone="fault" busy={busy === w.wake_id} onClick={() => run(w.wake_id, 'wake.cancel', { wake: w.wake_id }, `Cancel the wake “${w.note}”?`)}><OctagonX size={13} /> Cancel</Btn>
         </div>
@@ -276,10 +247,15 @@ function Postures({ tl, tightenings, past }: { tl?: ToolList; tightenings: Tight
         {tl.tools.map((t) => {
           const tight = tightened.get(t.name)
           return (
-            <tr key={t.name} className="border-t border-line/50 hover:bg-white/[0.02]" title={t.description}>
+            <tr key={t.name} className="border-t border-line/50 hover:bg-white/[0.02]" title={`${t.description}\n\n${t.wire_name}\n${JSON.stringify(t.input_schema, null, 2)}`}>
               <td className="num px-3 py-1 text-tool">{t.name}</td>
               <td className="px-2 py-1 text-ink-faint">{t.class} · {t.backend}</td>
-              <td className="px-2 py-1"><Pill tone={t.policy === 'deny' ? 'fault' : t.policy === 'confirm' || t.policy === 'ask' ? 'wait' : t.policy === 'notify' ? 'live' : 'ok'}>{t.policy}</Pill>{tight && <span className="ml-1 text-[10.5px] text-wait">tightened by {tight.by}</span>}</td>
+              <td className="px-2 py-1" title={`${t.setting}${t.config_posture !== t.policy ? `\nthe config says ${t.config_posture} (${t.config_setting})` : ''}`}>
+                <Pill tone={t.policy === 'deny' ? 'fault' : t.policy === 'confirm' || t.policy === 'ask' || t.policy === 'approve' ? 'wait' : t.policy === 'notify' ? 'live' : 'ok'}>{t.policy}</Pill>
+                {tight && <span className="ml-1 text-[10.5px] text-wait" title={tight.digest ? `proposal digest ${tight.digest}` : 'pressed without naming a call'}>
+                  tightened by {tight.by}{tight.via ? ` via ${tight.via}` : ''} · {ago(tight.at_ms)}{tight.correlation_id ? ` · call ${short(tight.correlation_id)}` : ''}
+                </span>}
+              </td>
               <td className="num px-2 py-1 text-right text-ink-dim">{t.calls}</td>
               <td className="px-3 py-1 text-right">
                 {past ? null : tight
