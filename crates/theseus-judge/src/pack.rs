@@ -35,12 +35,13 @@ use crate::client::{
 };
 use crate::learn::RollbackRule;
 
-/// Every pack version this build knows, by file name: the test pack and
-/// §2.4's six.
+/// Every pack version this build knows, by file name: the test pack,
+/// §2.4's six, and `security.v2`, a candidate beside `security.v1`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
     ("security.v1", include_str!("../packs/security.v1.toml")),
+    ("security.v2", include_str!("../packs/security.v2.toml")),
     ("classify.v1", include_str!("../packs/classify.v1.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
@@ -67,6 +68,8 @@ pub enum Builder {
     Probe,
     Loop,
     Security,
+    /// `security.v2`'s: `security.v1`'s state, and facts computed for Jev.
+    Security2,
     /// `classify.v1` and `role.v1` share it, so they batch.
     Inbound,
     Continue,
@@ -1037,6 +1040,21 @@ mod tests {
                 ],
             ),
             (
+                "security.v2",
+                &[
+                    "Gate Security2 Posture None",
+                    "beyond_ask Noul",
+                    "destructive Noul",
+                    "exfiltrates Noul",
+                    "kind Choice [read_only local_edit local_exec remote_write publish credentials_or_config other]",
+                    "risky Noul decides",
+                    "safe Noul",
+                    "steered Noul",
+                    "touches_credentials Noul",
+                    "rollback []",
+                ],
+            ),
+            (
                 "classify.v1",
                 &[
                     "Inbound Inbound Conversation None",
@@ -1130,9 +1148,9 @@ mod tests {
 
     /// Each rule, broken in each of the six pack files, refuses that file.
     #[test]
-    fn the_loaders_rules_hold_on_all_six_packs() {
+    fn the_loaders_rules_hold_on_all_the_packs() {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
-        assert_eq!(six.len(), 6);
+        assert_eq!(six.len(), 7, "§2.4's six, and security.v2");
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
             let edit = |from: &str, to: &str| {
