@@ -37,7 +37,7 @@ pub enum Buttons {
     /// Approve, "Approve + trust session", and Decline (theseus-9bp): the
     /// call waits because its session read external text.
     ConfirmTrust(String),
-    /// One "Should have asked…" select menu (theseus-sgh): an option per
+    /// One "Should I have asked?" select menu (theseus-sgh): an option per
     /// distinct notified tool on the message, at most `MAX_ASKED`.
     ShouldHaveAsked(Vec<Asked>),
     /// Remove every component.
@@ -64,8 +64,8 @@ pub struct NoticeCard {
     pub color: u32,
     pub description: String,
     pub fields: Vec<(String, String)>,
-    /// A "Should have asked" button for this call; None once its tool asks
-    /// first (theseus-sgh).
+    /// A "Make actions like this ask in the future" button for this call;
+    /// None once its tool asks first (theseus-sgh).
     pub ask: Option<Asked>,
 }
 
@@ -592,8 +592,8 @@ impl Renderer {
         ops
     }
 
-    /// A notice card's "Should have asked" button, or, once its tool asks
-    /// first, a line that says who tightened it.
+    /// A notice card's "Make actions like this ask in the future" button, or,
+    /// once its tool asks first, a line that says who tightened it.
     fn asked_on(&self, card: &mut NoticeCard, call: &Asked) {
         card.fields.retain(|(name, _)| name != TIGHTENED_FIELD);
         match self.tightened.get(&call.tool) {
@@ -656,7 +656,7 @@ impl Renderer {
 }
 
 /// The field a notice card gains once its tool asks first.
-const TIGHTENED_FIELD: &str = "Should have asked";
+const TIGHTENED_FIELD: &str = "Asks first now";
 
 /// One message of a turn as rendered: its key, its text, and, on a tool
 /// message when menus are on, its "should have asked" choices.
@@ -679,7 +679,7 @@ impl Rendered {
 /// Every live message a turn shows, in the order Discord should first see
 /// them: its streamed text while it runs (then its reply's post owns the
 /// text), and its tool messages. `tightened` is tool → who tightened it;
-/// `menus` puts a "Should have asked…" select on each tool message that lists
+/// `menus` puts a "Should I have asked?" select on each tool message that lists
 /// a notified call.
 fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) -> Vec<Rendered> {
     let mut out: Vec<Rendered> = Vec::new();
@@ -1937,7 +1937,7 @@ mod tests {
         assert_eq!(
             card.fields.last(),
             Some(&(
-                "Should have asked".to_string(),
+                "Asks first now".to_string(),
                 "🔒 `proc.run` asks first from now on: tightened by discord:eddie".to_string()
             ))
         );
@@ -1949,7 +1949,7 @@ mod tests {
             panic!("{ops:?}")
         };
         assert_eq!(card.ask, Some(asked("proc.run", Some("act_1"))));
-        assert!(card.fields.iter().all(|(n, _)| n != "Should have asked"));
+        assert!(card.fields.iter().all(|(n, _)| n != "Asks first now"));
     }
 
     /// The Daily Driver's proof (theseus-w4f): thirty notified calls in one

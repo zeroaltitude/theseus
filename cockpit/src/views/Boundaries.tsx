@@ -81,7 +81,7 @@ export default function Boundaries() {
         </div>
         <Seal icon={<Link2 size={15} />} n={holds.length} word="chained" tone="#f472b6" hint="sessions holding outside text: their calls that act wait for you" />
         <Seal icon={<ShieldCheck size={15} />} n={confirms.length} word="asking" tone="#fbbf24" hint="approvals waiting for you" />
-        <Seal icon={<Lock size={15} />} n={tight.length} word="tightened" tone="#fbbf24" hint="tools that ask first because someone pressed “should have asked”" />
+        <Seal icon={<Lock size={15} />} n={tight.length} word="tightened" tone="#fbbf24" hint="tools that ask first because someone pressed “Make actions like this ask in the future”" />
         <Seal icon={<ShieldHalf size={15} />} n={world ? l1Then : live.length} word={world ? 'in L1 then' : 'in L1 now'} tone="#5eead4" hint="sandboxed jobs running" />
         <Seal icon={<KeyRound size={15} />} n={h?.broker.length ?? 0} word="grants" tone="#d6a548" hint="the broker's grants: who is handed which secret (names only)" />
         <Seal icon={<Eye size={15} />} n={shared} word="shared places" tone="#22d3ee" hint="guild places others read: the public tools alone, and only the context files marked public" />
@@ -213,7 +213,7 @@ function Gate({ confirms, tight, rows, title, now }: { confirms: ConfirmRequest[
           </div>
         </div>
       ))}
-      <div className="ship-engraved mt-1 text-[9.5px]">Tightenings · “should have asked”</div>
+      <div className="ship-engraved mt-1 text-[9.5px]">Tightenings · “Make actions like this ask in the future”</div>
       {!tight.length && <div className="px-1 text-[12px] text-ink-faint">no tool asks first beyond its configured posture</div>}
       {tight.map((t) => (
         <div key={t.tool} className="flex items-center gap-3 rounded-lg px-3 py-1.5 ring-1 ring-line">
