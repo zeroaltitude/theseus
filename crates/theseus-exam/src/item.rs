@@ -16,8 +16,7 @@
 //! A tool node with `external` is fetched text (DD5): its result is marked
 //! external and its session holds it (T1).
 //!
-//! **exam-v2's additions** (theseus-zaz.11), each optional, so exam-v1 loads
-//! unchanged:
+//! **The generated and hard-family additions** (theseus-zaz.11), each optional:
 //! - `[[item.generate]]` and top-level `[[background]]`: sessions made from
 //!   templates and seeds (`generate.rs`); the background's belong to no item;
 //! - `answer`: the item's decisive values. None may appear outside the item's
@@ -26,7 +25,7 @@
 //! - four families whose definitions are checked here, so an item that is
 //!   not what its family says cannot load:
 //!   - `paraphrase`: the task and each gold node share no content word, even
-//!     stemmed, under either tokenizer of the probe (`probe.rs`);
+//!     stemmed, under either tokenizer of `words.rs`;
 //!   - `scale`: at least `SCALE_NEAR_MIN` sessions of the item's past, outside
 //!     the gold's, are near-duplicates (a node sharing two content words with
 //!     the task) that never state the answer;
@@ -47,11 +46,8 @@ use sha2::{Digest, Sha256};
 use crate::check::{has_word, normalize, Check};
 use crate::generate::{Generate, Vars};
 
-/// The first exam (34a), kept so its results stay reproducible. Its text has
-/// changed once since its run, in exam-v1.2 (names only; see its header).
-pub const EXAM_V1: &str = include_str!("../exam/exam-v1.toml");
-/// The current exam (theseus-zaz.11): exam-v1's families at scale, and four
-/// families that make retrieval hard.
+/// The exam (theseus-zaz.11): ten families at scale, and four that make
+/// retrieval hard. It is the only one: the first (34a) is gone.
 pub const EXAM_V2: &str = include_str!("../exam/exam-v2.toml");
 
 /// The owner of the sessions no item owns (`[[background]]`).
@@ -106,21 +102,7 @@ impl Family {
         Family::ToolOutput,
     ];
 
-    /// exam-v1's ten.
-    pub const V1: [Family; 10] = [
-        Family::Fact,
-        Family::Preference,
-        Family::Decision,
-        Family::Procedure,
-        Family::Episode,
-        Family::Superseded,
-        Family::Private,
-        Family::Injection,
-        Family::Distractor,
-        Family::NeedsNothing,
-    ];
-
-    /// exam-v2's four, which make retrieval hard.
+    /// The four that make retrieval hard.
     pub const HARD: [Family; 4] = [
         Family::Paraphrase,
         Family::Scale,
@@ -155,7 +137,7 @@ impl Family {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExamFile {
-    /// `exam-v1`.
+    /// `exam-v2`.
     pub version: String,
     /// The past's wall clock: minutes east of UTC (−420 for MST).
     pub utc_offset_min: i32,
@@ -352,12 +334,10 @@ impl Exam {
         Ok(exam)
     }
 
-    /// The built-in exam a name gives (`v1`, `v2`), or the file at a path;
-    /// none is the current exam, v2.
+    /// The file at a path, or, with none, the built-in exam.
     pub fn load(spec: Option<&str>) -> Result<Exam> {
         match spec {
-            None | Some("v2") => Exam::parse(EXAM_V2),
-            Some("v1") => Exam::parse(EXAM_V1),
+            None => Exam::parse(EXAM_V2),
             Some(p) => {
                 Exam::parse(&std::fs::read_to_string(p).with_context(|| format!("reading {p}"))?)
             }
@@ -450,11 +430,11 @@ impl Exam {
             }
             match item.family {
                 Family::Paraphrase => {
-                    let t = crate::probe::content_stems(&item.task);
+                    let t = crate::words::content_stems(&item.task);
                     for g in &item.gold {
                         let (_, n) = item.node(g).expect("validated");
                         let shared: Vec<String> = t
-                            .intersection(&crate::probe::content_stems(&n.text))
+                            .intersection(&crate::words::content_stems(&n.text))
                             .cloned()
                             .collect();
                         ensure!(
@@ -464,7 +444,7 @@ impl Exam {
                     }
                 }
                 Family::Scale => {
-                    let t = crate::probe::content_stems(&item.task);
+                    let t = crate::words::content_stems(&item.task);
                     let gold_sessions: BTreeSet<&str> = item
                         .gold
                         .iter()
@@ -476,7 +456,7 @@ impl Exam {
                         .filter(|s| !gold_sessions.contains(s.key.as_str()))
                         .filter(|s| {
                             s.nodes.iter().any(|n| {
-                                crate::probe::content_stems(&n.text)
+                                crate::words::content_stems(&n.text)
                                     .intersection(&t)
                                     .count()
                                     >= SCALE_NEAR_WORDS
@@ -619,27 +599,9 @@ mod tests {
     /// this file does not carry it either.
     const REAL_REPO: &str = concat!("bh", "-", "ai");
 
-    /// exam-v1: 40 items, four of each family, two of each held out (§2.9:
-    /// "40 items to start, half held out"). Since exam-v1.2 it names no real
-    /// project: the distractor world's other project is invented.
-    #[test]
-    fn the_committed_exam_is_forty_items_half_held_out() {
-        let e = Exam::parse(EXAM_V1).unwrap();
-        assert_eq!(e.file.version, "exam-v1.2");
-        assert_eq!(e.file.items.len(), 40);
-        for f in Family::V1 {
-            let of: Vec<&Item> = e.file.items.iter().filter(|i| i.family == f).collect();
-            assert_eq!(of.len(), 4, "{f:?}");
-            assert_eq!(of.iter().filter(|i| i.held_out).count(), 2, "{f:?}");
-        }
-        assert!(e.digest.starts_with("sha256:") && e.digest.len() == 71);
-        assert!(!EXAM_V1.contains(REAL_REPO));
-        assert!(e.background.is_empty());
-    }
-
-    /// exam-v2: exam-v1's ten families (four items each, two held out, with
-    /// needs-nothing-3 and injection-1 replaced), and the four hard families
-    /// (eight each, four held out); hundreds of sessions over months.
+    /// The exam: ten families (four items each, two held out), and the four
+    /// hard families (eight each, four held out); hundreds of sessions over
+    /// months.
     #[test]
     fn the_committed_exam_v2_has_its_shape() {
         let e = Exam::parse(EXAM_V2).unwrap();
@@ -656,27 +618,6 @@ mod tests {
         assert!(e.item("needs-nothing-3").is_none() && e.item("injection-1").is_none());
         assert!(e.item("needs-nothing-5").unwrap().held_out);
         assert!(!e.item("injection-5").unwrap().held_out);
-        // exam-v1's other 38 items are exam-v1.2's, word for word.
-        let v1 = Exam::parse(EXAM_V1).unwrap();
-        let mut same = 0;
-        for a in &v1.file.items {
-            if let Some(b) = e.item(&a.id) {
-                assert_eq!(
-                    (&a.task, &a.gold, &a.check, a.held_out, a.family),
-                    (&b.task, &b.gold, &b.check, b.held_out, b.family),
-                    "{}",
-                    a.id
-                );
-                assert_eq!(
-                    format!("{:?}", a.sessions),
-                    format!("{:?}", b.sessions),
-                    "{}",
-                    a.id
-                );
-                same += 1;
-            }
-        }
-        assert_eq!(same, 38);
         assert!(!EXAM_V2.contains(REAL_REPO));
         // Scale: hundreds of sessions, from March to September.
         let sessions = e.pasts().count();
@@ -695,11 +636,11 @@ mod tests {
 
     /// Checks against answers whose verdicts are known: the right answer,
     /// also when it names what it avoids, passes; the answer the family
-    /// tempts fails. exam-v1's preference-1 check failed the first kind (two
-    /// of the headroom run's oracle replies, quoted here); exam-v1.1 fixed it.
+    /// tempts fails. The preference-1 check once failed the first kind (two
+    /// of the headroom run's oracle replies, quoted here); it was fixed.
     #[test]
     fn the_checks_score_known_answers() {
-        let e = Exam::parse(EXAM_V1).unwrap();
+        let e = Exam::parse(EXAM_V2).unwrap();
         let cases = [
             ("preference-1", "**wakes**\n\n(Per Eddie's note it's a bare name — no `theseus-` prefix — and the existing commands (`/new`, `/stop`, `/status`) favor short single words.)", true),
             ("preference-1", "`wakes`", true),
@@ -735,7 +676,7 @@ mod tests {
         }
     }
 
-    /// exam-v2's new items, the same way: the current value passes, the
+    /// The hard families' items, the same way: the current value passes, the
     /// stale one, the sibling's, and the near-miss fail.
     #[test]
     fn the_v2_checks_score_known_answers() {

@@ -569,14 +569,15 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item::EXAM_V1;
+    use crate::item::EXAM_V2;
 
     #[test]
     fn the_order_pairs_each_items_arms_and_is_reproducible() {
-        let exam = Exam::parse(EXAM_V1).unwrap();
+        let exam = Exam::parse(EXAM_V2).unwrap();
         let items: Vec<&Item> = exam.file.items.iter().collect();
+        let cells = items.len() * 2 * 3;
         let a = order(&items, &[Arm::None, Arm::Oracle], 3, 7);
-        assert_eq!(a.len(), 240);
+        assert_eq!(a.len(), cells);
         assert_eq!(
             a,
             order(&items, &[Arm::None, Arm::Oracle], 3, 7),
@@ -597,11 +598,15 @@ mod tests {
         }
         // Every cell once; runs in order.
         let set: BTreeSet<_> = a.iter().cloned().collect();
-        assert_eq!(set.len(), 240);
+        assert_eq!(set.len(), cells);
         assert!(a.windows(2).all(|w| w[0].0 <= w[1].0));
         // Both arms lead about half the time (a fair coin per item).
         let oracle_first = a.chunks(2).filter(|p| p[0].2 == Arm::Oracle).count();
-        assert!((40..=80).contains(&oracle_first), "{oracle_first} of 120");
+        let pairs = cells / 2;
+        assert!(
+            (pairs / 3..=pairs * 2 / 3).contains(&oracle_first),
+            "{oracle_first} of {pairs}"
+        );
     }
 
     #[test]
