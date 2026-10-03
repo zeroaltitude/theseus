@@ -76,7 +76,7 @@ this way, the chain's join gate on `main` included.
   behind each other's compiles, and three join gates lost about 25 minutes. The gate then took the lock itself in an
   inner mode, and the old way stayed as the default outer mode, which the chain's join gate used under
   `theseus-quiet.sh` (it paused the lanes' compilers while the gate ran, and its paused processes wedged gates more than
-  once: memory `theseus-gate-hangs`). On 2026-10-03 the outer mode went (cut-list Tier 5.3): one mode, everywhere.
+  once: theseus-xfr1, theseus-e6xj). On 2026-10-03 the outer mode went (cut-list Tier 5.3): one mode, everywhere.
 - **`THESEUS_GATE_LOCK`.** `inner` is accepted and changes nothing; `outer` is refused (exit 2), as is any other
   value. A worktree cut before theseus-lew7 still has the two-mode gate, whose default, outer, takes no lock unless its
   caller does: give that gate `THESEUS_GATE_LOCK=inner` until the worktree rebases.
@@ -127,8 +127,8 @@ there, the timing budgets get an overage allowance.
   benches run alone), the code otherwise healthy. In 21 of them every phase was within 63 % over its limit, and in all
   22 within 75 %. Left out: an IO storm's two runs (several phases at once over twice their limits), and four
   one-sample stalls over twice a limit (one fsync waiting on a neighbour), which no allowance should cover: the rerun
-  does. On a quiet machine (a load under 8; 68 runs), 3 % of the runs missed a phase, and the rerun covers those, as
-  before.
+  does. Strictly, 9 of those 22 runs missed a phase, against 4 of the 68 runs on a quiet machine (a load under 8),
+  which the rerun covers, as before.
 - **Seen.** The settle line says the allowance is in force (`lifecycle: still busy after 5 minutes (…); measuring
   anyway, with the busy allowance: +65% over a timing budget's limit`). A phase it carries prints the bench's own
   `MISSED`, the strict verdict, and then `lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms,
