@@ -203,7 +203,7 @@ fn ids(e: &ReachExposure) -> Vec<String> {
 /// and the parent's next turn compiles it. `node.reach` on the task's node
 /// names both sessions (generations 0 and 1), the exact compilations, and
 /// the loops. The edge is keyed and scoped as §6.1 and §2.11 say, and its
-/// first write marks no manifest.
+/// write moves no manifest: a store this build made is at its format.
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
@@ -252,7 +252,7 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
     assert_eq!(
         std::fs::read(r.dir.path().join("store/MANIFEST.json")).unwrap(),
         manifest,
-        "EDGE is marked at schema 1 already: the first edge marks nothing"
+        "a store this build made is at its format already: a write moves nothing"
     );
 
     let got = reach(&r.core.store, &last, None).unwrap().unwrap();

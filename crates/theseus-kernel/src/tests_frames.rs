@@ -810,11 +810,10 @@ fn frame(log: &Log, c: &Committed<'_>) {
     log.line(format!("== frame: {} records", c.records.len()));
     for r in c.records {
         log.line(format!(
-            "{} key={} scope={} schema={} {}",
+            "{} key={} scope={} {}",
             kind(r.kind),
             r.key.as_deref().unwrap_or("-"),
             r.scope.as_deref().unwrap_or("-"),
-            r.schema,
             String::from_utf8_lossy(&r.payload)
         ));
     }

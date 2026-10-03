@@ -99,10 +99,10 @@ Each is a requirement, with its spec section.
   notification, edge kind, or label lands with what reads it, or with a marker naming the row that brings it.
   `tests_registry` in theseus-core enforces it, and the gate runs it first. A ledger kind (`LedgerKind`) is declared
   by being written; the same test fails a kind nothing writes.
-- **The store's version rule** (P5b; Part III F4a). A record layout change bumps its kind in `kinds::SCHEMAS`, with
-  a reader for the old layout and a test that reads it, its old bytes a literal (Item 61). A frame or record
-  encoding change bumps `MANIFEST_FORMAT`. A build refuses a store newer than it knows. Schema numbers are assigned
-  when a step lands on `main`.
+- **The store's version rule** (P5b; Part III F4a; theseus-ptx1). The store has one format number,
+  `MANIFEST_FORMAT`. Any step that adds a field to a stored record, or changes the frame or record encoding, bumps
+  it, with a reader for the old layout and a sample of it in theseus-core's `tests_layouts`, its old bytes a literal
+  (Item 61). A build refuses a store newer than it knows. The number is assigned when a step lands on `main`.
 - **A typed protocol** (§1, "Wire protocol"; §3.18; Item 30). Every client, the CLI, Discord, and the web apps
   included, reaches the core only through the protocol. Each wire shape has one Rust definition, and the TypeScript is
   generated from it.

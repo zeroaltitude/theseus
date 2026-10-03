@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::record::{now_unix_ms, NewRecord, Record};
+use crate::record::{now_unix_ms, NewRecord, Record, FROZEN_SCHEMA};
 
 pub const MAGIC: u32 = 0x5448_574C; // "THWL"
 /// MAGIC, the body's length, and its crc.
@@ -296,7 +296,7 @@ fn encode_record(position: u64, at: u64, r: &NewRecord) -> Result<Vec<u8>, WalEr
     let mut out = Vec::with_capacity(RECORD_HEADER + key.len() + scope.len() + r.payload.len());
     out.extend_from_slice(&position.to_le_bytes());
     out.extend_from_slice(&r.kind.to_le_bytes());
-    out.extend_from_slice(&r.schema.to_le_bytes());
+    out.extend_from_slice(&FROZEN_SCHEMA.to_le_bytes());
     out.extend_from_slice(&at.to_le_bytes());
     out.extend_from_slice(&(key.len() as u16).to_le_bytes());
     out.extend_from_slice(&(scope.len() as u16).to_le_bytes());

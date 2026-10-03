@@ -2,14 +2,13 @@
 //! index (cache) and rebuilds the index from the WAL past the last checkpoint
 //! on open.
 //!
-//! **Versions** (theseus-qa0 F4a). `MANIFEST.json` names the store's format
-//! and, from format 3, the newest schema written for each record kind. Open
-//! reads it first and refuses a store holding a kind newer than this build
-//! knows, before anything is written. An append whose record is newer than
-//! the manifest's mark rewrites the manifest first, durably, so no newer
-//! record is ever on disk under a manifest that hides it. A format-2 store
-//! (every record schema 1) stays format 2 until this build writes a newer
-//! record into it, so an older binary still opens a store this one only read.
+//! **One format number** (theseus-qa0 F4a; theseus-ptx1). `MANIFEST.json`
+//! names the store's format. Open reads it first and refuses a store whose
+//! format is newer than this build's, before anything is written. The first
+//! write into a store an older build wrote moves its manifest to this build's
+//! format first, durably, so no record of this build is ever on disk under a
+//! manifest an older build would open. A store this build only read keeps
+//! its format, so an older binary still opens it.
 //!
 //! **One writer** (theseus-vni9). A `WalStore` owns a thread, `store-writer`,
 //! which owns every append: a caller hands it a frame and waits for its
@@ -18,7 +17,7 @@
 //! runtime worker (`blocking`). The periodic checkpoint runs on the writer
 //! too, after its answers (theseus-avvb).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
@@ -27,7 +26,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{Aside, Engine, IndexEntry, MovedAside, Projected, RedbIndex, Sums};
-use crate::record::{kinds, NewRecord, Record, RecordKind};
+use crate::record::{NewRecord, Record, RecordKind};
 use crate::wal::{History, RecordLocation, Recovery, Verified, Wal, WalConfig, WalError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,16 +217,16 @@ struct Inner {
     /// The position the last durable checkpoint claims: a stop's checkpoint
     /// is made durable by redb's close, not by itself (theseus-02k).
     durable_to: AtomicU64,
-    /// The newest schema written per kind, as the manifest says; an append
-    /// of a newer one rewrites the manifest first (F4a).
-    marks: RwLock<BTreeMap<RecordKind, u16>>,
+    /// The manifest names a format older than this build's: the writer
+    /// moves it before its first frame (theseus-ptx1). Only the writer
+    /// reads it after the open.
+    behind: std::sync::atomic::AtomicBool,
     /// Whether the manifest's rewrite is synced (the WAL's `fsync`).
     fsync: bool,
     /// Held shared by the writer from a batch's first WAL write to its index
-    /// write, and alone by a checkpoint and a manifest's rewrite: the
-    /// position a checkpoint claims is then synced and indexed, which a
-    /// tail-only open relies on (theseus-8ni), and no frame is written while
-    /// the manifest moves (Review 2's R8).
+    /// write, and alone by a checkpoint: the position a checkpoint claims is
+    /// then synced and indexed, which a tail-only open relies on
+    /// (theseus-8ni).
     appending: RwLock<()>,
     /// How long open waited for another process to release the store.
     lock_wait_us: u64,
@@ -347,34 +346,27 @@ const LOCK_POLL: std::time::Duration = std::time::Duration::from_micros(500);
 /// by its directory, so a test's holder closes only once the open is known
 /// to wait (theseus-so1a).
 #[cfg(test)]
-static HELD_TRIES: Mutex<BTreeMap<PathBuf, u64>> = Mutex::new(BTreeMap::new());
+static HELD_TRIES: Mutex<std::collections::BTreeMap<PathBuf, u64>> =
+    Mutex::new(std::collections::BTreeMap::new());
 
 /// A replay of at least this many records builds the index in key order
 /// (`RedbIndex::apply_bulk`, theseus-byu).
 const BULK: usize = 4096;
 
-/// Bumped when the WAL record layout or the manifest changes. 2 = scope
-/// field (M2). 3 = the newest schema written for each kind (F4a).
-const MANIFEST_FORMAT: u32 = 3;
-/// The oldest format this build reads. Format 2 lists no kinds: every
-/// record in it is schema 1.
+/// The store's one format number (theseus-ptx1): a step that changes the
+/// frame or record encoding, or adds a field to a stored record, bumps it, so
+/// an older build refuses the newer store. 2 = scope field (M2). 3 = the
+/// newest schema written for each kind (F4a). 4 = one number for the whole
+/// store: the per-kind marks are gone (theseus-ptx1).
+const MANIFEST_FORMAT: u32 = 4;
+/// The oldest format this build reads. A format-3 manifest's per-kind marks
+/// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Manifest {
     format: u32,
     engine: Engine,
-    /// From format 3: every kind written, with the newest schema written.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    kinds: Vec<KindMark>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct KindMark {
-    kind: RecordKind,
-    /// For a reader that does not know the kind, and for people.
-    name: String,
-    schema: u16,
 }
 
 /// What an operator is told when this build is older than the store.
@@ -382,31 +374,16 @@ const INSTALL_NEWER: &str = "install the newer theseusd: an older build never wr
      a newer one wrote, and a rollback is a restore of a copy taken before the upgrade";
 
 impl Manifest {
-    fn marks(&self) -> BTreeMap<RecordKind, u16> {
-        if self.format == MANIFEST_OLDEST {
-            // Everything a format-2 store holds is schema 1.
-            return kinds::SCHEMAS.iter().map(|(k, _)| (*k, 1)).collect();
-        }
-        self.kinds.iter().map(|m| (m.kind, m.schema)).collect()
-    }
-
-    fn of(marks: &BTreeMap<RecordKind, u16>) -> Self {
+    /// This build's.
+    fn current() -> Self {
         Self {
             format: MANIFEST_FORMAT,
             engine: Engine::Redb,
-            kinds: marks
-                .iter()
-                .map(|(k, s)| KindMark {
-                    kind: *k,
-                    name: kinds::name(*k).to_string(),
-                    schema: *s,
-                })
-                .collect(),
         }
     }
 
-    /// Refuse a store this build is too old for: a format past its own, or a
-    /// kind written at a schema newer than it reads (P5b, theseus-qa0).
+    /// Refuse a store this build does not read: a format past its own
+    /// (P5b, theseus-qa0), or one from before M2.
     fn check(&self, dir: &Path) -> Result<()> {
         if self.format > MANIFEST_FORMAT {
             anyhow::bail!(
@@ -423,26 +400,6 @@ impl Manifest {
                 dir.display(),
                 self.format,
             );
-        }
-        for m in &self.kinds {
-            let known = kinds::schema(m.kind);
-            if m.schema > known {
-                let reads = if known == 0 {
-                    "a kind this build does not know".to_string()
-                } else {
-                    format!(
-                        "and this build reads {} records up to schema {known}",
-                        m.name
-                    )
-                };
-                anyhow::bail!(
-                    "store at {} holds {} records (kind {}) at schema {}, {reads}: {INSTALL_NEWER}",
-                    dir.display(),
-                    m.name,
-                    m.kind,
-                    m.schema,
-                );
-            }
         }
         Ok(())
     }
@@ -535,9 +492,9 @@ fn open_index(path: &Path) -> Result<(RedbIndex, Option<MovedAside>)> {
 }
 
 impl WalStore {
-    /// Open or create a store in `dir`. A manifest naming another engine, a
-    /// format this build does not read, or a kind newer than it knows is
-    /// refused before anything is written, never converted (F4a).
+    /// Open or create a store in `dir`. A manifest naming another engine, or
+    /// a format this build does not read, is refused before anything is
+    /// written, never converted (F4a).
     ///
     /// The WAL is checked from the frame after the index's checkpoint to its
     /// end, for the next position and a torn frame (theseus-8ni): store open
@@ -697,11 +654,6 @@ impl WalStore {
         &self.inner.dir
     }
 
-    /// The newest schema written for each kind, as the manifest records it.
-    pub fn schema_marks(&self) -> BTreeMap<RecordKind, u16> {
-        self.inner.marks.read().unwrap().clone()
-    }
-
     /// The full check the open leaves out (theseus-8ni): every frame before
     /// where open began checking, read-only. `pace` is called after each
     /// stretch with the time it took, for a tender that keeps to its share
@@ -763,7 +715,6 @@ impl Drop for WalStore {
 }
 
 impl Inner {
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn open_once(
         dir: &Path,
         wal_cfg: WalConfig,
@@ -773,16 +724,14 @@ impl Inner {
         std::fs::create_dir_all(dir)?;
         let fsync = wal_cfg.fsync;
         let manifest_path = dir.join("MANIFEST.json");
-        let marks = if manifest_path.exists() {
+        let behind = if manifest_path.exists() {
             let m: Manifest = serde_json::from_slice(&std::fs::read(&manifest_path)?)
                 .with_context(|| format!("reading store manifest {}", manifest_path.display()))?;
             m.check(dir)?;
-            m.marks()
+            m.format < MANIFEST_FORMAT
         } else {
-            // A new store: every kind this build writes, at its schema.
-            let marks: BTreeMap<RecordKind, u16> = kinds::SCHEMAS.iter().copied().collect();
-            write_manifest(dir, &Manifest::of(&marks), fsync)?;
-            marks
+            write_manifest(dir, &Manifest::current(), fsync)?;
+            false
         };
 
         let (index, moved_aside) = open_index(&dir.join("index.redb"))?;
@@ -793,24 +742,6 @@ impl Inner {
         let (wal, missing) =
             Wal::open_from(&dir.join("wal"), wal_cfg, cp, at).context("opening WAL")?;
         wal.sync_with_first_frame(name_dirs);
-        // A record newer than this build (a manifest that lags its WAL: a
-        // WAL copied in by hand) is refused too.
-        if let Some(r) = missing
-            .iter()
-            .map(|(r, _)| r)
-            .find(|r| r.schema > kinds::schema(r.kind))
-        {
-            anyhow::bail!(
-                "store at {} holds a {} record (kind {}, position {}) at schema {}, and this build \
-                 reads up to schema {}: {INSTALL_NEWER}",
-                dir.display(),
-                kinds::name(r.kind),
-                r.kind,
-                r.position,
-                r.schema,
-                kinds::schema(r.kind),
-            );
-        }
 
         // Whether the index's terms were whole at its checkpoint: then the
         // replay below keeps them so (theseus-lv2). With no checkpoint, the
@@ -863,7 +794,7 @@ impl Inner {
             since_checkpoint: AtomicU64::new(replayed),
             checkpointed: AtomicU64::new(cp),
             durable_to: AtomicU64::new(cp),
-            marks: RwLock::new(marks),
+            behind: std::sync::atomic::AtomicBool::new(behind),
             fsync,
             appending: RwLock::new(()),
             lock_wait_us: 0,
@@ -898,10 +829,6 @@ impl Inner {
                  last); they are built again after serving"
             );
         }
-        // A manifest that lags its WAL's tail catches up now.
-        let tail: Vec<(RecordKind, u16)> =
-            missing.iter().map(|(r, _)| (r.kind, r.schema)).collect();
-        store.mark(&tail)?;
         // No checkpoint here (theseus-ptx1): the replay is the WAL's, which
         // is durable, and a crash before the next checkpoint only replays it
         // again.
@@ -920,37 +847,22 @@ impl Inner {
         self.terms_whole.load(Ordering::Acquire)
     }
 
-    /// Before records of these (kind, schema) go to the WAL: if any is newer
-    /// than the manifest's mark, rewrite the manifest first, durably, with
-    /// every kind this build writes at its schema (one rewrite per upgrade),
-    /// so an older build refuses the store before it can read the record.
-    /// It takes `appending` alone (Review 2's R8), so no frame is written
-    /// while the manifest moves; never call it holding that lock.
-    fn mark(&self, recs: &[(RecordKind, u16)]) -> Result<()> {
-        let newer = |m: &BTreeMap<RecordKind, u16>| {
-            recs.iter()
-                .any(|(k, s)| m.get(k).copied().unwrap_or(0) < *s)
-        };
-        if !newer(&self.marks.read().unwrap()) {
+    /// Before the writer's first frame into a store an older build wrote:
+    /// move its manifest to this build's format, durably (one rewrite per
+    /// upgrade), so an older build refuses the store before it can read a
+    /// record this one wrote (F4a, theseus-ptx1). The writer alone writes
+    /// frames, so none is written while the manifest moves.
+    fn upgrade_manifest(&self) -> Result<()> {
+        if !self.behind.load(Ordering::Relaxed) {
             return Ok(());
         }
-        let _alone = self.appending.write().unwrap();
-        let mut marks = self.marks.write().unwrap();
-        if !newer(&marks) {
-            return Ok(());
-        }
-        let mut next = marks.clone();
-        for (k, s) in kinds::SCHEMAS.iter().copied().chain(recs.iter().copied()) {
-            let m = next.entry(k).or_insert(0);
-            *m = (*m).max(s);
-        }
-        write_manifest(&self.dir, &Manifest::of(&next), self.fsync)
-            .context("marking the store's manifest with a newer record schema")?;
+        write_manifest(&self.dir, &Manifest::current(), self.fsync)
+            .context("moving the store's manifest to this build's format")?;
         tracing::info!(
-            kinds = ?next,
-            "store: manifest marked with this build's record schemas"
+            format = MANIFEST_FORMAT,
+            "store: manifest moved to this build's format at its first write"
         );
-        *marks = next;
+        self.behind.store(false, Ordering::Relaxed);
         Ok(())
     }
 
@@ -1047,6 +959,14 @@ impl Inner {
 
     /// Write, sync, index, and answer one batch.
     fn commit(&self, batch: Vec<Job>) {
+        if let Err(e) = self.upgrade_manifest() {
+            // Nothing is written under a manifest an older build opens.
+            for job in batch {
+                self.queued.fetch_sub(1, Ordering::SeqCst);
+                let _ = job.answer.send(Err(anyhow::anyhow!("{e:#}")));
+            }
+            return;
+        }
         // Each frame, unsynced: a frame the log refuses fails alone.
         let written: Vec<Result<Vec<(u64, RecordLocation)>>> = batch
             .iter()
@@ -1181,17 +1101,6 @@ impl Store for WalStore {
         }
         blocking(|| {
             let s = &self.inner;
-            let newer = {
-                let m = s.marks.read().unwrap();
-                batch
-                    .iter()
-                    .any(|r| m.get(&r.kind).copied().unwrap_or(0) < r.schema)
-            };
-            if newer {
-                let schemas: Vec<(RecordKind, u16)> =
-                    batch.iter().map(|r| (r.kind, r.schema)).collect();
-                s.mark(&schemas)?;
-            }
             let projected = batch
                 .iter()
                 .map(|r| {

@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::Result;
-use theseus_store::{NewRecord, Record, RecordKind, Store, StoreStats};
+use theseus_store::{NewRecord, Record, RecordKind, Store, StoreStats, FROZEN_SCHEMA};
 
 use crate::kernel::{Kernel, TurnGuard};
 use crate::terms;
@@ -141,7 +141,7 @@ impl Staged {
         Record {
             position: self.under.last_position() + 1 + i as u64,
             kind: r.kind,
-            schema: r.schema,
+            schema: FROZEN_SCHEMA,
             key: r.key.clone(),
             scope: r.scope.clone(),
             at_unix_ms: 0,

@@ -4,16 +4,15 @@ The keel (spec §6, Part II M1): an append-only WAL of checksummed, length-prefi
 truth, and a redb index rebuilt from it. Read by theseus-kernel, theseus-core, theseusd, and theseus-sim, and by
 the reserved theseus-follow, theseus-index, and theseus-exam.
 
-Key modules: `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs`. Read by: kernel, core, theseusd, sim.
+Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). Read by: kernel, core, theseusd, sim.
 
 ## What's here
 
 - `wal.rs`: segment files of atomic frames, with torn-tail truncation.
 - `index.rs`: the rebuildable redb projection, and `move_aside` for an index that is not a database.
-- `record.rs`: records and their kinds. `kinds::SCHEMAS` is the schema this build writes for each kind, and the
-  newest it reads.
+- `record.rs`: records and their kinds, and the header's frozen schema field (`FROZEN_SCHEMA`).
 - `store.rs`: the `Store` contract the kernel writes through, and `WalStore`, which composes the WAL and the index,
-  with its writer thread. `MANIFEST.json` names every kind written, with its newest schema (`MANIFEST_FORMAT`).
+  with its writer thread. `MANIFEST.json` names the store's one format number (`MANIFEST_FORMAT`).
   `blocking` runs a wait for the disk without holding a runtime worker.
 
 ## Invariants
@@ -28,18 +27,21 @@ Key modules: `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs`. R
   log's first sync syncs the directory holding the log too. A file made durable needs its directory synced too. The
   store's open adds the holder of every directory it created, the store's own included (theseus-gf00), to those the
   first frame's sync makes durable.
-- **The version rule** (P5b; Part III F4a). A new record layout bumps its kind in `kinds::SCHEMAS`, lands with the
-  reader for the layout it replaces, and brings a test that reads the old layout. A new record kind goes into the
-  table too. A change to the frame or record encoding bumps `MANIFEST_FORMAT`, with its reader. A new field on a
-  record's struct, nested ones included, without a bump fails theseus-core's `tests_schemas` (Review 2's R8),
-  which records each kind's shape under its number in `tests/golden/record_schemas.txt`; `THESEUS_GOLDEN=write`
-  adds a new number's shape and never changes a recorded one. The number itself is assigned when the step lands on
-  `main`, never in a lane. A manifest's rewrite (`mark`) takes `appending` alone, so no frame is written while it
-  moves.
-- **Writers never set a schema**: `NewRecord::json` and `NewRecord::bytes` take the table's number.
-- **A migration adds nothing before serving** (§9). Old layouts are read in place, and a start writes no manifest:
-  a store an older binary wrote is marked only when this build first appends a newer record. A build older than the store refuses it, before anything is written ("install the
-  newer theseusd"). There is no rolling back: keep the newer binary, or restore a copy taken before the upgrade.
+- **The version rule: one format number** (P5b; Part III F4a; theseus-ptx1, Tier 7's 7.9 as Eddie amended it). Any
+  step that adds a field to a stored record (nested ones included), or changes the frame or record encoding, bumps
+  `MANIFEST_FORMAT`, so an older binary refuses the newer store. It lands with the reader for the layout it replaces
+  (serde defaults, or a reader such as `Execution::from_stored`) and adds a sample of that layout, as literal bytes
+  its build wrote, to theseus-core's `tests_layouts` when the layout is on disk somewhere. A new record kind needs no
+  table. The number itself is assigned when the step lands on `main`, never in a lane: a lane that adds a field says
+  so in its report.
+- **A record's header schema is frozen**: `NewRecord` has none, the WAL writes `FROZEN_SCHEMA` (0), and nothing reads
+  the field. Records from before one store format keep their kind's old number there.
+- **Old layouts are read in place.** An open writes no manifest. The writer's first frame into a store an older
+  build wrote moves its manifest to this build's format first, durably, once: two syncs, and on a daemon that
+  frame is its kernel's startup frame, so the first start after an upgrade that bumps the format pays them before
+  serving. A store only read keeps its format. A build older than the store refuses it, before anything is written
+  ("install the newer theseusd"). There is no rolling back: keep the newer binary, or restore a copy taken before
+  the upgrade.
 - **The open reads only the WAL's tail**, from the frame after the index's checkpoint. The rest is checked after
   serving by core's `store-verify` thread, and a corrupt frame there is refused and loud.
 - **The open makes nothing durable** (theseus-ptx1): the tables' creation is a non-durable commit, and a replay

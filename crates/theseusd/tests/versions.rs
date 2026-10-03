@@ -2,11 +2,10 @@
 //! over a copy of a store an older binary wrote (460a35b; the fixture's
 //! README says how it was made):
 //! - it serves at once, and every session, execution, node, and ledger row
-//!   in it reads; its manifest stays format 2 until this build writes a
-//!   record newer than the older one could, and then is marked, once;
-//! - a store marked with a schema newer than this build knows is refused,
-//!   with a message that names the kind, both schemas, and what to do, and
-//!   nothing in it is written;
+//!   in it reads; its manifest moves from format 2 to this build's at the
+//!   start's first write, once (theseus-ptx1);
+//! - a store of a format newer than this build's is refused, with a message
+//!   that names both formats and what to do, and nothing in it is written;
 //! - the WAL's history, which the open no longer checks, is checked after
 //!   serving, and a corrupt frame in it is loud: health's `store.verify`
 //!   phase, a `store.corrupt` ledger row, and reads from it refused.
@@ -167,9 +166,9 @@ impl Rig {
             .unwrap()
     }
 
-    /// (kind, schema) of every record after `after`, from a copy of the WAL
-    /// (read-only: the daemon holds the store).
-    fn written_after(&self, after: u64) -> Vec<(String, u16)> {
+    /// The kind of every record after `after` (a ledger row's own kind),
+    /// from a copy of the WAL (read-only: the daemon holds the store).
+    fn written_after(&self, after: u64) -> Vec<String> {
         let copy = tempfile::tempdir().unwrap();
         std::fs::copy(
             self.path("state/store/wal/000000001.seg"),
@@ -181,15 +180,12 @@ impl Rig {
         wal.replay_from(after)
             .unwrap()
             .into_iter()
-            .map(|(r, _)| {
-                let label = match r.kind {
-                    theseus_store::kinds::LEDGER => {
-                        let row: Value = serde_json::from_slice(&r.payload).unwrap();
-                        format!("ledger {}", row["kind"].as_str().unwrap_or("?"))
-                    }
-                    k => theseus_store::kinds::name(k).to_string(),
-                };
-                (label, r.schema)
+            .map(|(r, _)| match r.kind {
+                theseus_store::kinds::LEDGER => {
+                    let row: Value = serde_json::from_slice(&r.payload).unwrap();
+                    format!("ledger {}", row["kind"].as_str().unwrap_or("?"))
+                }
+                k => theseus_store::kinds::name(k).to_string(),
             })
             .collect()
     }
@@ -220,7 +216,7 @@ fn snapshot(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 }
 
 #[test]
-fn an_older_binarys_store_serves_at_once_and_is_marked_at_its_first_newer_record() {
+fn an_older_binarys_store_serves_at_once_and_moves_to_this_builds_format_at_its_first_write() {
     let rig = Rig::new();
     let _d = rig.spawn();
     let h = rig.call("health", Value::Null).unwrap();
@@ -289,42 +285,30 @@ fn an_older_binarys_store_serves_at_once_and_is_marked_at_its_first_newer_record
     // read said.
     assert_eq!(h["sessions"], 4, "{h}");
 
-    // The start wrote only what the older binary writes too: the manifest
-    // is still format 2, and a rollback would still open the store.
+    // The start's first write, its kernel's startup frame, moved the
+    // manifest to this build's format first: an older build now refuses the
+    // store (theseus-ptx1). It moves once: a new session moves nothing.
     let m = rig.manifest();
     assert_eq!(
-        m["format"],
-        2,
-        "the start marked the store; it wrote {:?}",
+        m,
+        json!({"format": 4, "engine": "redb"}),
+        "the start wrote {:?}",
         rig.written_after(LAST)
     );
-    // A new session is a session record at schema 6 (T1's hold, then
-    // theseus-ljr's run of failures, theseus-0s4's images not shown,
-    // theseus-qiy's search query in the hold, and theseus-ev1's 1-hour cache
-    // writes in its usage): the manifest is marked first.
+    let path = rig.path("state/store/MANIFEST.json");
+    let moved = std::fs::metadata(&path).unwrap().modified().unwrap();
     rig.call("session.open", json!({"label": "after the upgrade"}))
         .unwrap();
-    let m = rig.manifest();
-    assert_eq!(m["format"], 3, "{m}");
-    let session = m["kinds"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|k| k["name"] == "session")
-        .cloned()
-        .unwrap();
-    assert_eq!(session["schema"], 6, "{m}");
-    assert!(rig
-        .written_after(LAST)
-        .contains(&("session".to_string(), 6)));
+    assert!(rig.written_after(LAST).contains(&"session".to_string()));
+    assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), moved);
 }
 
 #[test]
-fn a_store_marked_newer_is_refused_with_the_message_and_left_as_it_was() {
+fn a_store_of_a_newer_format_is_refused_with_the_message_and_left_as_it_was() {
     let rig = Rig::new();
     std::fs::write(
         rig.path("state/store/MANIFEST.json"),
-        r#"{"format": 3, "engine": "redb", "kinds": [{"kind": 1, "name": "session", "schema": 7}]}"#,
+        r#"{"format": 5, "engine": "redb"}"#,
     )
     .unwrap();
     let before = snapshot(&rig.path("state/store"));
@@ -333,8 +317,8 @@ fn a_store_marked_newer_is_refused_with_the_message_and_left_as_it_was() {
     assert!(!status.success(), "it served");
     let log = rig.log();
     for says in [
-        "session records (kind 1) at schema 7",
-        "this build reads session records up to schema 6",
+        "is format 5",
+        "this build reads formats 2 to 4",
         "install the newer theseusd",
     ] {
         assert!(
