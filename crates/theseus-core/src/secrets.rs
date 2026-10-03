@@ -158,6 +158,58 @@ pub struct OpReader {
     /// The token file it was pointed at, expanded; read only when
     /// `OP_SERVICE_ACCOUNT_TOKEN` is unset.
     token_file: Option<PathBuf>,
+    /// No vault at all (a benchmark's container, theseus-2sg0): why. Every
+    /// `op://` reference fails with it; `env:` and `file:` entries never
+    /// reach the reader.
+    absent: Option<String>,
+}
+
+/// A `[secrets]` entry whose value is not in 1Password (theseus-2sg0 spike):
+/// `env:NAME`, the daemon's own environment variable, or `file:PATH`, a file
+/// only its owner can read. A benchmark's container has no vault.
+pub fn is_local(reference: &str) -> bool {
+    reference.starts_with("env:") || reference.starts_with("file:")
+}
+
+/// The value of a local entry (`is_local`), or why it has none; `None` for an
+/// `op://` reference.
+fn local_value(reference: &str) -> Option<Result<Secret, String>> {
+    if let Some(var) = reference.strip_prefix("env:") {
+        return Some(match std::env::var(var) {
+            Ok(v) if !v.trim().is_empty() => Ok(Secret::new(v.trim().to_string())),
+            _ => Err(format!("{reference}: the variable is unset or empty")),
+        });
+    }
+    let path = reference.strip_prefix("file:")?;
+    Some(
+        read_private(&crate::config::expand(path))
+            .map(Secret::new)
+            .map_err(|e| format!("{reference}: {e:#}")),
+    )
+}
+
+/// A file's trimmed text, refused when its group or others may read it.
+fn read_private(path: &std::path::Path) -> Result<String> {
+    let meta = std::fs::metadata(path)
+        .with_context(|| format!("token file {} not readable", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            bail!(
+                "token file {} has mode {:o}; it must not be group- or world-readable",
+                path.display(),
+                mode
+            );
+        }
+    }
+    let _ = meta;
+    let text = std::fs::read_to_string(path)?.trim().to_string();
+    if text.is_empty() {
+        bail!("{} is empty", path.display());
+    }
+    Ok(text)
 }
 
 /// Why an `op inject` gave no values.
@@ -179,22 +231,7 @@ impl OpReader {
                 let path = token_file.as_deref().with_context(|| {
                     format!("{TOKEN_ENV} is not set and no --op-token-file was given; refusing to start without 1Password access")
                 })?;
-                let meta = std::fs::metadata(path)
-                    .with_context(|| format!("token file {} not readable", path.display()))?;
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let mode = meta.permissions().mode() & 0o777;
-                    if mode & 0o077 != 0 {
-                        bail!(
-                            "token file {} has mode {:o}; it must not be group- or world-readable",
-                            path.display(),
-                            mode
-                        );
-                    }
-                }
-                let _ = meta;
-                std::fs::read_to_string(path)?.trim().to_string()
+                read_private(path)?
             }
         };
         if token.is_empty() {
@@ -205,7 +242,20 @@ impl OpReader {
             token: Secret::new(token),
             op_bin,
             token_file,
+            absent: None,
         })
+    }
+
+    /// A reader with no vault behind it (theseus-2sg0 spike): a file config
+    /// whose secrets are `env:` or `file:` entries needs none, and any
+    /// `op://` entry fails with `why`, one consumer at a time.
+    pub fn absent(why: String) -> Self {
+        Self {
+            token: Secret::new(String::new()),
+            op_bin: PathBuf::from("op"),
+            token_file: None,
+            absent: Some(why),
+        }
     }
 
     /// The token file this reader was pointed at (`--op-token-file` or
@@ -247,6 +297,9 @@ impl OpReader {
     }
 
     async fn read_raw(&self, op_ref: &str) -> Result<Zeroizing<String>, String> {
+        if let Some(why) = &self.absent {
+            return Err(format!("no 1Password access: {why}"));
+        }
         let mut cmd = self.op();
         cmd.arg("read").arg("--no-newline").arg(op_ref);
         let child = Self::start(&mut cmd).map_err(|e| format!("spawning op: {e}"))?;
@@ -278,6 +331,9 @@ impl OpReader {
     /// measured 1 s either way, and a sixth of the CPU for the injection).
     /// Each reference gets its own slot between random boundary lines.
     async fn inject(&self, refs: &[String]) -> Result<Vec<Zeroizing<String>>, InjectFailed> {
+        if let Some(why) = &self.absent {
+            return Err(InjectFailed::Error(format!("no 1Password access: {why}")));
+        }
         let boundary = format!("--theseus-{}-", uuid::Uuid::now_v7().simple());
         let mut template = String::new();
         for (i, r) in refs.iter().enumerate() {
@@ -622,6 +678,10 @@ async fn round(
     let mut parsed = Vec::new();
     let mut distinct: Vec<String> = Vec::new();
     for name in names {
+        if let Some(v) = refs.get(name).and_then(|raw| local_value(raw)) {
+            out.insert(name.clone(), v);
+            continue;
+        }
         match refs.get(name).map(|raw| SecretRef::parse(raw)) {
             Some(Ok(r)) => {
                 let i = match distinct.iter().position(|d| d == r.op_ref()) {
@@ -805,6 +865,39 @@ mod tests {
         assert_eq!(plain.select("raw".into()).unwrap(), "raw");
     }
 
+    #[tokio::test]
+    async fn env_and_file_entries_resolve_without_the_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("key");
+        std::fs::write(&file, "tv-file-7f3a9c\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let open = dir.path().join("open");
+        std::fs::write(&open, "x").unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let var = "THESEUS_SPIKE_2SG0_TEST_KEY";
+        // A name no other test reads.
+        std::env::set_var(var, "tv-env-7f3a9c");
+        let refs: BTreeMap<String, String> = [
+            ("a", format!("env:{var}")),
+            ("b", format!("file:{}", file.display())),
+            ("c", format!("file:{}", open.display())),
+            ("d", "env:THESEUS_SPIKE_2SG0_UNSET".to_string()),
+            ("e", "op://v/i/f".to_string()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let names: Vec<String> = refs.keys().cloned().collect();
+        let reader = OpReader::absent("a benchmark's container".into());
+        let (out, _) = round(&refs, &names, &reader).await;
+        assert_eq!(out["a"].as_ref().unwrap().expose(), "tv-env-7f3a9c");
+        assert_eq!(out["b"].as_ref().unwrap().expose(), "tv-file-7f3a9c");
+        assert!(out["c"].as_ref().unwrap_err().contains("group- or world-readable"));
+        assert!(out["d"].as_ref().unwrap_err().contains("unset or empty"));
+        assert!(out["e"].as_ref().unwrap_err().contains("no 1Password access"));
+    }
+
     #[test]
     fn rejects_short_refs() {
         assert!(SecretRef::parse("op://vault/item").is_err());
@@ -856,6 +949,7 @@ mod tests {
             token: Secret::new("test-not-a-token".into()),
             op_bin,
             token_file: None,
+            absent: None,
         };
         let refs: Vec<String> = (0..2000)
             .map(|i| format!("op://Harbor/item-{i:04}/notesPlain"))
