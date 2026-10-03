@@ -5,8 +5,9 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Layers, ScrollText, Search, X } from 'lucide-react'
-import type { LedgerEntry } from '@protocol'
+import type { Health, LedgerEntry, Tightening } from '@protocol'
 import { useLedger } from '@/lib/derive'
+import { useRpc } from '@/lib/rpc'
 import { summarize } from '@/lib/summary'
 import { cn, short, stamp } from '@/lib/format'
 import { ledgerKind, toneHex } from '@/lib/taxonomy'
@@ -14,6 +15,7 @@ import { axisStyle, type EChartsOption } from '@/lib/chart'
 import { Echart } from '@/components/Echart'
 import { JsonView } from '@/components/JsonView'
 import { Empty, Panel, Pill } from '@/components/ui'
+import { ShouldHaveAsked } from '@/components/ShouldHaveAsked'
 
 const NO_ROWS: LedgerEntry[] = []
 
@@ -31,17 +33,23 @@ export default function Ledger() {
     if (next.length) p.set('kind', next.join(',')); else p.delete('kind')
     return p
   }, { replace: true })
+  // One session's rows (?session=), as the Observatory's 'this tab's session' did: from a session's own links.
+  const session = params.get('session')
+  const clearSession = () => setParams((p) => { p.delete('session'); return p }, { replace: true })
+  const { data: health } = useRpc<Health>('health', undefined, 5000)
+  const tightened = useMemo(() => new Map<string, Tightening>((health?.tightenings ?? []).map((t) => [t.tool, t])), [health])
   const [range, setRange] = useState<[number, number] | null>(null)
   const [pick, setPick] = useState<LedgerEntry | null>(null)
 
   const filtered = useMemo(() => {
     const needle = q.toLowerCase()
     return rows.filter((r) =>
+      (!session || r.session_id === session) &&
       (!kinds.size || kinds.has(r.kind)) &&
       (!range || (r.at_unix_ms >= range[0] && r.at_unix_ms <= range[1])) &&
       (!needle || r.kind.includes(needle) || (r.session_id ?? '').includes(needle) || summarize(r).toLowerCase().includes(needle) || JSON.stringify(r.data).toLowerCase().includes(needle)),
     ).reverse()
-  }, [rows, kinds, q, range])
+  }, [rows, kinds, q, range, session])
 
   const toggle = (k: string) => setKinds((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
 
@@ -62,6 +70,7 @@ export default function Ledger() {
           <Search size={13} className="text-ink-faint" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="search kinds, summaries, payloads, session ids…" className="w-96 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-ink-faint" />
         </div>
+        {session && <button onClick={clearSession} title="show every session's rows"><Pill tone="live">session {short(session)} <X size={10} /></Pill></button>}
         {[...kinds].map((k) => <button key={k} onClick={() => toggle(k)}><Pill tone={ledgerKind(k).tone}>{k} <X size={10} /></Pill></button>)}
         <span className="num ml-auto text-[11px] text-ink-faint">{filtered.length.toLocaleString()} of {rows.length.toLocaleString()} rows read · {data?.total?.toLocaleString() ?? '—'} in the ledger</span>
       </div>
@@ -83,6 +92,9 @@ export default function Ledger() {
                   {pick.session_id && <button className="text-live hover:underline" onClick={() => nav(`/session/${pick.session_id}`)}>{pick.session_id}</button>}
                   {pick.turn_id && <span>{pick.turn_id}</span>}
                 </div>
+                {pick.kind === 'tool.notified' && typeof (pick.data as { tool?: unknown })?.tool === 'string' && (
+                  <div><ShouldHaveAsked tool={(pick.data as { tool: string }).tool} corr={(pick.data as { correlation_id?: string }).correlation_id} tightened={tightened.get((pick.data as { tool: string }).tool)} /></div>
+                )}
                 <JsonView value={pick.data} maxHeight="calc(100vh - 360px)" />
               </div>
             ) : <Empty>pick a row</Empty>}

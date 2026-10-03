@@ -7,11 +7,12 @@ import { AnimatePresence } from 'motion/react'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Tabs } from 'radix-ui'
 import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, Layers, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer } from 'lucide-react'
-import type { CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, SessionHistory, Span, Tightening } from '@protocol'
+import type { CatalogList, CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, SessionHistory, Span, Tightening } from '@protocol'
 import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
-import { ago, cn, ms, short, stamp, tokens, usd, clock } from '@/lib/format'
+import { ago, cn, ms, pct, short, stamp, tokens, usd, clock } from '@/lib/format'
+import { cacheBy, pricing } from '@/lib/money'
 import { ledgerKind, toneHex } from '@/lib/taxonomy'
 import { axisStyle, type EChartsOption } from '@/lib/chart'
 import { useTick } from '@/lib/hooks'
@@ -505,6 +506,9 @@ function ContextFiles({ files }: { files: ContextFileRef[] }) {
 }
 
 function SpendTab({ turns, calls }: { turns: TurnRow[]; calls: ProviderCall[] }) {
+  // What caching did for this session, at the catalog's prices (net of what its writes cost over plain input).
+  const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 60_000)
+  const cache = useMemo(() => cacheBy(calls, () => 'session', pricing(cat))[0], [calls, cat])
   const option = useMemo<EChartsOption>(() => ({
     grid: { left: 50, right: 12, top: 16, bottom: 24 },
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: any) => usd(Number(v)) },
@@ -519,6 +523,11 @@ function SpendTab({ turns, calls }: { turns: TurnRow[]; calls: ProviderCall[] })
         <Field label="model calls" mono>{calls.length}</Field>
         <Field label="spend in rows" mono>{usd(total)}</Field>
         <Field label="avg per call" mono>{usd(calls.length ? total / calls.length : 0)}</Field>
+        {cache && <>
+          <Field label="read from cache" mono>{pct(cache.read / cache.input, 1)} of {tokens(cache.input)} in</Field>
+          <Field label="written to cache" mono>{tokens(cache.written)}</Field>
+          <Field label="saved by caching" mono>{cache.saved < 0 ? `−${usd(-cache.saved)}` : usd(cache.saved)}</Field>
+        </>}
       </div>
       <div className="panel-title">cost per turn</div>
       <div className="h-48">{turns.length ? <Echart option={option} /> : <Empty>no turns</Empty>}</div>

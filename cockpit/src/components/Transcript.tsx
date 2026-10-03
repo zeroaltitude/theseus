@@ -2,18 +2,17 @@
 // thinking, and each tool call as one card holding its input, the gate's decision, and its result.
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { useQueryClient } from '@tanstack/react-query'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Bot, Brain, ChevronRight, CircleCheck, KeyRound, OctagonX, ScanSearch, Shield, ShieldCheck, User, Wrench } from 'lucide-react'
 import type { NodeInfo, Tightening } from '@protocol'
-import { call } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
 import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords } from '@/lib/toolwords'
 import { JsonView } from './JsonView'
 import { Pill } from './ui'
+import { ShouldHaveAsked } from './ShouldHaveAsked'
 
 type D = Record<string, any>
 
@@ -151,23 +150,6 @@ function TurnFailed({ t }: { t: TurnRow }) {
       {t.errorClass && <span className="text-ink-dim"> · class <span className="num">{t.errorClass}</span></span>}
       {t.error && <div className="mt-0.5 whitespace-pre-wrap text-ink-dim">{t.error}</div>}
     </div>
-  )
-}
-
-/** "Should have asked" on a notice (theseus-sgh): one press makes the tool ask first from now on, on every surface. */
-function ShouldHaveAsked({ tool, corr, tightened }: { tool: string; corr?: string; tightened?: Tightening }) {
-  const qc = useQueryClient()
-  const [busy, setBusy] = useState(false)
-  if (tightened) return <span className="text-[10.5px] text-ink-faint" title={`tightened by ${tightened.by} · undo it from Actions`}>asks first now</span>
-  const press = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!window.confirm(`Make ${tool} ask first from now on, on every surface? It only tightens; undo it from Actions.`)) return
-    setBusy(true)
-    try { await call('policy.tighten', { tool, correlation_id: corr || undefined }); await qc.invalidateQueries() } catch (x: any) { window.alert(x?.message ?? String(x)) } finally { setBusy(false) }
-  }
-  return (
-    <button onClick={press} disabled={busy} className="text-[10.5px] text-wait hover:underline disabled:opacity-50"
-      title={`${tool} asks first from now on, on every surface. It only tightens; undo it from Actions.`}>should have asked</button>
   )
 }
 
