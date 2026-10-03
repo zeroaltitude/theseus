@@ -1,0 +1,751 @@
+# The Ship of Theseus, chapter 4: Part I, §3.10 to §3.25, the architecture from the learning ledger to AWS ([index](README.md))
+### 3.10 Learning ledger and the learning channel
+
+Feedback-driven optimization of our questions and parameters, not of the models, and not reinforcement learning in the technical sense: replaying a candidate against the incumbent's recorded outcome shows decision agreement, not what would have happened had the candidate acted. Every judgment that drove an action gets an outcome label from the human (reaction or slash command: wrong stop, should have stopped, wrong role, memory was useful or wrong), the system (a `complete` judgment followed by the same task reopening; a re-ask; a rehydration miss), or an offline audit by a stronger model over a sample. A nightly job computes per-question precision and calibration, proposes wording and category changes as versioned packs, and evaluates them on **frozen, time-separated holdouts** with minimum sample sizes. Decision-quality evaluation (does the candidate agree with labels?) is kept separate from trajectory evaluation (did acting on it go well?), which only canaries can answer: a promoted pack runs on a small canary share with automatic rollback on safety regression. Changes touching `security.v1`, the privileged shell mapping, or authority decisions require human approval. The same machinery tunes `MemoryScience` parameters and the shell mapping table.
+
+The **learning channel** is a Discord channel per guild (bound `listen_only` for memory, write-enabled for the ledger) where scored classifications, proposed new roles or categories, and pack promotions are posted for the operator to accept, reject, or nudge with a reaction. The web UI shows the same stream with richer controls.
+
+### 3.11 Voice
+
+Voice is a Discord voice channel via `songbird`, receive and transmit. STT and TTS are `Speech` plugins; Deepgram and Cartesia first, since the operator's earlier voice project carries the integration knowledge. Push-to-talk versus voice activity detection is a human Discord preference, not an agent concern. The agent joins a voice channel only when invited. Core behaviours lifted from that project: barge-in cancels TTS mid-sentence, proactive speech when background work reports back, deferred reports queued for the next pause, short verbal acknowledgements when a turn will take more than a couple of seconds. A voice channel is a channel; its conversation is shared with the paired text channel under the same binding; its transcript is text in the same graph. TTS voice is a persona attribute that roles may modulate. _(2026-10-03: voice leaves v1 until Eddie chooses speech providers, rows 77 and 78, and its crate is parked outside the workspace until then; §2, P9, Part III Item 72.)_ _(At 14:20 the same day Eddie chose Deepgram for both speech to text and synthesis, so voice returns to v1, rows 77 and 78, its crate rejoining the workspace with its row; §2.)_
+
+### 3.12 Plugins
+
+Two kinds. **Compiled-in feature crates** behind Cargo features: Discord, AWS, Anthropic, Jev, Deepgram, Cartesia, the native `MemoryScience`. One static binary; adding one is a rebuild and a pull request. **Runtime extensions** are MCP servers running in an L1 sandbox as children of the daemon's process tree (§3.8, §7): any language, isolated at the OS level, started in about a hundred milliseconds, hot-loaded and revocable without a restart. Contract surfaces: `Transport`, `Tool`, `Judge`, `Provider`, `MemoryScience`, `Speech`, `Shell`, `Store` (`Hook` left the list on 2026-09-28, §3.17). Rejected: dynamic shared libraries (no isolation, break the static binary), deployment sidecars and Docker (tenders and sandboxed MCP servers are children of the same binary, not sidecars), embedded scripting engines (one language, weak isolation). **WASM was in earlier drafts and is not a commitment** (2026-09-26): it would buy microsecond starts and per-function capability grants at the cost of roughly doubling the dependency tree; it returns only as a measured experiment if per-tool process cost is shown to matter.
+
+**One tool contract, three backends** (decided 2026-09-26, Appendix E). Every tool the model can call presents through one `Tool` contract: name, JSON schema, description, retry class (§3.16), the authority and capabilities it needs, and `invoke`. Two backends implement it and the model never learns which: compiled-in Rust, and MCP servers (out of process, in an L1 sandbox, §3.8). The gate, the ledger, the trace, and telemetry therefore see one shape and are written once. Vocabulary, so the layers do not blur: a **plugin** is a compiled-in unit that registers tools, providers, or channel adapters _(hooks left both lists on 2026-09-28, §3.17)_; **MCP** is the transport for tools that live out of process, and the only runtime extension path. **Channels are adapters, never tools**: Discord is where authority comes from (who spoke, where, with which roles), and that context is trusted kernel data. Routed through a tool result it would become untrusted content under §3.9. An MCP server may expose Discord *actions* to the model (post, react); the inbound path and identity stay in the kernel. Likewise the kernel itself (executions, completions, the WAL, the turn lock), memory recall (compiler-selected, never model-invoked; an explicit lookup tool may exist alongside), and thinking (native to the model) are not tools.
+
+### 3.13 Budgets
+
+Budgets are a first-class notion: a `Budget` is a named ceiling with a unit (money, tokens, judgment calls, wall clock, tool invocations) and a window, attachable to any part of the system a binding, role, person, guild, conversation, task, MCP server, or shell class. The budgeter **reserves** against every budget in scope before a turn or tool call and settles actual consumption afterwards, atomically per execution, so concurrent executions cannot jointly overrun a shared ceiling. Admission control is global: new executions queue with bounded depth when node-wide reservations (model concurrency, Jev calls in flight, sandbox slots, arena headroom) are exhausted, and the channel is told it is queued. Overload sheds proactive and scheduled work first, human requests last. Budgets distinguish **enforceable limits** from **estimated exposure**. Reservations prevent concurrent executions from jointly admitting more work than permitted; they cannot by themselves guarantee a strict dollar ceiling when usage is unknown after a provider timeout, an external resource keeps billing while the harness is down, or cancellation is delayed or unsupported. Therefore: unknown consumption is treated conservatively (the reservation is held until reconciled, never released on timeout); Jev calls, memory and consolidation work, STT/TTS, retries, and compaction are accounted, not free _(hook handlers left this list with the hooks, 2026-09-28)_; backend-enforced runtime limits (Lambda timeouts, ECS task limits, cgroup limits, wrapper deadlines) are set from the budget where available; a **reserved control and cleanup budget** exists so that reaching a ceiling never prevents cancelling work, recording outcomes, or telling a human _(retired 2026-09-29, theseus-0sg: nothing at the limit ends work or refuses a cancel, so nothing needs holding back; see "As built" below)_; and elapsed lifetime, active compute time, and monetary spend are separate units. Disk-full handling likewise reserves capacity for control records and completion metadata so a running job can still write its result. Visibility exists from the first version: every turn result carries tokens in, out, cache read and cache write, first-token and total latency, and the provider request id; every session record accumulates its tokens; health reports totals and provider-error counts; the ledger is readable over the protocol (`ledger.tail`) and the CLI. Budget defaults will be ascertained as the system runs and recorded here as they are learned; until then, the only default is that a ceiling stops new work and says so. _(Superseded 2026-09-29: the default is a $100 limit per session, and reaching it asks the operator to reset the spend instead of stopping; see "As built" below.)_ The owner sets budgets; operators may tighten them within their scope.
+
+**As built: dollars, a limit, and a reset** (Eddie, 2026-09-29, 00:09; theseus-0sg, cb824c7, fdf4813, d6183d1). In Eddie's words: "Right -- dollars is good. Let's record all model costs in the config. Let's set the spend limit in the config to 100$. Let's make it so when you hit the limit, the gateway asks the trusted operator whether the current cost can be reset to 0 to continue". The general design above stands: reservations before each call, and unknown consumption held until reconciled. What is built:
+- **Money, in micro-dollars.** An execution's budget is its limit, its spend, its reservations, and its held-unknown amounts, all in micro-dollars priced from the catalog. The arithmetic is integer, with one rounding up per call. Token counts stay in usage, the ledger, and telemetry.
+- **The limit** is `[kernel] spend_limit_usd`, $100 by default, per session. An open session follows it when it changes (below).
+- **The reservation.** A provider call reserves its output cap at the output price plus its input estimate at the input price (§4.4a: the compiler's estimate, counted on the provider's own count of the last request from a compilation's second call on; theseus-f5hf). It settles at the real cost: input, output, cache reads, and cache writes, each at its own price.
+- **At the limit, Theseus asks.** A reservation that does not fit writes nothing. The turn asks the operator, "This session has spent $X of its $100 limit. Reset its spend to $0 and continue?", and the session waits, the way a call waits for approval. The question goes to the session's Discord place (only its listed users can answer), the web UI, and `theseus confirm`. When trusted-channel approval lands (§3.9, Approval), the question follows its rules like any approval.
+  - An approved reset sets the spend to $0, and the waiting call goes ahead. Reservations and held amounts stay. The reset is ledgered as `budget.reset`, with who approved it, the spend before, and the limit.
+  - The session's lifetime cost keeps counting (`cost_usd`, and the total in health), so a reset never hides money already spent.
+  - A decline keeps the session waiting, and new input asks again. The operator can also cancel the session or start a new one.
+  - A reset is the only way spend goes down, and an execution has one open question at a time.
+  - *A call bigger than the whole limit* (theseus-kks, built by Theseus itself, Part III A4 Item 14). No reset can make it fit, so its question says so: "…which alone reserves $1.29: more than its whole $1 limit, so resetting its spend to $0 cannot make it fit". It names both remedies: raise `spend_limit_usd`, or lower the profile's `max_output_tokens` (with its value). An approval resets the spend and tries the call once more. If it still does not fit, the turn fails with the class `over_limit` (not transient), a `budget.over_limit` row, and a notice that names the remedies. It does not ask again. The question's proposal keeps the call's profile, model, and cap as `args.call`, and `budget.asked` says `exceeds_limit`.
+  - *A reset leaves held what it can't free* (theseus-6g6; built 2026-10-02, Part III Item 54): money reserved for calls in flight, and money held for calls whose cost is unknown. A call that needs more than the limit less both can't be answered by a question: the question says so, with the held amount and the remedies (raise the limit, lower the cap); an approval tries the call once more; when it still doesn't fit, the turn fails (`over_limit`) and doesn't ask again. `budget.asked` gains `fits_after_reset`, `reserved_usd`, and `held_unknown_usd`, and `budget.over_limit` gains `held_usd`.
+- **No control reserve.** Nothing at the limit ends work or refuses a cancel, so nothing needs holding back for cleanup.
+- **Unit budgets are retired.** `[kernel] default_budget` and `control_reserve` still load, are ignored, and warn. A versioned reader serves executions stored with unit budgets: each gets the configured limit, its spend comes from its session's recorded `cost_usd`, and the unit figures are kept as `units_before`. Startup rewrites each one once, with a `budget.migrated` row. ~~An execution that already ended `budget_exhausted` stays ended.~~ An execution the unit budget ended (`budget_exhausted`) whose dollar spend is under its limit reopens at the next start, waiting on input, as if the operator had reset it (Eddie, 2026-10-01 at 19:54, option (a); theseus-3ebd, Part III Item 53). Dollars end nothing, so only such an execution can be `budget_exhausted`; one at or over its dollar limit stays ended. Step 2 reads them by their state term, and the reopen is ledgered as `budget.reopened`, with the spend, the limit, and the old reason, in step 2's one migration frame, once.
+- **An open session follows the config's limit** (Eddie, 2026-09-29, 09:21; theseus-3pj, 430d291). A session's limit is what `[kernel] spend_limit_usd` says now, not what it said when the session opened. Since a changed config note restarts the daemon onto it (§3.19), "I changed the limit and restarted" means what it says, for the long-lived Discord place too.
+  - *When.* Once, at the moment the config becomes the vault's word. For a config that may act at once (a file, or a vault read before serving), that is in startup. For a start served from the copy, it is on the vault's confirmation, before anything may act. So nothing acts on an old limit once the vault has confirmed a new one, and startup under a copy writes no limit the copy decided.
+  - *What.* Each open execution whose limit is the config's takes the new limit, all in one frame, with a `budget.limit_changed` row (from, to, the spend, and what is left). Spend, reservations, held amounts, and resets are untouched. So spend still goes down only through an approved reset, and the lifetime cost never goes down.
+  - *A raise* lets a session waiting at its old limit go on. Its question is withdrawn, with the reason ("withdrawn: the spend limit was raised from $A to $B"). It becomes the result the next turn consumes, as an approved reset's does, and the driver makes the waiting call. If the raise is still not enough, that call asks again, with the new figures. A session whose question was declined goes on too.
+  - *A lower limit* changes nothing else. The next reservation that does not fit is refused, and the turn asks, as usual.
+  - *What keeps its limit:* an ended execution, and an execution opened with a limit of its own (`pinned`). DD7's carved task budgets will be the first of those.
+- **A model with no price is not called.** A model priced neither in the config nor in the built-in table is refused, with the class `unpriced` (Part III A4).
+
+**Prices live in the config** (cb824c7). The template lists every built-in model as a `[catalog."<id>"]` table with its four prices per million tokens (input, output, cache read, cache write), one table per model. The text is generated from the built-in table, and a test fails if the template and the built-in table ever disagree. A table over a built-in model names only what it changes, and a model the built-in table lacks must name every figure a call uses. At startup, one warning names every built-in model that has no table in the config; such a model is priced from the built-in table.
+
+### 3.14 Web UI
+
+Embedded in the binary, served on the node, authenticated by Discord OAuth against the operator role table. **First form (M0.5):** a Vite + React app embedded in `theseusd` and served on `127.0.0.1:7433`, loopback only, and answering only its own page and address: every route refuses a request whose `Host` does not name the UI, and `/ws` refuses a foreign or missing `Origin`, the defense against DNS rebinding and other pages in the browser (theseus-70f). It serves only its own user (theseus-3qf).
+- A connection whose client socket another uid owns (its row in `/proc/net/tcp` or `tcp6`, IPv4-mapped forms included) is refused with a 403 as it is accepted, before any request is read. So is one whose owner can't be read. _(Since theseus-u6xg, Part III Item 46: the owner is read with one `sock_diag` request, about 12 µs, where reading the table took about 2 ms; the tables stay as the fallback.)_
+- A client that closed first is dropped uncounted. A platform with no such table (not Linux) is served unchecked, and health says so.
+- The three kinds of refusal are counted in health's `web` section and ledgered as `web.refused` (`host`, `origin`, and `peer` with the client's uid), at most once a minute per kind. A clean stop writes what a kind's minute still holds, in one frame, before its last checkpoint (theseus-sqpx; Part III Item 55).
+- For UI development, `[web] dev_origin` (off by default) names the dev page (theseus-zab). While it's set, `/ws` serves that one origin too, counted and ledgered (`web.dev_origin`), and every other route still answers only the UI's own address. The dev page connects straight to the daemon's `/ws`, with no proxy. A proxy, whether or not it rewrites `Origin`, would relay other pages and other users' processes from the operator's own socket (theseus-88im). Set it only while developing.
+
+Still no auth. The browser is a protocol client over a WebSocket where each text frame is one JSON-RPC line, so it has no privileged path into the kernel. It shows the prompt, the streamed reply, tokens in and out per exchange and per session, totals, timing, the classified error when a turn fails, and the notification stream behind each turn, where thinking and tool calls will render later. Purpose: immediate and local observability. Conversation snooping (live view of any conversation's transcript, assembled context manifest, and loop state), the ledger stream with RL feedback controls, category and role management with scoring nudges, binding and policy editing with audit trail, tender health, arena occupancy, and budget burn. Historical search is CloudWatch: the ledger, bus events, and structured logs ship there through the durability tender when AWS is configured.
+
+_(Amended 2026-10-01, theseus-in3, Part III Item 33: the web apps follow the push.)_ The Observatory's sidebar shows each session's attention as a pill, and its header how many sessions need you, opening the longest waiting. It reads `executions.watch` on each connect, and each `execution.changed` into its rows. A session met for the first time, or one whose turn just ended, is read with `session.list { ids }`, and everything is read again after `events.lost`. The 5 s poll is gone. The Observatory pane's diagnostic tables keep their 2.5 s timer, refresh within a second of any change, and the Kernel panel shows the push. The cockpit shows attention in the Fleet, the Bridge, and the session deck, and reads its session, execution, question, and task lists again only when the push says something changed. Health's `disk` and the spool's last sweep are on both apps' screens (theseus-51v8, Item 35): the cockpit's Systems view has a Disk · spool card, and its status strip a disk dot and, while the disk is low, an attention item.
+
+**The cockpit** (theseus-45n5; built 2026-10-01, Part III Item 23). A second app at `/cockpit/`, which the Observatory links to as "see the new experience". It's the operator's instrument panel: how Theseus is running, with drill-down to each turn's loops, calls, tokens, cost, and context.
+- It is a protocol client like the Observatory, over the same `/ws` and the same client (`web/src/protocol.ts`). It is served from the binary under the same `Host`, `Origin`, and owner rules, and adds no privileged path.
+- It doesn't replace the Observatory, which stays the plain view. _(Decided 2026-10-03, the cut-list's 6.4: the cockpit replaces the Observatory, after a parity check; the parity inventory runs in the third cloud batch.)_
+- Its build is embedded when present. A daemon built without it says how to build it.
+- **Every call can be opened whole** (Item 27). The call inspector (`?call=<tool_use_id or correlation id>`) gathers
+  one tool call's story from the transcript and the ledger: what the model asked, what the gate said and why, its
+  life as timed phases (planned, awaiting approval and who answered, authorized to dispatched, starting, running,
+  and until recorded), its job, and what came back. The model-call inspector (`?msg=<node_id>`) does the same for
+  one model call: where its time went, its tokens and what the cache saved, its cost recomputed at today's prices
+  beside the record, the provider's headroom, the context it saw, and what it said. Each lives in the address, so
+  it can be linked to, and each reads the ledger only while it is open.
+- It acts through the protocol's own controls, each confirmed first: open a session (`session.open`), recompile
+  one (`session.recompile`), cancel a task (`task.cancel`), make a profile live (`profile.use`), beside stop,
+  cancel, answer, trust, and tighten from Item 23.
+
+**The Narrative** (Eddie, 2026-09-28, 20:38; theseus-5fy, e3ba8d6, 810aa6d, 12a4805). In Eddie's words: "I want every architectural part of the session/turn/loop/model call structure to have a narrative output that goes straight into an output channel that shows up in the web interface in a new pane called 'the narrative.' If narrative: true is in the config, the pane exists as a new tab in the web UI and the narrative output populates it. If false, the outputs never happen, and the pane never displays." The narrative is the fourth window onto a turn, beside the trace (§3.3a), the ledger (§3.10), and telemetry (§3.20). It is written for a person watching live, not for a tool, and unlike the other three it is never stored.
+- **What it says.** One plain sentence per step, as it happens: a session opened, woken, parked, or cancelled; a turn started, ended, or failed, with what its loops spent; each loop and the Advancer's decision; the context appended to or recompiled; each model call's reservation, answer, refusal, or failure; each tool call's posture and why, its approval, job, result, and late result; the driver resuming an execution.
+- **How it is written.** Every sentence is a fixed template filled from values the structure already holds. No model writes a word, so it costs no tokens. A sentence names a tool and its main resource (a path, or the program and its subcommand), and gives counts, sizes, times, and costs. It never carries tool input or output, secrets, or message text beyond a character count.
+- **The channel.** `narrative.watch` answers with the recent tail (the last 500 lines, held in memory) and then streams `narrative.line`, so a tab opened late still shows recent history. Nothing is written to the store. Unlike the other notifications, `narrative.line` is not a ledger row.
+- **The pane.** With `narrative = true` at the top of the config, the side pane has two tabs, the Observatory and **The Narrative**. Each line shows its time, its part, its session (a link, by short id, that opens it), and its sentence. The pane follows the newest line unless the operator scrolls up, and it can filter to the open session.
+- **Off means off.** Each step tests one flag before it formats anything, so when the key is absent or false nothing is formatted, sent, or kept. `health` says `narrative: false`, the tab does not exist, and `narrative.watch` answers DISABLED.
+- **Cost.** On, it adds no frame: a plain turn still writes 17. A line costs about 1.4 µs with a watcher, so a plain turn of about 117 ms spends about 13 µs on it. Lines are serializable, so storing them later is a small step.
+
+### 3.15 Executions
+
+A **conversation** is a derived view (§3.2). An **execution** is the durable object that represents one piece of work being carried out. It is what the loop runs, what budgets are reserved against, what can be cancelled, and what survives a crash.
+
+```
+Execution {
+  id, created_at, state: queued | running | waiting | blocked | cancelled | failed | budget_exhausted | complete,
+  session: { kind: conversation | task, root: channel id | task id },        // §3.2a
+  channel: current channel it reports into (may change on switch), origin_channel, reports_to: channel | parent task,
+  authority: { principal, delegation?, binding, ceilings },      // §3.9
+  task_scope: [task ids accepted for this execution],
+  role: current role, role_history,
+  config_versions: { packs, model, memory params, shell mapping, binding revision },
+  wake: { due_at? | external_op_id? | blocked_on_execution? | on_jev_recovery? },
+  budget_reservations: [...],
+  outstanding: [ confirmations, tool calls with idempotency keys, external ops ],   // §3.16
+  attempt: retry/recovery counters,
+}
+```
+
+Rules: one execution per session, one turn at a time per execution; an execution reports into one channel at a time; a channel orders deliveries, not turns, so a conversation execution and any number of task executions reporting into the same channel run concurrently; the admission scheduler bounds how many hold a turn; a channel switch is an execution moving, not a new execution. An execution is `waiting` when it has no runnable model work but a wake condition exists (a due time, a running shell or external operation, a blocking execution, a pending confirmation, Jev recovery, and since 2026-09-29 a budget question, §3.13). `waiting` executions are tended by the harness loop at near-zero cost and never consume model or Jev calls until their wake fires. Deterministic control paths, `/stop`, `/cancel <execution>`, permission revocation, budget exhaustion, act on executions directly and never route through Jev. Executions are nodes in the graph (`Execution` kind) with `in_channel`, `by` (principal), `evidence_for` (tasks) edges, so the context assembler can show the model what it is currently executing and why.
+
+**One writer at a time.**
+- Every kernel transition that reads an execution, or one of its actions, and writes it back holds that
+  execution's lock from the read until its frame is indexed: the append, its fsync, and the index update.
+- Actions belong to their execution, and its lock covers them.
+- Writers of different executions never wait for each other.
+- A reader that writes nothing takes no lock, so its view can be one frame stale. A decision read from such
+  a view (the reconciler's scan, startup's) is read again under the lock before anything is written.
+- A transition that touches two executions, such as a child's spend counted against its parent's, takes
+  both locks in id order.
+- **Several transitions in one frame are a kernel transaction** (theseus-0owd, Review 2's C6; built
+  2026-10-01, Part III Item 41). It takes every lock its transitions need first (the executions it names and
+  their parents), in id order. Its transitions stage their records in memory, each reading what the earlier
+  ones staged, and it commits them as one frame, observed once; if any fails, nothing is written. A
+  transition inside takes no lock of its own: one that would lock again, or that touches an execution the
+  transaction didn't name, panics. So a merge of frames is a composition of the ordinary transitions, never
+  a new combined one, and a crash leaves all of a transaction's transitions or none.
+- A transaction never spans a wait: its locks belong to the thread that took them.
+- So a cancel is never lost to a commit read before it, and no commit is lost to a cancel.
+
+**Pending wakes** (theseus-cff; built 2026-09-30). A conversation asks for a turn at a time with `wake.at { at | after, note }`. The wake goes on a list on the execution (`wakes`), beside its one `wake`, which keeps saying what the last turn parked on. One field cannot say both: a conversation waits on its next input and on its due times at once, and one that waits on its own job must still be woken ("check the build in ten minutes" while the build runs).
+- **Firing.** A wake fires once it is due and its execution is free: waiting on input, a due time, a job, or another execution, where new input would start a turn too. It never fires over an approval or a budget question, since only the operator answers those. The due scan runs on the driver's half-second tick, and in the heartbeat's reconciler as a backstop, and queues the execution for the driver (`resume_pending`). A busy execution keeps its wakes, and the frame that ends its turn queues it again.
+- **Once.** The next turn takes every due wake in one frame, which removes them and writes each as a user-role node from the harness (`⏰ wake (set 13:05): <note>`), before any new input. A crash before that frame leaves them pending, and a crash after it leaves them taken. A wake's id comes from the call that set it, so a call run again after a restart finds its wake. A wake's or a report's reply is framed from the nodes the session hasn't answered, and goes where the take kept the target (a META record written in the taking frame), so the retry of a turn that failed before its reply answers as the first would have (theseus-4lx; Part III Item 54).
+- **Late.** Startup writes nothing for a due wake: the driver's first tick queues it, after serving and after the vault confirms the config. A wake that runs more than 5 s late says when it was due and how late, and, when it fell due before this process started, that the daemon was not running. The ledger's `wake.fired` row always carries `late_ms` and `while_down`.
+- **Bounds.** At most 5 per session, 1 s to 30 days ahead, and notes up to 2,000 characters. A task cannot set one. A cancel of the execution, or its end, drops its wakes; a stop keeps them (W1). A wake's turn is an ordinary turn, with the session's authority, budget, and model. Its reply goes where the session posts, or, if the place has moved on to a new session, to where the wake was set.
+
+**Stopping** (theseus-lji; built 2026-09-30). `/stop` halts a conversation's work and keeps the conversation (`execution.stop`, `Kernel::stop_execution`). It is not a cancel, which is terminal.
+- **What stops.** Running jobs and tool calls are told to stop, and their backends terminated, as for a cancel. Planned calls, approvals, and the budget question are declined, so nothing the work asked for runs later. A turn running then gets a stop mark: its next step is refused, it runs none of its answer's calls, and it posts no reply and no failure notice. ~~Its model call, if one is in flight, runs to its end, and its cost is booked.~~ Its model call, if one is in flight, is cut: the turn writes no answer and plans no call, and the call settles as failed at an estimate of what it used (the input its reservation assumed, and three characters of streamed text to an output token, thinking included), never held unknown, with a `provider.cut` row (theseus-yey; built 2026-10-02, Part III Item 54). A stop that lands after the stream ended keeps the answer and runs none of its calls. The turn of an input sent before the stop and not yet admitted (it waited for its secrets, or for admission) is stopped too, as it starts, and plans nothing (theseus-hmwv; Part III Item 55).
+- **What stays.** The execution waits on its next input, and the next message continues the same session and execution. Its history, budget and spend, pending wakes, and tasks are kept, and `/cancel <id>` stops a task or cancels a wake. A stopped job's result reaches the next turn as a late result, `[cancelled: stopped by <who>]`.
+- **How it reads.** A call the stop ended, running or waiting, reads as a stop on every surface:
+  - `⏹️ <call> · stopped by <who>` on its Discord tool line and notice card;
+  - `stopped by <who>` in `theseus watch` and the history;
+  - a `⏹️ stopped by` pill in the web UI.
+
+  Its result keeps the status `cancelled` and carries `stopped_by`. Since 18a (Part III Item 60) each also says how the stop is known: the result's head reads `[cancelled: stopped by <who>; verified: process tree, 2 processes]`, and Discord's line and card and the CLI's tool line add `(verified)` or `(not verified: <why>)`. The web UI's pill doesn't yet (theseus-aqor); the cockpit's boundaries board shows each verdict since Part III Item 64. A cancel's call still reads `🚫 … not run`. A call's Discord line follows the call into the turn that runs it (an approved call, a late result), so it always says how the call ended (theseus-4uw).
+- **Once.** A stop is one frame. After a crash, startup does not resume a turn that a stop had stopped. A task cannot be stopped; its cancel ends it.
+- `/new` alone starts a fresh session.
+
+**Cancelling** (theseus-w98; built 2026-10-01, Part III A4 Item 17) ends an execution for good
+(`execution.cancel`, `Kernel::cancel_execution`). Its running jobs and calls are told to stop, and their backends
+terminated, as for a stop. Everything it planned and never sent ends in the cancel's own frame:
+- what it ends: a tool call waiting for the operator, a call between its plan and its dispatch, and the budget
+  question;
+- how each ends: it settles cancelled, its resolution "the execution was cancelled by <who>", and its
+  reservation released;
+- what follows in the same frame: each such tool call's result, as the next turn would have written it ("Not run:
+  the execution was cancelled by <who>."), unless a turn holds the execution;
+- afterwards: each question's card settles where it was posted.
+
+So nothing of a cancelled execution counts as waiting: not in the session list, the history, or `confirm.list`. A
+turn that ends its execution (complete, failed) ends what it left unsent in the same way. A turn that planned a call
+the cancel ended hears the cancel at its next step, as before.
+
+**A cancel answers every call it ends** (theseus-0o8, theseus-ni5; built 2026-10-02, Part III Item 54). A cancelled execution takes no more turns, so the core writes what its calls left unanswered: a call never sent reads as not run; a stopped job keeps its output so far; a call that can't be stopped, or whose end wasn't verified, is unknown, never "not run"; a background job's placeholder gets its end as a late result. It runs once no turn holds the execution: in the cancel's handler, and at the end of the turn that held it. A call that finishes after the cancel settled it keeps its real result in the transcript, and the action keeps the late completion. A call planned before a restart and never asked is declined, and answered "not run", in the continuation.
+
+**What needs the operator** (theseus-in3; built 2026-10-01, Part III Item 33). Every surface shows an execution the same way: one pure function in `theseus-protocol`, `attention()`, maps its view to a level and a label, and the server puts the result on the wire, on `execution.changed`, on `executions.watch`'s snapshot, and on `session.list`, `execution.list`, and `task.list`.
+- **The view** (`ExecutionView`): its state; what it waits on (the kernel's wake, typed, with a fallback for a wake a client does not know); its questions in brief (the tool, the gate's reason, the floor, and whether it is a budget question); its turns and its dispatched calls; its spend and limit; why it ended, or why its frame queued it; its soonest pending wake; its parent session; and the WAL position of the frame it comes from.
+- **The levels**, the most urgent first:
+  - *needs you*: a question, a block, a failure, `budget_exhausted`, or a wait on a question none holds;
+  - *working*: running, queued, waiting on calls, another execution, or a due time, and waiting on input with calls still dispatched (a job its turn left running);
+  - *ready*: a conversation between exchanges;
+  - *idle*: complete, cancelled.
+
+  A state or a wake a client does not know reads as working, never ready, so a sleeping task's wake never says "finished".
+- **The label** says why: `confirm proc.run: run cargo test · floor`, `budget: $10.02 of $10`, `turn 4`, `queued · report`, `waiting on 2 calls`, `sleeping until 14:00`, `ready · wake 16:00`. A time of day is the server's clock's.
+- What a client has seen, where it focuses, debouncing, and sound stay in each client. "Done until seen" is a client's: a level that moved from working or needs you to ready or idle after it last showed the session.
+
+**A continuation's model** (theseus-kol; built 2026-09-30). A continuation is a turn no input started: a job's late result, a restart's resume, the retry of a failed turn, a wake's or a report's turn. It runs on what the session's last turn ran on (its profile, provider, and model), never on the live profile. So a conversation does not change model under its own thinking blocks, and a `-P glm` turn's job is answered by GLM.
+- A turn records its target from its start, in the session record. An input that changes it writes it in the input's own frame. Every other session write the turn makes (a recompile's, a failure's, its end's) carries it, so a crash or a failed call leaves it as the turn ran.
+- A profile no longer configured gives its provider and model under the live profile's settings. Only a session with neither runs on the live profile, and §4.4's thinking rule then keeps the old provider's thinking out.
+
+**A failed continuation keeps its input** (theseus-kol). What a turn writes before its model call (a late result, a restart's placeholder, a wake's or a report's node) stays in the session, unread.
+- A continuation that finds results after the model's last answer calls the model. It was woken to have them read: a failure's or a fault's retry, a late result taken at a turn's end, or a crash. It never ends `nothing_new` on them.
+- A result leaves the execution's queue only in the frame that writes it into the session (§4.6).
+- A turn that stops short of its results by its own decision (its loop cap, `/stop`) parks on input, and nothing wakes it without writing something new.
+- **A failure's retries are bounded** (theseus-ljr; built 2026-10-01, Part III A4 Item 15). A failed turn extends its session's run of failures. The session record keeps the run (`failing`, session schema 3), so a restart neither retries it again nor posts its notice twice. A turn whose model answers ends the run, and so does new input.
+  - A class that passes with time (overloaded, rate limited, a server error, a timeout, the network, a broken or cut stream) is retried by the driver with its backoff (2 s, doubling, capped at 256 s) for as long as it lasts.
+  - Any other class (a 400, a 401, a model the provider does not serve, an internal fault) gets one retry, since a config or profile change may have cured it. Its second failure parks the execution on input, and the next message retries.
+  - A turn that failed before any provider call returned (a call over the whole limit after an approved reset, an unpriced model) has nothing a retry would change, and parks at once.
+  - The run posts one notice where the reply would have gone: at its first failure when it backs off, and again when it parks, saying that the next message retries. The ledger's `turn.next` row says what each failed turn led to.
+
+_(theseus-id9; Part III A3c.)_
+
+### 3.16 External actions and completions
+
+Local durability cannot make an external side effect atomic with the log, and holding a pending result in harness memory makes it die with the harness. Both problems have one answer: every tool call that leaves the process is a durable record whose completion arrives as an event from outside the harness's own stack.
+
+**Lifecycle**, written to the WAL at each transition:
+
+`planned → authorized → dispatched → succeeded | failed | outcome_unknown`
+
+The `planned` record mints the **correlation id** and is committed before anything is dispatched; the `dispatched` record is committed before the call is made (transactional outbox). A crash between dispatch and result therefore leaves an open record for the reconciler, never a silent gap.
+
+**The `Completion` envelope** is one type across all sources: `{correlation_id, outcome: succeeded|failed|unknown, result_ref (payload on SSD or S3, never inline beyond a cap), external_op_id?, started_at, finished_at, producer, signature}`. Handling is **idempotent**: a completion whose record is already settled is a logged no-op; a completion with no matching record is quarantined and surfaced, never inferred into a channel.
+
+**Transports**, chosen per source, cheapest that preserves durability:
+
+| Source | Transport | Why |
+|---|---|---|
+| Native in-process tools that finish fast (reads, task and memory actions, most AWS reads) | synchronous return inside the tool loop | no ceremony for sub-second work; still a `planned`/`settled` pair in the WAL when the tool has side effects |
+| On-node jobs (L0/L1 shells, PTY sessions, local tenders) | the **job wrapper** writes its result to the **completion spool** on the SSD, then signals over a Unix domain socket | survives harness restart; no port; no auth beyond filesystem permissions, which make Theseus's state the operator's alone: the state dir, store, and spool are 0700, tightened at start, and `theseusd` runs under umask 077 while a job's command and the file tools' new files get the operator's own umask (theseus-wz2) |
+| AWS-side work (Lambda, ECS/Fargate, SSM, scheduled jobs, MCP servers running in AWS) | **SQS long-poll** fed by EventBridge and by the wrapper inside the job | pull, so "no inbound" holds; at-least-once with dedupe by correlation id |
+| Sources that can do nothing but POST | loopback-only HTTP receiver, per-job HMAC, size-capped, off by default | the documented exception, never the default |
+
+Native in-process calls of one response that only read run concurrently (§4.6). Each is still a `planned`/`settled` pair in the WAL, dispatched before it runs. _(theseus-a60.)_
+
+**The job wrapper** is part of every shell class's contract (§7): it is **detached** (its lifetime does not depend on the harness; on the node it runs as its own systemd scope or L1 process tree), **durable** (result spooled to disk before any delivery attempt), and **cancellable** (the harness terminates it by correlation id through the execution's cancel path: kill the scope, stop the task, cancel the command). It is deliberately not "unkillable"; a runaway job must remain stoppable. A job with a broker's grant writes its output through the wrapper, which withholds the granted values before anything reaches the spool (§3.19, theseus-l0d); a PTY session (`shell.open`, not built) must do the same when it is built (theseus-rnx).
+
+**Who reaps a job** (theseus-z4b; built 2026-09-29).
+- The daemon starts each job's wrapper and is its parent, so it reaps it. Each wrapper is registered with
+  its job as it is spawned, and a sweep reaps it by its own pid once it has exited. The sweep is woken by
+  SIGCHLD, and runs every 10 s besides.
+- The daemon's other children are the `op` processes, which tokio waits for itself, each by its pid. They
+  are registered as tokio's, and the sweep never reaps one. Nothing in the daemon waits for "any child"
+  (`waitpid(-1)`), which would take tokio's.
+- The socket daemon is a child subreaper. A job can kill its own wrapper, and the job's processes are then
+  reparented to the daemon rather than to init. The sweep reaps them once they exit. `--stdio` is a child
+  subreaper too (theseus-6uo), so its jobs' orphans stay under it, where the answer rule finds them.
+- **A job that kills its own wrapper is a security event** (theseus-6uo; built 2026-09-30). The sweep may
+  take a wrapper that a signal ended while its action is still `dispatched`, with no completion in the
+  spool and no cancel state. Then:
+  - the action is marked `outcome_unknown` at once, instead of at its deadline;
+  - `job.wrapper_lost` is ledgered with the correlation id, the pid, and the signal;
+  - the narrative says so.
+
+  A cancel's own kill carries its cancel state, and is expected.
+- Once reaped, a wrapper's pid can belong to another process. So a wrapper is alive only while its pid's
+  command line names its job, and a cancel never signals a pid that has become another process. A live
+  process whose command line is still empty is in its exec (theseus-mi6a, Part III Item 35): a spawn returns
+  once the new image is in place, before the image has set its arguments, so a wrapper read a moment after
+  its spawn reads so, for about 0.1 ms, and for tens of milliseconds on a starved machine. It counts as
+  alive, and a stop signals it only once it reads as the job's wrapper. A process that took a reaped
+  wrapper's pid, caught in its own exec, is still left alone.
+- An exec restart keeps the pid and every child. The new image sets the subreaper flag again and learns its
+  children: a live child whose command line is a wrapper's is that job's wrapper, and any other is an
+  orphan.
+- **A wrapper's output stays while the wrapper lives** (theseus-5wgd; Part III Item 54). A wrapper is alive while its pid file, or, once its command has exited and a process it started holds the output open, its lingering marker, names a live wrapper; the spool never removes a job's output under it.
+- Health's `children` counts the wrappers running and lingering, the orphans adopted, and the zombies, which
+  are 0 in steady state.
+- **A job's output is copied, and capped** (theseus-102; both ends since theseus-gsn9, Part III Item 34). The
+  command writes into a pipe, and the wrapper copies what it reads into `spool/results/<id>.out`, withholding
+  each granted value (theseus-l0d), within `[tools] job_output_max_bytes` (64 MiB). The file takes the output's
+  head as it is read, and the wrapper keeps the output's end, the last 4 MiB (half the cap, when that is less),
+  in a ring in its own memory. At the pipe's end it writes the end after a marker that counts the bytes dropped
+  between: `[theseus: N bytes dropped here, past the output cap; the last T bytes follow]`. So the file never
+  passes the cap, and an output that fits is kept whole. Past the head the copy reads on, so the command never
+  blocks or dies for printing. The completion says `truncated`, `dropped`, the cap, and the two ends' sizes
+  (`head`, `tail`). The runtime reads only the file's last 4 MiB, by seek, which is now the job's real end, the
+  verdict that builds and tests print last; what a job prints never costs the daemon more memory than that. A
+  wrapper killed before the pipe's end (SIGKILL, or a stop's SIGTERM) loses the ring, and its file holds the
+  head; the result says so. A report that comes past the head while a process the job started still holds the
+  output open names the two ends as they stand (the head, and what the ring holds so far), so the result's cap
+  line counts what the job had printed when it reported (theseus-z3de, Part III Item 37).
+- **Raw output goes once its result is written** (theseus-wz2, theseus-2ij, theseus-ewev). It goes at once when a
+  job's result node is written: the file the completion names, or, for a job stopped before its completion, the
+  spool's file for its id, which its cancelled result reads first, unless its wrapper still lives. Otherwise the
+  spool's sweep takes it, a tender after serving (§6): an ended execution's job, a crash between the result's
+  frame and the unlink, a stopped job whose wrapper outlived its result.
+
+**Deadlines and reconciliation.** Every record carries a deadline from the tool's class and the execution's budget. The heartbeat reconciler (§3.3) checks open records against the spool, the queue, job-scope state, and, for AWS classes past their deadline, the service API. Reconciliation is event-first (EventBridge task state changes flow into the same queue) and polls only overdue records, so its cost scales with stuck work, not with total work.
+
+**Settlement is atomic with continuation.** Accepting a completion writes, in one WAL transaction, the action's settled state **and** the owning execution's next durable state (runnable with the result queued, or waiting on something else). An in-memory mailbox notification is never the only link between a settled action and a waiting execution; if the process dies after the transaction, replay reconstructs the pending continuation. A duplicate completion is a no-op only because the transaction already happened, never because the first one was "handled" in memory. The frame is written under the execution's lock (§3.15), so nothing else changes the execution between the settlement's read and its frame.
+
+**`outcome_unknown` is knowledge, not a terminal fact.** A record marked unknown stays **resolvable**: later authoritative evidence (a late completion, a reconciler finding) settles it to succeeded or failed and is ledgered as a resolution. Resolution never revives a cancelled execution and never authorizes new work by itself; it updates the record and, if the execution is still waiting on it, delivers the result.
+
+**Recovery** never blindly retries a non-idempotent action. Correlation ids are not idempotency keys: an MCP or JSON-RPC request id correlates a request with its response and guarantees nothing about repeated effects; Discord nonces and AWS client tokens have their own validity windows. Every tool adapter therefore declares a **retry class** for each operation: `safe_to_repeat`, `idempotent_with_key` (naming the downstream key), `recoverable_by_external_id`, or `non_repeatable` (requires a human to resolve uncertainty). Generic SDK retry behaviour is disabled or overridden so it cannot silently contradict the class. Where the outcome cannot be established, `outcome_unknown` goes to the principal with the exact action, and the model gets it as a tool result so it can reason about it.
+
+**The outbox** (theseus-q4v; built 2026-09-30). A post is a kernel action of its own record kind (`OUTBOX`), so no execution waits on it. It is never outstanding, queues no result, and wakes nothing, and neither a cancel nor the end of its execution touches it.
+- The core stages it planned and authorized in one record, since nothing gates what the core itself says. It rides in the frame of the transition that made it true: a reply in the frame that ends its turn, and a card in the frame that plans its question.
+- The binding dispatches it before its first call, and settles it with the channel's answer, its message ids, as its completion. A settle is idempotent.
+- A post that creates messages is `idempotent_with_key`: each create carries Discord's nonce, derived from the message's key, with `enforce_nonce`. A retry after a crash between the send and the settle returns the first message, and a first message that holds an earlier send's content is edited to the post's state. An edit is `safe_to_repeat`, and targets the recorded id.
+- Past the nonce's window (120 s, ours; Discord says only "a few minutes"), a create that may have landed goes again with a line that says it may be a copy. So the worst case is a visible duplicate, never a lost reply. A refusal that no retry changes (a 4xx other than 429) settles the post as failed, and health counts it.
+- A post for a place the binding no longer binds is settled as refused, "not bound here any more (<place>)". This happens when the binding starts and at each of the courier's wakes. Health counts it as refused, not pending, its age drops out of the oldest pending, and nothing is sent. The bindings file is read only at the binding's start, so a removed place is noticed at the next start (theseus-ocwt). A post to `discord:operator` is never refused this way: it follows wherever approvals go (theseus-l3m).
+- A card whose question closed is settled by a post of its own: at the close, when the core closed it, and otherwise by a level-triggered pass on the binding's connect and on every heartbeat.
+
+**Cancellation is a lifecycle, not a flag.** `cancel_requested → cancel_acknowledged → termination_verified`, or `cancel_unsupported` / `cancel_outcome_uncertain` where the backend offers no external termination (a running Lambda invocation, for example). Executions report which state they reached. Every job wrapper carries its **own deadline** enforced locally, so a harness outage never removes the only limit on a job's lifetime.
+
+A cancel or a stop ends its jobs together (theseus-bzq; built 2026-10-01): SIGTERM to every job's process group at once, one shared grace (2 s), then SIGKILL for the stragglers, so N jobs cost one grace. A job is gone only when no live process is left in its group, not when its wrapper is: the wrapper dies at SIGTERM, and a command that traps it would run on. The daemon waits on its runtime's timer, never on a worker thread.
+
+**Verified per backend** (theseus-7ve.2, with theseus-hcc; built 2026-10-02 in step 18a, Part III Item 60). A cancel's `termination_verified` means every process of the job is gone, and the action's verdict says how that is known. Before 18a a `setsid` descendant left the group above and ran on, and a deadline killed only the command (theseus-hcc). Now the daemon asks each job's wrapper alone (SIGTERM by `sigqueue`, the grace in its value), and the wrapper, a child subreaper, stops its whole tree: SIGTERM to every descendant, the grace, then a freeze (SIGSTOP, rescanning until nothing new appears and every process reads stopped) and SIGKILL, each signal through a pidfd checked against the process's start time. The wrapper writes its verdict to the spool (`stops/<id>`) and exits with no completion, so a cancel settles as it did before; the deadline uses the same stop, its verdict in the completion. A plain SIGTERM stops the tree too, and still ends the wrapper by the signal. A wrapper that doesn't answer within the grace and 2.5 s is killed with its group, uncertain. A wrapper from before the install, which dies at the first SIGTERM (`/proc`'s `SigCgt` tells it), is stopped by its process group as above. An L1 job is stopped through its init (SIGTERM, which the init forwards, then SIGKILL), verified by its pid namespace, ~~or by `cgroup.kill` where it has its delegated cgroup, verified by the cgroup~~ (the cgroup went with the sandbox trims, Part III Item 77; a stored `cgroup` verdict still reads). An async tool's task is aborted and verified once its handle has finished; an in-process toollet cannot be stopped (`unsupported`). A cancel, a task's cancel, `/stop`, the disk floor, and the stop at a launch all go through one `terminate_all`. Each action keeps its verdict (`verified_by`: `pidns`, `cgroup`, `tree`, `group`, `task`, or `none`; `killed`; `survivors`; and why, when not verified; ACTION schema 3, and OUTBOX schema 2, since a post is an action), with an `action.cancel_verified`, `_uncertain`, or `_unsupported` row, and the surfaces say it: `⏹️ cancelled proc.run …a1b2c3 (verified: pid namespace, 3 processes)`. At L0, verified means the wrapper's descendants (`scope: descendants`): a process outside the tree acting for the job (a user unit, a tmux server already running) is out of its sight, which L1's view closes.
+
+**A stop during a job's launch** (theseus-36to; built 2026-10-01, Part III Item 37). A job's action is dispatched durably before its wrapper is spawned, and the wrapper's pid reaches the spool only once the spawn returns. A `/stop` or a cancel marks each dispatched action `cancel = requested`, then reads its pid. The start reads the action just before the launch, and again once the pid is written, so one side always sees the other. A job the stop reached before its launch is never started: its result reads "Not run: stopped by …", as for any call a stop caught before it ran, and a `job.not_started` row records it. A job the stop reached during its launch, which the stop found without a pid, is stopped by the start itself, as the stop would have stopped it, with a `job.stopped_at_launch` row.
+
+**Provider and judge requests follow the same contract.** An interrupted Messages API call may still be billed and its usage unknown; the record is settled as `outcome_unknown` for cost purposes and its reservation is held, not released, until reconciled. A partially streamed tool call is never dispatched: dispatch requires a complete, validated tool-use block.
+
+**Confirmations** are bound to tool, arguments, resource, policy context, and expiry (§3.9); a confirm answered after a crash is re-validated against the record before the resumed call runs. An answer is one frame (theseus-jj9f; Part III Item 41): the bind or the decline, an approval's trust, the answer's row, and the wake, in one kernel transaction. So no surface ever sees the execution waiting on a question it no longer has, and a wait for it to settle, parked before the answer, returns when the work the answer resumed has ended.
+
+The simulator (§8) crashes at every transition, drops and duplicates completions, and restarts the harness mid-job as standing scenarios.
+
+**References, not payloads, between tools.** Every tool result is a node with an id (§4.1). A tool that produces something large returns the node reference; the compiler decides how much of its text enters the model's context; another tool accepts the reference as input and reads the node directly. Raw bytes never round-trip through the prompt to get from one tool to the next, provenance and confidentiality labels ride with the node, and the ledger records the hand-off. Node ids are the pointers; no second URI scheme.
+
+### 3.17 Hooks
+
+**There is no hook system** (Eddie, 2026-09-28, 20:38; deleted in 11d2f43, theseus-hco). In Eddie's words: "I used to believe in the plugins, now I believe in one, tight, focused, monolithic single-function server and a similarly tight client. Let's remove the hooks." What was built had 25 events and four kinds, and no handler that could do anything: its `Blocked` and `Claimed` outcomes were never built, and 10 of the 25 events were never dispatched. Every turn still paid for it: 10 of a plain turn's 27 WAL frames were `hook.site` rows, each recording that a hook with no handlers proceeded.
+
+**How Theseus is extended instead.**
+- **Through the protocol.** A client watches the sessions (`session.watch`), the ledger (`ledger.tail`), and the narrative (`narrative.watch`, §3.14). It acts through the requests every client uses, such as `turn.submit`, `action.confirm`, and `execution.cancel` (§3.18).
+- **Through tools.** A new capability is a toollet (§3.23), or later a tool on an MCP server (§3.8, M7). Either one goes through the gate like every tool (§3.9).
+- **One small hook point, deferred** (theseus-bdn). Before a tool call, a handler would see the tool's name and its plan, and answer proceed or ask. It could never deny, matching the gate (§3.9), and a handler's error would mean proceed, with a notice. It is built only when a real handler exists, and none does.
+
+**History.** From v0.7 to v0.42 this section specified a hook system after the Claude Agent SDK's: an event catalogue by cadence, typed results with `deny > defer > ask > allow` precedence, `defer` for answers given out of band, and handlers registered in code, over the protocol, and by MCP servers. v0.42 of this document keeps that text, and `notes/theseus-hooks-design.md` holds the full design. Part III records what was built and why it went (A3's hook-site row; A3b, the complexity cuts).
+
+### 3.18 Wire protocol and client isolation
+
+The core is a **server**. Nothing else in the system, not the CLI, not Discord, not the web UI, not the simulator, reaches into it except through one protocol. That is the isolation boundary Eddie asked for, and it is what keeps the kernel testable without a front end.
+
+**Protocol.** JSON-RPC 2.0, newline-delimited JSON, one message per line, UTF-8. Requests, responses, and server-initiated notifications; requests are correlated by id, notifications carry the session id. Chosen over gRPC because it is what MCP, LSP, and ACP already speak, so every tool in the ecosystem can debug it with a terminal, and over a bespoke binary framing because message volume is token-bounded and the serialization cost is noise next to a provider call. All message types live in one dependency-free crate, `theseus-protocol` (serde types only), with a generated JSON Schema for non-Rust clients; if a binary encoding is ever needed, MessagePack over the same types is a framing change, not a protocol change. _(Amended 2026-10-01, theseus-0g4: every notification has one typed definition there, and `Event` names them all, so senders build types and clients match on them. No JSON Schema was built. Instead the web apps' TypeScript is generated from the same types by ts-rs, a dev-dependency only, so the crate still links nothing at run time. It goes into `web/src/protocol.gen/`, and the gate fails when a type changes without it.)_
+
+**Transports, same protocol on each.**
+
+1. **stdio**, when a client spawns the core as a child. This is the developer and test mode, and the way an editor or another agent harness drives Theseus (it is the shape of the Agent Client Protocol, and Theseus should be able to present as an ACP agent with a thin adapter).
+2. **Unix domain socket**, the daemon mode and the real deployment: `theseus serve` listens on a socket in the state directory; many clients attach and detach while the core runs forever. Localhost only, by the settled reachability rule; file permissions are the authentication.
+3. **In-process**, for adapters compiled into the binary (Discord, the web UI, tenders): the identical message types over a `tokio` channel. An in-binary adapter is still a client; it has no privileged path into the kernel. _(Amended 2026-10-01, theseus-0g4. This holds for the web UI's page and the CLI, but not for the Discord binding. Every act a person makes on Discord goes through the protocol, so the core judges it as it judges the CLI's acts. But the binding runs in the daemon's process, and what it delivers and reports it reads and writes in the core directly:
+
+- the outbox whose posts it delivers (DD6);
+- the question behind each card;
+- the `[approval]` channels;
+- the bindings board and its ledger rows;
+- and at its start, the config gate, the secrets, and the startup log.
+
+Part III Item 30.)_
+
+**Surface, first version.** `session.open`, `session.list`, `turn.submit {session, input}`; notifications `turn.started`, `loop.started`, `model.delta` (streamed text), `tool.proposed`, `loop.ended`, `turn.ended {reason, output}`; `health`. _(Wakes, theseus-cff: `wake.list { session_id?, target? }` reads, `wake.cancel { wake, author? }` acts and waits at the config gate, and health's `wakes` lists every pending wake. A cancel's author is the request's `author`, else the surface's name, `the CLI` or `the web UI`, for executions, tasks, and wakes. The CLI has `theseus wakes` and `theseus cancel <id>`, for a wake or a task. Discord has `/wakes` and `/cancel id:<id>`, for a task or a wake; DD7 named the option `task`.)_ It grows with the milestones (executions, tasks, ledger, confirmations, the narrative), but the shape is set: requests change state, notifications report it, and every notification is also a ledger row, except `narrative.line` (§3.14). _(Amended 2026-09-29. `hooks.list` and `hooks.register` went with the hook system in 11d2f43 and now answer "method not found"; `narrative.watch` arrived in e3ba8d6.)_ _(Amended 2026-09-29: `turn.submit` takes `attachments`, and its `input` may be empty when there are any; theseus-9g2. `confirm.list` (theseus-0g4) returns every question waiting for the operator, the most recently active session first, so `theseus confirm` with no id makes one request instead of one per waiting session. `policy.tighten` and `policy.untighten`, with the `policy.tightened` and `policy.untightened` notifications, arrived with "should have asked" (theseus-sgh).)_
+
+_(Amended 2026-10-01, theseus-in3, Part III Item 33: the push.)_
+- `execution.changed` (an `ExecutionView`) goes to a session's watchers and to every `executions.watch`
+  subscriber, once per committed frame that changes what a surface shows. It comes from one observer on
+  `Kernel::commit`, through which every execution and action record passes, so no writer can forget it.
+- `executions.watch { limit? }` subscribes, then answers a snapshot: every execution that needs you or works,
+  the `limit` (200) most recently active of the rest, and every question. Then it sends `execution.changed`,
+  `confirm.requested`, and `confirm.resolved` for every session, until `executions.unwatch`.
+- Every view and snapshot row carries its frame's WAL position, and a client applies one only if its position
+  is greater than the last it applied for that execution: that is its whole reconciliation, whatever order the
+  snapshot and the events come in.
+- `session.wait { session_id, until: blocked | settled | terminal, after_position?, timeout_ms? }` belongs to
+  the daemon: parked on the board's feed, it costs nothing while it waits, answers at once when it is satisfied
+  already (`already`), times out after 10 minutes by default (a day at most), and ends with its connection. A
+  connection holds 64 (`-32007`, a new code). `terminal` is refused for a conversation, and empty params fail
+  at once.
+- `session.list { ids }` reads only those sessions. All four requests are reads.
+- Each connection's one queue holds at most 4,096 messages. Past that its notifications are dropped and
+  counted until it drains, and then one `events.lost { dropped, streams }` says which streams to read again.
+  Responses always go. `events.lost`, like `narrative.line`, is transport: counted in health, never a ledger
+  row. `execution.changed` needs no row of its own, since each comes from a frame that carries its rows.
+- The CLI has `theseus watch --all`, `theseus wait` (exit 4 when it times out), and `theseus executions
+  explain`.
+- `session.watch` seeds the push as `executions.watch` does, lazily, after serving (theseus-tq04; built 2026-10-02, Part III Item 54), so a watcher on a daemon nothing else watches gets `execution.changed`.
+
+_(Amended 2026-10-01, theseus-n4m, Part III Item 38: reach.)_
+- `node.reach { node_id, max_generations? }` (3 generations by default, at most 16) says where a node went:
+  `direct`, the compilations of its own session whose `includes` hold it and the number of loops whose context
+  held it, with the first and last exposure; `descendants`, its copies over `derived_from`, generation by
+  generation, each with the same, its edge's route (`report` or `brief`), and the node it copies; `totals`, the
+  contexts (a compilation or a loop) and the sessions the node and its copies are in; and `partial`, when a node
+  at the cap has copies of its own or the walk reached 256 copies. It is a read, computed when asked, off the
+  serving workers. Empty params fail at once, and an unknown node is `-32002`.
+- The CLI has `theseus reach <node> [--generations N]`. The Observatory's Nodes panel and the cockpit's node
+  inspector have a reach cell, read when clicked.
+
+_(Amended 2026-10-02, theseus-j6qn, Part III Item 43: facts.)_ Every notification the core sends is a fact's
+projection. A fact is a type in `crates/theseus-core/src/fact/`, recorded once at its site: its `METHOD` is its
+notification's, and the same fields build its payload, its ledger row, and its narrative sentence. So the
+notification, the row, and the line of one event can't drift apart, `FACTS` lists which fact sends which
+method, and a new notification is sent by a fact, never by a `sink.send` at a site. The ledger's kinds are a
+registry, `theseus_protocol::LedgerKind`. A row carries its kind's name on the wire (`LedgerEntry.kind`) and in
+the store, so a client reads old and unknown kinds by name, and `ledger.tail`'s `kind` filter takes either name
+of a renamed kind.
+
+_(Amended 2026-10-02, theseus-u55z, Part III Item 50: the index and the children.)_ Health's `children` lists the long-lived children the daemon supervises (`tenders`): each one's state (`pending`, `running`, `backoff`, `absent`, `stopped`), pid, restarts, last exit, and next wait. Health's `index` is the tender's own `index.status` (its state `starting`, `backfilling`, `ready`, or `stalled`; `hybrid` or `bm25_only`; nodes and chunks; the cursor's lag behind the WAL in bytes and ms; the vectors; its memory; the last error), or `off`, or `starting` (the 2 s after serving, before a tender runs), or `down` and why. Health asks only a tender its supervisor runs, so no start's first answer waits on its socket, and asks it under 100 ms; past that, it shows the tender's last answer and its age. Two protocol methods, both reads: `index.status` (asked under 2 s) and `index.query` (forwarded as it came, under 10 s and its own `wait_ms`). The CLI has `theseus index status` and `theseus index search`, and `theseus health` prints an `index:` line.
+
+_(Amended 2026-10-02, steps 18a and 19a, Part III Items 60 and 61: a cancel's verdict, and labels.)_ `execution.cancel`, `task.cancel`, and `execution.stop` answer with each call's `verdicts`; an action carries its `verdict`, and `tool.ended` its `verified` words. Health's `cancels` counts each backend's cancels (`l0`, `l1`, `async`, `inproc`) by state since the start, and its `labels` names the owner and each guild channel's audience as the binding last read it, with how many viewers are not the owner, or why they can't be read. `context.compiled` carries the session's `audience`, and `withheld` when a compile withheld anything. `session.history`'s nodes carry their labels, so `theseus labels` needs no method of its own: it reads them, and `compilation.list`. `theseus health` prints `cancels since the start:` and `labels:` lines.
+
+_(Amended 2026-10-03, Part III Items 63, 64, 69, 70, and 71: graduation, the held post, the cockpit's reads, the build, and the harness-only line.)_ `label.graduate` writes a graduated node (19c), and a held post is a question of the tool `label.release`, answered by `action.confirm` as any question is. `context.compiled` carries the request's `readers`, a node of `session.history` says when its session's audience withholds it (`withheld`), and health's `labels` counts held posts. Three reads serve the cockpit, none taking a path from the caller: `ledger.tail` takes `after` and answers `next`, so the ledger can be read whole, a page at a time; `bench.history` reads the gate's bench history on the daemon's own machine; and `sandbox.usage` reads each running L1 job's cgroup, and names each running job's command. Health's `build` and `server.started`'s `data.build` name the binary's commit. Health's `harness_only` lists what a job may be handed and the keys that stay the harness's (§3.19), and `theseus health` prints its line. 18d's credential requests (a `cred.request` action, the `secret.requested` notification, and health's `cred_requests`) were added and removed the same night (Items 65 and 71).
+
+_(Amended 2026-10-03, Part III Items 74, 76, 77 and 78: a job's session, places and publish, the sandbox's health, and the AWS bootstrap.)_ `session.open` and `turn.submit` take an optional `opened_from`, absent from the bytes when unset, which the CLI fills from a job's `THESEUS_SESSION` (`JOB_SESSION_ENV`); `session.opened`'s row names it, and the hold's `via` gains `program` and `job` (Item 74). The labels' wire shapes went with them (Item 76): `label.graduate`, the held post's `label.release`, a node's `label`, the manifest's `audience`, `readers`, `integrity` and `withheld`, `context.compiled`'s `audience` and `readers`, and health's `labels`. In their place: health's `places` (each place, its class, and a channel bound private that others can view), `context.compiled`'s `class` and the context files it withheld, and the method `place.publish`, judged as an approval is (`Act::Publish`). Health's `sandbox` drops `memory_mb`, `probe` and `cgroup` and adds `last_launch` and `refuses`, and `sandbox.usage` lists the L1 jobs running now, with no cgroup readings (Item 77), so an older CLI can't read a newer daemon's health, and the binaries install together. `aws.bootstrap` is the CLI's alone (Item 78); the RPC server's act list holds 14.
+
+**Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect, 4 a wait that timed out). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. ~~Both are static musl binaries.~~ _(Corrected 2026-10-02, Part III Item 36: that held only for CI's artifacts. CI builds `theseusd`, `theseus`, and `theseus-tui` as static musl binaries. The install recipe builds them from `target/release` for the host's glibc, so the installed binaries are dynamically linked. ~~Lane bench2's reproducible builds (theseus-goa8) may settle which build the install uses.~~ Settled by measuring both (theseus-goa8, Part III Item 48): CI builds the static musl binaries on every push, as the portable artifact, and an install is the host's glibc build of the same commit, `scripts/build.sh --profile release-thin`. musl's resident memory is 16 to 25 % lower, and its stops, restarts, and swaps are 20 to 40 % quicker, but its allocator costs allocation-heavy work 36 % more user CPU and 3 to 5 times the system time. So the install keeps glibc, which the gate and the live checks run, until a musl build with a better allocator closes the gap (theseus-w6hg) and a musl run is part of the tests (theseus-3yu1). Both reproduce byte for byte from a commit.)_
+
+_(Amended 2026-10-01, theseus-7yx, Part III Item 36: the client library.)_ The CLI's package also builds a library, `theseus_client`, which the CLI and the terminal UI share. `client` is the connection: a socket, or a spawned `theseusd --stdio`, with its requests, answers, and the notifications between them. It prints nothing and knows no command line, and a `next` dropped mid-line loses nothing, so a client's `select!` may race it. `render` is what a terminal shows of the daemon's answers and events, as lines, each a text with a style tag: the CLI prints the text, and the TUI styles it by its tag. The library links only `theseus-protocol`, so the TUI can't cheat either.
+
+_(Amended 2026-10-01, theseus-7yx, Part III Items 39 and 41: the terminal UI.)_ A third client, `theseus-tui`, is a terminal UI over the same socket. Like the CLI, it links only `theseus-protocol` and `theseus_client`: one connection, on which `executions.watch` keeps every session's state current, and the session in focus gets `session.history`, then `session.watch`. It answers questions as the CLI does (`action.confirm` on the `cli` channel, `author: "the TUI"`), so `[approval] channels` decides whether its answers count, and a job's process is refused as it is from the CLI. What it has seen, its notices, and its focus are its own, kept on this machine (`$XDG_STATE_HOME/theseus/tui-seen.json`), never sent to the daemon. `theseus tui` execs it, found beside the `theseus` binary or else on `PATH`, as git runs its subcommands, with the CLI's socket and every argument after `tui`. Found nowhere, it says where it looked and how to install it, and exits 2. The install copies four binaries: `theseus`, `theseusd`, `theseus-sim`, and `theseus-tui`.
+
+_(Amended 2026-10-01, theseus-l1l, Part III Item 42: herdr.)_ herdr, a terminal workspace manager, is one more window onto the same facts, and it lives wholly in the CLI: nothing in the server knows it.
+- Inside a herdr pane, `theseus watch <session>` reports the session's attention as the pane's state, over
+  herdr's own socket API: needs you is `blocked`, working is `working`, and ready and idle are `idle` (herdr
+  shows `done` until it is seen). It reports only a change, with a `seq` from the clock, and releases the pane
+  on every way out.
+- `theseus watch --interactive` asks each question waiting, `approve? [y/N/t/note]`, and sends any other line
+  to the session as a message, on the profile the session's last turn ran on (theseus-nu3z; Part III Item 54).
+  Its answers come from the `cli` channel.
+- `theseus herdr sync` gives each session that needs you or is working, and each one pinned, a pane in herdr's
+  `theseus` workspace running that watch. theseusd holds the truth, so a sync with nothing missing only reads.
+  It types only at a shell's prompt, sweeps a dead watch's state, and closes a finished session's pane only
+  when asked.
+- herdr is built from a reviewed checkout, with its update and manifest checks off, so it fetches nothing.
+
+**A stop always answers** (theseus-ur0; built 2026-09-30). A client's `shutdown` is answered before the daemon stops. Its method writes `server.stopping` and the checkpoint, its connection writes and flushes the answer, and only then are the serving loops woken (bounded at 1 s, for a client that stopped reading). Every transport goes through the same connection path, so each answers a stop before it lands. A restart onto a changed vault note stops at once, since no client waits. So `theseus shutdown && theseusd …` starts the next build every time.
+
+### 3.19 Configuration and secrets
+
+Opinionated, and simple. **Every secret lives in 1Password**, in the deployment's vault, and Theseus reads it at startup through a **service account**. The only secret the process may receive by any other path is the service-account token itself, from the environment or from a mode-0600 file whose path is configured.
+
+- **Config** is a TOML document stored as a 1Password item (`theseus/config`) so the whole deployment is reconstructible from the vault. It may also be a local file for development; the schema is identical. Secret-valued fields are `op://vault/item/field` references, never values. _(Since theseus-8d1b, built 2026-10-02, Part III Item 55: `--config` or `THESEUS_CONFIG` names the config, a file or an `op://` reference, and with neither it is the local file `~/.theseus/theseus.toml`. Until then the built-in default named the operator's own note.)_
+  - **The last-known-good copy** (theseus-2fo).
+    - After every read of the vault's note that loads, the daemon keeps the note's exact text as
+      `<state dir>/config.last-good.toml`: mode 0600, under a first line naming the reference it came from.
+      It is written after serving, never on the start path.
+    - The note holds only references, so the copy holds no secret. A note whose URLs could carry a
+      credential (a user, a password, or a query in `api_base` or `otlp_endpoint`) is never copied.
+    - The copy is found in `--state-dir`, else `~/.theseus`, before any config is read. The tool floor
+      keeps it.
+  - **A start serves from the copy, and acts only on the vault's word.**
+    - A start whose config is `op://`, and that finds its copy, serves from it at once. It reads the vault
+      behind the socket, beside the secrets.
+    - Until the vault confirms the copy, the daemon answers only what reads. Every method that changes
+      anything or starts work waits, bounded at 30 s like the secrets, then fails with
+      `config_unconfirmed`.
+    - The harness loop, the driver, telemetry, the web UI, Discord, and the GitHub check start only then.
+    - Why: the copy is a file the operator's user can write, and at L0 a job runs as that user. The vault
+      is the one thing an agent cannot write, so it stays the only authority.
+    - The wait costs nothing in practice: the secrets come from the same vault at the same moment.
+  - **The vault's answer.**
+    - The same text, or one that differs only in comments or formatting, confirms. In the second case the
+      copy is rewritten.
+    - A different note that loads is ledgered as `config.changed`: the reference, both sha256 digests, and
+      the tables that differ, never values. The copy is rewritten, and the daemon restarts onto the vault's
+      version: the clean shutdown path, then an `exec` of its own image with its own arguments, so the pid,
+      the terminal, and any supervisor stay the same.
+    - A process that began as such a restart and finds the note changed again holds, and says so, rather
+      than restart again.
+    - A note that does not load, or a vault that does not answer, holds too, with the reason in health and
+      the ledger. The vault is read again at 5 s, doubling to a minute.
+  - **The rest.**
+    - A first start, with no copy, reads the vault before serving. That is the one slow start.
+    - `theseusd check`, `theseusd config` (which also says whether the copy matches), and `restore` read
+      the vault directly.
+    - A `--config` file has no copy, and needs no confirmation.
+- **Resolution** starts at startup, in the background. `config.reload` was never built, and is not planned: **a restart is the reload** (§3.22 makes it routine). A changed config note is applied by the restart that the vault's answer triggers, or by the operator's own restart. _(Amended 2026-09-29, theseus-2fo: until then the note was read before serving, and "an explicit `config.reload`" was planned.)_
+  - The daemon serves first (§2 FAST). It opens the store, runs the kernel's startup, and answers its
+    socket while the secrets resolve.
+  - One `op inject` fetches every reference: one process and one vault session. Measured against
+    concurrent `op read`s, it is about as fast and costs a sixth of the CPU (theseus-qa0). If it fails, one
+    `op read` per reference names each bad one.
+  - A secret that fails is fetched again after 5 s, then at doubling intervals up to a minute.
+  - Resolved values are held in memory in zeroizing containers. They are never written to disk, config,
+    logs, the ledger, or a provider request, except where they belong (an `Authorization` header).
+- **Each consumer waits for its own secret, and fails closed.**
+  - A turn waits for its provider's key, and for the first round of every secret, because the scrubber must
+    know each value before a tool result passes through it. The wait is bounded at 30 s. Then the turn runs,
+    or it is refused with the class `secret_failed` or `secret_resolving`.
+  - The Discord binding waits for its token, and never connects without it.
+  - The GitHub token check and the telemetry exporter wait for theirs.
+  - Health reports `secrets: resolving | ready | failed <names>`, with each failure's reason. The ledger
+    records `secrets.resolved` and `secrets.failed`.
+  _(Amended 2026-09-29, theseus-qa0: until then resolution ran before serving, and the process refused to start on a missing secret; Part III A3c.)_
+- **The secret broker** (theseus-dcy; built 2026-09-30). It is the one place that hands a resolved value to anything beyond the daemon's own consumers, and it never calls `op`.
+  - `[broker.programs.<program>] env = { VAR = "<secret>" }` gives a program a `[secrets]` value in an
+    environment variable, for example `[broker.programs.gh] env = { GH_TOKEN = "github_token" }`.
+  - **Direct argv only.** A grant applies when a job runs the program itself: `argv[0]`, resolved as
+    `exec` resolves it, is the file that the program's name resolves to on the daemon's PATH. A shell, an
+    interpreter, `env`, or `timeout` that runs the program gets nothing, since it would hand the variable
+    to every program it runs. The tool result says why, so the model learns to call the program directly.
+  - **Not through a launcher** (Review 2's H7; built 2026-10-01, Part III Item 44). A grant reaches the program
+    the call names, and what that program runs on its own account, never a program the call itself names to
+    it.
+    - A call that sets its own environment gets no grant: a variable can make a program run another (`PATH`,
+      `GIT_CONFIG_*`, `GIT_EXEC_PATH`, `LD_AUDIT`), and a list of such names can't be finished.
+    - `gh` gets its grant only for its own commands that use a token: never a word it would run as an alias
+      or an extension, nor `--web`'s browser.
+    - `git` gets its grant only for `clone`, `fetch`, `ls-remote`, `pull`, `push`, and `remote`: never through
+      an alias, `-c`, `--exec-path`, an option that names a program (`--upload-pack`, `--receive-pack`,
+      `--exec`, `--template`, `clone -c`), or a URL that git hands to a helper program.
+    - The call still runs, without the variable, and its result says why.
+    - ~~The repository's hooks and the programs its config names still get the variable. At L0 a job that can
+      write them can also read the process's environment, and L1 (M4) is the boundary (theseus-ur1t).~~
+      **A granted git runs no hooks** (theseus-ur1t; built 2026-10-02, Part III Item 55). A job given a secret
+      by a grant to git or gh runs git with `core.hooksPath` and `core.fsmonitor` pinned off, so neither a
+      cloned project's hooks nor its fsmonitor program sees the variable; the operator's own hooks don't run
+      for it either. A credential helper or `core.sshCommand` its config names, ssh's own config, gh's
+      config, and `/proc/<pid>/environ` still reach it at L0, and L1 is the boundary (theseus-ngz5).
+  - **No grant to a launcher** (theseus-txvt; built 2026-10-02, Part III Item 55). A grant to a shell, an
+    interpreter, a program that runs the command it is given, or a runner of a project's scripts fails to
+    load, naming the rule, and a granted name that resolves to one gets nothing. The list can't be finished,
+    so the template says to grant only to a program whose commands run nothing the operator didn't choose.
+  - **cargo's and npm's own rules** (theseus-txvt). cargo gets its grant only for `login`, `logout`,
+    `owner`, `search`, `yank`, and `publish --no-verify`, never with `+<toolchain>`, `--config`, or `-Z`; npm
+    only for its registry commands that run no package's scripts, `publish` only with `--ignore-scripts` and
+    a local package, never with an option that names a program or a config file.
+  - **At spawn**, the job's environment is `[tools].proc_env`, then the call's own `env`, then the grant.
+    The values come from the board. A secret that has not settled is waited for, bounded as a turn waits.
+    One that still has not, or that failed, is withheld, never replaced by a placeholder, and the result
+    says so. As built, no turn reaches that wait: a turn has waited for every secret's first round before
+    it asks the model, so a job's grant has settled by the time the job is planned, and the bound is
+    defensive (Part III Item 37).
+  - **In L1 too** (theseus-w5op; decided by Eddie 2026-10-03, superseding theseus-7y9y; Part III Item 71). An L1
+    job's program gets its grant at its launch exactly as at L0. The gate takes the stricter of the call's
+    posture (L1's notify, or approve where the operator's word, egress beyond the list, or the external-text
+    hold asks) and the secret's, so decision 15 holds at launch for both classes, and any approval comes
+    before the launch. The value rides in the job's environment over the spec's pipe to its init, never on a
+    command line; the wrapper withholds it from the job's output, and the result's head names what the job
+    was given (`given GH_TOKEN`). The egress list bounds where a held value can go (§7). 18d's run-time
+    request (`theseus-cred get`, through a socket per L1 job; Item 65) was built on 2026-10-02 and removed
+    here: a job holds its secret for its whole run, and a script can't ask for one it didn't get at its start.
+  - **A native toollet** reads a granted secret through its context (`ToolCtx::secret`), bound to the
+    call. The wiring grants each one (`grant_tool`): `web.search` its key (DD5). ~~M4's run-time credential
+    requests will come here too, at the requesting tool's posture, and a fetch from 1Password itself always
+    waits (decision 15).~~ An L1 job takes its grant at its launch (above), and an ad hoc fetch from 1Password,
+    which decision 15 says always waits, is filed (the M4 design's Q13).
+  - **The harness-only keys** (theseus-gh7, decided 2026-10-03; Part III Item 69). A secret with no grant is
+    never handed out. The AWS keys and the providers' keys are read only by Theseus's own tools (`aws.*`, the
+    model calls) and never reach a job unless `[broker]` names one. `theseusd check` and health print the line
+    that says so by name (`broker: a job may be handed no secret; harness-only: the AWS keys
+    (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key, zai_api_key)`),
+    and say aloud any such key `[broker]` names: the operator's grant is honored, never refused. What a job
+    does hold leaves only for the hosts `[sandbox] egress` lists (§7).
+  - **Never written.** A value goes to the job as its environment only. It is not in the wrapper's
+    arguments, the job record, the WAL, a node, the ledger, or a log.
+    - The ledger gets `secret.granted` (the program, the variable, the secret's name, and the call's
+      correlation id), and `secret.withheld` (the same, and why).
+    - Health and the Observatory list each grant with its uses.
+    - Output is scrubbed as every tool's is, and a program's own granted value never reaches the disk
+      (theseus-l0d; built 2026-10-01, Part III A4 Item 19). The wrapper is given each granted variable's name
+      and its secret's (`--redact VAR=secret`, names only; the values are its environment). With a grant, the
+      command writes into a pipe, and the wrapper copies what it reads into the spool's raw output file with
+      each value replaced by the scrubber's mark, `[redacted:<secret>]`, so `gh auth token` puts no token
+      there. A value split across two reads is caught: the copy holds back only a tail that could still
+      become a value. The file still grows as the command prints; a descendant that keeps the output open
+      holds the report 200 ms at most. A job without a grant writes the file itself, as before. The
+      completion counts what was withheld (`withheld`). A value under 8 bytes is not withheld, as the
+      scrubber does not scrub one. The file is 0600 in a 0700 spool (theseus-wz2), deleted once its result
+      is written, and no client is given its path.
+  - At L0 a job runs as the operator's user. So the broker keeps a value out of every record and every
+    other program's environment, but it is not a boundary against a hostile job of the same user, which
+    can read another job's `/proc/<pid>/environ`, or a program's own stored login (gh's `hosts.yml`). L1
+    is that boundary (M4).
+- **Scrubbing** (Review 2's H9; built 2026-10-01, Part III Item 44). Tool output is scrubbed before it becomes a
+  node. Each board value becomes `[redacted:<name>]` verbatim, in base64 (either alphabet, at any offset inside
+  a longer encoding, wrapped across lines), and percent-encoded. Token shapes (the seven prefixes), AWS access
+  key ids and the secret keys and session tokens beside or after them, private-key blocks (a public key is
+  kept), and JWTs become `[redacted:<shape>]`.
+- **Mechanism.** The first version shells out to the `op` CLI (`op read op://…`) under the service-account token, because 1Password publishes no first-party Rust SDK; the community FFI wrappers around its C core exist and are the candidate for removing the `op` dependency later, once they are shown to build statically. The config note is read with one `op read`, beside the secrets' one `op inject`. The service account is read-only, so the config item is created by a human once; Theseus never writes to the vault.
+- **Configuration is documented by its template, and the template is tested.** `theseusd example-config` prints a hand-written annotated TOML in which every parameter the code reads appears exactly once, set to its default or commented out with its default shown, with a line saying what it does. Three tests keep it honest: it parses and validates; a copy with every comment un-commented also parses under `deny_unknown_fields`, so no stale or not-yet-honored key can survive in it; and every key the loader can read appears in it, so no field can be added without documenting it. The consequence is a rule: config keys are not defined before code honors them; work not yet built is recorded in Part III, never as inert config. `theseusd config` prints the config actually loaded and its source, references only. _(Amended 2026-10-02, theseus-dxgb, Part III Item 57: the template is public, so since theseus-8d1b it carries placeholders where a deployment's own values go, its vault's references and its people's ids. An operator keeps those in a private overlay, `~/.config/theseus/template-overlay.toml`, and `theseusd example-config` prints the template with the overlay's values in place, every comment kept and the result validated, ready to paste whole into the vault's note. `--overlay FILE` names another overlay, and `--plain` prints the template alone, which is what every test reads.)_
+- **Token hygiene.** At startup Theseus checks the GitHub token against the API, logs its login, expiry, and days remaining, and warns when fewer than a configurable number of days remain (default 30). Never fatal.
+- **Starting set**, each an item in the operator's vault, named as `op://<vault>/<item>/<field>`: an Anthropic key; a Jev key; a GitHub token (a fine-grained token with push on the owner's repositories, expiring 2027-02-18; chosen over the all-scopes classic token until Theseus is on rails); a Z.ai key, one line of a note; and an AWS key pair, a `label: value` note whose `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines are referenced separately (verified 2026-09-25 against STS: an IAM user, in account `<account id>`). Discord and any others are added as their milestones arrive. The same posture applies to them all: GitHub and AWS credentials are read from 1Password too, never from `~/.aws` or `~/.config/gh`, and a secret that cannot be resolved never lets its consumer run without it, and the daemon says which one failed and why; the process itself serves meanwhile. _(Fail closed per consumer since theseus-qa0, 2026-09-29; until then the process refused to start.)_
+
+### 3.20 Telemetry
+
+OpenTelemetry is a **projection of the record**, never a second instrumentation.
+- The turn trace (§3.3a) is already a span tree, with absolute start and end times.
+- When a turn ends, Theseus records its metrics in the process, and hands the finished tree to one sender
+  task. The sender walks it into OTel spans with those exact timestamps.
+- So the hot path pays only the hand-over (tens of microseconds), and the exported picture is the ledger's.
+
+_(Amended 2026-10-02, theseus-j6qn, Review 2's C2, Part III Item 43.)_ The turn trace is itself drawn by facts:
+each fact of a turn draws its span, or sets attributes on the open span, as it is recorded (`Fact::span`), so
+the tree the sender walks is the facts' tree. The metrics stay one projection of the turn's end, made from its
+result and its trace where the result lands (`Telemetry::record_turn`, `record_failure`), once a turn. No fact
+counts itself, and none needs to, since every counter and histogram reads the result or a span the facts drew.
+
+The mapping:
+
+| Theseus | OpenTelemetry |
+|---|---|
+| turn | root span, with the trace root's attributes as recorded: `turn_id`, `session_id`, `profile`, `provider`, `model`, `continuation`, `outcome`, `loops`, `stop_reason`, `usage.*` |
+| loop *n*, a group of calls run together (`tools`), `tool <name>`, `continuation` | child spans |
+| provider.call | client span with the GenAI semantic conventions: `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model` (the model that answered, as the provider named it; none on a failed call), `gen_ai.response.id`, `gen_ai.response.finish_reasons`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` |
+| first_byte, first_token | events on the provider span |
+| compile, advancer, store, lock, marks | events on their parent span _(since 2026-09-28 always: hook sites are gone, and `telemetry.hook_spans` no longer loads)_ |
+| provider.error, turn.failed | error status, with the message or the class; the class and transient as attributes |
+| turns, tokens, provider errors, dollars, tool calls, durations | cumulative metrics: `theseus.turns` (profile, provider, requested model, outcome), `theseus.tokens` (the same, and direction), `theseus.provider.errors` (provider, model, class, transient), `theseus.cost.usd`, `theseus.tool.calls` (the turn's attributes, and the tool's name, family, backend, and outcome); histograms `theseus.turn.duration_ms`, `theseus.provider.call.duration_ms` (provider and model), `theseus.provider.first_token_ms`, and `theseus.tool.duration_ms` (as `theseus.tool.calls`) |
+
+Every duration histogram has the same bounds: the SDK's defaults up to 10 s, then 20 s, 30 s, 1, 2, 5, and 10 minutes, the default timeout of a provider call and of `proc.run`. A turn that fails is counted whoever ran it, a client's `turn.submit` or the driver's continuation, with the attributes of the target it ran on, and its tool and provider calls with it. The turn's metrics name the model asked for, and the provider span names the one that answered. _(Amended 2026-10-01, theseus-yf1. Until then the bounds stopped at 10 s, the tool metric was by tool only and had no duration, the provider call's time had no attributes, `gen_ai.response.model` was the requested model, and a continuation's failure was counted nowhere. Part III A4, Item 26.)_
+
+_(Amended 2026-10-03, the first cloud batch, Part III Item 67.)_ `theseus.provider.first_token_ms` is recorded for every provider call, with the call's provider and model as `theseus.provider.call.duration_ms` is, no longer once a turn with the turn's profile and outcome. `theseus.compile.withheld` (`theseus.withheld.reason`) counts the nodes and context files each compile left out, from a `label.withheld` event on the loop's span. A failed turn's tokens and dollars are counted, with the outcome `failed`. A failed tool call's span has error status; an unknown, cancelled, or declined one stays unset, since the first may have run and the others are the operator's choice.
+
+**Transport.** OTLP/HTTP with the JSON encoding, posted to `<otlp_endpoint>/v1/traces` and `/v1/metrics`
+over the workspace's `reqwest` and rustls, with no gRPC and no protobuf library.
+- **The exporter is Theseus's own, and it is in every build.** It adds no crate to the daemon.
+  (theseus-hee. Until then it was the `otel` cargo feature, off by default, over the OpenTelemetry SDK and 19
+  crates, aws-lc among them.)
+- Headers (a Honeycomb key, a Datadog key) come from the vault like every other secret. Resource attributes
+  carry `service.name`, `service.version`, and `service.instance.id`.
+- **Nothing leaves the process until three things hold:** `[telemetry].otlp_endpoint` is set, the vault
+  has confirmed the config (§3.19), and the headers secret has resolved.
+
+**A turn never waits for the network.**
+- The sender posts each turn's trace as it comes, from a queue of at most 64 whose oldest is dropped when
+  it is full. It posts the metrics every `metrics_interval_secs`.
+- A failure, a 429, or a 5xx is retried once after a second. Then the batch is dropped and counted.
+- Health says what was sent and dropped, and the last error (`telemetry: exporting to … · sent N ·
+  dropped M · last error …`), or why nothing is sent yet.
+- A stopping daemon flushes, bounded at a second.
+
+Point it at a local Collector, Grafana Tempo, Honeycomb, Datadog, or the AWS Distro for OpenTelemetry. That
+is how "CloudWatch for historical search" (§1) is satisfied, with no CloudWatch-specific code. The trace, the
+ledger, and `turn.trace` are the record: the web UI and CLI read the trace directly, and OTel is for the fleet
+view. _(Amended 2026-09-29, theseus-hee: the transport was HTTP/protobuf through the SDK, a build feature since
+theseus-0g4; Part III A3c, Step O1.)_
+
+### 3.21 Self-extension: planks, never the keel
+
+Theseus may build its ship on the open ocean: add tools to itself while running. It may not touch the keel.
+
+- **Planks** are tools. An `extend.propose` action lets the agent write a tool as an MCP server in any language, run it in an L1 sandbox, test it there, and produce a **manifest**: schema, capabilities requested, authority it needs, the tests it passed. Loading it is gated **deterministically** by an operator acknowledgement delivered as a Discord confirm (§3.9); Jev may advise, never approve. On ack the tool is hot-loaded with no restart, scoped to exactly the capabilities in its manifest, recorded as a versioned node with `derived_from` its proposal, ledgered, exported to telemetry, and revocable with one command. `extend.propose`, the ack, the load, and the revocation are each ledgered _(they were hook sites until the hook system was deleted, 2026-09-28)_. A tool built by the agent is `trust: agent` and cannot request more authority than the execution that proposed it holds (§3.9 never widens).
+- **Promotion to native** (`extend.promote`). A plank that has earned in-process speed or deep integration with the shell classes and the completion spool is ported to Rust inside the repository by the agent and opened as a **pull request**: implementation, tests, a Part III note. CI builds the static binary and runs everything; the operator reads the diff and merges; deployment is the routine graceful upgrade (§3.22), an operator action. Promotion can be one conversational request that yields a PR link, but the merge is human by default: native tools run in-process with kernel trust, and a bug or an injected malicious tool at that trust level owns the WAL, the secrets, and the policy store. A pull request is the only review artifact that can be read, tested, and reverted; an ack button for a compiled binary would approve something the operator cannot inspect. The repository *may* be set to auto-merge on green CI, which makes promotion fully agentic; that is a deliberate operator choice, off by default, to be made with evidence. Which planks earn promotion, and whether promoted tools are ever demoted, are ledger questions for the learning loop.
+- **The keel** is the kernel binary: the gate, the WAL, the policy engine, the store, the trace, the compiler. The agent may propose changes to it only as pull requests to the repository, which pass CI and a human review and are deployed by the operator. It never self-applies, compiles, or restarts its own binary; "compile and restart yourself" is the control-plane tampering §6 warns about, and an ack dialog for it would ask the operator to approve code they have not read. A pull request gives them a diff.
+- **When to extend** is a judgment, not a comprehension problem. The model can write a tool; deciding that a new tool is warranted rather than composing existing ones is a Jev pack (`EXTEND_WARRANTED`) plus the operator gate, and it is ledgered so the learning loop can see which extensions earned their keep.
+
+### 3.22 Lifecycle: restart is routine
+
+A restart of `theseusd` is designed to be cheap, because nothing that matters lives only in process memory (§3.16, §4.4b). What a restart costs, exactly: any provider stream in flight at that instant, which becomes a classified `usage_unknown` failure with its trace, reservation held, turn resumable. Everything else is reconciled by the five-step startup (§3.3): finished jobs are picked up from the spool, running jobs are still running because their wrappers never depended on the harness, sessions and executions are records, the live profile is in the store, Discord resumes its gateway session.
+
+**Graceful upgrade** is a first-class operation (`theseusd upgrade`, or a signal): stop admitting new turns; let in-flight provider calls finish within a bounded window or fail them cleanly; flush telemetry; checkpoint the store; exec the new binary and hand it the listening sockets so no client sees a refused connection. Target: no lost work, no lost client connections, sub-second gap in turn admission. **Upgrade under load** is a standing simulator scenario beside crash-at-every-boundary: a hundred sessions mid-turn, upgrade, every one settles correctly. Deploying a new keel is an operator action made cheap enough to do without ceremony; the agent never triggers it (§3.21).
+
+**Stopping** (theseus-bv5, theseus-pfv; built 2026-10-01, Part III A4 Item 19). A clean stop is one path, whatever
+asks for it: the protocol's `shutdown`, SIGINT, or SIGTERM, which is systemd's stop, `kill`'s default, and most
+supervisors' signal (until then a SIGTERM killed the daemon outright). The stop writes `server.stopping`, naming the
+signal when one asked, and checkpoints the index; from then on no outbox post is dispatched. The socket goes. The
+posts already sent get until `[server] stop_grace_ms` after the stop began to settle. The index is checkpointed after
+them, which costs nothing when nothing was written since, so the next start replays nothing and repairs nothing.
+Telemetry's last batch goes, bounded at 1 s. ~~A `--stdio` daemon has no signal arm; its client ends it by closing
+stdin (theseus-p7q).~~ A `--stdio` daemon stops on SIGINT and SIGTERM as the socket daemon does (theseus-p7q;
+built 2026-10-02, Part III Item 54). Since theseus-02k (Part III Item 46), redb's close makes the stop's
+checkpoints durable, so a stop pays one commit's syncs, and each of its phases is logged at debug.
+
+**A panic aborts, and says why** (Review 2's consideration 1; Eddie, 2026-10-01 at 19:54; built 2026-10-02,
+Part III Item 53). The release build keeps `panic = "abort"`: nothing half done outlives a panic, and a restart
+takes 20 ms. Before the abort, a panic hook writes the thread, the location, and the message to
+`crash-<mode>.json` beside the store (0600). The next start moves it into `crashes/`, says so in the log and a
+`server.crashed` row, and health and the Observatory show the newest crash. The message stays in the file and
+the log, never in the row or health.
+
+**Under systemd** (theseus-w1nf; built 2026-10-02, Part III Item 56). The operator's daemon runs as a systemd
+user service: `scripts/user-service.sh install` checks the machine, writes the unit `theseusd install --user`
+plans (~~`Delegate=yes`,~~ `KillSignal=SIGINT`, `KillMode=process`, `Restart=on-failure`), enables it with linger,
+and shows health. systemd restarts a crash, and a clean `theseus shutdown` stays stopped. ~~The unit's
+`ExecStopPost=-theseusd cgroup-release` turns L1's job limits off at a stop, so the next daemon can start while
+an old job runs (§7; Part III Item 58).~~ _(Since the sandbox trims, 2026-10-03, Part III Item 77: L1 uses no cgroup, so the unit has no `Delegate=` and no stop hook, and keeps `KillMode=process`, which lets a running job outlive a stop.)_ An upgrade is a build, a copy-then-rename, and `scripts/user-service.sh
+restart`.
+
+This is a deliberate contrast with the gateway Theseus replaces, where in-flight tool calls, subagent handles, and session state live in process memory and a restart loses them. The M0 binary is not yet restart-safe in this sense; M1 Keel and M2 Kernel are where the construction happens, and the simulator is what proves it.
+
+### 3.23 Toollets: native first
+
+A **toollet** is a small, typed, in-process Rust tool behind the tool contract (§3.12): a few arguments with a JSON schema, structured output that becomes a node with provenance, microsecond to millisecond latency, no shell parsing, no PATH or environment dependence, a unit test. Theseus ships many of them and prefers them to shelling out everywhere.
+
+Why this is a principle and not a taste. A `bash` string is opaque: the gate cannot tell `rm -rf` from `ls`, quoting is a permanent tax, the output is text that must be parsed back, and the ledger records only that "a shell ran." A native `fs.edit { path, find, replace }` has arguments policy can reason about, output that is already a node, and a trace span with real attributes. Every principle in §2 is stronger on a typed surface.
+
+**Families**, each a crate:
+
+| Family | Replaces | Built on |
+|---|---|---|
+| `fs.*` read, write, edit, glob, grep, stat, tree | cat, sed, find, rg | the `ignore` and `grep` crates ripgrep is built from |
+| `git.*` status, diff, log, blame, commit, branch, worktree | the git CLI | gitoxide |
+| `text.*` diff, patch, json, yaml, toml, regex, hash, count | jq, diff, sha256sum, wc | serde, similar |
+| `http.*` fetch, post | curl | reqwest; as built 2026-09-30, `fetch` only, as an async tool (theseus-yd6) |
+| `gh.*` issues, pull requests, checks, reviews | the gh CLI | the GitHub REST API |
+| `aws.*` per service | the aws CLI | the official Rust SDK |
+| `task.*`, `memory.*`, `extend.*` | — | the kernel |
+| `proc.run` typed argv, no shell | bash | tokio process; **the escape hatch** |
+
+**Rules.**
+- Native does not mean unbounded. A toollet that does I/O or exceeds the synchronous bound (§3.16) is an action with a completion record like anything else; durability is unchanged.
+- Native does not mean unscoped. A toollet runs with kernel trust, so it lands through the pull-request path (§3.21) and declares the authority it needs; the gate checks typed arguments, not strings.
+- Tool count is the toolchain manager's problem, not the model's: toollets are offered by family and by the turn's needs (roles, Jev), and searched, so a hundred of them do not bloat every prompt.
+- **A toollet computes on one of the daemon's cores.**
+  - One semaphore, with a permit per core (`available_parallelism`), is held by every in-process toollet
+    while it runs on tokio's blocking pool.
+  - So calls across every session never run more CPU work at once than there are cores, and never use a
+    thread per call.
+  - A call that waits for a permit is waiting, not failing: its deadline starts with its run. _(theseus-a60.)_
+- **A toollet whose work splits borrows free cores, and never waits for one.**
+  - `fs.grep` searches the files of a big tree in chunks, on every core that is free at that moment, and
+    merges them in walk order, so its output is the same with or without them.
+  - Waiting is async and computing takes a core, so a pool full of greps cannot deadlock.
+- Every tool call is a trace span and a metric: `theseus.tool.calls` and `theseus.tool.duration_ms`, with the
+  tool's `theseus.tool.name`, `.family`, and `.backend`, and the call's `.outcome` (§3.20). The
+  **shell-fallback ratio** is the calls named `proc.run` over all calls, one query over `theseus.tool.calls`, and
+  it is watched. The most frequent `proc.run` argv patterns are the promotion queue for the next toollet (§3.21
+  `extend.promote`). _(As built 2026-10-01, theseus-yf1. Until then the metric was by tool only.)_
+- A new capability arrives as a toollet unless there is a written reason it cannot; Part III records where this slipped.
+
+### 3.24 The tool surface
+
+Reviewed against Claude Code (about twenty tools, six of which do nearly all the work), Codex (seven native tools plus MCP; its `apply_patch` and `write_stdin` are the two ideas worth taking), and OpenClaw (seventy-odd top-level tools in a typical session, several with thirty-verb action enums, two memory systems, and operator controls exposed as model tools). Full review with verdicts in `docs/notes/tool-surface-review.md`.
+
+**Principles of the trim.** One tool, one verb: no action enums. Typed in, node out: every result is a node with provenance, and composition is by node reference (§3.16). The kernel is not a tool: sessions, executions, cancellation, budgets, policy, config, secrets, and operator controls are protocol requests or deterministic commands. Memory is compiled, not called (§5), with one explicit lookup and one explicit note. The shell is reachable only through a typed argv and is counted (§3.23). Everything else is a plank (§3.12).
+
+**A capped result says what it cut, and how to get it** (theseus-46v). A result longer than `[tools] result_max_chars` keeps its head and its tail, cut on lines' edges where it can. It says what it left out, and the call that returns it, which only the tool knows (`Tool::rest`): `…[19 lines (1,512 characters) not shown: lines 12-30; fs_read with offset=12 and limit=19 returns them]…`. A job's output isn't kept once its result is written (theseus-wz2). So a job's cut says to run it again printing less, or to send its output to a file and read that in ranges. Nothing claims a stored copy. A job that printed past its output cap (theseus-102) says so first: `[truncated: it printed N bytes, more than its output cap of 64 MiB: its first H and its last T are kept, and the M between them were dropped; <the tool's rest>]` (theseus-gsn9), then which bytes of what was kept follow.
+
+**The selected set**, thirty-five tools in twelve families, offered by family per turn so a coding turn sees perhaps fifteen schemas:
+
+| Family | Tools |
+|---|---|
+| `fs` | `read` (text, image, PDF as typed nodes), `write`, `edit` (exact-string replace with occurrence control), `patch` (unified diff), `glob`, `grep`, `list` (stat and tree) |
+| `proc` | `run` (one-shot typed argv: cwd, env allowlist, timeout, shell class), `session.open` / `session.send` / `session.close` (a persistent interactive process: REPL, debugger) |
+| `text` | `diff`, `query` (a jq subset over JSON, YAML, TOML nodes) |
+| `http` | `fetch` |
+| `web` | `search` |
+| `git` | `diff`, `log`, `commit`; the rest is `proc.run git …` until the fallback ratio says otherwise |
+| `task` | `create`, `update`, `move`, `split`, `merge`, `close`, `claim`, `handoff` (§3.5) |
+| `memory` | `recall`, `note` |
+| `channel` | `post`, `react`, `ask` (confirm, choose, or free text, to the requester or the owner) |
+| `node` | `read` (any graph node by id, with a range: the reference-passing primitive) |
+| `wake` | `at` |
+| `extend` | `propose`, `promote` (§3.21) |
+
+_(As built 2026-09-29: `fs.read` returns text, and an image as an image block for a model with vision (theseus-9g2). A PDF is still reported as a binary file.)_
+
+_(As built 2026-10-01, Review 2's R9, Part III Item 44: `fs.read` reads only a regular file, through its cap. A FIFO, a socket, or a device is refused by name, and every tool that reads a file (`fs.read`, `fs.edit`, `fs.patch`, `fs.grep`, `text.diff`, and `git.diff`'s reads) opens it without blocking, and checks it again once open.)_
+
+_(As built 2026-09-30, theseus-yd6: `http.fetch { url, max_bytes? }` and `web.search { query, count? }` are async tools (`Backend::Async`), not toollets on a core. Each call is a future on the daemon's runtime, and holds no core while it waits. Only turning an HTML page of 16 KiB or more into text takes a core from the pool (§3.23). `http.fetch` is GET only. It follows up to 5 redirects, within a total timeout and a byte cap. It returns an HTML page as text, through a hand-written converter with no parser crate, and text, JSON, and XML as they are. Any other type is named with its size and not read, so a PDF is named, not read (decision 10). `web.search` is the Brave Search API, and its key is a broker grant (§3.19). Both are class `Read`, so the fetches and searches of one response run together. Each result node is marked external, with its URL (§5.2).)_
+
+**Rejected, with the need's new home:** free-form `bash` (→ `proc.run`); subagents, spawn, workflows (→ task sessions); todo and plan-mode tools (→ `task.*`); multi-action `message`, `browser`, `nodes` (→ `channel.*`; browser and device control are planks); fourteen memory tools (→ two); session, subagent, and automation tools (→ protocol requests, `wake.at`, `/cancel`); secrets, gateway, config, plugin tools (→ the operator's CLI and web UI, never the model); media generation, TTS, PDF, image viewing as tools (→ node types for input, planks for generation); skills as tools (→ roles and MCP prompts); notebook and worktree tools (→ `fs.edit`, `git.*`, snapshots).
+
+The distinguishing claim is not fewer tools. It is that each tool is the whole of one idea, is typed enough for policy to read intent, and composes with every other through the graph.
+
+**Listings say what they left out** (Appendix F; theseus-8ye). Every listing tool follows one rule. Today that is `fs.glob`, `fs.grep`, and `fs.list`; later it is each new one (tasks, sessions, nodes, search, `channel.*`, `memory.*`).
+- **Narrow by default**: the session's scope, compact fields, active states.
+- **Wider only when asked**: explicit arguments widen the scope, the history, the fields, and the format.
+- **Every result states its scope and what it left out**, in one bracketed line at its end. That line says:
+  - what was listed, from where, and in what order;
+  - how many were left out, and which (by count, and by kind where the kind tells the reader something);
+  - the call that returns them.
+
+  For example: "12 open tasks in X; 340 closed not shown." A filter the tool always applies is part of the scope ("hidden files and .gitignore'd paths are not searched"), so an empty result never reads as "there is none".
+
+A narrow result must never read as the whole world. This rule generalizes §3.5's task-view elision counts to the whole tool surface. Every listing tool lands with a test of its elision line.
+
+_(As built 2026-10-01, theseus-8ye: see Part III Item 21. No model-facing task or session listing exists yet. The operator's `theseus tasks` and `theseus sessions` list everything, and Discord's `/tasks` already said "and N older; `theseus tasks` lists them all".)_
+
+### 3.25 AWS: the account Theseus owns
+
+_(Added 2026-10-02 with row 29, AWS's C1 = 14a; Part III Item 49. The design is `docs/design/aws-toolset.md`.)_ Theseus owns its home account (§1, "Home AWS account"). The config binds it as `[aws.accounts.<id>]`: its key, the root of trust, as two `[secrets]` entries (`credentials`; `aws_access_key_id` and `aws_secret_access_key` by default), its region, and the regions a call may name. The key resolves on the secrets board after serving like every secret, and the account is checked once, after serving: `sts:GetCallerIdentity` must name this account. Until that passes, no call of the account signs; a call waits for the check at most 30 s, then fails closed, and health says why (`aws:` per account, and the `aws.check` startup phase). Until the foundation stack exists (14b), the key signs the account's reads directly.
+
+The tools are one generic caller and three curated ones: `aws.call` (any operation of any service, from a catalog compiled from the AWS CLI's models, signed with AWS's `aws-sigv4`), `aws.describe` (the catalog, local), `aws.whoami`, and `aws.s3.list`. Each checks its whole call before the gate, with no network, so a bad call is invalid input and nothing is sent. Until 14b brings the guards, so is a call that writes, runs code, or returns a secret; the error names the step that brings it. _(Since C2, Item 78, only a secret-bearing read is, until C3: writes and runs are planned against the guards, below.)_ An AWS call's posture is `[policy.tools]`'s line for its tool, then `[policy.aws]`'s for its operation (`"s3:ListBuckets"`), its service (`"s3"`), and its class (`read`), then `enforcement` (§3.9). Every request is attributed (the user agent's `exec/<execution>` and `call/<correlation id>`, which CloudTrail keeps), and recorded: an `aws.called` ledger row with AWS's request id, never a credential or a result, and a span under its call's in the turn's trace, in OpenTelemetry's AWS names. A tool call's gate record holds its class and its AWS call (`plan.class`, `plan.aws`).
+
+_(Amended 2026-10-03 with row 30, C2 = 14b; Part III Item 78.)_ **Who signs.** An account's key, its root of trust, signs everything until the config names the owner role that `theseus aws bootstrap` made (`owner_role = "theseus-owner"`). From then on the key signs only `sts:GetCallerIdentity` and `sts:AssumeRole` into that role. Every call signs in a role session minted from it: an execution's work session (the guards, then `theseus-allow-all`), a job's (adding `theseus-guard-stacks`), a floor session for one call the operator approved (`theseus-allow-all` alone, fifteen minutes, never cached), or a tender's (its own inline policy). Each session's source identity is the deployment; each mint is an `aws.session.minted` row; no credential is ever written.
+
+**Writes.** `aws.call` makes any operation of any service, and its plan reads the guard list (`theseus-aws-guard`), the one list AWS's guards are generated from. A guardrail is the floor and asks at every posture; durable infrastructure, and a stack's own writes, are invalid input that points to the stack tools; a deletion of what holds state asks. Everything else takes `[policy.aws]`: the operation, the service, then the call's class (`read`, `write`, `run`). A secret-bearing read stays invalid input until C3.
+
+**Stacks.** `aws.stack.plan` makes a change set under the deployer role and shows its diff and digest; `aws.stack.apply` executes exactly the change set a plan showed, at the floor when it touches a guardrail and asking when it would lose state; `aws.stack.status` and `aws.stack.delete` complete them.
+
+**The bootstrap.** `theseus aws bootstrap` plans the foundation and posture stacks, and the relay in us-east-1, read-only (a new stack's plan is its template's resources; no change set), and applies that plan, bound to its digest, on the operator's yes: the foundation with the key, the rest in a floor session through the deployer. A plan after it shows no change. It is the CLI's alone. _(Its first apply, on Eddie's account, was cleared by him at 14:20 the same day, lean, without the trail's own key, and follows this record: Item 78.)_
+
+**The lean posture.** The stacks add about ten cents a month to a quiet account: SSE-S3, not customer keys (the trail may take its own with `TrailKey=customer`); the CIS checks as EventBridge rules on CloudTrail's management events, not alarms on a log group; GuardDuty on, with its usage read weekly. Rules are regional, so a relay brings us-east-1's global-service events to the home region.
+
+**The budget.** `monthly_budget_usd` is reconciled into the foundation stack after serving: a change set that touches the budget alone, applied without asking, else stopped and said. Health reads the budget every six hours (free); at 100% AWS's own action attaches `theseus-deny-spend`.
+
+**Programs.** `[broker.programs.aws] aws_account` gives the `aws` CLI a short-lived job session at launch, never the key.
+

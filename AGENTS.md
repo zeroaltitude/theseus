@@ -10,10 +10,11 @@ Theseus is a durable agent runtime in Rust: `theseusd`, a daemon that owns the t
 log of everything it does; `theseus`, a thin CLI over the daemon's JSON-RPC protocol; and two web apps the daemon
 serves. AI agents build it in small, reviewed steps.
 
-- **The spec, `docs/the-ship-of-theseus.md`**, is the source of truth. It is about 9,400 lines: find a section with
-  `grep -n '^##'`, and read it by ranges. Part I is the specification (§1 settled decisions, §2 principles, §9
-  budgets), Part II the plan (P0 holds the standing rules), and Part III the record: one item per step, with what it
-  built, how it was proven, where it diverged, and what it left open.
+- **The spec, `docs/spec/`**, is the source of truth: *The Ship of Theseus* in chapters of under about 150 KB, so read
+  a chapter whole. Start at its index, `docs/spec/README.md`, which says what each chapter holds and how they fit
+  together (`docs/the-ship-of-theseus.md`, the one file until v0.79, now points there). Part I is the specification
+  (§1 settled decisions, §2 principles, §9 budgets), Part II the plan (P0 holds the standing rules), and Part III the
+  record: one item per step, with what it built, how it was proven, where it diverged, and what it left open.
 - **`docs/status.md`**: what works today, what is being wired in, and the roadmap.
 - **`docs/design/`**, indexed in its README: `roadmap-v2.md` (every step, by "row"), `roadmap-v1.1.md` (the week
   after v1), `stage2-operator-surfaces.md`, `aws-toolset.md`, `m4-boundaries.md`, `m5-judgment.md`, `m6-memory.md`,
@@ -53,8 +54,8 @@ The reserved ones, with the row that wires each in, are listed in `docs/design/R
 - **`scripts/`**: `gate.sh`, the commit gate, and `smoke.sh`, an end-to-end check with real secrets and real models.
 - **`infra/aws/`**: the CloudFormation templates for Theseus's AWS account, with their stack policies and
   `check.sh` (see its README).
-- **`docs/`**: the spec (its PDF is rendered and sent, never committed), `status.md`, `technical-overview.md`, `design/`,
-  `research/`, and `notes/`.
+- **`docs/`**: the spec in chapters, `spec/` (its PDF is rendered and sent, never committed), `status.md`,
+  `technical-overview.md`, `design/`, `research/`, and `notes/`.
 - **At the root**: `deny.toml` (permissive licences only; each ignored advisory gives its reason),
   `rust-toolchain.toml` (one exact release), `clippy.toml` (shape), `.cargo/config.toml` (the musl target),
   `.config/nextest.toml` (a hung test dies at two minutes; named flaky tests retry), and `.github/workflows/ci.yml`.
@@ -179,8 +180,9 @@ Each traces to the Part III item that taught it.
   plain words. A trailer names the agent, as `Co-Authored-By: Tabitha/Claude <noreply@anthropic.com>` does, or the
   pilot's `Co-Authored-By: Theseus (Claude Opus 5.5) <noreply@anthropic.com>`.
 - **Every step is reviewed**: a written review, the gate rerun, and a live check of the install build. Then a docs
-  commit records it: the spec's Part III item, its version line, and `docs/status.md` (its "Updated" line, the
-  recently landed step, the roadmap's row). Take every time you write from `date`, never a guess.
+  commit records it: the spec's Part III item, its version line (the first heading of `docs/spec/01-front.md`), and
+  `docs/status.md` (its "Updated" line, the recently landed step, the roadmap's row). Take every time you write from
+  `date`, never a guess.
 - **Installing** a reviewed build (`scripts/build.sh --profile release-thin`): copy-then-rename each of `theseus`,
   `theseusd`, `theseus-sim`, `theseus-tui`, and `theseus-index` into `~/.local/bin` (`cp target/release-thin/$b
   ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new ~/.local/bin/$b`). A running daemon survives the swap. The daemon
