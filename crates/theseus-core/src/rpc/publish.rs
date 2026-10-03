@@ -39,7 +39,6 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<PublishResult> {
         let who = who.into();
-        let item = self.item(p)?;
         let place = self.runner.place_rule.find(&p.to).ok_or_else(|| {
             anyhow!(
                 "no bound place is named {}: `theseus places` lists them",
@@ -78,6 +77,9 @@ impl Core {
             )?;
             return Err(r.into());
         }
+        // Read only once who asks may publish: a refusal says nothing of
+        // what it named, not even whether a file exists, or its size.
+        let item = self.item(p)?;
         let header = match p.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
             Some(note) => format!(
                 "[Published here by the owner ({}): {}. Their note: {note}]",

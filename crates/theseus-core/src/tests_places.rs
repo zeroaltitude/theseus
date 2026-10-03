@@ -671,6 +671,22 @@ async fn only_the_owner_from_a_private_place_publishes() {
         rows(&r.core, "place.published").is_empty(),
         "nothing written"
     );
+    // Who asks is judged before anything is read: her refusal says nothing
+    // of what she named, not even whether it exists.
+    let named = [
+        ("/nonexistent/theseus-nbsh/notes.md", None),
+        ("", Some("msg_00000000000000000000000000000000")),
+    ];
+    for (path, node) in named {
+        let p = theseus_protocol::PlacePublishParams {
+            path: (!path.is_empty()).then(|| path.to_string()),
+            node_id: node.map(str::to_string),
+            to: "#lab".into(),
+            ..Default::default()
+        };
+        let e = r.core.publish(&p, from_discord(ALICE, None)).unwrap_err();
+        assert!(format!("{e:#}").contains("is not an owner"), "{e:#}");
+    }
     let ok = r.core.publish(&p, from_discord(OWNER, None));
     assert!(ok.is_ok(), "the owner's DM is private: {ok:?}");
 }
