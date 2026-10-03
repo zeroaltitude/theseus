@@ -2,10 +2,10 @@
 //!
 //! A frame is the WAL's atomic unit and costs one `fdatasync`, so frames per
 //! turn is the disk's share of a turn counted in a way that does not depend on
-//! the disk: §9's per-turn overhead restated (review 2, consideration 8). The
-//! daemon does not report them, and the bench must not change the core for
-//! its own needs, so a [`Tail`] reads the WAL's segments read-only, the way the
-//! WAL follower does, and checks each frame as recovery checks it
+//! the disk: §9's per-turn overhead restated (review 2, consideration 8). Each
+//! turn's trace carries the daemon's own count (theseus-wz4y), and the bench
+//! checks it against this one rather than take its word, so a [`Tail`] reads
+//! the WAL's segments read-only, the way the WAL follower does, and checks each frame as recovery checks it
 //! (`theseus_store::wal::read_frame`). It takes no lock: the daemon holds the
 //! store's, and a reader never needs it.
 //!

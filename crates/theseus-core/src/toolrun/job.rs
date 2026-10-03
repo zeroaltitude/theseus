@@ -265,7 +265,15 @@ impl ToolRuntime {
             self.stop_launched(tc, correlation_id, pid).await;
         }
         loop {
+            let counted = tc.store.turn_frames();
             if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
+                // The completion's frame is the turn's, whoever accepted it:
+                // the spool's drain, woken by the job's wrapper, may take it
+                // before this look does, in a frame of the driver's
+                // (theseus-wz4y). A cancel's frame is not the turn's.
+                if tc.store.turn_frames() == counted && done.state != ActionState::Cancelled {
+                    tc.store.count_frames(1);
+                }
                 let mut r = ResultNode {
                     duration_ms: Some(t0.elapsed().as_millis() as u64),
                     ..self.job_result(tc.store, &done, &call.id, tool.name())

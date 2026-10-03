@@ -286,6 +286,10 @@ struct TurnState {
     waiting: Mutex<Vec<NewRecord>>,
     /// The session's transcript as the turn knows it, once a reader asked.
     transcript: Mutex<Option<(String, Transcript)>>,
+    /// The frames the turn has written (theseus-wz4y): each this handle
+    /// committed, and those its admission wrote before the handle existed
+    /// (`count_frames`).
+    frames: std::sync::atomic::AtomicU64,
     #[cfg(test)]
     faults: Arc<Faults>,
 }
@@ -308,6 +312,8 @@ impl TurnState {
         frame.extend_from_slice(records);
         match inner.append(&frame) {
             Ok(mut positions) => {
+                self.frames
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let positions = positions.split_off(n);
                 self.wrote(records, &positions);
                 Ok(positions)
@@ -535,6 +541,22 @@ impl Store {
                 Ok(())
             }
             None => self.inner.append(&[record]).map(|_| ()),
+        }
+    }
+
+    /// The frames this turn has written so far (theseus-wz4y): those its
+    /// handle committed, and those counted to it. None on a handle that is
+    /// not a turn's.
+    pub fn turn_frames(&self) -> Option<u64> {
+        let t = self.turn.as_ref()?;
+        Some(t.frames.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Count `n` frames the turn wrote by another way than this handle: its
+    /// admission's, written before the handle was made (theseus-wz4y).
+    pub fn count_frames(&self, n: u64) {
+        if let Some(t) = &self.turn {
+            t.frames.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
