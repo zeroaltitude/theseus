@@ -27,6 +27,8 @@ use crate::state::{clip_cut, clip_with, BuiltState, Keep, Scrub, StateBuilder};
 pub const PROBE_VERSION: u32 = 1;
 pub const LOOP_VERSION: u32 = 1;
 pub const SECURITY_VERSION: u32 = 1;
+/// `security.v2`'s builder (module `security2`).
+pub const SECURITY2_VERSION: u32 = 1;
 pub const INBOUND_VERSION: u32 = 1;
 pub const CONTINUE_VERSION: u32 = 1;
 pub const CATEGORIZE_VERSION: u32 = 1;
@@ -146,9 +148,28 @@ pub struct SecurityInput {
     pub operator_last_ask: Option<String>,
     #[serde(default)]
     pub hold: Option<HoldInput>,
-    /// The session's recent calls before this one, oldest first.
+    /// The session's recent calls before this one, oldest first. `security.v1`
+    /// shows the newest five; `security.v2` also computes facts over all of
+    /// them (the core passes a bounded tail).
     #[serde(default)]
     pub last_calls: Vec<ToolCallInput>,
+    /// `security.v2` only: what the session read lately (a file, a page), as
+    /// an excerpt, oldest first. The session's own model saw it, so Jev may.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_reads: Vec<ReadInput>,
+    /// `security.v2` only: files the core knows were written from external
+    /// text, in this session or another. Empty when the core keeps no such
+    /// provenance, which says nothing about the files.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tainted_paths: Vec<String>,
+}
+
+/// Something the session read: its source (a path or a URL) and its start.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadInput {
+    pub source: String,
+    pub excerpt: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,6 +275,8 @@ pub enum Input {
     Probe(ProbeInput),
     Loop(LoopInput),
     Security(SecurityInput),
+    /// `security.v2`'s input is `security.v1`'s, with its optional fields.
+    Security2(SecurityInput),
     Inbound(InboundInput),
     Continue(ContinueInput),
     Categorize(CategorizeInput),
@@ -265,6 +288,7 @@ impl Input {
             Input::Probe(_) => Builder::Probe,
             Input::Loop(_) => Builder::Loop,
             Input::Security(_) => Builder::Security,
+            Input::Security2(_) => Builder::Security2,
             Input::Inbound(_) => Builder::Inbound,
             Input::Continue(_) => Builder::Continue,
             Input::Categorize(_) => Builder::Categorize,
@@ -277,6 +301,7 @@ impl Input {
             Builder::Probe => Input::Probe(serde_json::from_str(json)?),
             Builder::Loop => Input::Loop(serde_json::from_str(json)?),
             Builder::Security => Input::Security(serde_json::from_str(json)?),
+            Builder::Security2 => Input::Security2(serde_json::from_str(json)?),
             Builder::Inbound => Input::Inbound(serde_json::from_str(json)?),
             Builder::Continue => Input::Continue(serde_json::from_str(json)?),
             Builder::Categorize => Input::Categorize(serde_json::from_str(json)?),
@@ -306,6 +331,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Probe(i) => probe(i, cap, scrub),
         Input::Loop(i) => loop_state(i, cap, scrub),
         Input::Security(i) => security(i, cap, scrub),
+        Input::Security2(i) => security2::security2(i, cap, scrub),
         Input::Inbound(i) => inbound(i, cap, scrub),
         Input::Continue(i) => continue_state(i, cap, scrub),
         Input::Categorize(i) => categorize(i, cap, scrub),
@@ -505,6 +531,8 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     }
 }
 
+mod security2;
+
 /// `security.v1`: the call (tool, class, posture and why), its arguments
 /// (argv, paths, and a URL as host, path, and query, each clipped), the
 /// operator's last ask, the session's hold on external text, and its last
@@ -512,6 +540,41 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
 pub fn security(i: &SecurityInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     let c = Clipper::new(scrub);
     let mut b = StateBuilder::new("security", SECURITY_VERSION, cap, scrub);
+    security_fields(&mut b, &c, i, cap, &SecurityShares::V1);
+    Prepared {
+        state: Arc::new(b.build()),
+        dynamic: Dynamic::default(),
+    }
+}
+
+/// The share of a security pack's cap each list may take. The shares sum
+/// below one; `security.v2` adds fields, so it narrows these.
+struct SecurityShares {
+    argv: u64,
+    paths: u64,
+    other_args: u64,
+    ask: u64,
+    last_calls: u64,
+}
+
+impl SecurityShares {
+    const V1: Self = Self {
+        argv: 20,
+        paths: 10,
+        other_args: 12,
+        ask: 20,
+        last_calls: 20,
+    };
+}
+
+/// The fields `security.v1` and `security.v2` share.
+fn security_fields(
+    b: &mut StateBuilder,
+    c: &Clipper,
+    i: &SecurityInput,
+    cap: u64,
+    sh: &SecurityShares,
+) {
     b.scalar("tool", c.clip(&i.tool, 60))
         .cut_if("tool", c.cut())
         .scalar("class", c.clip(&i.class, 30))
@@ -532,7 +595,7 @@ pub fn security(i: &SecurityInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
             .map(|a| Value::String(c.clip(a, 200)))
             .collect();
         let later = left_out(&i.argv, argv.len());
-        b.list_head("argv", 9, share(cap, 20), argv, later)
+        b.list_head("argv", 9, share(cap, sh.argv), argv, later)
             .cut_if("argv", c.cut());
     }
     if !i.paths.is_empty() {
@@ -543,7 +606,7 @@ pub fn security(i: &SecurityInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
             .map(|p| Value::String(c.clip(p, 200)))
             .collect();
         let later = left_out(&i.paths, paths.len());
-        b.list_head("paths", 8, share(cap, 10), paths, later)
+        b.list_head("paths", 8, share(cap, sh.paths), paths, later)
             .cut_if("paths", c.cut());
     }
     if let Some(u) = &i.url {
@@ -566,11 +629,11 @@ pub fn security(i: &SecurityInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
         }
     }
     if let Some(o) = &i.other_args {
-        let cap_bytes = share(cap, 12) as usize * 4;
+        let cap_bytes = share(cap, sh.other_args) as usize * 4;
         b.text(
             "other_args",
             7,
-            share(cap, 12),
+            share(cap, sh.other_args),
             Keep::Head,
             &compact(o, cap_bytes + 8192),
         );
@@ -578,7 +641,7 @@ pub fn security(i: &SecurityInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     b.opt_text(
         "operator_last_ask",
         9,
-        share(cap, 20),
+        share(cap, sh.ask),
         Keep::Both,
         i.operator_last_ask.as_deref(),
     )
@@ -595,19 +658,15 @@ pub fn security(i: &SecurityInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
         .cut_if("hold", c.cut());
     }
     let recent = newest(&i.last_calls, SECURITY_CALLS);
-    let last: Vec<Value> = recent.iter().map(|t| call_item(&c, t, 200)).collect();
+    let last: Vec<Value> = recent.iter().map(|t| call_item(c, t, 200)).collect();
     b.list_after(
         "last_calls",
         5,
-        share(cap, 20),
+        share(cap, sh.last_calls),
         last,
         left_out(&i.last_calls, recent.len()),
     )
     .cut_if("last_calls", c.cut());
-    Prepared {
-        state: Arc::new(b.build()),
-        dynamic: Dynamic::default(),
-    }
 }
 
 /// The `inbound` state for `classify.v1` and `role.v1`: the message, who
@@ -860,6 +919,7 @@ mod tests {
             "probe.v1",
             "loop.v1",
             "security.v1",
+            "security.v2",
             "classify.v1",
             "continue.v1",
             "categorize.v1",
@@ -1080,6 +1140,34 @@ mod tests {
             outcome: CallOutcome::Ok,
             error_class: None,
         });
+        let sec = SecurityInput {
+            tool: big.clone(),
+            class: big.clone(),
+            posture: big.clone(),
+            posture_reason: Some(big.clone()),
+            argv: (0..2_000).map(|_| item.clone()).collect(),
+            paths: (0..2_000).map(|_| item.clone()).collect(),
+            url: Some(format!(
+                "https://example.com/{}?q={}",
+                "p".repeat(4_000),
+                "q".repeat(4_000)
+            )),
+            other_args: Some(json!({ "blob": big })),
+            operator_last_ask: Some(big.clone()),
+            hold: Some(HoldInput {
+                tool: big.clone(),
+                host: Some(big.clone()),
+                minutes_ago: 1,
+            }),
+            last_calls: calls.clone(),
+            recent_reads: (0..50)
+                .map(|_| ReadInput {
+                    source: item.clone(),
+                    excerpt: big.clone(),
+                })
+                .collect(),
+            tainted_paths: (0..500).map(|_| item.clone()).collect(),
+        };
         let inputs: Vec<(&str, Input)> = vec![
             (
                 "loop.v1",
@@ -1093,30 +1181,8 @@ mod tests {
                     minutes_since_ask: 99_999,
                 }),
             ),
-            (
-                "security.v1",
-                Input::Security(SecurityInput {
-                    tool: big.clone(),
-                    class: big.clone(),
-                    posture: big.clone(),
-                    posture_reason: Some(big.clone()),
-                    argv: (0..2_000).map(|_| item.clone()).collect(),
-                    paths: (0..2_000).map(|_| item.clone()).collect(),
-                    url: Some(format!(
-                        "https://example.com/{}?q={}",
-                        "p".repeat(4_000),
-                        "q".repeat(4_000)
-                    )),
-                    other_args: Some(json!({ "blob": big })),
-                    operator_last_ask: Some(big.clone()),
-                    hold: Some(HoldInput {
-                        tool: big.clone(),
-                        host: Some(big.clone()),
-                        minutes_ago: 1,
-                    }),
-                    last_calls: calls.clone(),
-                }),
-            ),
+            ("security.v1", Input::Security(sec.clone())),
+            ("security.v2", Input::Security2(sec)),
             (
                 "classify.v1",
                 Input::Inbound(InboundInput {

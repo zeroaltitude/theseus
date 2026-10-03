@@ -12,6 +12,7 @@
 //! - [`pack`]: packs as versioned TOML data, and the loader's rules;
 //! - [`state`] and [`builders`]: states capped by construction, built from
 //!   plain inputs;
+//! - [`eval`]: the planted-injection eval sets, with their expected answers;
 //! - [`band`], [`batch`], [`breaker`]: the three-band gate, batching by
 //!   shared state, and the circuit breaker;
 //! - [`price`]: the catalog-shaped price of the pinned model;
@@ -26,6 +27,7 @@ pub mod batch;
 pub mod breaker;
 pub mod builders;
 pub mod client;
+pub mod eval;
 pub mod judge;
 pub mod learn;
 pub mod pack;
