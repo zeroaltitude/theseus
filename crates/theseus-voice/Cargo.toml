@@ -1,30 +1,28 @@
 [package]
 name = "theseus-voice"
-description = "Theseus's voice engine (M7 design §2.8, step 44a): the VoiceIo seam (songbird for real, WAV files for tests), the pipeline (an utterance per speaker, coalesced turns, sentence-by-sentence speech with barge-in, the acknowledgment, reports at the pause), and the Speech trait with its stand-ins."
-# Parked outside the workspace until row 77 (theseus-o8nk; AGENTS.md): an excluded crate cannot inherit the
-# workspace's fields, so they are written out here as the workspace has them.
-version = "0.0.1"
-edition = "2021"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/zeroaltitude/theseus"
-rust-version = "1.98"
-
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
-[package.metadata.theseus]
-reserved_for = "row 77 (44b), M7: /join, and utterances into turns; speech as spend at row 78 (45b)"
+description = "Theseus's voice engine (M7 design §2.8, steps 44a and 45a): the VoiceIo seam (songbird for real, WAV files for tests), the pipeline (an utterance per speaker, coalesced turns, sentence-by-sentence speech with barge-in, the acknowledgment, reports at the pause), the Speech trait with its stand-ins, and Deepgram, the real speech provider."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [features]
 default = ["voice"]
 # songbird's driver, to receive and send on a Discord voice channel. Without it
-# the crate is the seam, the pipeline, and the stand-ins: no songbird, no
-# libopus, no DAVE.
+# the crate is the seam, the pipeline, the stand-ins, and Deepgram: no
+# songbird, no libopus, no DAVE.
 voice = ["dep:songbird", "dep:symphonia", "dep:async-trait"]
 
 [dependencies]
-futures-util = "0.3"
-thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "sync", "time", "signal", "fs"] }
-tracing = "0.1"
+futures-util.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+# Deepgram (45a): the workspace's client, rustls on ring.
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 # The 44a spike's exact line (theseus-zaz.8): `driver` needs exactly one of
 # `tws` and `tungstenite`, and exactly one of `rustls` and `native`.
 songbird = { version = "0.6.0", optional = true, default-features = false, features = ["driver", "gateway", "twilight", "receive", "rustls", "tws"] }
@@ -36,23 +34,24 @@ symphonia = { version = "0.5.5", optional = true, default-features = false, feat
 async-trait = { version = "0.1", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "sync", "time", "signal", "fs", "test-util"] }
+tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"
 # The `join` example's gateway, exactly as crates/theseus-discord declares it.
 twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-native-roots", "rustls-webpki-roots", "twilight-http"] }
 twilight-http = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots"] }
 twilight-model = "0.17.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-serde = { version = "1", features = ["derive"] }
-toml = "0.9"
+toml.workspace = true
+# The join example's songbird logs, on THESEUS_VOICE_LOG.
+tracing-subscriber.workspace = true
 
 [[example]]
 name = "join"
 
-# The workspace's lints, written out as above; the root's clippy.toml still sets their thresholds.
-[lints.clippy]
-unused_async = "warn"
-unused_self = "warn"
-redundant_clone = "warn"
-too_many_lines = "warn"
-cognitive_complexity = "warn"
+# Deepgram live (45a): a sentence's round trip, then the engine on the real
+# provider; the key from the environment, never printed.
+[[example]]
+name = "deepgram"
+
+[lints]
+workspace = true

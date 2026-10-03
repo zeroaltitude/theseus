@@ -80,6 +80,9 @@ pub struct Config {
     pub policy: PolicyConfig,
     #[serde(default)]
     pub discord: DiscordConfig,
+    /// `[voice]` (rows 77 and 78): speech in a voice channel, in `crate::voice`.
+    #[serde(default, skip_serializing_if = "crate::voice::VoiceConfig::is_default")]
+    pub voice: crate::voice::VoiceConfig,
     /// `[aws.accounts.<id>]`: the AWS accounts Theseus owns (AWS design
     /// §3.5). None: no AWS tool, and nothing AWS runs.
     #[serde(default, skip_serializing_if = "AwsConfig::is_empty")]
@@ -1243,6 +1246,7 @@ impl Config {
             }
         }
         self.validate_places()?;
+        self.validate_voice()?;
         if let Some(name) = &self.context.default_persona {
             if !self.personas.contains_key(name) {
                 anyhow::bail!(
@@ -1734,6 +1738,8 @@ mod tests {
         // The broker's example grant and posture are real (theseus-dcy).
         assert_eq!(cfg.broker.programs["gh"].env["GH_TOKEN"], "github_token");
         assert_eq!(cfg.broker.secrets["github_token"].posture, Posture::Notify);
+        // [voice] and its key's line are real too (rows 77 and 78).
+        assert!(cfg.voice.enabled && cfg.secrets.contains_key(&cfg.voice.key_secret));
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);

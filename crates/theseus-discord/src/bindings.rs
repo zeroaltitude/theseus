@@ -42,6 +42,11 @@ pub struct ChannelBinding {
     /// when anyone besides the owner can view it.
     #[serde(default)]
     pub private: bool,
+    /// A voice channel (rows 77 and 78): `/join`, from a private place,
+    /// brings Theseus into it when `[voice]` is on, and only its users are
+    /// heard. Its text chat is the place's text, as a text channel's is.
+    #[serde(default)]
+    pub voice: bool,
 }
 
 fn yes() -> bool {
@@ -125,6 +130,21 @@ mod tests {
         );
         assert_eq!(b.dm[0].label(), "DM @eddie");
         assert_eq!(b.revision.len(), 12);
+    }
+
+    /// A voice channel is a `[[channel]]` bound `voice = true` (rows 77 and
+    /// 78); a channel is not one unless it says so.
+    #[test]
+    fn a_voice_channel_is_a_channel_bound_voice() {
+        let b = Bindings::parse(
+            "guild_id = \"123456789012345678\"\n\
+             [[channel]]\nid = \"223456789012345678\"\nname = \"lounge\"\n\
+             users = [\"323456789012345678\"]\nprivate = true\nvoice = true\n",
+        )
+        .unwrap();
+        assert!(b.channel[0].voice && b.channel[0].private);
+        assert_eq!(b.channel[0].label(), "#lounge");
+        assert!(!Bindings::parse(EXAMPLE_BINDINGS).unwrap().channel[0].voice);
     }
 
     #[test]

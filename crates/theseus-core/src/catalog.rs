@@ -572,6 +572,95 @@ impl Catalog {
     }
 }
 
+/// What speech costs (45b, rows 77 and 78), beside the models' token prices:
+/// speech to text by the minute of audio, synthesis by the thousand
+/// characters.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpeechPrice {
+    pub provider: &'static str,
+    /// A model's id, or the family its ids start with: `aura-2` prices
+    /// `aura-2-andromeda-en`.
+    pub model: &'static str,
+    pub unit: SpeechUnit,
+    /// US dollars per unit.
+    pub usd: f64,
+    /// Where the figure came from.
+    pub source: &'static str,
+}
+
+/// What a speech price is per.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpeechUnit {
+    /// A minute of audio, priced by the millisecond.
+    Minute,
+    /// A thousand characters, priced by the character.
+    ThousandChars,
+}
+
+/// Deepgram's pay-as-you-go list prices, as best known (2025's), until Eddie
+/// confirms them against his account: nova-3 and nova-2 pre-recorded speech
+/// to text about $0.0043 a minute, Aura-2 about $0.030 per 1,000 characters,
+/// and Aura (the first) $0.015.
+pub const SPEECH_PRICES: &[SpeechPrice] = &[
+    SpeechPrice {
+        provider: "deepgram",
+        model: "nova-3",
+        unit: SpeechUnit::Minute,
+        usd: 0.0043,
+        source: "Deepgram pay-as-you-go list price, pre-recorded (2025), to confirm",
+    },
+    SpeechPrice {
+        provider: "deepgram",
+        model: "nova-2",
+        unit: SpeechUnit::Minute,
+        usd: 0.0043,
+        source: "Deepgram pay-as-you-go list price, pre-recorded (2025), to confirm",
+    },
+    SpeechPrice {
+        provider: "deepgram",
+        model: "aura-2",
+        unit: SpeechUnit::ThousandChars,
+        usd: 0.030,
+        source: "Deepgram pay-as-you-go list price (2025), to confirm",
+    },
+    SpeechPrice {
+        provider: "deepgram",
+        model: "aura",
+        unit: SpeechUnit::ThousandChars,
+        usd: 0.015,
+        source: "Deepgram pay-as-you-go list price (2025), to confirm",
+    },
+];
+
+/// The price of `provider`'s `model`: its own row, or its family's, the
+/// longest that names it (`aura-2-…` is Aura-2's, not Aura's).
+pub fn speech_price(provider: &str, model: &str) -> Option<&'static SpeechPrice> {
+    SPEECH_PRICES
+        .iter()
+        .filter(|p| p.provider == provider)
+        .filter(|p| {
+            model == p.model
+                || model
+                    .strip_prefix(p.model)
+                    .is_some_and(|rest| rest.starts_with('-'))
+        })
+        .max_by_key(|p| p.model.len())
+}
+
+impl SpeechPrice {
+    /// What a call costs in micro-dollars, rounded up once: its audio by the
+    /// millisecond at the minute's price, or its characters at the
+    /// thousand's.
+    pub fn cost_micros(&self, audio: std::time::Duration, chars: usize) -> Micros {
+        let per_unit = u128::from(usd_to_micros(self.usd));
+        let scaled = match self.unit {
+            SpeechUnit::Minute => (audio.as_millis() * per_unit).div_ceil(60_000),
+            SpeechUnit::ThousandChars => (chars as u128 * per_unit).div_ceil(1_000),
+        };
+        u64::try_from(scaled).unwrap_or(u64::MAX)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -908,6 +997,37 @@ mod tests {
                     "{chars4} against {count}"
                 );
             }
+        }
+    }
+
+    /// Speech's prices are the code's (45b): nova-3 by the millisecond at
+    /// $0.0043 a minute, Aura-2 by the character at $0.030 a thousand, and a
+    /// voice priced by its family, the longest that names it.
+    #[test]
+    fn speech_is_priced_by_the_minute_heard_and_the_characters_said() {
+        use std::time::Duration;
+        let nova = speech_price("deepgram", "nova-3").unwrap();
+        assert_eq!(nova.unit, SpeechUnit::Minute);
+        assert_eq!(nova.cost_micros(Duration::from_secs(60), 0), 4_300);
+        assert_eq!(nova.cost_micros(Duration::from_secs(3), 99), 215);
+        // A millisecond's fraction of a micro-dollar rounds up, once.
+        assert_eq!(nova.cost_micros(Duration::from_millis(1), 0), 1);
+        let andromeda = speech_price("deepgram", "aura-2-andromeda-en").unwrap();
+        assert_eq!(andromeda.model, "aura-2", "Aura-2's, not the first Aura's");
+        assert_eq!(andromeda.cost_micros(Duration::from_secs(9), 1_000), 30_000);
+        assert_eq!(andromeda.cost_micros(Duration::ZERO, 79), 2_370);
+        assert_eq!(
+            speech_price("deepgram", "aura-asteria-en").unwrap().usd,
+            0.015
+        );
+        assert!(
+            speech_price("deepgram", "nova-30").is_none(),
+            "a family is a whole word"
+        );
+        assert!(speech_price("deepgram", "whisper-large").is_none());
+        assert!(speech_price("stand-in", "nova-3").is_none());
+        for p in SPEECH_PRICES {
+            assert!(p.usd > 0.0 && p.source.contains("to confirm"), "{p:?}");
         }
     }
 }

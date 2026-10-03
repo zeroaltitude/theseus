@@ -28,6 +28,9 @@ twilight-http = { version = "0.17.1", default-features = false, features = ["rus
 twilight-model = "0.17.1"
 twilight-util = { version = "0.17.0", features = ["builder", "permission-calculator"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+# Voice (rows 77 and 78): the engine, songbird through it (one version, one
+# feature set), and Deepgram.
+theseus-voice = { path = "../theseus-voice" }
 
 [dev-dependencies]
 tempfile = "3"
