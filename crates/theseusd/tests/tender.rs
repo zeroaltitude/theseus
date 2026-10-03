@@ -245,7 +245,9 @@ fn the_tender_starts_after_serving_and_a_kill_restarts_it_after_its_backoff() {
 
 /// A stop waits for nothing (§9): with its tender stopped (SIGSTOP), so
 /// that SIGTERM cannot end it, the daemon still stops at once. The tender
-/// ends when it runs again.
+/// ends when it runs again. A SIGSTOP takes hold only once the tender is
+/// next scheduled, so the stop waits until it reads as stopped: before
+/// that, the stop's SIGTERM ends a tender still running (theseus-ux8g).
 #[test]
 fn a_stop_does_not_wait_for_the_tender() {
     tender_bin();
@@ -254,6 +256,15 @@ fn a_stop_does_not_wait_for_the_tender() {
     let pid = running(&h).unwrap();
     let _seen = Reap(vec![pid]);
     signal(pid, libc::SIGSTOP);
+    let t = Instant::now();
+    while state(pid) != Some('T') {
+        assert!(
+            t.elapsed() < Duration::from_secs(20),
+            "the tender never stopped: {:?}",
+            state(pid)
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
     let t0 = Instant::now();
     s.call("shutdown", Value::Null).unwrap();
     while s.daemon.try_wait().is_none() {
