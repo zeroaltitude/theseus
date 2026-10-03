@@ -903,7 +903,9 @@ pub struct ExternalText {
     #[cfg_attr(test, ts(optional))]
     pub from_session: Option<String>,
     /// How it came from there: `task.create` (a task that a session holding
-    /// it started) or `task.report` (a report from a task that held it).
+    /// it started) or `task.report` (a report from a task that held it); or
+    /// how it came at all: `egress` (M4 18c), a job in L1 that connected out,
+    /// whose `url` names the hosts it reached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub via: Option<String>,
@@ -915,15 +917,22 @@ pub struct ExternalText {
     pub query: Option<String>,
 }
 
+/// `ExternalText::via` for a job in L1 that connected out through its
+/// egress proxy (M4 18c).
+pub const VIA_EGRESS: &str = "egress";
+
 impl ExternalText {
     /// What the session read, as every surface names it (theseus-qiy): a
-    /// search by its query, `web.search "tokio JoinSet documentation"`, and
-    /// anything else by its URL, `http.fetch <url>`. A hold written before
-    /// the query was kept names the search's URL.
+    /// search by its query, `web.search "tokio JoinSet documentation"`; a job
+    /// that connected out of L1 by its hosts, `proc.run's egress to
+    /// api.github.com:443` (18c); and anything else by its URL, `http.fetch
+    /// <url>`. A hold written before the query was kept names the search's
+    /// URL.
     pub fn what(&self) -> String {
-        match &self.query {
-            Some(q) => format!("{} \"{q}\"", self.tool),
-            None => format!("{} {}", self.tool, self.url),
+        match (&self.query, self.via.as_deref()) {
+            (Some(q), _) => format!("{} \"{q}\"", self.tool),
+            (None, Some(VIA_EGRESS)) => format!("{}'s egress to {}", self.tool, self.url),
+            (None, _) => format!("{} {}", self.tool, self.url),
         }
     }
 }
@@ -1429,6 +1438,11 @@ pub struct ActionInfo {
     #[cfg_attr(test, ts(optional))]
     pub resolution: Option<String>,
     pub completions_seen: u32,
+    /// An L1 job's egress (M4 18c), as its completion's `detail.egress`
+    /// keeps it: its list, the hosts it reached, and the refusals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "unknown"))]
+    pub egress: Option<Value>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

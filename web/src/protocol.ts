@@ -17,9 +17,12 @@ export type {
 } from './protocol.gen'
 
 /// What a session read, as the hold's reason names it (theseus-qiy): a search by its
-/// query, `web.search "tokio JoinSet documentation"`, anything else by its URL.
+/// query, `web.search "tokio JoinSet documentation"`, a job that connected out of L1 by
+/// its hosts, `proc.run's egress to api.github.com:443` (18c), anything else by its URL.
 export function heldWhat(h: ExternalText): string {
-  return h.query != null ? `${h.tool} "${h.query}"` : `${h.tool} ${h.url}`
+  if (h.query != null) return `${h.tool} "${h.query}"`
+  // A job in L1 that connected out (M4 18c): the hosts it reached.
+  return h.via === 'egress' ? `${h.tool}'s egress to ${h.url}` : `${h.tool} ${h.url}`
 }
 
 /// A node's reach in words (theseus-n4m, step 12a), as `theseus reach` says it: `seen by 24 contexts in

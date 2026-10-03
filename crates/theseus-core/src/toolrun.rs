@@ -34,6 +34,7 @@ use zeroize::Zeroize;
 
 use crate::broker::Broker;
 use crate::bus::EventSink;
+use crate::egress;
 use crate::fact;
 use crate::labels;
 use crate::ledger::LedgerRow;
@@ -41,7 +42,7 @@ use crate::narrative::{self, Narrator};
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::{Decision, Posture, ToolPolicy};
 use crate::provider::ToolUse;
-use crate::sandbox::{self, Class, Sandbox};
+use crate::sandbox::{self, Sandbox};
 use crate::scrub::Scrubber;
 use crate::store::Store;
 
@@ -605,7 +606,7 @@ impl ToolRuntime {
 
     /// A result on its own frame, announced.
     fn answer(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>) -> Result<ResultStatus> {
-        Self::write_result(tc, &self.result_node(tc, r))
+        self.write_result(tc, &self.result_node(tc, r))
     }
 
     fn announce_end(tc: &TurnCtx<'_>, node: &Node) {
@@ -632,14 +633,20 @@ impl ToolRuntime {
         self.scrubber.scrub(&s).0
     }
 
-    /// Write a result node on its own frame and announce it.
-    fn write_result(tc: &TurnCtx<'_>, node: &Node) -> Result<ResultStatus> {
+    /// Write a result node on its own frame and announce it, with the hold
+    /// it brings its session in that frame when it is outside text (a job
+    /// that connected out of L1, 18c).
+    fn write_result(&self, tc: &TurnCtx<'_>, node: &Node) -> Result<ResultStatus> {
         let status = match &node.body {
             Body::ToolResult { status, .. } => *status,
             _ => ResultStatus::Error,
         };
-        tc.store.append(&[node.record()?])?;
+        let (_, newly) =
+            crate::external::with_hold(tc.store, tc.session_id, Some(tc.turn_id), node, |f| {
+                tc.store.append(&f)
+            })?;
         Self::announce_end(tc, node);
+        self.held(tc, newly);
         Ok(status)
     }
 
@@ -952,7 +959,7 @@ impl ToolRuntime {
             tool_use_id: &call.id,
         });
         Ok(CallOutcome::Done {
-            status: Self::write_result(tc, &node)?,
+            status: self.write_result(tc, &node)?,
         })
     }
 
@@ -1002,9 +1009,9 @@ impl ToolRuntime {
                 ..Default::default()
             },
         };
-        if let Ok((plan, _, class)) = &planned {
+        if let Ok((plan, _, bound)) = &planned {
             proposal.resource = plan.resources.first().map(|r| r.path.display().to_string());
-            sandbox::bind_class(&mut proposal, *class);
+            bound.bind(&mut proposal);
         }
         let record = GateRecord {
             result,
@@ -1209,7 +1216,7 @@ impl ToolRuntime {
         tool: Arc<dyn Tool>,
         call: &ToolUse,
         ran_at: Posture,
-        class: Class,
+        class: sandbox::Bound,
     ) -> Result<CallOutcome> {
         match tool.backend() {
             Backend::Inproc | Backend::Async => {
@@ -1217,7 +1224,7 @@ impl ToolRuntime {
                     .await
             }
             Backend::Job => {
-                self.run_job(tc, correlation_id, tool.as_ref(), call, ran_at, class)
+                self.run_job(tc, correlation_id, tool.as_ref(), call, ran_at, &class)
                     .await
             }
             Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call),
@@ -1476,48 +1483,21 @@ impl ToolRuntime {
     /// frame, under the session record's lock (theseus-9bp): no crash leaves
     /// the text in the context without the hold.
     fn complete(&self, tc: &TurnCtx<'_>, c: &Completion, node: &Node) -> Result<Accepted> {
-        let read = match &node.body {
-            Body::ToolResult {
-                external: Some(e),
-                status: ResultStatus::Ok,
-                tool,
-                meta,
-                ..
-            } => Some((tool, e.url.as_str(), meta)),
-            _ => None,
-        };
-        let Some((tool, url, meta)) = read else {
-            return tc.kernel.accept_completion_with(c, vec![node.record()?]);
-        };
-        // A search's hold names its query; the URL stays on the node.
-        let query = crate::external::search_query(tool, meta);
-        let mut newly = None;
-        let done = tc.store.with_session(tc.session_id, |rec| {
-            let h =
-                crate::external::read(&node.id, tool, url, query, theseus_protocol::now_unix_ms());
-            let mut frame = vec![node.record()?];
-            if let Some(more) = crate::external::hold(rec, h.clone(), Some(tc.turn_id))? {
-                frame.extend(more);
-                newly = Some(h);
-            }
-            tc.kernel.accept_completion_with(c, frame)
-        })?;
-        let accepted = match done {
-            Some(accepted) => accepted,
-            None => {
-                // Every session a surface opens has a record before its first
-                // turn; one without cannot keep a hold.
-                tracing::warn!(session_id = %tc.session_id, "external text read in a session with no record: no hold is kept");
-                tc.kernel.accept_completion_with(c, vec![node.record()?])?
-            }
-        };
-        if let Some(h) = newly {
-            tc.record(&fact::tool::HoldTaken {
-                hold: &h,
-                mode: self.external_text,
-            });
-        }
+        let sid = tc.session_id;
+        let (accepted, newly) =
+            crate::external::with_hold(tc.store, sid, Some(tc.turn_id), node, |frame| {
+                tc.kernel.accept_completion_with(c, frame)
+            })?;
+        self.held(tc, newly);
         Ok(accepted)
+    }
+
+    /// The narrative's line for a hold a result began.
+    fn held(&self, tc: &TurnCtx<'_>, newly: Option<theseus_protocol::ExternalText>) {
+        if let Some(h) = newly {
+            let mode = self.external_text;
+            tc.record(&fact::tool::HoldTaken { hold: &h, mode });
+        }
     }
 
     /// A job: started through the wrapper, waited for up to `proc_sync_secs`,
@@ -1530,7 +1510,7 @@ impl ToolRuntime {
         tool: &dyn Tool,
         call: &ToolUse,
         ran_at: Posture,
-        class: Class,
+        class: &sandbox::Bound,
     ) -> Result<CallOutcome> {
         let spec: JobSpec = match tool.job(&call.input, &self.ctx) {
             Ok(s) => s,
@@ -2001,6 +1981,10 @@ impl ToolRuntime {
             correlation_id: Some(&a.correlation_id),
             duration_ms: detail.get("duration_ms").and_then(Value::as_u64),
             bytes_total: Some(total),
+            // A job that connected out of L1 brought back outside text (18c).
+            external: crate::egress::marker(&detail, !out.is_empty(), || {
+                confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
+            }),
             meta,
             ..ResultNode::new(tool_use_id, tool, status, raw)
         }
@@ -2012,6 +1996,8 @@ impl ToolRuntime {
     /// capped text, and nothing reads the file again. A restart between the
     /// two leaves the file, 0600 in the private spool.
     fn answer_job(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>, a: &Action) -> Result<ResultStatus> {
+        // Its egress rows ride in the frame that writes it (18c).
+        crate::egress::record(tc, &self.sandbox, a, &r.meta["detail"]);
         let status = self.answer(tc, r)?;
         self.remove_job_output(a);
         Ok(status)
@@ -2296,11 +2282,12 @@ impl ToolRuntime {
         // Authorized and dispatched in one frame (theseus-l6y). A confirm
         // that no longer holds writes nothing, and is declined below; a
         // cancel or a stop that landed first is the error.
-        // It runs in the class its proposal names, as the confirm bound it.
-        let mut class = Class::L0;
+        // It runs in the class, and with the egress list, its proposal
+        // names, as the confirm bound them.
+        let mut class = sandbox::Bound::default();
         let authorized = match confirm_proposal(tc.store, a, node) {
             Ok(p) => {
-                class = sandbox::class_in(&p);
+                class = sandbox::Bound::of(&p);
                 tc.kernel
                     .authorize_and_dispatch(corr, &p, Some(&self.policy.confirmer), None)?
             }
@@ -2358,8 +2345,8 @@ impl ToolRuntime {
         };
         tc.record(&fact::tool::AuthorizedResumed { tool: &name });
         // One with no proposal to read predates L1 (theseus-0g4): L0.
-        let class =
-            confirm_proposal(tc.store, a, None).map_or(Class::L0, |p| sandbox::class_in(&p));
+        let class = confirm_proposal(tc.store, a, None)
+            .map_or_else(|_| Default::default(), |p| sandbox::Bound::of(&p));
         tc.kernel.dispatch(&a.correlation_id, None)?;
         Ok(
             match self
@@ -2461,16 +2448,27 @@ impl ToolRuntime {
     /// between the two cannot lose it. Returns what was taken, and how many
     /// late results were written.
     pub fn absorb(&self, tc: &TurnCtx<'_>) -> Result<(Vec<Action>, u32)> {
-        let (mut late, mut outputs) = (Vec::new(), Vec::new());
-        let settled = tc.kernel.take_results_with(tc.guard, |settled| {
-            let (nodes, records, raw) = self.late_results(tc, settled)?;
-            late = nodes;
-            outputs = raw;
-            Ok(records)
-        })?;
+        // A late result that is outside text (a job that connected out of
+        // L1, 18c) brings its session's hold in this frame too.
+        let (settled, late, outputs, newly) =
+            crate::external::under_hold(tc.store, tc.session_id, |hold| {
+                let (mut late, mut outputs, mut newly) = (Vec::new(), Vec::new(), None);
+                let settled = tc.kernel.take_results_with(tc.guard, |settled| {
+                    let (nodes, mut records, raw) = self.late_results(tc, settled)?;
+                    if let Some((h, more)) = hold.of(&nodes, Some(tc.turn_id))? {
+                        records.extend(more);
+                        newly = Some(h);
+                    }
+                    (late, outputs) = (nodes, raw);
+                    Ok(records)
+                })?;
+                Ok((settled, late, outputs, newly))
+            })?;
         for node in &late {
+            egress::announce(&tc.rec(), &self.sandbox, node);
             Self::announce_end(tc, node);
         }
+        self.held(tc, newly);
         // Their nodes are written, so the jobs' raw output goes, as for a
         // result read within a turn (`answer_job`, theseus-wz2), a stopped
         // job's included (theseus-ewev).
@@ -2526,6 +2524,7 @@ impl ToolRuntime {
                 },
             );
             records.push(node.record()?);
+            records.extend(egress::rows(&tc.rec(), &node)?);
             records.push(tc.rec().row(&fact::tool::LateResult {
                 correlation_id: &a.correlation_id,
                 tool: &tool,
@@ -2555,20 +2554,27 @@ impl ToolRuntime {
         session_id: &str,
         execution_id: &str,
     ) -> Result<Vec<Node>> {
-        let mut written = Vec::new();
-        let mut outputs = Vec::new();
-        kernel.frame(&[execution_id], |k| {
-            let Some(e) = k.execution(execution_id)? else {
-                return Ok(());
-            };
-            if e.state != ExecState::Cancelled || k.holds_turn(execution_id) {
-                return Ok(());
-            }
-            let (nodes, raw) = self.cancelled_results(k, store, session_id, &e)?;
-            let records = nodes.iter().map(Node::record).collect::<Result<Vec<_>>>()?;
-            k.stage(&records)?;
-            (written, outputs) = (nodes, raw);
-            Ok(())
+        let (mut written, mut outputs) = (Vec::new(), Vec::new());
+        // What a job brought from outside brings its hold in this frame (18c).
+        crate::external::under_hold(store, session_id, |hold| {
+            kernel.frame(&[execution_id], |k| {
+                let Some(e) = k.execution(execution_id)? else {
+                    return Ok(());
+                };
+                if e.state != ExecState::Cancelled || k.holds_turn(execution_id) {
+                    return Ok(());
+                }
+                let (nodes, raw) = self.cancelled_results(k, store, session_id, &e)?;
+                let mut records = nodes.iter().map(Node::record).collect::<Result<Vec<_>>>()?;
+                records.extend(
+                    hold.of(&nodes, None)?
+                        .map(|(_, more)| more)
+                        .unwrap_or_default(),
+                );
+                k.stage(&records)?;
+                (written, outputs) = (nodes, raw);
+                Ok(())
+            })
         })?;
         // The nodes are written, so the jobs' raw output goes, as for a
         // result read within a turn (`answer_job`, theseus-wz2).
@@ -2967,7 +2973,7 @@ pub(crate) struct Gated {
     pub(crate) decision: Decision,
     pub(crate) proposal: Proposal,
     pub(crate) record: GateRecord,
-    pub(crate) class: Class,
+    pub(crate) class: sandbox::Bound,
 }
 
 /// A call whose input the toollet refused; its gate record is still stored.

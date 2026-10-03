@@ -12,4 +12,9 @@ reserved_usd: number, confirmed: boolean, cancel?: string,
 /**
  * The cancel's verdict (M4 18a): how it knows the call stopped.
  */
-verdict?: CancelVerdict, external_op_id?: string, result_ref?: string, resolution?: string, completions_seen: number, };
+verdict?: CancelVerdict, external_op_id?: string, result_ref?: string, resolution?: string, completions_seen: number, 
+/**
+ * An L1 job's egress (M4 18c), as its completion's `detail.egress`
+ * keeps it: its list, the hosts it reached, and the refusals.
+ */
+egress?: unknown, };

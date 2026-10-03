@@ -20,6 +20,8 @@ Every client and the core read it, and the web apps' TypeScript is generated fro
   read; renaming a kind is a store version change (P5b).
 - `label.rs` (M4 19a): a node's `Label` (integrity, readers, and an untrusted node's source), a session's
   `Audience`, and the manifest's `Withheld` and `InPlay`. The rules that combine them are the core's (`labels.rs`).
+- `sandbox.rs`: health's `sandbox` block (17b, with 18c's egress counts), and `reach` and `egress_in`, the one
+  wording of an L1 job's reach (`no network`, `egress: github.com:443`) and the list a proposal binds.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

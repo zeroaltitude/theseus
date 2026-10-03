@@ -13,6 +13,7 @@ pub mod children;
 pub mod clock;
 pub mod gate;
 pub mod job;
+mod job_egress;
 mod job_l1;
 pub mod kernel;
 mod locks;

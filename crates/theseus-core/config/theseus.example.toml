@@ -506,8 +506,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # uid with no capabilities, over a view built from an empty root: the system's
 # directories and ro_paths read-only; the workspace read-only, with what the
 # job writes there kept apart in scratch and discarded afterwards (its result
-# lists it); an empty HOME and /tmp; no network; and never Theseus's own
-# state, socket, or token, the approve_paths, or cargo's credentials files.
+# lists it); an empty HOME and /tmp; no network but the egress below; and
+# never Theseus's own state, socket, or token, the approve_paths, or cargo's
+# credentials files.
 # A job runs in L1 when the model asks for it (sandbox: true), when l1_argv
 # names its program, or when default is "l1", and nothing turns L1 back to
 # L0. An L1 job runs with a notice instead of waiting for approval, since
@@ -525,6 +526,22 @@ memory_mb = 2048                        # an L1 job's memory, where the daemon's
 pids = 512                              # an L1 job's processes
 scratch_mb = 1024                       # what an L1 job may write to scratch, and to each of its /tmp and HOME
 output_mb = 64                          # the largest file an L1 job may write; what it prints is capped by [tools] job_output_max_bytes
+# Egress: the hosts every L1 job may reach, each "host:port", where a * in the
+# host matches any run of characters (*.crates.io is every name under
+# crates.io, not crates.io itself) and the port is exact. None by default: an
+# L1 job has no network. A job reaches them through a proxy of its own, which
+# refuses any other host, and any name that resolves to this machine, your
+# network, or a cloud's metadata service; health's sandbox line counts its
+# connections and refusals. A call may name more hosts (proc.run's sandbox:
+# { egress: [...] }): it then waits for your approval, which lets that job
+# reach those hosts and no other. Two things to know before you list any:
+#   - a job that connects out brings back outside text, so its session then
+#     holds it, as after a fetched page: each later call that acts waits for
+#     your approval until you trust the session again;
+#   - every host listed is a way out for anything the job can read: the
+#     workspace, ro_paths, and what the call gives it.
+# Rust's registry and GitHub, for builds that fetch their dependencies:
+# egress = ["crates.io:443", "index.crates.io:443", "static.crates.io:443", "github.com:443", "api.github.com:443", "codeload.github.com:443", "objects.githubusercontent.com:443"]
 
 # ---------------------------------------------------------------- approval
 # Who may answer a call that waits for approval, or a budget question, and

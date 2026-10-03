@@ -32,7 +32,9 @@ node_id: string,
 from_session?: string, 
 /**
  * How it came from there: `task.create` (a task that a session holding
- * it started) or `task.report` (a report from a task that held it).
+ * it started) or `task.report` (a report from a task that held it); or
+ * how it came at all: `egress` (M4 18c), a job in L1 that connected out,
+ * whose `url` names the hosts it reached.
  */
 via?: string, 
 /**

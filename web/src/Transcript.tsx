@@ -39,6 +39,12 @@ export interface TranscriptProps {
 
 const fmt = (n: number) => n.toLocaleString()
 const money = (n: number | null | undefined) => n == null ? null : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`
+/// The L1 pill's words (M4 17b, 18c): what an L1 job may reach.
+const l1Title = (egress: unknown) => {
+  const hosts = Array.isArray(egress) ? egress.map(String) : []
+  const reach = hosts.length > 0 ? `egress: ${hosts.join(', ')}; what it brings back is outside text` : 'no network'
+  return `L1, the sandbox: ${reach}; no secret, an empty HOME; what it writes goes to scratch, and is discarded`
+}
 const bytes = (b: number) => b >= 1 << 20 ? `${(b / (1 << 20)).toFixed(1)} MB` : b >= 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} B`
 const clip = (s: string, n: number) => s.length > n ? `${s.slice(0, n)}…` : s
 const str = (v: unknown) => typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v)
@@ -285,7 +291,7 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now, tighte
         {gate && <span className={`pill ${GATE_CLASS[gate] ?? ''}`} title={decision?.reason ?? ''}>{gate}</span>}
         {notice && gate !== 'notify' && <span className="pill warn" title={`${notice.setting}\n${notice.rule}`}>notified</span>}
         {decision?.granted && <span className="pill" title="the secret broker (names only)">🔑 {decision.granted}</span>}
-        {decision?.class === 'l1' && <span className="pill ok" title="L1, the sandbox: no network, no secret, an empty HOME; what it writes goes to scratch, and is discarded">🛡️ L1</span>}
+        {decision?.class === 'l1' && <span className="pill ok" title={l1Title(d.egress)}>🛡️ L1{Array.isArray(d.egress) && d.egress.length > 0 ? ' · egress' : ''}</span>}
         {notice && <ShouldHaveAsked tool={tool} corr={str(d.correlation_id)} tightened={tightened[tool]} onTighten={onTighten} />}
         {running && results.length === 0 && <span className="accent small">running {Math.max(0, Math.round((now - running.startedAt) / 1000))} s…</span>}
       </div>

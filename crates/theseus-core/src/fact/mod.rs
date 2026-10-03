@@ -319,6 +319,8 @@ facts![
     index::TenderStartFailed<'static>,
     sandbox::SandboxStarted<'static>,
     sandbox::SandboxProbed<'static>,
+    sandbox::SandboxEgress<'static>,
+    sandbox::SandboxEgressRefused<'static>,
     start::CrashFound<'static>,
 ];
 

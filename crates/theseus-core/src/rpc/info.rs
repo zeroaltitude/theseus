@@ -130,6 +130,7 @@ impl Core {
             result_ref: a.result_ref.clone().filter(|r| !r.starts_with('/')),
             resolution: a.resolution.clone(),
             completions_seen: a.completions_seen,
+            egress: None,
         }
     }
 
@@ -183,10 +184,13 @@ impl Core {
             } => (
                 String::new(),
                 String::new(),
-                json!({"tool_use_id": tool_use_id, "tool": tool, "input": input, "correlation_id": correlation_id,
-                    "decision": gate.as_ref().and_then(|g| g.decision.as_ref()),
-                    "result": gate.as_ref().map(|g| &g.result),
-                    "plan": gate.as_ref().and_then(|g| g.plan.as_ref())}),
+                with_egress(
+                    json!({"tool_use_id": tool_use_id, "tool": tool, "input": input, "correlation_id": correlation_id,
+                        "decision": gate.as_ref().and_then(|g| g.decision.as_ref()),
+                        "result": gate.as_ref().map(|g| &g.result),
+                        "plan": gate.as_ref().and_then(|g| g.plan.as_ref())}),
+                    gate.as_deref(),
+                ),
                 0,
             ),
             Body::ToolResult {
@@ -238,4 +242,17 @@ impl Core {
 /// Context files' paths, as health names them.
 fn paths(files: &[crate::context_files::ContextEntry]) -> Vec<String> {
     files.iter().map(|f| f.path().to_string()).collect()
+}
+
+/// A tool call's detail with an L1 call's egress list, as its proposal binds
+/// it (18c): the web UI's L1 pill names its hosts.
+fn with_egress(
+    mut d: serde_json::Value,
+    gate: Option<&theseus_protocol::GateRecord>,
+) -> serde_json::Value {
+    let egress = gate.map(|g| theseus_protocol::sandbox::egress_in(&g.proposal.policy_context));
+    if let Some(e) = egress.filter(|e| !e.is_empty()) {
+        d["egress"] = json!(e);
+    }
+    d
 }

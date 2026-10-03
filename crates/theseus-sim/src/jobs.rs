@@ -8,6 +8,9 @@
 //!   25 ms;
 //! - `total`: from the dispatch to the completion's file, the wrapper's own
 //!   start and its report included, at either class.
+//!
+//! `--class l1-egress` (18c) gives the L1 job an egress list, so its start
+//! includes the listener's handoff and its end the proxy's stop.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -27,7 +30,8 @@ pub struct JobsArgs {
     /// (default: the `theseusd` beside this binary).
     #[arg(long)]
     theseusd: Option<PathBuf>,
-    /// `l0`, `l1`, or both.
+    /// `l0`, `l1`, `l1-egress` (an L1 job with an egress list, so with its
+    /// listener and proxy: 18c), or several.
     #[arg(long, value_delimiter = ',', default_value = "l0,l1")]
     class: Vec<String>,
     /// Measured jobs of each class, after two that are not.
@@ -61,14 +65,21 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
     for class in &a.class {
         let l1 = match class.as_str() {
             "l0" => None,
-            "l1" => Some(L1 {
+            "l1" | "l1-egress" => Some(L1 {
                 workspace: vec![ws.clone()],
                 // `[sandbox]`'s defaults (design §2.12).
                 limits: job::SandboxLimits::default(),
                 memory_mb: 2048,
+                // 18c: a list, so the init opens the listener and the
+                // wrapper runs the proxy, which the job never uses.
+                egress: if class == "l1-egress" {
+                    vec!["bench.test:443".into()]
+                } else {
+                    Vec::new()
+                },
                 ..Default::default()
             }),
-            other => bail!("--class {other}: l0 or l1"),
+            other => bail!("--class {other}: l0, l1, or l1-egress"),
         };
         let (mut start, mut total) = (Vec::new(), Vec::new());
         for i in 0..a.runs + 2 {

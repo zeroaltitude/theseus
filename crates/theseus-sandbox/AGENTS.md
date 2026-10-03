@@ -4,7 +4,7 @@ L1, the native sandbox (design `docs/design/m4-boundaries.md` §2.2, §2.4, §7)
 network, uts, ipc, and cgroup namespaces, over a view built from an empty root, as the operator's own uid with no
 capabilities, under `no_new_privs` and a seccomp deny list, below an init whose exit kills the whole tree. Built by
 lane 17a; read by the job wrapper's L1 path (`theseus-kernel`'s `job_l1.rs`, step 17b). Its egress proxy
-(`egress.rs`, 18b) waits for 18c.
+(`egress.rs`, 18b) is wired in by 18c: the wrapper runs it for a job whose list is not empty (`job_egress.rs`).
 
 ## What's here
 
@@ -17,7 +17,12 @@ lane 17a; read by the job wrapper's L1 path (`theseus-kernel`'s `job_l1.rs`, ste
   `/sys`), and `Spec::hidden` (17b), the paths covered whatever binds them: Theseus's floor and socket, and the
   approve list's paths.
 - `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry), `cgroup.rs` (`own`,
-  `delegate`, `JobCgroup`: its limits, `kill`, `populated`, and `procs`, which an 18a stop counts), `report.rs` (`Started`, `Exit`, `Scratch::summary`), `spec.rs`, `egress.rs`.
+  `delegate`, `JobCgroup`: its limits, `kill`, `populated`, and `procs`, which an 18a stop counts), `report.rs` (`Started`, `Exit`, `Scratch::summary`), `spec.rs`.
+- `egress.rs` (18b, wired at 18c): the job's `Proxy` on the listener the init hands over. `Proxy::decide` makes each
+  `CONNECT`'s `Outcome` a value (tunnel, or refuse with a status and why) before the proxy acts: the seam where
+  credentials as stand-ins (theseus-gh7) add a third outcome. `Running::finish` stops it once the job has ended,
+  ending any tunnel a server holds open so every one is recorded; `Summary` is the completion's `detail.egress`
+  (one entry per host reached, one per refusal). `Allow` (the list's entries) lives in `theseus_tools::net`.
 
 ## Invariants
 
@@ -39,7 +44,10 @@ lane 17a; read by the job wrapper's L1 path (`theseus-kernel`'s `job_l1.rs`, ste
 
 - `tests/contract.rs` (`harness = false`): one test per §7 clause in real L1 jobs, unprivileged; the binary
   re-execs itself as the init and the probe. `tests/bench.rs`: 100 spawns, p50 and p95, against 25 ms.
-- 17b's daemon tests (`crates/theseusd/tests/sandbox.rs`) run real L1 jobs through the whole daemon.
+- 17b's daemon tests (`crates/theseusd/tests/sandbox.rs`) run real L1 jobs through the whole daemon, and 18c's
+  run them through a real proxy to a stand-in host (`THESEUS_TEST_EGRESS_DNS`, which only a debug build reads).
+- `tests/bench.rs`'s `connect_first_byte_200` (18c): a `CONNECT`'s first byte through the proxy against a direct
+  connection, against §2.10's 2 ms added.
 
 ## Traps
 

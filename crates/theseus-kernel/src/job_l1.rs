@@ -18,6 +18,7 @@ use theseus_sandbox::cgroup::JobCgroup;
 use theseus_sandbox::{Exit, Init, SandboxChild, Spec, Stdio};
 
 use crate::job::{Reap, WrapperArgs, L1};
+use crate::job_egress as egress;
 use crate::tree::{self, Proc};
 use crate::types::{Outcome, Verdict, VerifiedBy};
 
@@ -123,31 +124,12 @@ pub(crate) fn run(
         Reap::Descendants => std::env::vars().collect(),
     };
     let (mut spec, skipped) = spec(args, l1, env);
+    let allow = egress::prepare(&mut spec, l1);
     let mut sandbox = json!({"class": "l1"});
     if !skipped.is_empty() {
         sandbox["skipped"] = json!(skipped);
     }
-    let cgroup = match l1.cgroup.as_deref() {
-        Some(jobs) => match JobCgroup::create(
-            jobs,
-            &args.correlation_id,
-            Some(l1.memory_mb),
-            Some(l1.limits.pids),
-        ) {
-            Ok(c) => {
-                spec.cgroup = Some(c.path().to_path_buf());
-                sandbox["cgroup"] = json!(c.path());
-                Some(c)
-            }
-            // The namespaces and seccomp still hold, and RLIMIT_NPROC caps
-            // its processes: the job runs, and says it had no cgroup.
-            Err(e) => {
-                sandbox["cgroup_error"] = json!(e.to_string());
-                None
-            }
-        },
-        None => None,
-    };
+    let cgroup = cgroup(args, l1, &mut spec, &mut sandbox);
     // The command is made with the operator's umask, as at L0: the init
     // takes the wrapper's, and the command the init's. Only a wrapper
     // process changes its own; a test's thread leaves its process's alone.
@@ -186,6 +168,7 @@ pub(crate) fn run(
     sandbox["setup_us"] = json!(started.setup_us);
     sandbox["sys"] = json!(started.sys);
     sandbox["lo"] = json!(started.lo);
+    let proxy = egress::start(&mut child, l1, &allow, detail);
     let (exit, end) = wait(
         &mut child,
         cgroup.as_ref(),
@@ -193,6 +176,8 @@ pub(crate) fn run(
         Duration::from_millis(args.deadline_ms),
         t0,
     );
+    // The job has ended, its whole tree with it (a stop included).
+    egress::stop(proxy, &allow, detail);
     if let Some(c) = cgroup {
         limits_hit(&c, &mut sandbox);
         // Empty once the init is reaped: its pid namespace went with it.
@@ -225,6 +210,26 @@ pub(crate) fn run(
     };
     detail["sandbox"] = sandbox;
     ended
+}
+
+/// The job's own cgroup, with its limits, where the daemon's is delegated.
+/// One that cannot be made leaves the namespaces and seccomp in place, and
+/// RLIMIT_NPROC still caps its processes: the job runs, and says it had no
+/// cgroup.
+fn cgroup(args: &WrapperArgs, l1: &L1, spec: &mut Spec, sandbox: &mut Value) -> Option<JobCgroup> {
+    let jobs = l1.cgroup.as_deref()?;
+    let pids = Some(l1.limits.pids);
+    match JobCgroup::create(jobs, &args.correlation_id, Some(l1.memory_mb), pids) {
+        Ok(c) => {
+            spec.cgroup = Some(c.path().to_path_buf());
+            sandbox["cgroup"] = json!(c.path());
+            Some(c)
+        }
+        Err(e) => {
+            sandbox["cgroup_error"] = json!(e.to_string());
+            None
+        }
+    }
 }
 
 /// The spec for `args`' command, and the `ro_paths` skipped because they do

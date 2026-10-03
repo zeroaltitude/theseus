@@ -226,13 +226,14 @@ pub struct JobStarted<'a> {
     pub bound_ms: u64,
     /// For the narrative's subject, which may name a secret's value.
     pub scrubber: &'a Scrubber,
-    /// Its class (M4 17b): an L1 job's row and notification say so.
-    pub class: crate::sandbox::Class,
+    /// Its class (M4 17b): an L1 job's row and notification say so, and
+    /// the notification names its egress list (18c).
+    pub class: &'a crate::sandbox::Bound,
 }
 
 impl JobStarted<'_> {
     fn l1(&self) -> bool {
-        self.class == crate::sandbox::Class::L1
+        self.class.l1()
     }
 }
 
@@ -262,6 +263,7 @@ impl Fact for JobStarted<'_> {
             granted: Some(self.granted.map(str::to_string)),
             withheld: Some(self.withheld.to_vec()),
             class: self.l1().then(|| "l1".into()),
+            egress: self.l1().then(|| self.class.egress.clone()),
         }))
     }
 
@@ -534,6 +536,7 @@ impl Fact for ToolEnded<'_> {
                 .pointer("/detail/scratch/summary")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            reached: crate::egress::reached_line(&meta["detail"]),
             // How a cancel or a stop knows it stopped (M4 18a).
             verified: meta
                 .get("verified")

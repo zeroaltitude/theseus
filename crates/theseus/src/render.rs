@@ -133,11 +133,13 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                     )
                 })
                 .unwrap_or_default();
-            // An L1 job says so (M4 17b).
-            let l1 = if s.class.as_deref() == Some("l1") {
-                " 🛡️ L1"
-            } else {
-                ""
+            // An L1 job says so (M4 17b), and what it may reach (18c).
+            let l1 = match (s.class.as_deref(), &s.egress) {
+                (Some("l1"), e) => {
+                    let reach = theseus_protocol::sandbox::reach(e.as_deref().unwrap_or(&[]));
+                    format!(" 🛡️ L1 · {reach}")
+                }
+                _ => String::new(),
             };
             push(&mut out, Tag::Tool, &format!("  → {}{argv}{l1}", s.tool));
         }

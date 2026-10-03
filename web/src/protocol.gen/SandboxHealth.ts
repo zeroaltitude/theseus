@@ -30,4 +30,20 @@ cgroup?: string,
 /**
  * Jobs started since the daemon started, by class.
  */
-jobs_l0: number, jobs_l1: number, };
+jobs_l0: number, jobs_l1: number, 
+/**
+ * `[sandbox] egress` (M4 18c): the hosts every L1 job may reach through
+ * its proxy. Empty: an L1 job has no network unless its call names
+ * hosts, and is approved.
+ */
+egress?: Array<string>, 
+/**
+ * Since the daemon started: L1 jobs' connections out through their
+ * proxies, the bytes they carried each way, and the `CONNECT`s refused.
+ */
+egress_connections?: number, egress_up?: number, egress_down?: number, egress_refused?: number, 
+/**
+ * The latest refusal's words, `pypi.org:443 is not on this job's egress
+ * list`. Absent until one.
+ */
+egress_last_refused?: string, };

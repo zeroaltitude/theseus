@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"tool.started","params":{"argv":["python3","fetch.py"],"backend":"job","class":"l1","correlation_id":"act_k4","cwd":"/w/notes","egress":["api.example.test:443"],"granted":null,"pid":4243,"session_id":"ses_q7f3k2","tool":"proc.run","tool_use_id":"tu_3","turn_id":"turn_m4p8z1","withheld":[]}}

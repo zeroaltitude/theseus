@@ -25,6 +25,7 @@ pub mod context_files;
 pub mod cpu;
 pub mod crash;
 pub mod disk;
+pub mod egress;
 pub mod external;
 pub mod fact;
 pub mod github;
@@ -79,6 +80,8 @@ mod tests_cancel;
 mod tests_config;
 #[cfg(test)]
 mod tests_continuations;
+#[cfg(test)]
+mod tests_egress;
 #[cfg(test)]
 mod tests_external;
 #[cfg(test)]

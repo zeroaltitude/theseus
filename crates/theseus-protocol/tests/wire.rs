@@ -948,6 +948,7 @@ fn typed_tool_started_ended_and_written() {
                 granted: Some(granted.map(Into::into)),
                 withheld: Some(withheld),
                 class: None,
+                egress: None,
             }),
         );
     }
@@ -980,6 +981,7 @@ fn typed_tool_started_ended_and_written() {
                 stopped_by: stopped_by.map(Into::into),
                 preview: "a.md\nb.md\n".repeat(300).chars().take(2000).collect(),
                 scratch: None,
+                reached: None,
                 verified: None,
             }),
         );
@@ -990,6 +992,29 @@ fn typed_tool_started_ended_and_written() {
             session_id: S.into(),
             node_id: "nod_r2".into(),
             kind: "tool_result".into(),
+        }),
+    );
+}
+
+#[test]
+fn typed_tool_started_in_l1_with_egress() {
+    // An L1 job with an egress list (M4 18c): its class and its hosts.
+    typed(
+        "tool_started_l1_egress",
+        Event::ToolStarted(ToolStarted {
+            session_id: S.into(),
+            turn_id: T.into(),
+            tool_use_id: "tu_3".into(),
+            tool: "proc.run".into(),
+            correlation_id: "act_k4".into(),
+            backend: "job".into(),
+            pid: Some(4243),
+            argv: Some(vec!["python3".into(), "fetch.py".into()]),
+            cwd: Some("/w/notes".into()),
+            granted: Some(None),
+            withheld: Some(vec![]),
+            class: Some("l1".into()),
+            egress: Some(vec!["api.example.test:443".into()]),
         }),
     );
 }
@@ -1183,7 +1208,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 43);
+    assert_eq!(n, 44);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in

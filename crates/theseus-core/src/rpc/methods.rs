@@ -1104,8 +1104,23 @@ impl Core {
         }
         actions.sort_by_key(|a| std::cmp::Reverse(a.planned_at_ms));
         actions.truncate(n);
+        use theseus_store::Store as _;
+        let info = |a: &theseus_kernel::Action| theseus_protocol::ActionInfo {
+            // A job's egress, from its completion (18c).
+            egress: (a.tool == crate::sandbox::PROC_RUN)
+                .then(|| {
+                    self.store
+                        .inner()
+                        .as_ref()
+                        .latest_by_key(theseus_store::kinds::COMPLETION, &a.correlation_id)
+                })
+                .and_then(|r| r.ok().flatten())
+                .and_then(|r| r.decode::<theseus_kernel::Completion>().ok())
+                .and_then(|c| c.detail?.get("egress").cloned()),
+            ..Self::action_info(a)
+        };
         Ok(theseus_protocol::ActionListResult {
-            actions: actions.iter().map(Self::action_info).collect(),
+            actions: actions.iter().map(info).collect(),
             total,
         })
     }

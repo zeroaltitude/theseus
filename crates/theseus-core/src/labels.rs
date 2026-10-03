@@ -505,8 +505,10 @@ pub fn for_input(discord: bool, target: Option<&str>) -> Label {
 
 /// A tool's result (§2.5's table): a fetched page or a search is untrusted
 /// and public; a file, a diff, or a text tool's result is the owner's unless
-/// every path it read is inside a public tree; anything else (`proc.run` at
-/// L0 and L1 alike in 19a, the harness's tools, AWS) is the owner's.
+/// every path it read is inside a public tree; a `proc.run` whose job
+/// connected out of L1 (18c) is untrusted, `via: egress`, and the owner's;
+/// anything else (`proc.run` at L0, and in L1 with no egress used, the
+/// harness's tools, AWS) is the owner's.
 pub fn for_result(
     tool: &str,
     node_id: &str,
@@ -523,7 +525,11 @@ pub fn for_result(
             query,
             theseus_protocol::now_unix_ms(),
         );
-        return Label::untrusted(source, Readers::Public);
+        let readers = match tool {
+            crate::sandbox::PROC_RUN => Readers::Owner,
+            _ => Readers::Public,
+        };
+        return Label::untrusted(source, readers);
     }
     let inside = |p: &Path| public.iter().any(|root| p.starts_with(root));
     if reads_files(tool) && !paths.is_empty() && paths.iter().all(|p| inside(p)) {

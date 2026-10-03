@@ -748,9 +748,16 @@ async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
         .filter(|c| c.execution_id == e.execution_id)
         .collect();
     if json {
+        // Its actions, each a job's with its completion's egress (18c).
+        let params = theseus_protocol::ActionListParams {
+            execution_id: Some(e.execution_id.clone()),
+            n: None,
+        };
+        let actions = conn.request(method::ACTION_LIST, params).await?;
         println!(
             "{}",
-            serde_json::json!({"execution": e, "confirms": asks, "wakes": wakes.wakes, "rows": rows.rows})
+            serde_json::json!({"execution": e, "confirms": asks, "wakes": wakes.wakes, "rows": rows.rows,
+                "actions": actions["actions"]})
         );
         return Ok(());
     }

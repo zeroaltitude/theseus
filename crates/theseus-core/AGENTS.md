@@ -25,7 +25,14 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **L1** (M4 17b): `sandbox.rs`: `[sandbox]`, a job's class (toward L1 alone: the default, `l1_argv`, the model's
   `sandbox: true`), L1's posture (notify), the view an L1 job gets, the probe after serving (`PROBE_AFTER`), the
   delegated cgroup (systemd's own answer), and health's block. Its facts are `fact/sandbox.rs`; its tests
-  `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs.
+  `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs. What a call's proposal binds about
+  its job is `sandbox::Bound`: its class, and (18c) its egress list.
+- **Egress** (M4 18c): `egress.rs`. `[sandbox] egress` and a call's `sandbox: { egress }`; the gate's step for
+  hosts beyond the list (the call waits, and its approval reaches those hosts alone, since the list is in its
+  proposal); and what a completion's `detail.egress` makes of a result: its `sandbox.egress` and
+  `sandbox.egress_refused` rows (in the frame that writes the result), its lines, and DD5's `external` marker
+  when the job connected out, so T1 holds the session (`via: egress`) and the node is untrusted, the owner's. Its
+  tests: `tests_egress.rs`, and the daemon's `tests/sandbox.rs` through a real proxy.
 - **Cancellation** (M4 18a): `cancel.rs`, the one stop every path that stops running calls goes through
   (`ToolRuntime::terminate_all`: a cancel, a task's cancel, `/stop`, the disk's floor, a stop at a job's launch).
   A job's wrapper is asked to stop its tree; an async tool's task is aborted (`Stops::track`) and verified once its
@@ -82,7 +89,8 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **An L1 call runs at notify** (Eddie's decision, 2026-10-02): none of the L0 order applies, since the view hides
   the floor, the approve list's paths, and the socket, and no secret is granted to it; the external-text hold
   still does, and so does the operator's own word about the tool: a `[policy.tools]` line or a tightening that
-  asks makes it wait (theseus-jfs6). The inherited `[policy].enforcement` never does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
+  asks makes it wait (theseus-jfs6), and so do hosts its call names beyond `[sandbox] egress` (18c). The inherited
+  `[policy].enforcement` never does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
   proposal names. Nothing falls back from L1 to L0.
 - **Results tell the truth.** `toolrun::cap` cuts on line edges and says what it left out, with the tool's own way
   to get the rest (`Tool::rest`). A listing names its scope.
@@ -97,6 +105,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **Approval fails closed** (review 2's consideration 2). Without `[approval]`, only the CLI and a Discord DM the
   bindings file binds answer; the web UI and a guild channel answer once the section names them, and health then
   says `approval: open`. A test's bare label answers as the CLI (`From<&str> for Answerer` is test-only).
+- **A result that is outside text writes its session's hold in its own frame** (theseus-9bp): `external::with_hold`
+  for a result written alone, and `external::under_hold` for a frame that may carry one (a late result, the cancel's
+  sweep), which is built first without the session's lock and again under it only when it does.
 - **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output: each board
   value verbatim, in base64, and percent-encoded, and the shapes of secrets never resolved here (token prefixes,
   AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its

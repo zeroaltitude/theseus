@@ -23,10 +23,26 @@ struct RunArgs {
     #[serde(default)]
     env: BTreeMap<String, String>,
     /// L1 (M4 17b): the core reads it from the input when it chooses the
-    /// call's class; here it is only allowed.
+    /// call's class; here its egress hosts are checked (18c).
     #[serde(default)]
-    #[expect(dead_code, reason = "read by the core, from the call's input")]
-    sandbox: Option<bool>,
+    sandbox: Option<Sandbox>,
+}
+
+/// `sandbox: true`, or `sandbox: { egress: [...] }` (M4 18c): L1, with hosts
+/// beyond `[sandbox] egress` that its job may reach once the call is
+/// approved.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Sandbox {
+    Asked(#[expect(dead_code, reason = "read by the core, from the call's input")] bool),
+    With(SandboxWith),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SandboxWith {
+    #[serde(default)]
+    egress: Vec<String>,
 }
 
 impl Tool for Run {
@@ -44,7 +60,10 @@ impl Tool for Run {
                 "cwd": {"type": "string", "description": "Working directory. Default: the working directory."},
                 "timeout_secs": {"type": "integer", "minimum": 1, "description": "Kill the program after this many seconds."},
                 "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables (no secrets; token/key names are refused)."},
-                "sandbox": {"type": "boolean", "description": "Run it in the sandbox (L1): no network, no credentials, an empty HOME, and its writes discarded afterwards. For untrusted code, builds, and tests that need nothing from outside."}
+                "sandbox": {"anyOf": [
+                    {"type": "boolean"},
+                    {"type": "object", "properties": {"egress": {"type": "array", "items": {"type": "string"}, "description": "Hosts it must reach, as \"host:port\"; one the operator has not listed waits for approval."}}, "additionalProperties": false}
+                ], "description": "Run it in the sandbox (L1): no network, no credentials, an empty HOME, and its writes discarded afterwards. For untrusted code, builds, and tests. {\"egress\": [...]} lets it reach those hosts through the proxy HTTPS_PROXY names; what it brings back is outside text."}
             },
             "required": ["argv"],
             "additionalProperties": false
@@ -63,6 +82,12 @@ impl Tool for Run {
         let a: RunArgs = parse(input)?;
         if a.argv.is_empty() || a.argv[0].trim().is_empty() {
             return Err("argv must name a program".into());
+        }
+        if let Some(Sandbox::With(w)) = &a.sandbox {
+            for e in &w.egress {
+                e.parse::<crate::net::Allow>()
+                    .map_err(|why| format!("sandbox.egress: {why}"))?;
+            }
         }
         let cwd = a
             .cwd
@@ -132,5 +157,22 @@ mod tests {
         assert!(Run
             .job(&json!({"argv": ["ls"], "cwd": "no/such/dir"}), &c)
             .is_err());
+    }
+
+    /// `sandbox` is `true`, or `{ egress: [...] }` whose every entry is
+    /// `host:port` (18c): a bad entry, or another key, is invalid input.
+    #[test]
+    fn a_sandbox_with_egress_names_hosts_as_host_and_port() {
+        let d = tempfile::tempdir().unwrap();
+        let c = ToolCtx::for_tests(d.path());
+        let plan = |sandbox: Value| Run.plan(&json!({"argv": ["true"], "sandbox": sandbox}), &c);
+        assert!(plan(json!(true)).is_ok());
+        assert!(plan(json!({})).is_ok());
+        assert!(plan(json!({"egress": ["api.github.com:443", "*.crates.io:443"]})).is_ok());
+        let bad = plan(json!({"egress": ["api.github.com"]})).unwrap_err();
+        assert!(bad.starts_with("sandbox.egress: "), "{bad}");
+        assert!(plan(json!({"egress": ["https://pypi.org/"]})).is_err());
+        assert!(plan(json!({"hosts": ["a.test:443"]})).is_err());
+        assert!(plan(json!("yes")).is_err());
     }
 }

@@ -2,7 +2,8 @@
 //! it. A `proc.run` call runs in L1 when the model asks (`sandbox: true`),
 //! when `[sandbox] l1_argv` names its program, or when `[sandbox] default`
 //! is `"l1"`; the class is in its gate record, the digest a confirm binds,
-//! and `tool.started`.
+//! and `tool.started`. Since 18c, so is an L1 job's egress list: `[sandbox]
+//! egress`, and the hosts its call named.
 
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +33,51 @@ pub struct SandboxHealth {
     /// Jobs started since the daemon started, by class.
     pub jobs_l0: u64,
     pub jobs_l1: u64,
+    /// `[sandbox] egress` (M4 18c): the hosts every L1 job may reach through
+    /// its proxy. Empty: an L1 job has no network unless its call names
+    /// hosts, and is approved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub egress: Vec<String>,
+    /// Since the daemon started: L1 jobs' connections out through their
+    /// proxies, the bytes they carried each way, and the `CONNECT`s refused.
+    #[serde(default, skip_serializing_if = "crate::is_zero")]
+    pub egress_connections: u64,
+    #[serde(default, skip_serializing_if = "crate::is_zero")]
+    pub egress_up: u64,
+    #[serde(default, skip_serializing_if = "crate::is_zero")]
+    pub egress_down: u64,
+    #[serde(default, skip_serializing_if = "crate::is_zero")]
+    pub egress_refused: u64,
+    /// The latest refusal's words, `pypi.org:443 is not on this job's egress
+    /// list`. Absent until one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub egress_last_refused: Option<String>,
+}
+
+/// An L1 job's reach, as every surface says it (M4 18c): `no network`, or
+/// `egress: github.com:443, *.crates.io:443`.
+pub fn reach(egress: &[String]) -> String {
+    if egress.is_empty() {
+        "no network".into()
+    } else {
+        format!("egress: {}", egress.join(", "))
+    }
+}
+
+/// The egress list a call's proposal binds (its policy context's `egress`,
+/// M4 18c): empty at L0, and for an L1 job with no network.
+pub fn egress_in(policy_context: &serde_json::Value) -> Vec<String> {
+    policy_context
+        .get("egress")
+        .and_then(serde_json::Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The probe's answer: `/bin/true` in L1, started as a job starts, once

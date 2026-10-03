@@ -25,4 +25,9 @@ withheld?: Array<string>,
 /**
  * A job's class (M4 17b): `l1` when it runs in the sandbox. Absent: L0.
  */
-class?: string, };
+class?: string, 
+/**
+ * An L1 job's egress list (M4 18c): the hosts its proxy lets it reach,
+ * empty for no network at all. Absent at L0.
+ */
+egress?: Array<string>, };

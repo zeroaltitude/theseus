@@ -125,6 +125,8 @@ ledger_kinds! {
     ProviderError = "provider.error",
     ProviderRefusal = "provider.refusal",
     Reconcile = "reconcile",
+    SandboxEgress = "sandbox.egress",
+    SandboxEgressRefused = "sandbox.egress_refused",
     SandboxProbe = "sandbox.probe",
     SandboxStarted = "sandbox.started",
     SecretGranted = "secret.granted",

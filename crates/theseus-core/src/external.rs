@@ -76,7 +76,9 @@ pub const VIA_TASK: &str = "task.create";
 pub const VIA_REPORT: &str = "task.report";
 
 /// The hold a result marked external gives its session: a search keeps its
-/// query, which the hold names (theseus-qiy).
+/// query, which the hold names (theseus-qiy). A `proc.run` result is marked
+/// only when its job connected out of L1 (18c), so its hold says it came
+/// `via: egress`, and its `url` names the hosts the job reached.
 pub fn read(
     node_id: &str,
     tool: &str,
@@ -90,7 +92,7 @@ pub fn read(
         url: url.into(),
         node_id: node_id.into(),
         from_session: None,
-        via: None,
+        via: (tool == crate::sandbox::PROC_RUN).then(|| theseus_protocol::VIA_EGRESS.into()),
         query: query.map(str::to_string),
     }
 }
@@ -236,6 +238,148 @@ pub fn hold(
         NewRecord::json(kinds::LEDGER, None, &row)?,
         NewRecord::json(kinds::SESSION, Some(&rec.session_id), &rec)?,
     ]))
+}
+
+/// The hold a result node brings a session that holds none yet: a result
+/// marked `external` (DD5's fetch and search, 18c's job that connected out)
+/// read as the session's first outside text since it was last trusted. None
+/// for any other node, or a session that holds one already. Its records
+/// ride in the frame that writes the node.
+pub fn brought(
+    rec: SessionRecord,
+    node: &crate::node::Node,
+    turn_id: Option<&str>,
+) -> Result<Option<(ExternalText, Vec<NewRecord>)>> {
+    let crate::node::Body::ToolResult {
+        external: Some(e),
+        tool,
+        meta,
+        ..
+    } = &node.body
+    else {
+        return Ok(None);
+    };
+    let now = theseus_protocol::now_unix_ms();
+    let h = read(&node.id, tool, &e.url, search_query(tool, meta), now);
+    Ok(hold(rec, h.clone(), turn_id)?.map(|more| (h, more)))
+}
+
+/// Whether `node` is a result marked as outside text.
+pub fn is_outside(node: &crate::node::Node) -> bool {
+    matches!(
+        &node.body,
+        crate::node::Body::ToolResult {
+            external: Some(_),
+            ..
+        }
+    )
+}
+
+/// A frame that would write outside text without its session's lock: built
+/// again under the lock, so the hold rides in it (`under_hold`).
+#[derive(Debug)]
+pub struct NeedsHold;
+
+impl std::fmt::Display for NeedsHold {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a result that is outside text writes its session's hold in its own frame")
+    }
+}
+
+impl std::error::Error for NeedsHold {}
+
+/// What a frame that may write outside text knows of its session's hold.
+pub enum Hold {
+    /// Not locked: a frame with outside text fails with `NeedsHold`.
+    Ask,
+    /// Under the session record's lock, with the record.
+    With(Box<SessionRecord>),
+    /// The session has no record, so no hold can be kept.
+    Without,
+}
+
+impl Hold {
+    /// The hold the first of `nodes` that is outside text brings, and its
+    /// records, for the frame that writes them: None when none is, or when
+    /// the session holds one already.
+    pub fn of(
+        &self,
+        nodes: &[crate::node::Node],
+        turn_id: Option<&str>,
+    ) -> Result<Option<(ExternalText, Vec<NewRecord>)>> {
+        let Some(first) = nodes.iter().find(|n| is_outside(n)) else {
+            return Ok(None);
+        };
+        match self {
+            Hold::Ask => Err(NeedsHold.into()),
+            Hold::With(rec) => brought((**rec).clone(), first, turn_id),
+            Hold::Without => {
+                tracing::warn!("external text read in a session with no record: no hold is kept");
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// Builds and writes a frame with `take`, first without the session's lock;
+/// a frame with outside text (a late result, a cancelled job's, 18c) is
+/// built again under it, so its hold rides in the same frame. So the common
+/// frame, which brings none, costs no lock and no read of the record.
+pub fn under_hold<T>(
+    store: &crate::store::Store,
+    session_id: &str,
+    mut take: impl FnMut(Hold) -> Result<T>,
+) -> Result<T> {
+    match take(Hold::Ask) {
+        Err(e) if e.is::<NeedsHold>() => {
+            match store.with_session(session_id, |rec| take(Hold::With(Box::new(rec))))? {
+                Some(t) => Ok(t),
+                None => take(Hold::Without),
+            }
+        }
+        t => t,
+    }
+}
+
+/// Writes `node`'s frame through `write`: the node alone, or, for a result
+/// that brings outside text, the node and the hold it gives its session,
+/// under the session record's lock, so no crash leaves the text in the
+/// context without the hold (theseus-9bp). What `write` returned, and the
+/// hold when this node began it.
+pub fn with_hold<R>(
+    store: &crate::store::Store,
+    session_id: &str,
+    turn_id: Option<&str>,
+    node: &crate::node::Node,
+    write: impl FnOnce(Vec<NewRecord>) -> Result<R>,
+) -> Result<(R, Option<ExternalText>)> {
+    let frame = vec![node.record()?];
+    if !is_outside(node) {
+        return Ok((write(frame)?, None));
+    }
+    let mut once = Some((write, frame));
+    let mut newly = None;
+    let done = store.with_session(session_id, |rec| {
+        let (write, mut frame) = once.take().expect("called once");
+        if let Some((h, more)) = brought(rec, node, turn_id)? {
+            frame.extend(more);
+            newly = Some(h);
+        }
+        write(frame)
+    })?;
+    match (done, once) {
+        (Some(r), _) => Ok((r, newly)),
+        // Every session a surface opens has a record before its first turn;
+        // one without cannot keep a hold.
+        (None, Some((write, frame))) => {
+            tracing::warn!(
+                session_id,
+                "external text read in a session with no record: no hold is kept"
+            );
+            Ok((write(frame)?, None))
+        }
+        (None, None) => unreachable!("with_session returns None only before it calls"),
+    }
 }
 
 /// The sessions of `sessions` that hold external text, the longest-held

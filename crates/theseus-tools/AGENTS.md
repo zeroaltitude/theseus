@@ -12,7 +12,8 @@ theseus-core, whose `toolrun.rs` runs every call as a kernel action, and by thes
   through gitoxide, no git CLI), `src/text.rs` (`text.diff`), `src/proc.rs` (`proc.run`, the escape hatch), and
   `src/image.rs`.
 - `src/paths.rs`: path resolution the gate can trust: lexical normalization first, then the symlinks of the longest
-  prefix that exists. `src/net.rs`: which addresses are not public.
+  prefix that exists. `src/net.rs`: which addresses are not public (the one classification: the core's resolver
+  and L1's proxy both read it, since 18c), and an egress list's entry, `Allow` (`host:port`, a glob on the host).
 
 ## Invariants
 

@@ -8,6 +8,10 @@
 //! the same for an L0 start (a plain fork and exec) beside it. The case
 //! fails only past ten times the target, so a loaded machine never fails the
 //! gate; `THESEUS_SANDBOX_BENCH_STRICT=1` holds it to the target itself.
+//!
+//! And the egress proxy's cost (design §2.10, 18c): a `CONNECT`'s first byte
+//! back through the proxy, against a direct connection to the same server,
+//! 200 of each; the target is under 2 ms added, held as the spawn's is.
 
 mod common;
 
@@ -20,10 +24,16 @@ const TARGET: Duration = Duration::from_millis(25);
 
 fn main() {
     common::main(
-        &[Case {
-            name: "spawn_100",
-            run: bench,
-        }],
+        &[
+            Case {
+                name: "spawn_100",
+                run: bench,
+            },
+            Case {
+                name: "connect_first_byte_200",
+                run: first_byte,
+            },
+        ],
         &[],
         |_| {},
     );
@@ -95,5 +105,84 @@ fn bench() -> Result<(), String> {
     check(
         p95 <= bound,
         format!("an L1 start's p95 is {}, past {}", ms(p95), ms(bound)),
+    )
+}
+
+/// 18c's bench: from a client's connect to its first byte back, directly to
+/// an echo server and through the proxy (its `CONNECT`, the list, the
+/// resolver, the connect, the 200, and the tunnel), each with one byte sent
+/// as a TLS hello would be.
+fn first_byte() -> Result<(), String> {
+    use std::io::{Read, Write};
+    use std::net::{IpAddr, TcpListener, TcpStream};
+    use theseus_sandbox::egress::{Proxy, Resolver};
+    const N: usize = 200;
+    const ADDED: Duration = Duration::from_millis(2);
+    let e = |e: std::io::Error| e.to_string();
+    let echo = TcpListener::bind("127.0.0.1:0").map_err(e)?;
+    let target = echo.local_addr().map_err(e)?;
+    std::thread::spawn(move || {
+        for s in echo.incoming().flatten() {
+            std::thread::spawn(move || {
+                let mut w = s.try_clone().unwrap();
+                let _ = std::io::copy(&mut &s, &mut w);
+            });
+        }
+    });
+    let l = TcpListener::bind("127.0.0.1:0").map_err(e)?;
+    let proxy = l.local_addr().map_err(e)?;
+    let lo: IpAddr = "127.0.0.1".parse().unwrap();
+    let mut resolver = Resolver::default();
+    resolver.hosts.insert("echo.test".into(), vec![lo]);
+    resolver.public.push(lo);
+    let allow = vec![format!("echo.test:{}", target.port())
+        .parse()
+        .map_err(|e: String| e)?];
+    let running = Proxy::new(l.into(), allow, resolver).start().map_err(e)?;
+    let request = format!("CONNECT echo.test:{} HTTP/1.1\r\n\r\nx", target.port());
+    let direct = |_: usize| -> Result<Duration, String> {
+        let t = Instant::now();
+        let mut s = TcpStream::connect(target).map_err(e)?;
+        s.write_all(b"x").map_err(e)?;
+        s.read_exact(&mut [0u8; 1]).map_err(e)?;
+        Ok(t.elapsed())
+    };
+    let tunnelled = |_: usize| -> Result<Duration, String> {
+        let t = Instant::now();
+        let mut s = TcpStream::connect(proxy).map_err(e)?;
+        s.write_all(request.as_bytes()).map_err(e)?;
+        // The 200's head, then the echoed byte.
+        let mut got = Vec::new();
+        let mut b = [0u8; 256];
+        while !got.ends_with(b"\r\n\r\nx") {
+            let n = s.read(&mut b).map_err(e)?;
+            check(n > 0, "the proxy closed the tunnel")?;
+            got.extend_from_slice(&b[..n]);
+        }
+        Ok(t.elapsed())
+    };
+    // Warm both paths, untimed.
+    direct(0)?;
+    tunnelled(0)?;
+    let d: Vec<Duration> = (0..N).map(direct).collect::<Result<_, _>>()?;
+    let p: Vec<Duration> = (0..N).map(tunnelled).collect::<Result<_, _>>()?;
+    drop(running);
+    println!(
+        "{N} first bytes (target: under {} added through the proxy)",
+        ms(ADDED)
+    );
+    let (mut ds, mut ps) = (d.clone(), p.clone());
+    ds.sort();
+    ps.sort();
+    let dp95 = line("direct (connect→1st byte)", d);
+    let pp95 = line("through the proxy", p);
+    let added50 = pct(&ps, 0.50).saturating_sub(pct(&ds, 0.50));
+    let added95 = pp95.saturating_sub(dp95);
+    println!("added: p50 {}, p95 {}", ms(added50), ms(added95));
+    let strict = std::env::var_os("THESEUS_SANDBOX_BENCH_STRICT").is_some();
+    let bound = if strict { ADDED } else { ADDED * 10 };
+    check(
+        added50 <= bound,
+        format!("the proxy adds {} at p50, past {}", ms(added50), ms(bound)),
     )
 }

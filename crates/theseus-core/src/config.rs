@@ -1865,11 +1865,7 @@ mod tests {
         // The broker's example grant and posture are real (theseus-dcy).
         assert_eq!(cfg.broker.programs["gh"].env["GH_TOKEN"], "github_token");
         assert_eq!(cfg.broker.secrets["github_token"].posture, Posture::Notify);
-        // [sandbox] (M4 17b): L0 by default, the commented l1_argv real.
-        assert_eq!(cfg.sandbox.default, crate::sandbox::Class::L0);
-        assert_eq!(cfg.sandbox.l1_argv[0], ["npm", "install"]);
-        assert_eq!(cfg.sandbox.ro_paths, ["~/.cargo", "~/.rustup"]);
-        assert_eq!((cfg.sandbox.memory_mb, cfg.sandbox.pids), (2048, 512));
+        crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
     }
 
     /// theseus-8d1b: the template and the default config name no one's

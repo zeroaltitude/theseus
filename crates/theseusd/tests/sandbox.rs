@@ -11,7 +11,12 @@
 //! - a job that cannot start in L1 fails with the reason, and never runs at
 //!   L0;
 //! - a program the broker grants a secret, asked to run in L1, gets none,
-//!   and its result and the ledger say so.
+//!   and its result and the ledger say so;
+//! - egress (18c): a listed host is reached through the job's proxy, with
+//!   its bytes in the completion and the ledger, and its session then holds
+//!   outside text; an unlisted host, and names that resolve to loopback or
+//!   to the metadata service, are refused with their reasons, and a job
+//!   that reached nothing leaves its session clear.
 //!
 //! The rig's state directory and socket are inside its workspace root, so
 //! the view hides them only because 17b hides them.
@@ -136,6 +141,9 @@ impl Rig {
                     ),
                 )
                 .env("HOME", path("home"))
+                // 18c: the egress proxy's stand-in names (a debug build's).
+                .env("THESEUS_TEST_EGRESS_DNS", EGRESS_DNS)
+                .env("THESEUS_TEST_EGRESS_PUBLIC", "127.0.0.1")
                 .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
                 .env_remove("THESEUS_OP_TOKEN_FILE")
                 .env_remove("THESEUS_CONFIG")
@@ -562,4 +570,295 @@ fn the_jobs_bench_l1_row() {
         p95 < 250_000,
         "an L1 start's p95 is {p95} us, ten times 25 ms"
     );
+}
+
+/// The proxy's stand-in names (18c; DD5's `Dns.hosts` pattern), which only a
+/// debug build's daemon reads: `stand.test` is the test's own server on
+/// 127.0.0.1, which the rig takes as public; `loop.test` resolves to
+/// loopback, and `meta.test` to the metadata service, as a rebinding name
+/// would.
+const EGRESS_DNS: &str = "stand.test=127.0.0.1;loop.test=127.0.0.2;meta.test=169.254.169.254";
+
+/// A client of the job's proxy, by `HTTPS_PROXY`, in bash (its `/dev/tcp`,
+/// so it needs no program beyond the system's): a `CONNECT` to each target
+/// in turn, then 15 bytes through the tunnel, with one line a target,
+/// `<target> <status> echo=<what came back>` or `<target> <status> why=<the
+/// body>`.
+const CONNECT: &str = r#"echo "proxy=$HTTPS_PROXY"
+proxy=${HTTPS_PROXY#http://}
+host=${proxy%:*}
+port=${proxy##*:}
+for target in "$@"; do
+  exec 3<>"/dev/tcp/$host/$port"
+  printf 'CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n' "$target" "$target" >&3
+  IFS= read -r status <&3
+  code=${status#* }
+  code=${code%% *}
+  while IFS= read -r line <&3; do
+    [ -z "${line%$'\r'}" ] && break
+  done
+  if [ "$code" = 200 ]; then
+    printf 'hello, stand-in' >&3
+    IFS= read -r -N 15 back <&3
+    echo "$target $code echo=$back"
+  else
+    body=$(cat <&3)
+    echo "$target $code why=$body"
+  fi
+  exec 3<&- 3>&-
+done
+"#;
+
+/// A server that echoes what it reads, on 127.0.0.1: the stand-in host.
+fn stand_in() -> u16 {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for s in l.incoming().flatten() {
+            std::thread::spawn(move || {
+                let mut w = s.try_clone().unwrap();
+                let _ = std::io::copy(&mut &s, &mut w);
+            });
+        }
+    });
+    port
+}
+
+/// A rig whose `[sandbox] egress` lists `hosts`.
+fn egress_rig(hosts: &[String]) -> Rig {
+    Rig::start(|t| {
+        let mut s = toml::Table::new();
+        let list = hosts
+            .iter()
+            .map(|h| toml::Value::String(h.clone()))
+            .collect();
+        s.insert("egress".into(), toml::Value::Array(list));
+        t.insert("sandbox".into(), toml::Value::Table(s));
+    })
+}
+
+/// A `proc.run` in L1 of the proxy's client, for `targets`.
+fn connect_call(targets: &[String]) -> (&'static str, Value) {
+    let mut argv = vec![
+        "bash".to_string(),
+        "-c".into(),
+        CONNECT.into(),
+        "client".into(),
+    ];
+    argv.extend(targets.iter().cloned());
+    ("proc_run", json!({"argv": argv, "sandbox": true}))
+}
+
+impl Rig {
+    /// A turn in a new session, as `turn` runs it, and the session's id.
+    fn turn_in(&self, prompt: &str, calls: Vec<(&'static str, Value)>) -> (String, Vec<String>) {
+        let before: Vec<Value> = self.sessions();
+        let out = self.turn(prompt, calls);
+        let sid = self
+            .sessions()
+            .into_iter()
+            .find(|s| !before.contains(s))
+            .and_then(|s| s["session_id"].as_str().map(str::to_string))
+            .expect("the turn's session");
+        (sid, out)
+    }
+
+    fn sessions(&self) -> Vec<Value> {
+        let l = self.call("session.list", json!({})).unwrap();
+        l["sessions"].as_array().cloned().unwrap_or_default()
+    }
+
+    /// Health's hold for `sid`, if it holds outside text.
+    fn hold(&self, sid: &str) -> Option<Value> {
+        let h = self.call("health", Value::Null).unwrap();
+        h["external_text"]
+            .as_array()?
+            .iter()
+            .find(|i| i["session_id"] == sid)
+            .map(|i| i["held"].clone())
+    }
+}
+
+/// 18c's live path through a stand-in host (design §3, 18c's tests): a host
+/// on `[sandbox] egress` is reached through the job's own proxy; the tunnel's
+/// bytes are in the completion's `detail.egress`, a `sandbox.egress` row,
+/// and health; and the result is outside text, so its session holds it, the
+/// reason naming the egress, and the next call there that acts waits, an L1
+/// call with egress included.
+#[test]
+fn a_listed_host_is_reached_through_the_proxy_and_its_session_then_holds_outside_text() {
+    let port = stand_in();
+    let stand = format!("stand.test:{port}");
+    let r = egress_rig(std::slice::from_ref(&stand));
+    let (sid, out) = r.turn_in("reach it", vec![connect_call(std::slice::from_ref(&stand))]);
+    let text = &out[0];
+    assert!(
+        text.starts_with(&format!(
+            "[ran in L1, the sandbox: egress: {stand}, no secret; "
+        )),
+        "{text}"
+    );
+    assert!(text.contains("proxy=http://127.0.0.1:3128"), "{text}");
+    assert!(
+        text.contains(&format!("{stand} 200 echo=hello, stand-in")),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "[L1: it reached {stand} (1 connection, 15 B up, 15 B down)"
+        )),
+        "{text}"
+    );
+    let rows = r.ledger("sandbox.egress");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (
+            rows[0]["host"].as_str(),
+            rows[0]["port"].as_u64(),
+            rows[0]["up"].as_u64(),
+            rows[0]["down"].as_u64()
+        ),
+        (
+            Some("stand.test"),
+            Some(u64::from(port)),
+            Some(15),
+            Some(15)
+        )
+    );
+    let started = r.ledger("sandbox.started");
+    assert_eq!(started[0]["egress"], json!([stand]));
+    let h = r.hold(&sid).expect("the session holds outside text");
+    assert_eq!(
+        (h["tool"].as_str(), h["via"].as_str()),
+        (Some("proc.run"), Some("egress"))
+    );
+    assert_eq!(h["url"].as_str(), Some(stand.as_str()));
+    let health = r.call("health", Value::Null).unwrap();
+    assert_eq!(health["sandbox"]["egress"], json!([stand]));
+    assert_eq!(health["sandbox"]["egress_connections"], 1);
+    // The completion keeps it, for `theseus executions --json`.
+    let hist = r
+        .call("session.history", json!({"session_id": sid}))
+        .unwrap();
+    let result = hist["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["kind"] == "tool_result")
+        .unwrap()
+        .clone();
+    assert_eq!(
+        result["detail"]["meta"]["detail"]["egress"]["hosts"][0]["connections"], 1,
+        "{result}"
+    );
+    // The next call there that acts waits, with the reason naming the egress.
+    r.asks("again", vec![connect_call(std::slice::from_ref(&stand))]);
+    let res = r
+        .call(
+            "turn.submit",
+            json!({"session_id": sid, "input": "again", "author": "test", "attachments": []}),
+        )
+        .unwrap();
+    assert_eq!(res["stop_reason"], "awaiting_confirm", "{res}");
+    let pending = r.call("confirm.list", json!({"session_id": sid})).unwrap();
+    let why = pending.to_string();
+    assert!(
+        why.contains(&format!("proc.run's egress to {stand}")),
+        "{why}"
+    );
+}
+
+/// Refusals through the wired path (design §2.4, §7's "no metadata
+/// service"): a host off the list gets the proxy's 403, and so do a listed
+/// name that resolves to loopback, one that resolves to 169.254.169.254, and
+/// that address itself; each reason is in the result, a
+/// `sandbox.egress_refused` row, and health. A job that reached nothing
+/// leaves its session clear.
+#[test]
+fn unlisted_and_private_hosts_are_refused_with_their_reasons_and_hold_nothing() {
+    let port = stand_in();
+    let listed = vec![
+        format!("loop.test:{port}"),
+        "meta.test:80".to_string(),
+        "169.254.169.254:80".to_string(),
+    ];
+    let r = egress_rig(&listed);
+    let mut targets = listed;
+    targets.push(format!("stand.test:{port}"));
+    let (sid, out) = r.turn_in("refused", vec![connect_call(&targets)]);
+    let text = &out[0];
+    for want in [
+        format!("loop.test:{port} 403 why=loop.test resolves to 127.0.0.2, a loopback address"),
+        "meta.test:80 403 why=meta.test resolves to 169.254.169.254, a link-local address".into(),
+        "169.254.169.254:80 403 why=169.254.169.254 is a link-local address".into(),
+        format!("stand.test:{port} 403 why=stand.test:{port} is not on this job's egress list"),
+        format!("[L1: egress refused: stand.test:{port} is not on this job's egress list]"),
+        "[L1: egress refused: meta.test resolves to 169.254.169.254, a link-local address]".into(),
+        "[L1: it reached none of its egress hosts]".into(),
+    ] {
+        assert!(text.contains(&want), "{want}\n{text}");
+    }
+    let rows = r.ledger("sandbox.egress_refused");
+    assert_eq!(rows.len(), 4, "{rows:?}");
+    assert!(r.ledger("sandbox.egress").is_empty());
+    assert!(
+        r.hold(&sid).is_none(),
+        "a job that reached nothing holds nothing"
+    );
+    let health = r.call("health", Value::Null).unwrap();
+    assert_eq!(
+        health["sandbox"]["egress_refused"], 4,
+        "{}",
+        health["sandbox"]
+    );
+}
+
+/// With no list, an L1 job gets no listener and no proxy: no variable names
+/// one, and a connect to where it would be has nothing behind it.
+#[test]
+fn a_job_with_no_list_has_no_proxy() {
+    let r = Rig::start(|_| {});
+    let probe = "echo \"proxy=${HTTPS_PROXY:-none}\"\n\
+        if timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/3128' 2>/dev/null; then echo listener=yes; \
+        else echo listener=no; fi\n";
+    let out = r.turn(
+        "no list",
+        vec![(
+            "proc_run",
+            json!({"argv": ["bash", "-c", probe], "sandbox": true}),
+        )],
+    );
+    assert!(
+        out[0].starts_with("[ran in L1, the sandbox: no network, no secret; "),
+        "{}",
+        out[0]
+    );
+    assert_eq!(said(&out[0], "proxy"), "none");
+    assert_eq!(said(&out[0], "listener"), "no");
+}
+
+/// The proxy stops when the job ends, its deadline included (18a's stop of
+/// the whole tree): a job that holds a tunnel open past its deadline is
+/// stopped, and its connection is still in its completion and its result.
+#[test]
+fn a_deadline_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
+    let port = stand_in();
+    let stand = format!("stand.test:{port}");
+    let r = egress_rig(std::slice::from_ref(&stand));
+    let held = "exec 3<>/dev/tcp/127.0.0.1/3128\n\
+        printf 'CONNECT %s HTTP/1.1\\r\\n\\r\\n' \"$1\" >&3\n\
+        IFS= read -r status <&3\n\
+        echo \"status=${status%$'\\r'}\"\n\
+        sleep 30\n";
+    let call =
+        json!({"argv": ["bash", "-c", held, "held", stand], "sandbox": true, "timeout_secs": 2});
+    let (_, out) = r.turn_in("deadline", vec![("proc_run", call)]);
+    let text = &out[0];
+    assert!(text.contains("[timed out and killed]"), "{text}");
+    assert_eq!(said(text, "status"), "HTTP/1.1 200 Connection established");
+    assert!(
+        text.contains(&format!("[L1: it reached {stand} (1 connection, ")),
+        "{text}"
+    );
+    assert_eq!(r.ledger("sandbox.egress").len(), 1);
 }

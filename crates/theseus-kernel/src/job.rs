@@ -82,6 +82,16 @@ pub struct L1 {
     /// own cgroup there, with its limits, and removes it after. `None`: the
     /// daemon's cgroup is not delegated, so no memory limit.
     pub cgroup: Option<PathBuf>,
+    /// The hosts the job's egress proxy lets it reach (M4 18c): `[sandbox]
+    /// egress`, and the hosts its call named, as its proposal binds them.
+    /// Empty: no listener and no proxy, so no network at all, at no cost.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub egress: Vec<String>,
+    /// Tests: the proxy's stand-in names, and the addresses it takes as
+    /// public (DD5's `Dns.hosts` pattern). Only a debug build's daemon sets
+    /// it (`THESEUS_TEST_EGRESS_DNS`); None everywhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub egress_dns: Option<theseus_sandbox::egress::Resolver>,
 }
 
 /// A job's output file keeps this much unless the config says otherwise

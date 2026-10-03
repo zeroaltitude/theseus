@@ -14,7 +14,9 @@
 //!   that acts (20a lifts that for L1).
 //! - **The class is bound**: an L1 call's proposal names it, so the digest a
 //!   confirm binds covers it, and a confirmed call runs in the class its
-//!   proposal names, never in one worked out again.
+//!   proposal names, never in one worked out again. So is an L1 job's egress
+//!   list (18c, `crate::egress`): `[sandbox] egress`, and the hosts its call
+//!   named, which make it wait when they go beyond that list.
 //! - **Nothing new before serving**: the probe runs after serving, and the
 //!   cgroup is found by it, or by the first L1 job, and readied at that job.
 
@@ -33,6 +35,9 @@ use theseus_protocol::{Notice, Proposal};
 use crate::policy::{Decision, Posture};
 use crate::toolrun::ToolRuntime;
 use theseus_tools::{Backend, Plan, Tool};
+
+/// The tool whose jobs run in a class: the only one with a job (`Backend::Job`).
+pub const PROC_RUN: &str = "proc.run";
 
 /// A job's class: L0 runs it as the operator's process; L1 in the sandbox.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +88,11 @@ pub struct SandboxConfig {
     /// is capped by `[tools] job_output_max_bytes`, as at L0.
     #[serde(default = "default_output_mb")]
     pub output_mb: u64,
+    /// The hosts every L1 job may reach through its egress proxy (M4 18c),
+    /// each `host:port` with a glob on the host (`*.crates.io:443`). Empty
+    /// by default: no network. A call may name more, and then it waits.
+    #[serde(default)]
+    pub egress: Vec<String>,
 }
 
 fn default_memory_mb() -> u64 {
@@ -108,6 +118,7 @@ impl Default for SandboxConfig {
             pids: default_pids(),
             scratch_mb: default_scratch_mb(),
             output_mb: default_output_mb(),
+            egress: Vec::new(),
         }
     }
 }
@@ -127,6 +138,9 @@ impl SandboxConfig {
         if self.l1_argv.iter().any(|p| p.is_empty()) {
             bail!("sandbox.l1_argv has an empty entry: name a program");
         }
+        if let Err(e) = crate::egress::check(&self.egress) {
+            bail!("sandbox.egress has {e}, or *.crates.io:443 for every name under crates.io");
+        }
         for p in &self.ro_paths {
             let e = crate::config::expand(p);
             let owned = ["/proc", "/sys", "/dev"].iter().any(|o| e.starts_with(o));
@@ -138,6 +152,37 @@ impl SandboxConfig {
             }
         }
         Ok(())
+    }
+}
+
+/// What a call's proposal binds about its job, so a confirmed call runs as
+/// it was approved: its class (17b) and, in L1, its egress list (18c):
+/// `[sandbox] egress`, and the hosts the call named.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Bound {
+    pub class: Class,
+    /// Empty at L0, and for an L1 job with no network.
+    pub egress: Vec<String>,
+}
+
+impl Bound {
+    /// What `p` binds.
+    pub fn of(p: &Proposal) -> Self {
+        Self {
+            class: class_in(p),
+            egress: crate::egress::bound(p),
+        }
+    }
+
+    /// Names it in `p`'s policy context: the class for L1, and a list that
+    /// is not empty.
+    pub fn bind(&self, p: &mut Proposal) {
+        bind_class(p, self.class);
+        crate::egress::bind(p, &self.egress);
+    }
+
+    pub fn l1(&self) -> bool {
+        self.class == Class::L1
     }
 }
 
@@ -162,8 +207,9 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
     }
 }
 
-/// The gate's decision for a call, before the external-text hold, and its
-/// class (the gate in `toolrun`). L1 runs at notify: the floor and the
+/// The gate's decision for a call, before the external-text hold, and what
+/// its proposal binds (the gate in `toolrun`): its class, and an L1 job's
+/// egress list, whose hosts beyond `[sandbox] egress` make it wait (18c). L1 runs at notify: the floor and the
 /// approve lists guard what an L1 job cannot reach, and no secret is granted
 /// to one (18d's), so neither is asked. The operator's own word about the
 /// tool still is (Eddie, 2026-10-02, theseus-jfs6): a `[policy.tools]` line
@@ -177,7 +223,7 @@ pub(crate) fn decide(
     plan: &Plan,
     input: &Value,
     tightened: Option<crate::policy::Tightened<'_>>,
-) -> (Decision, Class) {
+) -> (Decision, Bound) {
     let l1 = (tool.backend() == Backend::Job)
         .then(|| {
             rt.sandbox
@@ -185,22 +231,29 @@ pub(crate) fn decide(
         })
         .flatten();
     match l1 {
-        Some(why) => (
-            l1_decision(rt, tool.name(), plan, &why, tightened),
-            Class::L1,
-        ),
+        Some(why) => {
+            let asked = crate::egress::asked(input);
+            let (egress, beyond) = crate::egress::list(&rt.sandbox.cfg.egress, &asked);
+            let d = l1_decision(rt, tool.name(), plan, &why, &egress, tightened);
+            let d = crate::egress::gate(d, &beyond, tool.name(), &plan.summary);
+            let bound = Bound {
+                class: Class::L1,
+                egress,
+            };
+            (d, bound)
+        }
         None => {
             let d = rt.policy.decide_with(tool, plan, tightened);
-            (rt.brokered(tool.name(), plan, input, d), Class::L0)
+            (rt.brokered(tool.name(), plan, input, d), Bound::default())
         }
     }
 }
 
 /// A planned call's decision as the gate's record keeps it, with an L1
 /// call's class.
-pub(crate) fn record((_, d, class): &(Plan, Decision, Class)) -> theseus_protocol::GateDecision {
+pub(crate) fn record((_, d, bound): &(Plan, Decision, Bound)) -> theseus_protocol::GateDecision {
     theseus_protocol::GateDecision {
-        class: (*class == Class::L1).then(|| class.as_str().into()),
+        class: bound.l1().then(|| Class::L1.as_str().into()),
         ..d.record()
     }
 }
@@ -211,13 +264,13 @@ pub(crate) fn record((_, d, class): &(Plan, Decision, Class)) -> theseus_protoco
 /// its view and limits, the cgroup readied at the first L1 job.
 pub(crate) async fn for_job(
     rt: &ToolRuntime,
-    class: Class,
+    bound: &Bound,
     spec: &theseus_tools::JobSpec,
     set: &[&str],
     path: Option<&str>,
     ran_at: Posture,
 ) -> (crate::broker::ForJob, Option<L1>) {
-    match class {
+    match bound.class {
         Class::L0 => (
             rt.broker
                 .for_job(&spec.argv, set, &spec.cwd, path, ran_at)
@@ -228,7 +281,10 @@ pub(crate) async fn for_job(
             let would = rt
                 .broker
                 .at_gate("proc.run", Some(&spec.argv), set, &spec.cwd, path);
-            (no_grant(would), Some(rt.sandbox.job_view().await))
+            let mut view = rt.sandbox.job_view().await;
+            // The list its proposal binds, and no other (18c).
+            view.egress.clone_from(&bound.egress);
+            (no_grant(would), Some(view))
         }
     }
 }
@@ -270,6 +326,7 @@ fn l1_decision(
     tool: &str,
     plan: &Plan,
     why: &str,
+    egress: &[String],
     tightened: Option<crate::policy::Tightened<'_>>,
 ) -> Decision {
     let own = rt
@@ -280,7 +337,7 @@ fn l1_decision(
     let base = own.unwrap_or((Posture::Notify, format!("L1: {why}")));
     let now = crate::policy::ToolPolicy::now_from(base, tightened);
     if now.posture < Posture::Approve {
-        return decision(tool, why);
+        return decision(tool, why, egress);
     }
     Decision {
         posture: Posture::Approve,
@@ -298,9 +355,10 @@ fn l1_decision(
 
 /// L1's posture (decision 1): notify, whatever the floor and the lists say,
 /// since an L1 job can reach none of what they guard. `why` is what chose
-/// L1.
-pub fn decision(tool: &str, why: &str) -> Decision {
-    let rule = format!("{tool} — notify (L1: {why}; no network, no secret, writes to scratch)");
+/// L1; `egress` is the job's list, which the rule names (18c).
+pub fn decision(tool: &str, why: &str, egress: &[String]) -> Decision {
+    let reach = theseus_protocol::sandbox::reach(egress);
+    let rule = format!("{tool} — notify (L1: {why}; {reach}, no secret, writes to scratch)");
     Decision {
         posture: Posture::Notify,
         reason: rule.clone(),
@@ -347,13 +405,15 @@ pub fn result_lines(detail: &Value) -> String {
             e["error"].as_str().unwrap_or("?")
         )),
         None => lines.push(format!(
-            "[ran in L1, the sandbox: no network, no secret; {}]",
+            "[ran in L1, the sandbox: {}, no secret; {}]",
+            crate::egress::reach_words(detail),
             detail
                 .pointer("/scratch/summary")
                 .and_then(Value::as_str)
                 .unwrap_or("what it wrote to scratch was not reported, and is discarded")
         )),
     }
+    lines.extend(crate::egress::lines(detail));
     if let Some(n) = sb["pids_refused"].as_u64() {
         lines.push(format!(
             "[L1: {n} of its forks were refused at its process limit]"
@@ -411,6 +471,10 @@ pub struct Sandbox {
     /// not.
     jobs: Mutex<Option<Result<PathBuf, String>>>,
     started: [AtomicU64; 2],
+    /// Since the start (18c): connections out, bytes up and down, and
+    /// refusals; and the latest refusal's words.
+    egress: [AtomicU64; 4],
+    refused_last: Mutex<Option<String>>,
 }
 
 impl Sandbox {
@@ -438,6 +502,9 @@ impl Sandbox {
             limits: theseus_sandbox_limits(cfg),
             memory_mb: cfg.memory_mb,
             cgroup: None,
+            // Each job's own, from its proposal (`for_job`).
+            egress: Vec::new(),
+            egress_dns: crate::egress::test_dns(),
         };
         Self {
             cfg: cfg.clone(),
@@ -446,6 +513,30 @@ impl Sandbox {
             cgroup: tokio::sync::OnceCell::new(),
             jobs: Mutex::default(),
             started: [AtomicU64::new(0), AtomicU64::new(0)],
+            egress: Default::default(),
+            refused_last: Mutex::default(),
+        }
+    }
+
+    /// A job's egress, counted for health (18c), once its result is written.
+    pub fn egress_seen(&self, s: &theseus_sandbox::egress::Summary) {
+        let sum = |f: fn(&theseus_sandbox::egress::Reached) -> u64| -> u64 {
+            s.hosts.iter().map(f).sum()
+        };
+        let refused: u64 = s.refused.iter().map(|r| r.count).sum();
+        for (i, n) in [
+            sum(|h| h.connections),
+            sum(|h| h.up),
+            sum(|h| h.down),
+            refused,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            self.egress[i].fetch_add(n, Ordering::Relaxed);
+        }
+        if let Some(r) = s.refused.last() {
+            *self.refused_last.lock().unwrap() = Some(r.why.clone());
         }
     }
 
@@ -474,8 +565,12 @@ impl Sandbox {
         {
             return Some(format!("[sandbox] l1_argv names `{}`", p.join(" ")));
         }
-        (input.get("sandbox").and_then(Value::as_bool) == Some(true))
-            .then(|| "the call asked for it with sandbox: true".into())
+        match input.get("sandbox") {
+            Some(Value::Bool(true)) => Some("the call asked for it with sandbox: true".into()),
+            // `sandbox: { egress: [...] }` (18c) asks for L1 too.
+            Some(Value::Object(_)) => Some("the call asked for it with sandbox: { … }".into()),
+            _ => None,
+        }
     }
 
     /// A job started, by class (health's `jobs_l0`, `jobs_l1`).
@@ -566,8 +661,37 @@ impl Sandbox {
             cgroup: self.cgroup_line(),
             jobs_l0: self.started[0].load(Ordering::Relaxed),
             jobs_l1: self.started[1].load(Ordering::Relaxed),
+            egress: crate::egress::health_list(&self.cfg.egress),
+            egress_connections: self.egress[0].load(Ordering::Relaxed),
+            egress_up: self.egress[1].load(Ordering::Relaxed),
+            egress_down: self.egress[2].load(Ordering::Relaxed),
+            egress_refused: self.egress[3].load(Ordering::Relaxed),
+            egress_last_refused: self.refused_last.lock().unwrap().clone(),
         }
     }
+}
+
+/// The template's `[sandbox]`, un-commented (`config.rs`'s
+/// `example_template_uncommented_still_parses`): L0 by default (17b), the
+/// commented `l1_argv` real, and the commented egress list (18c) that reaches
+/// Rust's registry and GitHub, every entry one the proxy matches.
+#[cfg(test)]
+pub(crate) fn the_templates_sandbox_section(s: &SandboxConfig) {
+    assert_eq!(s.default, Class::L0);
+    assert_eq!(s.l1_argv[0], ["npm", "install"]);
+    assert_eq!(s.ro_paths, ["~/.cargo", "~/.rustup"]);
+    assert_eq!((s.memory_mb, s.pids), (2048, 512));
+    let egress = crate::egress::check(&s.egress).unwrap();
+    for (host, port) in [
+        ("index.crates.io", 443),
+        ("static.crates.io", 443),
+        ("api.github.com", 443),
+    ] {
+        assert!(egress.iter().any(|a| a.permits(host, port)), "{host}");
+    }
+    assert!(!egress.iter().any(|a| a.permits("pypi.org", 443)));
+    // As written, with the line commented, an L1 job has no network.
+    assert!(crate::Config::example().sandbox.egress.is_empty());
 }
 
 /// The probe waits this long after serving (design §2.10): its row lands

@@ -4,6 +4,7 @@ import type { ProtocolClient } from './protocol'
 import type { ActionInfo, CatalogList, CompilationInfo, ConfigStatus, ContextFileRef, ExecutionInfo, ExternalTextInfo, Health, LedgerEntry, NodeInfo, NodeReachResult, SessionInfo, StartupPhase, ToolList, Usage, WakeInfo } from './protocol'
 import { DiskSpoolLines } from './DiskSpool'
 import { AwsAccountLines } from './AwsAccount'
+import { SandboxLines } from './Sandbox'
 
 // The Observatory: every durable thing the harness wrote, as live windows onto
 // the store. Nothing here is computed in the browser from events; every panel
@@ -672,7 +673,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
       </ObsSection>
 
       <ObsSection id="external" title="External text" open={open.external ?? true} onToggle={() => toggle('external')} count={`${external.length} session${external.length === 1 ? '' : 's'}`}>
-        {external.length === 0 ? <div className="muted pad">none: once a session reads a web page or a search (<code>http.fetch</code>, <code>web.search</code>), its calls that act wait for your approval, until you trust it again</div> : (
+        {external.length === 0 ? <div className="muted pad">none: once a session reads a web page or a search (<code>http.fetch</code>, <code>web.search</code>), or an L1 job of its connects out, its calls that act wait for your approval, until you trust it again</div> : (
           <table className="obs-table">
             <thead><tr><th>session</th><th>since</th><th>read</th><th>how</th><th></th></tr></thead>
             <tbody>
@@ -681,13 +682,18 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                   <td><button type="button" className="link" onClick={() => onPickSession?.(i.session_id)}>{i.task ? `task ${i.task}` : i.title ?? short(i.session_id)}</button></td>
                   <td className="muted small" title={i.since_local || clock(i.held.since_ms)}>{ago(i.held.since_ms, now)}</td>
                   <td className="small" title={i.held.query != null ? i.held.url : undefined}><code>{i.held.tool}</code> {i.held.query != null ? `"${i.held.query}"` : i.held.url}</td>
-                  <td className="muted small">{i.held.via === 'task.create' ? `from the session that started it (${short(i.held.from_session ?? '')})` : i.held.via === 'task.report' ? `from task ${short(i.held.from_session ?? '')}'s report` : 'read here'}</td>
+                  <td className="muted small">{i.held.via === 'task.create' ? `from the session that started it (${short(i.held.from_session ?? '')})` : i.held.via === 'task.report' ? `from task ${short(i.held.from_session ?? '')}'s report` : i.held.via === 'egress' ? 'an L1 job here reached these hosts' : 'read here'}</td>
                   <td><button type="button" className="link danger" onClick={() => void trust(i)}>trust again</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
+      </ObsSection>
+
+      <ObsSection id="sandbox" title="Sandbox" open={open.sandbox ?? true} onToggle={() => toggle('sandbox')}
+        count={health?.sandbox ? `${health.sandbox.jobs_l1} in L1 · ${health.sandbox.egress_refused ?? 0} refused` : ''}>
+        <SandboxLines s={health?.sandbox} />
       </ObsSection>
 
       <ObsSection id="executions" title="Executions" open={!!open.executions} onToggle={() => toggle('executions')} count={`${execs.length}`}>

@@ -213,6 +213,11 @@ pub struct ToolStarted {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub class: Option<String>,
+    /// An L1 job's egress list (M4 18c): the hosts its proxy lets it reach,
+    /// empty for no network at all. Absent at L0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub egress: Option<Vec<String>>,
 }
 
 /// A field that is absent, `null`, or a value: `None`, `Some(None)`, and
@@ -265,6 +270,12 @@ pub struct ToolEnded {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub scratch: Option<String>,
+    /// The hosts an L1 job reached through its egress (M4 18c):
+    /// `reached api.github.com:443 (2 connections)`. Absent when it reached
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reached: Option<String>,
     /// How a call a cancel or a stop ended is known to have stopped (M4
     /// 18a): "verified: pid namespace, 4 processes", or "not verified: …".
     #[serde(default, skip_serializing_if = "Option::is_none")]

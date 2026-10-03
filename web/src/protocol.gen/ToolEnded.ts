@@ -35,6 +35,12 @@ preview: string,
  */
 scratch?: string, 
 /**
+ * The hosts an L1 job reached through its egress (M4 18c):
+ * `reached api.github.com:443 (2 connections)`. Absent when it reached
+ * none.
+ */
+reached?: string, 
+/**
  * How a call a cancel or a stop ended is known to have stopped (M4
  * 18a): "verified: pid namespace, 4 processes", or "not verified: …".
  */

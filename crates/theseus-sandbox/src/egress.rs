@@ -18,18 +18,23 @@
 //! A refused `CONNECT` gets a 403 whose body says why. A program that ignores
 //! the proxy variables has no route at all. Plain `http://` forwarding is
 //! not offered (filed): any other method gets a 405.
+//!
+//! 18c wired it in: the job wrapper's L1 path runs a `Proxy` for a job whose
+//! list is not empty, stops it when the job ends, and puts its `Summary` in
+//! the completion's `detail.egress`. Each `CONNECT`'s `Outcome` is a value
+//! the proxy acts on, the seam for credentials as stand-ins (theseus-gh7).
 
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
-use theseus_tools::net::private_kind;
+use serde::{Deserialize, Serialize};
+use theseus_tools::net::{private_kind, split_host_port};
 
 /// The port the job's proxy listens on, inside its namespace.
 pub const PORT: u16 = 3128;
@@ -65,80 +70,10 @@ pub fn proxy_env(port: u16) -> Vec<(String, String)> {
     env
 }
 
-/// One entry of a job's list: `host:port`, with a glob on the host
-/// (`*.crates.io:443`) and the exact port.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Allow {
-    host: String,
-    port: u16,
-}
-
-impl std::str::FromStr for Allow {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        let (host, port) = split_host_port(s).ok_or_else(|| format!("{s:?} is not host:port"))?;
-        Ok(Self { host, port })
-    }
-}
-
-impl std::fmt::Display for Allow {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.host.contains(':') {
-            write!(f, "[{}]:{}", self.host, self.port)
-        } else {
-            write!(f, "{}:{}", self.host, self.port)
-        }
-    }
-}
-
-impl Allow {
-    pub fn permits(&self, host: &str, port: u16) -> bool {
-        self.port == port && glob(&self.host, host)
-    }
-}
-
-/// `name:port` or `[v6]:port`, the name lowercased and without a final dot.
-fn split_host_port(s: &str) -> Option<(String, u16)> {
-    let (host, port) = match s.strip_prefix('[') {
-        Some(rest) => rest.split_once("]:")?,
-        None => {
-            let (h, p) = s.rsplit_once(':')?;
-            if h.contains(':') {
-                return None;
-            }
-            (h, p)
-        }
-    };
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    let port: u16 = port.parse().ok()?;
-    (!host.is_empty() && port != 0).then_some((host, port))
-}
-
-/// `*` matches any run of characters, dots included (so `*.crates.io` is
-/// every name under crates.io, and not crates.io itself); anything else
-/// matches itself, without regard to case.
-fn glob(pattern: &str, name: &str) -> bool {
-    let (p, n) = (pattern.as_bytes(), name.as_bytes());
-    let (mut pi, mut ni) = (0, 0);
-    let mut star: Option<(usize, usize)> = None;
-    while ni < n.len() {
-        if pi < p.len() && p[pi] == b'*' {
-            star = Some((pi, ni));
-            pi += 1;
-        } else if pi < p.len() && p[pi].eq_ignore_ascii_case(&n[ni]) {
-            pi += 1;
-            ni += 1;
-        } else if let Some((s, m)) = star {
-            pi = s + 1;
-            ni = m + 1;
-            star = Some((s, m + 1));
-        } else {
-            return false;
-        }
-    }
-    p[pi..].iter().all(|&c| c == b'*')
-}
+/// One entry of a job's list: `host:port`, with a glob on the host and the
+/// exact port (`theseus_tools::net`, where `proc.run`'s plan and the gate
+/// read it too).
+pub use theseus_tools::net::Allow;
 
 /// Why a name may not be reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,7 +103,7 @@ impl std::fmt::Display for Refusal {
 /// DD5's public-only resolver, as the proxy uses it: the very answer the
 /// connection uses is the one checked, so a rebinding name has no second
 /// answer to give.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Resolver {
     /// Tests: names answered here instead of by the system's resolver.
     pub hosts: BTreeMap<String, Vec<IpAddr>>,
@@ -215,6 +150,21 @@ impl Resolver {
     }
 }
 
+/// What the proxy does with one `CONNECT` (`Proxy::decide`). It is a value
+/// the proxy then acts on, never an action taken inside the checks: the seam
+/// for credentials as stand-ins (theseus-gh7), whose third outcome ends TLS
+/// for a host a secret is granted to, with a per-job CA, and swaps the
+/// stand-in for the value on that connection alone. That outcome slots in
+/// here and in `tunnel`'s match, and nothing else in the proxy changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// Connect to the first of these addresses that answers, and copy bytes
+    /// both ways.
+    Tunnel(Vec<SocketAddr>),
+    /// Answer with this status, and say why in its body.
+    Refuse { code: u16, why: String },
+}
+
 /// One `CONNECT`, as the proxy saw it: 18c's `detail.egress`, and its
 /// `sandbox.egress` and `sandbox.egress_refused` rows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -229,6 +179,124 @@ pub struct Connection {
     pub ms: u64,
     /// Why it was refused (the response's body), or None.
     pub refused: Option<String>,
+}
+
+/// A job's egress, as its completion's `detail.egress` keeps it (18c): the
+/// list it ran with, each host it reached (one entry per `host:port`, its
+/// connections and bytes and milliseconds summed), and each refusal (one
+/// entry per host, port, and reason, counted). Small whatever the job did:
+/// at most one entry per name it asked for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Summary {
+    /// The job's list: the operator's `[sandbox] egress`, and the hosts its
+    /// call named.
+    pub allow: Vec<String>,
+    #[serde(default)]
+    pub hosts: Vec<Reached>,
+    #[serde(default)]
+    pub refused: Vec<Refused>,
+    /// Connections past the records the proxy keeps, counted only.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dropped: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+/// One `host:port` a job reached: a tunnel was opened to it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reached {
+    pub host: String,
+    pub port: u16,
+    pub connections: u64,
+    /// Bytes from the job out, and back in.
+    pub up: u64,
+    pub down: u64,
+    /// The tunnels' milliseconds, together.
+    pub ms: u64,
+}
+
+impl Reached {
+    /// `github.com:443`.
+    pub fn name(&self) -> String {
+        show(&self.host, self.port)
+    }
+}
+
+/// The `CONNECT`s refused for one reason, at one `host:port`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Refused {
+    pub host: String,
+    pub port: u16,
+    /// What the 403 (or 400, 405, 502, 503) said.
+    pub why: String,
+    pub count: u64,
+}
+
+impl Summary {
+    /// The proxy's records for one job, with `allow` its list.
+    pub fn of(allow: &[Allow], log: &[Connection], dropped: usize) -> Self {
+        let mut hosts: Vec<Reached> = Vec::new();
+        let mut refused: Vec<Refused> = Vec::new();
+        for c in log {
+            match &c.refused {
+                None => {
+                    let at = hosts
+                        .iter()
+                        .position(|h| h.host == c.host && h.port == c.port)
+                        .unwrap_or_else(|| {
+                            hosts.push(Reached {
+                                host: c.host.clone(),
+                                port: c.port,
+                                ..Reached::default()
+                            });
+                            hosts.len() - 1
+                        });
+                    let h = &mut hosts[at];
+                    h.connections += 1;
+                    h.up += c.up;
+                    h.down += c.down;
+                    h.ms += c.ms;
+                }
+                Some(why) => {
+                    match refused
+                        .iter_mut()
+                        .find(|r| r.host == c.host && r.port == c.port && &r.why == why)
+                    {
+                        Some(r) => r.count += 1,
+                        None => refused.push(Refused {
+                            host: c.host.clone(),
+                            port: c.port,
+                            why: why.clone(),
+                            count: 1,
+                        }),
+                    }
+                }
+            }
+        }
+        Self {
+            allow: allow.iter().map(ToString::to_string).collect(),
+            hosts,
+            refused,
+            dropped: dropped as u64,
+        }
+    }
+
+    /// Whether the job connected out: a tunnel was opened to some host.
+    pub fn connected(&self) -> bool {
+        !self.hosts.is_empty()
+    }
+
+    /// The hosts it reached, as the outside-text hold names them:
+    /// `api.github.com:443, pypi.org:443`.
+    pub fn reached(&self) -> String {
+        self.hosts
+            .iter()
+            .map(Reached::name)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// The proxy for one job.
@@ -259,6 +327,8 @@ impl Proxy {
             log: Mutex::new(Vec::new()),
             dropped: AtomicUsize::new(0),
             active: AtomicUsize::new(0),
+            open: Mutex::default(),
+            next: AtomicU64::new(0),
         });
         let s = shared.clone();
         let thread = std::thread::Builder::new()
@@ -307,7 +377,7 @@ impl Proxy {
                     let spawned = std::thread::Builder::new()
                         .name("egress-tunnel".into())
                         .spawn(move || {
-                            let record = proxy.tunnel(client);
+                            let record = proxy.tunnel(client, &mine);
                             mine.record(record);
                             mine.active.fetch_sub(1, Ordering::SeqCst);
                         });
@@ -323,8 +393,29 @@ impl Proxy {
         }
     }
 
-    /// One client: its request, the checks, then the tunnel.
-    fn tunnel(&self, mut client: TcpStream) -> Connection {
+    /// What to do with a `CONNECT` to `host:port`, decided before anything
+    /// is done: steps 1 and 2 of the order (the list, then the public-only
+    /// resolver).
+    pub fn decide(&self, host: &str, port: u16) -> Outcome {
+        if !self.allow.iter().any(|a| a.permits(host, port)) {
+            let why = format!("{} is not on this job's egress list", show(host, port));
+            return Outcome::Refuse { code: 403, why };
+        }
+        match self.resolver.resolve(host, port) {
+            Ok(addrs) => Outcome::Tunnel(addrs),
+            Err(r @ Refusal::Private { .. }) => Outcome::Refuse {
+                code: 403,
+                why: r.to_string(),
+            },
+            Err(r) => Outcome::Refuse {
+                code: 502,
+                why: r.to_string(),
+            },
+        }
+    }
+
+    /// One client: its request, the decision, then what it decided.
+    fn tunnel(&self, mut client: TcpStream, shared: &Shared) -> Connection {
         let t0 = Instant::now();
         let _ = client.set_nonblocking(false);
         let _ = client.set_read_timeout(Some(HEAD_TIMEOUT));
@@ -358,19 +449,10 @@ impl Proxy {
         };
         record.host.clone_from(&host);
         record.port = port;
-        if !self.allow.iter().any(|a| a.permits(&host, port)) {
-            let why = format!("{} is not on this job's egress list", show(&host, port));
-            refuse(&mut client, &mut record, 403, why);
-            return record;
-        }
-        let addrs = match self.resolver.resolve(&host, port) {
-            Ok(a) => a,
-            Err(r @ Refusal::Private { .. }) => {
-                refuse(&mut client, &mut record, 403, r.to_string());
-                return record;
-            }
-            Err(r) => {
-                refuse(&mut client, &mut record, 502, r.to_string());
+        let addrs = match self.decide(&host, port) {
+            Outcome::Tunnel(addrs) => addrs,
+            Outcome::Refuse { code, why } => {
+                refuse(&mut client, &mut record, code, why);
                 return record;
             }
         };
@@ -400,7 +482,20 @@ impl Proxy {
             return record;
         }
         let _ = client.set_read_timeout(None);
+        let id = shared.next.fetch_add(1, Ordering::SeqCst);
+        if let (Ok(a), Ok(b)) = (client.try_clone(), server.try_clone()) {
+            shared
+                .open
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(id, [a, b]);
+        }
         let (up, down) = relay(client, server, &rest);
+        shared
+            .open
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&id);
         record.up = up;
         record.down = down;
         record.ms = t0.elapsed().as_millis() as u64;
@@ -421,6 +516,10 @@ struct Shared {
     /// Records past `MAX_RECORDS`, counted and not kept.
     dropped: AtomicUsize,
     active: AtomicUsize,
+    /// Each open tunnel's two sockets, so a stop can end a tunnel whose
+    /// server holds it open after the job has gone, and still record it.
+    open: Mutex<BTreeMap<u64, [TcpStream; 2]>>,
+    next: AtomicU64,
 }
 
 impl Shared {
@@ -457,14 +556,39 @@ impl Running {
     }
 
     /// Stops accepting, waits up to `grace` for open tunnels to close (a
-    /// job's end closes its side of each), and gives every connection.
-    pub fn stop(mut self, grace: Duration) -> Vec<Connection> {
+    /// job's end closes its side of each), then ends any still open (a
+    /// server may hold one past the job), and gives every connection: each
+    /// tunnel opened is recorded, with the bytes it carried.
+    pub fn stop(self, grace: Duration) -> Vec<Connection> {
+        self.finish(grace).0
+    }
+
+    /// `stop`, with the connections past the kept records, counted.
+    pub fn finish(mut self, grace: Duration) -> (Vec<Connection>, usize) {
         self.halt();
-        let deadline = Instant::now() + grace;
-        while self.shared.active.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(5));
+        let idle = |until: Instant| {
+            while self.shared.active.load(Ordering::SeqCst) > 0 && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        idle(Instant::now() + grace);
+        for [a, b] in self
+            .shared
+            .open
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+        {
+            let _ = a.shutdown(Shutdown::Both);
+            let _ = b.shutdown(Shutdown::Both);
         }
-        self.connections()
+        idle(Instant::now() + Duration::from_secs(2));
+        (self.connections(), self.dropped())
+    }
+
+    /// Tunnels open now.
+    pub fn active(&self) -> usize {
+        self.shared.active.load(Ordering::SeqCst)
     }
 
     fn halt(&mut self) {
@@ -521,7 +645,10 @@ fn parse_connect(head: &str) -> Result<(String, u16), (u16, String)> {
         ));
     }
     let target = target.unwrap_or("");
-    split_host_port(target).ok_or_else(|| (400, format!("{target:?} is not host:port")))
+    // A target names one host: a `*` is the list's, never a request's.
+    split_host_port(target)
+        .filter(|(h, _)| !h.contains('*'))
+        .ok_or_else(|| (400, format!("{target:?} is not host:port")))
 }
 
 fn respond(client: &mut TcpStream, code: u16, why: &str) {
@@ -583,35 +710,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_glob_is_on_the_host_and_the_port_is_exact() {
-        let a: Allow = "*.crates.io:443".parse().unwrap();
-        assert!(a.permits("index.crates.io", 443));
-        assert!(a.permits("a.b.crates.io", 443));
-        assert!(!a.permits("crates.io", 443));
-        assert!(!a.permits("index.crates.io", 80));
-        assert!(!a.permits("evilcrates.io", 443));
-        let a: Allow = "GitHub.com.:443".parse().unwrap();
-        assert!(a.permits("github.com", 443));
-        assert!(!a.permits("api.github.com", 443));
-        assert_eq!(a.to_string(), "github.com:443");
-        let a: Allow = "[2606:4700::1111]:443".parse().unwrap();
-        assert!(a.permits("2606:4700::1111", 443));
-        assert_eq!(a.to_string(), "[2606:4700::1111]:443");
-        for bad in [
-            "github.com",
-            "github.com:0",
-            ":443",
-            "2606:4700::1111:443",
-            "x:y",
-        ] {
-            assert!(bad.parse::<Allow>().is_err(), "{bad}");
-        }
-        assert!(glob("*", "anything.at.all"));
-        assert!(glob("a*b*c", "aXXbYYc"));
-        assert!(!glob("a*b*c", "aXXbYY"));
-    }
-
-    #[test]
     fn only_connect_is_served() {
         assert_eq!(
             parse_connect("CONNECT github.com:443 HTTP/1.1\r\nHost: github.com:443"),
@@ -630,6 +728,84 @@ mod tests {
             Err(400)
         );
         assert_eq!(parse_connect("hello").map_err(|e| e.0), Err(400));
+        assert_eq!(
+            parse_connect("CONNECT *.crates.io:443 HTTP/1.1").map_err(|e| e.0),
+            Err(400),
+            "a request names one host"
+        );
+    }
+
+    /// The seam (theseus-gh7): each `CONNECT`'s outcome is a value decided
+    /// before the proxy acts, and the job's summary keeps one entry per
+    /// host reached and per refusal, whatever the number of connections.
+    #[test]
+    fn a_connect_is_decided_as_a_value_and_summed_per_host() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut resolver = Resolver::default();
+        let public: IpAddr = "93.184.215.14".parse().unwrap();
+        resolver.hosts.insert("fine.test".into(), vec![public]);
+        resolver
+            .hosts
+            .insert("meta.test".into(), vec!["169.254.169.254".parse().unwrap()]);
+        let allow: Vec<Allow> = ["fine.test:443", "meta.test:80"]
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect();
+        let p = Proxy::new(l.into(), allow.clone(), resolver);
+        assert_eq!(
+            p.decide("fine.test", 443),
+            Outcome::Tunnel(vec![SocketAddr::new(public, 443)])
+        );
+        assert_eq!(
+            p.decide("other.test", 443),
+            Outcome::Refuse {
+                code: 403,
+                why: "other.test:443 is not on this job's egress list".into()
+            }
+        );
+        assert_eq!(
+            p.decide("meta.test", 80),
+            Outcome::Refuse {
+                code: 403,
+                why: "meta.test resolves to 169.254.169.254, a link-local address".into()
+            }
+        );
+        let conn = |host: &str, up, down, refused: Option<&str>| Connection {
+            host: host.into(),
+            port: 443,
+            addr: None,
+            up,
+            down,
+            ms: 5,
+            refused: refused.map(str::to_string),
+        };
+        let log = [
+            conn("fine.test", 10, 100, None),
+            conn("fine.test", 20, 200, None),
+            conn("other.test", 0, 0, Some("no")),
+            conn("other.test", 0, 0, Some("no")),
+        ];
+        let s = Summary::of(&allow, &log, 3);
+        assert_eq!(s.allow, ["fine.test:443", "meta.test:80"]);
+        assert_eq!(
+            s.hosts,
+            [Reached {
+                host: "fine.test".into(),
+                port: 443,
+                connections: 2,
+                up: 30,
+                down: 300,
+                ms: 10
+            }]
+        );
+        assert_eq!(s.refused.len(), 1);
+        assert_eq!((s.refused[0].count, s.dropped), (2, 3));
+        assert!(s.connected());
+        assert_eq!(s.reached(), "fine.test:443");
+        let none = Summary::of(&allow, &log[2..], 0);
+        assert!(!none.connected(), "a refusal alone is no connection");
+        let back: Summary = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
     }
 
     #[test]
@@ -765,6 +941,46 @@ mod tests {
         assert_eq!((ok.host.as_str(), ok.addr), ("echo.test", Some(target)));
         assert_eq!((ok.up, ok.down), (13, 13));
         assert_eq!(log.iter().filter(|c| c.refused.is_some()).count(), 2);
+    }
+
+    /// A tunnel whose server holds it open after the job has gone is ended
+    /// by the stop and still recorded, with the bytes it carried (18c: the
+    /// record decides whether the job's result is outside text).
+    #[test]
+    fn a_stop_records_a_tunnel_its_server_holds_open() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let target = l.local_addr().unwrap();
+        // A server that reads, and never answers or closes.
+        std::thread::spawn(move || {
+            let held: Vec<TcpStream> = l.incoming().flatten().take(1).collect();
+            std::thread::sleep(Duration::from_secs(30));
+            drop(held);
+        });
+        let pl = TcpListener::bind("127.0.0.1:0").unwrap();
+        let proxy_addr = pl.local_addr().unwrap();
+        let mut resolver = Resolver::default();
+        let lo: IpAddr = "127.0.0.1".parse().unwrap();
+        resolver.hosts.insert("hold.test".into(), vec![lo]);
+        resolver.public.push(lo);
+        let allow = vec![format!("hold.test:{}", target.port()).parse().unwrap()];
+        let running = Proxy::new(pl.into(), allow, resolver).start().unwrap();
+        let mut c = TcpStream::connect(proxy_addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let req = format!("CONNECT hold.test:{} HTTP/1.1\r\n\r\n", target.port());
+        c.write_all(req.as_bytes()).unwrap();
+        let (head, _) = read_head(&mut c).unwrap();
+        assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+        c.write_all(b"12345").unwrap();
+        let t0 = Instant::now();
+        while running.active() == 0 && t0.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        let log = running.stop(Duration::from_millis(50));
+        assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert_eq!((log[0].refused.as_deref(), log[0].up), (None, 5));
+        drop(c);
     }
 
     #[test]

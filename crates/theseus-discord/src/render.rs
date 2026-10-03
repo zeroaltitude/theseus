@@ -169,8 +169,10 @@ struct ToolLine {
     /// (theseus-dcy). The gate says it first, and the job's start says what
     /// it actually got.
     granted: Option<String>,
-    /// It runs in L1 (M4 17b); its summary gains what it wrote to scratch.
-    l1: bool,
+    /// It runs in L1 (M4 17b), and what it may reach (18c): `no network`, or
+    /// `egress: github.com:443`; its summary gains what it wrote to scratch,
+    /// and the hosts it reached.
+    l1: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -298,7 +300,11 @@ impl Renderer {
                         .and_then(|d| d.notify.as_ref())
                         .map(|n| n.setting.clone()),
                     granted: decision.and_then(|d| d.granted.clone()),
-                    l1: decision.and_then(|d| d.class.as_deref()) == Some("l1"),
+                    l1: (decision.and_then(|d| d.class.as_deref()) == Some("l1")).then(|| {
+                        theseus_protocol::sandbox::reach(&theseus_protocol::sandbox::egress_in(
+                            &p.gate.proposal.policy_context,
+                        ))
+                    }),
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
@@ -318,10 +324,11 @@ impl Renderer {
                         .join("; ")
                 });
                 let corr = (!s.correlation_id.is_empty()).then(|| s.correlation_id.clone());
-                let l1 = s.class.as_deref() == Some("l1");
+                let l1 = (s.class.as_deref() == Some("l1"))
+                    .then(|| theseus_protocol::sandbox::reach(s.egress.as_deref().unwrap_or(&[])));
                 self.update_tool(turn_id, &s.tool_use_id, |l| {
                     l.state = ToolState::Running;
-                    l.l1 |= l1;
+                    l.l1 = l1.clone().or(l.l1.take());
                     if corr.is_some() {
                         l.correlation_id = corr.clone();
                     }
@@ -354,9 +361,9 @@ impl Renderer {
                         card: card.clone(),
                     });
                 }
-                let scratch = t.scratch.clone();
+                let ended: Vec<String> = t.scratch.iter().chain(&t.reached).cloned().collect();
                 self.update_tool(turn_id, use_id, |l| {
-                    l.summary.extend(scratch.iter().map(|s| format!(" · {s}")));
+                    l.summary.extend(ended.iter().map(|s| format!(" · {s}")));
                     l.state = match (status, &stopped) {
                         (_, Some(by)) => ToolState::Stopped {
                             by: format!("{by}{verified}"),
@@ -1098,11 +1105,9 @@ fn tool_lines(tools: &[ToolLine], reserve: usize) -> String {
                 .granted
                 .as_deref()
                 .map_or_else(String::new, |g| format!(" · 🔑 {g}"));
-            let l1 = if l.l1 {
-                "🛡️ L1 · no network · "
-            } else {
-                ""
-            };
+            let l1 =
+                l.l1.as_ref()
+                    .map_or(String::new(), |r| format!("🛡️ L1 · {r} · "));
             let head = format!("`{}` {l1}{}{key}{mark}", l.tool, l.summary);
             match &l.state {
                 ToolState::Proposed => format!("▫️ {head}"),
