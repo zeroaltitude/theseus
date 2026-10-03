@@ -231,7 +231,7 @@ function ShipView({ data }: { data: ShipData }) {
         <Nixie value={data.tpm} label="Tokens / min" title="Tokens a minute: input, cache, and output of every model call in the last sixty seconds (provider.call rows)." />
       </div>
 
-      <div data-ship-ui className="absolute bottom-3 right-3"><Minimap ref={minimap} engine={engine} model={model} selected={sel} /></div>
+      <div data-ship-ui className="ship-porthole-slot absolute bottom-3 right-3"><Minimap ref={minimap} engine={engine} model={model} selected={sel} /></div>
 
       {vessel && <CallInspector sessionId={vessel.id} />}
       {vessel && <ModelInspector sessionId={vessel.id} />}
@@ -357,7 +357,7 @@ function Legend() {
   })
   const toggle = () => { localStorage.setItem('cockpit.ship.legend', open ? 'closed' : 'open'); setOpen(!open) }
   return (
-    <div data-ship-ui className="brass-card pointer-events-auto absolute bottom-3 left-3 w-[210px] !p-2.5">
+    <div data-ship-ui className="ship-key-slot brass-card pointer-events-auto absolute bottom-3 left-3 w-[210px] !p-2.5">
       <button onClick={toggle} className="ship-engraved flex w-full items-center justify-between text-[10px]" title="What the marks mean">
         <span>The key</span><span className="text-ink-faint">{open ? '−' : '+'}</span>
       </button>

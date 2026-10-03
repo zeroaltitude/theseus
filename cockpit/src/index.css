@@ -331,6 +331,18 @@
 @media (max-width: 1680px) { .ship-console { --dial: 98px; } }
 @media (max-width: 1440px) { .ship-console { --dial: 86px; } .ship-console .nixie-tube { width: 19px; height: 37px; } .ship-console .nixie-digit, .ship-console .nixie-ghost { font-size: 26px; } }
 
+/* Below 1280 px the console, the key, and the porthole no longer fit side by side: the console takes the foot of the
+   view, the full width of it, and the key and the porthole stand on its upper edge, one at each corner. */
+@media (max-width: 1279px) {
+  .ship-console { max-width: calc(100% - 16px); bottom: 8px; padding-inline: 14px; gap: 14px; }
+  .ship-console { --dial: 78px; }
+  .ship-console .nixie-tube { width: 17px; height: 33px; }
+  .ship-console .nixie-digit, .ship-console .nixie-ghost { font-size: 23px; }
+  .ship-key-slot, .ship-porthole-slot { bottom: 150px; }
+  .ship-key-slot { left: 8px; }
+  .ship-porthole-slot { right: 8px; }
+}
+
 /* Nixie tubes: warm neon numerals behind glass and an anode mesh. */
 .nixie-bank {
   display: flex;
