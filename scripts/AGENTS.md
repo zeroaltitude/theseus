@@ -42,7 +42,7 @@ In outer mode it runs, in order:
    its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was yanked
    between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh` refreshes it.
 7. The web apps' lint and build (and the cockpit's `npm test`), each when its `node_modules` exists, and then a check that the Observatory's
-   committed build is current.
+   committed build is current. A failing npm step prints its name and the last 40 lines of its output above the table.
 
 It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it
 ends, a failed run's too (with `<- failed here` on the phase that stopped it, and `gate: FAILED in <phase>`; a signal's

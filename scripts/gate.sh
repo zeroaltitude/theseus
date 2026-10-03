@@ -361,16 +361,23 @@ deny_check() {
   cargo deny --offline --log-level error check
 }
 
+# One npm script of a web app, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
+# the log's last 40 lines, where the phase table alone said only "cockpit <- failed here".
+npm_step() {
+  local app=$1 script=$2 log="$gate_tmp/$1-$2.log"
+  if (cd "$app" && npm run -s "$script") >"$log" 2>&1; then return 0; fi
+  echo "gate: \`npm run $script\` failed in $app/; the last 40 lines of its output:"
+  tail -n 40 "$log" | sed 's/^/  /'
+  return 1
+}
 web_apps() {
-  if [ -d web/node_modules ]; then (cd web && npm run -s lint >/dev/null && npm run -s build >/dev/null); fi
+  if [ -d web/node_modules ]; then npm_step web lint && npm_step web build; fi
 }
 # The cockpit (theseus-45n5): lint, its pure modules' tests (node's own runner, theseus-9o5n), type-check, and build.
 # Its build is not committed (several MB, new with each edit); the install builds it before the release build, and a
 # binary without it says so at /cockpit/.
 cockpit() {
-  if [ -d cockpit/node_modules ]; then
-    (cd cockpit && npm run -s lint >/dev/null && npm run -s test >/dev/null && npm run -s build >/dev/null)
-  fi
+  if [ -d cockpit/node_modules ]; then npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build; fi
 }
 web_dist() {
   git diff --quiet -- crates/theseusd/web/dist || { echo "web dist changed by the build: commit it"; exit 1; }
