@@ -31,3 +31,6 @@ crates/theseus-voice/Cargo.lock
 .theseus/
 theseus.toml
 *.sock
+
+# The spec's PDF is rendered from the markdown and sent, never committed (docs/README.md)
+docs/*.pdf

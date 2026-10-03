@@ -53,7 +53,8 @@ The reserved ones, with the row that wires each in, are listed in `docs/design/R
 - **`scripts/`**: `gate.sh`, the commit gate, and `smoke.sh`, an end-to-end check with real secrets and real models.
 - **`infra/aws/`**: the CloudFormation templates for Theseus's AWS account, with their stack policies and
   `check.sh` (see its README).
-- **`docs/`**: the spec and its PDF, `status.md`, `technical-overview.md`, `design/`, `research/`, and `notes/`.
+- **`docs/`**: the spec (its PDF is rendered and sent, never committed), `status.md`, `technical-overview.md`, `design/`,
+  `research/`, and `notes/`.
 - **At the root**: `deny.toml` (permissive licences only; each ignored advisory gives its reason),
   `rust-toolchain.toml` (one exact release), `clippy.toml` (shape), `.cargo/config.toml` (the musl target),
   `.config/nextest.toml` (a hung test dies at two minutes; named flaky tests retry), and `.github/workflows/ci.yml`.

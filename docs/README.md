@@ -16,7 +16,7 @@
      what it left open.
 
    When the code and Part I disagree, Part III says so, and one of them gets fixed. The PDF is a rendering of the
-   same file.
+   same file, sent to the operator with each version and not committed.
 
 ## The rest
 
@@ -35,4 +35,5 @@
 - **[notes/](notes/)**: research and design notes the spec drew on: the hooks investigation and comparison, the
   hooks design, the event-driven execution review, and the tool surface review.
 
-The markdown is the source of truth. After editing the spec, regenerate its PDF (marked, then headless Chrome).
+The markdown is the source of truth. After editing the spec, regenerate its PDF (marked, then headless Chrome) and
+send it. Git ignores it (`docs/*.pdf`), so a new version no longer adds megabytes to every clone.
