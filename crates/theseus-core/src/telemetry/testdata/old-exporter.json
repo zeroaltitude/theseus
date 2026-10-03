@@ -177,18 +177,6 @@
               {
                 "s": "glm-5.1"
               }
-            ],
-            [
-              "theseus.outcome",
-              {
-                "s": "complete"
-              }
-            ],
-            [
-              "theseus.profile",
-              {
-                "s": "glm"
-              }
             ]
           ],
           "bounds": [
@@ -223,7 +211,7 @@
             0,
             0,
             0,
-            1,
+            2,
             0,
             0,
             0,
@@ -238,10 +226,10 @@
             0,
             0
           ],
-          "count": 1,
-          "max": 450.0,
-          "min": 450.0,
-          "sum": 450.0
+          "count": 2,
+          "max": 441.9,
+          "min": 390.0,
+          "sum": 831.9
         }
       ],
       "scope": "theseus",

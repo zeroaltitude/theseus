@@ -1538,12 +1538,18 @@ async fn durations_past_ten_seconds_have_buckets_of_their_own() {
                 0,
                 call_ms * 1000,
                 json!({"provider": "zai", "model": "glm-5.1"}),
-                vec![],
+                vec![s(
+                    "first_token",
+                    "mark",
+                    first_ms * 1000,
+                    first_ms * 1000,
+                    Value::Null,
+                    vec![],
+                )],
             )],
         );
         let mut r = result_with(trace);
         r.elapsed_ms = turn_ms;
-        r.first_token_ms = Some(first_ms);
         tel.record_turn(&r);
     }
     flushed(&tel).await;
@@ -1901,7 +1907,6 @@ async fn a_turns_metrics_name_the_model_asked_for() {
         "theseus.turns",
         "theseus.tokens",
         "theseus.turn.duration_ms",
-        "theseus.provider.first_token_ms",
         "theseus.provider.call.duration_ms",
     ] {
         let points = points_of(&metrics, name);
@@ -2262,4 +2267,91 @@ fn a_failed_tool_calls_span_has_error_status() {
     ] {
         assert_eq!(status(ok), None, "{ok}");
     }
+}
+
+/// Every provider call's first token is a point of `theseus.provider.first_token_ms`,
+/// from its own span's mark, with the provider and model the call's time
+/// has; a call with no first token (a failure) has none (theseus-8u02).
+#[tokio::test]
+async fn every_provider_calls_first_token_is_recorded() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let call = |start: u64, end: u64, provider: &str, model: &str, token: Option<u64>| {
+        let marks = token
+            .map(|at| {
+                vec![s(
+                    "first_token",
+                    "mark",
+                    start + at,
+                    start + at,
+                    Value::Null,
+                    vec![],
+                )]
+            })
+            .unwrap_or_default();
+        s(
+            "provider.call",
+            "provider",
+            start,
+            end,
+            json!({"provider": provider, "model": model}),
+            marks,
+        )
+    };
+    let trace = s(
+        "turn",
+        "turn",
+        0,
+        9_000_000,
+        json!({"origin_unix_ms": 1_790_000_000_000u64}),
+        vec![
+            s(
+                "loop 0",
+                "loop",
+                0,
+                4_000_000,
+                Value::Null,
+                vec![call(100, 3_000_000, "zai", "glm-5.1", Some(400_000))],
+            ),
+            s(
+                "loop 1",
+                "loop",
+                4_000_000,
+                9_000_000,
+                Value::Null,
+                vec![
+                    call(4_000_100, 5_000_000, "zai", "glm-5.1", Some(900_000)),
+                    call(5_000_100, 6_000_000, "anthropic", "claude-x", Some(250_000)),
+                    call(6_000_100, 7_000_000, "anthropic", "claude-x", None),
+                ],
+            ),
+        ],
+    );
+    let mut r = result_with(trace);
+    // The result's own figure, the last call's, is no longer what is recorded.
+    r.first_token_ms = Some(250);
+    tel.record_turn(&r);
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let name = "theseus.provider.first_token_ms";
+    assert_eq!(points_of(&metrics, name).len(), 2);
+    let zai = point_with(&metrics, name, &[("gen_ai.provider.name", "zai")]);
+    assert_eq!(
+        attrs_of(zai),
+        BTreeMap::from([
+            ("gen_ai.provider.name".to_string(), "zai".to_string()),
+            ("gen_ai.request.model".to_string(), "glm-5.1".to_string()),
+        ])
+    );
+    assert_eq!(
+        (&zai["count"], &zai["min"], &zai["max"], &zai["sum"]),
+        (&json!("2"), &json!(400.0), &json!(900.0), &json!(1300.0))
+    );
+    let anthropic = point_with(&metrics, name, &[("gen_ai.provider.name", "anthropic")]);
+    assert_eq!(attrs_of(anthropic)["gen_ai.request.model"], "claude-x");
+    assert_eq!(
+        (&anthropic["count"], &anthropic["sum"]),
+        (&json!("1"), &json!(250.0)),
+        "the call with no first token has none"
+    );
 }

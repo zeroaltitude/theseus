@@ -266,6 +266,8 @@ pub(super) struct ProviderCall {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub ms: f64,
+    /// From the span's start to its `first_token` mark, when it has one.
+    pub first_token_ms: Option<f64>,
 }
 
 /// Each provider call, as the export walk meets them: an event kind's
@@ -279,6 +281,11 @@ pub(super) fn provider_calls(node: &Span, out: &mut Vec<ProviderCall>) {
             provider: text(node, "provider"),
             model: text(node, "model"),
             ms: node.duration_us() as f64 / 1000.0,
+            first_token_ms: node
+                .children
+                .iter()
+                .find(|c| c.kind == "mark" && c.name == "first_token")
+                .map(|m| m.start_us.saturating_sub(node.start_us) as f64 / 1000.0),
         });
     }
     for c in &node.children {

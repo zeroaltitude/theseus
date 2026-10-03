@@ -249,9 +249,6 @@ impl Metrics {
         let attrs = turn_attrs(&r.profile, &r.provider, model, "complete");
         self.add(&TURNS, attrs.clone(), 1);
         self.record(&TURN_DURATION, attrs.clone(), r.elapsed_ms as f64);
-        if let Some(ft) = r.first_token_ms {
-            self.record(&FIRST_TOKEN, attrs.clone(), ft as f64);
-        }
         self.tokens(&r.usage, &attrs);
         if let Some(c) = r.cost_usd.filter(|c| *c > 0.0) {
             self.add_f64(&COST, attrs.clone(), c);
@@ -343,8 +340,10 @@ impl Metrics {
         }
     }
 
-    /// Each provider call's time, by the provider and model its span
-    /// recorded (theseus-yf1: the SDK exporter's had no attributes).
+    /// Each provider call's time, and its first token's when it had one, by
+    /// the provider and model its span recorded (theseus-yf1: the SDK
+    /// exporter's had no attributes; theseus-8u02: the first token was the
+    /// result's, the last call's alone, with the turn's attributes).
     fn provider_calls(&mut self, trace: &Span) {
         let mut calls = Vec::new();
         spans::provider_calls(trace, &mut calls);
@@ -356,7 +355,11 @@ impl Metrics {
             if let Some(m) = c.model {
                 attrs.push((semconv::GEN_AI_REQUEST_MODEL, Attr::S(m)));
             }
-            self.record(&PROVIDER_CALL, sorted(attrs), c.ms);
+            let attrs = sorted(attrs);
+            if let Some(ft) = c.first_token_ms {
+                self.record(&FIRST_TOKEN, attrs.clone(), ft);
+            }
+            self.record(&PROVIDER_CALL, attrs, c.ms);
         }
     }
 
