@@ -21,9 +21,11 @@ members = [
     "crates/theseus-aws-guard",
     "crates/theseus-aws-catalog",
     "crates/theseus-aws",
-    "crates/theseus-voice",
     "crates/theseus-tui",
 ]
+# Parked until its roadmap row (77): the voice engine's tree stays, but no gate, lane, or install builds its 147
+# crates (songbird, symphonia, DAVE, libopus with cmake) for a crate nothing reads (crates/theseus-voice/AGENTS.md).
+exclude = ["crates/theseus-voice"]
 
 # Beyond clippy's defaults, held by the gate's `-D warnings` (theseus-0g4).
 [workspace.lints.clippy]

@@ -14,13 +14,12 @@
 # What it builds: the whole workspace, as the gate and the tests do, so that what is shipped
 # is what was tested. Cargo unifies a dependency's features across the packages it builds,
 # and the whole workspace gives 29 of the shipped binaries' 334 shared crates more features
-# than the four binaries alone do (serde_json's `alloc`, `time`'s `serde-well-known`, and
-# twilight-gateway's `rustls-native-roots`, which the voice crate asks for): a build of just
-# the shipped binaries is a different build from the tested one.
+# than the four binaries alone do (serde_json's `alloc` and `time`'s `serde-well-known`, for
+# two): a build of just the shipped binaries is a different build from the tested one.
 #
 # `--shipped` builds only the four binaries an install ships (theseusd, theseus, theseus-tui,
 # theseus-sim): 335 of the workspace's 607 crates, since the rest (theseus-index's candle and
-# tantivy, the voice stack, the AWS clients) are linked into no shipped binary yet. A cold
+# tantivy, the AWS clients) are linked into no shipped binary yet. A cold
 # build is shorter, and the binaries have the narrower features above: use it to look, not
 # to install. Any `-p`, `--package`, or `--workspace` of your own is passed through.
 #

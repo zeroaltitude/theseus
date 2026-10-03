@@ -220,10 +220,9 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   release. It builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the
   target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the whole workspace**,
   as the gate and the tests do, because cargo unifies a dependency's features over the packages it builds: the four
-  binaries built alone get fewer features on 29 of their 334 shared crates (one is a TLS trust setting,
-  `twilight-gateway`'s `rustls-native-roots`, which the voice crate turns on), so a binary built from its own packages is
+  binaries built alone get fewer features on 29 of their 334 shared crates, so a binary built from its own packages is
   not the one that was tested. `--shipped` builds only `theseusd`, `theseus`, `theseus-tui`, and `theseus-sim` (335 of the
-  workspace's 607 crates; the rest, candle, tantivy, the voice stack, and the AWS clients, link into no shipped binary
+  workspace's 607 crates; the rest, candle, tantivy, and the AWS clients, link into no shipped binary
   yet): a cold build about 40 % shorter, for looking, not installing. rust-embed's `deterministic-timestamps` (theseusd's
   manifest) gives the embedded web files no modification time. A plain `cargo build --release` still works, and embeds
   the directory it was built in.
