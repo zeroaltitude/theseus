@@ -707,54 +707,6 @@ async fn resolve_with_retry(
     }
 }
 
-/// Resolved secrets by config name, all at once or not at all: what
-/// `theseusd check` proves before it exits.
-#[derive(Clone, Default)]
-pub struct Secrets {
-    map: BTreeMap<String, Secret>,
-}
-
-impl Secrets {
-    /// One round (an `op inject`, then reads if it fails); any failure refuses.
-    pub async fn resolve_all(refs: &BTreeMap<String, String>, fetch: &dyn Fetch) -> Result<Self> {
-        let names: Vec<String> = refs.keys().cloned().collect();
-        let (results, _) = round(refs, &names, fetch).await;
-        let mut map = BTreeMap::new();
-        let mut failures = Vec::new();
-        for (name, r) in results {
-            match r {
-                Ok(v) => {
-                    map.insert(name, v);
-                }
-                Err(e) => failures.push(format!("{name}: {e}")),
-            }
-        }
-        if !failures.is_empty() {
-            bail!(
-                "{} secret(s) failed to resolve:\n  {}",
-                failures.len(),
-                failures.join("\n  ")
-            );
-        }
-        Ok(Self { map })
-    }
-
-    pub fn get(&self, name: &str) -> Option<&Secret> {
-        self.map.get(name)
-    }
-    pub fn names(&self) -> Vec<String> {
-        self.map.keys().cloned().collect()
-    }
-}
-
-impl fmt::Debug for Secrets {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Secrets")
-            .field("names", &self.names())
-            .finish()
-    }
-}
-
 fn which(bin: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
@@ -981,18 +933,5 @@ mod tests {
             .unwrap();
         assert_eq!(board.status().state, "ready");
         assert_eq!(board.status().rounds, 2);
-    }
-
-    #[tokio::test]
-    async fn resolve_all_refuses_on_any_failure() {
-        let vault = FakeVault::new(&[("op://V/a/f", "value-a-123")]);
-        let ok = Secrets::resolve_all(&refs(&[("a", "op://V/a/f")]), &vault)
-            .await
-            .unwrap();
-        assert_eq!(ok.names(), ["a"]);
-        let e = Secrets::resolve_all(&refs(&[("a", "op://V/a/f"), ("b", "op://V/b/f")]), &vault)
-            .await
-            .unwrap_err();
-        assert!(e.to_string().contains("b: op://V/b/f: no item"), "{e}");
     }
 }
