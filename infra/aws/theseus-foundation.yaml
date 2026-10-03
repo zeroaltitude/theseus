@@ -55,10 +55,21 @@ Resources:
             Action:
               - sts:AssumeRole
               - sts:SetSourceIdentity
-              - sts:TagSession
             Condition:
               "Null":
                 sts:SourceIdentity: "false"
+          # Session tags are authorized as their own action, whose request context has no
+          # sts:SourceIdentity: under the statement above, the Null condition refused every tagged
+          # session (found at the first bootstrap, 2026-10-03). The source identity is still required,
+          # by sts:AssumeRole above; this statement only lets the sessions carry Theseus's own tags.
+          - Sid: TheRootOfTrustTagsItsSessions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/${OwnerUserName}"
+            Action: sts:TagSession
+            Condition:
+              ForAllValues:StringLike:
+                aws:TagKeys: "theseus:*"
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"
       Tags:

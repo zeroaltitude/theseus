@@ -1348,3 +1348,47 @@ fn the_harness_only_line_says_jobs_get_sessions_never_the_key() {
          aws_secret_access_key); jobs get short-lived AWS sessions, never the key (aws)"
     );
 }
+
+/// The owner role's trust lets the root of trust tag its sessions (found at
+/// the first bootstrap, 2026-10-03). AWS authorizes `sts:TagSession` as an
+/// action of its own, whose request context carries no `sts:SourceIdentity`,
+/// so a statement allowing it under that key's `Null` condition refused every
+/// tagged session, and `mint` tags every session. TagSession must sit in a
+/// statement with no `sts:SourceIdentity` condition, while `sts:AssumeRole`'s
+/// statement keeps requiring the source identity.
+#[test]
+fn the_owner_role_lets_its_root_of_trust_tag_sessions() {
+    let t = theseus_aws_guard::parse_template(bootstrap::FOUNDATION_TEMPLATE)
+        .unwrap()
+        .to_json();
+    let statements = t["Resources"]["OwnerRole"]["Properties"]["AssumeRolePolicyDocument"]
+        ["Statement"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let actions = |s: &Value| -> Vec<String> {
+        match &s["Action"] {
+            Value::String(a) => vec![a.clone()],
+            Value::Array(v) => v
+                .iter()
+                .filter_map(|a| a.as_str().map(String::from))
+                .collect(),
+            _ => vec![],
+        }
+    };
+    let names_source = |s: &Value| s["Condition"].to_string().contains("sts:SourceIdentity");
+    let tagging: Vec<&Value> = statements
+        .iter()
+        .filter(|s| actions(s).iter().any(|a| a == "sts:TagSession"))
+        .collect();
+    assert!(!tagging.is_empty(), "a statement allows sts:TagSession");
+    assert!(
+        tagging.iter().all(|s| !names_source(s)),
+        "sts:TagSession is never under an sts:SourceIdentity condition: {tagging:?}"
+    );
+    let assume = statements
+        .iter()
+        .find(|s| actions(s).iter().any(|a| a == "sts:AssumeRole"))
+        .unwrap();
+    assert!(names_source(assume), "the source identity stays required");
+}
