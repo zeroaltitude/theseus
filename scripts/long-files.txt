@@ -4,7 +4,7 @@
 # a file that falls to 2,500 lines or fewer has its entry deleted (shape.sh says so).
 # Ceilings were set on 2026-10-01 at today's length, rounded up with a little room
 # for the steps in flight.
-crates/theseus-core/src/tests_m3.rs 8000 the turn's tests, which every step adds to; split by subject (review 2, C7: deferred)
+crates/theseus-core/src/tests_m3.rs 8050 the turn's tests, which every step adds to; split by subject (review 2, C7: deferred). 8050: the seven-calls test's rendezvous (theseus-i1i4)
 crates/theseus-discord/src/runtime.rs 3500 the Discord binding's runtime in one file
 crates/theseus-core/src/turn.rs 3500 the turn loop; C2 and C6 reshape it
 crates/theseus-core/src/config.rs 2900 the config's types and checks; past 2,500 at AWS C1's join (its [aws] tables), split it: theseus-sk47
