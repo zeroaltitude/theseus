@@ -1359,13 +1359,13 @@ async fn a_refusal_shows_its_reason_on_the_card() {
         "action.confirm".into(),
         Err((
             -32005,
-            "the cli channel is not trusted to answer ([approval] channels lists web)".into(),
+            "it came from a shared place, and only a private one counts".into(),
         )),
     );
     let mut rig = Rig::new(120, 20, script(world));
     rig.shows("ready  DM +1").await;
     rig.press(&[KeyCode::Tab, KeyCode::Char('y')]).await;
-    rig.shows("refused: the cli channel is not trusted").await;
+    rig.shows("refused: it came from a shared place").await;
     assert!(
         rig.screen()
             .iter()

@@ -1,8 +1,8 @@
 //! Trusting a session again (theseus-9bp, spec §3.9): the operator clears a
 //! session's hold on external text, so its calls that act go back to their
 //! postures. It loosens, so it is judged as an answer is (`judge_act`): never
-//! from a Theseus job's process (theseus-6qy), and under `[approval]` only
-//! from a trusted user through a trusted channel. Ledgered as
+//! from a Theseus job's process (theseus-6qy), and only from the owner, from
+//! a private place (theseus-zmgb). Ledgered as
 //! `session.trusted`, with who, how, and the hold it cleared.
 
 use anyhow::{anyhow, bail, Result};

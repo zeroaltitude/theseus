@@ -14,7 +14,7 @@
 //!   trailing comment at the column it had;
 //! - else the first commented line for it (`# key = …`) is switched on with
 //!   the overlay's value, and so is its table's header when that is
-//!   commented too (`# [approval]`);
+//!   commented too (`# [places]`);
 //! - else the key is added after the table's last key line, and a table the
 //!   template does not have at all is added at the end.
 //!
@@ -336,7 +336,7 @@ fn set_value(line: &str, k: &str, value: &toml::Value) -> String {
     }
 }
 
-/// A commented header switched on: `# [approval]` is `[approval]`.
+/// A commented header switched on: `# [places]` is `[places]`.
 fn uncomment(line: &str) -> String {
     line.strip_prefix('#')
         .map_or_else(|| line.to_string(), |rest| rest.trim_start().to_string())

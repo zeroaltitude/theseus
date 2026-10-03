@@ -11,8 +11,6 @@ broker: no grants
 tokens total: in 120000 out 3400 cache-read 50000 cache-write 1200
 secrets: ready · 1 ready 822 ms after start (service account) [ZED_KEY]
 discord: connected (as Clerk) · 4 in · 6 sent · 2 edits · 1 presses · 0 ignored · 0 errors · #lab → ses_q7f3k2, DM ana → no session
-approval: trusted users ana · channels: discord trusted, web not trusted
-  web is not trusted: no owner check on this system
 tightened (should have asked): proc.run (by the CLI, 06:31:40.250Z) · undo: theseus policy untighten <tool>
 --- stderr
 --- exit 0

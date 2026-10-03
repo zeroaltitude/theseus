@@ -5,7 +5,7 @@ use super::render;
 use crate::Config;
 
 /// An operator's overlay as the template expects one: the eight references
-/// in [secrets] and the [approval] section switched on (invented values).
+/// in [secrets] and the [places] section switched on (invented values).
 const OVERLAY: &str = r#"
 [secrets]
 anthropic_api_key = "op://Ops Vault/anthropic key/notesPlain"
@@ -17,9 +17,8 @@ aws_secret_access_key = "op://Ops Vault/aws key/notesPlain#AWS_SECRET_ACCESS_KEY
 discord_bot_token = "op://Ops Vault/discord bot/notesPlain#bot_token"
 brave_api_key = "op://Ops Vault/q2w3e4r5t6y7u8i9o0p1a2s3d4/notesPlain#value"
 
-[approval]
-trusted_users = ["discord:314159265358979323"]
-channels = ["cli", "web", "discord:dm"]
+[places]
+owner = ["discord:314159265358979323"]
 "#;
 
 /// The lines that differ between `a` and `b`, which have as many lines.
@@ -53,28 +52,25 @@ fn the_template_with_an_operators_overlay_is_his_deployment_and_changes_only_tho
         Some("op://Ops Vault/aws key/notesPlain#AWS_SECRET_ACCESS_KEY")
     );
     let changed = changed(Config::EXAMPLE_TOML, &out);
-    // Eight references, the [approval] header, and its two keys; no other line.
-    assert_eq!(changed.len(), 11, "{changed:#?}");
+    // Eight references, the [places] header, and its owner; no other line.
+    assert_eq!(changed.len(), 10, "{changed:#?}");
     assert!(changed
         .iter()
-        .any(|(was, now)| *was == "# [approval]" && *now == "[approval]"));
-    let users = out
-        .lines()
-        .find(|l| l.starts_with("trusted_users = "))
-        .unwrap();
+        .any(|(was, now)| *was == "# [places]" && *now == "[places]"));
+    let owner = out.lines().find(|l| l.starts_with("owner = ")).unwrap();
     assert!(
-        users.starts_with(r#"trusted_users = ["discord:314159265358979323"]"#),
-        "{users}"
+        owner.starts_with(r#"owner = ["discord:314159265358979323"]"#),
+        "{owner}"
     );
     // Its trailing comment stays, at the column it had.
     let was = Config::EXAMPLE_TOML
         .lines()
-        .find(|l| l.starts_with("# trusted_users = "))
+        .find(|l| l.starts_with("# owner = "))
         .unwrap();
     assert_eq!(
-        users.find("# who may answer"),
-        was.find("# who may answer"),
-        "{users}"
+        owner.find("# who you are on Discord"),
+        was.find("# who you are on Discord"),
+        "{owner}"
     );
     let brave = out
         .lines()
@@ -122,13 +118,9 @@ fn prose_that_looks_like_a_header_or_a_key_is_left_alone() {
 
 #[test]
 fn a_misspelt_key_fails_with_its_name_and_the_template_is_not_printed() {
-    let e = render(
-        Config::EXAMPLE_TOML,
-        "[approval]\ntrusted_user = [\"discord:1\"]\n",
-    )
-    .unwrap_err();
+    let e = render(Config::EXAMPLE_TOML, "[places]\nowners = [\"discord:1\"]\n").unwrap_err();
     let msg = format!("{e:#}");
-    assert!(msg.contains("trusted_user"), "{msg}");
+    assert!(msg.contains("owners"), "{msg}");
     assert!(msg.contains("does not load as a config"), "{msg}");
 }
 

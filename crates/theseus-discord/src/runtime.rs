@@ -17,7 +17,7 @@ use std::time::Duration;
 use theseus_protocol::LedgerKind;
 
 use serde_json::{json, Value};
-use theseus_core::approval::{Checked, Client, Surface};
+use theseus_core::approval::{Client, Surface};
 use theseus_core::config::DiscordConfig;
 use theseus_core::outbox::OPERATOR_TARGET;
 use theseus_core::Core;
@@ -307,8 +307,8 @@ async fn connect(
 }
 
 /// Every place, each with its session, and the routing of the core's events
-/// to them; then the cards whose question closed meanwhile, and the
-/// `[approval]` channels' viewers.
+/// to them; then the cards whose question closed meanwhile, and the viewers
+/// of each channel bound private.
 async fn start_places(
     shared: &Arc<Shared>,
     bindings: &Bindings,
@@ -369,8 +369,8 @@ async fn start_places(
         Err(e) => tracing::warn!(error = %format!("{e:#}"), "discord: reconciling cards failed"),
     }
     shared.wake_lanes();
-    // Who can view each guild channel `[approval]` lists, for health and for
-    // the first answer; each card and each answer checks again.
+    // Who can view each channel bound `private = true`, read once, for
+    // health (the place rule).
     let checks = shared.clone();
     let private: Vec<(u64, String)> = bindings
         .channel
@@ -383,9 +383,6 @@ async fn start_places(
         // health warns when anyone besides the owner can view it.
         for (c, name) in &private {
             checks.check_private(*c, name).await;
-        }
-        for c in &checks.core.approval.discord_channels() {
-            checks.check_channel(*c).await;
         }
     });
     Ok(())
@@ -703,7 +700,7 @@ enum Control {
     Cancel(Option<String>),
     /// Trust this place's session again after it read web text (T1b), as
     /// the presser, whose ids the handler fills in: None names no one, and
-    /// counts only without an `[approval]` section.
+    /// never counts.
     Trust(Option<DiscordOrigin>),
     /// Publish into a place (the place rule), as the presser.
     Publish(Box<PublishAsk>),
@@ -1267,13 +1264,6 @@ impl Shared {
                     false,
                 )
                 .await;
-                // A guild channel `[approval]` lists is checked again as the
-                // answer arrives; the core judges the answer against it.
-                if let (Some(c), Some(_)) = (channel, i.guild_id) {
-                    if self.core.approval.lists_discord_channel(c) {
-                        self.check_channel(c).await;
-                    }
-                }
                 let r = self
                     .rpc
                     .call::<_, Value>(
@@ -1479,23 +1469,22 @@ impl Shared {
             .contains_key(session_id)
     }
 
-    /// The DM an approval card goes to when its place is not a trusted
-    /// channel: the turn's author's, when they are a trusted user with an
-    /// open DM here, else the first such DM in the bindings file.
+    /// The DM an approval card goes to when its place is shared (the place
+    /// rule, theseus-zmgb): an owner's DM, open here, the turn's author's
+    /// when they are an owner, else the first in the bindings file.
     pub(crate) fn approval_dm(&self, prefer: Option<u64>) -> Option<(u64, String)> {
+        let owners = self.core.runner.place_rule.owners(&self.core.cfg);
         let r = self.routes.lock().unwrap();
-        let trusted: Vec<&(u64, String)> = r
+        let theirs: Vec<&(u64, String)> = r
             .dms
             .iter()
             .filter(|(u, _)| {
-                r.dm_channel
-                    .get(u)
-                    .is_some_and(|c| self.core.approval.trusts_dm(*u, Some(*c)))
+                r.dm_channel.contains_key(u) && owners.contains(&format!("discord:{u}"))
             })
             .collect();
         prefer
-            .and_then(|p| trusted.iter().find(|(u, _)| *u == p))
-            .or(trusted.first())
+            .and_then(|p| theirs.iter().find(|(u, _)| *u == p))
+            .or(theirs.first())
             .map(|d| (*d).clone())
     }
 
@@ -1517,41 +1506,6 @@ impl Shared {
             },
             Err(_) => false,
         }
-    }
-
-    /// Check who can view a guild channel `[approval]` lists, and tell the
-    /// core, which judges answers from there against it (theseus-sgh).
-    /// Without the Server Members intent it cannot be verified. True when it
-    /// is trusted.
-    pub(crate) async fn check_channel(&self, channel: u64) -> bool {
-        let intent = self.members_intent().await;
-        let view = match intent {
-            true => Some(self.view(channel).await),
-            false => None,
-        };
-        let (trusted, detail) = match (viewers::unverifiable(intent), &view) {
-            (Some(v), _) => v,
-            (None, Some(Ok(v))) => {
-                let trusted = self.core.approval.discord_users();
-                let outside: Vec<&viewers::Member> = v
-                    .viewers
-                    .iter()
-                    .filter(|m| !trusted.contains(&m.id))
-                    .collect();
-                viewers::verdict(&outside, v.checked)
-            }
-            (None, Some(Err(e))) => (false, format!("could not check who can view it: {e}")),
-            (None, None) => (false, viewers::NO_INTENT.to_string()),
-        };
-        self.core.approval_checked(
-            channel,
-            Checked {
-                trusted,
-                detail,
-                at_ms: theseus_protocol::now_unix_ms(),
-            },
-        );
-        trusted
     }
 
     async fn respond(
@@ -2254,15 +2208,6 @@ impl Place {
         if held.is_none() {
             return "This conversation holds no web text, so there is nothing to trust.".into();
         }
-        // A guild channel `[approval]` lists is checked again, as for a press.
-        let listed = origin
-            .as_ref()
-            .filter(|o| o.guild_id.is_some())
-            .and_then(|o| o.channel_id.parse::<u64>().ok())
-            .filter(|c| self.shared.core.approval.lists_discord_channel(*c));
-        if let Some(c) = listed {
-            self.shared.check_channel(c).await;
-        }
         let r = self
             .shared
             .rpc
@@ -2941,6 +2886,13 @@ mod tests {
         let sid = rec.session_id.clone();
         core.store.put_session(&sid, &rec).unwrap();
         core.outbox.bind_place("dm:42", &sid).unwrap();
+        // The binding binds the DM, so its person is its owner (the place
+        // rule, theseus-zmgb).
+        core.bind_places(vec![theseus_core::places::BoundPlace {
+            target: "discord:dm:42".into(),
+            name: "DM".into(),
+            private: false,
+        }]);
         let (rpc, _notes) = RpcClient::connect(core.clone(), Client::new("test", Surface::Cli));
         let first: TurnSubmitResult = rpc
             .call(
@@ -3053,8 +3005,8 @@ mod tests {
         let core = core_for_tests(d.path());
         let (rpc, _notes) = RpcClient::connect(core.clone(), Client::new(CLIENT, Surface::Discord));
         let pick = parse_asked_pick(ASKED_MENU, &["proc.run".into()]).unwrap();
-        // The binding names who pressed, and where, on every press: without
-        // `[approval]` too, a press from it that names none is refused.
+        // The binding names who pressed, and where, on every press: a press
+        // from it that names none is refused.
         let dm = || {
             Some(DiscordOrigin {
                 user_id: "271828182845904523".into(),
@@ -3103,7 +3055,7 @@ mod tests {
         );
     }
 
-    /// Eddie's user id, and a user of a place whom `[approval]` does not list.
+    /// Eddie's user id, and a user of a place who is not the owner.
     pub(super) const EDDIE: u64 = 271_828_182_845_904_523;
     const MALLORY: u64 = 222_222_222_222_222_222;
 
@@ -3127,19 +3079,16 @@ mod tests {
     /// `/trust` (T1b), driven as W1 drives `/stop`: it clears the place's
     /// session's hold through `policy.trust`, as the presser, and
     /// `session.trusted` names Discord and them; a second press finds nothing
-    /// to trust and writes nothing; a user `[approval]` does not list is
-    /// refused with the reason, and the hold stays; and a typed `/trust`
-    /// answers in the place.
+    /// to trust and writes nothing; someone who is not the owner is refused
+    /// with the reason, and the hold stays; and a typed `/trust` answers in
+    /// the place.
     #[tokio::test]
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-    async fn trust_clears_the_places_hold_as_the_presser_under_approval() {
+    async fn trust_clears_the_places_hold_as_the_presser_who_is_the_owner() {
         let d = tempfile::tempdir().unwrap();
         let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
             c.discord.rest_proxy = Some("127.0.0.1:9".into());
-            c.approval = Some(theseus_core::config::ApprovalConfig {
-                trusted_users: vec![format!("discord:{EDDIE}")],
-                channels: vec!["discord:dm".into(), "cli".into()],
-            });
+            c.places.owner = Some(vec![format!("discord:{EDDIE}")]);
         });
         let rec = theseus_core::session::SessionRecord::new(
             theseus_protocol::SessionKind::Conversation,
@@ -3220,8 +3169,8 @@ mod tests {
         );
         assert_eq!(ledger().len(), before);
 
-        // A user `[approval]` does not list: refused with the reason,
-        // ledgered, and the hold stays.
+        // Someone who is not the owner: refused with the reason, ledgered,
+        // and the hold stays.
         holding(&core, &sid);
         let answer = place
             .control(Control::Trust(dm(MALLORY)), "discord:mallory")
@@ -3229,8 +3178,8 @@ mod tests {
         assert_eq!(
             answer,
             format!(
-                "🔐 Your /trust did not count: discord:{MALLORY} is not a trusted user \
-                 ([approval] trusted_users). This conversation still holds web text."
+                "🔐 Your /trust did not count: discord:{MALLORY} is not an owner. This \
+                 conversation still holds web text."
             )
         );
         assert!(held().is_some());

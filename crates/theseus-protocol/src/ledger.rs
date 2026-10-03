@@ -61,7 +61,6 @@ ledger_kinds! {
     ActionPlanned = "action.planned",
     ActionResolved = "action.resolved",
     ActionSucceeded = "action.succeeded",
-    ApprovalChannelChecked = "approval.channel_checked",
     ApprovalRefused = "approval.refused",
     AwsBudgetReconciled = "aws.budget.reconciled",
     AwsCalled = "aws.called",

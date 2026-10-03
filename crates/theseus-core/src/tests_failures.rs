@@ -58,6 +58,12 @@ fn bound_session(core: &Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place("dm:7", &rec.session_id).unwrap();
+    // A DM's person is its owner once the binding binds it (the place rule).
+    core.runner.place_rule.bind_one(crate::places::BoundPlace {
+        target: "discord:dm:7".into(),
+        name: "DM".into(),
+        private: false,
+    });
     rec.session_id
 }
 

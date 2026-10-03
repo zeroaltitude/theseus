@@ -130,6 +130,16 @@ impl World {
         self.core.store.put_session(&rec.session_id, &rec).unwrap();
         if let Some(p) = place {
             self.core.outbox.bind_place(p, &rec.session_id).unwrap();
+            // A DM's person is its owner once the binding binds it (the
+            // place rule, theseus-zmgb).
+            self.core
+                .runner
+                .place_rule
+                .bind_one(crate::places::BoundPlace {
+                    target: format!("discord:{p}"),
+                    name: "DM".into(),
+                    private: false,
+                });
         }
         rec.session_id
     }

@@ -254,9 +254,10 @@ impl Core {
     /// execution so the driver resumes the turn exactly where it parked.
     ///
     /// This is the one place an answer becomes a decision, for a tool call and
-    /// a budget question alike, so `[approval]` is judged here (theseus-sgh):
-    /// an answer that does not count is refused with the reason, ledgered as
-    /// `approval.refused`, and narrated, and the question keeps waiting. `by`
+    /// a budget question alike, so the place rule is judged here
+    /// (theseus-zmgb): an answer that does not count is refused with the
+    /// reason, ledgered as `approval.refused`, and narrated, and the question
+    /// keeps waiting. `by`
     /// is who answered and through what; a bare label is no known surface.
     /// The process that answered, when the connection knows one, is recorded
     /// with the answer (theseus-6qy).
@@ -506,10 +507,10 @@ impl Core {
     ///
     /// An answer and an undo first trace the process that asked (theseus-6qy):
     /// one that descends from a live Theseus job wrapper, or that cannot be
-    /// traced, is refused, with or without `[approval]`. Then they take the
-    /// whole `[approval]` rule. A press only makes calls ask, so any surface
-    /// that can answer an approval may make one, a job's process included,
-    /// and it is not traced.
+    /// traced, is refused. Then they take the place rule: the owner, from a
+    /// private place (`places::owner_in_private`, theseus-zmgb). A press only
+    /// makes calls ask, so any known surface may make one, a job's process
+    /// included, and it is not traced.
     ///
     /// A refusal is ledgered as `approval.refused` (who, through what, and
     /// why) and narrated, and it is the error, a `Refusal`; one from a job's
@@ -525,16 +526,17 @@ impl Core {
             | Act::Publish { .. } => who.peer.trace(),
         };
         let verdict = match (act, traced.refusal()) {
-            (_, Some(why)) => Err(Refusal {
-                who: who.who(),
-                via: who.via(),
-                why,
-            }),
-            (Act::Tighten { .. }, None) => self.approval.judge_tighten(who),
-            (_, None) => self.approval.judge(who),
+            (_, Some(why)) => Err(why),
+            (Act::Tighten { .. }, None) => who.unknown().map_or(Ok(()), Err),
+            (_, None) => crate::places::owner_in_private(who, &self.runner.place_rule, &self.cfg),
         };
-        let Err(r) = verdict else {
+        let Err(why) = verdict else {
             return Ok(traced);
+        };
+        let r = Refusal {
+            who: who.who(),
+            via: who.via(),
+            why,
         };
         self.refused(act, who, &r, &traced)?;
         Err(r.into())

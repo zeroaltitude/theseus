@@ -83,7 +83,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         ContextStatus, ConfigStatus,
         ConfigRestart, SecretFailed, StartupPhase, Tightening, PolicyTightenParams,
         PolicyUntightenParams, TightenResult, ExternalText, ExternalTextInfo, PolicyTrustParams,
-        TrustResult, ApprovalStatus, ApprovalChannel, DiscordOrigin, BindingStatus, OutboxStatus,
+        TrustResult, DiscordOrigin, BindingStatus, OutboxStatus,
         PlaceStatus, TelemetryStatus, KernelStatus, ChildrenStatus, GrantStatus,
         ExecutionInfo,
         BudgetInfo, ExecutionListResult, ActionInfo, ActionListParams, ActionListResult,

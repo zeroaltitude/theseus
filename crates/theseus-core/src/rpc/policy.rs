@@ -3,7 +3,8 @@
 //! config says. Each is ledgered (`policy.tightened`, `policy.untightened`)
 //! with who, when, the tool, and the call that prompted it, and each is
 //! judged by `Core::judge_act`, the judgment an answer to a waiting call
-//! gets. The undo loosens, so it takes the whole `[approval]` rule.
+//! gets. The undo loosens, so it takes the place rule's: the owner, from a
+//! private place (theseus-zmgb).
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
@@ -125,8 +126,8 @@ impl Core {
 
     /// Undo a tightening: `tool` goes back to what the config says. It
     /// loosens, so it is judged as an answer is: never from a Theseus job's
-    /// process (theseus-6qy), and under `[approval]`, only from a trusted
-    /// user through a trusted channel.
+    /// process (theseus-6qy), and only from the owner, from a private place
+    /// (theseus-zmgb).
     pub fn untighten(&self, tool: &str, by: impl Into<Answerer>) -> Result<TightenResult> {
         let who = by.into();
         let Some(t) = self.tools.tightened.get(tool) else {

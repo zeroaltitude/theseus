@@ -423,9 +423,6 @@ pub struct HealthResult {
     /// persona in play with its own (theseus-c48).
     #[serde(default)]
     pub context: ContextStatus,
-    /// Who may answer a waiting call, and through which channels (theseus-sgh).
-    #[serde(default)]
-    pub approval: ApprovalStatus,
     /// The tools that ask first because someone pressed "should have asked"
     /// (theseus-sgh), oldest first. They are stored, not configured.
     #[serde(default)]
@@ -1043,42 +1040,6 @@ pub struct TrustResult {
     /// health's `since_local`. Empty from a daemon before it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub since_local: String,
-}
-
-/// `[approval]` as health reports it (spec §3.9 "Approval"): the trusted
-/// users, and each listed channel with its state now.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ApprovalStatus {
-    /// The config has an `[approval]` section. Without one, only the owner's
-    /// CLI and Discord DM answer (review 2's consideration 2), and `channels`
-    /// lists those two.
-    pub configured: bool,
-    /// Surface-qualified ids, as configured (`discord:<user id>`).
-    #[serde(default)]
-    pub trusted_users: Vec<String>,
-    #[serde(default)]
-    pub channels: Vec<ApprovalChannel>,
-    /// The channels beyond the CLI and the owner's Discord DM that may answer
-    /// now (`web` while it is on, `discord:<channel id>` while its check
-    /// trusts it): health says `approval: open` while there is one.
-    #[serde(default)]
-    pub open: Vec<String>,
-}
-
-/// One entry of `[approval].channels` and whether it is trusted now.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ApprovalChannel {
-    /// As configured: `cli`, `web`, `discord:dm`, or `discord:<channel id>`.
-    pub channel: String,
-    /// `trusted` | `not_trusted`.
-    pub state: String,
-    /// Why, in words: what the channel is, or why it does not count.
-    pub detail: String,
-    /// When Discord last checked who can view it (a guild channel); 0 if never.
-    #[serde(default)]
-    pub checked_at_ms: u64,
 }
 
 /// The Discord ids behind an answer, which the Discord binding reads off the

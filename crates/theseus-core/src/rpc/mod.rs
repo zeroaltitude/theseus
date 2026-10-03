@@ -90,9 +90,6 @@ pub struct Core {
     /// What must reach a channel, written when it becomes true; a binding
     /// only delivers it (theseus-q4v).
     pub outbox: Arc<crate::outbox::Outbox>,
-    /// `[approval]`: who may answer a waiting call, and through which
-    /// channels, with the Discord binding's checks (theseus-sgh).
-    pub approval: crate::approval::Approval,
     /// Where the config came from, and what the vault said of the copy a
     /// start served from (theseus-2fo, theseus-zmgb).
     pub config_gate: Arc<ConfigGate>,
@@ -573,7 +570,6 @@ impl Core {
             None => (cfg.model.live.clone(), "config".to_string()),
         };
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
-        let approval = crate::approval::Approval::new(cfg.approval.as_ref());
         // Nothing starts, and nothing is looked for, until after serving.
         let index = Arc::new(crate::tender::IndexTender::new(
             cfg.index.clone(),
@@ -603,7 +599,6 @@ impl Core {
             shutdown: tokio::sync::Notify::new(),
             bindings: BindingBoard::default(),
             outbox,
-            approval,
             config_gate,
             restart: tokio::sync::watch::Sender::new(None),
             web_refusals: Arc::default(),

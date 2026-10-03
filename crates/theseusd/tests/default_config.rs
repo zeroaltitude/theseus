@@ -112,7 +112,7 @@ fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place()
     std::fs::write(
         &overlay,
         "[secrets]\nanthropic_api_key = \"op://Ops Vault/anthropic key/notesPlain\"\n\n\
-         [approval]\ntrusted_users = [\"discord:314159265358979323\"]\n",
+         [places]\nowner = [\"discord:314159265358979323\"]\n",
     )
     .unwrap();
     let out = command(home.path())
@@ -130,7 +130,7 @@ fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place()
         "{text}"
     );
     assert!(
-        text.contains("\n[approval]\ntrusted_users = [\"discord:314159265358979323\"]"),
+        text.contains("\n[places]\nowner = [\"discord:314159265358979323\"]"),
         "{text}"
     );
     // One line more than the template, the first, which names the overlay;
@@ -143,7 +143,7 @@ fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place()
     );
     assert_eq!(text.lines().count(), plain.lines().count() + 1);
     let toml: toml::Table = text.parse().unwrap();
-    assert!(toml.contains_key("approval"));
+    assert!(toml.contains_key("places"));
 
     // At the default path, the overlay needs no flag, and --plain prints the
     // template alone, as a missing overlay does.
@@ -176,7 +176,7 @@ fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place()
         .unwrap();
     assert!(!both.status.success(), "--plain and --overlay conflict");
 
-    std::fs::write(&overlay, "[approval]\ntrusted_user = [\"discord:1\"]\n").unwrap();
+    std::fs::write(&overlay, "[places]\nowners = [\"discord:1\"]\n").unwrap();
     let bad = command(home.path())
         .args(["example-config", "--overlay", overlay.to_str().unwrap()])
         .output()
@@ -185,7 +185,7 @@ fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place()
     assert!(bad.stdout.is_empty(), "nothing is printed");
     let err = String::from_utf8_lossy(&bad.stderr);
     assert!(
-        err.contains("trusted_user") && err.contains("does not load as a config"),
+        err.contains("owners") && err.contains("does not load as a config"),
         "{err}"
     );
 }

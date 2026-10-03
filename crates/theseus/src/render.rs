@@ -751,63 +751,6 @@ pub fn confirm_lines(c: &ConfirmRequest) -> Vec<Line> {
     out
 }
 
-/// Health's `[approval]` (theseus-sgh): who may answer, and each listed
-/// channel's state, with the reason for any that is not trusted; first,
-/// `approval: open` while more than the CLI and the owner's Discord DM may
-/// (review 2's consideration 2).
-pub fn approval_lines(a: &theseus_protocol::ApprovalStatus) -> Vec<Line> {
-    let mut out = Vec::new();
-    if !a.open.is_empty() {
-        push(
-            &mut out,
-            Tag::Plain,
-            &format!(
-                "approval: open: {} may answer, beyond the CLI and the owner's Discord DM",
-                a.open.join(", ")
-            ),
-        );
-    }
-    if !a.configured {
-        push(
-            &mut out,
-            Tag::Plain,
-            "approval: no [approval] section, so only the CLI and a Discord DM the bindings file \
-             binds answer (the web UI answers once [approval] channels names it)",
-        );
-        return out;
-    }
-    let users = if a.trusted_users.is_empty() {
-        "nobody on Discord".to_string()
-    } else {
-        a.trusted_users.join(", ")
-    };
-    let channels: Vec<String> = a
-        .channels
-        .iter()
-        .map(|c| format!("{} {}", c.channel, c.state.replace('_', " ")))
-        .collect();
-    push(
-        &mut out,
-        Tag::Plain,
-        &format!(
-            "approval: trusted users {users} · channels: {}",
-            if channels.is_empty() {
-                "none".to_string()
-            } else {
-                channels.join(", ")
-            }
-        ),
-    );
-    for c in a.channels.iter().filter(|c| c.state != "trusted") {
-        push(
-            &mut out,
-            Tag::Plain,
-            &format!("  {} is not trusted: {}", c.channel, c.detail),
-        );
-    }
-    out
-}
-
 /// A binding's outbox (theseus-q4v): `discord outbox: 2 pending, the oldest
 /// 3 min old · 41 sent · 0 refused · last error …`.
 pub fn outbox_line(kind: &str, o: &theseus_protocol::OutboxStatus) -> String {
@@ -1746,7 +1689,6 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
             push(o, Tag::Plain, &outbox_line(&b.kind, outbox));
         }
     }
-    o.extend(approval_lines(&h.approval));
     if let Some(line) = wakes_line(&h.wakes, now_ms) {
         push(o, Tag::Plain, &line);
     }
@@ -2250,30 +2192,6 @@ mod tests {
 
     /// The broker line names each grant and its uses, never a value
     /// (theseus-dcy), and says when there is none.
-    #[test]
-    fn approval_says_open_while_more_than_the_cli_and_a_dm_may_answer() {
-        let lines = |a: &theseus_protocol::ApprovalStatus| -> Vec<String> {
-            approval_lines(a).into_iter().map(|l| l.text).collect()
-        };
-        let none = theseus_protocol::ApprovalStatus::default();
-        assert_eq!(
-            lines(&none),
-            [
-                "approval: no [approval] section, so only the CLI and a Discord DM the bindings \
-              file binds answer (the web UI answers once [approval] channels names it)"
-            ]
-        );
-        let open = theseus_protocol::ApprovalStatus {
-            configured: true,
-            open: vec!["web".into()],
-            ..Default::default()
-        };
-        assert_eq!(
-            lines(&open)[0],
-            "approval: open: web may answer, beyond the CLI and the owner's Discord DM"
-        );
-    }
-
     #[test]
     fn the_binary_line_says_only_when_jobs_can_write_it() {
         let b = |state: &str| theseus_protocol::BinaryStatus {

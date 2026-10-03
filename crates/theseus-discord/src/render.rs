@@ -102,22 +102,22 @@ impl Op {
     }
 }
 
-/// Where a place's approval cards go (theseus-sgh, spec §3.9 "Approval").
+/// Where a place's approval cards go (the place rule, theseus-zmgb).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Route {
-    /// Here: the place is a trusted channel, or there is no `[approval]`.
+    /// Here: the place is private, so the owner's answer here counts.
     #[default]
     Here,
-    /// To the DM with a trusted user, `user`, which `dm` names (`DM @eddie`);
-    /// the place (`place`, as `#general`) gets a one-line note that says so
-    /// and why it is not trusted (`why`).
+    /// To the DM with an owner, `user`, which `dm` names (`DM @eddie`); the
+    /// place (`place`, as `#general`) gets a one-line note that says so and
+    /// why an answer here would not count (`why`).
     Dm {
         user: u64,
         dm: String,
         place: String,
         why: String,
     },
-    /// Nowhere on Discord: the place is not trusted, and no trusted DM is
+    /// Nowhere on Discord: the place is shared, and no DM with an owner is
     /// bound. The note says why, and where to answer.
     Elsewhere { why: String },
 }
@@ -209,7 +209,8 @@ pub struct Renderer {
     notice_embeds: bool,
 }
 
-/// Where else an approval can be answered when `[approval]` does not say.
+/// Where else an approval can be answered: the owner's own surfaces, the web
+/// UI on (`theseus_core::approval::elsewhere`).
 pub const ELSEWHERE: &str = "in the web UI or with `theseus confirm`";
 
 impl Renderer {
@@ -862,24 +863,20 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     }
 }
 
-/// The note a place gets when its card goes elsewhere: to a trusted DM, or
+/// The note a place gets when its card goes elsewhere: to an owner's DM, or
 /// nowhere on Discord. None when the card is here.
 pub fn card_note(route: &Route, line: &str, elsewhere: &str) -> Option<String> {
     match route {
         Route::Here => None,
-        Route::Dm { dm, why, .. } => Some(format!(
-            "🔐 Approval for {line} was asked in {dm}: this channel is not a trusted channel \
-             ({why})."
-        )),
+        Route::Dm { dm, why, .. } => {
+            Some(format!("🔐 Approval for {line} was asked in {dm}: {why}."))
+        }
         Route::Elsewhere { why } => {
             let answer = match elsewhere {
-                "" => ", and no trusted channel is bound here to answer it".to_string(),
+                "" => ", and no DM with an owner is bound here to answer it".to_string(),
                 e => format!(": answer {e}"),
             };
-            Some(format!(
-                "🔐 {line} waits for approval, and this channel is not a trusted channel \
-                 ({why}){answer}."
-            ))
+            Some(format!("🔐 {line} waits for approval: {why}{answer}."))
         }
     }
 }
@@ -2030,12 +2027,12 @@ mod tests {
         }
     }
 
-    /// A place that is not a trusted channel (theseus-sgh) sends its card to
+    /// A shared place (the place rule, theseus-zmgb) sends its card to
     /// the trusted user's DM and says so in one line here; the answer settles
     /// the card in the DM and the note here.
     #[test]
-    fn a_card_for_an_untrusted_place_goes_to_the_dm_with_a_note_here() {
-        let route = to_dm("it is not listed in [approval] channels");
+    fn a_card_for_a_shared_place_goes_to_the_dm_with_a_note_here() {
+        let route = to_dm("this channel is shared, and an answer counts only from a private place");
         let c = card(&waiting_write(), &route, "with `theseus confirm`");
         assert!(
             c.content
@@ -2052,8 +2049,8 @@ mod tests {
         );
         assert_eq!(
             card_note(&route, &c.line, "with `theseus confirm`").unwrap(),
-            "🔐 Approval for `proc.run` cargo test was asked in DM @eddie: this channel is not a \
-             trusted channel (it is not listed in [approval] channels)."
+            "🔐 Approval for `proc.run` cargo test was asked in DM @eddie: this channel is shared, \
+             and an answer counts only from a private place."
         );
         let done = settled(
             &Closed::new("approved", Some("discord:eddie")),
@@ -2222,12 +2219,12 @@ mod tests {
 
     /// A budget question takes the same route as a tool call.
     #[test]
-    fn a_budget_question_for_an_untrusted_place_goes_to_the_dm_too() {
+    fn a_budget_question_for_a_shared_place_goes_to_the_dm_too() {
         let route = Route::Dm {
             user: 7,
             dm: "DM @eddie".into(),
             place: "#general".into(),
-            why: "cannot be verified".into(),
+            why: "this channel is shared, and an answer counts only from a private place".into(),
         };
         let req = request(json!({"correlation_id": "act_b", "session_id": "s",
             "execution_id": "e", "tool": "budget.reset", "input": {}, "by": "operator", "requested_at_ms": 1,
@@ -2255,26 +2252,27 @@ mod tests {
         );
     }
 
-    /// Not trusted, and no trusted DM: no card on Discord, only a note that
+    /// Shared, and no DM with an owner: no card on Discord, only a note that
     /// says where to answer (or that nowhere here can).
     #[test]
-    fn with_no_trusted_dm_the_place_gets_only_a_note() {
+    fn with_no_owners_dm_the_place_gets_only_a_note() {
         for (elsewhere, tail) in [
             (
                 "in the web UI or with `theseus confirm`",
                 ": answer in the web UI or with `theseus confirm`.",
             ),
-            ("", ", and no trusted channel is bound here to answer it."),
+            ("", ", and no DM with an owner is bound here to answer it."),
         ] {
             let route = Route::Elsewhere {
-                why: "it is not listed in [approval] channels".into(),
+                why: "this channel is shared, and an answer counts only from a private place"
+                    .into(),
             };
             let c = card(&waiting_write(), &route, elsewhere);
             assert_eq!(
                 card_note(&route, &c.line, elsewhere).unwrap(),
                 format!(
-                    "🔐 `proc.run` cargo test waits for approval, and this channel is not a \
-                     trusted channel (it is not listed in [approval] channels){tail}"
+                    "🔐 `proc.run` cargo test waits for approval: this channel is shared, and an \
+                     answer counts only from a private place{tail}"
                 )
             );
             let done = settled(&Closed::new("declined", Some("sock#3")), &c.line, false);
@@ -2286,8 +2284,8 @@ mod tests {
         assert!(card_note(&Route::Here, "x", ELSEWHERE).is_none());
     }
 
-    /// With `[approval]`, a card names only the trusted local surfaces; with
-    /// none, it names none. Without `[approval]` it reads as before.
+    /// A card names where else it can be answered: the owner's own surfaces,
+    /// the CLI always and the web UI when it is on; with none named, none.
     #[test]
     fn a_card_names_where_else_it_can_be_answered() {
         let text = |elsewhere: &str| {
