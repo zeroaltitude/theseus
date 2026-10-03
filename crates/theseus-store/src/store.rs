@@ -464,6 +464,19 @@ pub fn check_manifest(dir: &Path) -> Result<()> {
     m.check(dir)
 }
 
+/// The directories that hold a name opening a store at `dir` creates: each
+/// missing directory's parent. Nothing else syncs them, so the first frame's
+/// sync does (theseus-gf00).
+fn holders_of_new_dirs(dir: &Path) -> Vec<PathBuf> {
+    dir.ancestors()
+        .take_while(|a| !a.as_os_str().is_empty() && !a.exists())
+        .map(|made| match made.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+            _ => PathBuf::from("."),
+        })
+        .collect()
+}
+
 /// Replace the manifest: a temporary file, synced, renamed over it, and
 /// the directory synced, so a reader finds the old one or the new one.
 fn write_manifest(dir: &Path, m: &Manifest, fsync: bool) -> Result<()> {
@@ -745,6 +758,7 @@ impl Inner {
         wal_cfg: WalConfig,
         projection: Option<&'static Projection>,
     ) -> Result<Self> {
+        let name_dirs = holders_of_new_dirs(dir);
         std::fs::create_dir_all(dir)?;
         let fsync = wal_cfg.fsync;
         let manifest_path = dir.join("MANIFEST.json");
@@ -767,6 +781,7 @@ impl Inner {
         let at = if cp > 0 { index.location(cp)? } else { None };
         let (wal, missing) =
             Wal::open_from(&dir.join("wal"), wal_cfg, cp, at).context("opening WAL")?;
+        wal.sync_with_first_frame(name_dirs);
         // A record newer than this build (a manifest that lags its WAL: a
         // WAL copied in by hand) is refused too.
         if let Some(r) = missing

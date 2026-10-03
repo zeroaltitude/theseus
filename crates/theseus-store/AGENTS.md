@@ -23,7 +23,9 @@ the reserved theseus-follow, theseus-index, and theseus-exam.
   `appending` while you append: the writer needs it shared.
 - **A segment's name is as durable as its frames** (theseus-xprd). A roll syncs the segment it leaves; the `sync`
   that makes a new segment's first frame durable then syncs the log's directory before it returns, and a new
-  log's first sync syncs the directory holding the log too. A file made durable needs its directory synced too.
+  log's first sync syncs the directory holding the log too. A file made durable needs its directory synced too. The
+  store's open adds the holder of every directory it created, the store's own included (theseus-gf00), to those the
+  first frame's sync makes durable.
 - **The version rule** (P5b; Part III F4a). A new record layout bumps its kind in `kinds::SCHEMAS`, lands with the
   reader for the layout it replaces, and brings a test that reads the old layout. A new record kind goes into the
   table too. A change to the frame or record encoding bumps `MANIFEST_FORMAT`, with its reader. A new field on a

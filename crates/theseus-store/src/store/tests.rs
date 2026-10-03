@@ -1359,3 +1359,42 @@ fn a_redb_index_that_fails_another_way_is_left_and_refused() {
         assert_eq!(std::fs::read(&index).unwrap(), bytes, "{case}: untouched");
     }
 }
+
+/// A new store's own name is as durable as its first frame (theseus-gf00).
+/// The open makes the store's directory, and the state directories above it
+/// when they are new; the manifest's write syncs the store's directory, but
+/// nothing syncs the directory that holds its name. The first frame's sync
+/// does: the holder of each directory the open made, besides the log's own
+/// two (its directory, and the store's). A store opened again made nothing.
+#[test]
+fn a_new_stores_own_name_is_synced_with_its_first_frame() {
+    let root = tempfile::tempdir().unwrap();
+    let frame = || [NewRecord::json(kinds::LEDGER, None, &"first").unwrap()];
+    let dir_syncs = |s: &WalStore| s.inner.wal.dir_syncs();
+
+    // The store's directory is new, and its parent exists.
+    let s = open(&root.path().join("store"));
+    assert_eq!(dir_syncs(&s), 0, "nothing is synced before a frame is");
+    s.append(&frame()).unwrap();
+    assert_eq!(
+        dir_syncs(&s),
+        3,
+        "the log directory (segment 1's name), the store's (the log's own), and the one that holds the store"
+    );
+    drop(s);
+
+    // The state directory above it is new too: its holder is synced as well.
+    let s = open(&root.path().join("state/deeper/store"));
+    s.append(&frame()).unwrap();
+    assert_eq!(
+        dir_syncs(&s),
+        5,
+        "the holders of the three directories the open made, and the log's two"
+    );
+    drop(s);
+
+    // A store that exists made no name: its next frame syncs none.
+    let s = open(&root.path().join("store"));
+    s.append(&frame()).unwrap();
+    assert_eq!(dir_syncs(&s), 0);
+}

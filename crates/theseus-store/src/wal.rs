@@ -467,6 +467,24 @@ impl Wal {
         &self.recovery
     }
 
+    /// Directories holding names the open that made this log created above
+    /// it (a store's own directory, and any the open made on the way to
+    /// it): the first frame's sync syncs them too (theseus-gf00).
+    pub(crate) fn sync_with_first_frame(&self, dirs: Vec<PathBuf>) {
+        let mut unsynced = self.unsynced_dirs.lock().unwrap();
+        for d in dirs {
+            if !unsynced.contains(&d) {
+                unsynced.push(d);
+            }
+        }
+    }
+
+    /// Directory syncs since open.
+    #[cfg(test)]
+    pub(crate) fn dir_syncs(&self) -> u64 {
+        self.dir_syncs.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn last_position(&self) -> u64 {
         self.w.lock().unwrap().next_position - 1
     }
