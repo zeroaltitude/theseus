@@ -10,7 +10,7 @@ Theseus is a durable agent runtime in Rust: `theseusd`, a daemon that owns the t
 log of everything it does; `theseus`, a thin CLI over the daemon's JSON-RPC protocol; and two web apps the daemon
 serves. AI agents build it in small, reviewed steps.
 
-- **The spec, `docs/the-ship-of-theseus.md`**, is the source of truth. It is about 8,600 lines: find a section with
+- **The spec, `docs/the-ship-of-theseus.md`**, is the source of truth. It is about 9,400 lines: find a section with
   `grep -n '^##'`, and read it by ranges. Part I is the specification (§1 settled decisions, §2 principles, §9
   budgets), Part II the plan (P0 holds the standing rules), and Part III the record: one item per step, with what it
   built, how it was proven, where it diverged, and what it left open.
